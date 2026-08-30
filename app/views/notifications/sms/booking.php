@@ -1,0 +1,1 @@
+Your <?= $moduleType ?> booking #<?= $invoiceId ?> is <?= ($payment_status === 'paid') ? 'Confirmed' : 'Received' ?>. Status: <?= ucfirst($payment_status) ?>. Total: <?= $currency ?> <?= number_format($amount, 2) ?>. Details: <?= $invoiceUrl ?>. Thank you, <?= $companyName ?>.

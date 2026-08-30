@@ -1,0 +1,432 @@
+2026-01-21 11:43:09
+Array
+(
+    [id] => 21
+    [invoice_id] => 93817911
+    [booking_status] => pending
+    [payment_status] => unpaid
+    [price_original] => 379.71
+    [price_markup] => 395.01
+    [agent_earning] => 0
+    [tax_type] => percentage
+    [tax] => 3.91
+    [first_name] => Super
+    [last_name] => Admin
+    [email] => admin@phptravels.com
+    [phone_country_code] => 1
+    [phone] => 1234567890
+    [country] => 
+    [address] => 
+    [adults] => 1
+    [infants] => 0
+    [childs] => 0
+    [child_ages] => 
+    [currency_markup] => USD
+    [paid_at] => 
+    [cancellation_request] => 0
+    [cancellation_status] => 0
+    [cancellation_response] => 
+    [booking_data] => {"flight_data":{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""},"stops":0,"segments":[{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""}}],"returnSegments":[],"returnFlight":null,"isRoundTrip":false,"returnStops":0,"returnDuration":"","display_currency":"USD"},"key":null,"baggage":[],"seat":null,"fare_type":"standard","passengers":{"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}},"base_price":379.71,"markup_amount":11.39,"subtotal":391.1,"tax_amount":3.91,"final_total":395.01,"base_price_display":379.71,"markup_amount_display":11.39,"subtotal_display":391.1,"tax_amount_display":3.91,"final_total_display":395.01,"base_currency":"USD","display_currency":"USD"}
+    [transaction_id] => 
+    [user_id] => 
+    [user_data] => 
+    [travellers] => {"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}}
+    [nationality] => 
+    [payment_gateway] => 7
+    [module_type] => flights
+    [pnr] => 
+    [booking_response] => 
+    [error_response] => 
+    [commission] => 11.39
+    [module] => seeru
+    [special_requests] => 
+    [created_at] => 2026-01-21 11:25:47
+    [booking_date] => 2026-01-21
+    [updated_at] => 2026-01-21 15:25:47
+)
+
+
+2026-01-21 11:43:31
+Array
+(
+    [id] => 21
+    [invoice_id] => 93817911
+    [booking_status] => pending
+    [payment_status] => unpaid
+    [price_original] => 379.71
+    [price_markup] => 395.01
+    [agent_earning] => 0
+    [tax_type] => percentage
+    [tax] => 3.91
+    [first_name] => Super
+    [last_name] => Admin
+    [email] => admin@phptravels.com
+    [phone_country_code] => 1
+    [phone] => 1234567890
+    [country] => 
+    [address] => 
+    [adults] => 1
+    [infants] => 0
+    [childs] => 0
+    [child_ages] => 
+    [currency_markup] => USD
+    [paid_at] => 
+    [cancellation_request] => 0
+    [cancellation_status] => 0
+    [cancellation_response] => 
+    [booking_data] => {"flight_data":{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""},"stops":0,"segments":[{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""}}],"returnSegments":[],"returnFlight":null,"isRoundTrip":false,"returnStops":0,"returnDuration":"","display_currency":"USD"},"key":null,"baggage":[],"seat":null,"fare_type":"standard","passengers":{"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}},"base_price":379.71,"markup_amount":11.39,"subtotal":391.1,"tax_amount":3.91,"final_total":395.01,"base_price_display":379.71,"markup_amount_display":11.39,"subtotal_display":391.1,"tax_amount_display":3.91,"final_total_display":395.01,"base_currency":"USD","display_currency":"USD"}
+    [transaction_id] => 
+    [user_id] => 
+    [user_data] => 
+    [travellers] => {"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}}
+    [nationality] => 
+    [payment_gateway] => 7
+    [module_type] => flights
+    [pnr] => 
+    [booking_response] => 
+    [error_response] => 
+    [commission] => 11.39
+    [module] => seeru
+    [special_requests] => 
+    [created_at] => 2026-01-21 11:25:47
+    [booking_date] => 2026-01-21
+    [updated_at] => 2026-01-21 15:25:47
+)
+
+
+2026-01-21 11:47:02
+Array
+(
+    [id] => 21
+    [invoice_id] => 93817911
+    [booking_status] => pending
+    [payment_status] => unpaid
+    [price_original] => 379.71
+    [price_markup] => 395.01
+    [agent_earning] => 0
+    [tax_type] => percentage
+    [tax] => 3.91
+    [first_name] => Super
+    [last_name] => Admin
+    [email] => admin@phptravels.com
+    [phone_country_code] => 1
+    [phone] => 1234567890
+    [country] => 
+    [address] => 
+    [adults] => 1
+    [infants] => 0
+    [childs] => 0
+    [child_ages] => 
+    [currency_markup] => USD
+    [paid_at] => 
+    [cancellation_request] => 0
+    [cancellation_status] => 0
+    [cancellation_response] => 
+    [booking_data] => {"flight_data":{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""},"stops":0,"segments":[{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""}}],"returnSegments":[],"returnFlight":null,"isRoundTrip":false,"returnStops":0,"returnDuration":"","display_currency":"USD"},"key":null,"baggage":[],"seat":null,"fare_type":"standard","passengers":{"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}},"base_price":379.71,"markup_amount":11.39,"subtotal":391.1,"tax_amount":3.91,"final_total":395.01,"base_price_display":379.71,"markup_amount_display":11.39,"subtotal_display":391.1,"tax_amount_display":3.91,"final_total_display":395.01,"base_currency":"USD","display_currency":"USD"}
+    [transaction_id] => 
+    [user_id] => 
+    [user_data] => 
+    [travellers] => {"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}}
+    [nationality] => 
+    [payment_gateway] => 7
+    [module_type] => flights
+    [pnr] => 
+    [booking_response] => 
+    [error_response] => 
+    [commission] => 11.39
+    [module] => seeru
+    [special_requests] => 
+    [created_at] => 2026-01-21 11:25:47
+    [booking_date] => 2026-01-21
+    [updated_at] => 2026-01-21 15:25:47
+)
+
+
+2026-01-21 11:47:52
+Array
+(
+    [id] => 21
+    [invoice_id] => 93817911
+    [booking_status] => pending
+    [payment_status] => unpaid
+    [price_original] => 379.71
+    [price_markup] => 395.01
+    [agent_earning] => 0
+    [tax_type] => percentage
+    [tax] => 3.91
+    [first_name] => Super
+    [last_name] => Admin
+    [email] => admin@phptravels.com
+    [phone_country_code] => 1
+    [phone] => 1234567890
+    [country] => 
+    [address] => 
+    [adults] => 1
+    [infants] => 0
+    [childs] => 0
+    [child_ages] => 
+    [currency_markup] => USD
+    [paid_at] => 
+    [cancellation_request] => 0
+    [cancellation_status] => 0
+    [cancellation_response] => 
+    [booking_data] => {"flight_data":{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""},"stops":0,"segments":[{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""}}],"returnSegments":[],"returnFlight":null,"isRoundTrip":false,"returnStops":0,"returnDuration":"","display_currency":"USD"},"key":null,"baggage":[],"seat":null,"fare_type":"standard","passengers":{"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}},"base_price":379.71,"markup_amount":11.39,"subtotal":391.1,"tax_amount":3.91,"final_total":395.01,"base_price_display":379.71,"markup_amount_display":11.39,"subtotal_display":391.1,"tax_amount_display":3.91,"final_total_display":395.01,"base_currency":"USD","display_currency":"USD"}
+    [transaction_id] => 
+    [user_id] => 
+    [user_data] => 
+    [travellers] => {"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}}
+    [nationality] => 
+    [payment_gateway] => 7
+    [module_type] => flights
+    [pnr] => 
+    [booking_response] => 
+    [error_response] => 
+    [commission] => 11.39
+    [module] => seeru
+    [special_requests] => 
+    [created_at] => 2026-01-21 11:25:47
+    [booking_date] => 2026-01-21
+    [updated_at] => 2026-01-21 15:25:47
+)
+
+
+2026-01-21 11:49:47
+Array
+(
+    [id] => 21
+    [invoice_id] => 93817911
+    [booking_status] => pending
+    [payment_status] => unpaid
+    [price_original] => 379.71
+    [price_markup] => 395.01
+    [agent_earning] => 0
+    [tax_type] => percentage
+    [tax] => 3.91
+    [first_name] => Super
+    [last_name] => Admin
+    [email] => admin@phptravels.com
+    [phone_country_code] => 1
+    [phone] => 1234567890
+    [country] => 
+    [address] => 
+    [adults] => 1
+    [infants] => 0
+    [childs] => 0
+    [child_ages] => 
+    [currency_markup] => USD
+    [paid_at] => 
+    [cancellation_request] => 0
+    [cancellation_status] => 0
+    [cancellation_response] => 
+    [booking_data] => {"flight_data":{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""},"stops":0,"segments":[{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""}}],"returnSegments":[],"returnFlight":null,"isRoundTrip":false,"returnStops":0,"returnDuration":"","display_currency":"USD"},"key":null,"baggage":[],"seat":null,"fare_type":"standard","passengers":{"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}},"base_price":379.71,"markup_amount":11.39,"subtotal":391.1,"tax_amount":3.91,"final_total":395.01,"base_price_display":379.71,"markup_amount_display":11.39,"subtotal_display":391.1,"tax_amount_display":3.91,"final_total_display":395.01,"base_currency":"USD","display_currency":"USD"}
+    [transaction_id] => 
+    [user_id] => 
+    [user_data] => 
+    [travellers] => {"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}}
+    [nationality] => 
+    [payment_gateway] => 7
+    [module_type] => flights
+    [pnr] => 
+    [booking_response] => 
+    [error_response] => 
+    [commission] => 11.39
+    [module] => seeru
+    [special_requests] => 
+    [created_at] => 2026-01-21 11:25:47
+    [booking_date] => 2026-01-21
+    [updated_at] => 2026-01-21 15:25:47
+)
+
+
+2026-01-21 11:52:37
+Array
+(
+    [id] => 21
+    [invoice_id] => 93817911
+    [booking_status] => pending
+    [payment_status] => unpaid
+    [price_original] => 379.71
+    [price_markup] => 395.01
+    [agent_earning] => 0
+    [tax_type] => percentage
+    [tax] => 3.91
+    [first_name] => Super
+    [last_name] => Admin
+    [email] => admin@phptravels.com
+    [phone_country_code] => 1
+    [phone] => 1234567890
+    [country] => 
+    [address] => 
+    [adults] => 1
+    [infants] => 0
+    [childs] => 0
+    [child_ages] => 
+    [currency_markup] => USD
+    [paid_at] => 
+    [cancellation_request] => 0
+    [cancellation_status] => 0
+    [cancellation_response] => 
+    [booking_data] => {"flight_data":{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""},"stops":0,"segments":[{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""}}],"returnSegments":[],"returnFlight":null,"isRoundTrip":false,"returnStops":0,"returnDuration":"","display_currency":"USD"},"key":null,"baggage":[],"seat":null,"fare_type":"standard","passengers":{"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}},"base_price":379.71,"markup_amount":11.39,"subtotal":391.1,"tax_amount":3.91,"final_total":395.01,"base_price_display":379.71,"markup_amount_display":11.39,"subtotal_display":391.1,"tax_amount_display":3.91,"final_total_display":395.01,"base_currency":"USD","display_currency":"USD"}
+    [transaction_id] => 
+    [user_id] => 
+    [user_data] => 
+    [travellers] => {"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}}
+    [nationality] => 
+    [payment_gateway] => 7
+    [module_type] => flights
+    [pnr] => 
+    [booking_response] => 
+    [error_response] => 
+    [commission] => 11.39
+    [module] => seeru
+    [special_requests] => 
+    [created_at] => 2026-01-21 11:25:47
+    [booking_date] => 2026-01-21
+    [updated_at] => 2026-01-21 15:25:47
+)
+
+
+2026-01-21 11:58:12
+Array
+(
+    [id] => 21
+    [invoice_id] => 93817911
+    [booking_status] => pending
+    [payment_status] => unpaid
+    [price_original] => 379.71
+    [price_markup] => 395.01
+    [agent_earning] => 0
+    [tax_type] => percentage
+    [tax] => 3.91
+    [first_name] => Super
+    [last_name] => Admin
+    [email] => admin@phptravels.com
+    [phone_country_code] => 1
+    [phone] => 1234567890
+    [country] => 
+    [address] => 
+    [adults] => 1
+    [infants] => 0
+    [childs] => 0
+    [child_ages] => 
+    [currency_markup] => USD
+    [paid_at] => 
+    [cancellation_request] => 0
+    [cancellation_status] => 0
+    [cancellation_response] => 
+    [booking_data] => {"flight_data":{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""},"stops":0,"segments":[{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""}}],"returnSegments":[],"returnFlight":null,"isRoundTrip":false,"returnStops":0,"returnDuration":"","display_currency":"USD"},"key":null,"baggage":[],"seat":null,"fare_type":"standard","passengers":{"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}},"base_price":379.71,"markup_amount":11.39,"subtotal":391.1,"tax_amount":3.91,"final_total":395.01,"base_price_display":379.71,"markup_amount_display":11.39,"subtotal_display":391.1,"tax_amount_display":3.91,"final_total_display":395.01,"base_currency":"USD","display_currency":"USD"}
+    [transaction_id] => 
+    [user_id] => 
+    [user_data] => 
+    [travellers] => {"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}}
+    [nationality] => 
+    [payment_gateway] => 7
+    [module_type] => flights
+    [pnr] => 
+    [booking_response] => 
+    [error_response] => 
+    [commission] => 11.39
+    [module] => seeru
+    [special_requests] => 
+    [created_at] => 2026-01-21 11:25:47
+    [booking_date] => 2026-01-21
+    [updated_at] => 2026-01-21 15:25:47
+)
+
+
+2026-01-21 11:58:30
+Array
+(
+    [id] => 21
+    [invoice_id] => 93817911
+    [booking_status] => pending
+    [payment_status] => unpaid
+    [price_original] => 379.71
+    [price_markup] => 395.01
+    [agent_earning] => 0
+    [tax_type] => percentage
+    [tax] => 3.91
+    [first_name] => Super
+    [last_name] => Admin
+    [email] => admin@phptravels.com
+    [phone_country_code] => 1
+    [phone] => 1234567890
+    [country] => 
+    [address] => 
+    [adults] => 1
+    [infants] => 0
+    [childs] => 0
+    [child_ages] => 
+    [currency_markup] => USD
+    [paid_at] => 
+    [cancellation_request] => 0
+    [cancellation_status] => 0
+    [cancellation_response] => 
+    [booking_data] => {"flight_data":{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""},"stops":0,"segments":[{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""}}],"returnSegments":[],"returnFlight":null,"isRoundTrip":false,"returnStops":0,"returnDuration":"","display_currency":"USD"},"key":null,"baggage":[],"seat":null,"fare_type":"standard","passengers":{"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}},"base_price":379.71,"markup_amount":11.39,"subtotal":391.1,"tax_amount":3.91,"final_total":395.01,"base_price_display":379.71,"markup_amount_display":11.39,"subtotal_display":391.1,"tax_amount_display":3.91,"final_total_display":395.01,"base_currency":"USD","display_currency":"USD"}
+    [transaction_id] => 
+    [user_id] => 
+    [user_data] => 
+    [travellers] => {"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}}
+    [nationality] => 
+    [payment_gateway] => 7
+    [module_type] => flights
+    [pnr] => 
+    [booking_response] => 
+    [error_response] => 
+    [commission] => 11.39
+    [module] => seeru
+    [special_requests] => 
+    [created_at] => 2026-01-21 11:25:47
+    [booking_date] => 2026-01-21
+    [updated_at] => 2026-01-21 15:25:47
+)
+
+
+2026-01-21 11:59:39
+Array
+(
+    [id] => 21
+    [invoice_id] => 93817911
+    [booking_status] => pending
+    [payment_status] => unpaid
+    [price_original] => 379.71
+    [price_markup] => 395.01
+    [agent_earning] => 0
+    [tax_type] => percentage
+    [tax] => 3.91
+    [first_name] => Super
+    [last_name] => Admin
+    [email] => admin@phptravels.com
+    [phone_country_code] => 1
+    [phone] => 1234567890
+    [country] => 
+    [address] => 
+    [adults] => 1
+    [infants] => 0
+    [childs] => 0
+    [child_ages] => 
+    [currency_markup] => USD
+    [paid_at] => 
+    [cancellation_request] => 0
+    [cancellation_status] => 0
+    [cancellation_response] => 
+    [booking_data] => {"flight_data":{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""},"stops":0,"segments":[{"img":"FZ","flight_no":"0360","airline":"Fly Dubai","class":"economy","baggage":"0 ","cabin_baggage":"7","departure_airport":"Lahore","departure_time":"12:05 pm","departure_date":"30-01-2026","departure_code":"LHE","arrival_airport":"Dubai","arrival_date":"30-01-2026","arrival_time":"02:40 pm","arrival_code":"DXB","duration_time":"03:35","total_duration":"03:35","currency":"USD","actual_price":"379.71","price":"391.10","adult_price":"391.10","child_price":"0.00","infant_price":"0.00","actual_adult_price":"379.71","actual_child_price":"0.00","actual_infant_price":"0.00","options":"packages data in array","booking_data":{"flight":{"price":379.71,"tax":68.85,"refundable_info":null,"search_id":"1UGJA300OWE1000000090LHEDXB20260130_EN_500-TUA.FZ.0.215.F2897997S2839100.OENCTkRDX0ZaX1BST0Q=...RUB-49.FZ.360.LHE.202601301205.DXB.202601301440.73D.NO6PK2.215.0.TUA.0.0PC.1P7K..0.0..0.0.0","gds_id":49,"fare_brand":"LITE","price_breakdowns":{"ADT":{"total":379.71,"price":310.86,"label":"Adult","tax":68.85}},"trip_id":"LHE|2026-01-30|FZ|12:05|14:40|2026-01-30|DXB|0 kg_NO6PK2","can_exchange":false,"src":"MW","instant_issue":true,"can_hold":true,"can_void":false,"can_refund":false,"legs":[{"duration":215,"bags":{"unit":"pc","value":0,"ADT":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"CHD":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}},"INF":{"cabin":{"desc":"7 kg"},"checked":{"desc":null}}},"from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"stops":[],"stop_over":[],"iata":["FZ"],"segments":[{"cabin":"E","cabin_name":"Economy","farebase":"NO6PK2","seats":9,"class":"N","from":{"date":"2026\/01\/30 12:05","airport":"LHE","city":"Lahore","country":"Pakistan","country_iso":"PK","terminal":"Terminal M","airport_name":"Lahore"},"to":{"date":"2026\/01\/30 14:40","airport":"DXB","city":"Dubai","country":"United Arab Emirates","country_iso":"AE","terminal":"Terminal 2","airport_name":"Dubai"},"equipment":"73D","iata":"FZ","equipment_name":"","flightnumber":"0360","operating":"","validating":"FZ","airline_name":"Flydubai","duration":215}]}],"currency":"USD","from_cache":false,"total_pax_no_inf":1,"search_query":"{\"trips\":[{\"from\":\"LHE\",\"to\":\"DXB\",\"date\":\"2026\/01\/30\"}],\"adt\":1,\"chd\":0,\"inf\":0,\"options\":{\"direct\":false,\"cabin\":\"1\",\"multiCity\":false,\"cur\":\"USD\",\"lang\":\"en\",\"office\":\"PHPTRAVELS-TEST\",\"airline\":\"\"}}","cache_time":1769001814572,"search_time":1769001807474,"result_time":1769001923866,"id":"106bc92f016d586632af1e9672d393c5"},"currency":"USD","amount":391.1,"actual_amount":379.71},"redirect_url":"","refundable":0,"supplier":"seeru","type":"oneway","layover":{"city":"","duration":""}}],"returnSegments":[],"returnFlight":null,"isRoundTrip":false,"returnStops":0,"returnDuration":"","display_currency":"USD"},"key":null,"baggage":[],"seat":null,"fare_type":"standard","passengers":{"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}},"base_price":379.71,"markup_amount":11.39,"subtotal":391.1,"tax_amount":3.91,"final_total":395.01,"base_price_display":379.71,"markup_amount_display":11.39,"subtotal_display":391.1,"tax_amount_display":3.91,"final_total_display":395.01,"base_currency":"USD","display_currency":"USD"}
+    [transaction_id] => 
+    [user_id] => 
+    [user_data] => 
+    [travellers] => {"adult_0":{"title":"Mr","first_name":"Super","last_name":"Admin","dob_day":"","dob_month":"","dob_year":"","nationality":"DZ","passport":"32435435345","email":"","phone":""}}
+    [nationality] => 
+    [payment_gateway] => 7
+    [module_type] => flights
+    [pnr] => 
+    [booking_response] => 
+    [error_response] => 
+    [commission] => 11.39
+    [module] => seeru
+    [special_requests] => 
+    [created_at] => 2026-01-21 11:25:47
+    [booking_date] => 2026-01-21
+    [updated_at] => 2026-01-21 15:25:47
+)
+
+

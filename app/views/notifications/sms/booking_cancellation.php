@@ -1,0 +1,1 @@
+Hello <?= $customerName ?>, your cancellation request for <?= $moduleType ?> booking #<?= $invoiceId ?> has been received and is being processed. View status: <?= $invoiceUrl ?>. Thank you, <?= $companyName ?>.

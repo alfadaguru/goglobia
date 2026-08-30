@@ -1,0 +1,12 @@
+{
+    "success": true,
+    "timestamp": 1783515918,
+    "path": "v1\/bonuses\/22",
+    "data": {
+        "id": 22,
+        "name": "Students of Greek universities",
+        "description": "You must present the supporting document at boarding.",
+        "type": "discount",
+        "updated_at": 1750061210
+    }
+}

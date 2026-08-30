@@ -1,0 +1,28 @@
+{
+    "NOTE": "GET /bookings/{reference} — retrieve booking by reference code",
+    "success": true,
+    "path": "v1/bookings/458E2630BE",
+    "data": {
+        "title": "mr", "name": "Polly", "first_surname": "Koepp", "second_surname": "Blick",
+        "email": "test@test.com", "phone_country_code": "34", "phone": "5812915034",
+        "reference": "458E2630BE",
+        "sailings": [
+            {
+                "departure_port_id": 1, "destination_port_id": 2, "shipping_company_id": 1,
+                "departure_datetime": "2026-06-29T07:30:00+02:00",
+                "arrival_datetime":   "2026-06-29T08:30:00+02:00",
+                "accommodations": [{"id": 1, "type": "seat", "title": "Jet Class", "code": "JC", "passengers": [{"id": 1}]}],
+                "price": 43, "currency": "EUR", "coupon": null, "status": "draft", "fee": null, "locator": null
+            }
+        ],
+        "passengers": [
+            {
+                "id": 1, "ticket_type_id": 10, "title": "mr", "name": "Fae",
+                "first_surname": "Ondricka", "second_surname": "Schumm",
+                "birthdate": "1990-01-01", "nationality": "ESP",
+                "identity_type": "dni", "identity_number": "12345678Z", "identity_expiration": "2050-01-01"
+            }
+        ],
+        "vehicles": null, "pets": null
+    }
+}

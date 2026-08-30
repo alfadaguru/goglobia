@@ -1,0 +1,24 @@
+[21-Aug-2026 16:27:24 UTC] [ai] could not add modules.ai_enabled column: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'credentials' in 'modules'
+[21-Aug-2026 16:27:24 UTC] [ai] could not add modules.ai_enabled column: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'credentials' in 'modules'
+[21-Aug-2026 16:27:27 UTC] 2026-08-21 16:27:27 | EXCEPTION: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'app_settings' in 'SELECT' in /home/goglobia/public_html/vendor/catfan/medoo/src/Medoo.php:628
+[21-Aug-2026 16:27:27 UTC] 2026-08-21 16:27:27 | EXCEPTION: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'app_settings' in 'SELECT' in /home/goglobia/public_html/vendor/catfan/medoo/src/Medoo.php:628
+[21-Aug-2026 16:27:27 UTC] 2026-08-21 16:27:27 | EXCEPTION: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'app_settings' in 'SELECT' in /home/goglobia/public_html/vendor/catfan/medoo/src/Medoo.php:628
+[21-Aug-2026 16:27:27 UTC] 2026-08-21 16:27:27 | EXCEPTION: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'app_settings' in 'SELECT' in /home/goglobia/public_html/vendor/catfan/medoo/src/Medoo.php:628
+[21-Aug-2026 16:27:27 UTC] 2026-08-21 16:27:27 | EXCEPTION: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'app_settings' in 'SELECT' in /home/goglobia/public_html/vendor/catfan/medoo/src/Medoo.php:628
+[21-Aug-2026 16:28:39 UTC] [ai] could not add modules.ai_enabled column: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'credentials' in 'modules'
+[21-Aug-2026 16:28:39 UTC] [ai] could not add modules.ai_enabled column: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'credentials' in 'modules'
+[21-Aug-2026 16:28:40 UTC] 2026-08-21 16:28:40 | EXCEPTION: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'app_settings' in 'SELECT' in /home/goglobia/public_html/vendor/catfan/medoo/src/Medoo.php:628
+[21-Aug-2026 16:28:40 UTC] 2026-08-21 16:28:40 | EXCEPTION: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'app_settings' in 'SELECT' in /home/goglobia/public_html/vendor/catfan/medoo/src/Medoo.php:628
+[21-Aug-2026 16:28:40 UTC] 2026-08-21 16:28:40 | EXCEPTION: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'app_settings' in 'SELECT' in /home/goglobia/public_html/vendor/catfan/medoo/src/Medoo.php:628
+[21-Aug-2026 16:28:40 UTC] 2026-08-21 16:28:40 | EXCEPTION: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'app_settings' in 'SELECT' in /home/goglobia/public_html/vendor/catfan/medoo/src/Medoo.php:628
+[21-Aug-2026 16:28:40 UTC] 2026-08-21 16:28:40 | EXCEPTION: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'app_settings' in 'SELECT' in /home/goglobia/public_html/vendor/catfan/medoo/src/Medoo.php:628
+[21-Aug-2026 16:30:34 UTC] [ai] could not add modules.ai_enabled column: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'credentials' in 'modules'
+[21-Aug-2026 16:30:34 UTC] [ai] could not add modules.ai_enabled column: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'credentials' in 'modules'
+[21-Aug-2026 16:30:41 UTC] 2026-08-21 16:30:41 | EXCEPTION: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'app_settings' in 'SELECT' in /home/goglobia/public_html/vendor/catfan/medoo/src/Medoo.php:628
+[21-Aug-2026 16:30:41 UTC] 2026-08-21 16:30:41 | EXCEPTION: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'app_settings' in 'SELECT' in /home/goglobia/public_html/vendor/catfan/medoo/src/Medoo.php:628
+[21-Aug-2026 16:30:41 UTC] 2026-08-21 16:30:41 | EXCEPTION: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'app_settings' in 'SELECT' in /home/goglobia/public_html/vendor/catfan/medoo/src/Medoo.php:628
+[21-Aug-2026 16:30:41 UTC] 2026-08-21 16:30:41 | EXCEPTION: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'app_settings' in 'SELECT' in /home/goglobia/public_html/vendor/catfan/medoo/src/Medoo.php:628
+[21-Aug-2026 16:30:41 UTC] 2026-08-21 16:30:41 | EXCEPTION: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'app_settings' in 'SELECT' in /home/goglobia/public_html/vendor/catfan/medoo/src/Medoo.php:628
+[27-Aug-2026 23:11:32 UTC] Module DB search error [hotelbeds]: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: NO)
+[27-Aug-2026 23:11:35 UTC] Module DB search error [hotelbeds]: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: NO)
+[27-Aug-2026 23:11:37 UTC] Module DB search error [hotelbeds]: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: NO)

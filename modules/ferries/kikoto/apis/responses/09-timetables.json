@@ -1,0 +1,31 @@
+{
+    "NOTE": "POST /timetables body: {departure_port_id, destination_port_id, date}",
+    "success": true,
+    "path": "v1/timetables",
+    "data": [
+        {
+            "shipping_company_id": 1,
+            "departure_port_id": 1,
+            "destination_port_id": 2,
+            "departure_datetime": "2026-06-29T07:30:00+02:00",
+            "arrival_datetime":   "2026-06-29T08:30:00+02:00",
+            "ship_name": "Ceuta Jet"
+        },
+        {
+            "shipping_company_id": 1,
+            "departure_port_id": 1,
+            "destination_port_id": 2,
+            "departure_datetime": "2026-06-29T10:30:00+02:00",
+            "arrival_datetime":   "2026-06-29T11:30:00+02:00",
+            "ship_name": "Ceuta Jet"
+        },
+        {
+            "shipping_company_id": 1,
+            "departure_port_id": 1,
+            "destination_port_id": 2,
+            "departure_datetime": "2026-06-29T17:00:00+02:00",
+            "arrival_datetime":   "2026-06-29T18:00:00+02:00",
+            "ship_name": "Ceuta Jet"
+        }
+    ]
+}

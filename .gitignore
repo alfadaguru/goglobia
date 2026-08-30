@@ -1,0 +1,122 @@
+# Logs
+error.logs
+_error.log
+
+# Environment
+.env
+
+# Updates file
+app/updates.json
+
+# Remote credentials payload (hosted at update.goglobia.com/updates.json - never commit)
+/updates.json
+
+# Backups
+backups/**
+
+# Cache
+cache/**
+app/cache/*
+!app/cache/index.html
+
+# Runtime modules
+_REQUEST.json
+
+# UPLOADS
+
+#AGENCIES
+uploads/agencies/**
+!uploads/agencies/index.html
+
+#AGENTS
+uploads/agents/**
+!uploads/agents/index.html
+
+#BLOG
+uploads/blog/**
+!uploads/blog/index.html
+
+#DEPOSIT
+uploads/deposit/**
+!uploads/deposit/index.html
+
+#FLIGHTS
+uploads/flights/**
+!uploads/flights/index.html
+
+#HOTELS
+uploads/hotels/**
+!uploads/hotels/index.html
+
+#INVOICES
+uploads/invoices/**
+!uploads/invoices/index.html
+
+#TICKETS
+uploads/tickets/**
+!uploads/tickets/index.html
+
+#TOURS
+uploads/tours/**
+!uploads/tours/index.html
+
+#TRANSACTIONS
+uploads/transactions/**
+!uploads/transactions/index.html
+
+#UMRAH
+uploads/umrah/**
+uploads/umrah/itinerary/**
+uploads/umrah/gallery/**
+!uploads/umrah/gallery/index.html
+!uploads/umrah/index.html
+
+#VISA
+uploads/visa/**
+!uploads/visa/index.html
+
+modules/stays/hotelbeds/settings.json
+modules/stays/hotelbeds/certs/
+modules/stays/hotelbeds/**/*.pem
+modules/stays/hotelbeds/**/*.key
+modules/stays/stuba/images
+modules/stays/stuba/logs
+modules/stays/hotelbeds/logs
+modules/stays/wanderbeds/logs
+modules/stays/ratehawk/logs
+modules/flights/travelport/logs
+modules/flights/travelport/cache
+modules/rail/train/logs
+modules/cars/mozio/logs
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.AppleDouble
+.LSOverride
+
+CLAUDE.md
+AGENT.md
+SKILL.md
+Skill.md
+Skills.md
+SKILLS.md
+
+db.jsonl
+.vscode
+.vscode/*
+.cursor/
+v10.zip
+
+# Directories with too many files
+vendor/
+node_modules/
+admin/node_modules/
+admin/dist/
+pt-docs/
+# IDE
+.idea/
+
+# Private DB dump (not for source repo; contains live data/secrets)
+goglobia_live*.sql

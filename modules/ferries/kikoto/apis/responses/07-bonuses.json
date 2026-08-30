@@ -1,0 +1,189 @@
+{
+    "NOTE": "GET \/bonuses — full global list (filter by ports client\/server side)",
+    "success": true,
+    "path": "v1\/bonuses",
+    "data": [
+        {
+            "id": 15,
+            "name": "Youth card",
+            "description": "",
+            "code": "",
+            "type": "discount"
+        },
+        {
+            "id": 16,
+            "name": "Senior citizens",
+            "description": "",
+            "code": "",
+            "type": "discount"
+        },
+        {
+            "id": 17,
+            "name": "University of Granada",
+            "description": "",
+            "code": "",
+            "type": "discount"
+        },
+        {
+            "id": 22,
+            "name": "Students of Greek universities",
+            "description": "You must present the supporting document at boarding.",
+            "code": "",
+            "type": "discount"
+        },
+        {
+            "id": 23,
+            "name": "ISIC card",
+            "description": "You must present the supporting document at boarding.",
+            "code": "",
+            "type": "discount"
+        },
+        {
+            "id": 24,
+            "name": "Disability",
+            "description": "You must present the supporting document at boarding.",
+            "code": "",
+            "type": "discount"
+        },
+        {
+            "id": 1,
+            "name": "General large family",
+            "description": "",
+            "code": "",
+            "type": "large-family"
+        },
+        {
+            "id": 2,
+            "name": "Special large family",
+            "description": "",
+            "code": "",
+            "type": "large-family"
+        },
+        {
+            "id": 3,
+            "name": "Resident in Ceuta",
+            "description": "",
+            "code": "",
+            "type": "residence"
+        },
+        {
+            "id": 18,
+            "name": "Resident in Melilla",
+            "description": "",
+            "code": "",
+            "type": "residence"
+        },
+        {
+            "id": 19,
+            "name": "Resident in the Balearic Islands",
+            "description": "",
+            "code": "",
+            "type": "residence"
+        },
+        {
+            "id": 20,
+            "name": "Resident in Formentera",
+            "description": "",
+            "code": "",
+            "type": "residence"
+        },
+        {
+            "id": 21,
+            "name": "Resident in the Canary Islands",
+            "description": "",
+            "code": "",
+            "type": "residence"
+        },
+        {
+            "id": 25,
+            "name": "Residente en Sicilia",
+            "description": "",
+            "code": "",
+            "type": "residence"
+        },
+        {
+            "id": 26,
+            "name": "Residente en Cerdeña",
+            "description": "",
+            "code": "",
+            "type": "residence"
+        },
+        {
+            "id": 4,
+            "name": "Air Force - General",
+            "description": "",
+            "code": "",
+            "type": "security-forces"
+        },
+        {
+            "id": 5,
+            "name": "Air Force - Officers and Non-Commissioned Officers",
+            "description": "",
+            "code": "",
+            "type": "security-forces"
+        },
+        {
+            "id": 6,
+            "name": "Air Force - Troop",
+            "description": "",
+            "code": "",
+            "type": "security-forces"
+        },
+        {
+            "id": 7,
+            "name": "Army - General",
+            "description": "",
+            "code": "",
+            "type": "security-forces"
+        },
+        {
+            "id": 8,
+            "name": "Army - Officers and Non-Commissioned Officers",
+            "description": "",
+            "code": "",
+            "type": "security-forces"
+        },
+        {
+            "id": 9,
+            "name": "Army - Troop",
+            "description": "",
+            "code": "",
+            "type": "security-forces"
+        },
+        {
+            "id": 10,
+            "name": "Navy - Admiral",
+            "description": "",
+            "code": "",
+            "type": "security-forces"
+        },
+        {
+            "id": 11,
+            "name": "Navy - Sailors",
+            "description": "",
+            "code": "",
+            "type": "security-forces"
+        },
+        {
+            "id": 12,
+            "name": "Navy - Officers and Non-Commissioned Officers",
+            "description": "",
+            "code": "",
+            "type": "security-forces"
+        },
+        {
+            "id": 13,
+            "name": "Civil Guard",
+            "description": "",
+            "code": "",
+            "type": "security-forces"
+        },
+        {
+            "id": 14,
+            "name": "National Police",
+            "description": "",
+            "code": "",
+            "type": "security-forces"
+        }
+    ]
+}

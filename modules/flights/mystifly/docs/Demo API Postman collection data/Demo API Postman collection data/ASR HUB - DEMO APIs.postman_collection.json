@@ -1,0 +1,1458 @@
+{
+	"info": {
+		"_postman_id": "8cffc455-bf4f-4479-9b4d-2fa5431af949",
+		"name": "ASR HUB - DEMO APIs",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Pre - Ticketing APIs",
+			"item": [
+				{
+					"name": "/api/CreateSession",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "",
+								"description": "Bearer ",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"Password\": \"string\",\r\n    \"AccountNumber\": \"string\",\r\n    \"UserName\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/CreateSession?",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"CreateSession"
+							],
+							"query": [
+								{
+									"key": "",
+									"value": null
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/v1/Search/Flight",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer ",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"OriginDestinationInformations\": [\r\n        {\r\n            \"DepartureDateTime\": \"2021-09-03T00:00:00.000Z\",\r\n            \"OriginLocationCode\": \"string\",\r\n            \"DestinationLocationCode\": \"string\"\r\n        }\r\n    ],\r\n    \"TravelPreferences\": {\r\n        \"MaxStopsQuantity\": \"All\",\r\n        \"VendorPreferenceCodes\": [\r\n            \"string\"\r\n        ],\r\n        \"VendorExcludeCodes\": [\r\n            \"string\"\r\n        ],\r\n        \"CabinPreference\": \"Y\",\r\n        \"Preferences\": {\r\n            \"CabinClassPreference\": {\r\n                \"CabinType\": \"Y\",\r\n                \"PreferenceLevel\": \"Preferred\"\r\n            }\r\n        },\r\n        \"AirTripType\": \"OneWay\"\r\n    },\r\n    \"PricingSourceType\": \"All\",\r\n    \"IsRefundable\": false,\r\n    \"PassengerTypeQuantities\": [\r\n        {\r\n            \"Code\": \"ADT\",\r\n            \"Quantity\": 0\r\n        }\r\n    ],\r\n    \"RequestOptions\": \"TwoHundered\",\r\n    \"Target\": \"Test\",\r\n    \"ConversationId\": \"string\",\r\n    \"Provider\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v1/Search/Flight",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v1",
+								"Search",
+								"Flight"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/v2/Search/Flight",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer ",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"OriginDestinationInformations\": [\r\n        {\r\n            \"DepartureDateTime\": \"2021-09-03T00:00:00.000Z\",\r\n            \"OriginLocationCode\": \"string\",\r\n            \"DestinationLocationCode\": \"string\"\r\n        }\r\n    ],\r\n    \"TravelPreferences\": {\r\n        \"MaxStopsQuantity\": \"All\",\r\n        \"VendorPreferenceCodes\": [\r\n            \"string\"\r\n        ],\r\n        \"VendorExcludeCodes\": [\r\n            \"string\"\r\n        ],\r\n        \"CabinPreference\": \"Y\",\r\n        \"Preferences\": {\r\n            \"CabinClassPreference\": {\r\n                \"CabinType\": \"Y\",\r\n                \"PreferenceLevel\": \"Preferred\"\r\n            }\r\n        },\r\n        \"AirTripType\": \"OneWay\"\r\n    },\r\n    \"PricingSourceType\": \"All\",\r\n    \"IsRefundable\": false,\r\n    \"PassengerTypeQuantities\": [\r\n        {\r\n            \"Code\": \"ADT\",\r\n            \"Quantity\": 0\r\n        }\r\n    ],\r\n    \"RequestOptions\": \"TwoHundered\",\r\n    \"Target\": \"Test\",\r\n    \"ConversationId\": \"string\",\r\n    \"Provider\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v2/Search/Flight",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v2",
+								"Search",
+								"Flight"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/v1/Revalidate/Flight",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "",
+								"description": "Bearer ",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"FareSourceCode\": \"string\",\r\n  \"Target\": \"Test\",\r\n  \"ConversationId\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v1/Revalidate/Flight",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v1",
+								"Revalidate",
+								"Flight"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "​/api​/v1​/SeatMapBETA​/Flight",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "",
+								"description": "Bearer ",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"FareSourceCode\": \"string\",\r\n  \"Target\": \"Test\",\r\n  \"ConversationId\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v1/SeatMapBETA/Flight",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v1",
+								"SeatMapBETA",
+								"Flight"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/v1/FlightFareRules",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"FareSourceCode\": \"string\",\r\n    \"UniqueID\": \"string\",\r\n    \"Target\": \"Test\",\r\n    \"ConversationId\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v1/FlightFareRules",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v1",
+								"FlightFareRules"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/v1/Payments/3DS/LCC",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer ",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"Target\": \"Test\",\r\n    \"ReturnURL\": \"string\",\r\n    \"ClientMarkup\": 0,\r\n    \"FareSourceCode\": \"string\",\r\n    \"SeatSelectionKey\": [\r\n        \"string\"\r\n    ],\r\n    \"ExtraServices\": [\r\n        {\r\n            \"ExtraServiceId\": 0,\r\n            \"Quantity\": 0\r\n        }\r\n    ]\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v1/Payments/3DS/GetPaymentInfo",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v1",
+								"Payments",
+								"3DS",
+								"GetPaymentInfo"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/v1/Book/Flight",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"FareSourceCode\": \"string\",\r\n    \"PaymentTransactionID\": \"string\",\r\n    \"TravelerInfo\": {\r\n        \"AirTravelers\": [\r\n            {\r\n                \"PassengerType\": \"ADT\",\r\n                \"Gender\": \"M\",\r\n                \"PassengerName\": {\r\n                    \"PassengerTitle\": \"MR\",\r\n                    \"PassengerFirstName\": \"string\",\r\n                    \"PassengerLastName\": \"string\"\r\n                },\r\n                \"DateOfBirth\": \"2021-09-03T00:00:00.000Z\",\r\n                \"Passport\": {\r\n                    \"PassportNumber\": \"string\",\r\n                    \"ExpiryDate\": \"2021-09-03T00:00:00.000Z\",\r\n                    \"Country\": \"string\"\r\n                },\r\n                \"FrequentFlyerNumber\": \"string\",\r\n                \"SpecialServiceRequest\": {\r\n                    \"SeatPreference\": \"Any\",\r\n                    \"MealPreference\": \"Any\",\r\n                    \"RequestedSegments\": [\r\n                        {\r\n                            \"Origin\": \"string\",\r\n                            \"Destination\": \"string\",\r\n                            \"FlightNumber\": \"string\",\r\n                            \"DepartureDateTime\": \"2021-09-03T09:50:51.227Z\",\r\n                            \"SeatSelection\": \"string\",\r\n                            \"RequestSSRs\": [\r\n                                {\r\n                                    \"SSRCode\": \"Any\",\r\n                                    \"FreeText\": \"string\"\r\n                                }\r\n                            ]\r\n                        }\r\n                    ]\r\n                },\r\n                \"ExtraServices1_1\": [\r\n                    {\r\n                        \"ExtraServiceId\": 0,\r\n                        \"Quantity\": 0,\r\n                        \"Key\": \"string\"\r\n                    }\r\n                ],\r\n                \"PassengerNationality\": \"string\",\r\n                \"KnowTravelerNo\": \"string\",\r\n                \"RedressNo\": \"string\",\r\n                \"NationalID\": \"string\",\r\n                \"Seats\": {\r\n                    \"SeatSelectionKey\": [\r\n                        \"string\"\r\n                    ]\r\n                }\r\n            }\r\n        ],\r\n        \"CountryCode\": \"string\",\r\n        \"AreaCode\": \"string\",\r\n        \"PhoneNumber\": \"string\",\r\n        \"Email\": \"string\",\r\n        \"PostCode\": \"string\"\r\n    },\r\n    \"Target\": \"Test\",\r\n    \"PaymentReferences\": {\r\n        \"PaymentID\": \"string\"\r\n    },\r\n    \"ClientReferenceNo\": \"string\",\r\n    \"ConversationId\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v1/Book/Flight",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v1",
+								"Book",
+								"Flight"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/v1/Payments/3DS/GDS",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer ",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"Target\": \"Test\",\r\n    \"ReturnURL\": \"string\",\r\n    \"ClientMarkup\": 0,\r\n    \"FareSourceCode\": \"string\",\r\n    \"SeatSelectionKey\": [\r\n        \"string\"\r\n    ],\r\n    \"ExtraServices\": [\r\n        {\r\n            \"ExtraServiceId\": 0,\r\n            \"Quantity\": 0\r\n        }\r\n    ]\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v1/Payments/3DS/GetPaymentInfo",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v1",
+								"Payments",
+								"3DS",
+								"GetPaymentInfo"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/v1/Booking/Cancel",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"UniqueID\": \"string\",\r\n    \"Target\": \"Test\",\r\n    \"ConversationId\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v1/Booking/Cancel",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v1",
+								"Booking",
+								"Cancel"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/v1/OrderTicket",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer ",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"UniqueID\": \"string\",\r\n  \"FareSourceCode\": \"string\",\r\n  \"Target\": \"Test\",\r\n  \"PaymentReferences\": {\r\n    \"PaymentID\": \"string\"\r\n  },\r\n  \"ConversationId\": \"string\",\r\n  \"ClientReferenceNo\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v1/OrderTicket",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v1",
+								"OrderTicket"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/v1/BookingNotes",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"UniqueID\": \"string\",\r\n  \"Notes\": [\r\n    \"string\"\r\n  ],\r\n  \"Target\": \"Test\",\r\n  \"ConversationId\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v1/BookingNotes",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v1",
+								"BookingNotes"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/TripDetails/{MFRef}",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "",
+								"description": "Bearer ",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"UniqueID\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/TripDetails/",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"TripDetails",
+								""
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Post - Ticketing APIs",
+			"item": [
+				{
+					"name": "/api/Create/PostTicketingRequest",
+					"item": [
+						{
+							"name": "/Create/VoidQuote/Request",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "",
+										"description": "Bearer",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"ptrType\": \"VoidQuote\",\r\n    \"mFRef\": \"string\",\r\n    \"AllowChildPassenger\": true,\r\n    \"reissueQuoteRequestType\": \"None\",\r\n    \"passengers\": [\r\n        {\r\n            \"firstName\": \"string\",\r\n            \"lastName\": \"string\",\r\n            \"title\": \"string\",\r\n            \"eTicket\": \"string\",\r\n            \"passengerType\": \"ADT\"\r\n        }\r\n    ],\r\n    \"originDestinations\": [\r\n        {\r\n            \"originLocationCode\": \"string\",\r\n            \"destinationLocationCode\": \"string\",\r\n            \"cabinPreference\": \"string\",\r\n            \"departureDateTime\": \"2021-09-03T11:26:15.158Z\",\r\n            \"flightNumber\": 0,\r\n            \"airlineCode\": \"string\"\r\n        }\r\n    ],\r\n    \"PtrId\": 0,\r\n    \"PreferenceOption\": 0,\r\n    \"AcceptQuote\": \"None\",\r\n    \"AdditionalNote\": \"string\",\r\n    \"PaymentCardInfo\": {\r\n        \"cardScheme\": \"string\",\r\n        \"cardType\": \"string\",\r\n        \"cardNumber\": \"string\",\r\n        \"cvv\": 0,\r\n        \"cardValidFrom\": {\r\n            \"month\": \"string\",\r\n            \"year\": 0\r\n        },\r\n        \"cardExpiry\": {\r\n            \"month\": \"string\",\r\n            \"year\": 0\r\n        },\r\n        \"cardHolderName\": \"string\",\r\n        \"billingAddress\": {\r\n            \"customerTitle\": \"string\",\r\n            \"customerFirstName\": \"string\",\r\n            \"customerMiddleName\": \"string\",\r\n            \"customerLastName\": \"string\",\r\n            \"address1\": \"string\",\r\n            \"address2\": \"string\",\r\n            \"address3\": \"string\",\r\n            \"city\": \"string\",\r\n            \"state\": \"string\",\r\n            \"country\": \"string\",\r\n            \"zip\": \"string\",\r\n            \"emailId\": \"string\"\r\n        },\r\n        \"securePassword\": \"string\",\r\n        \"computerIP\": \"string\"\r\n    }\r\n}"
+								},
+								"url": {
+									"raw": "https://restapidemo.myfarebox.com/api/PostTicketingRequest",
+									"protocol": "https",
+									"host": [
+										"restapidemo",
+										"myfarebox",
+										"com"
+									],
+									"path": [
+										"api",
+										"PostTicketingRequest"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "/Create/Void/Request",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "",
+										"description": "Bearer",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"ptrType\": \"Void\",\r\n    \"mFRef\": \"string\",\r\n    \"AllowChildPassenger\": true,\r\n    \"reissueQuoteRequestType\": \"None\",\r\n    \"passengers\": [\r\n        {\r\n            \"firstName\": \"string\",\r\n            \"lastName\": \"string\",\r\n            \"title\": \"string\",\r\n            \"eTicket\": \"string\",\r\n            \"passengerType\": \"ADT\"\r\n        }\r\n    ],\r\n    \"originDestinations\": [\r\n        {\r\n            \"originLocationCode\": \"string\",\r\n            \"destinationLocationCode\": \"string\",\r\n            \"cabinPreference\": \"string\",\r\n            \"departureDateTime\": \"2021-09-03T11:26:15.158Z\",\r\n            \"flightNumber\": 0,\r\n            \"airlineCode\": \"string\"\r\n        }\r\n    ],\r\n    \"PtrId\": 0,\r\n    \"PreferenceOption\": 0,\r\n    \"AcceptQuote\": \"None\",\r\n    \"AdditionalNote\": \"string\",\r\n    \"PaymentCardInfo\": {\r\n        \"cardScheme\": \"string\",\r\n        \"cardType\": \"string\",\r\n        \"cardNumber\": \"string\",\r\n        \"cvv\": 0,\r\n        \"cardValidFrom\": {\r\n            \"month\": \"string\",\r\n            \"year\": 0\r\n        },\r\n        \"cardExpiry\": {\r\n            \"month\": \"string\",\r\n            \"year\": 0\r\n        },\r\n        \"cardHolderName\": \"string\",\r\n        \"billingAddress\": {\r\n            \"customerTitle\": \"string\",\r\n            \"customerFirstName\": \"string\",\r\n            \"customerMiddleName\": \"string\",\r\n            \"customerLastName\": \"string\",\r\n            \"address1\": \"string\",\r\n            \"address2\": \"string\",\r\n            \"address3\": \"string\",\r\n            \"city\": \"string\",\r\n            \"state\": \"string\",\r\n            \"country\": \"string\",\r\n            \"zip\": \"string\",\r\n            \"emailId\": \"string\"\r\n        },\r\n        \"securePassword\": \"string\",\r\n        \"computerIP\": \"string\"\r\n    }\r\n}"
+								},
+								"url": {
+									"raw": "https://restapidemo.myfarebox.com/api/PostTicketingRequest",
+									"protocol": "https",
+									"host": [
+										"restapidemo",
+										"myfarebox",
+										"com"
+									],
+									"path": [
+										"api",
+										"PostTicketingRequest"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "/Create/ReissueQuote/Request",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "",
+										"description": "Bearer",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"ptrType\": \"ReissueQuote\",\r\n    \"mFRef\": \"string\",\r\n    \"AllowChildPassenger\": true,\r\n    \"reissueQuoteRequestType\": \"None\",\r\n    \"passengers\": [\r\n        {\r\n            \"firstName\": \"string\",\r\n            \"lastName\": \"string\",\r\n            \"title\": \"string\",\r\n            \"eTicket\": \"string\",\r\n            \"passengerType\": \"ADT\"\r\n        }\r\n    ],\r\n    \"originDestinations\": [\r\n        {\r\n            \"originLocationCode\": \"string\",\r\n            \"destinationLocationCode\": \"string\",\r\n            \"cabinPreference\": \"string\",\r\n            \"departureDateTime\": \"2021-09-03T11:26:15.158Z\",\r\n            \"flightNumber\": 0,\r\n            \"airlineCode\": \"string\"\r\n        }\r\n    ],\r\n    \"PtrId\": 0,\r\n    \"PreferenceOption\": 0,\r\n    \"AcceptQuote\": \"None\",\r\n    \"AdditionalNote\": \"string\",\r\n    \"PaymentCardInfo\": {\r\n        \"cardScheme\": \"string\",\r\n        \"cardType\": \"string\",\r\n        \"cardNumber\": \"string\",\r\n        \"cvv\": 0,\r\n        \"cardValidFrom\": {\r\n            \"month\": \"string\",\r\n            \"year\": 0\r\n        },\r\n        \"cardExpiry\": {\r\n            \"month\": \"string\",\r\n            \"year\": 0\r\n        },\r\n        \"cardHolderName\": \"string\",\r\n        \"billingAddress\": {\r\n            \"customerTitle\": \"string\",\r\n            \"customerFirstName\": \"string\",\r\n            \"customerMiddleName\": \"string\",\r\n            \"customerLastName\": \"string\",\r\n            \"address1\": \"string\",\r\n            \"address2\": \"string\",\r\n            \"address3\": \"string\",\r\n            \"city\": \"string\",\r\n            \"state\": \"string\",\r\n            \"country\": \"string\",\r\n            \"zip\": \"string\",\r\n            \"emailId\": \"string\"\r\n        },\r\n        \"securePassword\": \"string\",\r\n        \"computerIP\": \"string\"\r\n    }\r\n}"
+								},
+								"url": {
+									"raw": "https://restapidemo.myfarebox.com/api/PostTicketingRequest",
+									"protocol": "https",
+									"host": [
+										"restapidemo",
+										"myfarebox",
+										"com"
+									],
+									"path": [
+										"api",
+										"PostTicketingRequest"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "/Create/Reissue/Request",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "",
+										"description": "Bearer",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"ptrType\": \"Reissue\",\r\n    \"mFRef\": \"string\",\r\n    \"AllowChildPassenger\": true,\r\n    \"reissueQuoteRequestType\": \"None\",\r\n    \"passengers\": [\r\n        {\r\n            \"firstName\": \"string\",\r\n            \"lastName\": \"string\",\r\n            \"title\": \"string\",\r\n            \"eTicket\": \"string\",\r\n            \"passengerType\": \"ADT\"\r\n        }\r\n    ],\r\n    \"originDestinations\": [\r\n        {\r\n            \"originLocationCode\": \"string\",\r\n            \"destinationLocationCode\": \"string\",\r\n            \"cabinPreference\": \"string\",\r\n            \"departureDateTime\": \"2021-09-03T11:26:15.158Z\",\r\n            \"flightNumber\": 0,\r\n            \"airlineCode\": \"string\"\r\n        }\r\n    ],\r\n    \"PtrId\": 0,\r\n    \"PreferenceOption\": 0,\r\n    \"AcceptQuote\": \"None\",\r\n    \"AdditionalNote\": \"string\",\r\n    \"PaymentCardInfo\": {\r\n        \"cardScheme\": \"string\",\r\n        \"cardType\": \"string\",\r\n        \"cardNumber\": \"string\",\r\n        \"cvv\": 0,\r\n        \"cardValidFrom\": {\r\n            \"month\": \"string\",\r\n            \"year\": 0\r\n        },\r\n        \"cardExpiry\": {\r\n            \"month\": \"string\",\r\n            \"year\": 0\r\n        },\r\n        \"cardHolderName\": \"string\",\r\n        \"billingAddress\": {\r\n            \"customerTitle\": \"string\",\r\n            \"customerFirstName\": \"string\",\r\n            \"customerMiddleName\": \"string\",\r\n            \"customerLastName\": \"string\",\r\n            \"address1\": \"string\",\r\n            \"address2\": \"string\",\r\n            \"address3\": \"string\",\r\n            \"city\": \"string\",\r\n            \"state\": \"string\",\r\n            \"country\": \"string\",\r\n            \"zip\": \"string\",\r\n            \"emailId\": \"string\"\r\n        },\r\n        \"securePassword\": \"string\",\r\n        \"computerIP\": \"string\"\r\n    }\r\n}"
+								},
+								"url": {
+									"raw": "https://restapidemo.myfarebox.com/api/PostTicketingRequest",
+									"protocol": "https",
+									"host": [
+										"restapidemo",
+										"myfarebox",
+										"com"
+									],
+									"path": [
+										"api",
+										"PostTicketingRequest"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "/Create/RefundQuote/Request",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "",
+										"description": "Bearer",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"ptrType\": \"RefundQuote\",\r\n    \"mFRef\": \"string\",\r\n    \"AllowChildPassenger\": true,\r\n    \"reissueQuoteRequestType\": \"None\",\r\n    \"passengers\": [\r\n        {\r\n            \"firstName\": \"string\",\r\n            \"lastName\": \"string\",\r\n            \"title\": \"string\",\r\n            \"eTicket\": \"string\",\r\n            \"passengerType\": \"ADT\"\r\n        }\r\n    ],\r\n    \"originDestinations\": [\r\n        {\r\n            \"originLocationCode\": \"string\",\r\n            \"destinationLocationCode\": \"string\",\r\n            \"cabinPreference\": \"string\",\r\n            \"departureDateTime\": \"2021-09-03T11:26:15.158Z\",\r\n            \"flightNumber\": 0,\r\n            \"airlineCode\": \"string\"\r\n        }\r\n    ],\r\n    \"PtrId\": 0,\r\n    \"PreferenceOption\": 0,\r\n    \"AcceptQuote\": \"None\",\r\n    \"AdditionalNote\": \"string\",\r\n    \"PaymentCardInfo\": {\r\n        \"cardScheme\": \"string\",\r\n        \"cardType\": \"string\",\r\n        \"cardNumber\": \"string\",\r\n        \"cvv\": 0,\r\n        \"cardValidFrom\": {\r\n            \"month\": \"string\",\r\n            \"year\": 0\r\n        },\r\n        \"cardExpiry\": {\r\n            \"month\": \"string\",\r\n            \"year\": 0\r\n        },\r\n        \"cardHolderName\": \"string\",\r\n        \"billingAddress\": {\r\n            \"customerTitle\": \"string\",\r\n            \"customerFirstName\": \"string\",\r\n            \"customerMiddleName\": \"string\",\r\n            \"customerLastName\": \"string\",\r\n            \"address1\": \"string\",\r\n            \"address2\": \"string\",\r\n            \"address3\": \"string\",\r\n            \"city\": \"string\",\r\n            \"state\": \"string\",\r\n            \"country\": \"string\",\r\n            \"zip\": \"string\",\r\n            \"emailId\": \"string\"\r\n        },\r\n        \"securePassword\": \"string\",\r\n        \"computerIP\": \"string\"\r\n    }\r\n}"
+								},
+								"url": {
+									"raw": "https://restapidemo.myfarebox.com/api/PostTicketingRequest",
+									"protocol": "https",
+									"host": [
+										"restapidemo",
+										"myfarebox",
+										"com"
+									],
+									"path": [
+										"api",
+										"PostTicketingRequest"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "/Create/Refund/Request",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "",
+										"description": "Bearer",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"ptrType\": \"Refund\",\r\n    \"mFRef\": \"string\",\r\n    \"AllowChildPassenger\": true,\r\n    \"reissueQuoteRequestType\": \"None\",\r\n    \"passengers\": [\r\n        {\r\n            \"firstName\": \"string\",\r\n            \"lastName\": \"string\",\r\n            \"title\": \"string\",\r\n            \"eTicket\": \"string\",\r\n            \"passengerType\": \"ADT\"\r\n        }\r\n    ],\r\n    \"originDestinations\": [\r\n        {\r\n            \"originLocationCode\": \"string\",\r\n            \"destinationLocationCode\": \"string\",\r\n            \"cabinPreference\": \"string\",\r\n            \"departureDateTime\": \"2021-09-03T11:26:15.158Z\",\r\n            \"flightNumber\": 0,\r\n            \"airlineCode\": \"string\"\r\n        }\r\n    ],\r\n    \"PtrId\": 0,\r\n    \"PreferenceOption\": 0,\r\n    \"AcceptQuote\": \"None\",\r\n    \"AdditionalNote\": \"string\",\r\n    \"PaymentCardInfo\": {\r\n        \"cardScheme\": \"string\",\r\n        \"cardType\": \"string\",\r\n        \"cardNumber\": \"string\",\r\n        \"cvv\": 0,\r\n        \"cardValidFrom\": {\r\n            \"month\": \"string\",\r\n            \"year\": 0\r\n        },\r\n        \"cardExpiry\": {\r\n            \"month\": \"string\",\r\n            \"year\": 0\r\n        },\r\n        \"cardHolderName\": \"string\",\r\n        \"billingAddress\": {\r\n            \"customerTitle\": \"string\",\r\n            \"customerFirstName\": \"string\",\r\n            \"customerMiddleName\": \"string\",\r\n            \"customerLastName\": \"string\",\r\n            \"address1\": \"string\",\r\n            \"address2\": \"string\",\r\n            \"address3\": \"string\",\r\n            \"city\": \"string\",\r\n            \"state\": \"string\",\r\n            \"country\": \"string\",\r\n            \"zip\": \"string\",\r\n            \"emailId\": \"string\"\r\n        },\r\n        \"securePassword\": \"string\",\r\n        \"computerIP\": \"string\"\r\n    }\r\n}"
+								},
+								"url": {
+									"raw": "https://restapidemo.myfarebox.com/api/PostTicketingRequest",
+									"protocol": "https",
+									"host": [
+										"restapidemo",
+										"myfarebox",
+										"com"
+									],
+									"path": [
+										"api",
+										"PostTicketingRequest"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "/api/Search/PostTicketingRequest",
+					"item": [
+						{
+							"name": "/api/Search/VoidQuote/Status",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "",
+										"description": "Bearer ",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"ptrType\": \"None\",\r\n  \"MFRef\": \"string\",\r\n  \"PTRCategory\": \"None\",\r\n  \"PTRStatus\": \"None\",\r\n  \"PTRId\": 0,\r\n  \"ShowProcessingMethod\": \"False\",\r\n  \"Page\": 1\r\n}"
+								},
+								"url": {
+									"raw": "https://restapidemo.myfarebox.com/api/Search/PostTicketingRequest",
+									"protocol": "https",
+									"host": [
+										"restapidemo",
+										"myfarebox",
+										"com"
+									],
+									"path": [
+										"api",
+										"Search",
+										"PostTicketingRequest"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "/api/Search/Void/Status",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "",
+										"description": "Bearer ",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"ptrType\": \"Void\",\r\n  \"MFRef\": \"string\",\r\n  \"PTRCategory\": \"None\",\r\n  \"PTRStatus\": \"None\",\r\n  \"PTRId\": 0,\r\n  \"ShowProcessingMethod\": \"False\",\r\n  \"Page\": 1\r\n}"
+								},
+								"url": {
+									"raw": "https://restapidemo.myfarebox.com/api/Search/PostTicketingRequest",
+									"protocol": "https",
+									"host": [
+										"restapidemo",
+										"myfarebox",
+										"com"
+									],
+									"path": [
+										"api",
+										"Search",
+										"PostTicketingRequest"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "/api/Search/ReissueQuote/Status",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "",
+										"description": "Bearer ",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"ptrType\": \"GetExchangeQuote\",\r\n  \"MFRef\": \"string\",\r\n  \"PTRCategory\": \"None\",\r\n  \"PTRStatus\": \"None\",\r\n  \"PTRId\": 0,\r\n  \"ShowProcessingMethod\": \"False\",\r\n  \"Page\": 1\r\n}"
+								},
+								"url": {
+									"raw": "https://restapidemo.myfarebox.com/api/Search/PostTicketingRequest",
+									"protocol": "https",
+									"host": [
+										"restapidemo",
+										"myfarebox",
+										"com"
+									],
+									"path": [
+										"api",
+										"Search",
+										"PostTicketingRequest"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "/api/Search/Reissue/Status",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "",
+										"description": "Bearer ",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"ptrType\": \"GetExchangeQuotes\",\r\n  \"MFRef\": \"string\",\r\n  \"PTRCategory\": \"None\",\r\n  \"PTRStatus\": \"None\",\r\n  \"PTRId\": 0,\r\n  \"ShowProcessingMethod\": \"False\",\r\n  \"Page\": 1\r\n}"
+								},
+								"url": {
+									"raw": "https://restapidemo.myfarebox.com/api/Search/PostTicketingRequest",
+									"protocol": "https",
+									"host": [
+										"restapidemo",
+										"myfarebox",
+										"com"
+									],
+									"path": [
+										"api",
+										"Search",
+										"PostTicketingRequest"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "/api/Search/RefundQuote/Status",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "",
+										"description": "Bearer ",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"ptrType\": \"RefundQuote\",\r\n  \"MFRef\": \"string\",\r\n  \"PTRCategory\": \"None\",\r\n  \"PTRStatus\": \"None\",\r\n  \"PTRId\": 0,\r\n  \"ShowProcessingMethod\": \"False\",\r\n  \"Page\": 1\r\n}"
+								},
+								"url": {
+									"raw": "https://restapidemo.myfarebox.com/api/Search/PostTicketingRequest",
+									"protocol": "https",
+									"host": [
+										"restapidemo",
+										"myfarebox",
+										"com"
+									],
+									"path": [
+										"api",
+										"Search",
+										"PostTicketingRequest"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "/api/Search/Refund/Status",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "",
+										"description": "Bearer ",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"ptrType\": \"Refund\",\r\n  \"MFRef\": \"string\",\r\n  \"PTRCategory\": \"None\",\r\n  \"PTRStatus\": \"None\",\r\n  \"PTRId\": 0,\r\n  \"ShowProcessingMethod\": \"False\",\r\n  \"Page\": 1\r\n}"
+								},
+								"url": {
+									"raw": "https://restapidemo.myfarebox.com/api/Search/PostTicketingRequest",
+									"protocol": "https",
+									"host": [
+										"restapidemo",
+										"myfarebox",
+										"com"
+									],
+									"path": [
+										"api",
+										"Search",
+										"PostTicketingRequest"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "/api/ScheduleChange/PostTicketingRequest",
+					"item": [
+						{
+							"name": "/api/SC/MessageQueue",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "",
+										"description": "Bearer ",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"CategoryId\": \"Schedulechange\",\r\n  \"Target\": \"Test\",\r\n  \"ConversationId\": \"Client Reference ID FreeTxt\",\r\n}\r\n"
+								},
+								"url": {
+									"raw": "https://restapidemo.myfarebox.com/api/v1/Queues",
+									"protocol": "https",
+									"host": [
+										"restapidemo",
+										"myfarebox",
+										"com"
+									],
+									"path": [
+										"api",
+										"v1",
+										"Queues"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "/api/TripDetails/{MFRef}",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "",
+										"description": "Bearer ",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"UniqueID\": \"string\"\r\n}"
+								},
+								"url": {
+									"raw": "https://restapidemo.myfarebox.com/api/TripDetails/",
+									"protocol": "https",
+									"host": [
+										"restapidemo",
+										"myfarebox",
+										"com"
+									],
+									"path": [
+										"api",
+										"TripDetails",
+										""
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "/api/ScheduleChange/PTR",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "",
+										"description": "Bearer ",
+										"type": "text"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json",
+										"type": "text"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"ActionType\": \"None\",\r\n    \"MFRef\": \"string\",\r\n    \"RejectOption\": \"None\",\r\n    \"FlightOptions\": [\r\n        {\r\n            \"FlightNumber\": 0,\r\n            \"AirlineCode\": \"string\",\r\n            \"TravelDate\": \"string\",\r\n            \"DepartureTime\": \"string\",\r\n            \"CityPair\": \"string\"\r\n        }\r\n    ],\r\n    \"Comments\": \"string\"\r\n}"
+								},
+								"url": {
+									"raw": "https://restapidemo.myfarebox.com/api/ScheduleChange",
+									"protocol": "https",
+									"host": [
+										"restapidemo",
+										"myfarebox",
+										"com"
+									],
+									"path": [
+										"api",
+										"ScheduleChange"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Additional - Post - Ticketing APIs",
+			"item": [
+				{
+					"name": "/api/v1/Queues",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "",
+								"description": "Bearer",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"CategoryId\": \"Urgent\",\r\n    \"Target\": \"Development\",\r\n    \"ConversationId\": \"string\",\r\n    \"ScheduleChangeType\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v1/Queues",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v1",
+								"Queues"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/v1/DeQeues",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "",
+								"description": "Bearer",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"Items\": [\r\n    {\r\n      \"UniqueId\": \"123\",\r\n      \"CategoryId\": \"Urgent\"\r\n    }\r\n  ],\r\n  \"Target\": \"Development\",\r\n  \"ConversationId\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v1/DeQueue",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v1",
+								"DeQueue"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/Search/Invoice",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "",
+								"description": "Bearer",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"Page\": 1\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/Search/Invoice",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"Search",
+								"Invoice"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/Search/CreditNote",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "",
+								"description": "Bearer",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"Page\": 2\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/Search/Invoice",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"Search",
+								"Invoice"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "MultiCity API",
+			"item": [
+				{
+					"name": "/api/V1/MCT/BETA/Search/Flight",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "",
+								"description": "Bearer",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"OriginDestinationInformations\": [\r\n        {\r\n            \"DepartureDateTime\": \"2021-09-06T05:40:30.621Z\",\r\n            \"DepartureWindow\": \"string\",\r\n            \"ArrivalWindow\": \"string\",\r\n            \"OriginLocationCode\": \"string\",\r\n            \"DestinationLocationCode\": \"string\"\r\n        }\r\n    ],\r\n    \"TravelPreferences\": {\r\n        \"MaxStopsQuantity\": \"Direct\",\r\n        \"VendorPreferenceCodes\": [\r\n            \"string\"\r\n        ],\r\n        \"VendorExcludeCodes\": [\r\n            \"string\"\r\n        ],\r\n        \"CabinPreference\": \"Y\",\r\n        \"Preferences\": {\r\n            \"CabinClassPreference\": {\r\n                \"CabinType\": \"Y\",\r\n                \"PreferenceLevel\": \"Restricted\"\r\n            }\r\n        },\r\n        \"AirTripType\": \"OneWay\"\r\n    },\r\n    \"PricingSourceType\": \"Public\",\r\n    \"IsRefundable\": true,\r\n    \"PassengerTypeQuantities\": [\r\n        {\r\n            \"Code\": \"ADT\",\r\n            \"Quantity\": 0\r\n        }\r\n    ],\r\n    \"RequestOptions\": \"Fifty\",\r\n    \"NearByAirports\": true,\r\n    \"IsResidentFare\": true,\r\n    \"Nationality\": \"string\",\r\n    \"Target\": \"Development\",\r\n    \"ConversationId\": \"string\",\r\n    \"Provider\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v1/multiCityFaresBETA/Search/Flight",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v1",
+								"multiCityFaresBETA",
+								"Search",
+								"Flight"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/V2/MCT/BETA/Search/Flight",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "",
+								"description": "Bearer",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"OriginDestinationInformations\": [\r\n        {\r\n            \"DepartureDateTime\": \"2021-09-06T05:47:18.871Z\",\r\n            \"DepartureWindow\": \"string\",\r\n            \"ArrivalWindow\": \"string\",\r\n            \"OriginLocationCode\": \"string\",\r\n            \"DestinationLocationCode\": \"string\"\r\n        }\r\n    ],\r\n    \"TravelPreferences\": {\r\n        \"MaxStopsQuantity\": \"Direct\",\r\n        \"VendorPreferenceCodes\": [\r\n            \"string\"\r\n        ],\r\n        \"VendorExcludeCodes\": [\r\n            \"string\"\r\n        ],\r\n        \"CabinPreference\": \"Y\",\r\n        \"Preferences\": {\r\n            \"CabinClassPreference\": {\r\n                \"CabinType\": \"Y\",\r\n                \"PreferenceLevel\": \"Restricted\"\r\n            }\r\n        },\r\n        \"AirTripType\": \"OneWay\"\r\n    },\r\n    \"PricingSourceType\": \"Public\",\r\n    \"IsRefundable\": true,\r\n    \"PassengerTypeQuantities\": [\r\n        {\r\n            \"Code\": \"ADT\",\r\n            \"Quantity\": 0\r\n        }\r\n    ],\r\n    \"RequestOptions\": \"Fifty\",\r\n    \"NearByAirports\": true,\r\n    \"IsResidentFare\": true,\r\n    \"Nationality\": \"string\",\r\n    \"Target\": \"Development\",\r\n    \"ConversationId\": \"string\",\r\n    \"Provider\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v2/multiCityFaresBETA/Search/Flight",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v2",
+								"multiCityFaresBETA",
+								"Search",
+								"Flight"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/V1/MCT/BETA/Revalidate/Flight",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "",
+								"description": "Bearer",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"ListFaresourcecode\": [\r\n        {\r\n            \"FareSourceCode\": \"stri\"\r\n        }\r\n    ],\r\n    \"Target\": \"Development\",\r\n    \"ConversationId\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v1/multiCityFaresBETA/Revalidate/Flight",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v1",
+								"multiCityFaresBETA",
+								"Revalidate",
+								"Flight"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/V1/MCT/BETA/Book/Flight",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "",
+								"description": "Bearer",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"FareSourceCode\": \"string\",\r\n    \"PaymentTransactionID\": \"string\",\r\n    \"ClientMarkup\": 0,\r\n    \"TravelerInfo\": {\r\n        \"AirTravelers\": [\r\n            {\r\n                \"PassengerType\": \"ADT\",\r\n                \"Gender\": \"M\",\r\n                \"PassengerName\": {\r\n                    \"PassengerTitle\": \"MR\",\r\n                    \"PassengerFirstName\": \"string\",\r\n                    \"PassengerLastName\": \"string\"\r\n                },\r\n                \"DateOfBirth\": \"2021-09-06T05:50:55.030Z\",\r\n                \"Passport\": {\r\n                    \"PassportNumber\": \"string\",\r\n                    \"ExpiryDate\": \"2021-09-06T05:50:55.030Z\",\r\n                    \"Country\": \"string\"\r\n                },\r\n                \"FrequentFlyerNumber\": \"string\",\r\n                \"SpecialServiceRequest\": {\r\n                    \"SeatPreference\": \"Any\",\r\n                    \"MealPreference\": \"Any\",\r\n                    \"RequestedSegments\": [\r\n                        {\r\n                            \"Origin\": \"string\",\r\n                            \"Destination\": \"string\",\r\n                            \"FlightNumber\": \"string\",\r\n                            \"DepartureDateTime\": \"2021-09-06T05:50:55.031Z\",\r\n                            \"SeatSelection\": \"string\",\r\n                            \"RequestSSRs\": [\r\n                                {\r\n                                    \"SSRCode\": \"Any\",\r\n                                    \"FreeText\": \"string\"\r\n                                }\r\n                            ]\r\n                        }\r\n                    ]\r\n                },\r\n                \"ExtraServices\": [\r\n                    {\r\n                        \"ExtraServiceId\": 0,\r\n                        \"Quantity\": 0,\r\n                        \"Key\": \"string\"\r\n                    }\r\n                ],\r\n                \"ExtraServices1_1\": [\r\n                    {\r\n                        \"ExtraServiceId\": 0,\r\n                        \"Quantity\": 0,\r\n                        \"Key\": \"string\"\r\n                    }\r\n                ],\r\n                \"PassengerNationality\": \"string\",\r\n                \"KnowTravelerNo\": \"string\",\r\n                \"RedressNo\": \"string\",\r\n                \"NationalID\": \"string\",\r\n                \"Seats\": {\r\n                    \"SeatSelectionKey\": [\r\n                        \"string\"\r\n                    ]\r\n                }\r\n            }\r\n        ],\r\n        \"CountryCode\": \"string\",\r\n        \"AreaCode\": \"string\",\r\n        \"PhoneNumber\": \"string\",\r\n        \"Email\": \"string\",\r\n        \"PostCode\": \"string\"\r\n    },\r\n    \"Target\": \"Development\",\r\n    \"PaymentCardInfo\": {\r\n        \"cardScheme\": \"Visa\",\r\n        \"cardType\": \"Credit\",\r\n        \"cardNumber\": \"string\",\r\n        \"cvv\": 0,\r\n        \"cardValidFrom\": {\r\n            \"month\": \"Jan\",\r\n            \"year\": 0\r\n        },\r\n        \"cardExpiry\": {\r\n            \"month\": \"Jan\",\r\n            \"year\": 0\r\n        },\r\n        \"cardHolderName\": \"string\",\r\n        \"billingAddress\": {\r\n            \"customerTitle\": \"string\",\r\n            \"customerFirstName\": \"string\",\r\n            \"customerMiddleName\": \"string\",\r\n            \"customerLastName\": \"string\",\r\n            \"address1\": \"string\",\r\n            \"address2\": \"string\",\r\n            \"address3\": \"string\",\r\n            \"city\": \"string\",\r\n            \"state\": \"string\",\r\n            \"country\": \"string\",\r\n            \"phone\": \"string\",\r\n            \"zip\": \"string\",\r\n            \"emailId\": \"string\"\r\n        },\r\n        \"securePassword\": \"string\",\r\n        \"computerIP\": \"string\"\r\n    },\r\n    \"PaymentReferences\": {\r\n        \"PaymentID\": \"string\",\r\n        \"PaymentParams\": [\r\n            {\r\n                \"Key\": \"string\",\r\n                \"Value\": \"string\",\r\n                \"Type\": \"Host\"\r\n            }\r\n        ]\r\n    },\r\n    \"ClientReferenceNo\": \"string\",\r\n    \"ConversationId\": \"string\",\r\n    \"LccHoldBooking\": true,\r\n    \"GSTInfo\": {\r\n        \"GSTNumber\": \"string\",\r\n        \"GSTAddress\": \"string\",\r\n        \"GSTCity\": \"string\",\r\n        \"GSTState\": \"string\",\r\n        \"GSTPINCode\": \"string\",\r\n        \"GSTPhoneNo\": \"string\",\r\n        \"GSTEmailId\": \"string\",\r\n        \"GSTCompanyName\": \"string\"\r\n    }\r\n}"
+						},
+						"url": {
+							"raw": "https://restapidemo.myfarebox.com/api/v1/multiCityFaresBETA/Book/Flight",
+							"protocol": "https",
+							"host": [
+								"restapidemo",
+								"myfarebox",
+								"com"
+							],
+							"path": [
+								"api",
+								"v1",
+								"multiCityFaresBETA",
+								"Book",
+								"Flight"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "/api/V1/MCT/BETA/TripDetails",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "",
+								"description": "Bearer",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"BookingRef\": \"string\"\r\n}"
+						},
+						"url": {
+							"raw": "/api/v1/multiCityFaresBETA/TripDetails",
+							"path": [
+								"api",
+								"v1",
+								"multiCityFaresBETA",
+								"TripDetails"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}

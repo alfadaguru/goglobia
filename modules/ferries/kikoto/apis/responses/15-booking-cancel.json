@@ -1,0 +1,6 @@
+{
+    "NOTE": "POST /bookings/{locator}/cancel — cancel uses LOCATOR (not reference). Returns cancellation fee.",
+    "success": true,
+    "path": "v1/bookings/ICRALUY/cancel",
+    "data": {"fee": 0}
+}

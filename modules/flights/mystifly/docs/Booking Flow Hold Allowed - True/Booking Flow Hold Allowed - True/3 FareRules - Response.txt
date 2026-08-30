@@ -1,0 +1,31 @@
+{
+  "Data": {
+    "BaggageInfos": [
+      {
+        "Arrival": "DEL",
+        "Baggage": "1PC",
+        "Departure": "BLR",
+        "FlightNo": "UK820"
+      }
+    ],
+    "ConversationId": "A123456",
+    "Errors": [],
+    "FareRules": [
+      {
+        "Airline": "",
+        "CityPair": "",
+        "FareBasis": "O15RPRYL",
+        "RuleDetails": [
+          {
+            "Category": "GENERAL",
+            "Rules": ""
+          }
+        ]
+      }
+    ],
+    "Success": true,
+    "Target": "Test",
+    "TraceId": "22042117-b6750ba1-395c-4f29-a28b-1b177630e28c"
+  },
+  "Success": true
+}

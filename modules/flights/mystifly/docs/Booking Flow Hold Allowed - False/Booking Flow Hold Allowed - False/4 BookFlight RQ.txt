@@ -1,0 +1,31 @@
+{
+  "FareSourceCode": "RStKZTdRSmtLMm5OeU13ZGxMNXdONldLQklwN3dyWGhGVkw3alhzVjVpSXR1V3lJeFk0Rm84YU8wamxMQVJjay9uOG1Wbmx0Q0JsMWx0dnBScDBSNXdja3orR2Urbk5LdlNoWXl6QTJldXJ1MGxtYlU3NVB5RXJMTHUxRUN3NmttOE1hNHh5dldRR1VrOVUvSDBUd0JBPT0=",
+   "TravelerInfo": {
+    "AirTravelers": [
+      {
+        "PassengerType": "ADT",
+        "Gender": "M",
+        "PassengerName": {
+          "PassengerTitle": "MR",
+          "PassengerFirstName": "Bharath",
+          "PassengerLastName": "BL"
+        },
+        "DateOfBirth": "1988-01-03T00:00:00",
+        "Passport": {
+          "PassportNumber": "Z876789",
+          "ExpiryDate": "2025-01-03T00:00:00",
+          "Country": "IN"
+        
+        },
+       "PassengerNationality": "IN",
+       "NationalID": "IN"
+      }
+    ],
+    "CountryCode": "91",
+    "AreaCode": "080",
+    "PhoneNumber": "87657897",
+    "Email": "apisupport@mystifly.com",
+    "PostCode": "560028"
+  },
+  "Target": "Test",
+  }

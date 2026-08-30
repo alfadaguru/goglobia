@@ -1,0 +1,36 @@
+{
+  "Data": {
+    "BaggageInfos": [
+      {
+        "Arrival": "LKO",
+        "Baggage": "SB",
+        "Departure": "DEL",
+        "FlightNo": "I51811"
+      },
+      {
+        "Arrival": "BLR",
+        "Baggage": "SB",
+        "Departure": "LKO",
+        "FlightNo": "I51816"
+      }
+    ],
+    "ConversationId": "A123456",
+    "Errors": [],
+    "FareRules": [
+      {
+        "Airline": "I5",
+        "CityPair": "",
+        "RuleDetails": [
+          {
+            "Category": "GENERAL",
+            "Rules": "https://www.airasia.com/my/en/our-fares/fees-and-charges.page"
+          }
+        ]
+      }
+    ],
+    "Success": true,
+    "Target": "Test",
+    "TraceId": "22061720-82e2c5ca-fd64-4616-9e0f-617ca43afacb"
+  },
+  "Success": true
+}

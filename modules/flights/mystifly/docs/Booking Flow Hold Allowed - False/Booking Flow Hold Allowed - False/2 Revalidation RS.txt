@@ -1,0 +1,214 @@
+{
+  "Data": {
+    "ATAinfoList": [],
+    "ConversationId": "A123456",
+    "Errors": [],
+    "IsValid": true,
+    "PricedItineraries": [
+      {
+        "AirItineraryPricingInfo": {
+          "DivideInPartyIndicator": false,
+          "FareInfos": [
+            {
+              "FareReference": "K"
+            },
+            {
+              "FareReference": "K"
+            }
+          ],
+          "FareSourceCode": "RStKZTdRSmtLMm5OeU13ZGxMNXdONldLQklwN3dyWGhGVkw3alhzVjVpSXR1V3lJeFk0Rm84YU8wamxMQVJjay9uOG1Wbmx0Q0JsMWx0dnBScDBSNXdja3orR2Urbk5LdlNoWXl6QTJldXJ1MGxtYlU3NVB5RXJMTHUxRUN3NmttOE1hNHh5dldRR1VrOVUvSDBUd0JBPT0=",
+          "FareType": "WebFare",
+          "IsRefundable": "No",
+          "ItinTotalFare": {
+            "ActualFare": {
+              "Amount": "71.23",
+              "CurrencyCode": "USD",
+              "DecimalPlaces": 2
+            },
+            "BaseFare": {
+              "Amount": "3587.06",
+              "CurrencyCode": "INR",
+              "DecimalPlaces": 2
+            },
+            "EquivFare": {
+              "Amount": "48.02",
+              "CurrencyCode": "USD",
+              "DecimalPlaces": 2
+            },
+            "TotalFare": {
+              "Amount": "54.70",
+              "CurrencyCode": "USD",
+              "DecimalPlaces": 2
+            },
+            "TotalTax": {
+              "Amount": "6.68",
+              "CurrencyCode": "USD",
+              "DecimalPlaces": 2
+            }
+          },
+          "PTC_FareBreakdowns": [
+            {
+              "BaggageInfo": [
+                "SB",
+                "SB"
+              ],
+              "CabinBaggageInfo": [
+                "SB",
+                "SB"
+              ],
+              "FareBasisCodes": [
+                "AI51811K",
+                "AI51816K"
+              ],
+              "PassengerFare": {
+                "ActualFare": {
+                  "Amount": "71.23",
+                  "CurrencyCode": "USD",
+                  "DecimalPlaces": 2
+                },
+                "BaseFare": {
+                  "Amount": "3587.06",
+                  "CurrencyCode": "INR",
+                  "DecimalPlaces": 2
+                },
+                "EquivFare": {
+                  "Amount": "48.02",
+                  "CurrencyCode": "USD",
+                  "DecimalPlaces": 2
+                },
+                "Surcharges": [],
+                "Taxes": [
+                  {
+                    "Amount": "6.68",
+                    "CurrencyCode": "USD",
+                    "DecimalPlaces": 2,
+                    "TaxCode": "Tax"
+                  }
+                ],
+                "TotalFare": {
+                  "Amount": "54.70",
+                  "CurrencyCode": "USD",
+                  "DecimalPlaces": 2
+                }
+              },
+              "PassengerTypeQuantity": {
+                "Code": "ADT",
+                "Quantity": 1
+              },
+              "PenaltiesInfo": [
+                {
+                  "Allowed": false,
+                  "Amount": "",
+                  "CurrencyCode": "",
+                  "PenaltyType": "Cancel"
+                },
+                {
+                  "Allowed": false,
+                  "Amount": "",
+                  "CurrencyCode": "",
+                  "PenaltyType": "Exchange"
+                }
+              ]
+            }
+          ]
+        },
+        "DirectionInd": "OneWay",
+        "FirstNameCharacterLimit": 58,
+        "Fulfillmentdetails": {
+          "Ticketing": {
+            "TATinMinutes": "0"
+          }
+        },
+        "HoldAllowed": "False",
+        "IsPassportMandatory": false,
+        "LastNameCharacterLimit": 58,
+        "OriginDestinationOptions": [
+          {
+            "FlightSegments": [
+              {
+                "ATAinfoRef": "",
+                "ArrivalAirportLocationCode": "LKO",
+                "ArrivalDateTime": "2022-06-28T07:30:00",
+                "CabinClassCode": "Y",
+                "CabinClassText": "",
+                "DepartureAirportLocationCode": "DEL",
+                "DepartureDateTime": "2022-06-28T06:30:00",
+                "Eticket": true,
+                "FlightNumber": "1811",
+                "JourneyDuration": 60,
+                "MarketingAirlineCode": "I5",
+                "MarriageGroup": "",
+                "MealCode": "",
+                "OperatingAirline": {
+                  "Code": "I5",
+                  "Equipment": "320",
+                  "FlightNumber": "1811"
+                },
+                "ResBookDesigCode": "K",
+                "ResBookDesigText": "",
+                "SeatsRemaining": {
+                  "BelowMinimum": false,
+                  "Number": 4
+                },
+                "StopQuantity": 0,
+                "StopQuantityInfo": {
+                  "ArrivalDateTime": "0001-01-01T00:00:00",
+                  "DepartureDateTime": "0001-01-01T00:00:00",
+                  "Duration": 0,
+                  "LocationCode": ""
+                }
+              },
+              {
+                "ATAinfoRef": "",
+                "ArrivalAirportLocationCode": "BLR",
+                "ArrivalDateTime": "2022-06-28T12:10:00",
+                "CabinClassCode": "Y",
+                "CabinClassText": "",
+                "DepartureAirportLocationCode": "LKO",
+                "DepartureDateTime": "2022-06-28T09:45:00",
+                "Eticket": true,
+                "FlightNumber": "1816",
+                "JourneyDuration": 145,
+                "MarketingAirlineCode": "I5",
+                "MarriageGroup": "",
+                "MealCode": "",
+                "OperatingAirline": {
+                  "Code": "I5",
+                  "Equipment": "320",
+                  "FlightNumber": "1816"
+                },
+                "ResBookDesigCode": "K",
+                "ResBookDesigText": "",
+                "SeatsRemaining": {
+                  "BelowMinimum": false,
+                  "Number": 4
+                },
+                "StopQuantity": 0,
+                "StopQuantityInfo": {
+                  "ArrivalDateTime": "0001-01-01T00:00:00",
+                  "DepartureDateTime": "0001-01-01T00:00:00",
+                  "Duration": 0,
+                  "LocationCode": ""
+                }
+              }
+            ]
+          }
+        ],
+        "PaxNameCharacterLimit": 60,
+        "Provider": "MYSTIFLY",
+        "SequenceNumber": 1,
+        "TicketType": "eTicket",
+        "ValidatingAirlineCode": "I5",
+        "VoidWindowTLinMins": "0"
+      }
+    ],
+    "Success": true,
+    "Target": "Test",
+    "TraceId": "22061720-82e2c5ca-fd64-4616-9e0f-617ca43afacb",
+    "ExtraServices": {
+      "NameNumbers": [],
+      "Services": []
+    }
+  },
+  "Success": true
+}

@@ -1,0 +1,163 @@
+{
+  "Success": true,
+  "Data": {
+    "TripDetailsResult": {
+      "Provider": "BLRVS32IK",
+      "Success": true,
+      "TravelItinerary": {
+        "MFRef": "MF106409522",
+        "TripType": "OneWay",
+        "TicketStatus": "Ticketed",
+        "BookingStatus": "Booked",
+        "Origin": "BLR",
+        "Destination": "DEL",
+        "FareType": "Public",
+        "PassengerInfos": [
+          {
+            "Passenger": {
+              "Gender": "M",
+              "DateOfBirth": "1988-01-03T00:00:00",
+              "EmailAddress": "apisupport@mystifly.com",
+              "PhoneNumber": "876578907",
+              "PassportExpiresOn": "2025-01-03T00:00:00",
+              "PassportNationality": "Indian",
+              "PassengerNationality": "Indian",
+              "PostCode": "560028",
+              "PassportIssuanceCountry": "India",
+              "PassengerType": "ADT",
+              "PaxName": {
+                "PassengerTitle": "MR",
+                "PassengerFirstName": "IMRAN",
+                "PassengerLastName": "KHAN"
+              },
+              "PassportNumber": "Z876789",
+              "NationalID": "IN",
+              "NameNumber": 202599,
+              "TicketStatus": "Ticketed"
+            },
+            "ETickets": [
+              {
+                "ItemRPH": 1,
+                "ETicketNumber": "2286996405450",
+                "ETicketType": "Ticketed"
+              }
+            ]
+          }
+        ],
+        "TripDetailsPTC_FareBreakdowns": [
+          {
+            "PassengerTypeQuantity": {
+              "Code": "ADT",
+              "Quantity": 1
+            },
+            "TripDetailsPassengerFare": {
+              "EquiFare": {
+                "Amount": "136.17",
+                "CurrencyCode": "SGD",
+                "DecimalPlaces": 2
+              },
+              "Tax": {
+                "Amount": "19.55",
+                "CurrencyCode": "SGD",
+                "DecimalPlaces": 2
+              },
+              "TotalFare": {
+                "Amount": "155.72",
+                "CurrencyCode": "SGD",
+                "DecimalPlaces": 2
+              }
+            },
+            "BaggageInfo": [
+              "1PC"
+            ],
+            "CabinBaggageInfo": [
+              "SB"
+            ],
+            "IsPenaltyDetailsAvailable": true,
+            "AirRefundCharges": {
+              "IsRefundableBeforeDeparture": "Yes",
+              "IsRefundableAfterDeparture": "Yes",
+              "RefundCharges": [
+                {
+                  "ChargesBeforeDeparture": [
+                    {
+                      "HoursBeforeDeparture": 3,
+                      "Charges": 62.77
+                    }
+                  ],
+                  "ChargesAfterDeparture": 62.77,
+                  "PassengerType": "ADT",
+                  "AdminCharges": 0,
+                  "Currency": "SGD"
+                }
+              ]
+            },
+            "AirExchangeCharges": {
+              "IsExchangeableBeforeDeparture": "Yes",
+              "IsExchangeableAfterDeparture": "Yes",
+              "ExchangeCharges": [
+                {
+                  "ChargeBeforeDeparture": 53.81,
+                  "HoursBeforeDeparture": 0,
+                  "ChargesAfterDeparture": 53.81,
+                  "PassengerType": "ADT",
+                  "AdminCharges": 0,
+                  "Currency": "SGD"
+                }
+              ]
+            },
+            "AirVoidCharges": {
+              "IsVoidable": "Yes",
+              "PassengerType": "ADT",
+              "AdminCharges": 0,
+              "Currency": "SGD",
+              "VoidingWindow": "2022-04-21T16:29:59.997",
+              "VoidingFee": 0
+            }
+          }
+        ],
+        "VoidingWindow": "2022-04-21T16:29:59.997",
+        "ClientUTCOffset": 0,
+        "Itineraries": [
+          {
+            "ItineraryInfo": {
+              "ReservationItems": [
+                {
+                  "ItemRPH": 1,
+                  "DepartureDateTime": "2022-05-12T17:45:00",
+                  "ArrivalDateTime": "2022-05-12T20:20:00",
+                  "StopQuantity": 0,
+                  "FlightNumber": "820",
+                  "ResBookDesigCode": "O",
+                  "JourneyDuration": "155",
+                  "AirlinePNR": "5P97C5",
+                  "NumberInParty": 1,
+                  "DepartureAirportLocationCode": "BLR",
+                  "DepartureTerminal": "",
+                  "ArrivalAirportLocationCode": "DEL",
+                  "ArrivalTerminal": "",
+                  "OperatingAirlineCode": "UK",
+                  "AirEquipmentType": "320",
+                  "MarketingAirlineCode": "UK",
+                  "Baggage": "1PC",
+                  "FlightStatus": "HK",
+                  "IsReturn": false,
+                  "CabinClass": "Y",
+                  "FareFamily": "ECOYL"
+                }
+              ]
+            },
+            "Type": "TravelItinerary"
+          }
+        ],
+        "TransactionDetails": {},
+        "BookingNotes": [],
+        "TicketingTimeLimit": "2022-04-21T17:59:00",
+        "BookingMode": 6,
+        "ReroutingAllowed": "NO"
+      },
+      "TraceId": "22042117-b6750ba1-395c-4f29-a28b-1b177630e28c",
+      "Locator": "5P97C5"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+https://api.worldota.net/api/b2b/v3/hotel/order/booking/finish/
+
+
+{
+    "data": null,
+    "debug": null,
+    "error": null,
+    "status": "ok"
+}

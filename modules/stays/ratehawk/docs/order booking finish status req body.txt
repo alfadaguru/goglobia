@@ -1,0 +1,6 @@
+https://api.worldota.net/api/b2b/v3/hotel/order/booking/finish/status/
+
+
+{
+    "partner_order_id":"test1111" - required
+}

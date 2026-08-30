@@ -1,0 +1,28 @@
+{
+    "NOTE": "POST /prices — pass full sailing objects + passengers array with ticket_type_id",
+    "success": true,
+    "path": "v1/prices",
+    "data": {
+        "sailings": [
+            {
+                "shipping_company_id": 1,
+                "departure_port_id": 1,
+                "destination_port_id": 2,
+                "departure_datetime": "2026-06-29T07:30:00+02:00",
+                "arrival_datetime":   "2026-06-29T08:30:00+02:00",
+                "accommodations": [
+                    {
+                        "id": 1, "type": "seat", "title": "Jet Class", "code": "JC",
+                        "passengers": [{"id": 1, "bonuses": [{"bonus_id": 1}]}]
+                    }
+                ],
+                "coupon": null,
+                "price": 43,
+                "currency": "EUR"
+            }
+        ],
+        "passengers": [{"id": 1, "ticket_type_id": 10, "birthdate": null}],
+        "vehicles": null,
+        "pets": null
+    }
+}

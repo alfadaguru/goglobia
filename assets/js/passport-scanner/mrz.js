@@ -1,0 +1,12 @@
+(function(global){
+  const weights=[7,3,1];
+  function value(c){if(c==='<')return 0;if(/\d/.test(c))return Number(c);return c.charCodeAt(0)-55}
+  function check(data,digit){if(!/\d/.test(digit||''))return false;return data.split('').reduce((s,c,i)=>s+value(c)*weights[i%3],0)%10===Number(digit)}
+  function clean(s){return (s||'').toUpperCase().replace(/[^A-Z0-9<]/g,'')}
+  function findTD3(text){const lines=text.toUpperCase().split(/\r?\n/).map(clean).filter(x=>x.length>25);for(let i=0;i<lines.length-1;i++){let a=lines[i],b=lines[i+1];if(a.startsWith('P<')&&b.length>=40)return [a.padEnd(44,'<').slice(0,44),b.padEnd(44,'<').slice(0,44)]}return null}
+  function date(raw,expiry){if(!/^\d{6}$/.test(raw))return '';const yy=+raw.slice(0,2),mm=raw.slice(2,4),dd=raw.slice(4,6),now=new Date().getFullYear()%100;const year=expiry?2000+yy:(yy>now?1900+yy:2000+yy);return `${year}-${mm}-${dd}`}
+  function cleanName(value){return value.replace(/</g,' ').replace(/\s+/g,' ').split(' ').filter(Boolean).filter(part=>!(/^(.)\1{3,}$/.test(part)||/^[KL]{3,}$/.test(part)||/[KL]{7,}$/.test(part))).join(' ').trim()}
+  function nameParts(line){let zone=line.slice(5);zone=zone.replace(/([KL])\1{4,}/g,'<<');let separator=zone.indexOf('<<');if(separator<0){const noisy=zone.search(/[KL]{5,}/);if(noisy>0){zone=zone.slice(0,noisy)+'<<'+zone.slice(noisy).replace(/^[KL]+/,'')}separator=zone.indexOf('<<')}if(separator<0)return{last:cleanName(zone),first:''};const last=cleanName(zone.slice(0,separator));let firstZone=zone.slice(separator+2).replace(/[KL]{5,}.*$/,'');return{last,first:cleanName(firstZone)}}
+  function parse(text){const lines=findTD3(text);if(!lines)throw new Error('A two-line TD3 passport MRZ was not detected. Try a clearer, straight image.');const [a,b]=lines;const names=nameParts(a);const checks={passport:check(b.slice(0,9),b[9]),birth:check(b.slice(13,19),b[19]),expiry:check(b.slice(21,27),b[27]),personal:check(b.slice(28,42),b[42]),composite:check(b.slice(0,10)+b.slice(13,20)+b.slice(21,43),b[43])};return{documentType:a[0],issuingCountry:a.slice(2,5).replace(/</g,''),firstName:names.first,lastName:names.last,passportNumber:b.slice(0,9).replace(/</g,''),nationality:b.slice(10,13).replace(/</g,''),dateOfBirth:date(b.slice(13,19),false),gender:b[20]==='<'?'X':b[20],expiryDate:date(b.slice(21,27),true),rawMrz:lines.join('\n'),checks,valid:Object.values(checks).every(Boolean)}}
+  global.MRZ={parse,check,findTD3};
+})(window);

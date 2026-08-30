@@ -1,0 +1,22 @@
+2026-01-21 11:42:45 - SQLSTATE[42S22]: Column not found: 1054 Unknown column 'invoice' in 'where clause'
+#0 D:\server\htdocs\v10\vendor\catfan\medoo\src\Medoo.php(629): PDOStatement->execute()
+#1 D:\server\htdocs\v10\vendor\catfan\medoo\src\Medoo.php(1979): Medoo\Medoo->exec(Object(PDOStatement), Array)
+#2 D:\server\htdocs\v10\modules\flights\seeru\actions\issue.php(40): Medoo\Medoo->get('bookings', '*', '*')
+#3 [internal function]: {closure}()
+#4 D:\server\htdocs\v10\modules\router.php(3): call_user_func_array(Object(Closure), Array)
+#5 D:\server\htdocs\v10\modules\router.php(3): AppRouter\Router->call(Object(Closure), Array)
+#6 D:\server\htdocs\v10\modules\router.php(3): AppRouter\Router->dispatch('POST', '/flights/seeru/...')
+#7 D:\server\htdocs\v10\modules\index.php(292): AppRouter\Router->dispatchGlobal()
+#8 {main}
+
+2026-01-21 11:47:02 - SQLSTATE[42S22]: Column not found: 1054 Unknown column 'module' in 'where clause'
+#0 D:\server\htdocs\v10\vendor\catfan\medoo\src\Medoo.php(629): PDOStatement->execute()
+#1 D:\server\htdocs\v10\vendor\catfan\medoo\src\Medoo.php(1979): Medoo\Medoo->exec(Object(PDOStatement), Array)
+#2 D:\server\htdocs\v10\modules\flights\seeru\actions\issue.php(103): Medoo\Medoo->get('modules', Array, Array)
+#3 [internal function]: {closure}()
+#4 D:\server\htdocs\v10\modules\router.php(3): call_user_func_array(Object(Closure), Array)
+#5 D:\server\htdocs\v10\modules\router.php(3): AppRouter\Router->call(Object(Closure), Array)
+#6 D:\server\htdocs\v10\modules\router.php(3): AppRouter\Router->dispatch('POST', '/flights/seeru/...')
+#7 D:\server\htdocs\v10\modules\index.php(292): AppRouter\Router->dispatchGlobal()
+#8 {main}
+

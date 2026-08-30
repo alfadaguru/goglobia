@@ -1,0 +1,5 @@
+{
+  "FareSourceCode": "RStKZTdRSmtLMm5OeU13ZGxMNXdONldLQklwN3dyWGhGVkw3alhzVjVpSXR1V3lJeFk0Rm84YU8wamxMQVJjay9uOG1Wbmx0Q0JsMWx0dnBScDBSNTRRcjFSY0VoNSttODZvczZ5RE1ZcFNDY08rQzVnZnJoTFUzcFAvamxnNlVCUGF4MGg3ZW1LTUt3RTEwcHIrRzBRPT0=",
+  "Target": "Test",
+  "ConversationId": "A123456"
+}

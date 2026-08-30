@@ -1,0 +1,620 @@
+{
+  "info": {
+    "_postman_id": "d8d6b6c4-f8b0-4e53-9d3f-8b4f90b6d001",
+    "name": "ToursBMS Product API",
+    "description": "Complete ToursBMS Product Information Open API (ENG-ProductOpenApi.doc v1.0.5).\n\n**Base URL:** `http://api.toursbms.com`\n**Auth:** `TokenCode` header (empty only for getMerchantToken)\n**Signature:** `MD5(merchantId + secretKey + timestamp)` uppercase\n\n**Important:** Live `getProductDate` requires **`productCode`** (R-code, e.g. R0005790), not just `productID`. Always run **Get Product List** first — it saves both.\n\n**`schemeCode`** is only for package products (`schemeList` non-empty). Do not use the Package requests on normal tours.\n\n**Booking confirm/cancel:** NOT in this doc. See folder **6 — Booking** and ask ToursBMS for their Order/Booking API spec.\n\n**Flow:** Token → Product List → Product Info → Product Date → (optional) Promote Info",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://api.toursbms.com" },
+    { "key": "merchantId", "value": "MI000113" },
+    { "key": "vendorToken", "value": "c2a980cb9163b895e581c32f32f7d06c" },
+    { "key": "secretKey", "value": "c2a980cb9163b895e581c32f32f7d06c" },
+    { "key": "timestamp", "value": "" },
+    { "key": "signature", "value": "" },
+    { "key": "tokenCode", "value": "" },
+    { "key": "productID", "value": "P00008808" },
+    { "key": "productCode", "value": "R0005790" },
+    { "key": "schemeCode", "value": "" },
+    { "key": "hasPackageScheme", "value": "false" },
+    { "key": "promoteCode", "value": "" },
+    { "key": "regionCode", "value": "" },
+    { "key": "productDateStart", "value": "2026-08-01" },
+    { "key": "productDateEnd", "value": "2026-09-30" },
+    { "key": "noteTimeStart", "value": "2026-07-01 00:00:00" },
+    { "key": "noteTimeEnd", "value": "2026-07-09 23:59:59" }
+  ],
+  "item": [
+    {
+      "name": "0 — Authentication",
+      "item": [
+        {
+          "name": "Get Merchant Token",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const merchantId = pm.environment.get('merchantId') || pm.collectionVariables.get('merchantId');",
+                  "const secretKey = pm.environment.get('secretKey') || pm.environment.get('vendorToken') || pm.collectionVariables.get('secretKey') || pm.collectionVariables.get('vendorToken');",
+                  "const timestamp = Math.floor(Date.now() / 1000).toString();",
+                  "const signature = CryptoJS.MD5(merchantId + secretKey + timestamp).toString().toUpperCase();",
+                  "pm.collectionVariables.set('timestamp', timestamp);",
+                  "pm.collectionVariables.set('signature', signature);",
+                  "console.log('merchantId:', merchantId);",
+                  "console.log('timestamp :', timestamp);",
+                  "console.log('signature :', signature);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('code 200', () => pm.expect(String(json.code)).to.eql('200'));",
+                  "if (json.data && json.data.tokenCode) {",
+                  "    pm.collectionVariables.set('tokenCode', json.data.tokenCode);",
+                  "    console.log('tokenCode saved:', json.data.tokenCode);",
+                  "    console.log('expires    :', json.data.expireTime);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "", "description": "Must be empty string for auth call" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"merchantId\": \"{{merchantId}}\",\n  \"timestamp\": \"{{timestamp}}\",\n  \"signature\": \"{{signature}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/auth/getMerchantToken",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "auth", "getMerchantToken"]
+            },
+            "description": "Obtain TokenCode for all subsequent calls.\n\n`signature = MD5(merchantId + secretKey + timestamp)` uppercase."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1 — Reference Data",
+      "item": [
+        {
+          "name": "Get Product Type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('code 200', () => pm.expect(String(json.code)).to.eql('200'));",
+                  "const list = Array.isArray(json.data) ? json.data : (json.data && json.data.productCategoryList) || [];",
+                  "if (list.length) console.log('Types:', list.map(t => (t.productType || '') + ' ' + (t.productTypeName || '')).join(', '));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"categoryType\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getProductType",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getProductType"]
+            },
+            "description": "Product type codes. `categoryType`: Bus Tour = 1."
+          }
+        },
+        {
+          "name": "Get Region Info (Countries)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "const list = Array.isArray(json.data) ? json.data : (json.data && json.data.list) || [];",
+                  "if (list.length && list[0].regionCode) {",
+                  "    pm.collectionVariables.set('regionCode', list[0].regionCode);",
+                  "    console.log('Saved regionCode:', list[0].regionCode, list[0].regionName);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"regionType\": 1,\n  \"regionLanguage\": 3\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getRegionInfo",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getRegionInfo"]
+            },
+            "description": "Region library. `regionType`: 1=Country, 2=State/Province, 3=City. `regionLanguage`: 1=ZH-CN, 2=ZH-TW, 3=EN."
+          }
+        },
+        {
+          "name": "Get Region Info (Cities)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"regionType\": 3,\n  \"regionLanguage\": 3\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getRegionInfo",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getRegionInfo"]
+            },
+            "description": "City-level regions (`regionType` = 3)."
+          }
+        },
+        {
+          "name": "Get List Scenic (POI)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nameKeywords\": \"\",\n  \"scenicType\": 4,\n  \"regionCode\": \"{{regionCode}}\",\n  \"language\": 3\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getListScenic",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getListScenic"]
+            },
+            "description": "POI / attractions. `scenicType`: 4=Scenic Spot, 5=Attractions, 9=Others."
+          }
+        },
+        {
+          "name": "Get Aggregate Site (J/L Places)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nameKeywords\": \"\",\n  \"regionCode\": \"{{regionCode}}\",\n  \"isAirport\": 0,\n  \"language\": 3\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getAggregateSite",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getAggregateSite"]
+            },
+            "description": "Tour joining/leaving pickup points. `isAirport`: 1=Yes, 0=No."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2 — Product Catalog",
+      "item": [
+        {
+          "name": "Get Product List",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('code 200', () => pm.expect(String(json.code)).to.eql('200'));",
+                  "const list = (json.data && json.data.list) || [];",
+                  "if (list.length) {",
+                  "    const p = list[0];",
+                  "    const setVar = (k, v) => { pm.collectionVariables.set(k, v); try { pm.environment.set(k, v); } catch (e) {} };",
+                  "    setVar('productID', p.productID || '');",
+                  "    setVar('productCode', p.productCode || '');",
+                  "    console.log('Saved productID:', p.productID, '| productCode:', p.productCode);",
+                  "    const schemes = p.schemeList || [];",
+                  "    if (schemes.length && schemes[0].schemeCode) {",
+                  "        setVar('schemeCode', schemes[0].schemeCode);",
+                  "        setVar('hasPackageScheme', 'true');",
+                  "        console.log('Saved schemeCode:', schemes[0].schemeCode);",
+                  "    } else {",
+                  "        setVar('schemeCode', '');",
+                  "        setVar('hasPackageScheme', 'false');",
+                  "    }",
+                  "    if (json.data.pager) console.log('Pager:', json.data.pager);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productType\": \"\",\n  \"productForm\": \"\",\n  \"language\": 3,\n  \"productCode\": \"\",\n  \"departureCity\": \"\",\n  \"publishTimeStart\": \"\",\n  \"publishTimeEnd\": \"\",\n  \"updateTimeStart\": \"\",\n  \"updateTimeEnd\": \"\",\n  \"keywords\": \"\",\n  \"pager\": {\n    \"pageIndex\": 1,\n    \"pageSize\": 10\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getProductList",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getProductList"]
+            },
+            "description": "Paginated product search. `productForm`: 1=Package Bus Tour, 2=DIY, 3=Private Group."
+          }
+        },
+        {
+          "name": "Get Product Info",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('code 200', () => pm.expect(String(json.code)).to.eql('200'));",
+                  "if (json.data && json.data.productID) {",
+                  "    const setVar = (k, v) => { pm.collectionVariables.set(k, v); try { pm.environment.set(k, v); } catch (e) {} };",
+                  "    setVar('productID', json.data.productID);",
+                  "    if (json.data.productCode) setVar('productCode', json.data.productCode);",
+                  "    console.log('Product:', json.data.productID, json.data.productCode, json.data.productName);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productID\": \"{{productID}}\",\n  \"language\": 3\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getProductInfo",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getProductInfo"]
+            },
+            "description": "Full product details for a normal (non-package) product."
+          }
+        },
+        {
+          "name": "Get Product Info (Package)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productID\": \"{{productID}}\",\n  \"schemeCode\": \"{{schemeCode}}\",\n  \"language\": 3\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getProductInfo",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getProductInfo"]
+            },
+            "description": "Package product — `schemeCode` is required when the product has multiple schemes."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3 — Departure Dates & Prices",
+      "item": [
+        {
+          "name": "Get Product Date (Full)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "const dates = (json.data && json.data.productDate) || [];",
+                  "const open = dates.filter(d => Number(d.status) === 200);",
+                  "console.log('Open dates:', open.length, '| currency:', json.data && json.data.settlementCurrency);",
+                  "if (open.length) console.log('First:', open[0].date, 'stock:', open[0].groupStock);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productID\": \"{{productID}}\",\n  \"productCode\": \"{{productCode}}\",\n  \"mode\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getProductDate",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getProductDate"]
+            },
+            "description": "All departure dates. **Live API requires `productCode`** (R-code) in addition to `productID`. Run Get Product List first. `mode`: 0=full, 1=range, 2=specific. Status 200=open, 300=closed."
+          }
+        },
+        {
+          "name": "Get Product Date (Date Range)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productID\": \"{{productID}}\",\n  \"productCode\": \"{{productCode}}\",\n  \"mode\": 1,\n  \"productDateStart\": \"{{productDateStart}}\",\n  \"productDateEnd\": \"{{productDateEnd}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getProductDate",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getProductDate"]
+            },
+            "description": "`mode` = 1 requires `productDateStart` and `productDateEnd` (yyyy-MM-dd)."
+          }
+        },
+        {
+          "name": "Get Product Date (Specific Dates)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productID\": \"{{productID}}\",\n  \"productCode\": \"{{productCode}}\",\n  \"mode\": 2,\n  \"productDate\": [\n    \"{{productDateStart}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getProductDate",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getProductDate"]
+            },
+            "description": "`mode` = 2 with `productDate` array of yyyy-MM-dd values."
+          }
+        },
+        {
+          "name": "Get Product Date (Package)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const scheme = pm.variables.get('schemeCode');",
+                  "if (!scheme) {",
+                  "    console.warn('schemeCode is empty — pick a product from Get Product List that has schemeList, or set schemeCode manually.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productID\": \"{{productID}}\",\n  \"productCode\": \"{{productCode}}\",\n  \"schemeCode\": \"{{schemeCode}}\",\n  \"productClassify\": 1,\n  \"mode\": 1,\n  \"productDateStart\": \"{{productDateStart}}\",\n  \"productDateEnd\": \"{{productDateEnd}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getProductDate",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getProductDate"]
+            },
+            "description": "Package product dates. `productClassify`: 0=normal bus (default), 1=package. `schemeCode` required for packages."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4 — Value-Added Services",
+      "item": [
+        {
+          "name": "Get Promote Info",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "const promotes = (json.data && json.data.promote) || [];",
+                  "if (promotes.length && promotes[0].promoteCode) {",
+                  "    pm.collectionVariables.set('promoteCode', promotes[0].promoteCode);",
+                  "    console.log('Saved promoteCode:', promotes[0].promoteCode, promotes[0].promoteName);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productID\": \"{{productID}}\",\n  \"language\": 3\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getPromoteInfo",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getPromoteInfo"]
+            },
+            "description": "Optional add-on services for a product. For package products include `schemeCode`."
+          }
+        },
+        {
+          "name": "Get Promote Info (Package)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productID\": \"{{productID}}\",\n  \"schemeCode\": \"{{schemeCode}}\",\n  \"language\": 3\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getPromoteInfo",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getPromoteInfo"]
+            },
+            "description": "Package product add-ons — `schemeCode` required."
+          }
+        },
+        {
+          "name": "Get Promote Date",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productID\": \"{{productID}}\",\n  \"schemeCode\": \"{{schemeCode}}\",\n  \"promoteCode\": \"{{promoteCode}}\",\n  \"mode\": 1,\n  \"promoteDateStart\": \"{{productDateStart}}\",\n  \"promoteDateEnd\": \"{{productDateEnd}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getPromoteDate",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getPromoteDate"]
+            },
+            "description": "Available dates for an add-on. `promoteCode` from Get Promote Info. `mode`: 0=full, 1=range, 2=specific dates."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5 — Incremental Sync",
+      "item": [
+        {
+          "name": "Get Product Updates",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "const events = Array.isArray(json.data) ? json.data : [];",
+                  "console.log('Update events:', events.length);",
+                  "events.slice(0, 5).forEach(e => console.log(' -', e.updateType, e.productID, e.noteTime || e.noteTimeTz));",
+                  "if (events.length && events[0].productID) {",
+                  "    pm.collectionVariables.set('productID', events[0].productID);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productID\": \"\",\n  \"noteTimeStart\": \"{{noteTimeStart}}\",\n  \"noteTimeEnd\": \"{{noteTimeEnd}}\",\n  \"productClassify\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getProductUpdates",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getProductUpdates"]
+            },
+            "description": "Change log for incremental sync. `updateType` tells which API to re-call (e.g. 3→getProductInfo, 4→getProductDate). `noteTimeStart` / `noteTimeEnd` are mandatory (yyyy-MM-dd HH:mm:ss)."
+          }
+        },
+        {
+          "name": "Get Product Updates (Single Product)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "TokenCode", "value": "{{tokenCode}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productID\": \"{{productID}}\",\n  \"noteTimeStart\": \"{{noteTimeStart}}\",\n  \"noteTimeEnd\": \"{{noteTimeEnd}}\",\n  \"productClassify\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1/product/getProductUpdates",
+              "host": ["{{baseUrl}}"],
+              "path": ["openapi", "v1", "product", "getProductUpdates"]
+            },
+            "description": "Filter updates for one `productID`. `productClassify`: 0=normal bus, 1=package."
+          }
+        }
+      ]
+    },
+    {
+      "name": "6 — Booking (separate API — ask ToursBMS)",
+      "description": "**ENG-ProductOpenApi.doc does NOT include booking endpoints.**\n\nThis collection covers catalog + pricing only (`getProductList`, `getProductDate`, etc.).\n\nTo confirm or cancel with ToursBMS you need their **Order / Booking Open API** document (often a separate PDF, e.g. Order API or Reservation API). Typical flow once you have it:\n\n1. Create / hold order (draft)\n2. Confirm order → supplier order number / PNR\n3. Cancel order → by order ID or locator\n\n**What v10 does today (ToursBMS):**\n- Customer books + pays in PHP Travels\n- Admin **Issue** → local PNR only (`POST /modules/tours/toursbms/issue`)\n- Admin **Cancel** → local status only (`POST /modules/tours/toursbms/cancel`)\n- No supplier API call on confirm/cancel yet\n\n**Next step:** Request the booking API doc from ToursBMS / Jupiter Legend, then wire endpoints in `modules/tours/toursbms/actions/issue.php` and `cancel.php` (same pattern as Kikoto ferries).\n\nUse **`postman/local_toursBMS.json`** to test local issue/cancel against your MAMP app.",
+      "item": [
+        {
+          "name": "README — booking not in Product API",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://www.toursbms.com",
+              "protocol": "https",
+              "host": ["www", "toursbms", "com"]
+            },
+            "description": "This is a placeholder. Booking confirm/cancel requires a separate ToursBMS Order API spec from your account manager."
+          }
+        }
+      ]
+    }
+  ]
+}

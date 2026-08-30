@@ -1,0 +1,2199 @@
+{
+  "Data": {
+    "ConversationId": "A123456",
+    "FlightSegmentList": [
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T17:45:00",
+        "ArrivalDateTime": "2022-05-12T20:20:00",
+        "stops": 0,
+        "JourneyDuration": 155,
+        "Equipment": "320",
+        "OperatingCarrierCode": "UK",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "UK",
+        "MarketingFlightNumber": "820",
+        "StopQuantityInfos": [],
+        "SegmentRef": 0
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T21:10:00",
+        "ArrivalDateTime": "2022-05-12T23:45:00",
+        "stops": 0,
+        "JourneyDuration": 155,
+        "Equipment": "320",
+        "OperatingCarrierCode": "UK",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "UK",
+        "MarketingFlightNumber": "814",
+        "StopQuantityInfos": [],
+        "SegmentRef": 1
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T07:00:00",
+        "ArrivalDateTime": "2022-05-12T09:40:00",
+        "stops": 0,
+        "JourneyDuration": 160,
+        "Equipment": "320",
+        "OperatingCarrierCode": "UK",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "UK",
+        "MarketingFlightNumber": "810",
+        "StopQuantityInfos": [],
+        "SegmentRef": 2
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T08:00:00",
+        "ArrivalDateTime": "2022-05-12T10:40:00",
+        "stops": 0,
+        "JourneyDuration": 160,
+        "Equipment": "320",
+        "OperatingCarrierCode": "UK",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "UK",
+        "MarketingFlightNumber": "808",
+        "StopQuantityInfos": [],
+        "SegmentRef": 3
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T11:30:00",
+        "ArrivalDateTime": "2022-05-12T14:10:00",
+        "stops": 0,
+        "JourneyDuration": 160,
+        "Equipment": "320",
+        "OperatingCarrierCode": "UK",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "UK",
+        "MarketingFlightNumber": "816",
+        "StopQuantityInfos": [],
+        "SegmentRef": 4
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T19:40:00",
+        "ArrivalDateTime": "2022-05-12T22:25:00",
+        "stops": 0,
+        "JourneyDuration": 165,
+        "Equipment": "320",
+        "OperatingCarrierCode": "UK",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "UK",
+        "MarketingFlightNumber": "818",
+        "StopQuantityInfos": [],
+        "SegmentRef": 5
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T09:45:00",
+        "ArrivalDateTime": "2022-05-12T12:40:00",
+        "stops": 0,
+        "JourneyDuration": 175,
+        "Equipment": "320",
+        "OperatingCarrierCode": "UK",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "UK",
+        "MarketingFlightNumber": "812",
+        "StopQuantityInfos": [],
+        "SegmentRef": 6
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T20:25:00",
+        "ArrivalDateTime": "2022-05-12T23:25:00",
+        "stops": 0,
+        "JourneyDuration": 180,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9093",
+        "StopQuantityInfos": [],
+        "SegmentRef": 7
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T23:55:00",
+        "ArrivalDateTime": "2022-05-13T02:50:00",
+        "stops": 0,
+        "JourneyDuration": 175,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9322",
+        "StopQuantityInfos": [],
+        "SegmentRef": 8
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T09:20:00",
+        "ArrivalDateTime": "2022-05-12T12:05:00",
+        "stops": 0,
+        "JourneyDuration": 165,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9351",
+        "StopQuantityInfos": [],
+        "SegmentRef": 9
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T05:55:00",
+        "ArrivalDateTime": "2022-05-12T08:40:00",
+        "stops": 0,
+        "JourneyDuration": 165,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9050",
+        "StopQuantityInfos": [],
+        "SegmentRef": 10
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "SAG",
+        "DepartureDateTime": "2022-05-12T10:00:00",
+        "ArrivalDateTime": "2022-05-12T12:10:00",
+        "stops": 0,
+        "JourneyDuration": 130,
+        "Equipment": "DH8",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "1880",
+        "StopQuantityInfos": [],
+        "SegmentRef": 11
+      },
+      {
+        "DepartureAirportLocationCode": "SAG",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T14:25:00",
+        "ArrivalDateTime": "2022-05-12T16:15:00",
+        "stops": 0,
+        "JourneyDuration": 110,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9166",
+        "StopQuantityInfos": [],
+        "SegmentRef": 12
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "MAA",
+        "DepartureDateTime": "2022-05-12T08:10:00",
+        "ArrivalDateTime": "2022-05-12T09:10:00",
+        "stops": 0,
+        "JourneyDuration": 60,
+        "Equipment": "DH8",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9287",
+        "StopQuantityInfos": [],
+        "SegmentRef": 13
+      },
+      {
+        "DepartureAirportLocationCode": "MAA",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T13:05:00",
+        "ArrivalDateTime": "2022-05-12T15:55:00",
+        "stops": 0,
+        "JourneyDuration": 170,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9038",
+        "StopQuantityInfos": [],
+        "SegmentRef": 14
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "MAA",
+        "DepartureDateTime": "2022-05-12T20:50:00",
+        "ArrivalDateTime": "2022-05-12T21:40:00",
+        "stops": 0,
+        "JourneyDuration": 50,
+        "Equipment": "DH8",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "1820",
+        "StopQuantityInfos": [],
+        "SegmentRef": 15
+      },
+      {
+        "DepartureAirportLocationCode": "MAA",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-13T07:05:00",
+        "ArrivalDateTime": "2022-05-13T09:50:00",
+        "stops": 0,
+        "JourneyDuration": 165,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9381",
+        "StopQuantityInfos": [],
+        "SegmentRef": 16
+      },
+      {
+        "DepartureAirportLocationCode": "MAA",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T22:05:00",
+        "ArrivalDateTime": "2022-05-13T00:50:00",
+        "stops": 0,
+        "JourneyDuration": 165,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "1831",
+        "StopQuantityInfos": [],
+        "SegmentRef": 17
+      },
+      {
+        "DepartureAirportLocationCode": "MAA",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-13T13:05:00",
+        "ArrivalDateTime": "2022-05-13T15:55:00",
+        "stops": 0,
+        "JourneyDuration": 170,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9038",
+        "StopQuantityInfos": [],
+        "SegmentRef": 18
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "JLR",
+        "DepartureDateTime": "2022-05-12T15:40:00",
+        "ArrivalDateTime": "2022-05-12T17:25:00",
+        "stops": 0,
+        "JourneyDuration": 105,
+        "Equipment": "DH8",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9147",
+        "StopQuantityInfos": [],
+        "SegmentRef": 19
+      },
+      {
+        "DepartureAirportLocationCode": "JLR",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T18:30:00",
+        "ArrivalDateTime": "2022-05-12T20:25:00",
+        "stops": 0,
+        "JourneyDuration": 115,
+        "Equipment": "DH8",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9261",
+        "StopQuantityInfos": [],
+        "SegmentRef": 20
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "GOI",
+        "DepartureDateTime": "2022-05-12T05:45:00",
+        "ArrivalDateTime": "2022-05-12T07:45:00",
+        "stops": 0,
+        "JourneyDuration": 120,
+        "Equipment": "DH8",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "1689",
+        "StopQuantityInfos": [],
+        "SegmentRef": 21
+      },
+      {
+        "DepartureAirportLocationCode": "GOI",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T15:00:00",
+        "ArrivalDateTime": "2022-05-12T17:45:00",
+        "stops": 0,
+        "JourneyDuration": 165,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9420",
+        "StopQuantityInfos": [],
+        "SegmentRef": 22
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "PNQ",
+        "DepartureDateTime": "2022-05-12T10:45:00",
+        "ArrivalDateTime": "2022-05-12T12:15:00",
+        "stops": 0,
+        "JourneyDuration": 90,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9046",
+        "StopQuantityInfos": [],
+        "SegmentRef": 23
+      },
+      {
+        "DepartureAirportLocationCode": "PNQ",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-13T08:35:00",
+        "ArrivalDateTime": "2022-05-13T10:40:00",
+        "stops": 0,
+        "JourneyDuration": 125,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9437",
+        "StopQuantityInfos": [],
+        "SegmentRef": 24
+      },
+      {
+        "DepartureAirportLocationCode": "PNQ",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T17:05:00",
+        "ArrivalDateTime": "2022-05-12T19:25:00",
+        "stops": 0,
+        "JourneyDuration": 140,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9421",
+        "StopQuantityInfos": [],
+        "SegmentRef": 25
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "CCU",
+        "DepartureDateTime": "2022-05-12T05:15:00",
+        "ArrivalDateTime": "2022-05-12T08:25:00",
+        "stops": 0,
+        "JourneyDuration": 190,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "1753",
+        "StopQuantityInfos": [],
+        "SegmentRef": 26
+      },
+      {
+        "DepartureAirportLocationCode": "CCU",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T22:00:00",
+        "ArrivalDateTime": "2022-05-13T00:35:00",
+        "stops": 0,
+        "JourneyDuration": 155,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9106",
+        "StopQuantityInfos": [],
+        "SegmentRef": 27
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "CCU",
+        "DepartureDateTime": "2022-05-12T18:05:00",
+        "ArrivalDateTime": "2022-05-12T20:40:00",
+        "stops": 0,
+        "JourneyDuration": 155,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9146",
+        "StopQuantityInfos": [],
+        "SegmentRef": 28
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "BOM",
+        "DepartureDateTime": "2022-05-12T06:30:00",
+        "ArrivalDateTime": "2022-05-12T08:15:00",
+        "stops": 0,
+        "JourneyDuration": 105,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9126",
+        "StopQuantityInfos": [],
+        "SegmentRef": 29
+      },
+      {
+        "DepartureAirportLocationCode": "BOM",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-13T07:20:00",
+        "ArrivalDateTime": "2022-05-13T09:35:00",
+        "stops": 0,
+        "JourneyDuration": 135,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9487",
+        "StopQuantityInfos": [],
+        "SegmentRef": 30
+      },
+      {
+        "DepartureAirportLocationCode": "CCU",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T18:00:00",
+        "ArrivalDateTime": "2022-05-12T20:35:00",
+        "stops": 0,
+        "JourneyDuration": 155,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9104",
+        "StopQuantityInfos": [],
+        "SegmentRef": 31
+      },
+      {
+        "DepartureAirportLocationCode": "BOM",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T20:30:00",
+        "ArrivalDateTime": "2022-05-12T22:35:00",
+        "stops": 0,
+        "JourneyDuration": 125,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "933",
+        "StopQuantityInfos": [],
+        "SegmentRef": 32
+      },
+      {
+        "DepartureAirportLocationCode": "BOM",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T19:30:00",
+        "ArrivalDateTime": "2022-05-12T21:30:00",
+        "stops": 0,
+        "JourneyDuration": 120,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9389",
+        "StopQuantityInfos": [],
+        "SegmentRef": 33
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "BOM",
+        "DepartureDateTime": "2022-05-12T18:55:00",
+        "ArrivalDateTime": "2022-05-12T20:55:00",
+        "stops": 0,
+        "JourneyDuration": 120,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9172",
+        "StopQuantityInfos": [],
+        "SegmentRef": 34
+      },
+      {
+        "DepartureAirportLocationCode": "BOM",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T10:15:00",
+        "ArrivalDateTime": "2022-05-12T12:30:00",
+        "stops": 0,
+        "JourneyDuration": 135,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "1809",
+        "StopQuantityInfos": [],
+        "SegmentRef": 35
+      },
+      {
+        "DepartureAirportLocationCode": "BOM",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-13T19:30:00",
+        "ArrivalDateTime": "2022-05-13T21:30:00",
+        "stops": 0,
+        "JourneyDuration": 120,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9389",
+        "StopQuantityInfos": [],
+        "SegmentRef": 36
+      },
+      {
+        "DepartureAirportLocationCode": "BOM",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-13T10:15:00",
+        "ArrivalDateTime": "2022-05-13T12:30:00",
+        "stops": 0,
+        "JourneyDuration": 135,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "1809",
+        "StopQuantityInfos": [],
+        "SegmentRef": 37
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "PAT",
+        "DepartureDateTime": "2022-05-12T14:10:00",
+        "ArrivalDateTime": "2022-05-12T16:40:00",
+        "stops": 0,
+        "JourneyDuration": 150,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9416",
+        "StopQuantityInfos": [],
+        "SegmentRef": 38
+      },
+      {
+        "DepartureAirportLocationCode": "PAT",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T21:20:00",
+        "ArrivalDateTime": "2022-05-12T23:10:00",
+        "stops": 0,
+        "JourneyDuration": 110,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9232",
+        "StopQuantityInfos": [],
+        "SegmentRef": 39
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "DBR",
+        "DepartureDateTime": "2022-05-12T12:05:00",
+        "ArrivalDateTime": "2022-05-12T15:20:00",
+        "stops": 0,
+        "JourneyDuration": 195,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9123",
+        "StopQuantityInfos": [],
+        "SegmentRef": 40
+      },
+      {
+        "DepartureAirportLocationCode": "DBR",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-13T13:30:00",
+        "ArrivalDateTime": "2022-05-13T15:20:00",
+        "stops": 0,
+        "JourneyDuration": 110,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "1780",
+        "StopQuantityInfos": [],
+        "SegmentRef": 41
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "DED",
+        "DepartureDateTime": "2022-05-12T07:20:00",
+        "ArrivalDateTime": "2022-05-12T11:10:00",
+        "stops": 0,
+        "JourneyDuration": 230,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9472",
+        "StopQuantityInfos": [],
+        "SegmentRef": 42
+      },
+      {
+        "DepartureAirportLocationCode": "DED",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T19:40:00",
+        "ArrivalDateTime": "2022-05-12T20:45:00",
+        "stops": 0,
+        "JourneyDuration": 65,
+        "Equipment": "DH8",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9250",
+        "StopQuantityInfos": [],
+        "SegmentRef": 43
+      },
+      {
+        "DepartureAirportLocationCode": "BLR",
+        "ArrivalAirportLocationCode": "IXB",
+        "DepartureDateTime": "2022-05-12T05:55:00",
+        "ArrivalDateTime": "2022-05-12T08:50:00",
+        "stops": 0,
+        "JourneyDuration": 175,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "9337",
+        "StopQuantityInfos": [],
+        "SegmentRef": 44
+      },
+      {
+        "DepartureAirportLocationCode": "IXB",
+        "ArrivalAirportLocationCode": "DEL",
+        "DepartureDateTime": "2022-05-12T12:05:00",
+        "ArrivalDateTime": "2022-05-12T14:10:00",
+        "stops": 0,
+        "JourneyDuration": 125,
+        "Equipment": "737",
+        "OperatingCarrierCode": "SG",
+        "OperatingFlightNumber": "",
+        "MarketingCarriercode": "H1",
+        "MarketingFlightNumber": "1681",
+        "StopQuantityInfos": [],
+        "SegmentRef": 45
+      }
+    ],
+    "ItineraryReferenceList": [
+      {
+        "CabinClassCode": "Y",
+        "RBD": "O",
+        "FareFamily": "ECOYL",
+        "SeatsRemaining": 9,
+        "CheckinBaggage": [
+          {
+            "Type": "ADT",
+            "Value": "1PC"
+          }
+        ],
+        "CabinBaggage": [
+          {
+            "Type": "ADT",
+            "Value": "SB"
+          }
+        ],
+        "FareBasisCodes": [],
+        "ItineraryRef": 0
+      },
+      {
+        "CabinClassCode": "Y",
+        "RBD": "K",
+        "FareFamily": "",
+        "SeatsRemaining": 9,
+        "CheckinBaggage": [
+          {
+            "Type": "ADT",
+            "Value": "1PC"
+          }
+        ],
+        "CabinBaggage": [
+          {
+            "Type": "ADT",
+            "Value": "SB"
+          }
+        ],
+        "FareBasisCodes": [],
+        "ItineraryRef": 1
+      },
+      {
+        "CabinClassCode": "Y",
+        "RBD": "L",
+        "FareFamily": "",
+        "SeatsRemaining": 9,
+        "CheckinBaggage": [
+          {
+            "Type": "ADT",
+            "Value": "1PC"
+          }
+        ],
+        "CabinBaggage": [
+          {
+            "Type": "ADT",
+            "Value": "SB"
+          }
+        ],
+        "FareBasisCodes": [],
+        "ItineraryRef": 2
+      }
+    ],
+    "FulfillmentDetailsList": [],
+    "PenaltiesInfoList": [
+      {
+        "Penaltydetails": [
+          {
+            "PaxType": "ADT",
+            "RefundPenaltyAmount": "6070",
+            "RefundAllowed": true,
+            "Currency": "INR",
+            "ChangePenaltyAmount": "3000",
+            "ChangeAllowed": true
+          }
+        ],
+        "PenaltiesInfoRef": 0
+      },
+      {
+        "Penaltydetails": [
+          {
+            "PaxType": "ADT",
+            "RefundPenaltyAmount": "11400",
+            "RefundAllowed": true,
+            "Currency": "INR",
+            "ChangePenaltyAmount": "0",
+            "ChangeAllowed": true
+          }
+        ],
+        "PenaltiesInfoRef": 1
+      },
+      {
+        "Penaltydetails": [
+          {
+            "PaxType": "ADT",
+            "RefundPenaltyAmount": "19800",
+            "RefundAllowed": true,
+            "Currency": "INR",
+            "ChangePenaltyAmount": "0",
+            "ChangeAllowed": true
+          }
+        ],
+        "PenaltiesInfoRef": 2
+      },
+      {
+        "Penaltydetails": [
+          {
+            "PaxType": "ADT",
+            "RefundPenaltyAmount": "20200",
+            "RefundAllowed": true,
+            "Currency": "INR",
+            "ChangePenaltyAmount": "0",
+            "ChangeAllowed": true
+          }
+        ],
+        "PenaltiesInfoRef": 3
+      },
+      {
+        "Penaltydetails": [
+          {
+            "PaxType": "ADT",
+            "RefundPenaltyAmount": "20199",
+            "RefundAllowed": true,
+            "Currency": "INR",
+            "ChangePenaltyAmount": "0",
+            "ChangeAllowed": true
+          }
+        ],
+        "PenaltiesInfoRef": 4
+      },
+      {
+        "Penaltydetails": [
+          {
+            "PaxType": "ADT",
+            "RefundPenaltyAmount": "20500",
+            "RefundAllowed": true,
+            "Currency": "INR",
+            "ChangePenaltyAmount": "0",
+            "ChangeAllowed": true
+          }
+        ],
+        "PenaltiesInfoRef": 5
+      },
+      {
+        "Penaltydetails": [
+          {
+            "PaxType": "ADT",
+            "RefundPenaltyAmount": "20700",
+            "RefundAllowed": true,
+            "Currency": "INR",
+            "ChangePenaltyAmount": "0",
+            "ChangeAllowed": true
+          }
+        ],
+        "PenaltiesInfoRef": 6
+      },
+      {
+        "Penaltydetails": [
+          {
+            "PaxType": "ADT",
+            "RefundPenaltyAmount": "20900",
+            "RefundAllowed": true,
+            "Currency": "INR",
+            "ChangePenaltyAmount": "0",
+            "ChangeAllowed": true
+          }
+        ],
+        "PenaltiesInfoRef": 7
+      },
+      {
+        "Penaltydetails": [
+          {
+            "PaxType": "ADT",
+            "RefundPenaltyAmount": "21300",
+            "RefundAllowed": true,
+            "Currency": "INR",
+            "ChangePenaltyAmount": "0",
+            "ChangeAllowed": true
+          }
+        ],
+        "PenaltiesInfoRef": 8
+      },
+      {
+        "Penaltydetails": [
+          {
+            "PaxType": "ADT",
+            "RefundPenaltyAmount": "22779",
+            "RefundAllowed": true,
+            "Currency": "INR",
+            "ChangePenaltyAmount": "0",
+            "ChangeAllowed": true
+          }
+        ],
+        "PenaltiesInfoRef": 9
+      },
+      {
+        "Penaltydetails": [
+          {
+            "PaxType": "ADT",
+            "RefundPenaltyAmount": "23050",
+            "RefundAllowed": true,
+            "Currency": "INR",
+            "ChangePenaltyAmount": "0",
+            "ChangeAllowed": true
+          }
+        ],
+        "PenaltiesInfoRef": 10
+      },
+      {
+        "Penaltydetails": [
+          {
+            "PaxType": "ADT",
+            "RefundPenaltyAmount": "23200",
+            "RefundAllowed": true,
+            "Currency": "INR",
+            "ChangePenaltyAmount": "0",
+            "ChangeAllowed": true
+          }
+        ],
+        "PenaltiesInfoRef": 11
+      }
+    ],
+    "FlightFaresList": [
+      {
+        "FareType": "Public",
+        "Currency": "SGD",
+        "PassengerFare": [
+          {
+            "PaxType": "ADT",
+            "Quantity": 1,
+            "BaseFare": "136.18",
+            "TaxBreakUp": [
+              {
+                "Amount": "0.00",
+                "TaxCode": "YQ"
+              },
+              {
+                "Amount": "2.33",
+                "TaxCode": "YR"
+              },
+              {
+                "Amount": "17.22",
+                "TaxCode": "XT"
+              }
+            ],
+            "TotalFare": "155.73"
+          }
+        ],
+        "FareRef": 0
+      },
+      {
+        "FareType": "Public",
+        "Currency": "SGD",
+        "PassengerFare": [
+          {
+            "PaxType": "ADT",
+            "Quantity": 1,
+            "BaseFare": "231.78",
+            "TaxBreakUp": [
+              {
+                "Amount": "43.67",
+                "TaxCode": "YQ"
+              },
+              {
+                "Amount": "62.77",
+                "TaxCode": "YR"
+              },
+              {
+                "Amount": "27.19",
+                "TaxCode": "XT"
+              }
+            ],
+            "TotalFare": "365.41"
+          }
+        ],
+        "FareRef": 1
+      },
+      {
+        "FareType": "Public",
+        "Currency": "SGD",
+        "PassengerFare": [
+          {
+            "PaxType": "ADT",
+            "Quantity": 1,
+            "BaseFare": "382.48",
+            "TaxBreakUp": [
+              {
+                "Amount": "87.35",
+                "TaxCode": "YQ"
+              },
+              {
+                "Amount": "125.55",
+                "TaxCode": "YR"
+              },
+              {
+                "Amount": "43.22",
+                "TaxCode": "XT"
+              }
+            ],
+            "TotalFare": "638.60"
+          }
+        ],
+        "FareRef": 2
+      },
+      {
+        "FareType": "Public",
+        "Currency": "SGD",
+        "PassengerFare": [
+          {
+            "PaxType": "ADT",
+            "Quantity": 1,
+            "BaseFare": "389.61",
+            "TaxBreakUp": [
+              {
+                "Amount": "87.35",
+                "TaxCode": "YQ"
+              },
+              {
+                "Amount": "125.55",
+                "TaxCode": "YR"
+              },
+              {
+                "Amount": "40.41",
+                "TaxCode": "XT"
+              }
+            ],
+            "TotalFare": "642.92"
+          }
+        ],
+        "FareRef": 3
+      },
+      {
+        "FareType": "Public",
+        "Currency": "SGD",
+        "PassengerFare": [
+          {
+            "PaxType": "ADT",
+            "Quantity": 1,
+            "BaseFare": "389.60",
+            "TaxBreakUp": [
+              {
+                "Amount": "87.35",
+                "TaxCode": "YQ"
+              },
+              {
+                "Amount": "125.55",
+                "TaxCode": "YR"
+              },
+              {
+                "Amount": "43.58",
+                "TaxCode": "XT"
+              }
+            ],
+            "TotalFare": "646.08"
+          }
+        ],
+        "FareRef": 4
+      },
+      {
+        "FareType": "Public",
+        "Currency": "SGD",
+        "PassengerFare": [
+          {
+            "PaxType": "ADT",
+            "Quantity": 1,
+            "BaseFare": "394.99",
+            "TaxBreakUp": [
+              {
+                "Amount": "87.35",
+                "TaxCode": "YQ"
+              },
+              {
+                "Amount": "125.55",
+                "TaxCode": "YR"
+              },
+              {
+                "Amount": "40.68",
+                "TaxCode": "XT"
+              }
+            ],
+            "TotalFare": "648.57"
+          }
+        ],
+        "FareRef": 5
+      },
+      {
+        "FareType": "Public",
+        "Currency": "SGD",
+        "PassengerFare": [
+          {
+            "PaxType": "ADT",
+            "Quantity": 1,
+            "BaseFare": "398.58",
+            "TaxBreakUp": [
+              {
+                "Amount": "87.35",
+                "TaxCode": "YQ"
+              },
+              {
+                "Amount": "125.55",
+                "TaxCode": "YR"
+              },
+              {
+                "Amount": "40.86",
+                "TaxCode": "XT"
+              }
+            ],
+            "TotalFare": "652.34"
+          }
+        ],
+        "FareRef": 6
+      },
+      {
+        "FareType": "Public",
+        "Currency": "SGD",
+        "PassengerFare": [
+          {
+            "PaxType": "ADT",
+            "Quantity": 1,
+            "BaseFare": "402.17",
+            "TaxBreakUp": [
+              {
+                "Amount": "87.35",
+                "TaxCode": "YQ"
+              },
+              {
+                "Amount": "125.55",
+                "TaxCode": "YR"
+              },
+              {
+                "Amount": "41.04",
+                "TaxCode": "XT"
+              }
+            ],
+            "TotalFare": "656.11"
+          }
+        ],
+        "FareRef": 7
+      },
+      {
+        "FareType": "Public",
+        "Currency": "SGD",
+        "PassengerFare": [
+          {
+            "PaxType": "ADT",
+            "Quantity": 1,
+            "BaseFare": "409.34",
+            "TaxBreakUp": [
+              {
+                "Amount": "87.35",
+                "TaxCode": "YQ"
+              },
+              {
+                "Amount": "125.55",
+                "TaxCode": "YR"
+              },
+              {
+                "Amount": "45.72",
+                "TaxCode": "XT"
+              }
+            ],
+            "TotalFare": "667.96"
+          }
+        ],
+        "FareRef": 8
+      },
+      {
+        "FareType": "Public",
+        "Currency": "SGD",
+        "PassengerFare": [
+          {
+            "PaxType": "ADT",
+            "Quantity": 1,
+            "BaseFare": "435.91",
+            "TaxBreakUp": [
+              {
+                "Amount": "87.35",
+                "TaxCode": "YQ"
+              },
+              {
+                "Amount": "125.55",
+                "TaxCode": "YR"
+              },
+              {
+                "Amount": "42.72",
+                "TaxCode": "XT"
+              }
+            ],
+            "TotalFare": "691.53"
+          }
+        ],
+        "FareRef": 9
+      },
+      {
+        "FareType": "Public",
+        "Currency": "SGD",
+        "PassengerFare": [
+          {
+            "PaxType": "ADT",
+            "Quantity": 1,
+            "BaseFare": "440.73",
+            "TaxBreakUp": [
+              {
+                "Amount": "87.35",
+                "TaxCode": "YQ"
+              },
+              {
+                "Amount": "125.55",
+                "TaxCode": "YR"
+              },
+              {
+                "Amount": "46.15",
+                "TaxCode": "XT"
+              }
+            ],
+            "TotalFare": "699.78"
+          }
+        ],
+        "FareRef": 10
+      },
+      {
+        "FareType": "Public",
+        "Currency": "SGD",
+        "PassengerFare": [
+          {
+            "PaxType": "ADT",
+            "Quantity": 1,
+            "BaseFare": "443.42",
+            "TaxBreakUp": [
+              {
+                "Amount": "87.35",
+                "TaxCode": "YQ"
+              },
+              {
+                "Amount": "125.55",
+                "TaxCode": "YR"
+              },
+              {
+                "Amount": "46.27",
+                "TaxCode": "XT"
+              }
+            ],
+            "TotalFare": "702.59"
+          }
+        ],
+        "FareRef": 11
+      }
+    ],
+    "PricedItineraries": [
+      {
+        "FareSourceCode": "dnZJNGdDVW5ISTI1RHhCNVlWSC9JaWw2NU1RVW5WWFBHaUlkeitYWFZtSzhNbEJyc1ZBcVluSVFsTnc5dkRCd3dQTnY2b0RXdGt6Nk0zak81bHV4RUwyeHp5bzl4b3MxNjNrUFJ4aEhyejg5b253cm96UzZGRVl3Skxjay9xdTZXMS9WWjJtSnhCZ041dU5FQno1Nlk3ZkdaRXdrc2hXc0ZHdGNSWFNML0dVPQ==",
+        "ValidatingCarrier": "UK",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 0,
+            "ItineraryRef": 0,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 0,
+        "PenaltiesInfoRef": 0,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "TlNyZHVMZmJpN01OOTZxaTdRRU9hTDNqWXZLSjViUzg0OUJES1lQUUs3TlBoMVN4VkhEUWMvWjZSOFNacERGNG0wZDNBZ3VTQS9LMFEwWG9VcFJ4cjRBR3NFYTFCMktGYzk3dTIyeHJybTc4ZndFNHpXSkxvejN3QXJhWWVGMzV3UURNb09UcWdqemtxSFpaL0hVUy9ERXFGRVJYZjNFZEE5c2w5VnJ5QjdNPQ==",
+        "ValidatingCarrier": "UK",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 1,
+            "ItineraryRef": 0,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 0,
+        "PenaltiesInfoRef": 0,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "eVY0TVF3YUo0SXN2VmR4Tm5EWnRBeEZMaGFvZmhzZllOOEZjajhOb2JNOFNHSDFhRnd3b3kzY0w4aXUzSXMvQWZJczNHdjVoWWdRZ1ZpY1ZydW5Sa0ZKOFpJVTlDOE5QeDhqbmNjMWgvY3hHVTBjWGpUeDJkNk5yZ0dlYkk0cy80aHFVYVlaTVY5Q3VvNVR4clQ5Q3FMVUJvSUQxeWZqNURseXEzQXdJZitzPQ==",
+        "ValidatingCarrier": "UK",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 2,
+            "ItineraryRef": 0,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 0,
+        "PenaltiesInfoRef": 0,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "RkQ3YStaTndiYUwxb2JzNFFuWldpSUZNUFBvbkV6U0h0YkthUzd6NHZtemZYbjI2Y2ozQ3BFaU9lTUJQaXZOckRUY3NjWm53aENlVE5HZitOejg0Z084bXF5ZkxRK0VVZ0VOd2tiVXdzNEVEcnlCUkdNVUlwMExKSVErL1REOUl5WkNNMHZkQnNjQTBTOU12bGdPemVCL0E5Q3pXaHRHNWZPcEYxZnpjNXNRPQ==",
+        "ValidatingCarrier": "UK",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 3,
+            "ItineraryRef": 0,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 0,
+        "PenaltiesInfoRef": 0,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "dWJXSjE5dEtINU43c0d3VS9janV5QTZoamhkZVZjTHVRczFSSjAvV01SaHc4RmNpdkVkWUxpRi9jN0p6dU1lekNscWxEaEtSMG9CUE0vQ0ZTQ3ZpdldMT2hHSmFhWEdqNkY3d0x2V2R4NmdHTUpUYXM3T0lzQzd2N3BnMXBqaHdSYUxDd2pkbVRUT09iZFJJakFpcHQ0bHhOaEZaczI4NjZyVGl2bGRtOEhVPQ==",
+        "ValidatingCarrier": "UK",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 4,
+            "ItineraryRef": 0,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 0,
+        "PenaltiesInfoRef": 0,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "SDJyNzlaUlA0cGtaREJjZkRYVmo1S1ZhanhTUUNORTJ4QWZicE4yaFArdFJFdENCNTczei9taklTeEg5SStZdkRNbHNzT1pmem9zY2JaSHkvOWRpaWFHK3cxUm9WQll1K3F3Y0RLVDRFWEhyNytJTVlyZFdXY3FRKzQwejVNYmVYTXNicVduM20zUlJvQmZqcGtaY2hDZzJIUGhXT3dEME5SSStuMDVQTG9RPQ==",
+        "ValidatingCarrier": "UK",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 5,
+            "ItineraryRef": 0,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 0,
+        "PenaltiesInfoRef": 0,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "NWlmRWxTdTRPOXJCZ0NJQjRWbEpRN3h0d1lGOGQ2NVR4dnZOM1BDR0dPSGx3ZXVCeEpLTGgya2FUb2t5SThCZkpySHZ5UnlvMUhyTVd1TjNxZy82SEpsSmkzWUFLZURpejkzdnhDUllGWlF6Q1NHTE1MWGJNejhkR1ZSK3g5SUVGMStzTm5McHJhTXRINXl0c2wrZ3BwdG4wTXdWbW5tOGxpZktzOWRHa0NVPQ==",
+        "ValidatingCarrier": "UK",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 6,
+            "ItineraryRef": 0,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 0,
+        "PenaltiesInfoRef": 0,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "SElWUzJsS3NZb0RqbTc4U3dJWDl6VUJRZ1Y3QUt4cExuOFlyNnJqREpnYzV1MjJVWTlMNVNiYzByOVE1VFN4alRETWZURDFHRWFJT3FjdzdWUzh0THdTclBmOXBsVEIrUWV6a0JPVGZ2b29HOGhVMDlNbWpuNFJ5VURpV1ZWQ0doWDNnUGU4LzhzZkFKSzh1c1p0akUwemxTdTJrYlltMC8yVE8ySkJoVFJRPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 7,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 1,
+        "PenaltiesInfoRef": 1,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "S3FvbWh6d0ZuMDQ4TUJUd0tSWVpQUldLcG9DWU1KWUxSM042RXFGc3pVMlYvUTdoZndrcitrdlR3NjFPTktjejdsSHVDOXNqckd4VmoyS0syajlEaWVhSUNOK215OEZOUis0a2xCQ0dyTDFqMHYwWnhIUStXbFVZalZBbWxsYUgwUUY4b2xQSWg0VmxUT1FGS0JQcjE2cGtHak1maHBJdzVzTVExQTlRQitZPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 8,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 1,
+        "PenaltiesInfoRef": 1,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "dG5VbUxNaFZIWWJpUk9PQm1kM0ZpMHgzNTU0dEtwd2lhTEE0bEszczI3TVB4VU5DSnRMVUFieTVWeVArVElhUEVtckRBaXR1WW9hMDB2ZlQ2VDdYTjhmNmc4d2VSVVFKanJzNTgvRGFpcTFlTVYvOGY4QUdWd3QyS2gxSDBVWUt3UkF0QlNhM1orWEVTaTRoVTVIbmpsTStBV0U3S3lXUC9keDVZSVVBNUMwPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 9,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 1,
+        "PenaltiesInfoRef": 1,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "b0l0T1FwQ0ZQQWlFME1BS1ZvVFp3MGZzVEs4OGMzZkZPdlZHQ0NXTjJEUUVlQmNjc2d4MTJYcE5BRmZDT2Q4WU1FZnlwVldlTVhWV2NUdnI0SmpnRjJpb2h4TWUxVk5pYkJxdThxeFRJWXBRV1V3ZnV0VnhNNzJTSUo2NEVzbHY2R0JGSGpWeW53dFRzN1YzcEhvWUwwMmdpbTVQSmFIenVlY0N0KzhDZmp3PQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 10,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 1,
+        "PenaltiesInfoRef": 1,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "OFZrcGRoZUswL3VJcmdZUnVCOW5nVUxuRVZFTmNlWGhFMlJhaSt3MlRRbU4xUVlhOUh4UmZOVkVxWXBXaHdyZjk1ajlmTURtNzlKRlNSb2I2K1p6WkRzcTZjZStWUmRHbjh2dFlxRnpwYlZEZm53MWo2VDRHT1FISGxUVnZZSmZ3TjZFYnh4WU9XK1FycW1RYWZ1S0phdWZkZzdUSmZKNU8rYVQyekJEV2JjPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 11,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 12,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 2,
+        "PenaltiesInfoRef": 2,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "UXJrZGJ5UlZCenowdlJNTFRMazBFczdhUHdtckw5NExJdU5aNjFTaXIyZkcwUTRuZjR5TlJCUllWSUlkKysrZTM3YUJabWU3dVN1cTJVcmtsb1U4WFRHeXdOUERQN1BWbjRpOEE0UUlxNmZOcUIzZTBsODlnYTJJSytra2RGWXBiQTdvWkp4Sm8xSDcrbURlbjh0b3d6bWFOdFRmYXI0VHlvVExQS01LRXVJPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 13,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 14,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 3,
+        "PenaltiesInfoRef": 3,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "eitFdlMydFEweXRWa0sxK3dDb0l4ekl0Zld0U0cxMjRmakVrNkNsem4ybmlrMUtyeGIrU1BOU3FML3MxS3I4a2dwa0FjZnRYVHl0NU5aNm93VEhrVm4wdW9RaDdkTDlnaTZ1d01ab1VWL2VML2VvWmlGbW0yVFp4RXF6WVpDQk13Zkp4aEFjdjFmcFgxekFlQkh2YWpnOTNBY05XbEk2dnZFZ3c1dEVvSEVjPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 15,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 16,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 3,
+        "PenaltiesInfoRef": 3,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "UFpDb0lXNlF1OWk5YnV2NzFCbWhhenNob2cvemFiUk93akZaYnl0azJ6SkpuQWhrNUdwbU5vd1l0MXlqTUpHbG9aUVdWdmh4bVNpb2JSbmN5NEZRQlZCMDJJa0VmSTUvY2pkVHFSd1ZtR3Q1TURTbFRNVW5ZZDQxOG8yZzRrMktvNmc0ZVcrT2Q1QTlQcEJRdTcySXZoZG0rT01MaTFMdTBXcFRsdldNaVBzPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 13,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 17,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 3,
+        "PenaltiesInfoRef": 3,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "U2crQXF3RTlJZFBhejVUaEcwenk3YXpQNEh5NWpHL2tqRTJpQzVsUWVCa1dDaURabi9aZlNiL3hRc0diczR2R0NVeXVyK1dVWHVxLzVsOGRGeUNEOEwxbkw1RHFRdXl3Y3VpQXlPV2hUb3hlNkRGUXlkcEVvQkNzR3ZsNUZTNS80Sm9nYlhTaWJFMXpYMkRBQ01uZC9BSzY2UHVPdm8wSjN0ZTcwVHFVU0M0PQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 15,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 18,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 3,
+        "PenaltiesInfoRef": 3,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "U3ltZkJBNSttaHNIL1Z2WnVSRFptTEplY1FDeUVaK0pqblRPenh6Q1JmMDNFenNjS2lZRXVnNVhPSHdtb1JnaFhIREtXdmNoVHRoM1pGTmRyYm9oY1lwZE1xNEpzWnVSYlVTbk02QnZUYXkwQU9CdzRMOFpHK0w3MjVJOVA4SHQ2WkFOVDllcitoR0VGZ2RBZDlvRUJRQzlEWHRYSkdtQ3A4amY4dTVyNHhFPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 13,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 16,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 3,
+        "PenaltiesInfoRef": 3,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "N2YraC91UkFsd1pnSVRGOWlKanVzaFc0Q3RLeXg0WFJkeUkyeERnZ2VjUVVJS1I0R2J1TXZoVzJYdXNXQ244bEpyV1hJWVJzaGNyTXRpOGJQdThNeWdSbWc4eXl1QUo2SjNsOW1IRW9LMTUxcmFtL01DYTVGa0QxampGMWdtdzJrcExxQWtqQnpYMDk3RzFKUWNjRUFKVFRBYnRFNU1DQnkybDdWZE5qaWdRPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 19,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 20,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 4,
+        "PenaltiesInfoRef": 4,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "V3dLOVo5b0h2dnJUNE1xbmx4a0hKWjdoUnZxVTczZ3B2QXdqTloxWUtNaEMwNUZzOG02cFRiUUwyeXRHeWVnT05OUDNja3dNNnFobnlGTldPeUppb3hmY1lWZ1JKRjM3Z1lpQ0tpRFp3dHoyWEVRTzA1SHFhYWZMclI4QXMrbzlMVWk2YXhLak5TTWJic3F0cGk0KzhjVFlRT1AyZVBIYzlBT2ZIRHR2VUQwPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 21,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 22,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 5,
+        "PenaltiesInfoRef": 5,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "aDdhS2I4L3puUWZISENXMys1WGtCclZ3aUwwV1BwY0YyNlVaNzVRR2JMcnJ3eVFLK1Q3QUlEY25vOUJVNTM1ZzAreXZWeTcvM252azZsUDh0VVlMUDBiRlB2OFlkN1BhdHpNWk1HLy9jek01eW1ZcFBOY1l3b3NCaDNteElHMHBoKzIvU1BVRFdORXlnTnJ5K3FpTlNHOEp1OUdYWm9XRUdldk15YWRoWTVVPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 23,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 24,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 6,
+        "PenaltiesInfoRef": 6,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "NDlxRktQYlQ5ZnljSjRBb3lTR01pOHNYVDNEZXBjdDZOS3NueTN5RFcyRHI5dVFNWGlmVHhJTlN3UE4yWTNmU1ZyTnZPWmdEOGNLOUxSOWluWFM0dDBvb0gydno4NUs1MUY2QTE0MFRObElLUlFPQStpbEJFcEVkWmxHdGgrNjBSaXQ4QU9IRDQzekdtK0Y4N2tYV0tveWZNTmN5UFZwdVFYRE94WTY1Vi9vPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 23,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 25,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 6,
+        "PenaltiesInfoRef": 6,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "S1Urc1VNdHFKZU12WEgzcVdhV0JnNTd4VUF2ekxFWlBoV2svMkI3OXVySGJHL3FMNHlCcDdaMmU2a05qUEhPYVdhTDVoU25WUEx0ODR0QU1HRllaRlVqYXJ6SFVpbE5saEJpMG9Pa0xhK240UEp4U2Y5SXJMRllmRm0vM1dPRmRvWUJoQ05iSXhDTHNXSzB0YlJrSEc3MXlvNWZ4dVpQQnhxU1craGhSMEc0PQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 26,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 27,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 6,
+        "PenaltiesInfoRef": 6,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "bVF3WlBWakxhUzRUNmtqajd4V2w1bldFdmtkZ21FcDQyMkt0NFVmcm1SM1dZOXR1UnhqMkpkU01JZXNFOGMrVG1PZmhjOHJQRnppZ3ZQUlphbXF5THBOc1FxQ1BNM3hZV2pVaFQ0ZEZSTHczOTJYNFd1MU1XSGN4UitHcnA2QkUxRkh2VmFDaHpNTGtmbVViK3crYng0Z3NaNjBaN3oyVTl6d0pWQW5SemlZPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 28,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 27,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 6,
+        "PenaltiesInfoRef": 6,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "c0EvbldDQWhzcHhMcVNPNjMxQm5Rcm1HSFp1VGFBaVJ0VEhMRjJPVkJ3TlhFUXpYUW9EQ0IzSFpqa2YrUm9RTXEvWTZYSnJtaWhmNmdLU1BhZWVJcHcraXFodlJPL0VrZXBhdzlxT05ET2d6UFhzNEM2amJ1V09GK2JRenVLVEtpRjE1Zi8weDFHT2FVc2lzV2VBNjhwVXZBOU1NSEd6d3U4MjNickJzVElvPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 29,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 30,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 6,
+        "PenaltiesInfoRef": 6,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "V3pSaUhJOFVJa0g0L0JpOUtnV3pXQ1BOK01GSGZiUTV0a0hQNUR3ZU5CZ0xWRzFySDVjaFlPblJQdENGeWR2NEJTdmp2OW92VUNDVW43bEpyY2FuUlJVc1RXdUlLVzY0anhLRkdBU3QycVlmZHdnVGVWNDFqRW9TdXJqYXN1Y0h2NWhDZFpyOUl0UUFCTm1jY2o0enIzZTVkVjAzOTB1aWtnS011WUpvWXlFPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 26,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 31,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 6,
+        "PenaltiesInfoRef": 6,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "RnNWb0pSaGVrd0Rhb1dTbHNlR3orWVY0dW50N0tHSDVkNFdBRXlkRFhZQnJlbmlsRVY5VmxZMThWN05xNDlsSFJ3ejJpbkVCWXcvUk9qQzRVWEp2ZWFBYmpvOXdKalAzVXlIVUdsVm44T1FDY0UxWVZvYkpMTUljZWtGYmVHNmpDM1VralFaSTE1eHl4RmJyYkRteWtxb05zZThsVCtheXlLNEpmdkZTRkJvPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 29,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 32,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 6,
+        "PenaltiesInfoRef": 6,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "SGxQM2FmRVNmM3Nodzdvc1VjSTBXaS9FUm1LQzJsWk5seGl6ZnNmWTlVcDh0ZHJuTE1mTXZGdDlpOS81TEJTZk5HbDNUT0l2OXNxVkJsT1htdGQzbVRDT0dHV0lDQUUrQzV4UEJyT3hUeHBHdVFveFdvMVVaQ29HVnJCemMrN2Q5ZVVtcW0xN3YyeE5SOTlpa2J3NEpUMFAwWHJnZFczZDY2Z0t5WmZuaGVBPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 29,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 33,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 6,
+        "PenaltiesInfoRef": 6,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "RTlZY0ZCbkFtalZrbHM2S0RQaGtXenZPRHh6TXUxcFBiSjEwR3ovRHg5OGRjNWduZjNJVm1YN2MxNzVRemRaaFhpT2JVcDVPQVVFRExwMjJhQ29sUzQ3Q1lybThiTis4WFhLUjdXOFNTb3E4WU5iUEJHTTMwYVMzR3BUZmtJWWc3dDFxYWIxQWJqbW5nY3dmUDJtMWdXRzVpTHExZmNnNVdDU2Y1UG9VbzdZPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 34,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 30,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 6,
+        "PenaltiesInfoRef": 6,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "dWY4VEU1YkdlM1haa3Q4OUJxVDR1bXlVY0FacDY0OG1PZ1htcjZ3ODJrTENZWFd0UGtkMWd2LzM1ZTRNemV2bDdoNm5FSTY5OFNBUk5yYW52YXFDdm92ejVkWXJZMGJjWUZsdHhpVFhOd01FUmRZa3M1a0k0UzhVMDA3bUpIV2R4V043TTRwM0RObGU1b0FKWUZxdGpVNm5PbXB4OUFkcGJIRmNzQTJHM1BVPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 29,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 35,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 6,
+        "PenaltiesInfoRef": 6,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "LzRsOGErb2tUdXFwejJBRTZvM0h5bnJ2MnRYVDJZVDVQUTRsMXpSM29QajUycjUrYkNpWWhyR0tldlBDQkFWZUlLd0w4OHp5M3pHdDFTakNZb3dPK2xKbjJ1TjRCN3NXUzZYT05ZVGMrcHQwd2I3enRjK29SWlAwRHdaeG9PTGY2S1BJK2VTWGNzSWN6RmRTRkl5akUzTFNIdG1RQ0E2U29kSitocXYwT21vPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 34,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 36,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 6,
+        "PenaltiesInfoRef": 6,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "VmRjSC9yWU54enNZNE9Va2JtaVMzUDZzUkFTUEl0ZUozVlMyVWpWeWVlbjl1R0JBN1FyZ2U3VmVUdEJpTm95Z25GclRpb1pHZ044WWlZTDRtV01kMmNPd05zbzFJbTVXMlJSZm0zYjRQMTF0NEpaM04rKzVyR0I5M2RtYTRoWGFiU0JNQzFDaDVTRHpVVjRoNFRIaTF0cUJJdVR4bS9ZZXRTQk1wMkg4WlpvPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 34,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 37,
+            "ItineraryRef": 2,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 7,
+        "PenaltiesInfoRef": 7,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "aVA1aWJMNUQrVk5wZmtjUjNRUnBiTHFjVE8xNXBpT2RiNjYxUllGZ0hJSjdPamRXc1FQaEx4ZW4zbFhDd0FMckxvU05Ic3RWT2xud2RNTTNJaFl0NnhCOE1TN1VPY2wzR2Q4SVQ0Nm5FQjlzQWwrUlU5a09UUUtzR0xMNElPR0o3UC9RSTNSNjc3ZTEyWkIyYTFFUEVIY1Jub2o4dmJqRityQm1jNWJ4alZFPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 38,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 39,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 8,
+        "PenaltiesInfoRef": 8,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "WThNK3ltK1VvWUJ2YTBjdVRidmlxNHJOVzNCc1ZjTkJuNlJwUjlDNXdOMHhQSy9Jb0xyYWpmMVJSZ1kraHNLRTloK1RWTWJUb0pPdVlVd2k4TFkzZzlhUkIwVGRXYzhqV01mVTNjQzE2UG9nb3RoY1Jrd3VLblo4cTVybmtIWHJXNHI0b01rKy9zd280anVrNTZMQzJrNEZHYlV3TytnMWJONjZMKzZPMGJ3PQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 40,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 41,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 9,
+        "PenaltiesInfoRef": 9,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "Z2lxeXRvcVU1U0EzTjdpbkJCUzMza0tLYnNTOE94R2puMURJZ1hYdGhFSzE1bXhhVllvZTltNmhIU0FrbXNIdXI2ejVoSmhEN1I1dkIwTmFWQnJpMGlsejlvbXk2ZEVOZ1E4cExJTXB0SGhjYXNWaFh0WXJmaUVTWlZsdG4rN3o1NUpORDM0bkc0dHNlNGphdGtENHF6SDNDWUQ3aTZOWExtb0xWL2x2c3J3PQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 42,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 43,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 10,
+        "PenaltiesInfoRef": 10,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      },
+      {
+        "FareSourceCode": "Yjd5ZmJjZVRCWGttelo1dW9oZmFIZ1FvS3ROSHlTNHBwRS9pWkdjZk5STis1NzZ6VWFHVG1yZjNiYlIyYkN3VEQ4WXNtb0dzSGdCVGs5WjJQeWpJY2VEZE9VdE51UFdFR0tFTjVRaTIvdUkvck5kRlE1WnIyeVZrQURJd0FkQzBqeG1pbzRYR1R3azhrODhGanBuaEJFa1BuZlhyUlRyUk5wTThiQllha1VBPQ==",
+        "ValidatingCarrier": "H1",
+        "OriginDestinations": [
+          {
+            "SegmentRef": 44,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          },
+          {
+            "SegmentRef": 45,
+            "ItineraryRef": 1,
+            "LegIndicator": "0"
+          }
+        ],
+        "FareRef": 11,
+        "PenaltiesInfoRef": 11,
+        "FulfillmentDetailsRef": 0,
+        "Provider": "BLRVS32IK"
+      }
+    ],
+    "GroupedItems": [
+      {
+        "Itins": [
+          "0"
+        ],
+        "Segments": [
+          "0"
+        ]
+      },
+      {
+        "Itins": [
+          "1"
+        ],
+        "Segments": [
+          "1"
+        ]
+      },
+      {
+        "Itins": [
+          "2"
+        ],
+        "Segments": [
+          "2"
+        ]
+      },
+      {
+        "Itins": [
+          "3"
+        ],
+        "Segments": [
+          "3"
+        ]
+      },
+      {
+        "Itins": [
+          "4"
+        ],
+        "Segments": [
+          "4"
+        ]
+      },
+      {
+        "Itins": [
+          "5"
+        ],
+        "Segments": [
+          "5"
+        ]
+      },
+      {
+        "Itins": [
+          "6"
+        ],
+        "Segments": [
+          "6"
+        ]
+      },
+      {
+        "Itins": [
+          "7"
+        ],
+        "Segments": [
+          "7"
+        ]
+      },
+      {
+        "Itins": [
+          "8"
+        ],
+        "Segments": [
+          "8"
+        ]
+      },
+      {
+        "Itins": [
+          "9"
+        ],
+        "Segments": [
+          "9"
+        ]
+      },
+      {
+        "Itins": [
+          "10"
+        ],
+        "Segments": [
+          "10"
+        ]
+      },
+      {
+        "Itins": [
+          "11"
+        ],
+        "Segments": [
+          "11",
+          "12"
+        ]
+      },
+      {
+        "Itins": [
+          "12"
+        ],
+        "Segments": [
+          "13",
+          "14"
+        ]
+      },
+      {
+        "Itins": [
+          "13"
+        ],
+        "Segments": [
+          "15",
+          "16"
+        ]
+      },
+      {
+        "Itins": [
+          "14"
+        ],
+        "Segments": [
+          "13",
+          "17"
+        ]
+      },
+      {
+        "Itins": [
+          "15"
+        ],
+        "Segments": [
+          "15",
+          "18"
+        ]
+      },
+      {
+        "Itins": [
+          "16"
+        ],
+        "Segments": [
+          "13",
+          "16"
+        ]
+      },
+      {
+        "Itins": [
+          "17"
+        ],
+        "Segments": [
+          "19",
+          "20"
+        ]
+      },
+      {
+        "Itins": [
+          "18"
+        ],
+        "Segments": [
+          "21",
+          "22"
+        ]
+      },
+      {
+        "Itins": [
+          "19"
+        ],
+        "Segments": [
+          "23",
+          "24"
+        ]
+      },
+      {
+        "Itins": [
+          "20"
+        ],
+        "Segments": [
+          "23",
+          "25"
+        ]
+      },
+      {
+        "Itins": [
+          "21"
+        ],
+        "Segments": [
+          "26",
+          "27"
+        ]
+      },
+      {
+        "Itins": [
+          "22"
+        ],
+        "Segments": [
+          "28",
+          "27"
+        ]
+      },
+      {
+        "Itins": [
+          "23"
+        ],
+        "Segments": [
+          "29",
+          "30"
+        ]
+      },
+      {
+        "Itins": [
+          "24"
+        ],
+        "Segments": [
+          "26",
+          "31"
+        ]
+      },
+      {
+        "Itins": [
+          "25"
+        ],
+        "Segments": [
+          "29",
+          "32"
+        ]
+      },
+      {
+        "Itins": [
+          "26"
+        ],
+        "Segments": [
+          "29",
+          "33"
+        ]
+      },
+      {
+        "Itins": [
+          "27"
+        ],
+        "Segments": [
+          "34",
+          "30"
+        ]
+      },
+      {
+        "Itins": [
+          "28"
+        ],
+        "Segments": [
+          "29",
+          "35"
+        ]
+      },
+      {
+        "Itins": [
+          "29"
+        ],
+        "Segments": [
+          "34",
+          "36"
+        ]
+      },
+      {
+        "Itins": [
+          "30"
+        ],
+        "Segments": [
+          "34",
+          "37"
+        ]
+      },
+      {
+        "Itins": [
+          "31"
+        ],
+        "Segments": [
+          "38",
+          "39"
+        ]
+      },
+      {
+        "Itins": [
+          "32"
+        ],
+        "Segments": [
+          "40",
+          "41"
+        ]
+      },
+      {
+        "Itins": [
+          "33"
+        ],
+        "Segments": [
+          "42",
+          "43"
+        ]
+      },
+      {
+        "Itins": [
+          "34"
+        ],
+        "Segments": [
+          "44",
+          "45"
+        ]
+      }
+    ]
+  },
+  "Success": true,
+  "Message": "Success"
+}

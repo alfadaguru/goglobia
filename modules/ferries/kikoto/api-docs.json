@@ -1,0 +1,2070 @@
+{
+  "document": {
+    "title": "Kikoto Ferries B2B API — Integration Request/Response Log",
+    "version": "2.0",
+    "prepared_for": "Client review",
+    "consumer": "PHP Travels v10 — Ferries module",
+    "provider": "Kikoto B2B API (test environment)",
+    "generated_at": "2026-07-08T15:04:11Z",
+    "disclaimer": "Bearer tokens redacted. Personal data uses example.com test values. Steps 8–9 are live API captures (2026-07-08). Steps 1–7 from API cache for the same route. Steps 10–12 show the API contract for the booking reference from step 9."
+  },
+  "environment": {
+    "base_url": "https://test.api.b2b.kikoto.com/v1",
+    "authentication": {
+      "type": "Bearer token",
+      "header": "Authorization: Bearer <token>",
+      "additional_headers": [
+        "Accept: application/json",
+        "Accept-Language: en"
+      ]
+    },
+    "token_note": "Token omitted. Use test credentials provided separately."
+  },
+  "test_scenario": {
+    "title": "One-way booking with Balearic bonus, bicycle and pet",
+    "route": "Alcúdia → Barcelona",
+    "departure_port_id": 17,
+    "destination_port_id": 10,
+    "route_id": 38,
+    "route_name": "Alcudia - Barcelona",
+    "date": "2026-07-31",
+    "departure_datetime": "2026-07-31T12:45:00",
+    "arrival_datetime": "2026-07-31T19:00:00",
+    "operator": "Balearia",
+    "shipping_company_id": 2,
+    "passengers": "3 adults (ticket type 24)",
+    "vehicle": "1 bicycle (type 32, passenger 2)",
+    "pet": "1 pet (type 35, passenger 3)",
+    "bonus": "Resident in the Balearic Islands (bonus_id 19)",
+    "accommodation": "Quadruple Cabin Ext (id 3)",
+    "total_price": 178.25,
+    "currency": "EUR",
+    "booking_reference": "9103B8E2D3",
+    "booking_locator_after_confirm": "BAL3E3B6"
+  },
+  "booking_flow": [
+    "Search: ports → routes → shipping-companies → bonuses",
+    "Search: timetables → sailings",
+    "Price: POST /prices",
+    "Book: POST /bookings → GET /bookings/{reference} → POST /bookings/{reference}/confirm",
+    "Optional: POST /bookings/{locator}/cancel"
+  ],
+  "integration_rules": [
+    "Bonuses: accommodations[].passengers[].bonuses = [{\"bonus_id\": N}]",
+    "One bonus per passenger only.",
+    "Filter GET /bonuses by port region in application layer.",
+    "POST /prices must succeed before POST /bookings with extras.",
+    "Vehicles need passenger_id; pets need operator ticket_type_id.",
+    "Confirm uses reference; cancel uses locator."
+  ],
+  "api_calls": [
+    {
+      "step": 1,
+      "phase": "search",
+      "name": "Get Ports",
+      "description": "List all ferry ports (departure / destination selection).",
+      "http_status": 200,
+      "endpoint": {
+        "method": "GET",
+        "path": "/v1/ports",
+        "url": "https://test.api.b2b.kikoto.com/v1/ports"
+      },
+      "headers": {
+        "Authorization": "Bearer <REDACTED_TOKEN>",
+        "Accept": "application/json",
+        "Accept-Language": "en"
+      },
+      "request": null,
+      "response": {
+        "success": true,
+        "timestamp": 1783516800,
+        "path": "v1/ports",
+        "data": [
+          {
+            "id": 17,
+            "name": "Alcúdia",
+            "code": "ESALD",
+            "country": "ESP",
+            "latitude": 39.835941,
+            "longitude": 3.141848,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 1,
+            "name": "Algeciras",
+            "code": "ESALG",
+            "country": "ESP",
+            "latitude": 36.1301257,
+            "longitude": -5.4423721,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 12,
+            "name": "Almería",
+            "code": "ESLEI",
+            "country": "ESP",
+            "latitude": 36.834775,
+            "longitude": -2.467504,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 78,
+            "name": "Algiers",
+            "code": "DZALG",
+            "country": "DZA",
+            "latitude": 36.777121,
+            "longitude": 3.063699,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 10,
+            "name": "Barcelona",
+            "code": "ESBCN",
+            "country": "ESP",
+            "latitude": 41.372139,
+            "longitude": 2.177535,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 2,
+            "name": "Ceuta",
+            "code": "ESCEU",
+            "country": "ESP",
+            "latitude": 35.895039,
+            "longitude": -5.321664,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 255,
+            "name": "Ciutadella (Menorca)",
+            "code": "ESCMC",
+            "country": "ESP",
+            "latitude": 39.988392,
+            "longitude": 3.826932,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 13,
+            "name": "Dénia",
+            "code": "ESDNA",
+            "country": "ESP",
+            "latitude": 38.841011,
+            "longitude": 0.114305,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 11,
+            "name": "Formentera",
+            "code": "ESFLD",
+            "country": "ESP",
+            "latitude": 38.73477,
+            "longitude": 1.417065,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 6,
+            "name": "Gibraltar",
+            "code": "GIGIB",
+            "country": "GIB",
+            "latitude": 36.148273,
+            "longitude": -5.365899,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 8,
+            "name": "Ibiza",
+            "code": "ESIBZ",
+            "country": "ESP",
+            "latitude": 38.912915,
+            "longitude": 1.435279,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 20,
+            "name": "Málaga",
+            "code": "ESAGP",
+            "country": "ESP",
+            "latitude": 36.715185,
+            "longitude": -4.41792,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 9,
+            "name": "Melilla",
+            "code": "ESMLN",
+            "country": "ESP",
+            "latitude": 35.291734,
+            "longitude": -2.928967,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 21,
+            "name": "Mostaganem",
+            "code": "DZMOS",
+            "country": "DZA",
+            "latitude": 35.9350934,
+            "longitude": 0.0733408,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 16,
+            "name": "Motril",
+            "code": "ESMOT",
+            "country": "ESP",
+            "latitude": 36.724666,
+            "longitude": -3.527834,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 15,
+            "name": "Nador",
+            "code": "MANDR",
+            "country": "MAR",
+            "latitude": 35.26919,
+            "longitude": -2.92716,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 32,
+            "name": "Oran",
+            "code": "DZORN",
+            "country": "DZA",
+            "latitude": 35.709258,
+            "longitude": -0.6455378,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 7,
+            "name": "Palma",
+            "code": "ESPMI",
+            "country": "ESP",
+            "latitude": 39.551922,
+            "longitude": 2.626312,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 19,
+            "name": "Sète",
+            "code": "FRSET",
+            "country": "FRA",
+            "latitude": 43.402958,
+            "longitude": 3.702114,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 5,
+            "name": "Tangier",
+            "code": "MATNG",
+            "country": "MAR",
+            "latitude": 35.791216175911,
+            "longitude": -5.8001271792316,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 4,
+            "name": "Tangier Med",
+            "code": "MAPTM",
+            "country": "MAR",
+            "latitude": 35.8704299,
+            "longitude": -5.5221285,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 3,
+            "name": "Tarifa",
+            "code": "ESTRF",
+            "country": "ESP",
+            "latitude": 36.010428,
+            "longitude": -5.602743,
+            "region": null,
+            "updated_at": 1772616708
+          },
+          {
+            "id": 14,
+            "name": "Valencia",
+            "code": "ESVLC",
+            "country": "ESP",
+            "latitude": 39.45336,
+            "longitude": -0.323539,
+            "region": null,
+            "updated_at": 1772616708
+          }
+        ]
+      },
+      "meta": {
+        "notes": "From Kikoto API cache (2026-07-08)."
+      }
+    },
+    {
+      "step": 2,
+      "phase": "search",
+      "name": "Get Routes",
+      "description": "List all available routes between ports.",
+      "http_status": 200,
+      "endpoint": {
+        "method": "GET",
+        "path": "/v1/routes",
+        "url": "https://test.api.b2b.kikoto.com/v1/routes"
+      },
+      "headers": {
+        "Authorization": "Bearer <REDACTED_TOKEN>",
+        "Accept": "application/json",
+        "Accept-Language": "en"
+      },
+      "request": null,
+      "response": {
+        "success": true,
+        "timestamp": 1783516801,
+        "path": "v1/routes",
+        "data": [
+          {
+            "id": 38,
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "name": "Alcudia - Barcelona",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 1951,
+            "departure_port_id": 17,
+            "destination_port_id": 255,
+            "name": "Alcudia - Ciutadella",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 1,
+            "departure_port_id": 1,
+            "destination_port_id": 2,
+            "name": "Algeciras - Ceuta",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 5,
+            "departure_port_id": 1,
+            "destination_port_id": 4,
+            "name": "Algeciras - Tangier Med",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": false
+            }
+          },
+          {
+            "id": 35,
+            "departure_port_id": 12,
+            "destination_port_id": 9,
+            "name": "Almería - Melilla",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 9,
+            "departure_port_id": 12,
+            "destination_port_id": 15,
+            "name": "Almería - Nador",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 1947,
+            "departure_port_id": 78,
+            "destination_port_id": 10,
+            "name": "Algiers - Barcelona",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 1244,
+            "departure_port_id": 78,
+            "destination_port_id": 14,
+            "name": "Algiers - Valencia",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 37,
+            "departure_port_id": 10,
+            "destination_port_id": 17,
+            "name": "Barcelona - Alcudia",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 1946,
+            "departure_port_id": 10,
+            "destination_port_id": 78,
+            "name": "Barcelona - Algiers",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 1949,
+            "departure_port_id": 10,
+            "destination_port_id": 255,
+            "name": "Barcelona - Ciutadella",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 1958,
+            "departure_port_id": 10,
+            "destination_port_id": 11,
+            "name": "Barcelona - Formentera",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 11,
+            "departure_port_id": 10,
+            "destination_port_id": 8,
+            "name": "Barcelona - Ibiza",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 31,
+            "departure_port_id": 10,
+            "destination_port_id": 32,
+            "name": "Barcelona - Orán",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 39,
+            "departure_port_id": 10,
+            "destination_port_id": 7,
+            "name": "Barcelona - Palma",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 2,
+            "departure_port_id": 2,
+            "destination_port_id": 1,
+            "name": "Ceuta - Algeciras",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 1952,
+            "departure_port_id": 255,
+            "destination_port_id": 17,
+            "name": "Ciutadella - Alcudia",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 1950,
+            "departure_port_id": 255,
+            "destination_port_id": 10,
+            "name": "Ciutadella - Barcelona",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 45,
+            "departure_port_id": 13,
+            "destination_port_id": 11,
+            "name": "Dénia - Formentera",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 43,
+            "departure_port_id": 13,
+            "destination_port_id": 8,
+            "name": "Dénia - Ibiza",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 60,
+            "departure_port_id": 13,
+            "destination_port_id": 7,
+            "name": "Dénia - Palma",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 1957,
+            "departure_port_id": 11,
+            "destination_port_id": 10,
+            "name": "Formentera - Barcelona",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 46,
+            "departure_port_id": 11,
+            "destination_port_id": 13,
+            "name": "Formentera - Dénia",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 13,
+            "departure_port_id": 11,
+            "destination_port_id": 8,
+            "name": "Formentera - Ibiza",
+            "services": {
+              "passengers": true,
+              "vehicles": false,
+              "pets": true,
+              "check_in": false
+            }
+          },
+          {
+            "id": 61,
+            "departure_port_id": 11,
+            "destination_port_id": 7,
+            "name": "Formentera - Palma",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 7,
+            "departure_port_id": 6,
+            "destination_port_id": 4,
+            "name": "Gibraltar - Tangier Med",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 12,
+            "departure_port_id": 8,
+            "destination_port_id": 10,
+            "name": "Ibiza - Barcelona",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 44,
+            "departure_port_id": 8,
+            "destination_port_id": 13,
+            "name": "Ibiza - Dénia",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 14,
+            "departure_port_id": 8,
+            "destination_port_id": 11,
+            "name": "Ibiza - Formentera",
+            "services": {
+              "passengers": true,
+              "vehicles": false,
+              "pets": true,
+              "check_in": false
+            }
+          },
+          {
+            "id": 47,
+            "departure_port_id": 8,
+            "destination_port_id": 7,
+            "name": "Ibiza - Palma",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 30,
+            "departure_port_id": 8,
+            "destination_port_id": 14,
+            "name": "Ibiza - Valencia",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 34,
+            "departure_port_id": 20,
+            "destination_port_id": 9,
+            "name": "Málaga - Melilla",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 36,
+            "departure_port_id": 9,
+            "destination_port_id": 12,
+            "name": "Melilla - Almería",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 33,
+            "departure_port_id": 9,
+            "destination_port_id": 20,
+            "name": "Melilla - Málaga",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 58,
+            "departure_port_id": 21,
+            "destination_port_id": 14,
+            "name": "Mostaganem - Valencia",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 52,
+            "departure_port_id": 16,
+            "destination_port_id": 4,
+            "name": "Motril - Tangier Med",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 10,
+            "departure_port_id": 15,
+            "destination_port_id": 12,
+            "name": "Nador - Almería",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 53,
+            "departure_port_id": 15,
+            "destination_port_id": 19,
+            "name": "Nador - Sète",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 32,
+            "departure_port_id": 32,
+            "destination_port_id": 10,
+            "name": "Orán - Barcelona",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 1247,
+            "departure_port_id": 32,
+            "destination_port_id": 14,
+            "name": "Oran - Valencia",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 40,
+            "departure_port_id": 7,
+            "destination_port_id": 10,
+            "name": "Palma - Barcelona",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 59,
+            "departure_port_id": 7,
+            "destination_port_id": 13,
+            "name": "Palma - Dénia",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 62,
+            "departure_port_id": 7,
+            "destination_port_id": 11,
+            "name": "Palma - Formentera",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 48,
+            "departure_port_id": 7,
+            "destination_port_id": 8,
+            "name": "Palma - Ibiza",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 49,
+            "departure_port_id": 7,
+            "destination_port_id": 14,
+            "name": "Palma - Valencia",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 54,
+            "departure_port_id": 19,
+            "destination_port_id": 15,
+            "name": "Sète - Nador",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 56,
+            "departure_port_id": 19,
+            "destination_port_id": 4,
+            "name": "Sète - Tangier Med",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 4,
+            "departure_port_id": 5,
+            "destination_port_id": 3,
+            "name": "Tangier - Tarifa",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": false
+            }
+          },
+          {
+            "id": 6,
+            "departure_port_id": 4,
+            "destination_port_id": 1,
+            "name": "Tangier Med - Algeciras",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": false
+            }
+          },
+          {
+            "id": 8,
+            "departure_port_id": 4,
+            "destination_port_id": 6,
+            "name": "Tangier Med - Gibraltar",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 51,
+            "departure_port_id": 4,
+            "destination_port_id": 16,
+            "name": "Tangier Med - Motril",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 55,
+            "departure_port_id": 4,
+            "destination_port_id": 19,
+            "name": "Tangier Med - Sete",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 3,
+            "departure_port_id": 3,
+            "destination_port_id": 5,
+            "name": "Tarifa - Tangier",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": false
+            }
+          },
+          {
+            "id": 1245,
+            "departure_port_id": 14,
+            "destination_port_id": 78,
+            "name": "Valencia - Algiers",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 29,
+            "departure_port_id": 14,
+            "destination_port_id": 8,
+            "name": "Valencia - Ibiza",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 57,
+            "departure_port_id": 14,
+            "destination_port_id": 21,
+            "name": "Valencia - Mostaganem",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 1246,
+            "departure_port_id": 14,
+            "destination_port_id": 32,
+            "name": "Valencia - Oran",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          },
+          {
+            "id": 50,
+            "departure_port_id": 14,
+            "destination_port_id": 7,
+            "name": "Valencia - Palma",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            }
+          }
+        ]
+      },
+      "meta": {
+        "notes": "Booking uses route id 38 (Alcudia - Barcelona)."
+      }
+    },
+    {
+      "step": 3,
+      "phase": "search",
+      "name": "Get Route Shipping Companies",
+      "description": "Operators and ticket types for the selected route.",
+      "http_status": 200,
+      "endpoint": {
+        "method": "GET",
+        "path": "/v1/routes/38/shipping-companies",
+        "url": "https://test.api.b2b.kikoto.com/v1/routes/38/shipping-companies"
+      },
+      "headers": {
+        "Authorization": "Bearer <REDACTED_TOKEN>",
+        "Accept": "application/json",
+        "Accept-Language": "en"
+      },
+      "request": null,
+      "response": {
+        "success": true,
+        "path": "v1/routes/38/shipping-companies",
+        "data": [
+          {
+            "id": 2,
+            "name": "Balearia",
+            "code": "balearia",
+            "services": {
+              "passengers": true,
+              "vehicles": true,
+              "pets": true,
+              "check_in": true
+            },
+            "info": {
+              "check_in_url": "https://www.balearia.com/en/web/balearia-booking/mis-reservas"
+            },
+            "updated_at": 1746447341,
+            "ticket_types": [
+              {
+                "id": 24,
+                "name": "Adult",
+                "description": "From 14 years old",
+                "group": "passenger",
+                "metadata": {
+                  "age": {
+                    "min": 14,
+                    "max": null,
+                    "unit": "years"
+                  }
+                },
+                "updated_at": 1761906406
+              },
+              {
+                "id": 25,
+                "name": "Child",
+                "description": "1 - 13 years",
+                "group": "passenger",
+                "metadata": {
+                  "age": {
+                    "min": 1,
+                    "max": 13,
+                    "unit": "years"
+                  }
+                },
+                "updated_at": 1761906406
+              },
+              {
+                "id": 26,
+                "name": "Baby",
+                "description": "0 - 12 months",
+                "group": "passenger",
+                "metadata": {
+                  "age": {
+                    "min": 0,
+                    "max": 12,
+                    "unit": "months"
+                  }
+                },
+                "updated_at": 1761906406
+              },
+              {
+                "id": 35,
+                "name": "Pet",
+                "description": null,
+                "group": "pet",
+                "metadata": null,
+                "updated_at": 1746447342
+              },
+              {
+                "id": 27,
+                "name": "Car",
+                "description": null,
+                "group": "vehicle",
+                "metadata": null,
+                "updated_at": 1746447342
+              },
+              {
+                "id": 28,
+                "name": "Van",
+                "description": null,
+                "group": "vehicle",
+                "metadata": null,
+                "updated_at": 1746447342
+              },
+              {
+                "id": 30,
+                "name": "Motorcycle",
+                "description": null,
+                "group": "vehicle",
+                "metadata": null,
+                "updated_at": 1746447342
+              },
+              {
+                "id": 31,
+                "name": "Moped",
+                "description": null,
+                "group": "vehicle",
+                "metadata": null,
+                "updated_at": 1746447342
+              },
+              {
+                "id": 32,
+                "name": "Bicycle",
+                "description": null,
+                "group": "vehicle",
+                "metadata": null,
+                "updated_at": 1746447342
+              },
+              {
+                "id": 34,
+                "name": "Trailer",
+                "description": null,
+                "group": "vehicle",
+                "metadata": null,
+                "updated_at": 1746447342
+              }
+            ]
+          }
+        ]
+      },
+      "meta": {
+        "notes": "Balearia (id 2): Adult 24, Bicycle 32, Pet 35."
+      }
+    },
+    {
+      "step": 4,
+      "phase": "search",
+      "name": "Get Bonuses",
+      "description": "Discount catalog (filtered for Alcúdia → Barcelona in our UI).",
+      "http_status": 200,
+      "endpoint": {
+        "method": "GET",
+        "path": "/v1/bonuses",
+        "url": "https://test.api.b2b.kikoto.com/v1/bonuses"
+      },
+      "headers": {
+        "Authorization": "Bearer <REDACTED_TOKEN>",
+        "Accept": "application/json",
+        "Accept-Language": "en"
+      },
+      "request": null,
+      "response": {
+        "success": true,
+        "timestamp": 1783516802,
+        "path": "v1/bonuses",
+        "data": [
+          {
+            "id": 15,
+            "name": "Youth card",
+            "description": "",
+            "code": "",
+            "type": "discount"
+          },
+          {
+            "id": 16,
+            "name": "Senior citizens",
+            "description": "",
+            "code": "",
+            "type": "discount"
+          },
+          {
+            "id": 23,
+            "name": "ISIC card",
+            "description": "You must present the supporting document at boarding.",
+            "code": "",
+            "type": "discount"
+          },
+          {
+            "id": 24,
+            "name": "Disability",
+            "description": "You must present the supporting document at boarding.",
+            "code": "",
+            "type": "discount"
+          },
+          {
+            "id": 1,
+            "name": "General large family",
+            "description": "",
+            "code": "",
+            "type": "large-family"
+          },
+          {
+            "id": 2,
+            "name": "Special large family",
+            "description": "",
+            "code": "",
+            "type": "large-family"
+          },
+          {
+            "id": 19,
+            "name": "Resident in the Balearic Islands",
+            "description": "",
+            "code": "",
+            "type": "residence"
+          }
+        ]
+      },
+      "meta": {
+        "notes": "Kikoto returns 26 items globally; 7 shown for this route."
+      }
+    },
+    {
+      "step": 5,
+      "phase": "search",
+      "name": "Get Bonus by ID",
+      "description": "Single bonus used in this booking.",
+      "http_status": 200,
+      "endpoint": {
+        "method": "GET",
+        "path": "/v1/bonuses/19",
+        "url": "https://test.api.b2b.kikoto.com/v1/bonuses/19"
+      },
+      "headers": {
+        "Authorization": "Bearer <REDACTED_TOKEN>",
+        "Accept": "application/json",
+        "Accept-Language": "en"
+      },
+      "request": null,
+      "response": {
+        "success": true,
+        "timestamp": 1783516803,
+        "path": "v1/bonuses/19",
+        "data": {
+          "id": 19,
+          "name": "Resident in the Balearic Islands",
+          "description": "",
+          "code": "",
+          "type": "residence"
+        }
+      }
+    },
+    {
+      "step": 6,
+      "phase": "search",
+      "name": "Post Timetables",
+      "description": "Schedule preview for route and date.",
+      "http_status": 200,
+      "endpoint": {
+        "method": "POST",
+        "path": "/v1/timetables",
+        "url": "https://test.api.b2b.kikoto.com/v1/timetables"
+      },
+      "headers": {
+        "Authorization": "Bearer <REDACTED_TOKEN>",
+        "Accept": "application/json",
+        "Accept-Language": "en",
+        "Content-Type": "application/json"
+      },
+      "request": {
+        "departure_port_id": 17,
+        "destination_port_id": 10,
+        "date": "2026-07-31"
+      },
+      "response": {
+        "success": true,
+        "path": "v1/timetables",
+        "data": [
+          {
+            "shipping_company_id": 2,
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "ship_name": "Abel Matutes"
+          }
+        ]
+      }
+    },
+    {
+      "step": 7,
+      "phase": "search",
+      "name": "Post Sailings",
+      "description": "Live inventory search with accommodations and prices.",
+      "http_status": 200,
+      "endpoint": {
+        "method": "POST",
+        "path": "/v1/sailings",
+        "url": "https://test.api.b2b.kikoto.com/v1/sailings?shipping-company=2"
+      },
+      "headers": {
+        "Authorization": "Bearer <REDACTED_TOKEN>",
+        "Accept": "application/json",
+        "Accept-Language": "en",
+        "Content-Type": "application/json"
+      },
+      "request": {
+        "departure_port_id": 17,
+        "destination_port_id": 10,
+        "date": "2026-07-31",
+        "passengers": [
+          {
+            "id": 1,
+            "ticket_type_id": 24
+          },
+          {
+            "id": 2,
+            "ticket_type_id": 24
+          },
+          {
+            "id": 3,
+            "ticket_type_id": 24
+          }
+        ]
+      },
+      "response": {
+        "success": true,
+        "path": "v1/sailings",
+        "data": [
+          {
+            "shipping_company_id": 2,
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "ship_name": "Abel Matutes",
+            "accommodations": [
+              {
+                "id": 3,
+                "type": "seat",
+                "title": "Quadruple Cabin Ext",
+                "subtitle": "Does not allow changes or cancellations",
+                "description": null,
+                "code": "C4E-F2-NOR",
+                "min_occupancy": null,
+                "max_occupancy": null,
+                "availability": null,
+                "price": 178.25,
+                "currency": "EUR"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": {
+        "notes": "Selected accommodation id 3 — Quadruple Cabin Ext."
+      }
+    },
+    {
+      "step": 8,
+      "phase": "pricing",
+      "name": "Post Prices",
+      "description": "Price revalidation with passengers, bicycle, pet, and bonus_id 19 per passenger.",
+      "http_status": 200,
+      "endpoint": {
+        "method": "POST",
+        "path": "/v1/prices",
+        "url": "https://test.api.b2b.kikoto.com/v1/prices"
+      },
+      "headers": {
+        "Authorization": "Bearer <REDACTED_TOKEN>",
+        "Accept": "application/json",
+        "Accept-Language": "en",
+        "Content-Type": "application/json"
+      },
+      "request": {
+        "sailings": [
+          {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "accommodations": [
+              {
+                "id": 3,
+                "type": "seat",
+                "title": "Quadruple Cabin Ext",
+                "code": "C4E-F2-NOR",
+                "passengers": [
+                  {
+                    "id": 1,
+                    "bonuses": [
+                      {
+                        "bonus_id": 19
+                      }
+                    ]
+                  },
+                  {
+                    "id": 2,
+                    "bonuses": [
+                      {
+                        "bonus_id": 19
+                      }
+                    ]
+                  },
+                  {
+                    "id": 3,
+                    "bonuses": [
+                      {
+                        "bonus_id": 19
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "passengers": [
+          {
+            "id": 1,
+            "ticket_type_id": 24
+          },
+          {
+            "id": 2,
+            "ticket_type_id": 24
+          },
+          {
+            "id": 3,
+            "ticket_type_id": 24
+          }
+        ],
+        "vehicles": [
+          {
+            "id": 1,
+            "ticket_type_id": 31,
+            "passenger_id": 2
+          }
+        ],
+        "pets": [
+          {
+            "id": 1,
+            "ticket_type_id": 35
+          }
+        ]
+      },
+      "response": {
+        "success": true,
+        "timestamp": 1783516763,
+        "path": "v1/prices",
+        "data": {
+          "sailings": [
+            {
+              "shipping_company_id": 2,
+              "departure_port_id": 17,
+              "destination_port_id": 10,
+              "departure_datetime": "2026-07-31T12:45:00",
+              "arrival_datetime": "2026-07-31T19:00:00",
+              "shipping_company": {
+                "id": 2,
+                "name": "Balearia",
+                "code": "balearia",
+                "services": {
+                  "passengers": true,
+                  "vehicles": true,
+                  "pets": true,
+                  "check_in": true
+                },
+                "info": {
+                  "check_in_url": "https://www.balearia.com/en/web/balearia-booking/mis-reservas"
+                },
+                "updated_at": 1746447341,
+                "ticket_types": [
+                  {
+                    "id": 24,
+                    "name": "Adult",
+                    "description": "From 14 years old",
+                    "group": "passenger",
+                    "metadata": {
+                      "age": {
+                        "min": 14,
+                        "max": null,
+                        "unit": "years"
+                      }
+                    },
+                    "updated_at": 1761906406
+                  },
+                  {
+                    "id": 25,
+                    "name": "Child",
+                    "description": "1 - 13 years",
+                    "group": "passenger",
+                    "metadata": {
+                      "age": {
+                        "min": 1,
+                        "max": 13,
+                        "unit": "years"
+                      }
+                    },
+                    "updated_at": 1761906406
+                  },
+                  {
+                    "id": 26,
+                    "name": "Baby",
+                    "description": "0 - 12 months",
+                    "group": "passenger",
+                    "metadata": {
+                      "age": {
+                        "min": 0,
+                        "max": 12,
+                        "unit": "months"
+                      }
+                    },
+                    "updated_at": 1761906406
+                  },
+                  {
+                    "id": 35,
+                    "name": "Pet",
+                    "description": null,
+                    "group": "pet",
+                    "metadata": null,
+                    "updated_at": 1746447342
+                  },
+                  {
+                    "id": 27,
+                    "name": "Car",
+                    "description": null,
+                    "group": "vehicle",
+                    "metadata": null,
+                    "updated_at": 1746447342
+                  },
+                  {
+                    "id": 28,
+                    "name": "Van",
+                    "description": null,
+                    "group": "vehicle",
+                    "metadata": null,
+                    "updated_at": 1746447342
+                  },
+                  {
+                    "id": 30,
+                    "name": "Motorcycle",
+                    "description": null,
+                    "group": "vehicle",
+                    "metadata": null,
+                    "updated_at": 1746447342
+                  },
+                  {
+                    "id": 31,
+                    "name": "Moped",
+                    "description": null,
+                    "group": "vehicle",
+                    "metadata": null,
+                    "updated_at": 1746447342
+                  },
+                  {
+                    "id": 32,
+                    "name": "Bicycle",
+                    "description": null,
+                    "group": "vehicle",
+                    "metadata": null,
+                    "updated_at": 1746447342
+                  },
+                  {
+                    "id": 34,
+                    "name": "Trailer",
+                    "description": null,
+                    "group": "vehicle",
+                    "metadata": null,
+                    "updated_at": 1746447342
+                  }
+                ]
+              },
+              "departure_port": {
+                "id": 17,
+                "name": "Alcúdia",
+                "code": "ESALD",
+                "region": null,
+                "country": "ESP",
+                "latitude": 39.835941,
+                "longitude": 3.141848,
+                "updated_at": 1772616708
+              },
+              "destination_port": {
+                "id": 10,
+                "name": "Barcelona",
+                "code": "ESBCN",
+                "region": null,
+                "country": "ESP",
+                "latitude": 41.372139,
+                "longitude": 2.177535,
+                "updated_at": 1772616708
+              },
+              "accommodations": [
+                {
+                  "id": 3,
+                  "type": "seat",
+                  "title": "Quadruple Cabin Ext",
+                  "subtitle": "Does not allow changes or cancellations",
+                  "description": null,
+                  "code": "C4E-F2-NOR",
+                  "min_occupancy": null,
+                  "max_occupancy": null,
+                  "availability": null,
+                  "passengers": [
+                    {
+                      "id": 1,
+                      "bonuses": [
+                        {
+                          "bonus_id": 19,
+                          "code": null
+                        }
+                      ]
+                    },
+                    {
+                      "id": 2,
+                      "bonuses": [
+                        {
+                          "bonus_id": 19,
+                          "code": null
+                        }
+                      ]
+                    },
+                    {
+                      "id": 3,
+                      "bonuses": [
+                        {
+                          "bonus_id": 19,
+                          "code": null
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "services": null,
+              "coupon": null,
+              "price": 178.25,
+              "currency": "EUR"
+            }
+          ],
+          "passengers": [
+            {
+              "id": 1,
+              "ticket_type_id": 24,
+              "birthdate": null
+            },
+            {
+              "id": 2,
+              "ticket_type_id": 24,
+              "birthdate": null
+            },
+            {
+              "id": 3,
+              "ticket_type_id": 24,
+              "birthdate": null
+            }
+          ],
+          "vehicles": [
+            {
+              "id": 1,
+              "ticket_type_id": 31,
+              "passenger_id": 2,
+              "length": null,
+              "height": null
+            }
+          ],
+          "pets": [
+            {
+              "id": 1,
+              "ticket_type_id": 35,
+              "weight": null
+            }
+          ]
+        }
+      },
+      "meta": {
+        "captured_at": "2026-07-08 13:19:23",
+        "notes": "Live capture. Total EUR 178.25."
+      }
+    },
+    {
+      "step": 9,
+      "phase": "booking",
+      "name": "Post Bookings (Create Draft)",
+      "description": "Create draft after successful /prices. Returns booking reference.",
+      "http_status": 200,
+      "endpoint": {
+        "method": "POST",
+        "path": "/v1/bookings",
+        "url": "https://test.api.b2b.kikoto.com/v1/bookings"
+      },
+      "headers": {
+        "Authorization": "Bearer <REDACTED_TOKEN>",
+        "Accept": "application/json",
+        "Accept-Language": "en",
+        "Content-Type": "application/json"
+      },
+      "request": {
+        "title": "mr",
+        "name": "James",
+        "first_surname": "Mitchell",
+        "email": "james.mitchell@example.com",
+        "phone_country_code": "34",
+        "phone": "612345678",
+        "sailings": [
+          {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "accommodations": [
+              {
+                "id": 3,
+                "type": "seat",
+                "title": "Quadruple Cabin Ext",
+                "code": "C4E-F2-NOR",
+                "passengers": [
+                  {
+                    "id": 1,
+                    "bonuses": [
+                      {
+                        "bonus_id": 19
+                      }
+                    ]
+                  },
+                  {
+                    "id": 2,
+                    "bonuses": [
+                      {
+                        "bonus_id": 19
+                      }
+                    ]
+                  },
+                  {
+                    "id": 3,
+                    "bonuses": [
+                      {
+                        "bonus_id": 19
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "passengers": [
+          {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Anna",
+            "first_surname": "Mitchell",
+            "birthdate": "1985-03-15",
+            "nationality": "ESP",
+            "identity_type": "passport",
+            "identity_number": "XBD123456",
+            "identity_expiration": "2030-03-15"
+          },
+          {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "James",
+            "first_surname": "Mitchell",
+            "birthdate": "1983-07-22",
+            "nationality": "ESP",
+            "identity_type": "passport",
+            "identity_number": "XBD234567",
+            "identity_expiration": "2029-07-22"
+          },
+          {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Sofia",
+            "first_surname": "Mitchell",
+            "birthdate": "1990-11-08",
+            "nationality": "ESP",
+            "identity_type": "passport",
+            "identity_number": "XBD345678",
+            "identity_expiration": "2031-11-08"
+          }
+        ],
+        "vehicles": [
+          {
+            "id": 1,
+            "ticket_type_id": 32,
+            "passenger_id": 2,
+            "license_plate": "ES-1234-BC",
+            "brand": "Trek"
+          }
+        ],
+        "pets": [
+          {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 3,
+            "name": "Max"
+          }
+        ]
+      },
+      "response": {
+        "success": true,
+        "timestamp": 1783516767,
+        "path": "v1/bookings",
+        "data": {
+          "reference": "9103B8E2D3"
+        }
+      },
+      "meta": {
+        "captured_at": "2026-07-08 13:19:27",
+        "notes": "Live capture; PII normalized to example.com test data."
+      }
+    },
+    {
+      "step": 10,
+      "phase": "booking",
+      "name": "Get Booking by Reference",
+      "description": "Retrieve draft by reference from step 9.",
+      "http_status": 200,
+      "endpoint": {
+        "method": "GET",
+        "path": "/v1/bookings/9103B8E2D3",
+        "url": "https://test.api.b2b.kikoto.com/v1/bookings/9103B8E2D3"
+      },
+      "headers": {
+        "Authorization": "Bearer <REDACTED_TOKEN>",
+        "Accept": "application/json",
+        "Accept-Language": "en"
+      },
+      "request": null,
+      "response": {
+        "success": true,
+        "path": "v1/bookings/9103B8E2D3",
+        "data": {
+          "title": "mr",
+          "name": "James",
+          "first_surname": "Mitchell",
+          "second_surname": "",
+          "email": "james.mitchell@example.com",
+          "phone_country_code": "34",
+          "phone": "612345678",
+          "reference": "9103B8E2D3",
+          "sailings": [
+            {
+              "departure_port_id": 17,
+              "destination_port_id": 10,
+              "shipping_company_id": 2,
+              "departure_datetime": "2026-07-31T12:45:00",
+              "arrival_datetime": "2026-07-31T19:00:00",
+              "accommodations": [
+                {
+                  "id": 3,
+                  "type": "seat",
+                  "title": "Quadruple Cabin Ext",
+                  "code": "C4E-F2-NOR",
+                  "passengers": [
+                    {
+                      "id": 1,
+                      "bonuses": [
+                        {
+                          "bonus_id": 19
+                        }
+                      ]
+                    },
+                    {
+                      "id": 2,
+                      "bonuses": [
+                        {
+                          "bonus_id": 19
+                        }
+                      ]
+                    },
+                    {
+                      "id": 3,
+                      "bonuses": [
+                        {
+                          "bonus_id": 19
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "price": 178.25,
+              "currency": "EUR",
+              "coupon": null,
+              "status": "draft",
+              "fee": null,
+              "locator": null
+            }
+          ],
+          "passengers": [
+            {
+              "id": 1,
+              "ticket_type_id": 24,
+              "title": "mrs",
+              "name": "Anna",
+              "first_surname": "Mitchell",
+              "second_surname": "",
+              "birthdate": "1985-03-15",
+              "nationality": "ESP",
+              "identity_type": "passport",
+              "identity_number": "XBD123456",
+              "identity_expiration": "2030-03-15"
+            },
+            {
+              "id": 2,
+              "ticket_type_id": 24,
+              "title": "mr",
+              "name": "James",
+              "first_surname": "Mitchell",
+              "second_surname": "",
+              "birthdate": "1983-07-22",
+              "nationality": "ESP",
+              "identity_type": "passport",
+              "identity_number": "XBD234567",
+              "identity_expiration": "2029-07-22"
+            },
+            {
+              "id": 3,
+              "ticket_type_id": 24,
+              "title": "mrs",
+              "name": "Sofia",
+              "first_surname": "Mitchell",
+              "second_surname": "",
+              "birthdate": "1990-11-08",
+              "nationality": "ESP",
+              "identity_type": "passport",
+              "identity_number": "XBD345678",
+              "identity_expiration": "2031-11-08"
+            }
+          ],
+          "vehicles": [
+            {
+              "id": 1,
+              "ticket_type_id": 32,
+              "passenger_id": 2,
+              "license_plate": "ES-1234-BC",
+              "brand": "Trek"
+            }
+          ],
+          "pets": [
+            {
+              "id": 1,
+              "ticket_type_id": 35,
+              "passenger_id": 3,
+              "name": "Max"
+            }
+          ]
+        }
+      },
+      "meta": {
+        "notes": "Aligned to step 9 payload; status=draft."
+      }
+    },
+    {
+      "step": 11,
+      "phase": "booking",
+      "name": "Confirm Booking",
+      "description": "Confirm draft; returns locator and status=completed.",
+      "http_status": 200,
+      "endpoint": {
+        "method": "POST",
+        "path": "/v1/bookings/9103B8E2D3/confirm",
+        "url": "https://test.api.b2b.kikoto.com/v1/bookings/9103B8E2D3/confirm"
+      },
+      "headers": {
+        "Authorization": "Bearer <REDACTED_TOKEN>",
+        "Accept": "application/json",
+        "Accept-Language": "en",
+        "Content-Type": "application/json"
+      },
+      "request": {},
+      "response": {
+        "success": true,
+        "path": "v1/bookings/9103B8E2D3/confirm",
+        "data": {
+          "reference": "9103B8E2D3",
+          "sailings": [
+            {
+              "departure_port_id": 17,
+              "destination_port_id": 10,
+              "shipping_company_id": 2,
+              "departure_datetime": "2026-07-31T12:45:00",
+              "arrival_datetime": "2026-07-31T19:00:00",
+              "price": 178.25,
+              "currency": "EUR",
+              "fee": null,
+              "locator": "BAL3E3B6",
+              "status": "completed"
+            }
+          ]
+        }
+      },
+      "meta": {
+        "notes": "Expected response for same reference."
+      }
+    },
+    {
+      "step": 12,
+      "phase": "post_booking",
+      "name": "Cancel Booking",
+      "description": "Cancel using locator from confirm (not reference).",
+      "http_status": 200,
+      "endpoint": {
+        "method": "POST",
+        "path": "/v1/bookings/BAL3E3B6/cancel",
+        "url": "https://test.api.b2b.kikoto.com/v1/bookings/BAL3E3B6/cancel"
+      },
+      "headers": {
+        "Authorization": "Bearer <REDACTED_TOKEN>",
+        "Accept": "application/json",
+        "Accept-Language": "en",
+        "Content-Type": "application/json"
+      },
+      "request": {},
+      "response": {
+        "success": true,
+        "path": "v1/bookings/BAL3E3B6/cancel",
+        "data": {
+          "fee": 0
+        }
+      }
+    }
+  ]
+}

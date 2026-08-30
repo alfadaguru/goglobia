@@ -1,0 +1,214 @@
+{
+  "Success": true,
+  "Data": {
+    "TripDetailsResult": {
+      "Provider": "MYSTIFLY",
+      "Success": true,
+      "TravelItinerary": {
+        "MFRef": "MF20685722",
+        "TripType": "OneWay",
+        "TicketStatus": "Ticketed",
+        "Origin": "DEL",
+        "Destination": "BLR",
+        "FareType": "WebFare",
+        "PassengerInfos": [
+          {
+            "Passenger": {
+              "Gender": "M",
+              "DateOfBirth": "1988-01-03T00:00:00",
+              "EmailAddress": "apisupport@mystifly.com",
+              "PhoneNumber": "87657897",
+              "PassportExpiresOn": "2025-01-03T00:00:00",
+              "PassportNationality": "Indian",
+              "PassengerNationality": "Indian",
+              "PostCode": "560028",
+              "PassportIssuanceCountry": "India",
+              "PassengerType": "ADT",
+              "PaxName": {
+                "PassengerTitle": "MR",
+                "PassengerFirstName": "BHARATH",
+                "PassengerLastName": "BL"
+              },
+              "PassportNumber": "Z876789",
+              "NationalID": "IN",
+              "NameNumber": 317626,
+              "TicketStatus": "Ticketed"
+            },
+            "ETickets": [
+              {
+                "ItemRPH": 1,
+                "ETicketNumber": "D7BY8H",
+                "ETicketType": "Ticketed"
+              }
+            ]
+          }
+        ],
+        "TripDetailsPTC_FareBreakdowns": [
+          {
+            "PassengerTypeQuantity": {
+              "Code": "ADT",
+              "Quantity": 1
+            },
+            "TripDetailsPassengerFare": {
+              "EquiFare": {
+                "Amount": "48.02",
+                "CurrencyCode": "USD",
+                "DecimalPlaces": 2
+              },
+              "Tax": {
+                "Amount": "6.68",
+                "CurrencyCode": "USD",
+                "DecimalPlaces": 2
+              },
+              "TotalFare": {
+                "Amount": "54.70",
+                "CurrencyCode": "USD",
+                "DecimalPlaces": 2
+              }
+            },
+            "BaggageInfo": [
+              "SB",
+              "SB"
+            ],
+            "CabinBaggageInfo": [
+              "SB",
+              "SB"
+            ],
+            "IsPenaltyDetailsAvailable": true,
+            "AirRefundCharges": {
+              "IsRefundableBeforeDeparture": "No",
+              "IsRefundableAfterDeparture": "InformationNotAvailable"
+            },
+            "AirExchangeCharges": {
+              "IsExchangeableBeforeDeparture": "No",
+              "IsExchangeableAfterDeparture": "InformationNotAvailable"
+            },
+            "AirVoidCharges": {
+              "IsVoidable": "No",
+              "AdminCharges": 0,
+              "VoidingFee": 0
+            }
+          }
+        ],
+        "ClientUTCOffset": 5.3,
+        "Itineraries": [
+          {
+            "ItineraryInfo": {
+              "ReservationItems": [
+                {
+                  "ItemRPH": 1,
+                  "DepartureDateTime": "2022-06-28T06:30:00",
+                  "ArrivalDateTime": "2022-06-28T07:30:00",
+                  "StopQuantity": 0,
+                  "FlightNumber": "1811",
+                  "ResBookDesigCode": "K",
+                  "JourneyDuration": "60",
+                  "AirlinePNR": "D7BY8H",
+                  "NumberInParty": 1,
+                  "DepartureAirportLocationCode": "DEL",
+                  "DepartureTerminal": "3",
+                  "ArrivalAirportLocationCode": "LKO",
+                  "ArrivalTerminal": "",
+                  "OperatingAirlineCode": "I5",
+                  "AirEquipmentType": "320",
+                  "MarketingAirlineCode": "I5",
+                  "Baggage": "",
+                  "FlightStatus": "HK",
+                  "IsReturn": false,
+                  "CabinClass": "Y",
+                  "ATAinfoRef": "",
+                  "FareFamily": ""
+                },
+                {
+                  "ItemRPH": 2,
+                  "DepartureDateTime": "2022-06-28T09:45:00",
+                  "ArrivalDateTime": "2022-06-28T12:10:00",
+                  "StopQuantity": 0,
+                  "FlightNumber": "1816",
+                  "ResBookDesigCode": "K",
+                  "JourneyDuration": "145",
+                  "AirlinePNR": "D7BY8H",
+                  "NumberInParty": 1,
+                  "DepartureAirportLocationCode": "LKO",
+                  "DepartureTerminal": "",
+                  "ArrivalAirportLocationCode": "BLR",
+                  "ArrivalTerminal": "",
+                  "OperatingAirlineCode": "I5",
+                  "AirEquipmentType": "320",
+                  "MarketingAirlineCode": "I5",
+                  "Baggage": "",
+                  "FlightStatus": "HK",
+                  "IsReturn": false,
+                  "CabinClass": "Y",
+                  "ATAinfoRef": "",
+                  "FareFamily": ""
+                }
+              ]
+            },
+            "Type": "OldItinerary"
+          },
+          {
+            "ItineraryInfo": {
+              "ReservationItems": [
+                {
+                  "ItemRPH": 1,
+                  "DepartureDateTime": "2022-06-28T06:30:00",
+                  "ArrivalDateTime": "2022-06-28T07:30:00",
+                  "StopQuantity": 0,
+                  "FlightNumber": "1811",
+                  "ResBookDesigCode": "K",
+                  "JourneyDuration": "60",
+                  "AirlinePNR": "D7BY8H",
+                  "NumberInParty": 1,
+                  "DepartureAirportLocationCode": "DEL",
+                  "DepartureTerminal": "3",
+                  "ArrivalAirportLocationCode": "LKO",
+                  "ArrivalTerminal": "",
+                  "OperatingAirlineCode": "I5",
+                  "AirEquipmentType": "320",
+                  "MarketingAirlineCode": "I5",
+                  "Baggage": "",
+                  "FlightStatus": "HK",
+                  "IsReturn": false,
+                  "CabinClass": "Y",
+                  "ATAinfoRef": "",
+                  "FareFamily": ""
+                },
+                {
+                  "ItemRPH": 2,
+                  "DepartureDateTime": "2022-06-28T09:45:00",
+                  "ArrivalDateTime": "2022-06-28T12:10:00",
+                  "StopQuantity": 0,
+                  "FlightNumber": "1816",
+                  "ResBookDesigCode": "K",
+                  "JourneyDuration": "145",
+                  "AirlinePNR": "D7BY8H",
+                  "NumberInParty": 1,
+                  "DepartureAirportLocationCode": "LKO",
+                  "DepartureTerminal": "",
+                  "ArrivalAirportLocationCode": "BLR",
+                  "ArrivalTerminal": "",
+                  "OperatingAirlineCode": "I5",
+                  "AirEquipmentType": "320",
+                  "MarketingAirlineCode": "I5",
+                  "Baggage": "",
+                  "FlightStatus": "HK",
+                  "IsReturn": false,
+                  "CabinClass": "Y",
+                  "ATAinfoRef": "",
+                  "FareFamily": ""
+                }
+              ]
+            },
+            "Type": "TravelItinerary"
+          }
+        ],
+        "TransactionDetails": {},
+        "BookingNotes": [],
+        "TicketingTimeLimit": "2022-06-17T19:51:44.38",
+        "BookingMode": 0,
+        "ReroutingAllowed": "NO"
+      }
+    }
+  }
+}

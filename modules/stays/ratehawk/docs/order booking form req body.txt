@@ -1,0 +1,9 @@
+https://api.worldota.net/api/b2b/v3/hotel/order/booking/form/
+
+
+{
+    "partner_order_id": "test1111" - required 
+    "book_hash": "p-6dc4976e-e8f0-438b-a07c-eb23726d5b54" - required
+    "language": "en" - required 
+    "user_ip": "82.29.0.86" - required 
+}

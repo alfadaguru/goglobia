@@ -1,0 +1,22 @@
+
+=============================================================
+DATE : 2026-07-07 14:31:21
+URL : http://api.toursbms.com/openapi/v1/auth/getMerchantToken
+METHOD : POST
+HTTP CODE : 200
+TOKEN : 
+
+HEADERS:
+Array
+(
+    [0] => Content-Type: application/json
+    [1] => TokenCode: 
+)
+
+REQUEST:
+{"merchantId":"MI000113","timestamp":"1783434681","signature":"296415B6797DD0970B0908D2380F39CB"}
+
+RESPONSE:
+{"code":200,"msg":"success.","msgCode":"SYS999999","data":{"merchantId":"MI000113","tokenCode":"b5d7bece1568558d80db46dccbe5a561","expireTime":"2026-07-08 13:47:37","createUserId":"","createTime":"2026-07-07 13:47:37","remark":""}}
+=============================================================
+

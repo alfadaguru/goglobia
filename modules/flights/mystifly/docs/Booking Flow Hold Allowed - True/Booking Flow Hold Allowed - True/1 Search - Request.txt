@@ -1,0 +1,32 @@
+{
+  "OriginDestinationInformations": [
+    {
+      "DepartureDateTime": "2022-05-12 T00:00:00",
+      "OriginLocationCode": "BLR",
+      "DestinationLocationCode": "DEL"
+    },
+  ],
+  "TravelPreferences": {
+    "MaxStopsQuantity": "All",
+ 
+    "CabinPreference": "Y",
+    "Preferences": {
+      "CabinClassPreference": {
+        "CabinType": "Y",
+        "PreferenceLevel": "Preferred"
+      }
+    },
+    "AirTripType": "OneWay"
+  },
+  "PricingSourceType": "All",
+  "IsRefundable": false,
+  "PassengerTypeQuantities": [
+    {
+      "Code": "ADT",
+      "Quantity": 1
+    }
+  ],
+  "RequestOptions": "Fifty",
+  "Target": "Test",
+  "ConversationId": "A123456",
+}

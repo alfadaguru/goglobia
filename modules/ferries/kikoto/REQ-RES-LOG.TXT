@@ -1,0 +1,6656 @@
+
+================================================================================
+2026-07-08 07:52:41 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 255,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T04:15:00",
+            "arrival_datetime": "2026-07-31T06:30:00",
+            "accommodations": [
+                {
+                    "id": 5,
+                    "type": "seat",
+                    "title": "Sirena seat",
+                    "code": "SIRENA-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Ea elige",
+            "first_surname": "Reprehen",
+            "birthdate": "1953-04-10",
+            "nationality": "MLT",
+            "identity_type": "passport",
+            "identity_number": "1231231231",
+            "identity_expiration": "2032-09-30"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Error do",
+            "first_surname": "Voluptat",
+            "birthdate": "2002-10-01",
+            "nationality": "SJM",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2030-12-13"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Sint qua",
+            "first_surname": "Et excep",
+            "birthdate": "1965-09-17",
+            "nationality": "TCD",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2031-06-02"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 30,
+            "passenger_id": 1,
+            "license_plate": "ASD123",
+            "brand": "asd"
+        }
+    ]
+}
+RESPONSE:
+{"success":true,"timestamp":1783497162,"path":"v1/bookings","data":{"reference":"9518A7AA47"}}
+
+================================================================================
+2026-07-08 07:58:18 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 255,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T04:15:00",
+            "arrival_datetime": "2026-07-31T06:30:00",
+            "accommodations": [
+                {
+                    "id": 1,
+                    "type": "seat",
+                    "title": "Coffee Shop",
+                    "code": "CAFETERIA-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Sequi qu",
+            "first_surname": "Qui dolo",
+            "birthdate": "1957-11-02",
+            "nationality": "NRU",
+            "identity_type": "passport",
+            "identity_number": "12312312",
+            "identity_expiration": "2037-08-03"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Molestia",
+            "first_surname": "Dolore q",
+            "birthdate": "1999-04-20",
+            "nationality": "LBN",
+            "identity_type": "passport",
+            "identity_number": "12312312",
+            "identity_expiration": "2033-10-28"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Ea volup",
+            "first_surname": "Ipsum ve",
+            "birthdate": "2008-03-25",
+            "nationality": "ESH",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2040-11-02"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 34,
+            "passenger_id": 2,
+            "license_plate": "12312313",
+            "brand": "Ullam pariatur Beatae voluptatem Laborum Fuga"
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783497499,"path":"v1/bookings","data":{"name":"Bad Request","message":"An error occurred while making the reservation.","code":0,"status":400}}
+
+================================================================================
+2026-07-08 08:00:04 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 255,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T04:15:00",
+            "arrival_datetime": "2026-07-31T06:30:00",
+            "accommodations": [
+                {
+                    "id": 1,
+                    "type": "seat",
+                    "title": "Coffee Shop",
+                    "code": "CAFETERIA-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Sequi qu",
+            "first_surname": "Qui dolo",
+            "birthdate": "1957-11-02",
+            "nationality": "NRU",
+            "identity_type": "passport",
+            "identity_number": "12312312",
+            "identity_expiration": "2037-08-03"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Molestia",
+            "first_surname": "Dolore q",
+            "birthdate": "1999-04-20",
+            "nationality": "LBN",
+            "identity_type": "passport",
+            "identity_number": "12312312",
+            "identity_expiration": "2033-10-28"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Ea volup",
+            "first_surname": "Ipsum ve",
+            "birthdate": "2008-03-25",
+            "nationality": "ESH",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2040-11-02"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 34,
+            "passenger_id": 2,
+            "license_plate": "12312313",
+            "brand": "Ullam pariatur Beatae voluptatem Laborum Fuga"
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783497604,"path":"v1/bookings","data":{"name":"Bad Request","message":"An error occurred while making the reservation.","code":0,"status":400}}
+
+================================================================================
+2026-07-08 08:01:02 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 255,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T04:15:00",
+            "arrival_datetime": "2026-07-31T06:30:00",
+            "accommodations": [
+                {
+                    "id": 5,
+                    "type": "seat",
+                    "title": "Sirena seat",
+                    "code": "SIRENA-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Ut quis",
+            "first_surname": "Vero rep",
+            "birthdate": "1967-04-15",
+            "nationality": "ROM",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2030-09-07"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Quidem m",
+            "first_surname": "Exercita",
+            "birthdate": "1995-04-10",
+            "nationality": "BMU",
+            "identity_type": "passport",
+            "identity_number": "12312321",
+            "identity_expiration": "2027-09-04"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Ab ut es",
+            "first_surname": "Repudian",
+            "birthdate": "1961-09-29",
+            "nationality": "ESH",
+            "identity_type": "passport",
+            "identity_number": "1231212312",
+            "identity_expiration": "2026-10-21"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27,
+            "passenger_id": 1,
+            "license_plate": "1ASD",
+            "brand": "Soluta sit et nemo sit in ipsum aspernatur quos"
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783497662,"path":"v1/bookings","data":[{"field":"passengers","message":{"nationality":["The nationality code must follow the international standard ISO 3166-1 (alpha-3)."]}}]}
+
+================================================================================
+2026-07-08 08:01:58 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 255,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T04:15:00",
+            "arrival_datetime": "2026-07-31T06:30:00",
+            "accommodations": [
+                {
+                    "id": 4,
+                    "type": "seat",
+                    "title": "Neptuno seat",
+                    "code": "NEPTUNO-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Nesciunt",
+            "first_surname": "Consecte",
+            "birthdate": "1939-12-27",
+            "nationality": "TCA",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2033-03-30"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Et illum",
+            "first_surname": "Nesciunt",
+            "birthdate": "1956-01-18",
+            "nationality": "CHE",
+            "identity_type": "passport",
+            "identity_number": "123123",
+            "identity_expiration": "2036-12-07"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Est cons",
+            "first_surname": "Ut offic",
+            "birthdate": "1958-09-18",
+            "nationality": "ITA",
+            "identity_type": "passport",
+            "identity_number": "12312312",
+            "identity_expiration": "2036-09-31"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27,
+            "passenger_id": 2,
+            "license_plate": "123-ASD",
+            "brand": "Suscipit deserunt minim nostrud esse ut quod quos"
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783497718,"path":"v1/bookings","data":{"name":"Bad Request","message":"An error occurred while making the reservation.","code":0,"status":400}}
+
+================================================================================
+2026-07-08 08:02:52 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 255,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T04:15:00",
+            "arrival_datetime": "2026-07-31T06:30:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "cabin",
+                    "title": "Quadruple cabin",
+                    "code": "C4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Animi e",
+            "first_surname": "Asperior",
+            "birthdate": "1956-12-14",
+            "nationality": "NFK",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2035-07-19"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Quidem s",
+            "first_surname": "Ut iusto",
+            "birthdate": "1999-08-28",
+            "nationality": "GTM",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2036-09-12"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Adipisic",
+            "first_surname": "Et repel",
+            "birthdate": "2001-07-24",
+            "nationality": "BWA",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2029-07-02"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27,
+            "passenger_id": 1,
+            "license_plate": "123-ASD",
+            "brand": "Est tempor recusandae Quam aliqua Facere esse al"
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783497772,"path":"v1/bookings","data":{"name":"Bad Request","message":"An error occurred while making the reservation.","code":0,"status":400}}
+
+================================================================================
+2026-07-08 08:03:28 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 255,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T04:15:00",
+            "arrival_datetime": "2026-07-31T06:30:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "cabin",
+                    "title": "Quadruple cabin",
+                    "code": "C4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Animi e",
+            "first_surname": "Asperior",
+            "birthdate": "1956-12-14",
+            "nationality": "NFK",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2035-07-19"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Quidem s",
+            "first_surname": "Ut iusto",
+            "birthdate": "1999-08-28",
+            "nationality": "GTM",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2036-09-12"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Adipisic",
+            "first_surname": "Et repel",
+            "birthdate": "2001-07-24",
+            "nationality": "BWA",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2029-07-02"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27,
+            "passenger_id": 1,
+            "license_plate": "123-ASD",
+            "brand": "Est tempor recusandae Quam aliqua Facere esse al"
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783497808,"path":"v1/bookings","data":{"name":"Bad Request","message":"An error occurred while making the reservation.","code":0,"status":400}}
+
+================================================================================
+2026-07-08 08:04:32 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 255,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T04:15:00",
+            "arrival_datetime": "2026-07-31T06:30:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Similiqu",
+            "first_surname": "Quidem n",
+            "birthdate": "1972-01-25",
+            "nationality": "THA",
+            "identity_type": "passport",
+            "identity_number": "123123312",
+            "identity_expiration": "2028-10-07"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Harum eu",
+            "first_surname": "Elit fu",
+            "birthdate": "1966-08-09",
+            "nationality": "JAM",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2036-05-19"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Nihil ne",
+            "first_surname": "Non porr",
+            "birthdate": "1932-11-05",
+            "nationality": "SOM",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2029-06-15"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32,
+            "passenger_id": 3,
+            "license_plate": "123123",
+            "brand": "Dolores sit non culpa accusamus consectetur"
+        }
+    ]
+}
+RESPONSE:
+{"success":true,"timestamp":1783497872,"path":"v1/bookings","data":{"reference":"CF6FB047CB"}}
+
+================================================================================
+2026-07-08 08:06:46 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 255,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T08:30:00",
+            "arrival_datetime": "2026-07-31T09:30:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Veniam",
+            "first_surname": "Voluptat",
+            "birthdate": "1999-11-18",
+            "nationality": "SUR",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2033-10-02"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Sequi am",
+            "first_surname": "Omnis fa",
+            "birthdate": "1965-02-01",
+            "nationality": "ASM",
+            "identity_type": "passport",
+            "identity_number": "12312312",
+            "identity_expiration": "2027-09-21"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Qui nisi",
+            "first_surname": "Officia",
+            "birthdate": "1998-05-08",
+            "nationality": "NGA",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2035-11-15"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32,
+            "passenger_id": 1,
+            "license_plate": "123123123",
+            "brand": "Rerum accusamus ullamco eaque rerum ipsum optio u"
+        }
+    ]
+}
+RESPONSE:
+{"success":true,"timestamp":1783498006,"path":"v1/bookings","data":{"reference":"5464A6D215"}}
+
+================================================================================
+2026-07-08 08:09:49 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 255,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T04:15:00",
+            "arrival_datetime": "2026-07-31T06:30:00",
+            "accommodations": [
+                {
+                    "id": 1,
+                    "type": "seat",
+                    "title": "Coffee Shop",
+                    "code": "CAFETERIA-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Eius adi",
+            "first_surname": "Quasi au",
+            "birthdate": "1955-02-16",
+            "nationality": "",
+            "identity_type": "passport",
+            "identity_number": "12312312",
+            "identity_expiration": "2028-06-28"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Cillum i",
+            "first_surname": "Qui magn",
+            "birthdate": "1995-08-26",
+            "nationality": "BTN",
+            "identity_type": "passport",
+            "identity_number": "1231231",
+            "identity_expiration": "2041-08-22"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Voluptat",
+            "first_surname": "Adipisci",
+            "birthdate": "1958-02-22",
+            "nationality": "COM",
+            "identity_type": "passport",
+            "identity_number": "123123",
+            "identity_expiration": "2037-11-22"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27,
+            "passenger_id": 3,
+            "license_plate": "ASD111",
+            "brand": "Labore nemo explicabo Harum incididunt duis velit"
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783498190,"path":"v1/bookings","data":[{"field":"passengers","message":{"nationality":["nationality cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 08:12:09 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 255,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T04:15:00",
+            "arrival_datetime": "2026-07-31T06:30:00",
+            "accommodations": [
+                {
+                    "id": 1,
+                    "type": "seat",
+                    "title": "Coffee Shop",
+                    "code": "CAFETERIA-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Esse con",
+            "first_surname": "Recusand",
+            "birthdate": "1941-01-15",
+            "nationality": "MLT",
+            "identity_type": "passport",
+            "identity_number": "Officia veritatis al",
+            "identity_expiration": "2041-06-21"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Sit non",
+            "first_surname": "Fuga Fu",
+            "birthdate": "1977-10-17",
+            "nationality": "",
+            "identity_type": "passport",
+            "identity_number": "123123213",
+            "identity_expiration": "2029-01-27"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Exercita",
+            "first_surname": "Eaque fa",
+            "birthdate": "2000-03-02",
+            "nationality": "MCO",
+            "identity_type": "passport",
+            "identity_number": "12313213",
+            "identity_expiration": "2033-11-25"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 28,
+            "passenger_id": 2,
+            "license_plate": "123-ASD",
+            "brand": "Saepe quae impedit id aut expedita dolor vel accu"
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783498329,"path":"v1/bookings","data":[{"field":"passengers","message":{"identity_number":["The passport format is not valid."]}}]}
+
+================================================================================
+2026-07-08 08:46:43 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T08:30:00",
+            "arrival_datetime": "2026-07-31T13:45:00",
+            "accommodations": [
+                {
+                    "id": 1,
+                    "type": "seat",
+                    "title": "Sirena seat",
+                    "code": "SIRENA-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Aut ea h",
+            "first_surname": "Eos exce",
+            "birthdate": "1960-05-13",
+            "nationality": "ETH",
+            "identity_type": "passport",
+            "identity_number": "1312312312",
+            "identity_expiration": "2026-10-21"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Illo dis",
+            "first_surname": "Reprehen",
+            "birthdate": "1929-06-03",
+            "nationality": "ESH",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2027-05-18"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Eiusmod",
+            "first_surname": "Quia ali",
+            "birthdate": "1941-11-09",
+            "nationality": "UKR",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2034-09-10"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27,
+            "passenger_id": 2,
+            "license_plate": "ASD-123",
+            "brand": "Et voluptatem maiores pariatur Enim nostrum ut nu"
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783500404,"path":"v1/bookings","data":{"name":"Bad Request","message":"An error occurred while making the reservation.","code":0,"status":400}}
+
+================================================================================
+2026-07-08 08:47:51 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Laborum",
+            "first_surname": "Nesciunt",
+            "birthdate": "1995-05-20",
+            "nationality": "UZB",
+            "identity_type": "passport",
+            "identity_number": "12312313",
+            "identity_expiration": "2038-12-15"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Commodo",
+            "first_surname": "Ipsa te",
+            "birthdate": "1989-01-03",
+            "nationality": "COL",
+            "identity_type": "passport",
+            "identity_number": "123123",
+            "identity_expiration": "2038-11-28"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Ad offic",
+            "first_surname": "Aspernat",
+            "birthdate": "1931-11-18",
+            "nationality": "GUF",
+            "identity_type": "passport",
+            "identity_number": "1123123",
+            "identity_expiration": "2026-10-18"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 30,
+            "passenger_id": 3,
+            "license_plate": "ASD-123",
+            "brand": "Iure illo id doloremque aut quibusdam sit aute omn"
+        }
+    ]
+}
+RESPONSE:
+{"success":true,"timestamp":1783500471,"path":"v1/bookings","data":{"reference":"EE0D08F9BB"}}
+
+================================================================================
+2026-07-08 08:51:43 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Qui volu",
+            "first_surname": "Sit rec",
+            "birthdate": "1947-04-13",
+            "nationality": "KNA",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2039-05-01"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Consequa",
+            "first_surname": "Blanditi",
+            "birthdate": "1983-04-08",
+            "nationality": "ATG",
+            "identity_type": "passport",
+            "identity_number": "1231231a",
+            "identity_expiration": "2027-11-21"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Sit rep",
+            "first_surname": "Impedit",
+            "birthdate": "1944-03-03",
+            "nationality": "COL",
+            "identity_type": "passport",
+            "identity_number": "123123s",
+            "identity_expiration": "2035-11-20"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27,
+            "passenger_id": 1,
+            "license_plate": "123-AD",
+            "brand": "Exercitation et corporis quas sit itaque natus la"
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 22,
+            "passenger_id": 1
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783500703,"path":"v1/bookings","data":{"name":"Bad Request","message":"The pet ID '22' is not available.","code":0,"status":400}}
+
+================================================================================
+2026-07-08 08:56:34 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Error qu",
+            "first_surname": "Autem pa",
+            "birthdate": "1931-07-18",
+            "nationality": "MDG",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2038-01-26"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Sed et e",
+            "first_surname": "Recusand",
+            "birthdate": "1937-08-04",
+            "nationality": "DNK",
+            "identity_type": "passport",
+            "identity_number": "1231231as",
+            "identity_expiration": "2037-07-18"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Nisi cor",
+            "first_surname": "Rerum mo",
+            "birthdate": "1974-05-12",
+            "nationality": "CIV",
+            "identity_type": "passport",
+            "identity_number": "12312312",
+            "identity_expiration": "2028-06-14"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27,
+            "passenger_id": 3,
+            "license_plate": "1231SS",
+            "brand": "Ea totam eos odio consequuntur fugit sunt est"
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 1
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783500995,"path":"v1/bookings","data":{"name":"Bad Request","message":"An error occurred while making the reservation.","code":0,"status":400}}
+
+================================================================================
+2026-07-08 08:57:54 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "cabin",
+                    "title": "Quadruple cabin",
+                    "code": "C4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Ratione",
+            "first_surname": "Enim cil",
+            "birthdate": "1993-08-27",
+            "nationality": "MHL",
+            "identity_type": "passport",
+            "identity_number": "123123",
+            "identity_expiration": "2034-04-25"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Neque qu",
+            "first_surname": "Ea repre",
+            "birthdate": "1974-01-20",
+            "nationality": "BLR",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2038-09-15"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Praesent",
+            "first_surname": "Dolor qu",
+            "birthdate": "1947-10-18",
+            "nationality": "DOM",
+            "identity_type": "passport",
+            "identity_number": "12312312",
+            "identity_expiration": "2037-04-31"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27,
+            "passenger_id": 2,
+            "license_plate": "123A",
+            "brand": "Consectetur aliquid temporibus deserunt esse pro"
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 1
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783501074,"path":"v1/bookings","data":{"name":"Bad Request","message":"An error occurred while making the reservation.","code":0,"status":400}}
+
+================================================================================
+2026-07-08 09:03:22 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Dicta ea",
+            "first_surname": "Natus mi",
+            "birthdate": "1980-01-16",
+            "nationality": "MNE",
+            "identity_type": "passport",
+            "identity_number": "1231231231",
+            "identity_expiration": "2036-04-19"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Tempore",
+            "first_surname": "Velit v",
+            "birthdate": "1977-05-23",
+            "nationality": "LBY",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2040-09-15"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Veniam",
+            "first_surname": "Laborios",
+            "birthdate": "1945-04-31",
+            "nationality": "MOZ",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2028-04-06"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27,
+            "passenger_id": 3,
+            "license_plate": "ELIGENDILABORUMFAC",
+            "brand": "Ipsa nesciunt dolor exercitation dolor odio reru"
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 1,
+            "name": "Qui ipsum anim eu aliquid sint odio cupidatat iur"
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783501403,"path":"v1/bookings","data":{"name":"Bad Request","message":"An error occurred while making the reservation.","code":0,"status":400}}
+
+================================================================================
+2026-07-08 09:04:24 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T08:30:00",
+            "arrival_datetime": "2026-07-31T13:45:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Ea et es",
+            "first_surname": "Qui temp",
+            "birthdate": "1987-07-01",
+            "nationality": "AUS",
+            "identity_type": "passport",
+            "identity_number": "Velit eius aut dolo",
+            "identity_expiration": "2028-06-31"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Voluptat",
+            "first_surname": "Praesent",
+            "birthdate": "1984-06-04",
+            "nationality": "BMU",
+            "identity_type": "passport",
+            "identity_number": "Aliquip aliqua Ex i",
+            "identity_expiration": "2027-10-21"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Doloribu",
+            "first_surname": "Earum ne",
+            "birthdate": "1938-07-26",
+            "nationality": "BLM",
+            "identity_type": "passport",
+            "identity_number": "Ad eiusmod nostrud e",
+            "identity_expiration": "2030-07-09"
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 3,
+            "name": "Quibusdam veniam cupiditate velit soluta explicab"
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783501465,"path":"v1/bookings","data":[{"field":"passengers","message":{"identity_number":["The passport format is not valid."]}}]}
+
+================================================================================
+2026-07-08 09:05:18 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Iste exc",
+            "first_surname": "Providen",
+            "birthdate": "1978-04-18",
+            "nationality": "TCD",
+            "identity_type": "passport",
+            "identity_number": "1231231231",
+            "identity_expiration": "2029-02-22"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Qui erro",
+            "first_surname": "Cum tene",
+            "birthdate": "1935-02-22",
+            "nationality": "ARE",
+            "identity_type": "passport",
+            "identity_number": "1231231231",
+            "identity_expiration": "2040-09-24"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Unde qui",
+            "first_surname": "Nulla mi",
+            "birthdate": "1962-04-09",
+            "nationality": "",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2032-01-10"
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 1,
+            "name": "Maxime quisquam et ea pariatur Non mollitia omnis"
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783501518,"path":"v1/bookings","data":[{"field":"passengers","message":{"nationality":["nationality cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:06:18 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Iste exc",
+            "first_surname": "Providen",
+            "birthdate": "1978-04-18",
+            "nationality": "TCD",
+            "identity_type": "passport",
+            "identity_number": "1231231231",
+            "identity_expiration": "2029-02-22"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Qui erro",
+            "first_surname": "Cum tene",
+            "birthdate": "1935-02-22",
+            "nationality": "ARE",
+            "identity_type": "passport",
+            "identity_number": "1231231231",
+            "identity_expiration": "2040-09-24"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Unde qui",
+            "first_surname": "Nulla mi",
+            "birthdate": "1962-04-09",
+            "nationality": "",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2032-01-10"
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 1,
+            "name": "Maxime quisquam et ea pariatur Non mollitia omnis"
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783501578,"path":"v1/bookings","data":[{"field":"passengers","message":{"nationality":["nationality cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:10:54 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 4,
+                    "type": "seat",
+                    "title": "Neptuno seat",
+                    "code": "NEPTUNO-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Sed in e",
+            "first_surname": "Blanditi",
+            "birthdate": "2021-10-24",
+            "nationality": "GMB",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2035-12-06"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Debitis",
+            "first_surname": "Sunt qua",
+            "birthdate": "2016-01-05",
+            "nationality": "DEU",
+            "identity_type": "passport",
+            "identity_number": "1232123123",
+            "identity_expiration": "2029-09-12"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Repellen",
+            "first_surname": "Velit si",
+            "birthdate": "2012-09-17",
+            "nationality": "FSM",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2041-02-23"
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 1,
+            "name": "dsa"
+        }
+    ]
+}
+RESPONSE:
+{"success":true,"timestamp":1783501854,"path":"v1/bookings","data":{"reference":"EBCEBAE466"}}
+
+================================================================================
+2026-07-08 09:43:56 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Dolor co",
+            "first_surname": "Cupidata",
+            "birthdate": "1934-12-03",
+            "nationality": "NIU",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2029-06-29"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Neque pl",
+            "first_surname": "Corporis",
+            "birthdate": "1935-08-06",
+            "nationality": "BLM",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2034-12-06"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Ut repud",
+            "first_surname": "Omnis lo",
+            "birthdate": "2011-03-20",
+            "nationality": "GEO",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2034-10-15"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27,
+            "passenger_id": 1,
+            "license_plate": "123-ASD",
+            "brand": "sss"
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2,
+            "name": "dog"
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783503837,"path":"v1/bookings","data":{"name":"Bad Request","message":"An error occurred while making the reservation.","code":0,"status":400}}
+
+================================================================================
+2026-07-08 09:44:16 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Dolor co",
+            "first_surname": "Cupidata",
+            "birthdate": "1934-12-03",
+            "nationality": "NIU",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2029-06-29"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Neque pl",
+            "first_surname": "Corporis",
+            "birthdate": "1935-08-06",
+            "nationality": "BLM",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2034-12-06"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Ut repud",
+            "first_surname": "Omnis lo",
+            "birthdate": "2011-03-20",
+            "nationality": "GEO",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2034-10-15"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27,
+            "passenger_id": 1,
+            "license_plate": "123-ASD",
+            "brand": "sss"
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2,
+            "name": "dog"
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783503857,"path":"v1/bookings","data":{"name":"Bad Request","message":"An error occurred while making the reservation.","code":0,"status":400}}
+
+================================================================================
+2026-07-08 09:51:08 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504269,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:51:09 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504269,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:51:10 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 31
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504270,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:51:10 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 30
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504271,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:51:11 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 28
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504271,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:51:12 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 34
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504272,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:51:31 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 30
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504291,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:51:32 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504292,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:51:33 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 31
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504293,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:51:33 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504294,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:51:34 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 28
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504294,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:51:35 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 34
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504295,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:54:51 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504492,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:54:52 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504492,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:54:53 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 31
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504493,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:54:53 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 30
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504494,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:54:54 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 28
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504494,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:54:55 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 34
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504495,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:14 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 28
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504514,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:14 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504515,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:15 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 31
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504515,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:16 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 30
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504516,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:16 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504517,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:17 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 34
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504517,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:29 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 30
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504529,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:30 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504530,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:30 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 31
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504531,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:31 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504531,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:32 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 28
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504532,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:33 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 34
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504533,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:45 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504545,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:46 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 31
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504546,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:47 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 30
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504547,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:48 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504548,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:49 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 28
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504549,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:49 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 34
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504549,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:55:59 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 34
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504560,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:56:00 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504560,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:56:01 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 31
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504561,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:56:02 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 30
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504562,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:56:03 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504563,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:56:03 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T09:45:00",
+            "arrival_datetime": "2026-08-31T13:15:00",
+            "accommodations": [
+                {
+                    "id": 2,
+                    "type": "seat",
+                    "title": "Sirena Mesa",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "SIRENAMX4-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 28
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504564,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:57:04 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504625,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:57:05 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 31
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504625,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:57:06 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 30
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504626,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:57:07 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504627,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:57:07 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 28
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504628,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:57:08 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 34
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504628,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:57:22 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504643,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:57:23 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504643,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:57:25 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 31
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504645,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:57:26 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 30
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504646,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:57:26 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 28
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504647,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 09:57:27 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 34
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504647,"path":"v1/prices","data":[{"field":"vehicles","message":{"passenger_id":["passenger_id cannot be blank."]}}]}
+
+================================================================================
+2026-07-08 10:01:29 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27,
+            "passenger_id": 2
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504889,"path":"v1/prices","data":{"name":"Internal Server Error","message":"An internal server error occurred.","code":0,"status":500}}
+
+================================================================================
+2026-07-08 10:01:30 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32,
+            "passenger_id": 2
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504890,"path":"v1/prices","data":{"name":"Internal Server Error","message":"An internal server error occurred.","code":0,"status":500}}
+
+================================================================================
+2026-07-08 10:01:31 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 31,
+            "passenger_id": 2
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504891,"path":"v1/prices","data":{"name":"Internal Server Error","message":"An internal server error occurred.","code":0,"status":500}}
+
+================================================================================
+2026-07-08 10:01:32 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 30,
+            "passenger_id": 2
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504892,"path":"v1/prices","data":{"name":"Internal Server Error","message":"An internal server error occurred.","code":0,"status":500}}
+
+================================================================================
+2026-07-08 10:01:33 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 28,
+            "passenger_id": 2
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504893,"path":"v1/prices","data":{"name":"Internal Server Error","message":"An internal server error occurred.","code":0,"status":500}}
+
+================================================================================
+2026-07-08 10:01:34 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 34,
+            "passenger_id": 2
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504894,"path":"v1/prices","data":{"name":"Internal Server Error","message":"An internal server error occurred.","code":0,"status":500}}
+
+================================================================================
+2026-07-08 10:02:03 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 30,
+            "passenger_id": 2
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504923,"path":"v1/prices","data":{"name":"Internal Server Error","message":"An internal server error occurred.","code":0,"status":500}}
+
+================================================================================
+2026-07-08 10:02:04 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32,
+            "passenger_id": 2
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504924,"path":"v1/prices","data":{"name":"Internal Server Error","message":"An internal server error occurred.","code":0,"status":500}}
+
+================================================================================
+2026-07-08 10:02:05 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 31,
+            "passenger_id": 2
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504925,"path":"v1/prices","data":{"name":"Internal Server Error","message":"An internal server error occurred.","code":0,"status":500}}
+
+================================================================================
+2026-07-08 10:02:06 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 27,
+            "passenger_id": 2
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504926,"path":"v1/prices","data":{"name":"Internal Server Error","message":"An internal server error occurred.","code":0,"status":500}}
+
+================================================================================
+2026-07-08 10:02:07 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 28,
+            "passenger_id": 2
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504927,"path":"v1/prices","data":{"name":"Internal Server Error","message":"An internal server error occurred.","code":0,"status":500}}
+
+================================================================================
+2026-07-08 10:02:08 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-08-31T12:45:00",
+            "arrival_datetime": "2026-08-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "subtitle": "Does not allow changes or cancellations",
+                    "description": "",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 34,
+            "passenger_id": 2
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2
+        }
+    ]
+}
+RESPONSE:
+{"success":false,"timestamp":1783504928,"path":"v1/prices","data":{"name":"Internal Server Error","message":"An internal server error occurred.","code":0,"status":500}}
+
+================================================================================
+2026-07-08 10:08:43 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32,
+            "passenger_id": 2
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":true,"timestamp":1783505323,"path":"v1/prices","data":{"sailings":[{"shipping_company_id":2,"departure_port_id":17,"destination_port_id":10,"departure_datetime":"2026-07-31T12:45:00","arrival_datetime":"2026-07-31T19:00:00","shipping_company":{"id":2,"name":"Balearia","code":"balearia","services":{"passengers":true,"vehicles":true,"pets":true,"check_in":true},"info":{"check_in_url":"https://www.balearia.com/en/web/balearia-booking/mis-reservas"},"updated_at":1746447341,"ticket_types":[{"id":24,"name":"Adult","description":"From 14 years old","group":"passenger","metadata":{"age":{"min":14,"max":null,"unit":"years"}},"updated_at":1761906406},{"id":25,"name":"Child","description":"1 - 13 years","group":"passenger","metadata":{"age":{"min":1,"max":13,"unit":"years"}},"updated_at":1761906406},{"id":26,"name":"Baby","description":"0 - 12 months","group":"passenger","metadata":{"age":{"min":0,"max":12,"unit":"months"}},"updated_at":1761906406},{"id":35,"name":"Pet","description":null,"group":"pet","metadata":null,"updated_at":1746447342},{"id":27,"name":"Car","description":null,"group":"vehicle","metadata":null,"updated_at":1746447342},{"id":28,"name":"Van","description":null,"group":"vehicle","metadata":null,"updated_at":1746447342},{"id":30,"name":"Motorcycle","description":null,"group":"vehicle","metadata":null,"updated_at":1746447342},{"id":31,"name":"Moped","description":null,"group":"vehicle","metadata":null,"updated_at":1746447342},{"id":32,"name":"Bicycle","description":null,"group":"vehicle","metadata":null,"updated_at":1746447342},{"id":34,"name":"Trailer","description":null,"group":"vehicle","metadata":null,"updated_at":1746447342}]},"departure_port":{"id":17,"name":"Alcúdia","code":"ESALD","region":null,"country":"ESP","latitude":39.835941,"longitude":3.141848,"updated_at":1772616708},"destination_port":{"id":10,"name":"Barcelona","code":"ESBCN","region":null,"country":"ESP","latitude":41.372139,"longitude":2.177535,"updated_at":1772616708},"accommodations":[{"id":3,"type":"seat","title":"Quadruple Cabin Ext","subtitle":"Does not allow changes or cancellations","description":null,"code":"C4E-F2-NOR","min_occupancy":null,"max_occupancy":null,"availability":null,"passengers":[{"id":1,"bonuses":null},{"id":2,"bonuses":null},{"id":3,"bonuses":null}]}],"services":null,"coupon":null,"price":551,"currency":"EUR"}],"passengers":[{"id":1,"ticket_type_id":24,"birthdate":null},{"id":2,"ticket_type_id":24,"birthdate":null},{"id":3,"ticket_type_id":24,"birthdate":null}],"vehicles":[{"id":1,"ticket_type_id":32,"passenger_id":2,"length":null,"height":null}],"pets":[{"id":1,"ticket_type_id":35,"weight":null}]}}
+
+================================================================================
+2026-07-08 10:08:47 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Dolor co",
+            "first_surname": "Libero i",
+            "birthdate": "2016-06-16",
+            "nationality": "SXM",
+            "identity_type": "passport",
+            "identity_number": "123123213",
+            "identity_expiration": "2039-07-12"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Sed nesc",
+            "first_surname": "Exercita",
+            "birthdate": "1950-01-26",
+            "nationality": "NOR",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2027-06-19"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Ipsum v",
+            "first_surname": "Illum v",
+            "birthdate": "1997-09-11",
+            "nationality": "CHL",
+            "identity_type": "passport",
+            "identity_number": "123123213",
+            "identity_expiration": "2028-05-08"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32,
+            "passenger_id": 2,
+            "license_plate": "123123",
+            "brand": "Quis adipisicing aut eveniet exercitationem"
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2,
+            "name": "asd"
+        }
+    ]
+}
+RESPONSE:
+{"success":true,"timestamp":1783505327,"path":"v1/bookings","data":{"reference":"62B24ABCF1"}}
+
+================================================================================
+2026-07-08 10:19:50 — POST /prices
+REQUEST:
+{
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32,
+            "passenger_id": 1
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35
+        }
+    ]
+}
+RESPONSE:
+{"success":true,"timestamp":1783505990,"path":"v1/prices","data":{"sailings":[{"shipping_company_id":2,"departure_port_id":17,"destination_port_id":10,"departure_datetime":"2026-07-31T12:45:00","arrival_datetime":"2026-07-31T19:00:00","shipping_company":{"id":2,"name":"Balearia","code":"balearia","services":{"passengers":true,"vehicles":true,"pets":true,"check_in":true},"info":{"check_in_url":"https://www.balearia.com/en/web/balearia-booking/mis-reservas"},"updated_at":1746447341,"ticket_types":[{"id":24,"name":"Adult","description":"From 14 years old","group":"passenger","metadata":{"age":{"min":14,"max":null,"unit":"years"}},"updated_at":1761906406},{"id":25,"name":"Child","description":"1 - 13 years","group":"passenger","metadata":{"age":{"min":1,"max":13,"unit":"years"}},"updated_at":1761906406},{"id":26,"name":"Baby","description":"0 - 12 months","group":"passenger","metadata":{"age":{"min":0,"max":12,"unit":"months"}},"updated_at":1761906406},{"id":35,"name":"Pet","description":null,"group":"pet","metadata":null,"updated_at":1746447342},{"id":27,"name":"Car","description":null,"group":"vehicle","metadata":null,"updated_at":1746447342},{"id":28,"name":"Van","description":null,"group":"vehicle","metadata":null,"updated_at":1746447342},{"id":30,"name":"Motorcycle","description":null,"group":"vehicle","metadata":null,"updated_at":1746447342},{"id":31,"name":"Moped","description":null,"group":"vehicle","metadata":null,"updated_at":1746447342},{"id":32,"name":"Bicycle","description":null,"group":"vehicle","metadata":null,"updated_at":1746447342},{"id":34,"name":"Trailer","description":null,"group":"vehicle","metadata":null,"updated_at":1746447342}]},"departure_port":{"id":17,"name":"Alcúdia","code":"ESALD","region":null,"country":"ESP","latitude":39.835941,"longitude":3.141848,"updated_at":1772616708},"destination_port":{"id":10,"name":"Barcelona","code":"ESBCN","region":null,"country":"ESP","latitude":41.372139,"longitude":2.177535,"updated_at":1772616708},"accommodations":[{"id":3,"type":"seat","title":"Quadruple Cabin Ext","subtitle":"Does not allow changes or cancellations","description":null,"code":"C4E-F2-NOR","min_occupancy":null,"max_occupancy":null,"availability":null,"passengers":[{"id":1,"bonuses":null},{"id":2,"bonuses":null},{"id":3,"bonuses":null}]}],"services":null,"coupon":null,"price":551,"currency":"EUR"}],"passengers":[{"id":1,"ticket_type_id":24,"birthdate":null},{"id":2,"ticket_type_id":24,"birthdate":null},{"id":3,"ticket_type_id":24,"birthdate":null}],"vehicles":[{"id":1,"ticket_type_id":32,"passenger_id":1,"length":null,"height":null}],"pets":[{"id":1,"ticket_type_id":35,"weight":null}]}}
+
+================================================================================
+2026-07-08 10:19:53 — POST /bookings
+REQUEST:
+{
+    "title": "mr",
+    "name": "Super",
+    "first_surname": "Admin",
+    "email": "admin@phptravels.com",
+    "phone_country_code": "1",
+    "phone": "1234567890",
+    "sailings": [
+        {
+            "departure_port_id": 17,
+            "destination_port_id": 10,
+            "shipping_company_id": 2,
+            "departure_datetime": "2026-07-31T12:45:00",
+            "arrival_datetime": "2026-07-31T19:00:00",
+            "accommodations": [
+                {
+                    "id": 3,
+                    "type": "seat",
+                    "title": "Quadruple Cabin Ext",
+                    "code": "C4E-F2-NOR",
+                    "passengers": [
+                        {
+                            "id": 1
+                        },
+                        {
+                            "id": 2
+                        },
+                        {
+                            "id": 3
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "passengers": [
+        {
+            "id": 1,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Facere p",
+            "first_surname": "Quis dol",
+            "birthdate": "2019-12-07",
+            "nationality": "TZA",
+            "identity_type": "passport",
+            "identity_number": "123123123",
+            "identity_expiration": "2038-08-25"
+        },
+        {
+            "id": 2,
+            "ticket_type_id": 24,
+            "title": "mr",
+            "name": "Qui do e",
+            "first_surname": "Consequa",
+            "birthdate": "1932-04-08",
+            "nationality": "HKG",
+            "identity_type": "passport",
+            "identity_number": "12312321",
+            "identity_expiration": "2037-08-18"
+        },
+        {
+            "id": 3,
+            "ticket_type_id": 24,
+            "title": "mrs",
+            "name": "Id quis",
+            "first_surname": "Quae eos",
+            "birthdate": "1991-01-27",
+            "nationality": "ALB",
+            "identity_type": "passport",
+            "identity_number": "12312312",
+            "identity_expiration": "2039-12-30"
+        }
+    ],
+    "vehicles": [
+        {
+            "id": 1,
+            "ticket_type_id": 32,
+            "passenger_id": 1,
+            "license_plate": "123-ASD",
+            "brand": "Rem voluptatem dicta et voluptate qui nostrum quas"
+        }
+    ],
+    "pets": [
+        {
+            "id": 1,
+            "ticket_type_id": 35,
+            "passenger_id": 2,
+            "name": "test"
+        }
+    ]
+}
+RESPONSE:
+{"success":true,"timestamp":1783505993,"path":"v1/bookings","data":{"reference":"56750BCBE8"}}

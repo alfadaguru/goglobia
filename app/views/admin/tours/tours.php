@@ -1,0 +1,59 @@
+<?php
+// tours.php
+@$SECURE or die('Access Denied!');
+?>
+
+<div class="container my-4">
+    <?php if (isset($_SESSION['message'])): ?>
+        <div class="<?= $_SESSION['message']['type'] === 'success' ? 'alert-success' : 'alert-error' ?> mb-4">
+            <span class="material-symbols-outlined"><?= $_SESSION['message']['type'] === 'success' ? 'check_circle' : 'error' ?></span>
+            <div><?= $_SESSION['message']['text'] ?></div>
+        </div>
+        <?php unset($_SESSION['message']); ?>
+    <?php endif; ?>
+
+    <?php
+    echo crud()
+        ->table('tours')
+        ->title(T::tours_management ?? 'Tours Management')
+        ->col('id,img,name,location,days,adult_price,tour_type_id')
+        ->relation('tour_type_id', 'tours_settings', 'setting_label', 'id', ['setting_type' => 'tour_type'])
+        ->label([
+            'id' => T::tour_id ?? 'Tour ID',
+            'name' => T::tour_name ?? 'Tour Name',
+            'img' => T::image ?? 'Image',
+            'location' => T::location ?? 'Location',
+            'days' => T::duration ?? 'Days',
+            'adult_price' => T::price ?? 'Price',
+            'tour_type_id' => T::tour_type ?? 'Tour Type'
+        ])
+        ->row([
+            'img' => '<img src="'.root.'{{img}}" alt="Tour" class="w-10 h-10 rounded-full object-cover border border-gray-200" onerror="this.onerror=null;this.src=\''.root.'uploads/no_img.jpg\'">',
+            'name' => '<a href="'.root.admin.'/tours/edit/{{id}}" target="_self" class="text-black hover:underline">{{name}}</a>',
+            'adult_price' => '
+                <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                    <span class="material-symbols-outlined text-sm">payments</span>
+                    {{currency}} {{adult_price}}
+                </span>
+            ',
+            'days' => '{{days}}D / {{nights}}N'
+        ])
+        ->order('id', 'DESC')
+        ->actions([
+            'add' => true,
+            'view' => false,
+            'edit' => true,
+            'delete' => true,
+            'status' => true,
+            'featured' => true,
+            'search' => true,
+        ])
+        ->action_urls([
+            'add' => 'admin/tours/add',
+            'edit' => 'tours/edit/{id}',
+            'view' => root.'tour/{id}'
+        ])
+        ->col_width('images', '60px')
+        ->render();
+    ?>
+</div>

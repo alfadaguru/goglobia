@@ -1,0 +1,26 @@
+
+https://api.worldota.net/api/b2b/v3/search/serp/hotels/
+
+{
+    "checkin": "2025-05-23",
+    "checkout": "2025-05-24",
+    "residency": "gb",
+    "language": "en",
+    "guests": [
+        {
+            "adults": 2,
+            "children": []
+        }
+    ],
+    "ids": [
+        "access_international_hotel_annex",
+        "rila_muam_castle_hotel",
+        "alama_hotel_multipurpose",
+        "prestige_hotel_limited",
+        "chimcherry_hotel_limited",
+        "green_suites_villa",
+        "kenfeli_international_palmbeach_hotel",
+        "test_hotel_do_not_book"
+    ],
+    "currency": "EUR"
+} 

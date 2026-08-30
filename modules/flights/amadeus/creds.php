@@ -1,0 +1,347 @@
+<?php
+
+global $router;
+
+$router->post('flights/amadeus/creds', function() {
+
+// Start timing for performance metrics
+$start_time = microtime(true);
+
+// Initialize standardized response array
+$response = [
+    'success' => false,
+    'message' => '',
+    'data' => null,
+    'metadata' => [
+        'module' => 'amadeus',
+        'service' => 'flights',
+        'provider' => 'Amadeus Self-Service',
+        'api_version' => 'v1',
+        'timestamp' => date('c'),
+        'response_time_ms' => 0,
+        'environment' => 'test'
+    ],
+    'debug' => [
+        'endpoint_used' => '',
+        'request_method' => 'POST',
+        'validation_steps' => [],
+        'api_response' => null,
+        'raw_response' => null
+    ]
+];
+
+try {
+    $response['debug']['validation_steps'][] = 'Starting Amadeus Self-Service credential validation process';
+
+    // Validate required parameters
+    if (!isset($_POST['c1']) || empty(trim($_POST['c1']))) {
+        $response['message'] = 'API Key (c1) is required for Amadeus Self-Service API';
+        $response['debug']['validation_steps'][] = 'Validation failed: Missing API Key';
+        echo json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    if (!isset($_POST['c2']) || empty(trim($_POST['c2']))) {
+        $response['message'] = 'API Secret (c2) is required for Amadeus Self-Service API';
+        $response['debug']['validation_steps'][] = 'Validation failed: Missing API Secret';
+        echo json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    $response['debug']['validation_steps'][] = 'Required credentials provided';
+
+    // Check for environment mode (optional, defaults to test)
+    $env = isset($_POST['env']) ? $_POST['env'] : 'test';
+    $response['metadata']['environment'] = $env;
+
+    // Set appropriate endpoint based on environment
+    if ($env === 'production' || $env === 'live') {
+        $end_pointv1 = 'https://travel.api.amadeus.com/v1/';
+        $end_pointv2 = 'https://travel.api.amadeus.com/v2/';
+        $response['debug']['validation_steps'][] = 'Environment: Production endpoints selected';
+    } else {
+        $end_pointv1 = 'https://test.api.amadeus.com/v1/';
+        $end_pointv2 = 'https://test.api.amadeus.com/v2/';
+        $response['debug']['validation_steps'][] = 'Environment: Test endpoints selected';
+    }
+
+    $response['debug']['endpoint_used'] = $end_pointv1 . 'security/oauth2/token';
+
+    // Extract credentials
+    $grant_type = "client_credentials";
+    $client_id = trim($_POST['c1']);
+    $client_secret = trim($_POST['c2']);
+
+    $response['debug']['validation_steps'][] = 'Initiating OAuth2 token request to Amadeus Self-Service API';
+
+    // Test authentication with Amadeus API
+    $curl = curl_init();
+    curl_setopt_array($curl, [
+        CURLOPT_URL => $end_pointv1 . 'security/oauth2/token',
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_POSTFIELDS => "grant_type=" . $grant_type . "&client_id=" . $client_id . "&client_secret=" . $client_secret,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/x-www-form-urlencoded',
+            'Accept: application/json'
+        ],
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_USERAGENT => 'Amadeus-Self-Service-Test/1.0'
+    ]);
+
+    $result = curl_exec($curl);
+    $http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    $curl_error = curl_error($curl);
+    $curl_info = curl_getinfo($curl);
+
+    // Store raw response for debugging
+    $response['debug']['raw_response'] = $result;
+    $response['debug']['validation_steps'][] = "API request completed with HTTP code: {$http_code}";
+
+    // Check for cURL errors
+    if ($curl_error) {
+        $response['message'] = 'Network connection error occurred';
+        $response['data'] = [
+            'error_type' => 'network_error',
+            'error_code' => 'CURL_ERROR',
+            'error_description' => $curl_error,
+            'connection_details' => [
+                'endpoint' => $end_pointv1 . 'security/oauth2/token',
+                'timeout' => 30,
+                'connect_timeout' => 10,
+                'ssl_verify' => false
+            ],
+            'troubleshooting' => [
+                'Check internet connection',
+                'Verify firewall settings',
+                'Confirm DNS resolution',
+                'Test endpoint accessibility'
+            ]
+        ];
+        $response['debug']['validation_steps'][] = 'Connection failed: ' . $curl_error;
+        echo json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    // Parse the response
+    $token_data = json_decode($result, true);
+    $response['debug']['api_response'] = $token_data;
+
+    if ($http_code === 200 && isset($token_data['access_token'])) {
+        // Success - credentials are valid
+        $response['success'] = true;
+        $response['message'] = 'Amadeus Self-Service API credentials validated successfully';
+        $response['data'] = [
+            'connection_status' => 'connected',
+            'authentication' => [
+                'status' => 'authenticated',
+                'token_type' => $token_data['type'] ?? 'Bearer',
+                'expires_in' => $token_data['expires_in'] ?? 1799,
+                'token_scope' => $token_data['scope'] ?? 'default',
+                'application_name' => $token_data['application_name'] ?? 'Self-Service Application'
+            ],
+            'api_details' => [
+                'provider' => 'Amadeus Self-Service',
+                'environment' => $env,
+                'endpoint_v1' => $end_pointv1,
+                'endpoint_v2' => $end_pointv2,
+                'supported_services' => [
+                    'Flight Inspiration Search',
+                    'Flight Low-fare Search',
+                    'Flight Most Searched Destinations',
+                    'Airport & City Search',
+                    'Airline Code Lookup',
+                    'Aircraft Code Lookup',
+                    'Flight Most Booked Destinations',
+                    'Flight Most Traveled Destinations',
+                    'Flight Busiest Traveling Period'
+                ]
+            ],
+            'account_info' => [
+                'client_id' => substr($client_id, 0, 8) . '...',
+                'validated_at' => date('Y-m-d H:i:s'),
+                'validation_method' => 'OAuth2 Client Credentials',
+                'api_tier' => 'Self-Service'
+            ],
+            'rate_limits' => [
+                'note' => 'Self-Service APIs have specific rate limits',
+                'free_tier' => '2,000 API calls per month',
+                'documentation' => 'https://developers.amadeus.com/pricing'
+            ]
+        ];
+        $response['debug']['validation_steps'][] = 'Authentication successful - Valid access token received';
+
+    } elseif ($http_code === 401) {
+        // Invalid credentials
+        $response['message'] = 'Authentication failed - Invalid credentials provided';
+        $response['data'] = [
+            'error_type' => 'authentication_error',
+            'error_code' => $token_data['error'] ?? 'invalid_client',
+            'error_description' => $token_data['error_description'] ?? 'The client credentials are invalid',
+            'api_response' => $token_data,
+            'provider_details' => [
+                'provider' => 'Amadeus Self-Service',
+                'environment' => $env,
+                'endpoint' => $end_pointv1,
+                'documentation' => 'https://developers.amadeus.com/get-started/authentication'
+            ],
+            'troubleshooting' => [
+                'Verify your API Key is correct',
+                'Check your API Secret is valid',
+                'Ensure credentials are for the correct environment',
+                'Confirm your application is activated in Amadeus portal',
+                'Check if your account has expired or been suspended'
+            ],
+            'support' => [
+                'amadeus_support' => 'https://developers.amadeus.com/support',
+                'documentation' => 'https://developers.amadeus.com/get-started',
+                'portal' => 'https://developers.amadeus.com/my-apps'
+            ]
+        ];
+        $response['debug']['validation_steps'][] = 'Authentication failed - Invalid credentials';
+
+    } elseif ($http_code === 400) {
+        // Bad request
+        $response['message'] = 'Bad request - Invalid request format or parameters';
+        $response['data'] = [
+            'error_type' => 'request_error',
+            'error_code' => $token_data['error'] ?? 'invalid_request',
+            'error_description' => $token_data['error_description'] ?? 'The request is malformed',
+            'api_response' => $token_data,
+            'request_details' => [
+                'method' => 'POST',
+                'content_type' => 'application/x-www-form-urlencoded',
+                'grant_type' => $grant_type,
+                'endpoint' => $end_pointv1 . 'security/oauth2/token'
+            ],
+            'troubleshooting' => [
+                'Check request format',
+                'Verify all required parameters are provided',
+                'Ensure content-type is correct',
+                'Review parameter naming and values'
+            ]
+        ];
+        $response['debug']['validation_steps'][] = 'Request validation failed - Bad request format';
+
+    } elseif ($http_code >= 500) {
+        // Server error
+        $response['message'] = 'Amadeus API server error - Service temporarily unavailable';
+        $response['data'] = [
+            'error_type' => 'server_error',
+            'error_code' => 'HTTP_' . $http_code,
+            'error_description' => 'Amadeus API server returned an error',
+            'http_details' => [
+                'status_code' => $http_code,
+                'status_text' => getHttpStatusText($http_code),
+                'response_body' => $result
+            ],
+            'api_response' => $token_data,
+            'provider_status' => [
+                'provider' => 'Amadeus Self-Service',
+                'status_page' => 'https://status.amadeus.com/',
+                'support' => 'https://developers.amadeus.com/support'
+            ],
+            'troubleshooting' => [
+                'Check Amadeus API status page',
+                'Retry request after some time',
+                'Contact Amadeus support if issue persists',
+                'Verify your API subscription status'
+            ]
+        ];
+        $response['debug']['validation_steps'][] = "Server error received - HTTP {$http_code}";
+
+    } elseif ($http_code === 429) {
+        // Rate limit exceeded
+        $response['message'] = 'Rate limit exceeded - Too many requests';
+        $response['data'] = [
+            'error_type' => 'rate_limit_error',
+            'error_code' => 'RATE_LIMIT_EXCEEDED',
+            'error_description' => 'API rate limit has been exceeded',
+            'api_response' => $token_data,
+            'rate_limit_info' => [
+                'provider' => 'Amadeus Self-Service',
+                'documentation' => 'https://developers.amadeus.com/pricing',
+                'free_quota' => '2,000 calls/month',
+                'retry_after' => $curl_info['retry_after'] ?? 'Unknown'
+            ],
+            'troubleshooting' => [
+                'Wait before making another request',
+                'Check your monthly quota usage',
+                'Consider upgrading to paid tier',
+                'Implement proper rate limiting in your application'
+            ]
+        ];
+        $response['debug']['validation_steps'][] = 'Rate limit exceeded';
+
+    } else {
+        // Other errors
+        $response['message'] = "Unexpected API response - HTTP {$http_code}";
+        $response['data'] = [
+            'error_type' => 'unexpected_error',
+            'error_code' => 'HTTP_' . $http_code,
+            'error_description' => 'Received unexpected response from API',
+            'http_details' => [
+                'status_code' => $http_code,
+                'response_headers' => $curl_info,
+                'response_body' => $result
+            ],
+            'api_response' => $token_data,
+            'troubleshooting' => [
+                'Check API documentation for this status code',
+                'Verify request parameters',
+                'Contact support with this error details',
+                'Check if API endpoint has changed'
+            ]
+        ];
+        $response['debug']['validation_steps'][] = "Unexpected response - HTTP {$http_code}";
+    }
+
+} catch (Exception $e) {
+    $response['message'] = 'Internal validation error occurred';
+    $response['data'] = [
+        'error_type' => 'system_error',
+        'error_code' => 'EXCEPTION',
+        'error_description' => $e->getMessage(),
+        'exception_details' => [
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+            'trace' => $e->getTraceAsString()
+        ],
+        'troubleshooting' => [
+            'Contact system administrator',
+            'Check server logs for details',
+            'Verify PHP configuration',
+            'Ensure all required extensions are installed'
+        ]
+    ];
+    $response['debug']['validation_steps'][] = 'Exception occurred: ' . $e->getMessage();
+}
+
+// Calculate response time
+$end_time = microtime(true);
+$response['metadata']['response_time_ms'] = round(($end_time - $start_time) * 1000, 2);
+
+// Return JSON response
+echo json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+exit;
+
+// Helper function for HTTP status texts
+function getHttpStatusText($code) {
+    $status_codes = [
+        200 => 'OK',
+        400 => 'Bad Request',
+        401 => 'Unauthorized',
+        403 => 'Forbidden',
+        404 => 'Not Found',
+        429 => 'Too Many Requests',
+        500 => 'Internal Server Error',
+        502 => 'Bad Gateway',
+        503 => 'Service Unavailable',
+        504 => 'Gateway Timeout'
+    ];
+    return $status_codes[$code] ?? 'Unknown Status';
+}
+
+});

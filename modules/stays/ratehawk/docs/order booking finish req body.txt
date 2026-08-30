@@ -1,0 +1,43 @@
+
+https://api.worldota.net/api/b2b/v3/hotel/order/booking/finish/
+
+All the parameters below are required, with some of the sub-parameters being optional 
+
+{
+    "user": { - 
+        "email": "asdfds@foo.com", - required, please refer to the Best Practices to see what kind of email we require from you depending on what kind of API you are developing 
+        "comment": "comment", - optional 
+        "phone": "12312321" - optional 
+    },
+    "partner": {
+        "partner_order_id": "test1111", - required
+        "comment": "partner_comment", - optional
+        "amount_sell_b2b2c": "10" - optional 
+    },
+    "language": "en", - required
+    "rooms": [ 
+        {
+            "guests": [
+                {
+                    "first_name": "Marty", - required for every guest including child
+                    "last_name": "Quatro", - required for every guest including child,
+		"age": null, - required up until 17 y.o including, after 18 age not to be sent
+		"gender": null, - optional 
+		"is_child": false - optional (in case the guest's age is equal or less than 17 y.o true is required)  
+                },
+                {
+                    "first_name": "Marta", - required
+                    "last_name": "Quatro" - required 
+                }
+            ]
+        }
+    ],
+    "payment_type": {
+        "type": "deposit", - required
+        "amount": "3776", - required 
+        "currency_code": "RUB" - required 
+    }
+}
+
+
+The "supplier_data" and "arrival_datetime" can be omitted. 

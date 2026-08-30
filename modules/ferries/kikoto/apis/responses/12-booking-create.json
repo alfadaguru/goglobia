@@ -1,0 +1,6 @@
+{
+    "NOTE": "POST /bookings — creates draft booking. Returns reference. Status=draft. Then POST /bookings/{reference}/confirm to get locator+status=completed",
+    "success": true,
+    "path": "v1/bookings",
+    "data": {"reference": "458E2630BE"}
+}

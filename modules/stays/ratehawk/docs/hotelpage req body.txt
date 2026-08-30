@@ -1,0 +1,17 @@
+https://api.worldota.net/api/b2b/v3/search/hp/
+
+
+{
+    "checkin": "2025-05-23",
+    "checkout": "2025-05-24",
+    "residency": "eg",
+    "language": "en",
+    "guests": [
+        {
+            "adults": 2,
+            "children": []
+        }
+    ],
+    "id": "test_hotel_do_not_book",
+    "currency": "AED"
+}

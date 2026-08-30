@@ -1,0 +1,184 @@
+{
+  "Data": {
+    "ConversationId": "A123456",
+    "Errors": [],
+    "IsValid": false,
+    "PricedItineraries": [
+      {
+        "AirItineraryPricingInfo": {
+          "DivideInPartyIndicator": false,
+          "FareInfos": [
+            {
+              "FareReference": "O"
+            }
+          ],
+          "FareSourceCode": "dnZJNGdDVW5ISTI1RHhCNVlWSC9JaWw2NU1RVW5WWFBHaUlkeitYWFZtSzhNbEJyc1ZBcVluSVFsTnc5dkRCd3dQTnY2b0RXdGt6Nk0zak81bHV4RUwyeHp5bzl4b3MxNjNrUFJ4aEhyei9KUUtiMk10V2hQVk5kWDFvR1E5QjYzaVBRNUJ2RHF1RkFISm95SGZZNzc0UmF4WmgwUGtlU2h2VURESzJlcEtVPQ==",
+          "FareType": "Public",
+          "IsRefundable": "Yes",
+          "ItinTotalFare": {
+            "BaseFare": {
+              "Amount": "7592.00",
+              "CurrencyCode": "INR",
+              "DecimalPlaces": 2
+            },
+            "EquivFare": {
+              "Amount": "136.17",
+              "CurrencyCode": "SGD",
+              "DecimalPlaces": 2
+            },
+            "TotalFare": {
+              "Amount": "155.72",
+              "CurrencyCode": "SGD",
+              "DecimalPlaces": 2
+            },
+            "TotalTax": {
+              "Amount": "19.55",
+              "CurrencyCode": "SGD",
+              "DecimalPlaces": 2
+            }
+          },
+          "PTC_FareBreakdowns": [
+            {
+              "BaggageInfo": [
+                "1PC"
+              ],
+              "CabinBaggageInfo": [
+                "SB"
+              ],
+              "FareBasisCodes": [
+                "O15RPRYL"
+              ],
+              "PassengerFare": {
+                "BaseFare": {
+                  "Amount": "7592.00",
+                  "CurrencyCode": "INR",
+                  "DecimalPlaces": 2
+                },
+                "EquivFare": {
+                  "Amount": "136.17",
+                  "CurrencyCode": "SGD",
+                  "DecimalPlaces": 2
+                },
+                "Surcharges": [],
+                "Taxes": [
+                  {
+                    "Amount": "1.43",
+                    "CurrencyCode": "SGD",
+                    "DecimalPlaces": 2,
+                    "TaxCode": "YR"
+                  },
+                  {
+                    "Amount": "0.90",
+                    "CurrencyCode": "SGD",
+                    "DecimalPlaces": 2,
+                    "TaxCode": "YR"
+                  },
+                  {
+                    "Amount": "7.41",
+                    "CurrencyCode": "SGD",
+                    "DecimalPlaces": 2,
+                    "TaxCode": "IN"
+                  },
+                  {
+                    "Amount": "5.58",
+                    "CurrencyCode": "SGD",
+                    "DecimalPlaces": 2,
+                    "TaxCode": "K3"
+                  },
+                  {
+                    "Amount": "4.23",
+                    "CurrencyCode": "SGD",
+                    "DecimalPlaces": 2,
+                    "TaxCode": "P2"
+                  }
+                ],
+                "TotalFare": {
+                  "Amount": "155.72",
+                  "CurrencyCode": "SGD",
+                  "DecimalPlaces": 2
+                }
+              },
+              "PassengerTypeQuantity": {
+                "Code": "ADT",
+                "Quantity": 1
+              },
+              "PenaltiesInfo": [
+                {
+                  "Allowed": true,
+                  "Amount": "6070.0",
+                  "CurrencyCode": "INR",
+                  "PenaltyType": "Cancel"
+                },
+                {
+                  "Allowed": true,
+                  "Amount": "3000.0",
+                  "CurrencyCode": "INR",
+                  "PenaltyType": "Exchange"
+                }
+              ]
+            }
+          ]
+        },
+        "DirectionInd": "OneWay",
+        "HoldAllowed": "True",
+        "IsPassportMandatory": false,
+        "OriginDestinationOptions": [
+          {
+            "FlightSegments": [
+              {
+                "ArrivalAirportLocationCode": "DEL",
+                "ArrivalDateTime": "2022-05-12T20:20:00",
+                "CabinClassCode": "Y",
+                "CabinClassText": "ECOYL",
+                "DepartureAirportLocationCode": "BLR",
+                "DepartureDateTime": "2022-05-12T17:45:00",
+                "Eticket": true,
+                "FlightNumber": "820",
+                "JourneyDuration": 155,
+                "MarketingAirlineCode": "UK",
+                "MarriageGroup": "",
+                "MealCode": "",
+                "OperatingAirline": {
+                  "Code": "UK",
+                  "Equipment": "320",
+                  "FlightNumber": ""
+                },
+                "ResBookDesigCode": "O",
+                "ResBookDesigText": "ECOYL",
+                "SeatsRemaining": {
+                  "BelowMinimum": false,
+                  "Number": 4
+                },
+                "StopQuantity": 0,
+                "StopQuantityInfo": {
+                  "ArrivalDateTime": "0001-01-01T00:00:00",
+                  "DepartureDateTime": "0001-01-01T00:00:00",
+                  "Duration": 0,
+                  "LocationCode": ""
+                }
+              }
+            ]
+          }
+        ],
+        "PaxNameCharacterLimit": 60,
+        "Provider": "BLRVS32IK",
+        "RequiredFieldsToBook": [
+          "Title",
+          "ContactNumber"
+        ],
+        "SequenceNumber": 1,
+        "TicketType": "eTicket",
+        "ValidatingAirlineCode": "UK",
+        "VoidWindowTLinMins": "0"
+      }
+    ],
+    "Success": true,
+    "Target": "Test",
+    "TraceId": "22042117-b6750ba1-395c-4f29-a28b-1b177630e28c",
+    "ExtraServices": {
+      "NameNumbers": [],
+      "Services": []
+    }
+  },
+  "Success": true
+}

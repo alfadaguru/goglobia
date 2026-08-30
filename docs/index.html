@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>API Docs</title>
+    <link id="site-favicon" rel="icon" href="../uploads/global/favicon.png">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+    <style>
+        html {
+            box-sizing: border-box;
+            overflow-y: scroll;
+        }
+
+        *,
+        *::before,
+        *::after {
+            box-sizing: inherit;
+        }
+
+        body {
+            margin: 0;
+            background: #fafafa;
+        }
+
+        .swagger-ui .topbar {
+            display: none;
+        }
+
+        .swagger-ui .headers-wrapper,
+        .swagger-ui .response-headers,
+        .swagger-ui .curl-command,
+        .swagger-ui .info a[href$="swagger.yaml"],
+        .swagger-ui .info .title small,
+        .swagger-ui .info .version-stamp {
+            display: none !important;
+        }
+
+    </style>
+</head>
+<body>
+    <div id="swagger-ui"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
+    <script>
+        window.addEventListener('load', async function () {
+            const websiteUrl = new URL('..', window.location.href).href.replace(/\/$/, '');
+            document.getElementById('site-favicon').href = websiteUrl + '/uploads/global/favicon.png';
+            let businessName = '';
+
+            try {
+                const infoResponse = await fetch('../api/info', {
+                    headers: { Accept: 'application/json' }
+                });
+                const info = await infoResponse.json();
+                businessName = info?.data?.site_name || '';
+                if (businessName) {
+                    document.title = businessName + ' API Docs';
+                }
+            } catch (error) {
+                console.warn('Could not load the business name for API docs.', error);
+            }
+
+            window.ui = SwaggerUIBundle({
+                url: './swagger.yaml?v=' + Date.now(),
+                dom_id: '#swagger-ui',
+                deepLinking: true,
+                displayRequestDuration: false,
+                filter: false,
+                persistAuthorization: true,
+                responseInterceptor: function (response) {
+                    const requestUrl = response && response.url ? response.url : '';
+                    const isLogoutRequest = /\/api\/users\/logout(?:\?|$)/.test(requestUrl);
+                    const isDepositDetailsRequest = /\/api\/deposit\/get(?:\?|$)/.test(requestUrl);
+
+                    if (isDepositDetailsRequest && response && typeof response.text === 'string') {
+                        try {
+                            const formattedJson = JSON.stringify(JSON.parse(response.text), null, 2);
+                            response.text = formattedJson;
+                            response.body = formattedJson;
+                        } catch (error) {
+                            // Leave non-JSON error responses unchanged.
+                        }
+                    }
+
+                    if (isLogoutRequest && response.status >= 200 && response.status < 300) {
+                        setTimeout(function () {
+                            if (window.ui && window.ui.authActions) {
+                                window.ui.authActions.logout(['BearerAuth']);
+                            }
+                        }, 0);
+                    }
+
+                    return response;
+                },
+                operationsSorter: function (first, second) {
+                    const authenticationFlow = {
+                        '/api/captcha': 0,
+                        '/api/signup': 1,
+                        '/api/login': 2,
+                        '/api/forgot-password': 3,
+                        '/api/resend-password-otp': 4,
+                        '/api/verify-otp': 5,
+                        '/api/reset-password': 6,
+                        '/api/users/logout': 7
+                    };
+                    const usersFlow = {
+                        'get /api/users/dashboard': 0,
+                        'get /api/users/profile': 1,
+                        'post /api/users/profile': 2,
+                        'post /api/users/delete-account': 3
+                    };
+                    const busFlow = {
+                        '/api/bus/listing': 0,
+                        '/api/bus/booking/draft': 1,
+                        '/api/bus/booking/draft/{hash}': 2,
+                        '/api/bus/booking/app-submit': 3,
+                        '/api/bus/invoice/{invoiceId}': 4,
+                        '/api/bus/booking/save-draft': 5,
+                        '/api/bus/booking/submit': 6,
+                        '/api/bus/booking/download-invoice/{invoiceId}': 7,
+                        '/api/bus/booking/request-cancellation': 8
+                    };
+                    const carsFlow = {
+                        '/api/cars/featured': 0,
+                        '/api/cars/booking/draft': 1,
+                        '/api/cars/booking/draft/{hash}': 2,
+                        '/api/cars/booking/submit': 3,
+                        '/api/cars/invoice/{invoiceId}': 4,
+                        '/api/cars/booking/download-invoice/{invoiceId}': 5,
+                        '/api/cars/booking/request-cancellation': 6
+                    };
+                    const depositsFlow = {
+                        '/api/deposit/add': 0,
+                        '/api/deposit/get': 1
+                    };
+                    const esimFlow = {
+                        '/api/esim/featured': 0,
+                        '/api/esim/packages/{country}': 1,
+                        '/api/esim/package/{country}/{packageId}': 2,
+                        '/api/esim/booking/submit': 3
+                    };
+                    const ferriesFlow = {
+                        '/api/ferries/bonuses': 0,
+                        '/api/ferries/ports': 1,
+                        '/api/ferries/routes': 2,
+                        '/api/ferries/search': 3,
+                        '/api/ferries/revalidate': 4,
+                        '/api/ferries/booking/validate': 5,
+                        '/api/ferries/booking/draft': 6,
+                        '/api/ferries/booking/{hash}': 7,
+                        '/api/ferries/booking/submit': 8,
+                        '/api/ferries/invoice/{invoiceId}': 9,
+                        '/api/ferries/booking/download-invoice/{invoiceId}': 10,
+                        '/api/ferries/booking/request-cancellation': 11,
+                        '/api/ferries/cancel': 12
+                    };
+                    const flightsFlow = {
+                        '/api/flights/featured': 0,
+                        '/api/flights/search': 1,
+                        '/api/flights/{id}': 2,
+                        '/api/flights/booking/draft': 3,
+                        '/api/flights/booking/{hash}': 4,
+                        '/api/flights/booking/submit': 5,
+                        '/api/invoice/flights/{invoiceId}': 6,
+                        '/api/flights/booking/download-invoice/{invoiceId}': 7,
+                        '/api/flights/booking/resend-invoice': 8,
+                        '/api/flights/booking/request-cancellation': 9,
+                        '/api/flight/booking/save-draft': 10,
+                        '/api/flight/booking/revalidate': 11,
+                        '/api/flight/booking/submit': 12,
+                        '/api/flight/booking/download-invoice/{invoiceId}': 13,
+                        '/api/flight/booking/resend-invoice': 14,
+                        '/api/flight/booking/request-cancellation': 15
+                    };
+                    const railFlow = {
+                        '/api/rail/home': 0,
+                        '/api/rail/config': 1,
+                        '/api/rail/stations': 2,
+                        '/api/rail/search': 3,
+                        '/api/rail/stops': 4,
+                        '/api/rail/booking/draft': 5,
+                        '/api/rail/booking/{hash}': 6,
+                        '/api/rail/booking/order': 7,
+                        '/api/rail/booking/submit': 8,
+                        '/api/rail/booking/order-status': 9,
+                        '/api/rail/invoice/{invoiceId}': 10,
+                        '/api/rail/booking/download-invoice/{invoiceId}': 11,
+                        '/api/rail/booking/resend-invoice': 12,
+                        '/api/rail/booking/request-cancellation': 13
+                    };
+                    const staysFlow = {
+                        '/api/stays': 0,
+                        '/api/stays/featured': 1,
+                        '/api/stays/destination-suggestion': 2,
+                        '/api/stays/booking/draft': 3,
+                        '/api/stays/booking/{hash}': 4,
+                        '/api/stays/booking/submit': 5,
+                        '/api/stays/booking/download-invoice/{invoiceId}': 6,
+                        '/api/stays/invoice/resend': 7,
+                        '/api/stays/booking/cancel': 8,
+                        '/api/stay/booking/save-draft': 9,
+                        '/api/stay/booking/submit': 10,
+                        '/api/stay/booking/download-invoice/{invoiceId}': 11,
+                        '/api/stay/booking/resend-invoice': 12,
+                        '/api/stay/booking/request-cancellation': 13
+                    };
+                    const toursFlow = {
+                        '/api/tours': 0,
+                        '/api/tours/featured': 1,
+                        '/api/tours/booking/draft': 2,
+                        '/api/tours/booking/{hash}': 3,
+                        '/api/tours/booking/submit': 4,
+                        '/api/tours/invoice': 5,
+                        '/api/tour/booking/save-draft': 6,
+                        '/api/tour/booking/submit': 7,
+                        '/api/tour/booking/download-invoice/{invoiceId}': 8,
+                        '/api/tour/booking/resend-invoice': 9,
+                        '/api/tour/booking/request-cancellation': 10
+                    };
+                    const umrahFlow = {
+                        '/api/umrah': 0,
+                        '/api/umrah/featured': 1,
+                        '/api/umrah/booking/draft': 2,
+                        '/api/umrah/booking/{hash}': 3,
+                        '/api/umrah/bookings/submit': 4,
+                        '/api/umrah/booking/save-draft': 5,
+                        '/api/umrah/booking/submit': 6,
+                        '/api/umrah/booking/download-invoice/{invoiceId}': 7,
+                        '/api/umrah/booking/resend-invoice': 8,
+                        '/api/umrah/booking/request-cancellation': 9
+                    };
+                    const visaFlow = {
+                        '/api/visas': 0,
+                        '/api/visas/search': 1,
+                        '/api/visas/booking/draft': 2,
+                        '/api/visas/booking/{hash}': 3,
+                        '/api/visas/upload-document': 4,
+                        '/api/visas/booking/submit': 5,
+                        '/api/visa/booking/save-draft': 6,
+                        '/api/visa/upload-document': 7,
+                        '/api/visa/booking/submit': 8,
+                        '/api/visa/booking/download-invoice/{invoiceId}': 9
+                    };
+                    const firstPath = first.get('path');
+                    const secondPath = second.get('path');
+                    const firstMethod = first.get('method');
+                    const secondMethod = second.get('method');
+                    const firstFlowOrder = authenticationFlow[firstPath];
+                    const secondFlowOrder = authenticationFlow[secondPath];
+
+                    if (firstFlowOrder !== undefined || secondFlowOrder !== undefined) {
+                        const flowDifference =
+                            (firstFlowOrder ?? Number.MAX_SAFE_INTEGER) -
+                            (secondFlowOrder ?? Number.MAX_SAFE_INTEGER);
+
+                        if (flowDifference !== 0) {
+                            return flowDifference;
+                        }
+                    }
+
+                    const firstUsersOrder = usersFlow[`${firstMethod} ${firstPath}`];
+                    const secondUsersOrder = usersFlow[`${secondMethod} ${secondPath}`];
+
+                    if (firstUsersOrder !== undefined || secondUsersOrder !== undefined) {
+                        const usersDifference =
+                            (firstUsersOrder ?? Number.MAX_SAFE_INTEGER) -
+                            (secondUsersOrder ?? Number.MAX_SAFE_INTEGER);
+
+                        if (usersDifference !== 0) {
+                            return usersDifference;
+                        }
+                    }
+
+                    const firstBusOrder = busFlow[firstPath];
+                    const secondBusOrder = busFlow[secondPath];
+
+                    if (firstBusOrder !== undefined || secondBusOrder !== undefined) {
+                        const busDifference =
+                            (firstBusOrder ?? Number.MAX_SAFE_INTEGER) -
+                            (secondBusOrder ?? Number.MAX_SAFE_INTEGER);
+
+                        if (busDifference !== 0) {
+                            return busDifference;
+                        }
+                    }
+
+                    const firstCarsOrder = carsFlow[firstPath];
+                    const secondCarsOrder = carsFlow[secondPath];
+
+                    if (firstCarsOrder !== undefined || secondCarsOrder !== undefined) {
+                        const carsDifference =
+                            (firstCarsOrder ?? Number.MAX_SAFE_INTEGER) -
+                            (secondCarsOrder ?? Number.MAX_SAFE_INTEGER);
+
+                        if (carsDifference !== 0) {
+                            return carsDifference;
+                        }
+                    }
+
+                    const firstDepositOrder = depositsFlow[firstPath];
+                    const secondDepositOrder = depositsFlow[secondPath];
+
+                    if (firstDepositOrder !== undefined || secondDepositOrder !== undefined) {
+                        const depositDifference =
+                            (firstDepositOrder ?? Number.MAX_SAFE_INTEGER) -
+                            (secondDepositOrder ?? Number.MAX_SAFE_INTEGER);
+
+                        if (depositDifference !== 0) {
+                            return depositDifference;
+                        }
+                    }
+
+                    const firstEsimOrder = esimFlow[firstPath];
+                    const secondEsimOrder = esimFlow[secondPath];
+
+                    if (firstEsimOrder !== undefined || secondEsimOrder !== undefined) {
+                        const esimDifference =
+                            (firstEsimOrder ?? Number.MAX_SAFE_INTEGER) -
+                            (secondEsimOrder ?? Number.MAX_SAFE_INTEGER);
+
+                        if (esimDifference !== 0) {
+                            return esimDifference;
+                        }
+                    }
+
+                    const firstFerriesOrder = ferriesFlow[firstPath];
+                    const secondFerriesOrder = ferriesFlow[secondPath];
+
+                    if (firstFerriesOrder !== undefined || secondFerriesOrder !== undefined) {
+                        const ferriesDifference =
+                            (firstFerriesOrder ?? Number.MAX_SAFE_INTEGER) -
+                            (secondFerriesOrder ?? Number.MAX_SAFE_INTEGER);
+
+                        if (ferriesDifference !== 0) {
+                            return ferriesDifference;
+                        }
+                    }
+
+                    const firstFlightsOrder = flightsFlow[firstPath];
+                    const secondFlightsOrder = flightsFlow[secondPath];
+
+                    if (firstFlightsOrder !== undefined || secondFlightsOrder !== undefined) {
+                        const flightsDifference =
+                            (firstFlightsOrder ?? Number.MAX_SAFE_INTEGER) -
+                            (secondFlightsOrder ?? Number.MAX_SAFE_INTEGER);
+
+                        if (flightsDifference !== 0) {
+                            return flightsDifference;
+                        }
+                    }
+
+                    const firstRailOrder = railFlow[firstPath];
+                    const secondRailOrder = railFlow[secondPath];
+
+                    if (firstRailOrder !== undefined || secondRailOrder !== undefined) {
+                        const railDifference =
+                            (firstRailOrder ?? Number.MAX_SAFE_INTEGER) -
+                            (secondRailOrder ?? Number.MAX_SAFE_INTEGER);
+
+                        if (railDifference !== 0) {
+                            return railDifference;
+                        }
+                    }
+
+                    const firstStaysOrder = staysFlow[firstPath];
+                    const secondStaysOrder = staysFlow[secondPath];
+
+                    if (firstStaysOrder !== undefined || secondStaysOrder !== undefined) {
+                        const staysDifference =
+                            (firstStaysOrder ?? Number.MAX_SAFE_INTEGER) -
+                            (secondStaysOrder ?? Number.MAX_SAFE_INTEGER);
+
+                        if (staysDifference !== 0) {
+                            return staysDifference;
+                        }
+                    }
+
+                    const firstToursOrder = toursFlow[firstPath];
+                    const secondToursOrder = toursFlow[secondPath];
+
+                    if (firstToursOrder !== undefined || secondToursOrder !== undefined) {
+                        const toursDifference =
+                            (firstToursOrder ?? Number.MAX_SAFE_INTEGER) -
+                            (secondToursOrder ?? Number.MAX_SAFE_INTEGER);
+
+                        if (toursDifference !== 0) {
+                            return toursDifference;
+                        }
+                    }
+
+                    const firstUmrahOrder = umrahFlow[firstPath];
+                    const secondUmrahOrder = umrahFlow[secondPath];
+
+                    if (firstUmrahOrder !== undefined || secondUmrahOrder !== undefined) {
+                        const umrahDifference =
+                            (firstUmrahOrder ?? Number.MAX_SAFE_INTEGER) -
+                            (secondUmrahOrder ?? Number.MAX_SAFE_INTEGER);
+
+                        if (umrahDifference !== 0) {
+                            return umrahDifference;
+                        }
+                    }
+
+                    const firstVisaOrder = visaFlow[firstPath];
+                    const secondVisaOrder = visaFlow[secondPath];
+
+                    if (firstVisaOrder !== undefined || secondVisaOrder !== undefined) {
+                        const visaDifference =
+                            (firstVisaOrder ?? Number.MAX_SAFE_INTEGER) -
+                            (secondVisaOrder ?? Number.MAX_SAFE_INTEGER);
+
+                        if (visaDifference !== 0) {
+                            return visaDifference;
+                        }
+                    }
+
+                    const methodOrder = {
+                        get: 0,
+                        post: 1,
+                        put: 2,
+                        patch: 3,
+                        delete: 4
+                    };
+                    const methodDifference = (methodOrder[firstMethod] ?? 99) - (methodOrder[secondMethod] ?? 99);
+
+                    if (methodDifference !== 0) {
+                        return methodDifference;
+                    }
+
+                    return firstPath.localeCompare(secondPath);
+                },
+                presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIStandalonePreset
+                ],
+                layout: 'StandaloneLayout',
+                onComplete: function () {
+                    const spec = window.ui.specSelectors.specJson().toJS();
+                    if (businessName) {
+                        spec.info.title = businessName + ' API Docs';
+                        spec.info.description = businessName + ' JSON API route response.';
+                    }
+                    spec.servers = [{
+                        url: websiteUrl,
+                        description: businessName
+                    }];
+                    window.ui.specActions.updateJsonSpec(spec);
+                }
+            });
+
+            const swaggerRoot = document.getElementById('swagger-ui');
+            const filterContainer = document.createElement('div');
+            filterContainer.className = 'filter-container';
+
+            const tagFilter = document.createElement('input');
+            tagFilter.id = 'tag-filter';
+            tagFilter.className = 'operation-filter-input';
+            tagFilter.type = 'search';
+            tagFilter.placeholder = 'Filter by tag';
+            tagFilter.autocomplete = 'off';
+            filterContainer.appendChild(tagFilter);
+
+            const mountTagFilter = function () {
+                const firstTagSection = swaggerRoot.querySelector('.opblock-tag-section');
+                if (firstTagSection && !filterContainer.isConnected) {
+                    firstTagSection.parentNode.insertBefore(filterContainer, firstTagSection);
+                }
+            };
+
+            const applyTagFilter = function () {
+                mountTagFilter();
+                const query = tagFilter.value.trim().toLowerCase();
+                swaggerRoot.querySelectorAll('.opblock-tag-section').forEach(function (section) {
+                    const heading = section.querySelector('.opblock-tag');
+                    const tagName = heading
+                        ? (heading.getAttribute('data-tag') || heading.textContent).trim().toLowerCase()
+                        : '';
+                    section.style.display = !query || tagName.includes(query) ? '' : 'none';
+                });
+
+            };
+
+            const hideResponseMetadata = function () {
+                swaggerRoot.querySelectorAll('.info a').forEach(function (link) {
+                    if (link.href.toLowerCase().includes('swagger.yaml')) {
+                        link.style.setProperty('display', 'none', 'important');
+                    }
+                });
+
+                swaggerRoot.querySelectorAll('.headers-wrapper, .response-headers').forEach(function (section) {
+                    section.style.setProperty('display', 'none', 'important');
+                });
+
+                swaggerRoot.querySelectorAll('.curl-command').forEach(function (section) {
+                    section.style.setProperty('display', 'none', 'important');
+                });
+
+                swaggerRoot.querySelectorAll('h4, h5').forEach(function (heading) {
+                    const label = heading.textContent.trim().toLowerCase();
+                    if (label === 'response headers' || label === 'curl') {
+                        const section = heading.closest('.headers-wrapper, .response-headers, .curl-command') || heading.parentElement;
+                        if (section) {
+                            section.style.setProperty('display', 'none', 'important');
+                        }
+                    }
+                });
+            };
+
+            const refreshSwaggerUi = function () {
+                applyTagFilter();
+                hideResponseMetadata();
+            };
+
+            tagFilter.addEventListener('input', applyTagFilter);
+            new MutationObserver(refreshSwaggerUi).observe(swaggerRoot, {
+                childList: true,
+                subtree: true
+            });
+        });
+    </script>
+</body>
+</html>

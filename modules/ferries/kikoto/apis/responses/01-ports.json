@@ -1,0 +1,11 @@
+{
+    "success": true,
+    "timestamp": 1782267397,
+    "path": "v1/ports",
+    "data": [
+        {"id": 1, "name": "Algeciras", "code": "ESALG", "region": null, "country": "ESP", "latitude": 36.1301257, "longitude": -5.4423721, "updated_at": 1772616707},
+        {"id": 2, "name": "Ceuta",     "code": "ESCEU", "region": null, "country": "ESP", "latitude": 35.895039,  "longitude": -5.321664,  "updated_at": 1772616707},
+        {"id": 6, "name": "Gibraltar", "code": "GIGIB", "region": null, "country": "GIB", "latitude": 36.148273,  "longitude": -5.365899,  "updated_at": 1772616711},
+        {"id": 4, "name": "Tangier Med","code": "MAPTM","region": null, "country": "MAR", "latitude": 35.8704299, "longitude": -5.5221285, "updated_at": 1772616707}
+    ]
+}

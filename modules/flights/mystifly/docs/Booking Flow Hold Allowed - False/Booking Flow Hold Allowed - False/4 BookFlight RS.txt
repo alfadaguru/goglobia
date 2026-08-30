@@ -1,0 +1,14 @@
+{
+  "Data": {
+    "ClientUTCOffset": 5.3,
+    "ConversationId": "",
+    "Errors": [],
+    "Status": "CONFIRMED",
+    "Success": true,
+    "Target": "Test",
+    "TktTimeLimit": "2022-06-17T19:51:46",
+    "TraceId": "22061720-82e2c5ca-fd64-4616-9e0f-617ca43afacb",
+    "UniqueID": "MF20685722"
+  },
+  "Success": true
+}

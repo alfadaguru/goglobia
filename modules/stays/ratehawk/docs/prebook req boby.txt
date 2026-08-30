@@ -1,0 +1,7 @@
+https://api.worldota.net/api/b2b/v3/hotel/prebook/
+
+
+{
+    "hash": "h-b6d4dab2-c282-5288-b26d-8e4679892153",
+    "price_increase_percent": 20
+}

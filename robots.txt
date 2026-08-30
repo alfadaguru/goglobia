@@ -1,0 +1,24 @@
+User-Agent: PetalBot
+Disallow: /
+
+User-Agent: SentiBot
+Disallow: /
+
+User-Agent: magpie-crawler
+Disallow: /
+
+User-Agent: Bytespider
+Disallow: /
+
+User-Agent: Applebot
+Disallow: /
+
+User-Agent: *
+Disallow: /*?amp=1
+Disallow: /*?noamp=mobile
+Allow: /blog$
+Allow: /blog/
+Allow: /blog/*
+
+# Block team images directory listing
+Disallow: /assets/img/company/team/

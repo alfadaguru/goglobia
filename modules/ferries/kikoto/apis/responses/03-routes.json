@@ -1,0 +1,13 @@
+{
+    "success": true,
+    "timestamp": 1782267408,
+    "path": "v1/routes",
+    "data": [
+        {"id": 1, "departure_port_id": 1, "destination_port_id": 2, "name": "Algeciras - Ceuta",       "services": {"passengers": true, "vehicles": true, "pets": true, "check_in": true}},
+        {"id": 5, "departure_port_id": 1, "destination_port_id": 4, "name": "Algeciras - Tangier Med",  "services": {"passengers": true, "vehicles": true, "pets": true, "check_in": false}},
+        {"id": 2, "departure_port_id": 2, "destination_port_id": 1, "name": "Ceuta - Algeciras",        "services": {"passengers": true, "vehicles": true, "pets": true, "check_in": true}},
+        {"id": 7, "departure_port_id": 6, "destination_port_id": 4, "name": "Gibraltar - Tangier Med",  "services": {"passengers": true, "vehicles": true, "pets": true, "check_in": true}},
+        {"id": 6, "departure_port_id": 4, "destination_port_id": 1, "name": "Tangier Med - Algeciras",  "services": {"passengers": true, "vehicles": true, "pets": true, "check_in": false}},
+        {"id": 8, "departure_port_id": 4, "destination_port_id": 6, "name": "Tangier Med - Gibraltar",  "services": {"passengers": true, "vehicles": true, "pets": true, "check_in": true}}
+    ]
+}

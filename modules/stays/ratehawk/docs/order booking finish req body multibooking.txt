@@ -1,0 +1,63 @@
+https://api.worldota.net/api/b2b/v3/hotel/order/booking/finish/
+
+All the parameters below are required, with some of the sub-parameters being optional 
+
+
+{
+    "user": {
+        "email": "asdfds@foo.com", - required, please refer to the Best Practices to see what kind of email we require from you depending on what kind of API you are developing 
+        "comment": "comment", - optional 
+        "phone": "12312321", - optional 
+    },
+    "partner": {
+        "partner_order_id": "asd134", - required
+        "comment": "partner_comment", - optional 
+        "amount_sell_b2b2c": "10" - optional
+    },
+    "language": "en",  required
+    "rooms": [
+        {
+            "guests": [
+                {
+                    "age": null, - required up until 17 y.o including, after 18 age not to be sent
+                    "first_name": "Tara", - required
+                    "gender": null, - optional
+                    "is_child": null, - optional (in case the guest's age is equal or less than 17 y.o true is required)  
+                    "last_name": "Pogancev" - required 
+                },
+                {
+                    "age": null, 
+                    "first_name": "Ema",
+                    "gender": null,
+                    "is_child": null,
+                    "last_name": "Pogancev"
+                }
+            ]
+        },
+        {
+            "guests": [
+                {
+                    "age": null,
+                    "first_name": "Peter",
+                    "gender": null,
+                    "is_child": null,
+                    "last_name": "Vall"
+                },
+                {
+                    "age": 5,
+                    "first_name": "Emilia",
+                    "gender": null,
+                    "is_child": true,
+                    "last_name": "Vall"
+                }
+            ]
+        }
+    ],
+    "payment_type": {
+        "type": "deposit", - required
+        "amount": "36", - required
+        "currency_code": "GBP" - required 
+    }
+}
+
+The "supplier_data" and "arrival_datetime" can be omitted.  
