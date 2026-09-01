@@ -303,7 +303,8 @@ $(document).ready(function() {
         $.post({
             url: '<?= root ?>ajax',
             contentType: 'application/json',
-            data: JSON.stringify({action: 'set_default', table: 'currencies', id: id}),
+            headers: { 'X-CSRF-TOKEN': (document.querySelector('meta[name=csrf-token]')||{}).content || '' },
+            data: JSON.stringify({action: 'set_default', table: 'currencies', id: id, csrf_token: (document.querySelector('meta[name=csrf-token]')||{}).content || ''}),
             success: (data) => {
                 if (data.status === 'success') {
                     // Update UI immediately

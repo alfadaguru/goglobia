@@ -79,6 +79,29 @@ class CRUD {
                 throw new Exception('Action parameter is required');
             }
 
+            // SECURITY (H5): these are admin state-changing operations (delete,
+            // toggle, set-default). Require an admin session AND a valid CSRF
+            // token (sent by the CRUD table JS as csrf_token / X-CSRF-TOKEN).
+            if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+                session_start();
+            }
+            $isAdmin = (($_SESSION['user_role'] ?? '') === 'admin')
+                || (!empty($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true);
+            if (!$isAdmin) {
+                ob_end_clean();
+                http_response_code(403);
+                echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
+                exit();
+            }
+            $csrf = $input['csrf_token']
+                ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($_POST['csrf_token'] ?? ''));
+            if (!class_exists('CSRF') || !CSRF::validateToken((string) $csrf)) {
+                ob_end_clean();
+                http_response_code(403);
+                echo json_encode(['status' => 'error', 'message' => 'Security token invalid or expired. Please refresh the page.']);
+                exit();
+            }
+
             if (empty($table)) {
                 throw new Exception('Table parameter is required');
             }
@@ -1721,11 +1744,13 @@ class CRUD {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
+                            "X-CSRF-TOKEN": (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                         },
                         body: JSON.stringify({
                             action: "delete_record",
                             table: table,
-                            id: id
+                            id: id,
+                            csrf_token: (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                         })
                     })
                     .then(response => response.json())
@@ -1885,13 +1910,15 @@ class CRUD {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
+                            "X-CSRF-TOKEN": (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                         },
                         body: JSON.stringify({
                             action: "toggle_status",
                             table: table,
                             column: column,
                             id: id,
-                            status: newStatus
+                            status: newStatus,
+                            csrf_token: (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                         })
                     })
                     .then(response => response.json())
@@ -1940,11 +1967,13 @@ class CRUD {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
+                            "X-CSRF-TOKEN": (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                         },
                         body: JSON.stringify({
                             action: "set_default",
                             table: table,
-                            id: id
+                            id: id,
+                            csrf_token: (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                         })
                     })
                     .then(response => response.json())
@@ -2053,11 +2082,13 @@ class CRUD {
                             method: "POST",
                             headers: {
                                 "Content-Type": "application/json",
+                                "X-CSRF-TOKEN": (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                             },
                             body: JSON.stringify({
                                 action: "delete_record",
                                 table: table,
-                                id: id
+                                id: id,
+                                csrf_token: (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                             })
                         })
                         .then(response => response.json())
