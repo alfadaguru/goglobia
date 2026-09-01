@@ -164,16 +164,16 @@ $router->post(admin.'/cms/upload-image', function () use ($SECURE,$db) {
         }
 
         $file = $_FILES['upload'];
-        $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
-        
-        if (!in_array($file['type'], $allowedTypes)) {
-            throw new Exception('Invalid file type. Only images are allowed.');
+        // SECURITY: validate real MIME (finfo). SVG is intentionally excluded —
+        // it can carry scripts (stored XSS); raster images only.
+        $chk = secureUploadCheck($file, ['jpg', 'jpeg', 'png', 'gif', 'webp'], 5 * 1024 * 1024);
+        if (!$chk['ok']) {
+            throw new Exception($chk['error'] ?? 'Invalid file type. Only JPG, PNG, GIF, WEBP images are allowed.');
         }
 
         // Generate unique filename
-        $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
-        $filename = uniqid('cms_', true) . '.' . $extension;
-        
+        $filename = 'cms_' . bin2hex(random_bytes(8)) . '.' . $chk['ext'];
+
         // Upload directory
         $uploadDir = 'uploads/cms/';
         if (!is_dir($uploadDir)) {
@@ -181,10 +181,11 @@ $router->post(admin.'/cms/upload-image', function () use ($SECURE,$db) {
         }
 
         $uploadPath = $uploadDir . $filename;
-        
+
         if (!move_uploaded_file($file['tmp_name'], $uploadPath)) {
             throw new Exception('Failed to move uploaded file');
         }
+        @chmod($uploadPath, 0644);
 
         // Return CKEditor expected response
         echo json_encode([

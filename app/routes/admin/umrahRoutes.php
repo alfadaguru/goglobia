@@ -108,8 +108,9 @@ $router->post(admin.'/umrah/add', function () use ($SECURE,$db) {
                         if (!isset($_FILES[$file_key]) || $_FILES[$file_key]['error'] !== UPLOAD_ERR_OK) {
                             break;
                         }
-                        $ext = pathinfo($_FILES[$file_key]['name'], PATHINFO_EXTENSION);
-                        $new_filename = 'activity_' . time() . '_' . uniqid() . '_' . $img_idx . '.' . $ext;
+                        $chk = secureUploadCheck($_FILES[$file_key], ['jpg', 'jpeg', 'png', 'gif', 'webp'], 5 * 1024 * 1024);
+                        if (!$chk['ok']) { $img_idx++; continue; }
+                        $new_filename = 'activity_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $img_idx . '.' . $chk['ext'];
                         $upload_path = $upload_dir . $new_filename;
                         $image_url = '/uploads/umrah/itinerary/' . $new_filename;
                         if (move_uploaded_file($_FILES[$file_key]['tmp_name'], $upload_path)) {
@@ -160,11 +161,16 @@ $router->post(admin.'/umrah/add', function () use ($SECURE,$db) {
         $file_count = count($files['name']);
         for ($i = 0; $i < $file_count; $i++) {
             if ($files['error'][$i] === UPLOAD_ERR_OK) {
-                $ext = pathinfo($files['name'][$i], PATHINFO_EXTENSION);
-                $new_filename = 'umrah_' . time() . '_' . uniqid() . '_' . $i . '.' . $ext;
+                $chk = secureUploadCheck(
+                    ['name' => $files['name'][$i], 'tmp_name' => $files['tmp_name'][$i], 'size' => $files['size'][$i], 'error' => UPLOAD_ERR_OK],
+                    ['jpg', 'jpeg', 'png', 'gif', 'webp'], 5 * 1024 * 1024
+                );
+                if (!$chk['ok']) { continue; }
+                $new_filename = 'umrah_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $chk['ext'];
                 $upload_path = $upload_dir . $new_filename;
                 $image_url = '/uploads/umrah/gallery/' . $new_filename;
                 if (move_uploaded_file($files['tmp_name'][$i], $upload_path)) {
+                    @chmod($upload_path, 0644);
                     $images[] = ['url' => $image_url, 'default' => $i === 0];
                 }
             }
@@ -621,8 +627,9 @@ $router->post(admin.'/umrah/edit/(.*)', function ($id) use ($SECURE,$db) {
                         if (!isset($_FILES[$file_key]) || $_FILES[$file_key]['error'] !== UPLOAD_ERR_OK) {
                             break;
                         }
-                        $ext = pathinfo($_FILES[$file_key]['name'], PATHINFO_EXTENSION);
-                        $new_filename = 'activity_' . time() . '_' . uniqid() . '_' . $img_idx . '.' . $ext;
+                        $chk = secureUploadCheck($_FILES[$file_key], ['jpg', 'jpeg', 'png', 'gif', 'webp'], 5 * 1024 * 1024);
+                        if (!$chk['ok']) { $img_idx++; continue; }
+                        $new_filename = 'activity_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $img_idx . '.' . $chk['ext'];
                         $upload_path = $upload_dir . $new_filename;
                         $image_url = '/uploads/umrah/itinerary/' . $new_filename;
                         if (move_uploaded_file($_FILES[$file_key]['tmp_name'], $upload_path)) {

@@ -89,12 +89,14 @@ $router->post(admin.'/support/tickets/create', function () use ($SECURE,$db) {
                 mkdir($upload_dir, 0755, true);
             }
 
-            $file_extension = pathinfo($_FILES['attachment']['name'], PATHINFO_EXTENSION);
-            $file_name = uniqid('ticket_') . '.' . $file_extension;
-            $upload_path = $upload_dir . $file_name;
-
-            if (move_uploaded_file($_FILES['attachment']['tmp_name'], $upload_path)) {
-                $attachment = json_encode([$upload_path]);
+            $chk = secureUploadCheck($_FILES['attachment'], ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'zip'], 5 * 1024 * 1024);
+            if ($chk['ok']) {
+                $file_name = 'ticket_' . bin2hex(random_bytes(8)) . '.' . $chk['ext'];
+                $upload_path = $upload_dir . $file_name;
+                if (move_uploaded_file($_FILES['attachment']['tmp_name'], $upload_path)) {
+                    @chmod($upload_path, 0644);
+                    $attachment = json_encode([$upload_path]);
+                }
             }
         }
 
