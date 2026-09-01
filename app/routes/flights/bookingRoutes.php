@@ -902,7 +902,29 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
         if ($finalTotalBase <= 0 && ($subtotal > 0 || $taxAmountBase > 0)) {
             $finalTotalBase = $subtotal + $taxAmountBase;
         }
-        
+
+        // ============================================================================
+        // SECURITY (H3): price-tampering floor. The amount charged (price_markup)
+        // is built from client-submitted subtotal/base_price. Validate it against
+        // the TRUSTED supplier price captured server-side in the search draft
+        // ($flightData from logs_bookings) — the platform must never charge below
+        // the supplier's own price. A client that lowers base_price/subtotal to
+        // pay a fraction of the fare is rejected. A 10% tolerance absorbs
+        // currency-rounding / legitimate revalidation variance.
+        $trustedBase = (float)($flightData['actual_price'] ?? $flightData['price'] ?? 0);
+        if ($trustedBase > 0) {
+            // The client's supplier-cost figure (base_price + ancillaries) must
+            // cover at least 90% of the trusted supplier price.
+            $clientSupplierCost = (float)$actualPriceBase; // already includes ancillaries
+            if ($clientSupplierCost + 0.01 < ($trustedBase * 0.90)) {
+                error_log(sprintf(
+                    'PRICE TAMPER BLOCKED | invoice=%s | client_base=%.2f trusted_base=%.2f',
+                    $invoiceId, $clientSupplierCost, $trustedBase
+                ));
+                throw new Exception('The fare price could not be verified. Please search again and retry your booking.');
+            }
+        }
+
         $baseCurrency = $input['base_currency'] ?? 'USD';
         $displayCurrency = $input['display_currency'] ?? 'USD';
         
