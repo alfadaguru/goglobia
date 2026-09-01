@@ -374,6 +374,59 @@ if (($_GET['action'] ?? '') === 'files') {
 
 if (($_POST['action'] ?? '') === 'install') {
     try {
+        // ------------------------------------------------------------------
+        // SECURITY (C5): this endpoint is public by design, but it triggers
+        // file writes / deletions / DB migrations. Two guards keep it from
+        // being abused by an anonymous internet user:
+        //   1. Optional operator IP allow-list via .env UPDATES_ALLOWED_IPS
+        //      (comma-separated). If set, only those IPs may install.
+        //   2. A file-based per-IP + global rate limit (few installs / minute).
+        // The content still comes only from the pinned official repo commit, so
+        // this cannot inject arbitrary files — these guards limit *who* and
+        // *how often*, closing the force-advance/DoS surface.
+        // ------------------------------------------------------------------
+        $clientIp = $_SERVER['HTTP_CF_CONNECTING_IP']
+            ?? (isset($_SERVER['HTTP_X_FORWARDED_FOR']) ? trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]) : null)
+            ?? $_SERVER['REMOTE_ADDR']
+            ?? '0.0.0.0';
+
+        // 1) Optional IP allow-list.
+        $envFileUpd = UPD_ROOT . '/.env';
+        $allowIps = '';
+        if (is_file($envFileUpd)) {
+            $envU = @parse_ini_file($envFileUpd);
+            $allowIps = is_array($envU) ? trim((string)($envU['UPDATES_ALLOWED_IPS'] ?? '')) : '';
+        }
+        if ($allowIps !== '') {
+            $list = array_filter(array_map('trim', explode(',', $allowIps)));
+            if (!in_array($clientIp, $list, true)) {
+                http_response_code(403);
+                upd_json(['success' => false, 'message' => 'Updates are restricted to authorised IP addresses.']);
+            }
+        }
+
+        // 2) Rate limit: max 5 install requests per 60s per IP, and 15 global.
+        $rlDir = UPD_ROOT . '/app/cache/updates_rl';
+        if (!is_dir($rlDir)) { @mkdir($rlDir, 0775, true); }
+        $now = time();
+        $checkRate = function ($key, $limit, $window) use ($rlDir, $now) {
+            $f = $rlDir . '/' . preg_replace('/[^a-zA-Z0-9_.-]/', '_', $key) . '.json';
+            $hits = [];
+            if (is_file($f)) {
+                $raw = @file_get_contents($f);
+                $dec = $raw !== false ? json_decode($raw, true) : null;
+                if (is_array($dec)) { $hits = array_values(array_filter($dec, fn($t) => ($now - (int)$t) < $window)); }
+            }
+            if (count($hits) >= $limit) { return false; }
+            $hits[] = $now;
+            @file_put_contents($f, json_encode($hits), LOCK_EX);
+            return true;
+        };
+        if (!$checkRate('ip_' . $clientIp, 5, 60) || !$checkRate('global', 15, 60)) {
+            http_response_code(429);
+            upd_json(['success' => false, 'message' => 'Too many update requests. Please wait a minute and try again.']);
+        }
+
         $sha = strtolower(trim($_POST['sha'] ?? ''));
         if (!preg_match('/^[a-f0-9]{40}$/', $sha)) upd_json(['success' => false, 'message' => 'Invalid update id']);
 

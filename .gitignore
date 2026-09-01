@@ -120,3 +120,6 @@ pt-docs/
 
 # Private DB dump (not for source repo; contains live data/secrets)
 goglobia_live*.sql
+
+# Updates rate-limit runtime state
+app/cache/updates_rl/

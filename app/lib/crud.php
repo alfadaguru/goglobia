@@ -94,8 +94,7 @@ class CRUD {
             ob_end_clean();
             echo json_encode([
                 'status' => 'error',
-                'message' => $e->getMessage(),
-                'trace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3)
+                'message' => $e->getMessage()
             ]);
             exit();
         }
@@ -157,8 +156,7 @@ class CRUD {
                 echo json_encode([
                     'status' => 'error',
                     'message' => 'Toggle status error: ' . $e->getMessage(),
-                    'context' => ['table' => $table, 'id' => $id, 'column' => $column],
-                    'trace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3)
+                    'context' => ['table' => $table, 'id' => $id, 'column' => $column]
                 ]);
             }
             exit();
@@ -220,8 +218,7 @@ class CRUD {
                 echo json_encode([
                     'status' => 'error',
                     'message' => 'Set default error: ' . $e->getMessage(),
-                    'context' => ['table' => $table, 'id' => $id],
-                    'trace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3)
+                    'context' => ['table' => $table, 'id' => $id]
                 ]);
             }
             exit();
@@ -309,8 +306,7 @@ class CRUD {
                 echo json_encode([
                     'status' => 'error',
                     'message' => 'Delete error: ' . $e->getMessage(),
-                    'context' => ['table' => $table, 'id' => $id, 'id_column' => $id_column],
-                    'trace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3)
+                    'context' => ['table' => $table, 'id' => $id, 'id_column' => $id_column]
                 ]);
             }
             exit();

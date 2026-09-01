@@ -42,6 +42,10 @@ $router->get('/login', function () use ($SECURE, $db) {
                         && $remembered['status'] === 'active'
                         && !$remembered['banned']
                         && $remembered['email_verified']) {
+                        // SECURITY (M2): regenerate session id on auto-login too.
+                        if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+                            session_regenerate_id(true);
+                        }
                         $_SESSION['user_id']    = $remembered['user_id'];
                         $_SESSION['user_email'] = $remembered['email'];
                         $_SESSION['user_name']  = $remembered['first_name'] . ' ' . $remembered['last_name'];
@@ -157,6 +161,12 @@ $router->post('/login', function () use ($SECURE, $db) {
         }
 
         logUserActivity($db, $userId, 'login', 'User logged in successfully');
+
+        // SECURITY (M2): regenerate the session id on privilege change (login)
+        // to defeat session fixation. Preserves existing session data.
+        if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+            session_regenerate_id(true);
+        }
 
         $_SESSION['user_id'] = $user['user_id'];
         $_SESSION['user_email'] = $user['email'];
