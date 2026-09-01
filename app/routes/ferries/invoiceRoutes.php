@@ -72,6 +72,9 @@ $router->get('/invoice/ferries/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECU
         exit;
     }
 
+    // SECURITY (IDOR): restrict to owner / admin / creating session.
+    enforceInvoiceAccess($db, $booking, root . 'ferries');
+
     // BOOKING EXPIRY CHECK (unpaid, non-admin)
     $isAdmin = isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin';
     if ($booking['payment_status'] !== 'paid' && !$isAdmin) {

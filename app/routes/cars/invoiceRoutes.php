@@ -31,6 +31,9 @@ $router->get('/invoice/cars/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE,
         exit;
     }
 
+    // SECURITY (IDOR): restrict to owner / admin / creating session.
+    enforceInvoiceAccess($db, $booking, root . 'cars');
+
     $id = $booking['id'];
     $invoiceId = $booking['invoice_id'];
 

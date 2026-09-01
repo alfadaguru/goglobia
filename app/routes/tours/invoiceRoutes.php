@@ -18,6 +18,9 @@ $router->get('/invoice/tours/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE
         exit;
     }
 
+    // SECURITY (IDOR): restrict to owner / admin / creating session.
+    enforceInvoiceAccess($db, $booking, root . 'tours');
+
     // CHECK BOOKING EXPIRY TIME
     $isAdmin = (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin');
 

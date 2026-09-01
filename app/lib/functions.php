@@ -601,6 +601,97 @@ function safePathInDir(string $userPath, string $baseDir): ?string
     return $candidate;
 }
 
+/**
+ * Access control for invoice / booking pages (fixes IDOR — invoice_ids are
+ * short numeric values and MUST NOT be enumerable by strangers).
+ *
+ * Allows viewing ONLY when the visitor is:
+ *   - an admin, OR
+ *   - the logged-in user who owns the booking (bookings.user_id), OR
+ *   - the session that created this invoice (guest checkout —
+ *     $_SESSION['owned_invoices'], set in create_payment_token()), OR
+ *   - a session currently holding a live payment token for this invoice.
+ *
+ * Otherwise it stops the request (redirect for HTML, 403 JSON for API/AJAX).
+ * Returns true when access is granted (so callers can `if (!enforceInvoiceAccess(...)) return;`
+ * is unnecessary — it exits on denial), keeping call sites tiny.
+ *
+ * @param array       $booking     The fetched booking row (must be truthy).
+ * @param string|null $redirectTo  Where to send a denied browser (defaults to site root).
+ */
+function enforceInvoiceAccess($db, $booking, $redirectTo = null): bool
+{
+    if (empty($booking) || !is_array($booking)) {
+        return false;
+    }
+    // The app starts the session in config.php before any output; only start it
+    // here if somehow inactive AND headers are not yet sent (avoids a warning).
+    if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+        session_start();
+    }
+
+    // 1) Admin — full access.
+    $isAdmin = (
+        (($_SESSION['user_role'] ?? '') === 'admin')
+        || (!empty($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true)
+    );
+    if ($isAdmin) {
+        return true;
+    }
+
+    // 2) Owning logged-in user (match on either user_id shape the app uses).
+    $sessUserId = $_SESSION['user_id'] ?? ($_SESSION['user_data']['id'] ?? null);
+    $bookingUserId = $booking['user_id'] ?? null;
+    if ($sessUserId !== null && $bookingUserId !== null
+        && (string) $sessUserId === (string) $bookingUserId) {
+        return true;
+    }
+
+    // 3) Guest/session that created this invoice.
+    $invoiceId = (string) ($booking['invoice_id'] ?? '');
+    if ($invoiceId !== ''
+        && !empty($_SESSION['owned_invoices'])
+        && is_array($_SESSION['owned_invoices'])
+        && in_array($invoiceId, $_SESSION['owned_invoices'], true)) {
+        return true;
+    }
+
+    // 4) Session holds a live payment token for this invoice.
+    if ($invoiceId !== '' && !empty($_SESSION['payment_tokens']) && is_array($_SESSION['payment_tokens'])) {
+        foreach ($_SESSION['payment_tokens'] as $tok) {
+            if (is_array($tok) && (string) ($tok['invoice_id'] ?? '') === $invoiceId) {
+                return true;
+            }
+        }
+    }
+
+    // Denied.
+    $isJson = strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest'
+        || strpos(strtolower($_SERVER['HTTP_ACCEPT'] ?? ''), 'application/json') !== false
+        || strpos((string) ($_SERVER['REQUEST_URI'] ?? ''), '/api/') !== false;
+
+    if ($isJson) {
+        while (ob_get_level()) { ob_end_clean(); }
+        http_response_code(403);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'success' => false,
+            'message' => 'You are not authorised to view this invoice.',
+        ]);
+        exit;
+    }
+
+    // For a guest who is simply not logged in, send them to login (they may own
+    // it under an account); otherwise send to the site root.
+    if (empty($sessUserId)) {
+        $_SESSION['login_redirect'] = root . ltrim((string) ($_SERVER['REQUEST_URI'] ?? ''), '/');
+        header('Location: ' . root . 'login');
+    } else {
+        header('Location: ' . ($redirectTo ?: root));
+    }
+    exit;
+}
+
 // Function to convert image to PNG
 function convertToPNG($sourcePath, $targetPath)
 {

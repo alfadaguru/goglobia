@@ -18,6 +18,9 @@ $router->get('/invoice/visa/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE,
         exit;
     }
 
+    // SECURITY (IDOR): restrict to owner / admin / creating session.
+    enforceInvoiceAccess($db, $booking, root . 'visa');
+
     // ============================================================================
     // WEBHOOK: Invoice Viewed
     // ============================================================================

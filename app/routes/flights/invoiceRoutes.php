@@ -88,6 +88,9 @@ $router->get('/invoice/flights/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECU
         exit;
     }
 
+    // SECURITY (IDOR): restrict to owner / admin / creating session.
+    enforceInvoiceAccess($db, $booking, root);
+
     // CHECK BOOKING EXPIRY TIME - Only for unpaid bookings
     $isAdmin = (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin');
 

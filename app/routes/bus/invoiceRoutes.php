@@ -13,6 +13,9 @@ $router->get('/invoice/bus/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE, 
         return;
     }
 
+    // SECURITY (IDOR): restrict to owner / admin / creating session.
+    enforceInvoiceAccess($db, $booking, root . 'bus/');
+
     // ── PAYMENT GATEWAY CALLBACK (success / cancel / failure) ───────────────
     $paymentStatus = $_GET['payment_status'] ?? null;
     if ($paymentStatus) {

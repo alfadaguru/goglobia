@@ -253,6 +253,9 @@ $router->get('/invoice/ai_trip/([A-Za-z0-9]+)', function ($invoiceId) use ($SECU
         exit;
     }
 
+    // SECURITY (IDOR): restrict to owner / admin / creating session.
+    enforceInvoiceAccess($db, $booking, root . 'ai-trip');
+
     $invoiceId = $booking['invoice_id'];
 
     require_once __DIR__ . '/tripRevalidateHelper.php';

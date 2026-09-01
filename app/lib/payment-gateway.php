@@ -971,6 +971,19 @@ function create_payment_token($booking, $gateway)
     // Store in session
     $_SESSION['payment_tokens'][$token] = $tokenData;
 
+    // Durable per-session record that THIS visitor created/owns this invoice.
+    // Used by enforceInvoiceAccess() so a guest can still view their own invoice
+    // after payment (once the short-lived payment token is cleared), while
+    // strangers cannot enumerate other people's invoices (IDOR fix, C3).
+    if (!empty($booking['invoice_id'])) {
+        if (!isset($_SESSION['owned_invoices']) || !is_array($_SESSION['owned_invoices'])) {
+            $_SESSION['owned_invoices'] = [];
+        }
+        if (!in_array($booking['invoice_id'], $_SESSION['owned_invoices'], true)) {
+            $_SESSION['owned_invoices'][] = $booking['invoice_id'];
+        }
+    }
+
     return $token;
 }
 

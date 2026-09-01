@@ -28,13 +28,9 @@ $router->get('/invoice/esim/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE,
 
     $invoiceId = $booking['invoice_id'];
 
-    if (isset($_SESSION['user_id']) && !empty($booking['user_id'])) {
-        if ($booking['user_id'] !== $_SESSION['user_id']) {
-            $_SESSION['error'] = 'Unauthorized access';
-            header('Location: ' . root . 'bookings');
-            exit;
-        }
-    }
+    // SECURITY (IDOR): restrict to owner / admin / creating session (replaces the
+    // partial check below which let guests / null-user bookings through).
+    enforceInvoiceAccess($db, $booking, root . 'bookings');
 
     $paymentStatus = $_GET['payment_status'] ?? null;
     if ($paymentStatus) {
