@@ -384,18 +384,26 @@ class CRUD {
 
             foreach ($columns as $key) {
                 $val = $row[$key];
-                // Replace column name with quoted value for strings, or raw value for numbers
+                // SECURITY (H4): the substituted VALUE is the real injection
+                // vector into eval(). Quote it so it can NEVER break out of its
+                // string literal: base64-encode the raw value and reconstruct it
+                // at eval time via base64_decode('...'). The encoded form is
+                // strictly [A-Za-z0-9+/=], so a hostile column value (quotes,
+                // backticks, ; $ etc.) cannot inject any PHP. Numbers stay raw
+                // (safe) so arithmetic templates keep working.
                 if ($val === null) {
                     $quotedVal = 'null';
                 } elseif (is_numeric($val)) {
                     $quotedVal = $val;
                 } else {
-                    $quotedVal = "'" . addslashes($val) . "'";
+                    $quotedVal = "base64_decode('" . base64_encode((string) $val) . "')";
                 }
                 $expression = preg_replace('/\b' . preg_quote($key, '/') . '\b/', $quotedVal, $expression);
             }
 
-            // Evaluate the expression safely
+            // Evaluate the expression. Column VALUES are now injection-proof
+            // (base64 literals). The template text itself is developer-authored
+            // (defined in route files), not user input.
             try {
                 $result = @eval("return $expression;");
                 return $result !== false && $result !== null ? $result : '';
