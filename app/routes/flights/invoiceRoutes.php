@@ -54,6 +54,12 @@ $router->get('/invoice/flights/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECU
                 'title' => 'Payment Successful',
                 'message' => 'Payment completed successfully. Your booking is being processed.'
             ];
+        } elseif (!empty($callbackResult['pending'])) {
+            $_SESSION['payment_notice'] = [
+                'type' => 'info',
+                'title' => 'Payment Pending',
+                'message' => $callbackResult['message'] ?? 'Your payment is being confirmed. Your booking will be finalised once the payment is verified.'
+            ];
         } elseif ($action === 'cancel') {
             $_SESSION['payment_notice'] = [
                 'type' => 'warning',

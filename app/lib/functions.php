@@ -525,6 +525,82 @@ function handleFileUpload($fileKey, $targetPath, $allowedTypes, $maxSize, $conve
     }
 }
 
+/**
+ * Validate ONE file from a multi-file ($_FILES[key][i]) image upload.
+ *
+ * Verifies the REAL MIME type via finfo (not the client-supplied name/type),
+ * rejects embedded PHP, and returns a SAFE extension derived from the MIME —
+ * never from the user's filename. Prevents web-shell uploads (evil.php).
+ *
+ * @return array{ok:bool, ext?:string, mime?:string, error?:string}
+ */
+function secureImageFileCheck(string $tmpName, int $size, int $maxSize = 5242880): array
+{
+    if (!is_uploaded_file($tmpName)) {
+        return ['ok' => false, 'error' => 'Invalid upload.'];
+    }
+    if ($size <= 0 || $size > $maxSize) {
+        return ['ok' => false, 'error' => 'File too large or empty.'];
+    }
+    if (!function_exists('finfo_open')) {
+        return ['ok' => false, 'error' => 'Server fileinfo extension is missing.'];
+    }
+
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mime  = finfo_file($finfo, $tmpName);
+    finfo_close($finfo);
+
+    // MIME -> safe extension whitelist. Only these image types are accepted.
+    $allowed = [
+        'image/jpeg' => 'jpg',
+        'image/pjpeg' => 'jpg',
+        'image/png'  => 'png',
+        'image/gif'  => 'gif',
+        'image/webp' => 'webp',
+    ];
+    if (!isset($allowed[$mime])) {
+        return ['ok' => false, 'error' => 'Only JPG, PNG, GIF or WEBP images are allowed.'];
+    }
+
+    // Reject files that smuggle PHP inside an "image" (polyglot web shells).
+    $head = @file_get_contents($tmpName, false, null, 0, 8192);
+    if ($head !== false && (stripos($head, '<?php') !== false || stripos($head, '<?=') !== false)) {
+        return ['ok' => false, 'error' => 'Invalid file content.'];
+    }
+
+    return ['ok' => true, 'ext' => $allowed[$mime], 'mime' => $mime];
+}
+
+/**
+ * Resolve a user-supplied relative path to an absolute path that is guaranteed
+ * to live INSIDE $baseDir. Returns null on any traversal / escape attempt.
+ * Use before unlink()/read of a path built from request data.
+ */
+function safePathInDir(string $userPath, string $baseDir): ?string
+{
+    $baseReal = realpath($baseDir);
+    if ($baseReal === false) {
+        return null;
+    }
+    // Only ever trust the basename — strip any directory components entirely.
+    $name = basename(str_replace('\\', '/', $userPath));
+    if ($name === '' || $name === '.' || $name === '..') {
+        return null;
+    }
+    $candidate = $baseReal . DIRECTORY_SEPARATOR . $name;
+    // If it exists, confirm its real path is still under the base dir.
+    $real = realpath($candidate);
+    if ($real !== false) {
+        $prefix = $baseReal . DIRECTORY_SEPARATOR;
+        if (strncmp($real, $prefix, strlen($prefix)) !== 0) {
+            return null;
+        }
+        return $real;
+    }
+    // Non-existent target: the sanitised candidate is still safe (basename only).
+    return $candidate;
+}
+
 // Function to convert image to PNG
 function convertToPNG($sourcePath, $targetPath)
 {

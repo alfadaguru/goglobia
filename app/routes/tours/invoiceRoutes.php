@@ -127,6 +127,12 @@ $router->get('/invoice/tours/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE
             }
             */
 
+        } elseif (!empty($result['pending'])) {
+            $_SESSION['payment_notice'] = [
+                'type' => 'info',
+                'title' => 'Payment Pending',
+                'message' => $result['message'] ?? 'Your payment is being confirmed. Your booking will be finalised once the payment is verified.'
+            ];
         } elseif ($action === 'cancel') {
             $_SESSION['payment_notice'] = [
                 'type' => 'warning',

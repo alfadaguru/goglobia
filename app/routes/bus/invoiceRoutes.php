@@ -68,6 +68,12 @@ $router->get('/invoice/bus/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE, 
                 }
             }
             $_SESSION['payment_notice'] = ['type' => 'success', 'title' => 'Payment Successful', 'message' => 'Invoice #' . $invoiceId . ' has been paid successfully.'];
+        } elseif (!empty($result['pending'])) {
+            $_SESSION['payment_notice'] = [
+                'type' => 'info',
+                'title' => 'Payment Pending',
+                'message' => $result['message'] ?? 'Your payment is being confirmed. Your booking will be finalised once the payment is verified.'
+            ];
         } elseif ($action === 'cancel') {
             $_SESSION['payment_notice'] = ['type' => 'warning', 'title' => 'Payment Cancelled', 'message' => 'You have cancelled the payment. No charges were made.'];
         } else {

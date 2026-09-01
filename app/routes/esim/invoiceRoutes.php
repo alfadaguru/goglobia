@@ -58,7 +58,9 @@ $router->get('/invoice/esim/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE,
 
         $result = handle_payment_callback($token, $action, $extra);
 
-        if ($action === 'success') {
+        if (!empty($result['pending'])) {
+            $_SESSION['success'] = $result['message'] ?? 'Your payment is being confirmed. Your eSIM booking will be finalised once the payment is verified.';
+        } elseif ($action === 'success') {
             if ($result['success'] ?? false) {
                 $_SESSION['success'] = 'Payment successful! Your eSIM booking is confirmed.';
             } else {

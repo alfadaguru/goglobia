@@ -14,6 +14,49 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+// ==================================================
+// SECURITY GATE (mandatory) — this is a destructive DB-wipe script.
+// It must NEVER run from an anonymous web request on a live site.
+// Access is allowed ONLY when EITHER:
+//   (a) the caller is an authenticated admin (session set by the app), OR
+//   (b) a matching one-time secret is supplied AND configured in .env as
+//       RESET_SECRET (a long random value the operator sets deliberately).
+// A URL parameter alone is NOT authentication — do not weaken this.
+// Defense in depth: install/.htaccess also blocks HTTP access to this dir.
+// ==================================================
+(function () {
+    // CLI runs (e.g. an operator on the server) are always allowed.
+    if (PHP_SAPI === 'cli') {
+        return;
+    }
+
+    // (a) Authenticated admin session (same keys the app's ADMIN_AUTH uses).
+    $isAdmin = (
+        (!empty($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true)
+        || (!empty($_SESSION['user_id']) && (($_SESSION['user_role'] ?? '') === 'admin'))
+    );
+    if ($isAdmin) {
+        return;
+    }
+
+    // (b) Operator-configured secret (constant-time compare).
+    $envFile = __DIR__ . '/../.env';
+    $expected = '';
+    if (is_file($envFile)) {
+        $envVars = @parse_ini_file($envFile);
+        $expected = is_array($envVars) ? trim((string)($envVars['RESET_SECRET'] ?? '')) : '';
+    }
+    $provided = (string)($_GET['reset_secret'] ?? $_POST['reset_secret'] ?? '');
+    if ($expected !== '' && $provided !== '' && hash_equals($expected, $provided)) {
+        return;
+    }
+
+    // Otherwise: refuse. Do not reveal why.
+    http_response_code(403);
+    header('Content-Type: text/plain; charset=utf-8');
+    die('Access denied.');
+})();
+
 // Load environment variables manually
 if (!file_exists(__DIR__ . '/../.env')) {
     die('Error: .env file not found. Please complete installation first.');

@@ -145,6 +145,16 @@ $router->get('/invoice/stays/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE
             }
             */
 
+        } elseif (!empty($result['pending'])) {
+            // ============================================================================
+            // PAYMENT PENDING VERIFICATION (gateway confirms via webhook, not the
+            // browser return). Show a neutral pending message — NOT "failed".
+            // ============================================================================
+            $_SESSION['payment_notice'] = [
+                'type' => 'info',
+                'title' => 'Payment Pending',
+                'message' => $result['message'] ?? 'Your payment is being confirmed. Your booking will be finalised once the payment is verified.'
+            ];
         } elseif ($action === 'cancel') {
             // ============================================================================
             // WEBHOOK: Payment Cancelled

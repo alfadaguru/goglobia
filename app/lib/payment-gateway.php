@@ -199,18 +199,49 @@ function handle_payment_callback($token, $action, $data = [])
         $tokenData = get_token_data($token);
 
         // ============================================================
-        // SERVER-SIDE PAYMENT VERIFICATION
-        // For gateways that redirect to a single URL (Paystack, Cashfree),
-        // we MUST verify the actual payment status via API before trusting $action.
-        // This prevents cancelled/failed payments from being marked as confirmed.
+        // SERVER-SIDE PAYMENT VERIFICATION  (SECURITY-CRITICAL)
+        // The browser return URL (?payment_status=success&token=...) is
+        // attacker-controllable: a buyer holds their own token and can craft the
+        // success URL. Therefore a 'success' CLAIM is NEVER trusted on its own.
+        //
+        // Every 'success' claim is resolved through verify_gateway_payment(),
+        // which returns one of: 'success' (gateway API confirmed payment),
+        // 'cancel', 'failure', or 'pending' (could not confirm — e.g. a gateway
+        // that only confirms via webhook, or an API that was unreachable).
+        // We prefer the gateway name from the trusted token over the request.
         // ============================================================
-        $gatewayName = strtolower($data['gateway'] ?? $data['gateway_data']['gateway'] ?? '');
-        if ($gatewayName && $action === 'success') {
+        $gatewayName = strtolower(
+            $tokenData['gateway_name']
+            ?? $data['gateway']
+            ?? $data['gateway_data']['gateway']
+            ?? ''
+        );
+        if ($action === 'success') {
             $verifiedAction = verify_gateway_payment($gatewayName, $data, $tokenData, $db);
             if ($verifiedAction !== 'success') {
                 error_log("PAYMENT VERIFICATION OVERRIDE | Invoice: {$tokenData['invoice_id']} | Gateway: {$gatewayName} | Claimed: success | Actual: {$verifiedAction}");
                 $action = $verifiedAction;
             }
+        }
+
+        // ============================================================
+        // PENDING — verification could not confirm payment (unverifiable
+        // gateway awaiting its webhook, or a verification error). Do NOT mark
+        // the booking paid; record it as pending so an admin / the gateway
+        // webhook can finalise it. This closes the "self-confirm without
+        // paying" bypass without falsely failing a payment that may still land.
+        // ============================================================
+        if ($action === 'pending') {
+            $db->update('bookings', [
+                'payment_status' => 'pending',
+            ], ['invoice_id' => $tokenData['invoice_id']]);
+            // Keep the token so a later webhook / retry can still finalise it.
+            return [
+                'success' => false,
+                'pending' => true,
+                'message' => 'Payment is pending confirmation. Your booking will be confirmed once the payment is verified.',
+                'booking' => $db->get('bookings', '*', ['invoice_id' => $tokenData['invoice_id']]),
+            ];
         }
 
         // ============================================================
@@ -1273,19 +1304,23 @@ function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
             // GET session status from Stripe API
             // ============================================================
             case 'stripe':
+                // SECURITY: Stripe CAN be verified via the Checkout Session API.
+                // Never trust the browser redirect. If we cannot verify (no
+                // session id / no key / API unreachable), return 'pending'
+                // (booking not marked paid) instead of the old 'success'.
                 $sessionId = $gatewayData['session_id'] ?? $gatewayData['transaction_id'] ?? '';
                 if (empty($sessionId)) {
-                    return 'success'; // Stripe uses separate URLs, trust the redirect
+                    return 'pending';
                 }
 
                 $gatewayId = $tokenData['gateway_id'] ?? null;
-                if (!$gatewayId) return 'success'; // Stripe has separate cancel URL, trust it
+                if (!$gatewayId) return 'pending';
 
                 $gateway = $db->get('payment_gateways', '*', ['id' => $gatewayId]);
-                if (!$gateway) return 'success';
+                if (!$gateway) return 'pending';
 
                 $secretKey = $gateway['c2'] ?? '';
-                if (empty($secretKey)) return 'success';
+                if (empty($secretKey)) return 'pending';
 
                 $ch = curl_init('https://api.stripe.com/v1/checkout/sessions/' . urlencode($sessionId));
                 curl_setopt_array($ch, [
@@ -1298,7 +1333,7 @@ function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
                 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
                 curl_close($ch);
 
-                if ($httpCode !== 200) return 'success'; // Trust Stripe's redirect
+                if ($httpCode !== 200) return 'pending'; // could not verify — do NOT confirm
 
                 $session = json_decode($response, true);
                 $paymentStatus = $session['payment_status'] ?? '';
@@ -1316,21 +1351,25 @@ function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
             // GET /paymentLinks/{id} — status 'completed' means paid.
             // ============================================================
             case 'adyen':
+                // SECURITY: Adyen is confirmed via the paymentLinks API and/or
+                // the signed webhook (see paymentAdyenRoutes.php). Never trust
+                // the browser redirect: if we cannot verify here, return
+                // 'pending' — the signed webhook will finalise it.
                 $linkId    = $tokenData['adyen_link_id'] ?? ($gatewayData['adyen_link'] ?? '');
                 $gatewayId = $tokenData['gateway_id'] ?? null;
                 if (empty($linkId) || !$gatewayId) {
-                    return 'success'; // nothing to verify against — trust the redirect
+                    return 'pending';
                 }
 
                 $gateway = $db->get('payment_gateways', '*', ['id' => $gatewayId]);
                 if (!$gateway) {
-                    return 'success';
+                    return 'pending';
                 }
 
                 require_once __DIR__ . '/adyen.php';
                 $cfg = adyen_config($gateway);
                 if ($cfg['api_key'] === '') {
-                    return 'success';
+                    return 'pending';
                 }
 
                 $resp = adyen_api_request($cfg, 'GET', 'paymentLinks/' . rawurlencode($linkId));
@@ -1353,16 +1392,21 @@ function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
             // XMONEY (UTRUST) VERIFICATION
             // ============================================================
             case 'xmoney':
-                // For xMoney, we trust the redirect if it comes with success
-                // but we also record the transaction ID from the URL if available
-                return 'success';
+                // SECURITY: xMoney confirms via its webhook (app/webhooks/xmoney.php),
+                // not the browser redirect. Do NOT confirm on the return URL —
+                // return 'pending' and let the signed webhook finalise it.
+                return 'pending';
 
             // ============================================================
-            // OTHER GATEWAYS (PayPal, Flutterwave, etc.)
-            // These use separate success/cancel/failure URLs — trust the redirect
+            // OTHER GATEWAYS (PayPal, Flutterwave, M-Pesa, Coinsbuy, Fawaterak…)
+            // SECURITY: the browser return URL is attacker-controllable, so it
+            // must NOT mark a booking paid. These gateways confirm via their own
+            // webhook / server callback; until that arrives the booking stays
+            // 'pending'. (Previously this returned 'success', which allowed a
+            // buyer to self-confirm without paying.)
             // ============================================================
             default:
-                return 'success';
+                return 'pending';
         }
 
     } catch (Exception $e) {
