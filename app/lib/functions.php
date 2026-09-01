@@ -572,6 +572,62 @@ function secureImageFileCheck(string $tmpName, int $size, int $maxSize = 5242880
 }
 
 /**
+ * General upload validator for a single $_FILES entry. Verifies the REAL MIME
+ * (finfo) matches the extension against an allow-map, rejects embedded PHP, and
+ * returns a SAFE extension. Use for handlers that accept images and/or docs.
+ *
+ * @param array  $file        A single $_FILES[key] entry (name,tmp_name,size,error).
+ * @param array  $allowExts   Allowed extensions, e.g. ['jpg','jpeg','png','pdf','zip'].
+ * @param int    $maxSize     Max bytes.
+ * @return array{ok:bool, ext?:string, mime?:string, error?:string}
+ */
+function secureUploadCheck(array $file, array $allowExts, int $maxSize = 5242880): array
+{
+    if (!isset($file['tmp_name']) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file($file['tmp_name'])) {
+        return ['ok' => false, 'error' => 'Invalid upload.'];
+    }
+    if (($file['size'] ?? 0) <= 0 || ($file['size'] ?? 0) > $maxSize) {
+        return ['ok' => false, 'error' => 'File too large or empty.'];
+    }
+    if (!function_exists('finfo_open')) {
+        return ['ok' => false, 'error' => 'Server fileinfo extension is missing.'];
+    }
+
+    // Full ext -> allowed real-MIME map. Only intersection with $allowExts applies.
+    $extMime = [
+        'jpg'  => ['image/jpeg', 'image/pjpeg'],
+        'jpeg' => ['image/jpeg', 'image/pjpeg'],
+        'png'  => ['image/png'],
+        'gif'  => ['image/gif'],
+        'webp' => ['image/webp'],
+        'pdf'  => ['application/pdf'],
+        'zip'  => ['application/zip', 'application/x-zip-compressed', 'multipart/x-zip'],
+    ];
+
+    $ext = strtolower((string) pathinfo($file['name'] ?? '', PATHINFO_EXTENSION));
+    if (!in_array($ext, $allowExts, true) || !isset($extMime[$ext])) {
+        return ['ok' => false, 'error' => 'File type not allowed.'];
+    }
+
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mime  = finfo_file($finfo, $file['tmp_name']);
+    finfo_close($finfo);
+    if (!in_array($mime, $extMime[$ext], true)) {
+        return ['ok' => false, 'error' => 'File content does not match its type.'];
+    }
+
+    // Reject embedded PHP (polyglot) in any non-zip upload.
+    if ($ext !== 'zip') {
+        $head = @file_get_contents($file['tmp_name'], false, null, 0, 8192);
+        if ($head !== false && (stripos($head, '<?php') !== false || stripos($head, '<?=') !== false)) {
+            return ['ok' => false, 'error' => 'Invalid file content.'];
+        }
+    }
+
+    return ['ok' => true, 'ext' => $ext, 'mime' => $mime];
+}
+
+/**
  * Resolve a user-supplied relative path to an absolute path that is guaranteed
  * to live INSIDE $baseDir. Returns null on any traversal / escape attempt.
  * Use before unlink()/read of a path built from request data.
