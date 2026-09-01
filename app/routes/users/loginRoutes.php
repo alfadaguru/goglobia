@@ -36,7 +36,15 @@ $router->get('/login', function () use ($SECURE, $db) {
                 $cookieUserId = (int) $cookieUserId;
                 $remembered = $db->get('users', '*', ['id' => $cookieUserId]);
                 if ($remembered) {
-                    $secret = ($env['DB_PASSWORD'] ?? '') . ($env['DB_DATABASE'] ?? '');
+                    // SECURITY (M4): prefer a dedicated REMEMBER_ME_SECRET so the
+                    // cookie HMAC is not tied to the DB password (which would be
+                    // exposed together with the data on a DB/.env leak). Falls
+                    // back to the legacy derivation so cookies issued before this
+                    // change still validate during the transition window.
+                    $secret = trim((string)($env['REMEMBER_ME_SECRET'] ?? ''));
+                    if ($secret === '') {
+                        $secret = ($env['DB_PASSWORD'] ?? '') . ($env['DB_DATABASE'] ?? '');
+                    }
                     $expected = hash_hmac('sha256', $cookieUserId . '|' . $remembered['email'] . '|' . $remembered['password'], $secret);
                     if (hash_equals($expected, $cookieHmac)
                         && $remembered['status'] === 'active'
@@ -177,10 +185,16 @@ $router->post('/login', function () use ($SECURE, $db) {
         // Remember Me — set signed 30-day cookie
         if (!empty($_POST['remember_me'])) {
             global $env;
-            $secret      = ($env['DB_PASSWORD'] ?? '') . ($env['DB_DATABASE'] ?? '');
+            // SECURITY (M4): dedicated secret, not the DB password (see auto-login).
+            $secret      = trim((string)($env['REMEMBER_ME_SECRET'] ?? ''));
+            if ($secret === '') {
+                $secret = ($env['DB_PASSWORD'] ?? '') . ($env['DB_DATABASE'] ?? '');
+            }
             $hmac        = hash_hmac('sha256', $userId . '|' . $user['email'] . '|' . $user['password'], $secret);
             $cookieValue = base64_encode($userId . '|' . $hmac);
-            setcookie('remember_me', $cookieValue, time() + (30 * 24 * 3600), '/', '', isset($_SERVER['HTTPS']), true);
+            $secureCookie = (!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off')
+                || (strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+            setcookie('remember_me', $cookieValue, time() + (30 * 24 * 3600), '/', '', $secureCookie, true);
         }
 
         // Defer webhook/logging so redirect is not blocked (fixes stuck "Signing in..." spinner)

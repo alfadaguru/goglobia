@@ -99,17 +99,12 @@ class RateLimiter {
             }
         }
         
-        // If no origin/referer headers, check if it's a direct API call
-        // Block direct API calls from external tools (Postman, curl, etc.)
-        $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? '';
-        $suspiciousAgents = ['curl', 'postman', 'insomnia', 'wget', 'python', 'java', 'go-http'];
-        
-        foreach ($suspiciousAgents as $agent) {
-            if (stripos($userAgent, $agent) !== false) {
-                return false;
-            }
-        }
-        
+        // SECURITY (L3): the previous User-Agent blocklist (curl/postman/python…)
+        // was removed. Blocking by UA string is trivially bypassed (any client
+        // can spoof a browser UA), so it provided false assurance while also
+        // blocking legitimate API/mobile clients that carry no Referer/Origin.
+        // Real API access control is the API key / JWT check (verifyApiKey),
+        // and abuse is limited by the rate limiter below — not by UA sniffing.
         return true;
     }
     
