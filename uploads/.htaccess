@@ -1,0 +1,26 @@
+# Security: never execute scripts from the uploads directory.
+# Uploaded files are user/admin-supplied and must be treated as inert data.
+
+# 1) Turn off the PHP engine here (mod_php) — belt.
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+
+# 2) Refuse to serve/execute any script-like extension — braces (works on 2.2 + 2.4).
+<FilesMatch "\.(php|php3|php4|php5|php7|php8|phtml|phar|pht|cgi|pl|py|sh|asp|aspx|jsp|htaccess)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# 3) Strip any handler and force plain text for script extensions.
+RemoveHandler .php .phtml .phar .pht .php3 .php4 .php5 .php7 .php8
+AddType text/plain .php .phtml .phar .pht .php3 .php4 .php5 .php7 .php8
+Options -ExecCGI

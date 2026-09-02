@@ -70,12 +70,15 @@ $router->post(admin.'/blogs/add', function () use ($SECURE,$db) {
         if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
         
         $file = $_FILES['post_img'];
-        $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
-        $new_filename = 'blog_' . time() . '_' . uniqid() . '.' . $ext;
-        $upload_path = $upload_dir . $new_filename;
-        
-        if (move_uploaded_file($file['tmp_name'], $upload_path)) {
-            $post_img = '/uploads/blogs/' . $new_filename;
+        // SECURITY: validate real MIME + safe extension (finfo).
+        $chk = secureUploadCheck($file, ['jpg', 'jpeg', 'png', 'gif', 'webp'], 5 * 1024 * 1024);
+        if ($chk['ok']) {
+            $new_filename = 'blog_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $chk['ext'];
+            $upload_path = $upload_dir . $new_filename;
+            if (move_uploaded_file($file['tmp_name'], $upload_path)) {
+                @chmod($upload_path, 0644);
+                $post_img = '/uploads/blogs/' . $new_filename;
+            }
         }
     }
     
@@ -235,12 +238,15 @@ $router->post(admin.'/blogs/edit/(.*)', function ($id) use ($SECURE,$db) {
         if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
         
         $file = $_FILES['post_img'];
-        $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
-        $new_filename = 'blog_' . time() . '_' . uniqid() . '.' . $ext;
-        $upload_path = $upload_dir . $new_filename;
-        
-        if (move_uploaded_file($file['tmp_name'], $upload_path)) {
-            $post_img = '/uploads/blogs/' . $new_filename;
+        // SECURITY: validate real MIME + safe extension (finfo).
+        $chk = secureUploadCheck($file, ['jpg', 'jpeg', 'png', 'gif', 'webp'], 5 * 1024 * 1024);
+        if ($chk['ok']) {
+            $new_filename = 'blog_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $chk['ext'];
+            $upload_path = $upload_dir . $new_filename;
+            if (move_uploaded_file($file['tmp_name'], $upload_path)) {
+                @chmod($upload_path, 0644);
+                $post_img = '/uploads/blogs/' . $new_filename;
+            }
         }
     }
     

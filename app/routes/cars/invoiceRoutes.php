@@ -31,6 +31,9 @@ $router->get('/invoice/cars/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE,
         exit;
     }
 
+    // SECURITY (IDOR): restrict to owner / admin / creating session.
+    enforceInvoiceAccess($db, $booking, root . 'cars');
+
     $id = $booking['id'];
     $invoiceId = $booking['invoice_id'];
 
@@ -57,7 +60,12 @@ $router->get('/invoice/cars/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE,
 
         $result = handle_payment_callback($token, $action, $extra);
 
-        if ($action === 'success') {
+        if (!empty($result['pending'])) {
+            // Payment awaiting gateway/webhook verification — not confirmed, not failed.
+            $_SESSION['success'] = $result['message'] ?? 'Your payment is being confirmed. Your car booking will be finalised once the payment is verified.';
+            header('Location: ' . root . 'invoice/cars/' . $invoiceId);
+            exit;
+        } elseif ($action === 'success') {
             if ($result['success'] ?? false) {
                 if (!empty($result['requires_mozio_payment'])) {
                     $_SESSION['success'] = 'Payment received. Complete Mozio checkout to confirm your transfer booking.';

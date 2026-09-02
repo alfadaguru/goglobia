@@ -54,6 +54,12 @@ $router->get('/invoice/flights/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECU
                 'title' => 'Payment Successful',
                 'message' => 'Payment completed successfully. Your booking is being processed.'
             ];
+        } elseif (!empty($callbackResult['pending'])) {
+            $_SESSION['payment_notice'] = [
+                'type' => 'info',
+                'title' => 'Payment Pending',
+                'message' => $callbackResult['message'] ?? 'Your payment is being confirmed. Your booking will be finalised once the payment is verified.'
+            ];
         } elseif ($action === 'cancel') {
             $_SESSION['payment_notice'] = [
                 'type' => 'warning',
@@ -81,6 +87,9 @@ $router->get('/invoice/flights/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECU
         header('Location: ' . root);
         exit;
     }
+
+    // SECURITY (IDOR): restrict to owner / admin / creating session.
+    enforceInvoiceAccess($db, $booking, root);
 
     // CHECK BOOKING EXPIRY TIME - Only for unpaid bookings
     $isAdmin = (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin');

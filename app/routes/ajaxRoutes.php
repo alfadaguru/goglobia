@@ -681,12 +681,38 @@ $router->post('/api/deposit/add', function () use ($SECURE, $db) {
             exit;
         }
 
-        if ($file['size'] > $maxFileSize) {
+        if ($file['size'] > $maxFileSize || $file['size'] <= 0) {
             http_response_code(400);
             echo json_encode([
                 'status' => 'error',
                 'message' => T::file_too_large ?? 'File size exceeds 5MB limit.'
             ]);
+            exit;
+        }
+
+        // SECURITY: verify the REAL MIME (finfo) matches an allowed type and the
+        // extension. Blocks a .php renamed .pdf or a spoofed Content-Type.
+        $allowedMime = [
+            'jpg'  => ['image/jpeg', 'image/pjpeg'],
+            'jpeg' => ['image/jpeg', 'image/pjpeg'],
+            'png'  => ['image/png'],
+            'pdf'  => ['application/pdf'],
+        ];
+        $realMime = function_exists('finfo_open')
+            ? (function () use ($file) { $f = finfo_open(FILEINFO_MIME_TYPE); $m = finfo_file($f, $file['tmp_name']); finfo_close($f); return $m; })()
+            : '';
+        if (!is_uploaded_file($file['tmp_name'])
+            || $realMime === ''
+            || !in_array($realMime, $allowedMime[$fileExtension] ?? [], true)) {
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => 'Invalid or unsupported file content.']);
+            exit;
+        }
+        // Reject smuggled PHP inside the upload.
+        $depHead = @file_get_contents($file['tmp_name'], false, null, 0, 8192);
+        if ($depHead !== false && (stripos($depHead, '<?php') !== false || stripos($depHead, '<?=') !== false)) {
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => 'Invalid file content.']);
             exit;
         }
 
@@ -701,7 +727,7 @@ $router->post('/api/deposit/add', function () use ($SECURE, $db) {
         // ====================================
         // GENERATE UNIQUE FILENAME
         // ====================================
-        $uniqueId = uniqid('DEP_', true);
+        $uniqueId = 'DEP_' . bin2hex(random_bytes(8));
         $fileName = $uniqueId . '.' . $fileExtension;
         $uploadPath = $uploadDir . $fileName;
 
@@ -1123,31 +1149,29 @@ $router->post('/api/agency/update', function() use ($db) {
         // Handle logo upload
         $logo_path = null;
         if (isset($_FILES['logo']) && $_FILES['logo']['error'] === UPLOAD_ERR_OK) {
-            $allowed_types = ['image/jpeg', 'image/png'];
             $max_size = 2 * 1024 * 1024; // 2MB
 
-            if (!in_array($_FILES['logo']['type'], $allowed_types)) {
+            // SECURITY: verify the REAL MIME via finfo (not the client-supplied
+            // $_FILES['logo']['type'], which is trivially spoofed) and derive a
+            // safe extension from it. Prevents uploading an executable .php as a
+            // fake "image/png".
+            $logoCheck = secureImageFileCheck($_FILES['logo']['tmp_name'], (int) $_FILES['logo']['size'], $max_size);
+            if (!$logoCheck['ok']) {
                 http_response_code(400);
-                echo json_encode(['success' => false, 'message' => 'Only JPG and PNG files are allowed']);
-                exit;
-            }
-
-            if ($_FILES['logo']['size'] > $max_size) {
-                http_response_code(400);
-                echo json_encode(['success' => false, 'message' => 'File size must be less than 2MB']);
+                echo json_encode(['success' => false, 'message' => $logoCheck['error'] ?? 'Invalid image file']);
                 exit;
             }
 
             $upload_dir = __DIR__ . '/../../uploads/agencies/';
             if (!file_exists($upload_dir)) {
-                mkdir($upload_dir, 0777, true);
+                mkdir($upload_dir, 0755, true);
             }
 
-            $extension = pathinfo($_FILES['logo']['name'], PATHINFO_EXTENSION);
-            $filename = uniqid() . '_' . time() . '.' . $extension;
+            $filename = bin2hex(random_bytes(8)) . '_' . time() . '.' . $logoCheck['ext'];
             $target_path = $upload_dir . $filename;
 
             if (move_uploaded_file($_FILES['logo']['tmp_name'], $target_path)) {
+                @chmod($target_path, 0644);
                 $logo_path = 'uploads/agencies/' . $filename;
             }
         }

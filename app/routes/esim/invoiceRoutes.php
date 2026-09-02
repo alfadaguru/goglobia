@@ -28,13 +28,9 @@ $router->get('/invoice/esim/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE,
 
     $invoiceId = $booking['invoice_id'];
 
-    if (isset($_SESSION['user_id']) && !empty($booking['user_id'])) {
-        if ($booking['user_id'] !== $_SESSION['user_id']) {
-            $_SESSION['error'] = 'Unauthorized access';
-            header('Location: ' . root . 'bookings');
-            exit;
-        }
-    }
+    // SECURITY (IDOR): restrict to owner / admin / creating session (replaces the
+    // partial check below which let guests / null-user bookings through).
+    enforceInvoiceAccess($db, $booking, root . 'bookings');
 
     $paymentStatus = $_GET['payment_status'] ?? null;
     if ($paymentStatus) {
@@ -58,7 +54,9 @@ $router->get('/invoice/esim/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE,
 
         $result = handle_payment_callback($token, $action, $extra);
 
-        if ($action === 'success') {
+        if (!empty($result['pending'])) {
+            $_SESSION['success'] = $result['message'] ?? 'Your payment is being confirmed. Your eSIM booking will be finalised once the payment is verified.';
+        } elseif ($action === 'success') {
             if ($result['success'] ?? false) {
                 $_SESSION['success'] = 'Payment successful! Your eSIM booking is confirmed.';
             } else {

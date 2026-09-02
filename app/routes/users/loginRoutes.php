@@ -36,12 +36,24 @@ $router->get('/login', function () use ($SECURE, $db) {
                 $cookieUserId = (int) $cookieUserId;
                 $remembered = $db->get('users', '*', ['id' => $cookieUserId]);
                 if ($remembered) {
-                    $secret = ($env['DB_PASSWORD'] ?? '') . ($env['DB_DATABASE'] ?? '');
+                    // SECURITY (M4): prefer a dedicated REMEMBER_ME_SECRET so the
+                    // cookie HMAC is not tied to the DB password (which would be
+                    // exposed together with the data on a DB/.env leak). Falls
+                    // back to the legacy derivation so cookies issued before this
+                    // change still validate during the transition window.
+                    $secret = trim((string)($env['REMEMBER_ME_SECRET'] ?? ''));
+                    if ($secret === '') {
+                        $secret = ($env['DB_PASSWORD'] ?? '') . ($env['DB_DATABASE'] ?? '');
+                    }
                     $expected = hash_hmac('sha256', $cookieUserId . '|' . $remembered['email'] . '|' . $remembered['password'], $secret);
                     if (hash_equals($expected, $cookieHmac)
                         && $remembered['status'] === 'active'
                         && !$remembered['banned']
                         && $remembered['email_verified']) {
+                        // SECURITY (M2): regenerate session id on auto-login too.
+                        if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+                            session_regenerate_id(true);
+                        }
                         $_SESSION['user_id']    = $remembered['user_id'];
                         $_SESSION['user_email'] = $remembered['email'];
                         $_SESSION['user_name']  = $remembered['first_name'] . ' ' . $remembered['last_name'];
@@ -158,6 +170,12 @@ $router->post('/login', function () use ($SECURE, $db) {
 
         logUserActivity($db, $userId, 'login', 'User logged in successfully');
 
+        // SECURITY (M2): regenerate the session id on privilege change (login)
+        // to defeat session fixation. Preserves existing session data.
+        if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+            session_regenerate_id(true);
+        }
+
         $_SESSION['user_id'] = $user['user_id'];
         $_SESSION['user_email'] = $user['email'];
         $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];
@@ -167,10 +185,16 @@ $router->post('/login', function () use ($SECURE, $db) {
         // Remember Me — set signed 30-day cookie
         if (!empty($_POST['remember_me'])) {
             global $env;
-            $secret      = ($env['DB_PASSWORD'] ?? '') . ($env['DB_DATABASE'] ?? '');
+            // SECURITY (M4): dedicated secret, not the DB password (see auto-login).
+            $secret      = trim((string)($env['REMEMBER_ME_SECRET'] ?? ''));
+            if ($secret === '') {
+                $secret = ($env['DB_PASSWORD'] ?? '') . ($env['DB_DATABASE'] ?? '');
+            }
             $hmac        = hash_hmac('sha256', $userId . '|' . $user['email'] . '|' . $user['password'], $secret);
             $cookieValue = base64_encode($userId . '|' . $hmac);
-            setcookie('remember_me', $cookieValue, time() + (30 * 24 * 3600), '/', '', isset($_SERVER['HTTPS']), true);
+            $secureCookie = (!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off')
+                || (strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+            setcookie('remember_me', $cookieValue, time() + (30 * 24 * 3600), '/', '', $secureCookie, true);
         }
 
         // Defer webhook/logging so redirect is not blocked (fixes stuck "Signing in..." spinner)

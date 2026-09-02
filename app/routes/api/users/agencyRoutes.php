@@ -146,31 +146,24 @@ $router->post('/api/users/agency/update', function () use ($db) {
     // Handle logo upload
     $logo_path = null;
     if (isset($_FILES['logo']) && $_FILES['logo']['error'] === UPLOAD_ERR_OK) {
-        $allowed_types = ['image/jpeg', 'image/png'];
-        $max_size = 2 * 1024 * 1024; // 2MB
-
-        if (!in_array($_FILES['logo']['type'], $allowed_types)) {
+        // SECURITY: real MIME validation (not the spoofable client type).
+        $chk = secureUploadCheck($_FILES['logo'], ['jpg', 'jpeg', 'png'], 2 * 1024 * 1024);
+        if (!$chk['ok']) {
             http_response_code(400);
-            echo json_encode(['status' => 'error', 'message' => 'Only JPG and PNG files are allowed']);
-            exit;
-        }
-
-        if ($_FILES['logo']['size'] > $max_size) {
-            http_response_code(400);
-            echo json_encode(['status' => 'error', 'message' => 'File size must be less than 2MB']);
+            echo json_encode(['status' => 'error', 'message' => $chk['error'] ?? 'Invalid image file']);
             exit;
         }
 
         $upload_dir = 'uploads/agencies/';
         if (!file_exists($upload_dir)) {
-            mkdir($upload_dir, 0777, true);
+            mkdir($upload_dir, 0755, true);
         }
 
-        $extension = pathinfo($_FILES['logo']['name'], PATHINFO_EXTENSION);
-        $filename = uniqid() . '_' . time() . '.' . $extension;
+        $filename = bin2hex(random_bytes(8)) . '_' . time() . '.' . $chk['ext'];
         $target_path = $upload_dir . $filename;
 
         if (move_uploaded_file($_FILES['logo']['tmp_name'], $target_path)) {
+            @chmod($target_path, 0644);
             $logo_path = 'uploads/agencies/' . $filename;
         }
     }

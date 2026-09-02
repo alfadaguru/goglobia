@@ -209,6 +209,12 @@ $router->get('/invoice/ai_trip/([A-Za-z0-9]+)', function ($invoiceId) use ($SECU
                 'title' => 'Payment Successful',
                 'message' => 'Payment completed successfully. Your AI trip package is being processed.',
             ];
+        } elseif (!empty($result['pending'])) {
+            $_SESSION['payment_notice'] = [
+                'type' => 'info',
+                'title' => 'Payment Pending',
+                'message' => $result['message'] ?? 'Your payment is being confirmed. Your AI trip package will be finalised once the payment is verified.',
+            ];
         } elseif ($action === 'cancel') {
             $_SESSION['payment_notice'] = [
                 'type' => 'warning',
@@ -246,6 +252,9 @@ $router->get('/invoice/ai_trip/([A-Za-z0-9]+)', function ($invoiceId) use ($SECU
         require_once views . 'includes/footer.php';
         exit;
     }
+
+    // SECURITY (IDOR): restrict to owner / admin / creating session.
+    enforceInvoiceAccess($db, $booking, root . 'ai-trip');
 
     $invoiceId = $booking['invoice_id'];
 

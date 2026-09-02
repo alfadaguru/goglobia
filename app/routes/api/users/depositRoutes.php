@@ -158,29 +158,22 @@ $router->post('/api/users/deposit/add', function () use ($db) {
     }
 
     $file = $_FILES['attachment'];
-    $allowedExtensions = ['jpg', 'jpeg', 'png', 'pdf'];
-    $maxFileSize = 5 * 1024 * 1024; // 5MB
 
-    $fileExtension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-
-    if (!in_array($fileExtension, $allowedExtensions)) {
+    // SECURITY: validate real MIME + safe extension (finfo), not just the name.
+    $chk = secureUploadCheck($file, ['jpg', 'jpeg', 'png', 'pdf'], 5 * 1024 * 1024);
+    if (!$chk['ok']) {
         http_response_code(400);
-        echo json_encode(['status' => 'error', 'message' => 'Invalid file type. Only JPG, PNG, and PDF files are allowed.']);
+        echo json_encode(['status' => 'error', 'message' => $chk['error'] ?? 'Invalid file.']);
         exit;
     }
-
-    if ($file['size'] > $maxFileSize) {
-        http_response_code(400);
-        echo json_encode(['status' => 'error', 'message' => 'File size exceeds 5MB limit.']);
-        exit;
-    }
+    $fileExtension = $chk['ext'];
 
     $uploadDir = 'uploads/deposit/';
     if (!is_dir($uploadDir)) {
         mkdir($uploadDir, 0755, true);
     }
 
-    $uniqueId = uniqid('DEP_', true);
+    $uniqueId = 'DEP_' . bin2hex(random_bytes(8));
     $fileName = $uniqueId . '.' . $fileExtension;
     $uploadPath = $uploadDir . $fileName;
 

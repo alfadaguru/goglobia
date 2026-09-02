@@ -708,8 +708,27 @@ if (!function_exists('verifyApiKey')) {
             session_start();
         }
 
-        // Secure check: If the request is from our own web client session, bypass verification
+        // The site's own frontend JS calls /api/* without embedding the key,
+        // identified by $_SESSION['is_web_client']. SECURITY (H1): to stop a
+        // stolen session cookie being replayed from an attacker's page, only
+        // honour that bypass for genuinely SAME-ORIGIN requests — i.e. the
+        // Origin/Referer host must match this site's host. A cross-site replay
+        // (no/foreign Origin) must still present the API key.
         $isOwnWeb = !empty($_SESSION['is_web_client']);
+        if ($isOwnWeb) {
+            $host = strtolower($_SERVER['HTTP_HOST'] ?? '');
+            $originHost = '';
+            if (!empty($_SERVER['HTTP_ORIGIN'])) {
+                $originHost = strtolower((string) parse_url($_SERVER['HTTP_ORIGIN'], PHP_URL_HOST));
+            } elseif (!empty($_SERVER['HTTP_REFERER'])) {
+                $originHost = strtolower((string) parse_url($_SERVER['HTTP_REFERER'], PHP_URL_HOST));
+            }
+            // Same-origin (or a plain navigation with no Origin/Referer, which a
+            // cross-site fetch cannot suppress) is trusted; a foreign Origin is not.
+            if ($originHost !== '' && $host !== '' && $originHost !== $host) {
+                $isOwnWeb = false;
+            }
+        }
 
         if (!$isOwnWeb) {
             $headers = function_exists('getallheaders') ? getallheaders() : [];
@@ -719,9 +738,9 @@ if (!function_exists('verifyApiKey')) {
             if (empty($clientApiKey)) {
                 foreach ($_SERVER as $key => $val) {
                     $cleanKey = strtoupper($key);
-                    if ($cleanKey === 'HTTP_X_API_KEY' || 
-                        $cleanKey === 'REDIRECT_HTTP_X_API_KEY' || 
-                        $cleanKey === 'HTTP_X_APIKEY' || 
+                    if ($cleanKey === 'HTTP_X_API_KEY' ||
+                        $cleanKey === 'REDIRECT_HTTP_X_API_KEY' ||
+                        $cleanKey === 'HTTP_X_APIKEY' ||
                         $cleanKey === 'REDIRECT_HTTP_X_APIKEY') {
                         $clientApiKey = $val;
                         break;
@@ -732,7 +751,8 @@ if (!function_exists('verifyApiKey')) {
                 $clientApiKey = $_GET['api_key'] ?? $_POST['api_key'] ?? '';
             }
 
-            if (empty($clientApiKey) || $clientApiKey !== $serverApiKey) {
+            // SECURITY (H1): constant-time comparison (hash_equals) instead of !==.
+            if (empty($clientApiKey) || !hash_equals((string) $serverApiKey, (string) $clientApiKey)) {
                 header('Content-Type: application/json');
                 http_response_code(426);
                 echo json_encode([

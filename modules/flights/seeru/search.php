@@ -4,13 +4,20 @@
 
 //function to get airline name from database
 function get_airline_name($pdo, $airline_code) {
-    $airline_query = $pdo->query("SELECT * FROM `flights_airlines` WHERE `code` = '$airline_code'")->fetch(\PDO::FETCH_OBJ);
+    // SECURITY (H2): prepared statement — $airline_code comes from the supplier
+    // API response and must not be interpolated into SQL.
+    $stmt = $pdo->prepare("SELECT * FROM `flights_airlines` WHERE `code` = ? LIMIT 1");
+    $stmt->execute([$airline_code]);
+    $airline_query = $stmt->fetch(\PDO::FETCH_OBJ);
     return ($airline_query && isset($airline_query->name)) ? $airline_query->name : $airline_code;
 }
 
 //function to get airport name from database
 function get_airport_name($pdo, $airport_code, $fallback_name) {
-    $airport_query = $pdo->query("SELECT * FROM `flights_airports` WHERE `code` = '$airport_code'")->fetch(\PDO::FETCH_OBJ);
+    // SECURITY (H2): prepared statement (supplier-controlled input).
+    $stmt = $pdo->prepare("SELECT * FROM `flights_airports` WHERE `code` = ? LIMIT 1");
+    $stmt->execute([$airport_code]);
+    $airport_query = $stmt->fetch(\PDO::FETCH_OBJ);
     return ($airport_query && isset($airport_query->name)) ? $airport_query->name : $fallback_name;
 }
 

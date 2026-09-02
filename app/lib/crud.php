@@ -79,6 +79,29 @@ class CRUD {
                 throw new Exception('Action parameter is required');
             }
 
+            // SECURITY (H5): these are admin state-changing operations (delete,
+            // toggle, set-default). Require an admin session AND a valid CSRF
+            // token (sent by the CRUD table JS as csrf_token / X-CSRF-TOKEN).
+            if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+                session_start();
+            }
+            $isAdmin = (($_SESSION['user_role'] ?? '') === 'admin')
+                || (!empty($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true);
+            if (!$isAdmin) {
+                ob_end_clean();
+                http_response_code(403);
+                echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
+                exit();
+            }
+            $csrf = $input['csrf_token']
+                ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($_POST['csrf_token'] ?? ''));
+            if (!class_exists('CSRF') || !CSRF::validateToken((string) $csrf)) {
+                ob_end_clean();
+                http_response_code(403);
+                echo json_encode(['status' => 'error', 'message' => 'Security token invalid or expired. Please refresh the page.']);
+                exit();
+            }
+
             if (empty($table)) {
                 throw new Exception('Table parameter is required');
             }
@@ -94,8 +117,7 @@ class CRUD {
             ob_end_clean();
             echo json_encode([
                 'status' => 'error',
-                'message' => $e->getMessage(),
-                'trace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3)
+                'message' => $e->getMessage()
             ]);
             exit();
         }
@@ -157,8 +179,7 @@ class CRUD {
                 echo json_encode([
                     'status' => 'error',
                     'message' => 'Toggle status error: ' . $e->getMessage(),
-                    'context' => ['table' => $table, 'id' => $id, 'column' => $column],
-                    'trace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3)
+                    'context' => ['table' => $table, 'id' => $id, 'column' => $column]
                 ]);
             }
             exit();
@@ -220,8 +241,7 @@ class CRUD {
                 echo json_encode([
                     'status' => 'error',
                     'message' => 'Set default error: ' . $e->getMessage(),
-                    'context' => ['table' => $table, 'id' => $id],
-                    'trace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3)
+                    'context' => ['table' => $table, 'id' => $id]
                 ]);
             }
             exit();
@@ -309,8 +329,7 @@ class CRUD {
                 echo json_encode([
                     'status' => 'error',
                     'message' => 'Delete error: ' . $e->getMessage(),
-                    'context' => ['table' => $table, 'id' => $id, 'id_column' => $id_column],
-                    'trace' => debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 3)
+                    'context' => ['table' => $table, 'id' => $id, 'id_column' => $id_column]
                 ]);
             }
             exit();
@@ -388,18 +407,26 @@ class CRUD {
 
             foreach ($columns as $key) {
                 $val = $row[$key];
-                // Replace column name with quoted value for strings, or raw value for numbers
+                // SECURITY (H4): the substituted VALUE is the real injection
+                // vector into eval(). Quote it so it can NEVER break out of its
+                // string literal: base64-encode the raw value and reconstruct it
+                // at eval time via base64_decode('...'). The encoded form is
+                // strictly [A-Za-z0-9+/=], so a hostile column value (quotes,
+                // backticks, ; $ etc.) cannot inject any PHP. Numbers stay raw
+                // (safe) so arithmetic templates keep working.
                 if ($val === null) {
                     $quotedVal = 'null';
                 } elseif (is_numeric($val)) {
                     $quotedVal = $val;
                 } else {
-                    $quotedVal = "'" . addslashes($val) . "'";
+                    $quotedVal = "base64_decode('" . base64_encode((string) $val) . "')";
                 }
                 $expression = preg_replace('/\b' . preg_quote($key, '/') . '\b/', $quotedVal, $expression);
             }
 
-            // Evaluate the expression safely
+            // Evaluate the expression. Column VALUES are now injection-proof
+            // (base64 literals). The template text itself is developer-authored
+            // (defined in route files), not user input.
             try {
                 $result = @eval("return $expression;");
                 return $result !== false && $result !== null ? $result : '';
@@ -1717,11 +1744,13 @@ class CRUD {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
+                            "X-CSRF-TOKEN": (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                         },
                         body: JSON.stringify({
                             action: "delete_record",
                             table: table,
-                            id: id
+                            id: id,
+                            csrf_token: (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                         })
                     })
                     .then(response => response.json())
@@ -1881,13 +1910,15 @@ class CRUD {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
+                            "X-CSRF-TOKEN": (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                         },
                         body: JSON.stringify({
                             action: "toggle_status",
                             table: table,
                             column: column,
                             id: id,
-                            status: newStatus
+                            status: newStatus,
+                            csrf_token: (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                         })
                     })
                     .then(response => response.json())
@@ -1936,11 +1967,13 @@ class CRUD {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
+                            "X-CSRF-TOKEN": (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                         },
                         body: JSON.stringify({
                             action: "set_default",
                             table: table,
-                            id: id
+                            id: id,
+                            csrf_token: (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                         })
                     })
                     .then(response => response.json())
@@ -2049,11 +2082,13 @@ class CRUD {
                             method: "POST",
                             headers: {
                                 "Content-Type": "application/json",
+                                "X-CSRF-TOKEN": (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                             },
                             body: JSON.stringify({
                                 action: "delete_record",
                                 table: table,
-                                id: id
+                                id: id,
+                                csrf_token: (document.querySelector("meta[name=csrf-token]")||{}).content || ""
                             })
                         })
                         .then(response => response.json())

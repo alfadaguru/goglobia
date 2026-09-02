@@ -127,12 +127,18 @@ $router->post(admin.'/stays/add', function () use ($SECURE,$db) {
 
         for ($i = 0; $i < $file_count; $i++) {
             if ($files['error'][$i] === UPLOAD_ERR_OK) {
-                $ext = pathinfo($files['name'][$i], PATHINFO_EXTENSION);
-                $new_filename = 'hotel_' . time() . '_' . uniqid() . '_' . $i . '.' . $ext;
+                // SECURITY: validate real MIME + safe extension (finfo).
+                $chk = secureUploadCheck(
+                    ['name' => $files['name'][$i], 'tmp_name' => $files['tmp_name'][$i], 'size' => $files['size'][$i], 'error' => UPLOAD_ERR_OK],
+                    ['jpg', 'jpeg', 'png', 'gif', 'webp'], 5 * 1024 * 1024
+                );
+                if (!$chk['ok']) { continue; }
+                $new_filename = 'hotel_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $chk['ext'];
                 $upload_path = $upload_dir . $new_filename;
                 $image_url = '/uploads/hotels/gallery/' . $new_filename;
 
                 if (move_uploaded_file($files['tmp_name'][$i], $upload_path)) {
+                    @chmod($upload_path, 0644);
                     // First image is default
                     $images[] = [
                         'url' => $image_url,
@@ -538,12 +544,18 @@ $router->post(admin.'/stays/edit/(.*)', function ($id) use ($SECURE,$db) {
 
         for ($i = 0; $i < $file_count; $i++) {
             if ($files['error'][$i] === UPLOAD_ERR_OK) {
-                $ext = pathinfo($files['name'][$i], PATHINFO_EXTENSION);
-                $new_filename = 'hotel_' . time() . '_' . uniqid() . '_' . $i . '.' . $ext;
+                // SECURITY: validate real MIME + safe extension (finfo).
+                $chk = secureUploadCheck(
+                    ['name' => $files['name'][$i], 'tmp_name' => $files['tmp_name'][$i], 'size' => $files['size'][$i], 'error' => UPLOAD_ERR_OK],
+                    ['jpg', 'jpeg', 'png', 'gif', 'webp'], 5 * 1024 * 1024
+                );
+                if (!$chk['ok']) { continue; }
+                $new_filename = 'hotel_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $chk['ext'];
                 $upload_path = $upload_dir . $new_filename;
                 $image_url = '/uploads/hotels/gallery/' . $new_filename;
 
                 if (move_uploaded_file($files['tmp_name'][$i], $upload_path)) {
+                    @chmod($upload_path, 0644);
                     // First uploaded image is default ONLY if no existing default
                     $images[] = [
                         'url' => $image_url,

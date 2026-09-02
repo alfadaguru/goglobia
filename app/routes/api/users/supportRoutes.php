@@ -134,21 +134,11 @@ $router->post('/api/users/support/ticket/create', function () use ($db) {
 
     $attachment = null;
     if (isset($_FILES['attachment']) && $_FILES['attachment']['error'] === UPLOAD_ERR_OK) {
-        $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf', 'application/zip'];
-        $max_size = 5 * 1024 * 1024; // 5MB
-
-        $file_type = $_FILES['attachment']['type'];
-        $file_size = $_FILES['attachment']['size'];
-
-        if (!in_array($file_type, $allowed_types)) {
+        // SECURITY: validate real MIME + safe extension (finfo).
+        $chk = secureUploadCheck($_FILES['attachment'], ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'zip'], 5 * 1024 * 1024);
+        if (!$chk['ok']) {
             http_response_code(400);
-            echo json_encode(['status' => 'error', 'message' => 'Invalid file type. Only JPG, PNG, GIF, PDF, ZIP allowed']);
-            exit;
-        }
-
-        if ($file_size > $max_size) {
-            http_response_code(400);
-            echo json_encode(['status' => 'error', 'message' => 'File size exceeds 5MB limit']);
+            echo json_encode(['status' => 'error', 'message' => $chk['error'] ?? 'Invalid file. Only JPG, PNG, GIF, PDF, ZIP allowed']);
             exit;
         }
 
@@ -157,11 +147,11 @@ $router->post('/api/users/support/ticket/create', function () use ($db) {
             mkdir($upload_dir, 0755, true);
         }
 
-        $file_extension = pathinfo($_FILES['attachment']['name'], PATHINFO_EXTENSION);
-        $file_name = uniqid('ticket_') . '_' . $user_id . '.' . strtolower($file_extension);
+        $file_name = 'ticket_' . bin2hex(random_bytes(8)) . '_' . $user_id . '.' . $chk['ext'];
         $upload_path = $upload_dir . $file_name;
 
         if (move_uploaded_file($_FILES['attachment']['tmp_name'], $upload_path)) {
+            @chmod($upload_path, 0644);
             $attachment = json_encode([$upload_path]);
         }
     }

@@ -347,7 +347,11 @@ $router->post('flights/amadeus/search', function() use ($db) {
                             $class_type = $travelerPricings->fareDetailsBySegment[0]->cabin;
                         }
                     }
-                    $airline = $pdo->query("SELECT * FROM `flights_airlines` WHERE `code` = '$seg2->carrierCode'")->fetch(\PDO::FETCH_OBJ);
+                    // SECURITY (H2): prepared statement — carrierCode is from
+                    // the Amadeus API response; never interpolate into SQL.
+                    $airlineStmt = $pdo->prepare("SELECT * FROM `flights_airlines` WHERE `code` = ? LIMIT 1");
+                    $airlineStmt->execute([$seg2->carrierCode]);
+                    $airline = $airlineStmt->fetch(\PDO::FETCH_OBJ);
                     if(!empty($airline)){
                         $airline_name = $airline->name;
                     }else{

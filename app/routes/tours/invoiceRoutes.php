@@ -18,6 +18,9 @@ $router->get('/invoice/tours/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE
         exit;
     }
 
+    // SECURITY (IDOR): restrict to owner / admin / creating session.
+    enforceInvoiceAccess($db, $booking, root . 'tours');
+
     // CHECK BOOKING EXPIRY TIME
     $isAdmin = (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin');
 
@@ -127,6 +130,12 @@ $router->get('/invoice/tours/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE
             }
             */
 
+        } elseif (!empty($result['pending'])) {
+            $_SESSION['payment_notice'] = [
+                'type' => 'info',
+                'title' => 'Payment Pending',
+                'message' => $result['message'] ?? 'Your payment is being confirmed. Your booking will be finalised once the payment is verified.'
+            ];
         } elseif ($action === 'cancel') {
             $_SESSION['payment_notice'] = [
                 'type' => 'warning',

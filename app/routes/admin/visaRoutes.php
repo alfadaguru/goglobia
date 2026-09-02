@@ -92,12 +92,21 @@ $router->post(admin.'/visa/add', function () use ($SECURE,$db) {
 
         for ($i = 0; $i < $file_count; $i++) {
             if ($_FILES['visa_images']['error'][$i] === UPLOAD_ERR_OK) {
-                $ext = pathinfo($_FILES['visa_images']['name'][$i], PATHINFO_EXTENSION);
-                $new_filename = 'visa_' . time() . '_' . uniqid() . '_' . $i . '.' . $ext;
+                // SECURITY: validate real MIME + derive a safe extension from it
+                // (never from the user filename) — blocks .php web-shell uploads.
+                $check = secureImageFileCheck(
+                    $_FILES['visa_images']['tmp_name'][$i],
+                    (int) ($_FILES['visa_images']['size'][$i] ?? 0)
+                );
+                if (!$check['ok']) {
+                    continue; // skip invalid/dangerous file
+                }
+                $new_filename = 'visa_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $check['ext'];
                 $upload_path = $upload_dir . $new_filename;
                 $image_url = '/uploads/visa/gallery/' . $new_filename;
 
                 if (move_uploaded_file($_FILES['visa_images']['tmp_name'][$i], $upload_path)) {
+                    @chmod($upload_path, 0644);
                     $uploaded_images[] = [
                         'url' => $image_url,
                         'default' => ($i === 0) ? true : false // Boolean: true/false
@@ -277,15 +286,20 @@ $router->post(admin.'/visa/edit/(.*)', function ($id) use ($SECURE,$db) {
 
     // Delete physical files FIRST before updating database
     if (!empty($images_to_delete)) {
+        // SECURITY: only ever delete inside the visa gallery dir. The image
+        // path comes from the request, so confine it with safePathInDir()
+        // (basename + realpath) to prevent ../ traversal deleting arbitrary
+        // files (config.php, .env, source, other tenants' uploads).
+        $gallery_dir = $project_root . '/uploads/visa/gallery';
         foreach ($images_to_delete as $image_url) {
-            // Clean the URL - remove leading slash if present
-            $clean_url = ltrim($image_url, '/');
-
-            // Construct full file path
-            $file_path = $project_root . '/' . $clean_url;
+            $file_path = safePathInDir((string) $image_url, $gallery_dir);
+            if ($file_path === null) {
+                error_log("Visa image delete blocked (unsafe path): " . (string) $image_url);
+                continue;
+            }
 
             // Attempt to delete the file
-            if (file_exists($file_path)) {
+            if (is_file($file_path)) {
                 if (@unlink($file_path)) {
                     // Successfully deleted - log for debugging if needed
                     error_log("Visa image deleted: " . $file_path);
@@ -324,12 +338,20 @@ $router->post(admin.'/visa/edit/(.*)', function ($id) use ($SECURE,$db) {
 
         for ($i = 0; $i < $file_count; $i++) {
             if ($_FILES['visa_images']['error'][$i] === UPLOAD_ERR_OK) {
-                $ext = pathinfo($_FILES['visa_images']['name'][$i], PATHINFO_EXTENSION);
-                $new_filename = 'visa_' . time() . '_' . uniqid() . '_' . $i . '.' . $ext;
+                // SECURITY: validate real MIME + safe extension (see add route).
+                $check = secureImageFileCheck(
+                    $_FILES['visa_images']['tmp_name'][$i],
+                    (int) ($_FILES['visa_images']['size'][$i] ?? 0)
+                );
+                if (!$check['ok']) {
+                    continue;
+                }
+                $new_filename = 'visa_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $check['ext'];
                 $upload_path = $upload_dir . $new_filename;
                 $image_url = '/uploads/visa/gallery/' . $new_filename;
 
                 if (move_uploaded_file($_FILES['visa_images']['tmp_name'][$i], $upload_path)) {
+                    @chmod($upload_path, 0644);
                     $reordered_images[] = [
                         'url' => $image_url,
                         'default' => (empty($reordered_images)) ? true : false // Boolean: true/false

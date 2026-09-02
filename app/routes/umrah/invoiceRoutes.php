@@ -18,6 +18,9 @@ $router->get('/invoice/umrah/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE
         exit;
     }
 
+    // SECURITY (IDOR): restrict to owner / admin / creating session.
+    enforceInvoiceAccess($db, $booking, root . 'umrah');
+
     // CHECK BOOKING EXPIRY TIME
     $isAdmin = (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin');
 
@@ -112,6 +115,12 @@ $router->get('/invoice/umrah/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE
                 'message' => $bookingResult
                     ? 'Umrah Invoice #' . ($bookingResult['invoice_id'] ?? '') . ' has been paid successfully.'
                     : 'Payment completed successfully.'
+            ];
+        } elseif (!empty($result['pending'])) {
+            $_SESSION['payment_notice'] = [
+                'type' => 'info',
+                'title' => 'Payment Pending',
+                'message' => $result['message'] ?? 'Your payment is being confirmed. Your booking will be finalised once the payment is verified.'
             ];
         } elseif ($action === 'cancel') {
             $_SESSION['payment_notice'] = [

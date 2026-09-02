@@ -566,6 +566,14 @@ $router->post('/api/flights/booking/submit', function () use ($db) {
         $subtotal        = (float)($input['subtotal']       ?? $pricing['markup_total'] ?? $flightData['price'] ?? 0);
         $taxAmountBase   = (float)($input['tax_amount']    ?? 0);
 
+        // SECURITY (H3): reject a client base_price below the trusted supplier
+        // price from the server-side draft (10% tolerance). See web submit path.
+        $trustedBaseApi = (float)($flightData['actual_price'] ?? $flightData['price'] ?? 0);
+        if ($trustedBaseApi > 0 && ($actualPriceBase + 0.01) < ($trustedBaseApi * 0.90)) {
+            error_log(sprintf('PRICE TAMPER BLOCKED (api) | client_base=%.2f trusted_base=%.2f', $actualPriceBase, $trustedBaseApi));
+            throw new Exception('The fare price could not be verified. Please search again and retry your booking.');
+        }
+
         // Re-evaluate MARKUP based on logged-in user / agent token
         if (!function_exists('MARKUP')) {
             require_once dirname(__DIR__, 4) . '/modules/helpers.php';

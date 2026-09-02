@@ -509,27 +509,23 @@ $router->post(admin.'/users/process-manage-funds', function () use ($SECURE,$db)
             foreach ($_FILES['attachments']['name'] as $key => $name) {
                 if ($_FILES['attachments']['error'][$key] === UPLOAD_ERR_OK) {
                     $file_tmp = $_FILES['attachments']['tmp_name'][$key];
-                    $file_size = $_FILES['attachments']['size'][$key];
-                    $file_type = mime_content_type($file_tmp);
 
-                    // Validate file type
-                    if (!in_array($file_type, $allowed_types)) {
-                        $upload_errors[] = "Invalid file type: {$name}";
-                        continue;
-                    }
-
-                    // Validate file size
-                    if ($file_size > $max_file_size) {
-                        $upload_errors[] = "File too large: {$name} (Max 5MB)";
+                    // SECURITY: validate real MIME + safe extension (finfo).
+                    $chk = secureUploadCheck(
+                        ['name' => $name, 'tmp_name' => $file_tmp, 'size' => $_FILES['attachments']['size'][$key], 'error' => UPLOAD_ERR_OK],
+                        ['jpg', 'jpeg', 'png', 'gif', 'pdf'], $max_file_size
+                    );
+                    if (!$chk['ok']) {
+                        $upload_errors[] = ($chk['error'] ?? 'Invalid file') . ": {$name}";
                         continue;
                     }
 
                     // Generate unique filename
-                    $file_extension = pathinfo($name, PATHINFO_EXTENSION);
-                    $unique_filename = 'transaction_' . date('YmdHis') . '_' . uniqid() . '_' . $key . '.' . $file_extension;
+                    $unique_filename = 'transaction_' . date('YmdHis') . '_' . bin2hex(random_bytes(6)) . '_' . $key . '.' . $chk['ext'];
                     $destination = $upload_dir . $unique_filename;
 
                     if (move_uploaded_file($file_tmp, $destination)) {
+                        @chmod($destination, 0644);
                         $uploaded_files[] = $unique_filename; // Store only filename
                     } else {
                         $upload_errors[] = "Failed to upload: {$name}";

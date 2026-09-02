@@ -75,17 +75,13 @@ $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
     // FILE UPLOAD VALIDATION
     $attachment_path = null;
     if ($attachment && $attachment['error'] === UPLOAD_ERR_OK) {
-        $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
-        $max_size = 5 * 1024 * 1024; // 5MB
-
-        if (!in_array($attachment['type'], $allowed_types)) {
-            $errors[] = T::invalid_file_type;
-        } elseif ($attachment['size'] > $max_size) {
-            $errors[] = T::file_too_large;
+        // SECURITY: validate real MIME + safe extension (finfo).
+        $chk = secureUploadCheck($attachment, ['jpg', 'jpeg', 'png', 'gif', 'pdf'], 5 * 1024 * 1024);
+        if (!$chk['ok']) {
+            $errors[] = $chk['error'] ?? T::invalid_file_type;
         } else {
             // Generate unique filename
-            $extension = pathinfo($attachment['name'], PATHINFO_EXTENSION);
-            $filename = 'attachment_' . time() . '_' . uniqid() . '.' . $extension;
+            $filename = 'attachment_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $chk['ext'];
             $upload_dir = 'uploads/transactions/';
 
             if (!is_dir($upload_dir)) {
@@ -93,6 +89,7 @@ $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
             }
 
             if (move_uploaded_file($attachment['tmp_name'], $upload_dir . $filename)) {
+                @chmod($upload_dir . $filename, 0644);
                 $attachment_path = $upload_dir . $filename;
             } else {
                 $errors[] = T::file_upload_failed;

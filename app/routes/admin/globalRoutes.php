@@ -16,9 +16,13 @@ require_once views."includes/footer.php";
 
 $router->get(admin, function () use ($SECURE,$db) {
 
-if (!ADMIN_AUTH()) {
-    header('Location: ' . root . 'login');
-    exit;
-}
+// ADMIN_AUTH() redirects+exits itself when the visitor is not an admin, and
+// returns void for an authenticated admin. The previous `if (!ADMIN_AUTH())`
+// wrapped that in a negation, so it redirected EVEN authenticated admins to
+// /login. Call it as a plain statement (L1 fix), then send the admin to the
+// dashboard.
+ADMIN_AUTH();
+header('Location: ' . root . 'admin/dashboard');
+exit;
 
 });

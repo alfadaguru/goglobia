@@ -240,6 +240,18 @@ class Installer {
     }
 
     private function createEnvFile($db_config, $business_name, $license, $base_url) {
+        // Generate a unique, strong JWT signing secret and reset secret per install.
+        // Never ship a shared/hardcoded secret — each deployment must be unique.
+        try {
+            $jwtSecret      = bin2hex(random_bytes(32));
+            $resetSecret    = bin2hex(random_bytes(24));
+            $rememberSecret = bin2hex(random_bytes(32));
+        } catch (\Exception $e) {
+            $jwtSecret      = hash('sha256', uniqid((string)mt_rand(), true) . $base_url . microtime());
+            $resetSecret    = hash('sha256', uniqid((string)mt_rand(), true) . $business_name . microtime());
+            $rememberSecret = hash('sha256', uniqid((string)mt_rand(), true) . $base_url . $business_name . microtime());
+        }
+
         $env_content = "# Database Configuration
 DB_TYPE=mysql
 DB_HOST={$db_config['hostname']}
@@ -255,6 +267,12 @@ TIMEZONE=UTC
 # Security Settings
 SESSION_TIMEOUT=3600
 HASH_ALGORITHM=sha256
+# JWT signing secret — unique per install, keep private, never commit.
+JWT_SECRET={$jwtSecret}
+# Remember-me cookie signing secret — unique per install, keep private.
+REMEMBER_ME_SECRET={$rememberSecret}
+# Secret required to run install/reset.php over the web (in addition to admin session).
+RESET_SECRET={$resetSecret}
 
 # Environment
 APP_ENV=production
@@ -267,7 +285,8 @@ APP_URL={$base_url}
 LICENSE_KEY={$license}
 
 # API Keys
-API_LAYER_KEY=tV49I6NAZAujknDAtR6ywfhlBlytvZ9P
+# Currency exchange-rate API key — set your own in Admin > Settings after install.
+API_LAYER_KEY=
 ";
 
         if (!file_put_contents($this->env_path, $env_content)) {

@@ -14,8 +14,9 @@ set_error_handler(function($errno, $errstr, $errfile, $errline) {
     $error_msg = date('Y-m-d H:i:s') . " | ERROR ($errno): $errstr in $errfile:$errline";
     error_log($error_msg);
     
-    // Also display in browser for demo domains
-    if (in_array($_SERVER['HTTP_HOST'] ?? '', ['localhost', '127.0.0.1', '::1', 'phptravels.net', 'www.phptravels.net'])) {
+    // SECURITY (M7): only echo error details to genuinely local requests
+    // (loopback REMOTE_ADDR — not spoofable remotely). Never on a live host.
+    if (in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1'], true)) {
         echo "<pre style='color:red;font-family:monospace;'>ERROR: $errstr in $errfile:$errline</pre>";
     }
     return true;
@@ -25,7 +26,8 @@ set_exception_handler(function($exception) {
     $error_msg = date('Y-m-d H:i:s') . " | EXCEPTION: " . $exception->getMessage() . " in " . $exception->getFile() . ":" . $exception->getLine();
     error_log($error_msg);
     
-    if (in_array($_SERVER['HTTP_HOST'] ?? '', ['localhost', '127.0.0.1', '::1', 'phptravels.net', 'www.phptravels.net'])) {
+    // SECURITY (M7): only to genuinely local requests (see above).
+    if (in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1'], true)) {
         echo "<pre style='color:red;font-family:monospace;'>EXCEPTION: " . htmlspecialchars($exception->getMessage()) . "\nFile: " . $exception->getFile() . "\nLine: " . $exception->getLine() . "</pre>";
     }
 });
@@ -86,7 +88,26 @@ try {
 // SESSION INITIALIZATION
 // ==================================================
 
+// SECURITY (M1): harden session cookies before the session starts —
+// HttpOnly (no JS access → limits XSS session theft), Secure over HTTPS,
+// SameSite=Lax (CSRF mitigation). Must run before session_start().
 if (session_status() === PHP_SESSION_NONE) {
+    $__isHttps = (
+        (!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off')
+        || (($_SERVER['SERVER_PORT'] ?? '') == 443)
+        || (strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')
+    );
+    if (PHP_VERSION_ID >= 70300) {
+        session_set_cookie_params([
+            'lifetime' => 0,
+            'path'     => '/',
+            'httponly' => true,
+            'secure'   => $__isHttps,
+            'samesite' => 'Lax',
+        ]);
+    } else {
+        session_set_cookie_params(0, '/; samesite=Lax', '', $__isHttps, true);
+    }
     session_start();
 }
 
@@ -102,7 +123,22 @@ if (!defined('SUPPLIER_REQUEST_TIMEOUT')) {
 // DEVELOPMENT ENVIRONMENT CONFIGURATION
 // ==================================================
 
-if (in_array($_SERVER['HTTP_HOST'], ['localhost', '127.0.0.1', '::1', 'phptravels.net', 'www.phptravels.net'])) {
+// SECURITY (M7): the debug UI (Whoops + display_errors) leaks stack traces,
+// SQL and paths, so it must NEVER be enabled by an attacker. The old check
+// trusted HTTP_HOST alone, which is client-controllable (Host-header spoofing)
+// and included a public domain. Now debug turns on ONLY when the request is
+// genuinely local (loopback REMOTE_ADDR — not spoofable remotely) OR the
+// operator explicitly set APP_DEBUG=true in .env. In all other cases errors
+// are logged, never displayed.
+$__remoteAddr  = $_SERVER['REMOTE_ADDR'] ?? '';
+$__isLocalReq  = in_array($__remoteAddr, ['127.0.0.1', '::1'], true);
+$__envDebug    = false;
+if (is_file(__DIR__ . '/.env')) {
+    $__envEarly = @parse_ini_file(__DIR__ . '/.env');
+    $__envDebug = is_array($__envEarly)
+        && in_array(strtolower(trim((string)($__envEarly['APP_DEBUG'] ?? ''))), ['1', 'true', 'yes', 'on'], true);
+}
+if ($__isLocalReq || $__envDebug) {
     ini_set('display_errors', 1);
     ini_set('log_errors', 1);
     ini_set('error_log', __DIR__ . '/_error.log');
@@ -141,6 +177,39 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
 header('X-XSS-Protection: 1; mode=block');
 header('Referrer-Policy: strict-origin-when-cross-origin');
+header('X-Permitted-Cross-Domain-Policies: none');
+
+// SECURITY (M8): HSTS on HTTPS only (never send over plain HTTP).
+$__reqHttps = (
+    (!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off')
+    || (($_SERVER['SERVER_PORT'] ?? '') == 443)
+    || (strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')
+);
+if ($__reqHttps) {
+    header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+}
+
+// SECURITY (M8): Content-Security-Policy. The app relies on inline scripts /
+// handlers and several CDNs (Tailwind Play, jQuery, Alpine, Pusher, Google
+// Fonts, Stripe/PayPal widgets), so 'unsafe-inline'/'unsafe-eval' are permitted
+// for scripts to avoid breaking the live UI — but the policy still constrains
+// object/base/frame-ancestors and limits allowed hosts. Tighten over time by
+// removing the CDNs after a build step is added.
+if (!headers_sent()) {
+    header(
+        "Content-Security-Policy: " .
+        "default-src 'self'; " .
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https: data:; " .
+        "style-src 'self' 'unsafe-inline' https: data:; " .
+        "img-src 'self' data: blob: https:; " .
+        "font-src 'self' data: https:; " .
+        "connect-src 'self' https: wss:; " .
+        "frame-src 'self' https:; " .
+        "object-src 'none'; " .
+        "base-uri 'self'; " .
+        "frame-ancestors 'none'"
+    );
+}
 
 // ==================================================
 // HTTP METHOD VALIDATION

@@ -525,6 +525,229 @@ function handleFileUpload($fileKey, $targetPath, $allowedTypes, $maxSize, $conve
     }
 }
 
+/**
+ * Validate ONE file from a multi-file ($_FILES[key][i]) image upload.
+ *
+ * Verifies the REAL MIME type via finfo (not the client-supplied name/type),
+ * rejects embedded PHP, and returns a SAFE extension derived from the MIME —
+ * never from the user's filename. Prevents web-shell uploads (evil.php).
+ *
+ * @return array{ok:bool, ext?:string, mime?:string, error?:string}
+ */
+function secureImageFileCheck(string $tmpName, int $size, int $maxSize = 5242880): array
+{
+    if (!is_uploaded_file($tmpName)) {
+        return ['ok' => false, 'error' => 'Invalid upload.'];
+    }
+    if ($size <= 0 || $size > $maxSize) {
+        return ['ok' => false, 'error' => 'File too large or empty.'];
+    }
+    if (!function_exists('finfo_open')) {
+        return ['ok' => false, 'error' => 'Server fileinfo extension is missing.'];
+    }
+
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mime  = finfo_file($finfo, $tmpName);
+    finfo_close($finfo);
+
+    // MIME -> safe extension whitelist. Only these image types are accepted.
+    $allowed = [
+        'image/jpeg' => 'jpg',
+        'image/pjpeg' => 'jpg',
+        'image/png'  => 'png',
+        'image/gif'  => 'gif',
+        'image/webp' => 'webp',
+    ];
+    if (!isset($allowed[$mime])) {
+        return ['ok' => false, 'error' => 'Only JPG, PNG, GIF or WEBP images are allowed.'];
+    }
+
+    // Reject files that smuggle PHP inside an "image" (polyglot web shells).
+    $head = @file_get_contents($tmpName, false, null, 0, 8192);
+    if ($head !== false && (stripos($head, '<?php') !== false || stripos($head, '<?=') !== false)) {
+        return ['ok' => false, 'error' => 'Invalid file content.'];
+    }
+
+    return ['ok' => true, 'ext' => $allowed[$mime], 'mime' => $mime];
+}
+
+/**
+ * General upload validator for a single $_FILES entry. Verifies the REAL MIME
+ * (finfo) matches the extension against an allow-map, rejects embedded PHP, and
+ * returns a SAFE extension. Use for handlers that accept images and/or docs.
+ *
+ * @param array  $file        A single $_FILES[key] entry (name,tmp_name,size,error).
+ * @param array  $allowExts   Allowed extensions, e.g. ['jpg','jpeg','png','pdf','zip'].
+ * @param int    $maxSize     Max bytes.
+ * @return array{ok:bool, ext?:string, mime?:string, error?:string}
+ */
+function secureUploadCheck(array $file, array $allowExts, int $maxSize = 5242880): array
+{
+    if (!isset($file['tmp_name']) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file($file['tmp_name'])) {
+        return ['ok' => false, 'error' => 'Invalid upload.'];
+    }
+    if (($file['size'] ?? 0) <= 0 || ($file['size'] ?? 0) > $maxSize) {
+        return ['ok' => false, 'error' => 'File too large or empty.'];
+    }
+    if (!function_exists('finfo_open')) {
+        return ['ok' => false, 'error' => 'Server fileinfo extension is missing.'];
+    }
+
+    // Full ext -> allowed real-MIME map. Only intersection with $allowExts applies.
+    $extMime = [
+        'jpg'  => ['image/jpeg', 'image/pjpeg'],
+        'jpeg' => ['image/jpeg', 'image/pjpeg'],
+        'png'  => ['image/png'],
+        'gif'  => ['image/gif'],
+        'webp' => ['image/webp'],
+        'pdf'  => ['application/pdf'],
+        'zip'  => ['application/zip', 'application/x-zip-compressed', 'multipart/x-zip'],
+    ];
+
+    $ext = strtolower((string) pathinfo($file['name'] ?? '', PATHINFO_EXTENSION));
+    if (!in_array($ext, $allowExts, true) || !isset($extMime[$ext])) {
+        return ['ok' => false, 'error' => 'File type not allowed.'];
+    }
+
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mime  = finfo_file($finfo, $file['tmp_name']);
+    finfo_close($finfo);
+    if (!in_array($mime, $extMime[$ext], true)) {
+        return ['ok' => false, 'error' => 'File content does not match its type.'];
+    }
+
+    // Reject embedded PHP (polyglot) in any non-zip upload.
+    if ($ext !== 'zip') {
+        $head = @file_get_contents($file['tmp_name'], false, null, 0, 8192);
+        if ($head !== false && (stripos($head, '<?php') !== false || stripos($head, '<?=') !== false)) {
+            return ['ok' => false, 'error' => 'Invalid file content.'];
+        }
+    }
+
+    return ['ok' => true, 'ext' => $ext, 'mime' => $mime];
+}
+
+/**
+ * Resolve a user-supplied relative path to an absolute path that is guaranteed
+ * to live INSIDE $baseDir. Returns null on any traversal / escape attempt.
+ * Use before unlink()/read of a path built from request data.
+ */
+function safePathInDir(string $userPath, string $baseDir): ?string
+{
+    $baseReal = realpath($baseDir);
+    if ($baseReal === false) {
+        return null;
+    }
+    // Only ever trust the basename — strip any directory components entirely.
+    $name = basename(str_replace('\\', '/', $userPath));
+    if ($name === '' || $name === '.' || $name === '..') {
+        return null;
+    }
+    $candidate = $baseReal . DIRECTORY_SEPARATOR . $name;
+    // If it exists, confirm its real path is still under the base dir.
+    $real = realpath($candidate);
+    if ($real !== false) {
+        $prefix = $baseReal . DIRECTORY_SEPARATOR;
+        if (strncmp($real, $prefix, strlen($prefix)) !== 0) {
+            return null;
+        }
+        return $real;
+    }
+    // Non-existent target: the sanitised candidate is still safe (basename only).
+    return $candidate;
+}
+
+/**
+ * Access control for invoice / booking pages (fixes IDOR — invoice_ids are
+ * short numeric values and MUST NOT be enumerable by strangers).
+ *
+ * Allows viewing ONLY when the visitor is:
+ *   - an admin, OR
+ *   - the logged-in user who owns the booking (bookings.user_id), OR
+ *   - the session that created this invoice (guest checkout —
+ *     $_SESSION['owned_invoices'], set in create_payment_token()), OR
+ *   - a session currently holding a live payment token for this invoice.
+ *
+ * Otherwise it stops the request (redirect for HTML, 403 JSON for API/AJAX).
+ * Returns true when access is granted (so callers can `if (!enforceInvoiceAccess(...)) return;`
+ * is unnecessary — it exits on denial), keeping call sites tiny.
+ *
+ * @param array       $booking     The fetched booking row (must be truthy).
+ * @param string|null $redirectTo  Where to send a denied browser (defaults to site root).
+ */
+function enforceInvoiceAccess($db, $booking, $redirectTo = null): bool
+{
+    if (empty($booking) || !is_array($booking)) {
+        return false;
+    }
+    // The app starts the session in config.php before any output; only start it
+    // here if somehow inactive AND headers are not yet sent (avoids a warning).
+    if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+        session_start();
+    }
+
+    // 1) Admin — full access.
+    $isAdmin = (
+        (($_SESSION['user_role'] ?? '') === 'admin')
+        || (!empty($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true)
+    );
+    if ($isAdmin) {
+        return true;
+    }
+
+    // 2) Owning logged-in user (match on either user_id shape the app uses).
+    $sessUserId = $_SESSION['user_id'] ?? ($_SESSION['user_data']['id'] ?? null);
+    $bookingUserId = $booking['user_id'] ?? null;
+    if ($sessUserId !== null && $bookingUserId !== null
+        && (string) $sessUserId === (string) $bookingUserId) {
+        return true;
+    }
+
+    // 3) Guest/session that created this invoice.
+    $invoiceId = (string) ($booking['invoice_id'] ?? '');
+    if ($invoiceId !== ''
+        && !empty($_SESSION['owned_invoices'])
+        && is_array($_SESSION['owned_invoices'])
+        && in_array($invoiceId, $_SESSION['owned_invoices'], true)) {
+        return true;
+    }
+
+    // 4) Session holds a live payment token for this invoice.
+    if ($invoiceId !== '' && !empty($_SESSION['payment_tokens']) && is_array($_SESSION['payment_tokens'])) {
+        foreach ($_SESSION['payment_tokens'] as $tok) {
+            if (is_array($tok) && (string) ($tok['invoice_id'] ?? '') === $invoiceId) {
+                return true;
+            }
+        }
+    }
+
+    // Denied.
+    $isJson = strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest'
+        || strpos(strtolower($_SERVER['HTTP_ACCEPT'] ?? ''), 'application/json') !== false
+        || strpos((string) ($_SERVER['REQUEST_URI'] ?? ''), '/api/') !== false;
+
+    if ($isJson) {
+        while (ob_get_level()) { ob_end_clean(); }
+        http_response_code(403);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'success' => false,
+            'message' => 'You are not authorised to view this invoice.',
+        ]);
+        exit;
+    }
+
+    // For a guest who is simply not logged in, send them to login (they may own
+    // it under an account); otherwise send to the site root.
+    if (empty($sessUserId)) {
+        $_SESSION['login_redirect'] = root . ltrim((string) ($_SERVER['REQUEST_URI'] ?? ''), '/');
+        header('Location: ' . root . 'login');
+    } else {
+        header('Location: ' . ($redirectTo ?: root));
+    }
+    exit;
+}
+
 // Function to convert image to PNG
 function convertToPNG($sourcePath, $targetPath)
 {
