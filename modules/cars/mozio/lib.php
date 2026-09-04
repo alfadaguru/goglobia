@@ -325,6 +325,14 @@ if (!function_exists('mozioModuleConfig')) {
             ];
         }
 
+        // PRICE RECONCILIATION — N/A by design (docs/MODULES.md §13.10):
+        //   In hosted_checkout mode Mozio is the Merchant of Record: Mozio sets the
+        //   customer-facing price and the customer pays MOZIO directly, so there is
+        //   no "amount paid to us" to reconcile against a supplier price. Our
+        //   earnings are a profit share (partner_profit_usd), not a markup. For
+        //   partner_managed mode the reservation commits at the stored result_id
+        //   (no pre-commit re-quote step in this flow). A price-check does not apply
+        //   here — not a gap, a business-model difference. Left un-wired on purpose.
         try {
             $payload = mozioBuildReservationPayload($booking, $bookingData, $invoiceId, $invoiceId);
         } catch (InvalidArgumentException $e) {

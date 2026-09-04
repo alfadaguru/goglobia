@@ -258,9 +258,23 @@ $router->post('flights/seeru/refund', function () use ($db) {
             );
         }
 
+        // Seeru supplier refund succeeded above. Reverse the CUSTOMER's charge via
+        // the payment gateway; only mark paid→refunded if that actually goes
+        // through. (Also: booking_status ENUM is confirmed|pending|cancelled —
+        // 'refunded' was out-of-enum and truncated; use 'cancelled'.)
+        require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
+        // Refund net of Seeru's fees if known, else the full paid amount.
+        $seeruCustomerRefund = (isset($calculated_fees) && is_numeric($calculated_fees) && (float) $calculated_fees > 0)
+            ? max(0, (float) ($booking['price_markup'] ?? 0) - (float) $calculated_fees)
+            : null;
+        $seeruGwRefund = function_exists('refund_gateway_payment')
+            ? refund_gateway_payment($db, $booking, $seeruCustomerRefund, 'Seeru flight refund')
+            : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+        $seeruGatewayRefunded = ($seeruGwRefund['status'] === 'refunded');
+
         $db->update('bookings', [
-            'booking_status'        => 'refunded',
-            'payment_status'        => 'refunded',
+            'booking_status'        => 'cancelled',
+            'payment_status'        => $seeruGatewayRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
             'cancellation_request'  => 1,
             'cancellation_status'   => 1,
             'cancellation_response' => json_encode([
@@ -271,6 +285,7 @@ $router->post('flights/seeru/refund', function () use ($db) {
                 'pnr'         => $airline_pnr,
                 'total_fees'  => $calculated_fees,
                 'api_message' => $refund_result['data']['message'] ?? 'Refunded successfully',
+                'gateway_refund' => $seeruGwRefund,
                 'mode'        => $dev_mode === 1 ? 'sandbox' : 'production',
             ]),
             'error_response' => null,

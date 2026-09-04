@@ -162,6 +162,36 @@ $router->post('rail/train/refundResultData', function () use ($db) {
     try {
         $body = json_decode(file_get_contents('php://input'), true) ?: $_POST;
         $res  = _train_request('/ticket/refundResultData', $body, ['db' => $db]);
+
+        // When the supplier CONFIRMS the ticket refund, reverse the customer's
+        // charge via the payment gateway (rail refunds are async — this is the
+        // confirmation point, not the request point in actions/refund.php). Only
+        // acts on a clearly-successful refund result and an identifiable booking.
+        $resData = json_decode((string) ($res['raw'] ?? ''), true);
+        $refundConfirmed = is_array($resData)
+            && (int) ($resData['code'] ?? -1) === 0
+            && (
+                stripos(json_encode($resData['data'] ?? []), 'refund_success') !== false
+                || (($resData['data']['refund_status'] ?? '') === 'success')
+                || (($resData['data']['status'] ?? '') === 'refunded')
+            );
+        $invoiceForRefund = $body['invoice_id'] ?? ($resData['data']['invoice_id'] ?? '');
+        if ($refundConfirmed && $invoiceForRefund !== '') {
+            $rbk = $db->get('bookings', '*', ['invoice_id' => $invoiceForRefund]);
+            if ($rbk && ($rbk['payment_status'] ?? '') !== 'refunded') {
+                require_once dirname(__DIR__, 3) . '/app/lib/payment-gateway.php';
+                $railGwRefund = function_exists('refund_gateway_payment')
+                    ? refund_gateway_payment($db, $rbk, null, 'Rail ticket refund')
+                    : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+                $db->update('bookings', [
+                    'booking_status' => 'cancelled',
+                    'payment_status' => ($railGwRefund['status'] === 'refunded') ? 'refunded' : ($rbk['payment_status'] ?? 'paid'),
+                    'cancellation_status' => 1,
+                    'cancellation_response' => json_encode(['supplier' => $resData['data'] ?? null, 'gateway_refund' => $railGwRefund]),
+                ], ['invoice_id' => $invoiceForRefund]);
+            }
+        }
+
         http_response_code($res['status'] ?: 200);
         echo $res['raw'];
     } catch (Throwable $e) {

@@ -281,6 +281,28 @@ $router->post('stays/wanderbeds/issue', function () use ($db) {
             $bookingData['wb_avail_summary'] = $parsedAvail['summary'];
             $bookingData['wb_avail_summary_normalized'] = $parsedAvail['summary_normalized']
                 ?? wanderbedsNormalizeSummary($parsedAvail['summary']);
+
+            // POST-PAYMENT PRICE RECONCILIATION (§8.1(2) fix): hotel/avail returns
+            // the LIVE net total for this rate. Compare it to what the customer
+            // paid BEFORE hotel/book; abort + flag if it rose beyond tolerance.
+            if (isset($booking) && is_array($booking) && function_exists('reconcilePostPaymentPrice')) {
+                $wbNorm = $bookingData['wb_avail_summary_normalized'];
+                $wbLiveTotal = (float) ($wbNorm['nettotal'] ?? 0);
+                $wbCurrency  = (string) ($wbNorm['currency'] ?? ($booking['currency_markup'] ?? 'USD'));
+                if ($wbLiveTotal > 0) {
+                    $wbPriceCheck = reconcilePostPaymentPrice($db, $booking, $wbLiveTotal, $wbCurrency);
+                    if (empty($wbPriceCheck['ok'])) {
+                        while (ob_get_level()) { ob_end_clean(); }
+                        echo json_encode([
+                            'status'  => false,
+                            'success' => false,
+                            'message' => 'Booking held for review: ' . $wbPriceCheck['reason'],
+                            'price_review' => $wbPriceCheck,
+                        ], JSON_UNESCAPED_SLASHES);
+                        return;
+                    }
+                }
+            }
         }
         if (!empty($parsedAvail['hotel_remarks'])) {
             $bookingData['wb_hotel_remarks'] = $parsedAvail['hotel_remarks'];
@@ -370,6 +392,9 @@ $router->post('stays/wanderbeds/issue', function () use ($db) {
         ], ['id' => $booking['id']]);
 
         $lastStep = 'Book';
+        // PRICE RECONCILIATION: WIRED above — the hotel/avail nettotal is compared
+        // to the amount paid right after the avail summary is parsed (search for
+        // reconcilePostPaymentPrice in this file).
         $bookPayload = [
             'client_reference' => $clientRef,
             'passengers' => $passengers,

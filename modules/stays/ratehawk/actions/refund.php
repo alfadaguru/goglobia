@@ -137,15 +137,30 @@ $router->post('/stays/ratehawk/refund', function () use ($db) {
             $refundAmount = $cancelData['amount_refunded']['amount'] ?? null;
             $payableAmount = $cancelData['amount_payable']['amount'] ?? null;
 
+            // The RateHawk supplier cancellation succeeded above. Now REVERSE THE
+            // CUSTOMER'S CHARGE via the payment gateway (was DB-flip only). Refund
+            // the customer the amount RateHawk actually refunds; fall back to the
+            // full paid amount if the supplier didn't return a figure.
+            require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
+            $customerRefund = ($refundAmount !== null && (float) $refundAmount > 0)
+                ? (float) $refundAmount
+                : null; // null → refund_gateway_payment uses the full paid amount
+            $refund = function_exists('refund_gateway_payment')
+                ? refund_gateway_payment($db, $booking, $customerRefund, 'RateHawk booking cancellation')
+                : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+            $gatewayRefunded = ($refund['status'] === 'refunded');
+
             $db->update('bookings', [
                 'booking_status' => 'cancelled',
-                'payment_status' => 'refunded',
+                // Only mark 'refunded' if the card refund actually went through.
+                'payment_status' => $gatewayRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
                 'cancellation_status' => 1,
                 'cancellation_response' => json_encode([
-                    'status' => 'refunded',
+                    'status' => $gatewayRefunded ? 'refunded' : 'cancelled_gateway_refund_pending',
                     'confirmed' => true,
                     'partner_order_id' => $partnerOrderId,
                     'cancel_api' => $cancelData,
+                    'gateway_refund' => $refund,
                     'refunded_at' => date('Y-m-d H:i:s')
                 ]),
                 'error_response' => null,

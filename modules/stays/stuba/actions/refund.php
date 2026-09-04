@@ -162,12 +162,22 @@ $router->post('stays/stuba/refund', function() use ($db) {
         
         
         // ========================================
-        // STEP 2: UPDATE PAYMENT STATUS TO REFUNDED
+        // STEP 2: REVERSE THE CUSTOMER'S CHARGE via the gateway, then set state
+        // from the actual result (was DB-flip only).
         // ========================================
+        require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
+        $stubaGwRefund = function_exists('refund_gateway_payment')
+            ? refund_gateway_payment($db, $booking, null, 'Stuba booking refund')
+            : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+        $stubaGatewayRefunded = ($stubaGwRefund['status'] === 'refunded');
+
         $updateData = [
-            'payment_status' => 'refunded',
+            'payment_status' => $stubaGatewayRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
+            'cancellation_response' => $stubaGatewayRefunded
+                ? ('Gateway refund ' . ($stubaGwRefund['reference'] ?? '') . ' on ' . date('Y-m-d H:i:s'))
+                : ('Gateway refund NOT automated (' . ($stubaGwRefund['message'] ?? 'unsupported') . '). Refund manually.'),
         ];
-        
+
         $db->update('bookings', $updateData, ['invoice_id' => $invoice_id]);
         
         

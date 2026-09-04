@@ -232,6 +232,20 @@ $router->post('flights/kiwi/issue', function() use ($db) {
         // ========================================
         // STEP 6: CALL KIWI BOOKING API
         // ========================================
+        // TODO (price reconciliation — §8.1(2), docs/MODULES.md §13.9):
+        //   This module books the STORED booking_token without re-checking the
+        //   live fare, so a price move between checkout and ticketing is not
+        //   caught. To close the gap, call Kiwi Tequila `check_flights`
+        //   (GET https://api.tequila.kiwi.com/v2/booking/check_flights?booking_token=…&…)
+        //   here, read the returned `total`/`flights_checked` price, then:
+        //     if (function_exists('reconcilePostPaymentPrice')) {
+        //         $pc = reconcilePostPaymentPrice($db, $booking, $liveTotal, $currency);
+        //         if (empty($pc['ok'])) { echo …held for review…; return; }
+        //     }
+        //   NOT wired yet: Kiwi Tequila is invite-only and the check_flights
+        //   request/response contract must be confirmed against the live account
+        //   before use — wiring it blind would risk false review-blocks. Left as a
+        //   documented gap rather than a fabricated call.
         error_log("KIWI ISSUE: Calling Kiwi Booking API");
 
         $apiUrl = 'https://api.tequila.kiwi.com/v2/booking';

@@ -282,6 +282,30 @@ $router->post('flights/seeru/issue', function() use ($db) {
         // ✅ IMPORTANT: Use the updated booking object returned by fare check.
         $confirmed_booking = $fare_data['booking'] ?? $payload;
 
+        // POST-PAYMENT PRICE RECONCILIATION (§8.1(2) fix): Seeru already RE-VALIDATES
+        // the fare here (POST /flights/booking/fare) and can return
+        // price_increased/price_decreased. Instead of booking blindly at the new
+        // fare, compare the live grandTotal to what the customer paid and abort +
+        // flag if it rose beyond tolerance. Only runs for a real paid booking
+        // ($booking is unset on the raw booking_data test path).
+        if (isset($booking) && is_array($booking) && function_exists('reconcilePostPaymentPrice')) {
+            $seeruLiveTotal = (float) ($confirmed_booking['price']['grandTotal']
+                ?? $confirmed_booking['price']['total'] ?? 0);
+            $seeruCurrency  = strtoupper((string) ($confirmed_booking['price']['currency']
+                ?? ($booking['currency_markup'] ?? 'USD')));
+            if ($seeruLiveTotal > 0) {
+                $seeruPriceCheck = reconcilePostPaymentPrice($db, $booking, $seeruLiveTotal, $seeruCurrency);
+                if (empty($seeruPriceCheck['ok'])) {
+                    echo json_encode([
+                        'status'  => false,
+                        'message' => 'Booking held for review: ' . $seeruPriceCheck['reason'],
+                        'price_review' => $seeruPriceCheck,
+                    ], JSON_UNESCAPED_SLASHES);
+                    exit;
+                }
+            }
+        }
+
         // ─── STEP 2: Get Access Token ─────────────────────────────────────────────
         $access_token = $api_key;
 

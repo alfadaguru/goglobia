@@ -212,6 +212,14 @@ try {
         ? "\n          <StateProv StateCode=\"" . htmlspecialchars(strtoupper(substr($state, 0, 3))) . "\">" . htmlspecialchars($state) . "</StateProv>"
         : '';
 
+    // TODO (price reconciliation — §8.1(2), docs/MODULES.md §13.9):
+    //   Books the stored <Reference> from the earlier OTA_VehAvailRateRS without a
+    //   re-quote. A re-quote here (OTA_VehAvailRateRQ) would return the live total
+    //   to pass to reconcilePostPaymentPrice() before OTA_VehRes. NOT wired: this
+    //   module's own comments note that re-quoting/altering the reference at issue
+    //   time fails the CarTrawler quote, so a safe re-price needs CarTrawler
+    //   guidance on the correct re-validate call. Documented gap, not a fake call.
+    //
     // Build OTA_VehResRQ XML
     $xmlRequest = '<?xml version="1.0" encoding="UTF-8"?>
 <OTA_VehResRQ xmlns="http://www.opentravel.org/OTA/2003/05"

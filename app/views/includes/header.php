@@ -118,6 +118,7 @@ if (!empty($enabledModules)) {
         'rail'    => 'train',
         'bus'     => 'directions_bus',
         'esim'    => 'sim_card',
+        'insurance' => 'health_and_safety',
     ];
 
     // PRE-CALCULATE DISPLAY NAMES AND LINKS TO AVOID REPETITIVE LOGIC IN LOOPS
@@ -140,6 +141,7 @@ if (!empty($enabledModules)) {
         elseif ($mName == 'cruises') $svc['label'] = ucfirst(T::cruises);
         elseif ($mName == 'umrah') $svc['label'] = ucfirst(T::umrah);
         elseif ($mName == 'rail') $svc['label'] = ucfirst(T::rail ?? 'Rail');
+        elseif ($mName == 'insurance') $svc['label'] = 'Compensation';
 
         $svc['href'] = root . htmlspecialchars($mName);
     }

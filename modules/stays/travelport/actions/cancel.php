@@ -102,20 +102,53 @@ $router->post('stays/travelport/actions/cancel', function() use ($db) {
             ],
             CURLOPT_USERPWD => $username . ':' . $password,
             CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_TIMEOUT => 30
         ]);
 
         $apiResponse = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
 
         // ============================================================================
-        // UPDATE BOOKING STATUS
+        // VERIFY THE SUPPLIER ACTUALLY CANCELLED before marking the booking.
+        // Previously this marked 'cancelled' unconditionally (even on a failed/timed-
+        // out SOAP call) and wrote to a non-existent `status` column. Now: require a
+        // 2xx response with no SOAP Fault / error, and write the correct
+        // `booking_status` column.
         // ============================================================================
+        $soapFault = false;
+        if (is_string($apiResponse) && $apiResponse !== '') {
+            $soapFault = (stripos($apiResponse, '<soap:Fault') !== false)
+                || (stripos($apiResponse, 'faultstring') !== false)
+                || (stripos($apiResponse, '<Error') !== false);
+        }
+        $cancelledOk = ($httpCode >= 200 && $httpCode < 300) && !$curlError && !$soapFault && $apiResponse !== '';
+
+        if (!$cancelledOk) {
+            $db->update('bookings', [
+                'error_response' => json_encode([
+                    'error'     => 'Travelport hotel cancellation failed',
+                    'http_code' => $httpCode,
+                    'curl'      => $curlError,
+                    'body'      => is_string($apiResponse) ? substr($apiResponse, 0, 500) : '',
+                ]),
+            ], ['invoice_id' => $booking['invoice_id']]);
+            echo json_encode([
+                'success' => false,
+                'message' => 'Cancellation could not be confirmed with Travelport (HTTP ' . $httpCode . '). Booking left unchanged.',
+                'booking_id' => $booking['id'],
+            ]);
+            exit;
+        }
+
+        // booking_status ENUM = confirmed|pending|cancelled. Write the real column.
         $db->update('bookings', [
-            'status' => 'cancelled',
-            'cancelled_at' => date('Y-m-d H:i:s')
+            'booking_status'       => 'cancelled',
+            'cancellation_status'  => 1,
+            'cancellation_response'=> is_string($apiResponse) ? $apiResponse : null,
         ], [
             'id' => $booking['id']
         ]);

@@ -44,6 +44,17 @@ $router->post('ferries/kikoto/issue', function () use ($db) {
             return;
         }
 
+        // TODO (price reconciliation — §8.1(2), docs/MODULES.md §13.9):
+        //   The Kikoto draft (and its price) is created earlier at booking time in
+        //   app/routes/api/ferries/bookingRoutes.php; issue.php only CONFIRMS it,
+        //   so there is no live re-price at this step. To close the gap, re-quote
+        //   with _kikoto_request('POST','/prices',[…stored sailings+passengers…]),
+        //   apply _kikoto_apply_markup(), sum total_price, and run
+        //   reconcilePostPaymentPrice($db,$booking,$liveTotal,$currency) BEFORE
+        //   confirm. NOT wired: rebuilding the /prices body (sailings +
+        //   passenger-refs) from stored booking_data varies by booking path
+        //   (AI-trip vs ferries) and a wrong shape would false-block every booking
+        //   — documented gap, not a fabricated call.
         $confirmRes = _kikoto_request('POST', '/bookings/' . urlencode($reference) . '/confirm', [
             'cfg'     => $cfg,
             'timeout' => 30,

@@ -367,6 +367,11 @@ include __DIR__ . '/ai_trip/ai_trip/index.php';
 // ----------------------------------------
 include __DIR__ . '/umrah/umrah/index.php';               // Umrah
 
+// ----------------------------------------
+// INSURANCE MODULES - Flight compensation claims
+// ----------------------------------------
+include __DIR__ . '/insurance/airhelp/index.php';         // AirHelp (flight-compensation claims)
+
 // ============================================================================
 // DISPATCH REQUEST - Route to appropriate handler
 // ============================================================================

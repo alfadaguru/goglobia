@@ -84,8 +84,29 @@ $router->post('flights/travelport/refund', function() use ($db) {
         if (isset($commitData['ReservationResponse']['Result']['Error'])) {
             $final_res = ["status" => false, "message" => "Refund failed", "response" => $commitData];
         } else {
-            $db->update("bookings", ["booking_status" => "refunded"], ["id" => $booking['id']]);
-            $final_res = ["status" => true, "message" => "Refund processed successfully", "response" => $commitData];
+            // GDS refund committed. Reverse the CUSTOMER's charge via the gateway;
+            // only mark refunded if that succeeds. (booking_status ENUM is
+            // confirmed|pending|cancelled — 'refunded' was out-of-enum → use
+            // 'cancelled' + payment_status='refunded'.)
+            require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
+            $tpGwRefund = function_exists('refund_gateway_payment')
+                ? refund_gateway_payment($db, $booking, null, 'Travelport flight refund')
+                : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+            $tpGatewayRefunded = ($tpGwRefund['status'] === 'refunded');
+            $db->update("bookings", [
+                "booking_status" => "cancelled",
+                "payment_status" => $tpGatewayRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
+                "cancellation_status" => 1,
+                "cancellation_response" => json_encode(['gds' => $commitData, 'gateway_refund' => $tpGwRefund]),
+            ], ["id" => $booking['id']]);
+            $final_res = [
+                "status" => true,
+                "message" => $tpGatewayRefunded
+                    ? ("Refund processed and card refunded via " . ($tpGwRefund['gateway'] ?? 'gateway') . ".")
+                    : ("GDS refund done; automated card refund not possible (" . ($tpGwRefund['message'] ?? 'unsupported') . "). Refund the customer manually."),
+                "gateway_refund" => $tpGatewayRefunded,
+                "response" => $commitData,
+            ];
         }
         log_cert("Final_Localhost_Response", $final_res);
         echo json_encode($final_res);

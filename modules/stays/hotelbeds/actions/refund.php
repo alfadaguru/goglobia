@@ -67,23 +67,39 @@ $router->post('stays/hotelbeds/refund', function() use ($db) {
         
         
         // ========================================
-        // STEP 2: UPDATE PAYMENT STATUS TO REFUNDED
+        // STEP 2: REVERSE THE CUSTOMER'S CHARGE via the payment gateway, then
+        // set the DB state based on the ACTUAL result (was DB-flip only).
         // ========================================
-        $updateData = [
-            'payment_status' => 'refunded',
-            'error_response' => null
-        ];
-        
-        $db->update('bookings', $updateData, ['invoice_id' => $invoice_id]);
-        
-        
+        require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
+        $refund = function_exists('refund_gateway_payment')
+            ? refund_gateway_payment($db, $booking, null, 'Hotelbeds booking refund')
+            : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+
+        $gatewayRefunded = ($refund['status'] === 'refunded');
+
+        if ($gatewayRefunded) {
+            $db->update('bookings', [
+                'payment_status'        => 'refunded',
+                'cancellation_response' => 'Gateway refund ' . ($refund['reference'] ?? '') . ' on ' . date('Y-m-d H:i:s'),
+                'error_response'        => null,
+            ], ['invoice_id' => $invoice_id]);
+        } else {
+            // Money did NOT move — do not mark 'refunded'. Record that the card
+            // refund is a manual step so ops can complete it.
+            $db->update('bookings', [
+                'cancellation_response' => 'Gateway refund NOT automated (' . ($refund['message'] ?? 'unsupported') . '). Refund the customer manually.',
+            ], ['invoice_id' => $invoice_id]);
+        }
+
         // ========================================
         // STEP 3: BUILD SUCCESS RESPONSE
         // ========================================
         $responseData = [
             'status' => true,
             'invoice_id' => $invoice_id,
-            'payment_status' => 'refunded',
+            'payment_status' => $gatewayRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
+            'gateway_refund' => $gatewayRefunded,
+            'gateway_message' => $refund['message'] ?? '',
             'booking_status' => $booking['booking_status'],
             'amount' => $booking['price_markup'] ?? 0,
             'currency' => $booking['currency_markup'] ?? 'USD',
@@ -93,7 +109,9 @@ $router->post('stays/hotelbeds/refund', function() use ($db) {
         ob_clean();
         echo json_encode([
             'status' => true,
-            'message' => 'Refund request processed successfully. Payment status updated to refunded.',
+            'message' => $gatewayRefunded
+                ? ('Refund completed via ' . ($refund['gateway'] ?? 'gateway') . ' (ref ' . ($refund['reference'] ?? '') . ').')
+                : ('Booking processed, but the automated card refund was not possible (' . ($refund['message'] ?? 'unsupported') . '). Please refund the customer manually in the payment gateway.'),
             'data' => $responseData
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         exit;

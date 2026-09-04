@@ -72,11 +72,22 @@ $router->post('stays/wanderbeds/refund', function () use ($db) {
             'note' => 'Payment refund marked after Wanderbeds cancellation (no separate Refund API)',
         ];
 
+        // Reverse the customer's charge via the gateway; only mark 'refunded' on
+        // a successful gateway refund (was DB-flip only).
+        require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
+        $refund = function_exists('refund_gateway_payment')
+            ? refund_gateway_payment($db, $booking, null, 'Wanderbeds booking refund')
+            : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+        $gatewayRefunded = ($refund['status'] === 'refunded');
+
         $db->update('bookings', [
-            'payment_status' => 'refunded',
+            'payment_status' => $gatewayRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
             'booking_data' => json_encode($bookingData),
             'error_response' => null,
             'booking_payment_issue' => null,
+            'cancellation_response' => $gatewayRefunded
+                ? ('Gateway refund ' . ($refund['reference'] ?? '') . ' on ' . $refundDate)
+                : ('Gateway refund NOT automated (' . ($refund['message'] ?? 'unsupported') . '). Refund manually.'),
             'updated_at' => $refundDate,
         ], ['id' => $booking['id']]);
 
@@ -86,10 +97,13 @@ $router->post('stays/wanderbeds/refund', function () use ($db) {
         echo json_encode([
             'success' => true,
             'status' => true,
-            'message' => 'Refund request processed successfully. Payment status updated to refunded.',
+            'message' => $gatewayRefunded
+                ? ('Refund completed via ' . ($refund['gateway'] ?? 'gateway') . '.')
+                : ('Cancelled; automated card refund not possible (' . ($refund['message'] ?? 'unsupported') . '). Refund the customer manually.'),
             'data' => [
                 'invoice_id' => $invoiceId,
-                'payment_status' => 'refunded',
+                'payment_status' => $gatewayRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
+                'gateway_refund' => $gatewayRefunded,
                 'booking_status' => $booking['booking_status'],
                 'pnr' => $booking['pnr'] ?? null,
                 'amount' => $amount,

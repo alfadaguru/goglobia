@@ -778,3 +778,193 @@ if (!function_exists('travelport_offers_for_payment')) {
         ];
     }
 }
+
+// ============================================================================
+// CANCEL-FLOW HELPERS
+// ----------------------------------------------------------------------------
+// actions/cancel.php was written against these helpers but they were never
+// implemented, so every `flights/travelport/cancel` call fatally errored with
+// "Call to undefined function travelport_call()". They are implemented here,
+// aligned with the exact HTTP pattern the working actions/issue.php uses
+// (Bearer + TVP-PCC-Core + accessGroup + Content-Version:11). All guarded.
+// ============================================================================
+
+if (!function_exists('travelport_call')) {
+    /**
+     * Perform a Travelport JSON API call. Returns
+     * ['http_code'=>int, 'data'=>array|null, 'raw'=>string].
+     */
+    function travelport_call($url, $payload, $token, $pcc, $accessGroup, $step = '', $invoiceId = '', $method = 'POST', $extraHeaders = []) {
+        $headers = [
+            "Authorization: Bearer $token",
+            "Content-Type: application/json",
+            "Accept: application/json",
+            "TVP-PCC-Core: $pcc",
+            "Content-Version: 11",
+        ];
+        if ($accessGroup !== '' && $accessGroup !== null) {
+            $headers[] = "XAUTH_TRAVELPORT_ACCESSGROUP: $accessGroup";
+        }
+        foreach ((array) $extraHeaders as $h) {
+            if (is_string($h) && $h !== '') { $headers[] = $h; }
+        }
+
+        $body = null;
+        if ($payload !== null) {
+            $body = is_string($payload) ? $payload : json_encode($payload);
+        } elseif (strtoupper($method) === 'POST') {
+            $body = '{}';
+        }
+
+        $ch = curl_init($url);
+        $opts = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER     => $headers,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_TIMEOUT        => 120,
+            CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_CUSTOMREQUEST  => strtoupper($method),
+        ];
+        if ($body !== null) { $opts[CURLOPT_POSTFIELDS] = $body; }
+        curl_setopt_array($ch, $opts);
+
+        $raw      = curl_exec($ch);
+        $curlErr  = curl_error($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $data = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
+        if (!is_array($data)) { $data = null; }
+
+        if (function_exists('travelport_log')) {
+            travelport_log('cancel', $step, $payload ?? (object) [], $data ?? ['_raw' => $raw], $invoiceId, [
+                'url' => $url, 'method' => strtoupper($method), 'http_code' => $httpCode, 'curl_error' => $curlErr,
+            ]);
+        }
+
+        return ['http_code' => $httpCode, 'data' => $data, 'raw' => is_string($raw) ? $raw : ''];
+    }
+}
+
+if (!function_exists('travelport_response_has_error')) {
+    /** True if a decoded Travelport response contains an error/fault. */
+    function travelport_response_has_error($data) {
+        if (!is_array($data)) { return false; }
+        if (isset($data['_curl_error']) && $data['_curl_error']) { return true; }
+        // Common Travelport error shapes.
+        if (isset($data['Result']['Error']) || isset($data['Errors']) || isset($data['error'])) { return true; }
+        $json = json_encode($data);
+        return $json !== false && (stripos($json, '"errorMessage"') !== false || stripos($json, '"Fault"') !== false);
+    }
+}
+
+if (!function_exists('travelport_extract_error_message')) {
+    /** Best-effort human error string from a Travelport response. */
+    function travelport_extract_error_message($data, $default = 'Travelport request failed') {
+        if (!is_array($data)) { return $default; }
+        $candidates = [
+            $data['Result']['Error'][0]['Message'] ?? null,
+            $data['Errors'][0]['Message'] ?? null,
+            $data['errorMessage'] ?? null,
+            $data['error']['message'] ?? null,
+            $data['message'] ?? null,
+        ];
+        foreach ($candidates as $c) {
+            if (is_string($c) && $c !== '') { return $c; }
+        }
+        // Deep scan for the first "message"-like field.
+        $json = json_encode($data);
+        if ($json !== false && preg_match('/"(?:errorMessage|Message|message)"\s*:\s*"([^"]+)"/', $json, $m)) {
+            return $m[1];
+        }
+        return $default;
+    }
+}
+
+if (!function_exists('travelport_get_workbench_offer')) {
+    /** Extract the cancellable offer {value,...} from a workbench-initiate response. */
+    function travelport_get_workbench_offer($initData) {
+        if (!is_array($initData)) { return null; }
+        // Offers commonly live under ReservationResponse.Reservation.Offer[].
+        $reservation = $initData['ReservationResponse']['Reservation']
+            ?? $initData['ReservationResponse']
+            ?? [];
+        $offers = $reservation['Offer'] ?? $reservation['Offers'] ?? [];
+        if (isset($offers['value']) || isset($offers['Identifier'])) { $offers = [$offers]; }
+        if (is_array($offers)) {
+            foreach ($offers as $offer) {
+                $value = $offer['Identifier']['value'] ?? $offer['value'] ?? null;
+                if ($value) {
+                    return ['value' => $value, 'raw' => $offer];
+                }
+            }
+        }
+        return null;
+    }
+}
+
+if (!function_exists('travelport_get_stored_offer')) {
+    /** Fall back to an offer identifier stored on the booking at issue time. */
+    function travelport_get_stored_offer($booking) {
+        $data = json_decode((string) ($booking['booking_data'] ?? ''), true);
+        if (!is_array($data)) { return []; }
+        $hold = $data['travelport_hold'] ?? [];
+        $value = $hold['offer_id'] ?? $hold['offer']['value'] ?? $data['offer_id'] ?? null;
+        $out = [];
+        if ($value) { $out['value'] = $value; }
+        if (!empty($hold['content_source'])) { $out['content_source'] = $hold['content_source']; }
+        return $out;
+    }
+}
+
+if (!function_exists('travelport_build_cancel_offer_payload')) {
+    /** Build the canceloffer request body for a resolved offer. */
+    function travelport_build_cancel_offer_payload($offer) {
+        $value = is_array($offer) ? ($offer['value'] ?? '') : (string) $offer;
+        return [
+            '@type' => 'CancelOfferQueryRequest',
+            'Offer' => [
+                '@type'      => 'Offer',
+                'Identifier' => ['value' => $value],
+            ],
+        ];
+    }
+}
+
+if (!function_exists('travelport_is_smartpoint_ndc')) {
+    /** Detect a SmartPoint/NDC reservation that cannot be API-cancelled. */
+    function travelport_is_smartpoint_ndc($initData) {
+        if (!is_array($initData)) { return false; }
+        $json = json_encode($initData);
+        if ($json === false) { return false; }
+        return (stripos($json, '"NDC"') !== false && stripos($json, 'SmartPoint') !== false)
+            || stripos($json, 'PROCESSED MANUALLY') !== false;
+    }
+}
+
+if (!function_exists('travelport_action_log_start')) {
+    /** Lightweight action logger (start). Returns state array passed to step/finish. */
+    function travelport_action_log_start($action, $invoiceId) {
+        return ['action' => $action, 'invoice_id' => $invoiceId, 'steps' => []];
+    }
+}
+
+if (!function_exists('travelport_action_log_step')) {
+    function travelport_action_log_step(&$state, $step, $data) {
+        if (is_array($state)) { $state['steps'][$step] = $data; }
+        if (function_exists('travelport_log')) {
+            travelport_log($state['action'] ?? 'cancel', $step, (object) [], is_array($data) ? $data : ['data' => $data], $state['invoice_id'] ?? '');
+        }
+    }
+}
+
+if (!function_exists('travelport_action_log_finish')) {
+    /** Finalise the action log; returns a log-file path (or '' if logging is off). */
+    function travelport_action_log_finish($state, $final) {
+        if (function_exists('travelport_log')) {
+            travelport_log($state['action'] ?? 'cancel', 'finish', (object) ($state['steps'] ?? []), is_array($final) ? $final : ['final' => $final], $state['invoice_id'] ?? '');
+        }
+        return '';
+    }
+}

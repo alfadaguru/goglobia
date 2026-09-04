@@ -279,6 +279,145 @@ function ensureCoreFixSchema($db): void
             error_log("ensureCoreFixSchema: could not verify/add {$table}.{$column}: " . $e->getMessage());
         }
     }
+
+    // Classify each supplier module (real API / affiliate / own inventory /
+    // stub) so the admin panel can badge it. Runs inside the same self-healing
+    // pass; idempotent and seeds once. See ensureModulesBookingClass() below.
+    ensureModulesBookingClass($db);
+}
+
+/**
+ * Booking-class classification for supplier modules.
+ *
+ * Adds `modules.booking_class` (once, idempotently) and seeds each known
+ * supplier with one of four verified classes so the admin panel can show, per
+ * provider, whether it is a real end-to-end API booking, an affiliate/redirect,
+ * the platform's own inventory, or a non-functional stub.
+ *
+ * Source of truth for the seed values is docs/MODULES.md §3 (every value there
+ * was confirmed by reading the module's booking action / search file). Rows are
+ * matched by BOTH name AND type because the same supplier name appears under
+ * two services (e.g. `travelport`/`amadeus` exist for both flights and stays,
+ * with different classes). Seeding only fills rows whose booking_class is still
+ * '' — so it runs once and never overwrites a value an admin later edits, and
+ * never guesses a class for a provider not in the verified list (those stay ''
+ * → rendered as "Unclassified" in the admin list).
+ *
+ * Class codes stored in the column:
+ *   real       — REAL API BOOKING (books via supplier API after payment)
+ *   affiliate  — AFFILIATE / REDIRECT (search only; customer books on supplier)
+ *   own        — OWN INVENTORY / MANUAL (local PNR, no external supplier)
+ *   stub       — STUB / NOT INTEGRATED (does not actually book)
+ */
+function ensureModulesBookingClass($db): void
+{
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+    $checked = true;
+
+    try {
+        $exists = $db->query("SHOW COLUMNS FROM `modules` LIKE 'booking_class'")->fetchAll();
+        if (count($exists) === 0) {
+            $db->pdo->exec(
+                "ALTER TABLE `modules` ADD COLUMN `booking_class` " .
+                "ENUM('real','affiliate','own','stub','') NOT NULL DEFAULT ''"
+            );
+        }
+    } catch (Throwable $e) {
+        // Never break a page over a migration (e.g. DB user without ALTER rights).
+        error_log('ensureModulesBookingClass (alter): ' . $e->getMessage());
+        return;
+    }
+
+    // Verified classification (docs/MODULES.md §3). Keyed by "type/name".
+    $classMap = [
+        // ---- Flights ----
+        'flights/duffel'             => 'real',
+        'flights/amadeus'            => 'real',
+        'flights/amadeus_enterprise' => 'real',
+        'flights/kiwi'               => 'real',
+        'flights/mystifly'           => 'real',
+        'flights/pkfare'             => 'real',
+        'flights/sabre'              => 'real',
+        'flights/seeru'              => 'real',
+        'flights/tbo'                => 'real',
+        'flights/travelport'         => 'real',
+        'flights/googleflights'      => 'affiliate',
+        'flights/travelpayouts'      => 'stub',
+        'flights/flights'            => 'own',
+        // ---- Stays ----
+        'stays/hotelbeds'            => 'real',
+        'stays/ratehawk'             => 'real',
+        'stays/stuba'                => 'real',
+        'stays/hotelston'            => 'real',
+        'stays/tbo-holidays'         => 'real',
+        'stays/wanderbeds'           => 'real',
+        'stays/travelport'           => 'real',
+        'stays/hotels'               => 'own',
+        'stays/agoda'                => 'affiliate',
+        'stays/amadeus'              => 'affiliate',
+        'stays/booking'              => 'affiliate',
+        // ---- Tours ----
+        'tours/viator'               => 'affiliate',
+        'tours/tiqets'               => 'affiliate',
+        'tours/viator_merchant'      => 'stub',
+        'tours/tours'                => 'own',
+        'tours/toursbms'             => 'own',
+        // ---- Cars ----
+        'cars/cartrawler'            => 'real',
+        'cars/mozio'                 => 'real',
+        'cars/discover_cars'         => 'affiliate',
+        'cars/kiwitaxi'              => 'affiliate',
+        'cars/cars'                  => 'own',
+        // ---- Ferries / Rail / Bus / Umrah / eSIM / Insurance / Visa ----
+        'ferries/kikoto'             => 'real',
+        'rail/train'                 => 'real',
+        'bus/bus'                    => 'own',
+        'umrah/umrah'                => 'own',
+        'esim/airalo'                => 'real',
+        // airhelp is now wired into a real insurance service (flight-compensation
+        // claims via the AirHelp Partner API v2) — see modules/insurance/airhelp/
+        // index.php + app/routes/insurance/*. It registers a real claim; the
+        // remote call safely no-ops until a Partner Token is configured.
+        'insurance/airhelp'          => 'real',
+        // visa is a core own-inventory service (app/routes/visa/*): the booking
+        // is written locally to `bookings` (booking_status=pending), no external
+        // supplier — same model as bus/umrah. Verified: app/routes/visa/bookingRoutes.php.
+        'visa/visa'                  => 'own',
+
+        // ---- Providers present as DB rows but with no booking integration ----
+        // kayak: uses KAYAK's affiliate Flights *Search* API (kayakaffiliates.com);
+        //   search-only, no issue.php → affiliate/redirect. Verified:
+        //   modules/flights/kayak/search.php:72,199 (affiliate endpoint).
+        'flights/kayak'              => 'affiliate',
+        // expedia: inactive DB row, NO module directory (modules/stays/expedia
+        //   does not exist) → not integrated. Verified by directory listing.
+        'stays/expedia'              => 'stub',
+        // rezlive: active DB row but NO module directory (modules/stays/rezlive
+        //   does not exist) → not integrated today. NOTE: RezLive DOES offer a
+        //   full B2B XML/JSON booking API (RezTez), so this is a real upgrade
+        //   candidate, not a dead provider. Classified 'stub' = not wired now.
+        'stays/rezlive'              => 'stub',
+        // NOTE: `cruises` (DB id 27) is deliberately left unclassified — it is a
+        // service *type* placeholder, not a supplier, and has no module code.
+    ];
+
+    try {
+        // Only touch rows not yet classified, so this seeds once and respects
+        // any later manual edit. Match on type+name exactly.
+        foreach ($classMap as $key => $class) {
+            [$type, $name] = explode('/', $key, 2);
+            $db->update('modules', ['booking_class' => $class], [
+                'type'          => $type,
+                'name'          => $name,
+                'booking_class' => '',
+            ]);
+        }
+    } catch (Throwable $e) {
+        error_log('ensureModulesBookingClass (seed): ' . $e->getMessage());
+    }
 }
 
 // Current visitor's active site language (session-based, same source the
@@ -5631,5 +5770,107 @@ if (!function_exists('staysClampCheckoutToMaxNights')) {
         }
 
         return $capped->format('d-m-Y');
+    }
+}
+
+// ============================================================================
+// POST-PAYMENT PRICE RECONCILIATION
+// ----------------------------------------------------------------------------
+// Closes the platform-wide gap (docs/MODULES.md §8.1(2)) where provider
+// issue.php files re-priced with the supplier AFTER payment but never compared
+// that live price to what the customer actually paid — so a fare/rate move
+// between checkout and ticketing was silently absorbed (merchant loss) or
+// silently overcharged the customer.
+//
+// Call this in issue.php RIGHT BEFORE the supplier book/commit call, passing the
+// live supplier total and the booking row. Policy (per product decision):
+//   - within tolerance  -> ['ok'=>true]  (proceed to book)
+//   - supplier CHEAPER than paid, beyond tolerance -> ['ok'=>true, 'note'=>...]
+//        (customer is not harmed; proceed, but note it)
+//   - supplier MORE EXPENSIVE than paid, beyond tolerance -> ['ok'=>false]
+//        ABORT the auto-book, flag the booking for review, keep the payment.
+//
+// Comparison is done in the booking's own currency (both amounts must be in the
+// same currency; pass $supplierCurrency to guard against a currency mismatch,
+// which is itself treated as "not ok" — never book across a currency you can't
+// reconcile).
+//
+// @param object $db
+// @param array  $booking            the bookings row (uses price_markup, currency_markup, invoice_id)
+// @param float  $supplierTotal      live total the supplier will charge for this booking
+// @param string $supplierCurrency   currency of $supplierTotal (must match booking currency)
+// @param float  $tolerancePct       allowed drift, default 2.0 (%)
+// @return array ['ok'=>bool, 'reason'=>string, 'paid'=>float, 'supplier'=>float, 'delta_pct'=>float]
+// ============================================================================
+if (!function_exists('reconcilePostPaymentPrice')) {
+    function reconcilePostPaymentPrice($db, $booking, $supplierTotal, $supplierCurrency = null, $tolerancePct = 2.0)
+    {
+        $paid         = (float) ($booking['price_markup'] ?? 0);
+        $paidCurrency = strtoupper(trim((string) ($booking['currency_markup'] ?? '')));
+        $supplier     = (float) $supplierTotal;
+        $supCurrency  = strtoupper(trim((string) ($supplierCurrency ?? $paidCurrency)));
+        $invoiceId    = (string) ($booking['invoice_id'] ?? '');
+
+        // Guard: we can only compare like-for-like. A currency mismatch or a
+        // non-positive paid amount cannot be safely reconciled → do not auto-book.
+        if ($paid <= 0) {
+            return _reconcile_block($db, $invoiceId, 'Paid amount is zero/unknown — cannot reconcile price', $paid, $supplier, 0.0);
+        }
+        if ($supplier <= 0) {
+            return _reconcile_block($db, $invoiceId, 'Supplier returned no/zero price — cannot reconcile', $paid, $supplier, 0.0);
+        }
+        if ($paidCurrency !== '' && $supCurrency !== '' && $paidCurrency !== $supCurrency) {
+            return _reconcile_block($db, $invoiceId, "Currency mismatch (paid {$paidCurrency} vs supplier {$supCurrency})", $paid, $supplier, 0.0);
+        }
+
+        $deltaPct = (($supplier - $paid) / $paid) * 100.0;
+
+        // Supplier cheaper (delta negative) or within tolerance → OK to book.
+        if ($deltaPct <= $tolerancePct) {
+            $note = '';
+            if ($deltaPct < -$tolerancePct) {
+                $note = 'Supplier price is lower than paid by ' . round(abs($deltaPct), 2) . '% (customer not harmed).';
+            }
+            return ['ok' => true, 'reason' => $note, 'paid' => $paid, 'supplier' => $supplier, 'delta_pct' => round($deltaPct, 2)];
+        }
+
+        // Supplier more expensive beyond tolerance → ABORT + flag, keep payment.
+        return _reconcile_block(
+            $db,
+            $invoiceId,
+            'Supplier price rose ' . round($deltaPct, 2) . '% above the amount paid (tolerance ' . $tolerancePct . '%). Auto-issue held for review.',
+            $paid,
+            $supplier,
+            $deltaPct
+        );
+    }
+}
+
+// Internal: record the price-mismatch on the booking and return the block verdict.
+// booking_status ENUM is confirmed|pending|cancelled, so a "needs review" state
+// is represented as 'pending' + a machine-readable flag in error_response (the
+// UI/ops surface reads that), never an out-of-enum value that MySQL would drop.
+if (!function_exists('_reconcile_block')) {
+    function _reconcile_block($db, $invoiceId, $reason, $paid, $supplier, $deltaPct)
+    {
+        if ($invoiceId !== '' && $db) {
+            try {
+                $db->update('bookings', [
+                    'booking_status' => 'pending',
+                    'error_response' => json_encode([
+                        'review_state' => 'price_mismatch',
+                        'reason'       => $reason,
+                        'paid'         => $paid,
+                        'supplier'     => $supplier,
+                        'delta_pct'    => round($deltaPct, 2),
+                        'flagged_at'   => date('Y-m-d H:i:s'),
+                    ]),
+                ], ['invoice_id' => $invoiceId]);
+            } catch (\Throwable $e) {
+                error_log('reconcilePostPaymentPrice flag error (' . $invoiceId . '): ' . $e->getMessage());
+            }
+        }
+        error_log('PRICE RECONCILE BLOCK (' . $invoiceId . '): ' . $reason . " | paid={$paid} supplier={$supplier}");
+        return ['ok' => false, 'reason' => $reason, 'paid' => $paid, 'supplier' => $supplier, 'delta_pct' => round($deltaPct, 2)];
     }
 }

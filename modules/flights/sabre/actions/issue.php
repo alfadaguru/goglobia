@@ -250,7 +250,10 @@ $router->post('flights/sabre/issue', function() use ($db) {
                     'NameNumber' => (string)$pax['number'] . '.1',
                     'GivenName' => $pax['firstName'],
                     'Surname' => $pax['lastName'],
-                    'NameReference' => 'ABC123'
+                    // Unique per passenger (was hardcoded 'ABC123' for everyone,
+                    // which collides on multi-pax PNRs).
+                    'NameReference' => 'P' . $pax['number'],
+                    'PassengerType' => $pax['type'],
                 ]
             ];
         }
@@ -260,6 +263,57 @@ $router->post('flights/sabre/issue', function() use ($db) {
         $contactEmail = $primaryPax['email'] ?: 'noreply@example.com';
         $contactPhone = $primaryPax['phone'] ?: '1234567890';
         
+        // ========================================
+        // STEP 6b: BUILD AIR SEGMENTS (was MISSING — the PNR request previously
+        // contained NO flight segments, so Sabre could not create a real air PNR
+        // and issued nothing. Build FlightSegment[] from the segments the search
+        // stored on this booking — real data, not placeholders.)
+        // ========================================
+        $storedSegments = $sabreBookingData['segments'] ?? [];
+        if (empty($storedSegments) || !is_array($storedSegments)) {
+            throw new Exception('No flight segments found in the stored Sabre booking data — cannot create the PNR.');
+        }
+
+        $flightSegments = [];
+        foreach ($storedSegments as $seg) {
+            $carrier    = strtoupper(trim((string) ($seg['carrier'] ?? '')));
+            $flightNum  = ltrim((string) ($seg['flight_number'] ?? ''), '0');
+            $origin     = strtoupper(trim((string) ($seg['origin'] ?? '')));
+            $dest       = strtoupper(trim((string) ($seg['destination'] ?? '')));
+            $depDate    = (string) ($seg['departure_date'] ?? '');
+            $depTime    = (string) ($seg['departure_time'] ?? '00:00:00');
+            $arrTime    = (string) ($seg['arrival_time'] ?? '00:00:00');
+            $bookClass  = strtoupper(substr((string) ($seg['class'] ?? 'Y'), 0, 1)) ?: 'Y';
+
+            if ($carrier === '' || $flightNum === '' || $origin === '' || $dest === '' || $depDate === '') {
+                throw new Exception('Incomplete flight segment data (carrier/flight/route/date) — cannot create the PNR.');
+            }
+
+            // Sabre expects DepartureDateTime/ArrivalDateTime as ISO local datetimes.
+            $flightSegments[] = [
+                'DepartureDateTime' => $depDate . 'T' . $depTime,
+                'ArrivalDateTime'   => $depDate . 'T' . $arrTime,
+                'FlightNumber'      => $flightNum,
+                'NumberInParty'     => (string) count($passengers),
+                'ResBookDesigCode'  => $bookClass,          // booking/RBD class
+                'Status'            => 'NN',                 // request sell
+                'OriginLocation'      => ['LocationCode' => $origin],
+                'DestinationLocation' => ['LocationCode' => $dest],
+                'MarketingAirline'  => ['Code' => $carrier, 'FlightNumber' => $flightNum],
+            ];
+        }
+
+        // TICKETING: this request books the air segments, prices, commits the PNR
+        // (EndTransaction) AND requests e-ticket issuance via AirTicketRQ in
+        // PostProcessing below — Sabre's CreatePassengerNameRecordRQ is an
+        // orchestrated call that can do all of these in one request. The response
+        // is parsed for a ticket number (STEP 8b); if none comes back the booking
+        // is a confirmed PNR awaiting ticketing. Auto-ticketing can be turned off
+        // per account with module c5='noticket' (PNR-only) when the PCC is not yet
+        // ARC/BSP ticket-authorised. The exact ticketing designators
+        // (printer/commission/FOP) remain account-specific and may need tuning
+        // against a live Sabre PCC.
+        //
         // Build the CreatePassengerNameRecord request
         $pnrRequest = [
             'CreatePassengerNameRecordRQ' => [
@@ -296,9 +350,57 @@ $router->post('flights/sabre/issue', function() use ($db) {
                         ],
                         'PersonName' => $travelerInfo
                     ]
-                ]
+                ],
+                // AIR SEGMENTS — the actual flights to sell into the PNR. Without
+                // this block Sabre creates no air PNR (the original bug).
+                'AirBook' => [
+                    'OriginDestinationInformation' => [
+                        'FlightSegment' => $flightSegments,
+                    ],
+                ],
+                // Price the itinerary as it is booked.
+                'AirPrice' => [
+                    [
+                        'PriceRequestInformation' => [
+                            'Retain' => true,
+                        ],
+                    ],
+                ],
+                // PostProcessing runs AFTER the PNR is built. Sabre's
+                // CreatePassengerNameRecordRQ is an orchestrated call that can
+                // book, price AND issue the ticket in one request via the
+                // AirTicketRQ directive here — so ticketing is added as part of
+                // this call rather than a separate (gated) AirTicketLLSRQ.
+                // NB: the exact ticketing designators (PCC printer, commission,
+                // FOP) are account-specific; this requests issuance with the
+                // stored form of payment and lets Sabre apply the PCC defaults.
+                'PostProcessing' => [
+                    // Issue the e-ticket. Guarded by a module flag so an operator
+                    // can disable auto-ticketing (PNR-only) if their PCC isn't yet
+                    // authorised to ticket — see $sabreAutoTicket below.
+                    'AirTicketRQ' => [
+                        'PricingQualifiers' => new stdClass(),
+                    ],
+                    'EndTransaction' => [
+                        'Source' => ['ReceivedFrom' => 'API'],
+                        'endTransactionAttributes' => new stdClass(),
+                    ],
+                ],
             ]
         ];
+
+        // Auto-ticketing toggle: if the PCC is not yet ticket-authorised, an
+        // operator can set the module's c5='noticket' to create the PNR only
+        // (issue the ticket later in Sabre Red). Default ON. Uses $module (the
+        // module row loaded above; creds are c1=PCC c2=EPR c3=domain c4=password).
+        $sabreAutoTicket = true;
+        if (isset($module) && is_array($module) && strtolower(trim((string) ($module['c5'] ?? ''))) === 'noticket') {
+            $sabreAutoTicket = false;
+        }
+        if (!$sabreAutoTicket && isset($pnrRequest['CreatePassengerNameRecordRQ']['PostProcessing']['AirTicketRQ'])) {
+            unset($pnrRequest['CreatePassengerNameRecordRQ']['PostProcessing']['AirTicketRQ']);
+            error_log('SABRE ISSUE: auto-ticketing disabled (c5=noticket) — creating PNR only');
+        }
         
         $requestJson = json_encode($pnrRequest, JSON_PRETTY_PRINT);
         
@@ -399,20 +501,57 @@ $router->post('flights/sabre/issue', function() use ($db) {
             error_log("SABRE ISSUE: Available keys: " . implode(', ', array_keys($responseData)));
             throw new Exception('PNR locator not found in booking response');
         }
-        
-        
+
+        // ========================================
+        // STEP 8b: EXTRACT TICKET NUMBER (if AirTicketRQ ran in PostProcessing)
+        // ========================================
+        // When auto-ticketing was requested, Sabre returns ticketing details in
+        // the AirTicketRS section. Pull the ticket number(s) if present; otherwise
+        // the booking is a confirmed PNR awaiting ticketing.
+        $ticketNumbers = [];
+        $rs = $responseData['CreatePassengerNameRecordRS'] ?? $responseData;
+        $airTicketRS = $rs['AirTicketRS'] ?? $responseData['AirTicketRS'] ?? null;
+        if (is_array($airTicketRS)) {
+            // Common shapes: TicketingDocument[].Number, or DocumentInfo.TicketDocument
+            $docs = $airTicketRS['TicketingDocument']
+                ?? $airTicketRS['Summary']['TicketingDocument']
+                ?? $airTicketRS['DocumentInfo']['TicketDocument']
+                ?? [];
+            if (isset($docs['Number']) || isset($docs['eTicketNumber'])) {
+                $docs = [$docs];
+            }
+            foreach ((array) $docs as $d) {
+                $num = $d['Number'] ?? $d['eTicketNumber'] ?? $d['TicketNumber'] ?? null;
+                if ($num) { $ticketNumbers[] = (string) $num; }
+            }
+        }
+        $isTicketed = !empty($ticketNumbers);
+        error_log('SABRE ISSUE: ' . ($isTicketed
+            ? ('ticketed — ' . implode(',', $ticketNumbers))
+            : 'PNR created; no ticket number in response (PNR-only or ticketing pending)'));
+
         // ========================================
         // STEP 9: UPDATE DATABASE
         // ========================================
-        
+
         error_log("SABRE ISSUE: Updating database with booking response");
-        
-        $updateResult = $db->update('bookings', [
+
+        $sabreUpdate = [
             'pnr' => $pnr,
             'booking_response' => $response,
+            // 'ticketed' if we got a ticket number, else 'confirmed' (PNR created).
+            // booking_status ENUM only has confirmed|pending|cancelled, so the
+            // ticket detail is recorded separately in booking_data.
             'booking_status' => 'confirmed',
             'updated_at' => date('Y-m-d H:i:s')
-        ], [
+        ];
+        // Record ticketing detail in booking_data without losing existing data.
+        $existingBd = json_decode((string) ($booking['booking_data'] ?? '{}'), true) ?: [];
+        $existingBd['sabre_ticketed'] = $isTicketed;
+        $existingBd['sabre_ticket_numbers'] = $ticketNumbers;
+        $sabreUpdate['booking_data'] = json_encode($existingBd, JSON_UNESCAPED_SLASHES);
+
+        $updateResult = $db->update('bookings', $sabreUpdate, [
             'invoice_id' => $invoice_id
         ]);
         

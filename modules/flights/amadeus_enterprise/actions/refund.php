@@ -196,8 +196,17 @@ $router->post('flights/amadeus_enterprise/refund', function () use ($db) {
             }
         }
 
+        // Reverse the CUSTOMER's charge via the payment gateway (this used to be
+        // an explicit "process gateway refund separately" manual step). Only mark
+        // 'refunded' if the gateway refund actually succeeds.
+        require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
+        $aeGwRefund = function_exists('refund_gateway_payment')
+            ? refund_gateway_payment($db, $booking, null, 'Amadeus flight refund')
+            : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+        $aeGatewayRefunded = ($aeGwRefund['status'] === 'refunded');
+
         $db->update('bookings', [
-            'payment_status' => 'refunded',
+            'payment_status' => $aeGatewayRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
             'booking_status' => 'cancelled',
             'cancellation_request' => 1,
             'cancellation_status' => 1,
@@ -207,7 +216,10 @@ $router->post('flights/amadeus_enterprise/refund', function () use ($db) {
                 'order_id' => $orderId,
                 'http_code' => $httpCode,
                 'note' => $orderCancelNote,
-                'payment_note' => 'Marked refunded in system. Process gateway refund separately if needed.',
+                'gateway_refund' => $aeGwRefund,
+                'payment_note' => $aeGatewayRefunded
+                    ? ('Gateway refund ' . ($aeGwRefund['reference'] ?? '') . ' completed.')
+                    : ('Gateway refund NOT automated (' . ($aeGwRefund['message'] ?? 'unsupported') . '). Refund the customer manually.'),
             ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
             'error_response' => null,
         ], ['invoice_id' => $invoiceId]);

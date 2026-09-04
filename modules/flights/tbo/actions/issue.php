@@ -151,6 +151,28 @@ $router->post('flights/tbo/issue', function () use ($db) {
         $fare       = $quoteResult['Fare'] ?? [];
         $breakdowns = $quoteResult['FareBreakdown'] ?? [];
 
+        // POST-PAYMENT PRICE RECONCILIATION: FareQuote returns the CURRENT fare
+        // for the stored itinerary. Compare it to what the customer paid before we
+        // Book/Ticket; abort + flag if the fare rose beyond tolerance instead of
+        // silently ticketing at the higher price. (§8.1(2) fix.)
+        if (function_exists('reconcilePostPaymentPrice')) {
+            $tboLiveTotal = (float) ($fare['TotalFare'] ?? $fare['PublishedFare'] ?? $fare['OfferedFare'] ?? 0);
+            $tboCurrency  = (string) ($fare['Currency'] ?? ($booking['currency_markup'] ?? 'USD'));
+            if ($tboLiveTotal > 0) {
+                $tboPriceCheck = reconcilePostPaymentPrice($db, $booking, $tboLiveTotal, $tboCurrency);
+                if (empty($tboPriceCheck['ok'])) {
+                    echo json_encode([
+                        'status'  => false,
+                        'Prn'     => '',
+                        'message' => 'Booking held for review: ' . $tboPriceCheck['reason'],
+                        'price_review' => $tboPriceCheck,
+                        'response_error' => 'price_mismatch',
+                    ], JSON_UNESCAPED_SLASHES);
+                    return;
+                }
+            }
+        }
+
         // Per-passenger-type unit fares from FareBreakdown (PassengerType 1/2/3)
         $unitFares = [];
         foreach ($breakdowns as $bd) {

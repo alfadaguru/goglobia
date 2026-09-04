@@ -102,6 +102,11 @@ require_once 'app/routes/visa/uploadRoutes.php';
 require_once 'app/routes/esim/homeRoutes.php';
 require_once 'app/routes/esim/invoiceRoutes.php';
 
+// INSURANCE ROUTES (flight-compensation claims — AirHelp)
+require_once 'app/routes/insurance/homeRoutes.php';
+require_once 'app/routes/insurance/bookingRoutes.php';
+require_once 'app/routes/insurance/invoiceRoutes.php';
+
 // FERRIES ROUTES
 require_once 'app/routes/ferries/homeRoutes.php';
 require_once 'app/routes/ferries/listingRoutes.php';

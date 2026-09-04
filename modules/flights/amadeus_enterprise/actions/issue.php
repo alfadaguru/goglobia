@@ -646,6 +646,29 @@ $router->post('flights/amadeus_enterprise/issue', function () use ($db) {
             throw new Exception('Repriced flight offer is invalid');
         }
 
+        // POST-PAYMENT PRICE RECONCILIATION (§8.1(2) fix): compare the repriced
+        // Amadeus grandTotal to the amount paid before creating the order; abort +
+        // flag if the fare rose beyond tolerance. Read the price from the raw
+        // repriced offer (prepareOfferForBooking may drop fields).
+        if (function_exists('reconcilePostPaymentPrice')) {
+            $aeRawPrice   = $repricingData['data']['flightOffers'][0]['price'] ?? [];
+            $aeLiveTotal  = (float) ($aeRawPrice['grandTotal'] ?? $aeRawPrice['total'] ?? 0);
+            $aeCurrency   = (string) ($aeRawPrice['currency'] ?? ($booking['currency_markup'] ?? 'USD'));
+            if ($aeLiveTotal > 0) {
+                $aePriceCheck = reconcilePostPaymentPrice($db, $booking, $aeLiveTotal, $aeCurrency);
+                if (empty($aePriceCheck['ok'])) {
+                    echo json_encode([
+                        'status'  => false,
+                        'Prn'     => '',
+                        'message' => 'Booking held for review: ' . $aePriceCheck['reason'],
+                        'price_review' => $aePriceCheck,
+                        'response_error' => 'price_mismatch',
+                    ], JSON_UNESCAPED_SLASHES);
+                    return;
+                }
+            }
+        }
+
         [$phoneCallingCode, $contactPhone] = $normalizePhone(
             (string)($booking['phone'] ?? $amadeusTravelers[0]['contact']['phones'][0]['number'] ?? ''),
             (string)($booking['phone_country_code'] ?? $amadeusTravelers[0]['contact']['phones'][0]['countryCallingCode'] ?? '1')

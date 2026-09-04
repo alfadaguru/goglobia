@@ -89,12 +89,21 @@ $router->post('stays/travelport/issue', function() use ($db) {
         // REQUIRED: Hotel ID, Chain, Location
         $hotelId = $bookingData['hotel_id'] ?? null;
         $hotelName = $bookingData['hotel_name'] ?? null;
-        $hotelLocation = 'DXB' ?? null;
-        
+        // Location (3-letter city/airport code) must come from the booking, NOT be
+        // hardcoded. Previously this was `'DXB' ?? null`, forcing EVERY booking to
+        // Dubai. Read the real code the search/booking flow stored.
+        $hotelLocation = strtoupper(trim((string) (
+            $bookingData['city_code']
+            ?? $bookingData['location_code']
+            ?? $bookingData['destination']
+            ?? $bookingData['city']
+            ?? ''
+        )));
+
         if (empty($hotelId)) {
             throw new Exception('Hotel ID is required');
         }
-        
+
         if (empty($hotelLocation)) {
             throw new Exception('Hotel location (3-letter city code) is required');
         }
@@ -234,7 +243,10 @@ $router->post('stays/travelport/issue', function() use ($db) {
          <hot:NumberOfRooms>' . $totalRooms . '</hot:NumberOfRooms>
          
          <!-- REQUIRED: Hotel Rate Detail with RatePlanType and Base -->
-         <HotelRateDetail Base="'.$currency.$basePrice.'" RatePlanType="'.htmlspecialchars($ratePlan).'" Total="'.$currency.$totalPrice.'"/>
+         <!-- Base/Total are NUMERIC amounts. Previously these concatenated the
+              currency onto the number (e.g. "USD149"), which Travelport rejects;
+              the currency travels in the rate context, not inside the amount. -->
+         <HotelRateDetail Base="'.number_format((float)$basePrice, 2, '.', '').'" RatePlanType="'.htmlspecialchars($ratePlan).'" Total="'.number_format((float)$totalPrice, 2, '.', '').'"/>
          
       </hot:HotelCreateReservationReq>
    </soapenv:Body>
@@ -311,7 +323,9 @@ $router->post('stays/travelport/issue', function() use ($db) {
             json_encode($responseData, JSON_UNESCAPED_UNICODE) . PHP_EOL,
             FILE_APPEND
         );
-        die('here');
+        // NOTE: a leftover `die('here')` used to sit here and aborted the entire
+        // booking flow (response parsing, PNR extraction, DB confirm never ran).
+        // Removed so the booking actually completes.
         if ($curlError) {
             throw new Exception('Connection Error: ' . $curlError);
         }
@@ -385,8 +399,11 @@ $router->post('stays/travelport/issue', function() use ($db) {
         
         if (!empty($invoice_id)) {
             try {
+                // booking_status ENUM = confirmed|pending|cancelled ('failed'
+                // would silently truncate to ''). Keep 'pending' so the booking
+                // can be retried, and record the failure in error_response.
                 $db->update('bookings', [
-                    'booking_status' => 'failed',
+                    'booking_status' => 'pending',
                     'error_response' => $e->getMessage()
                 ], ['invoice_id' => $invoice_id]);
             } catch (Exception $dbError) {

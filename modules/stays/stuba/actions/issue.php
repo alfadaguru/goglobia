@@ -403,6 +403,10 @@ $router->post('stays/stuba/issue', function() use ($db) {
         $quoteIdSafe = htmlspecialchars($quoteId, ENT_XML1, 'UTF-8');
         $currencySafe = htmlspecialchars($currency, ENT_XML1, 'UTF-8');
 
+        // PRICE RECONCILIATION: WIRED below — after the PREPARE response is parsed
+        // (STEP 11) we read HotelBooking.TotalSellingPrice and reconcile before
+        // CONFIRM. See the reconcilePostPaymentPrice() block after $bookingId.
+        //
         // ========================================
         // STEP 9: BUILD PREPARE REQUEST (SOAP XML) - v9 Structure
         // ========================================
@@ -484,8 +488,42 @@ XML;
         if (!$bookingId) {
             throw new Exception('No Booking ID returned in prepare response');
         }
-        
+
         error_log("STUBA ISSUE: Booking ID obtained: " . $bookingId);
+
+        // POST-PAYMENT PRICE RECONCILIATION (§8.1(2) fix): the PREPARE response
+        // carries the LIVE Stuba price for the quote. Read it the same way
+        // rooms.php does (HotelBooking.TotalSellingPrice.@attributes.amt) and
+        // compare to what the customer paid BEFORE confirm; abort + flag if it rose
+        // beyond tolerance instead of committing at the higher price.
+        if (isset($booking) && is_array($booking) && function_exists('reconcilePostPaymentPrice')) {
+            $stubaHotelBooking = $bookingDetail->BookingCreateResult->Booking->HotelBooking ?? null;
+            $stubaLiveTotal = 0.0;
+            if ($stubaHotelBooking) {
+                // TotalSellingPrice may decode as ->amt or ->{'@attributes'}->amt
+                $tsp = $stubaHotelBooking->TotalSellingPrice ?? null;
+                if (is_object($tsp)) {
+                    $stubaLiveTotal = (float) (
+                        $tsp->amt
+                        ?? ($tsp->{'@attributes'}->amt ?? 0)
+                    );
+                }
+            }
+            $stubaCurrency = (string) ($currency ?? $booking['currency_markup'] ?? 'USD');
+            if ($stubaLiveTotal > 0) {
+                $stubaPriceCheck = reconcilePostPaymentPrice($db, $booking, $stubaLiveTotal, $stubaCurrency);
+                if (empty($stubaPriceCheck['ok'])) {
+                    while (ob_get_level()) { ob_end_clean(); }
+                    echo json_encode([
+                        'status'  => false,
+                        'success' => false,
+                        'message' => 'Booking held for review: ' . $stubaPriceCheck['reason'],
+                        'price_review' => $stubaPriceCheck,
+                    ], JSON_UNESCAPED_SLASHES);
+                    return;
+                }
+            }
+        }
 
         // ========================================
         // STEP 12: BUILD CONFIRM REQUEST (SOAP XML) - v9 Structure

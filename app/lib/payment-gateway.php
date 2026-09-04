@@ -1490,3 +1490,143 @@ function render_payment_button($gateway, $booking, $onclick = '', $customText = 
 
     return $html;
 }
+
+// ============================================================================
+// SHARED GATEWAY REFUND
+// ----------------------------------------------------------------------------
+// Reverses the customer's charge via the payment gateway. Closes the platform-
+// wide gap (docs/MODULES.md §8.1(1)) where provider refund.php files only
+// flipped payment_status='refunded' in the DB and never returned money.
+//
+// Mirrors verify_gateway_payment()'s per-gateway switch. Real refund API calls
+// are implemented for the gateways that ship real API code (Paystack, Stripe).
+// Every other gateway returns ['status'=>'unsupported'] — HONEST: the caller
+// must not report the customer as refunded when no money actually moved.
+//
+// Amount defaults to the amount charged (bookings.price_markup). Callers should
+// guard on payment_status='refunded' for idempotency before calling.
+//
+// Returns:
+//   ['status'=>'refunded','reference'=>..,'amount'=>..,'gateway'=>..]  success
+//   ['status'=>'failed','message'=>..,'gateway'=>..]                   API said no
+//   ['status'=>'unsupported','message'=>..,'gateway'=>..]              no refund API
+// ============================================================================
+if (!function_exists('refund_gateway_payment')) {
+    function refund_gateway_payment($db, $booking, $amount = null, $reason = 'Booking cancelled')
+    {
+        $gatewayName = strtolower(trim((string) ($booking['payment_gateway'] ?? '')));
+        $txnRef      = trim((string) ($booking['transaction_id'] ?? ''));
+        $paidAmount  = (float) ($booking['price_markup'] ?? 0);
+        $currency    = strtoupper(trim((string) ($booking['currency_markup'] ?? 'USD')));
+        $refundAmt   = ($amount !== null) ? (float) $amount : $paidAmount;
+
+        $gateway = $db->get('payment_gateways', '*', ['name[~]' => $gatewayName]);
+        if (!$gateway) {
+            return ['status' => 'unsupported', 'message' => "Gateway '{$gatewayName}' not found/configured", 'gateway' => $gatewayName];
+        }
+        if ($refundAmt <= 0) {
+            return ['status' => 'failed', 'message' => 'Refund amount is zero', 'gateway' => $gatewayName];
+        }
+
+        try {
+            switch ($gatewayName) {
+
+                // ---- PAYSTACK: POST https://api.paystack.co/refund ----
+                case 'paystack':
+                    if ($txnRef === '') {
+                        return ['status' => 'failed', 'message' => 'No transaction reference to refund', 'gateway' => 'paystack'];
+                    }
+                    $secret = trim((string) ($gateway['c1'] ?? ''));
+                    if ($secret === '') {
+                        return ['status' => 'unsupported', 'message' => 'Paystack secret key not configured', 'gateway' => 'paystack'];
+                    }
+                    $minor = (int) round($refundAmt * 100); // kobo/cents
+                    $ch = curl_init('https://api.paystack.co/refund');
+                    curl_setopt_array($ch, [
+                        CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_POST => true,
+                        CURLOPT_POSTFIELDS => http_build_query([
+                            'transaction'   => $txnRef,
+                            'amount'        => $minor,
+                            'currency'      => $currency,
+                            'merchant_note' => $reason,
+                        ]),
+                        CURLOPT_HTTPHEADER => ["Authorization: Bearer {$secret}"],
+                        CURLOPT_TIMEOUT => 30,
+                        CURLOPT_CONNECTTIMEOUT => 15,
+                        CURLOPT_SSL_VERIFYPEER => true,
+                        CURLOPT_SSL_VERIFYHOST => 2,
+                    ]);
+                    $resp = curl_exec($ch);
+                    $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                    curl_close($ch);
+                    $j = json_decode((string) $resp, true);
+                    if ($code >= 200 && $code < 300 && !empty($j['status'])) {
+                        return ['status' => 'refunded', 'reference' => $j['data']['id'] ?? $txnRef, 'amount' => $refundAmt, 'gateway' => 'paystack'];
+                    }
+                    return ['status' => 'failed', 'message' => $j['message'] ?? "Paystack refund HTTP {$code}", 'gateway' => 'paystack'];
+
+                // ---- STRIPE: POST https://api.stripe.com/v1/refunds ----
+                case 'stripe':
+                    $secret = trim((string) ($gateway['c2'] ?? ''));
+                    if ($secret === '') {
+                        return ['status' => 'unsupported', 'message' => 'Stripe secret key not configured', 'gateway' => 'stripe'];
+                    }
+                    if ($txnRef === '') {
+                        return ['status' => 'failed', 'message' => 'No Stripe reference to refund', 'gateway' => 'stripe'];
+                    }
+                    $paymentIntent = $txnRef;
+                    if (stripos($txnRef, 'cs_') === 0) { // Checkout Session → resolve PaymentIntent
+                        $chs = curl_init('https://api.stripe.com/v1/checkout/sessions/' . urlencode($txnRef));
+                        curl_setopt_array($chs, [
+                            CURLOPT_RETURNTRANSFER => true,
+                            CURLOPT_USERPWD => $secret . ':',
+                            CURLOPT_TIMEOUT => 30,
+                            CURLOPT_SSL_VERIFYPEER => true,
+                            CURLOPT_SSL_VERIFYHOST => 2,
+                        ]);
+                        $sResp = curl_exec($chs);
+                        curl_close($chs);
+                        $sJson = json_decode((string) $sResp, true);
+                        $paymentIntent = $sJson['payment_intent'] ?? '';
+                        if ($paymentIntent === '') {
+                            return ['status' => 'failed', 'message' => 'Could not resolve Stripe PaymentIntent from session', 'gateway' => 'stripe'];
+                        }
+                    }
+                    $minor = (int) round($refundAmt * 100);
+                    $ch = curl_init('https://api.stripe.com/v1/refunds');
+                    curl_setopt_array($ch, [
+                        CURLOPT_RETURNTRANSFER => true,
+                        CURLOPT_POST => true,
+                        CURLOPT_USERPWD => $secret . ':',
+                        CURLOPT_POSTFIELDS => http_build_query(['payment_intent' => $paymentIntent, 'amount' => $minor]),
+                        CURLOPT_TIMEOUT => 30,
+                        CURLOPT_CONNECTTIMEOUT => 15,
+                        CURLOPT_SSL_VERIFYPEER => true,
+                        CURLOPT_SSL_VERIFYHOST => 2,
+                    ]);
+                    $resp = curl_exec($ch);
+                    $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                    curl_close($ch);
+                    $j = json_decode((string) $resp, true);
+                    if ($code >= 200 && $code < 300 && !empty($j['id'])) {
+                        return ['status' => 'refunded', 'reference' => $j['id'], 'amount' => $refundAmt, 'gateway' => 'stripe'];
+                    }
+                    return ['status' => 'failed', 'message' => $j['error']['message'] ?? "Stripe refund HTTP {$code}", 'gateway' => 'stripe'];
+
+                // ---- Internal ledger gateways: reversal is an in-app ledger post ----
+                case 'wallet balance':
+                case 'wallet_balance':
+                case 'credits':
+                    return ['status' => 'unsupported', 'message' => 'Internal ' . $gatewayName . ' reversal must be posted to the wallet/credits ledger by an operator', 'gateway' => $gatewayName];
+
+                // ---- No refund API implemented yet: be honest ----
+                default:
+                    return ['status' => 'unsupported', 'message' => "Automated refund is not implemented for gateway '{$gatewayName}'. Process it manually in the gateway dashboard.", 'gateway' => $gatewayName];
+            }
+        } catch (\Throwable $e) {
+            error_log('refund_gateway_payment error (' . $gatewayName . '): ' . $e->getMessage());
+            return ['status' => 'failed', 'message' => $e->getMessage(), 'gateway' => $gatewayName];
+        }
+    }
+}

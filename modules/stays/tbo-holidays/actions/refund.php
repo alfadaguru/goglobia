@@ -88,17 +88,34 @@ $router->post('stays/tbo-holidays/refund', function () use ($db) {
             'note' => 'Payment refund marked after TBO Holidays cancellation (no separate Refund API)',
         ];
 
+        // Reverse the customer's charge via the gateway (TBO has no supplier
+        // refund API — the money-back is the gateway leg). Only mark 'refunded'
+        // if the gateway refund actually succeeds.
+        require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
+        // Refund the net of any TBO cancellation charge if we have it, else full.
+        $customerRefund = (isset($tboCancelCharge) && is_numeric($tboCancelCharge) && (float) $tboCancelCharge > 0)
+            ? max(0, (float) ($booking['price_markup'] ?? 0) - (float) $tboCancelCharge)
+            : null;
+        $refund = function_exists('refund_gateway_payment')
+            ? refund_gateway_payment($db, $booking, $customerRefund, 'TBO Holidays refund')
+            : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+        $gatewayRefunded = ($refund['status'] === 'refunded');
+
         $db->update('bookings', [
-            'payment_status' => 'refunded',
+            'payment_status' => $gatewayRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
             'booking_data' => json_encode($bookingData),
             'error_response' => null,
             'booking_payment_issue' => null,
+            'cancellation_response' => $gatewayRefunded
+                ? ('Gateway refund ' . ($refund['reference'] ?? '') . ' on ' . $refundDate)
+                : ('Gateway refund NOT automated (' . ($refund['message'] ?? 'unsupported') . '). Refund manually.'),
             'updated_at' => $refundDate,
         ], ['id' => $booking['id']]);
 
         $responseData = [
             'invoice_id' => $invoiceId,
-            'payment_status' => 'refunded',
+            'payment_status' => $gatewayRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
+            'gateway_refund' => $gatewayRefunded,
             'booking_status' => $booking['booking_status'],
             'pnr' => $booking['pnr'] ?? null,
             'amount' => $amount,
@@ -113,7 +130,9 @@ $router->post('stays/tbo-holidays/refund', function () use ($db) {
         echo json_encode([
             'success' => true,
             'status' => true,
-            'message' => 'Refund request processed successfully. Payment status updated to refunded.',
+            'message' => $gatewayRefunded
+                ? ('Refund completed via ' . ($refund['gateway'] ?? 'gateway') . '.')
+                : ('Cancelled; automated card refund not possible (' . ($refund['message'] ?? 'unsupported') . '). Refund the customer manually.'),
             'data' => $responseData,
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     } catch (Exception $e) {

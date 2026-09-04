@@ -119,12 +119,46 @@ $router->post('flights/mystifly/issue', function () use ($db) {
         }
 
         // -----------------------------------------------------------------------
-        // STEP 1: Skipped — FSC already revalidated on booking page (pre-payment).
-        // Read HoldAllowed / FareType directly from saved booking_data.
+        // STEP 1: RE-VALIDATE the fare with Mystifly AFTER payment, then reconcile
+        // the live total against what the customer paid (§8.1(2) fix). Previously
+        // this step was SKIPPED (trusting the pre-payment revalidate), so a fare
+        // move between checkout and ticketing was booked silently. Uses the same
+        // api/v1/Revalidate/Flight call the revalidate.php route uses.
         // -----------------------------------------------------------------------
-        error_log("[MYSTIFLY_ISSUE:{$invoiceId}] STEP 1 — skipped (pre-payment revalidate already done), FSC={$fareSourceCode}");
-
         $validatedFSC = $fareSourceCode;
+
+        $revalResult = mystiflyApiRequest($db, 'api/v1/Revalidate/Flight', [
+            'FareSourceCode' => $fareSourceCode,
+        ], 'POST', $invoiceId);
+        $revalDecoded = $revalResult['data'] ?? [];
+        $revalData    = $revalDecoded['Data'] ?? $revalDecoded;
+        $revalItin    = $revalData['RevalidateItinerary'] ?? [];
+
+        // Adopt the revalidated FareSourceCode if Mystifly returned a new one.
+        $revalFSC = $revalItin['FareSourceCode']
+            ?? ($revalData['PricedItineraries'][0]['FareSourceCode'] ?? '');
+        if (!empty($revalFSC)) {
+            $validatedFSC = $revalFSC;
+        }
+
+        // Live total from RevalidateItinerary.AirItineraryPricingInfo.ItinTotalFare.
+        $revalPi       = $revalItin['AirItineraryPricingInfo'] ?? [];
+        $mfLiveTotal   = (float) ($revalPi['ItinTotalFare']['TotalFare']['Amount'] ?? 0);
+        $mfLiveCurrency= (string) ($revalPi['ItinTotalFare']['TotalFare']['CurrencyCode']
+            ?? ($booking['currency_markup'] ?? 'USD'));
+
+        if (isset($booking) && is_array($booking) && function_exists('reconcilePostPaymentPrice') && $mfLiveTotal > 0) {
+            $mfPriceCheck = reconcilePostPaymentPrice($db, $booking, $mfLiveTotal, $mfLiveCurrency);
+            if (empty($mfPriceCheck['ok'])) {
+                echo json_encode([
+                    'status'  => false,
+                    'message' => 'Booking held for review: ' . $mfPriceCheck['reason'],
+                    'price_review' => $mfPriceCheck,
+                ], JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+        }
+        error_log("[MYSTIFLY_ISSUE:{$invoiceId}] STEP 1 — revalidated, FSC={$validatedFSC}, live_total={$mfLiveTotal}");
 
         $holdRaw     = $bookingData['hold_allowed']
             ?? $bookingData['booking_data']['hold_allowed']

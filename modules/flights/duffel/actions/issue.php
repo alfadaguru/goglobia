@@ -458,6 +458,24 @@ $router->post('flights/duffel/issue', function () use ($db) {
         $total_price = number_format((float) $base_price + $actual_services_total, 2, '.', '');
         $currency = !empty($offer_currency) ? $offer_currency : ($booking_data['currency'] ?? 'USD');
 
+        // POST-PAYMENT PRICE RECONCILIATION: the live Duffel total ($total_price)
+        // is compared to what the customer actually paid before we book. If the
+        // fare rose beyond tolerance, abort the auto-issue and flag for review
+        // rather than silently paying the higher amount from balance.
+        if (function_exists('reconcilePostPaymentPrice')) {
+            $priceCheck = reconcilePostPaymentPrice($db, $booking, (float) $total_price, $currency);
+            if (empty($priceCheck['ok'])) {
+                ob_get_level() && ob_clean();
+                echo json_encode([
+                    'status'  => false,
+                    'message' => 'Booking held for review: ' . $priceCheck['reason'],
+                    'price_review' => $priceCheck,
+                    'invoice_id' => $invoice_id,
+                ], JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+        }
+
         // Prepare order payload
         $payload = [
             'data' => [

@@ -9,3 +9,4 @@ include "search.php";
 include "actions/issue.php";
 include "actions/refund.php";
 include "actions/void.php";
+include "actions/cancel.php";

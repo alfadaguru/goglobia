@@ -225,6 +225,30 @@ $router->post('flights/amadeus/issue', function() use ($db) {
         if ($repricingHttpCode === 200 && isset($repricingData['data']['flightOffers'][0])) {
             // Use repriced offer for booking
             $flightOffer = $repricingData['data']['flightOffers'][0];
+
+            // POST-PAYMENT PRICE RECONCILIATION (§8.1(2) fix): compare the repriced
+            // Amadeus grandTotal to what the customer paid before creating the
+            // order. Abort + flag if the fare rose beyond tolerance instead of
+            // silently booking at the new price.
+            if (function_exists('reconcilePostPaymentPrice')) {
+                $amaLiveTotal = (float) ($flightOffer['price']['grandTotal']
+                    ?? $flightOffer['price']['total'] ?? 0);
+                $amaCurrency  = (string) ($flightOffer['price']['currency']
+                    ?? ($booking['currency_markup'] ?? 'USD'));
+                if ($amaLiveTotal > 0) {
+                    $amaPriceCheck = reconcilePostPaymentPrice($db, $booking, $amaLiveTotal, $amaCurrency);
+                    if (empty($amaPriceCheck['ok'])) {
+                        echo json_encode([
+                            'status'  => false,
+                            'Prn'     => '',
+                            'message' => 'Booking held for review: ' . $amaPriceCheck['reason'],
+                            'price_review' => $amaPriceCheck,
+                            'response_error' => 'price_mismatch',
+                        ], JSON_UNESCAPED_SLASHES);
+                        return;
+                    }
+                }
+            }
         } else {
             // Repricing failed - flight may no longer be available or schedule changed
             $errorMsg = 'Flight schedule has changed or is no longer available at this price. Please search again for current flights.';
@@ -242,9 +266,10 @@ $router->post('flights/amadeus/issue', function() use ($db) {
             
             error_log("AMADEUS ISSUE: Repricing failed - Code: {$errorCode}, Message: {$errorMsg}");
             
-            // Update booking with error
+            // Update booking with error. booking_status ENUM is
+            // confirmed|pending|cancelled — 'failed' truncates → keep 'pending'.
             $db->update('bookings', [
-                'booking_status' => 'failed',
+                'booking_status' => 'pending',
                 'error_response' => json_encode([
                     'error' => 'Repricing failed',
                     'code' => $errorCode,

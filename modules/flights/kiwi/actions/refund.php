@@ -166,9 +166,23 @@ $router->post('flights/kiwi/refund', function() use ($db) {
         // STEP 5: UPDATE DATABASE
         // ========================================
 
+        // Attempt to reverse the CUSTOMER's charge via the payment gateway (Kiwi
+        // itself has no programmatic refund — this at least returns the money if
+        // the gateway supports it). booking_status ENUM = confirmed|pending|
+        // cancelled ('refund_pending' truncates); use 'cancelled'. Store details
+        // in cancellation_response (there is no 'refund_response' column).
+        require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
+        $kiwiGwRefund = function_exists('refund_gateway_payment')
+            ? refund_gateway_payment($db, $booking, null, 'Kiwi flight refund')
+            : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+        $kiwiGatewayRefunded = ($kiwiGwRefund['status'] === 'refunded');
+        $refundDetails['gateway_refund'] = $kiwiGwRefund;
+
         $db->update('bookings', [
-            'booking_status' => 'refund_pending',
-            'refund_response' => json_encode($refundDetails)
+            'booking_status' => 'cancelled',
+            'payment_status' => $kiwiGatewayRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
+            'cancellation_status' => 1,
+            'cancellation_response' => json_encode($refundDetails)
         ], [
             'invoice_id' => $invoice_id
         ]);

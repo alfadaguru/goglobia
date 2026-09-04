@@ -540,6 +540,28 @@ $router->post('stays/hotelston/issue', function () use ($db) {
             $bookRooms[] = $roomEntry;
         }
 
+        // POST-PAYMENT PRICE RECONCILIATION (§8.1(2) fix): sum the LIVE Hotelston
+        // room prices from checkAvailability and compare to what the customer paid
+        // before bookHotel. Abort + flag if the total rose beyond tolerance instead
+        // of silently booking at the higher price.
+        if (function_exists('reconcilePostPaymentPrice')) {
+            $hsLiveTotal = 0.0;
+            foreach ($bookRooms as $r) { $hsLiveTotal += (float) ($r['price'] ?? 0); }
+            if ($hsLiveTotal > 0) {
+                $hsPriceCheck = reconcilePostPaymentPrice($db, $booking, $hsLiveTotal, (string) $currency);
+                if (empty($hsPriceCheck['ok'])) {
+                    while (ob_get_level()) { ob_end_clean(); }
+                    echo json_encode([
+                        'status'  => false,
+                        'success' => false,
+                        'message' => 'Booking held for review: ' . $hsPriceCheck['reason'],
+                        'price_review' => $hsPriceCheck,
+                    ], JSON_UNESCAPED_SLASHES);
+                    return;
+                }
+            }
+        }
+
         // Build bookHotel XML
         $buildBookXml = static function ($rooms) use ($xmlAttr, $email, $password, $profile, $currency, $hotelId, $checkin, $checkout, $invoiceId, $env, $nationality, $contactTitle, $contactFirst, $contactLast, $contactEmail, $contactPhone) {
             $xml = '<xsd:BookHotelRequest>'

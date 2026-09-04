@@ -579,6 +579,31 @@ $router->post('/stays/ratehawk/issue', function() use ($db) {
         // amount_sell_b2b2c must match payment currency/amount scale (not display EGP markup)
         $sellAmount = (string)($selectedPaymentType['amount'] ?? '0');
 
+        // POST-PAYMENT PRICE RECONCILIATION: RateHawk prebook runs with
+        // price_increase_percent=20, so the supplier may return a net rate up to
+        // 20% higher than at search. Compare that live amount to what the customer
+        // paid BEFORE finishing the booking; abort + flag if it rose beyond
+        // tolerance instead of silently committing the higher rate.
+        if (function_exists('reconcilePostPaymentPrice')) {
+            $priceCheck = reconcilePostPaymentPrice(
+                $db,
+                $booking,
+                (float) $sellAmount,
+                (string) ($selectedPaymentType['currency_code'] ?? ($bookingData['currency'] ?? 'USD'))
+            );
+            if (empty($priceCheck['ok'])) {
+                while (ob_get_level()) { ob_end_clean(); }
+                echo json_encode([
+                    'success' => false,
+                    'status'  => false,
+                    'message' => 'Booking held for review: ' . $priceCheck['reason'],
+                    'price_review' => $priceCheck,
+                    'invoice_id' => $invoice_id ?? ($booking['invoice_id'] ?? ''),
+                ], JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+        }
+
         $userPayload = [
             'email' => $primaryGuest['email'] ?? $booking['email'],
             'comment' => $booking['special_requests'] ?? ''

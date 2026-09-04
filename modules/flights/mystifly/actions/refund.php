@@ -403,11 +403,21 @@ $router->post('/flights/mystifly/refund', function () use ($db) {
         $bookingData['refund_ptr_type'] = $searchPtrType;
         $bookingData['refunded_at']     = date('Y-m-d H:i:s');
 
+        // The Mystifly supplier PTR refund succeeded above. Now reverse the
+        // CUSTOMER's charge via the payment gateway; only mark 'refunded' if that
+        // gateway refund actually goes through (was DB-flip only).
+        require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
+        $gwRefund = function_exists('refund_gateway_payment')
+            ? refund_gateway_payment($db, $booking, null, 'Mystifly flight refund')
+            : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+        $bookingData['gateway_refund'] = $gwRefund;
+        $mfGatewayRefunded = ($gwRefund['status'] === 'refunded');
+
         $db->update('bookings', [
-            'payment_status'        => 'refunded',
+            'payment_status'        => $mfGatewayRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
             'booking_status'        => 'cancelled',
             'cancellation_status'   => 1,
-            'cancellation_response' => json_encode($data),
+            'cancellation_response' => json_encode(['supplier' => $data, 'gateway_refund' => $gwRefund]),
             'booking_data'          => json_encode($bookingData),
         ], ['invoice_id' => $invoiceId]);
 

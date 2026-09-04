@@ -1,463 +1,116 @@
 <?php
-
-use Medoo\Medoo;
-
-// ==============================================================================
-// PKFARE FLIGHT BOOKING - ISSUE PNR
-// ==============================================================================
-// Purpose: Issue a PNR via PKFare preciseBooking API after payment is confirmed
-// Called by: Payment Gateway auto-issue mechanism
-// Documentation: PKFare API v6 - preciseBooking_V6
-// ==============================================================================
-
-// INPUT PARAMETERS:
-// -----------------
-// invoice_id (string) - Required - Booking invoice ID from database
+// ============================================================================
+// PKFARE FLIGHT REFUND
+// ============================================================================
+// ENDPOINT: POST /flights/pkfare/refund
 //
-// PROCESS FLOW:
-// -------------
-// 1. Validate invoice_id and fetch booking from database
-// 2. Get PKFare credentials from modules table
-// 3. Extract booking data and flight offer
-// 4. Build passenger/traveler payload with passport details
-// 5. Call PKFare preciseBooking_V6 API to create order
-// 6. Extract order number and PNR from response
-// 7. Update bookings table with booking_response and pnr
-// 8. Return success response with booking details
+// IMPORTANT (why this file was rewritten):
+//   This file previously contained a byte-for-byte COPY of actions/issue.php,
+//   which (a) registered a SECOND `flights/pkfare/issue` route — a collision
+//   that could override the real issue handler — and (b) meant a "refund"
+//   request would actually create an airline booking. Both are fixed here.
 //
-// PKFARE PRECISE BOOKING API
-// ---------------------------
-// API Endpoint: POST https://api.pkfare.com/air/api/preciseBooking_V6
-// Authentication: MD5 signature (partnerId + apiKey)
+// PKFare's post-ticketing refund is processed through PKFare's OrderRefund /
+// refund-application API + their refund desk (partner-gated; the exact endpoint
+// and signature are provided per-partner in PKFare's docs and are NOT public).
+// Rather than fabricate an unverified remote call, this handler records the
+// customer refund request against the booking (payment_status='refunded' — the
+// bookings enum's refund state) and defers the actual money movement to the
+// operator/PKFare desk, exactly like the other flight refund modules do. When
+// the OrderRefund endpoint/signature are confirmed for this account, add the
+// real cURL call here (mirror actions/void.php's OrderCancel auth:
+// signature = md5(partnerId . apiKey), base https://api.pkfare.com/air/api/...).
 //
-// Request Parameters:
-// - authentication (partnerId, sign)
-// - shoppingId (from search response)
-// - solution (flight solution object)
-// - passengerList (passenger details with documents)
-// - contactInfo (email, phone, country code)
-//
-// Response:
-// - success/error flag
-// - orderNo (order number)
-// - pnr (booking reference)
-// - Order confirmation details
+// NB: this reverses the DB state only. The customer's card is refunded by the
+// operator in the payment gateway — the platform-wide reality documented in
+// docs/MODULES.md §8.1(1).
+// ============================================================================
 
-$router->post('flights/pkfare/issue', function() use ($db) {
+$router->post('flights/pkfare/refund', function () use ($db) {
+
+    if (ob_get_level()) {
+        ob_end_clean();
+    }
+    ob_start();
 
     header('Content-Type: application/json');
     header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization');
+
+    error_reporting(E_ALL);
+    ini_set('display_errors', 0);
+    ini_set('log_errors', 1);
+
+    $invoice_id = '';
 
     try {
-        // ========================================
-        // STEP 1: VALIDATE AND FETCH BOOKING
-        // ========================================
-
-
-        if (!isset($_POST['invoice_id']) || empty(trim($_POST['invoice_id']))) {
-            throw new Exception('Missing required parameter: invoice_id');
+        if (!$db) {
+            throw new Exception('Database connection not available');
         }
 
-        $invoice_id = trim($_POST['invoice_id']);
+        $invoice_id = $_POST['invoice_id'] ?? '';
+        if (empty($invoice_id)) {
+            throw new Exception('Missing invoice_id parameter in POST data');
+        }
 
-        // Get booking from database
         $booking = $db->get('bookings', '*', ['invoice_id' => $invoice_id]);
-
         if (!$booking) {
             throw new Exception('Booking not found for invoice_id: ' . $invoice_id);
         }
 
-        error_log("PKFARE ISSUE: Payment status: " . ($booking['payment_status'] ?? 'N/A'));
-
-        // Check if already issued
-        if (!empty($booking['pnr']) && $booking['booking_status'] === 'confirmed') {
+        // Idempotency: don't re-refund.
+        if (($booking['payment_status'] ?? '') === 'refunded') {
+            ob_clean();
             echo json_encode([
-                'status' => true,
-                'message' => 'Booking already issued',
-                'response' => [
-                    'pnr' => $booking['pnr'],
-                    'booking_status' => 'confirmed',
-                    'order_number' => !empty($booking['booking_response']) ?
-                        (json_decode($booking['booking_response'], true)['orderNo'] ?? null) : null
-                ]
+                'status'         => true,
+                'message'        => 'Booking is already marked refunded.',
+                'invoice_id'     => $invoice_id,
+                'payment_status' => 'refunded',
             ]);
-            exit;
+            return;
         }
 
-        // ========================================
-        // STEP 2: GET PKFARE CREDENTIALS
-        // ========================================
-
-
-        $module = $db->get('modules', '*', [
-            'name' => 'pkfare',
-            'type' => 'flights'
-        ]);
-
-        if (!$module) {
-            throw new Exception('PKFare module not configured');
-        }
-
-        // Decode credentials
-        $partnerId = base64_decode($module['c1']);
-        $apiKey = base64_decode($module['c2']);
-        $environment = $module['env'] ?? 'live';
-
-        if (empty($partnerId) || empty($apiKey)) {
-            throw new Exception('PKFare credentials not configured properly');
-        }
-
-        // Generate signature
-        $sign = md5($partnerId . $apiKey);
-
-
-        // ========================================
-        // STEP 3: EXTRACT BOOKING DATA
-        // ========================================
-
-
-        // Parse booking_data JSON
-        $bookingData = json_decode($booking['booking_data'], true);
-
-        if (!$bookingData) {
-            throw new Exception('Invalid booking_data format');
-        }
-
-
-        // PKFare stores booking data in 'key' field which contains the search response data
-        $flightData = null;
-
-        if (isset($bookingData['key'])) {
-            // Key contains the serialized booking data
-            $keyData = json_decode($bookingData['key'], true);
-            if ($keyData && isset($keyData['flight_data'])) {
-                $flightData = $keyData['flight_data'];
-            }
-        } elseif (isset($bookingData['flight_data'])) {
-            $flightData = $bookingData['flight_data'];
-        }
-
-        if (!$flightData) {
-            throw new Exception('Flight data not found in booking. Available keys: ' . implode(', ', array_keys($bookingData)));
-        }
-
-        error_log("PKFARE ISSUE: Flight data extracted, keys: " . implode(', ', array_keys($flightData)));
-
-        // The actual booking_data with solutionId is nested inside flight_data
-        $pkfareBookingData = $flightData['booking_data'] ?? null;
-
-        if (!$pkfareBookingData || !is_array($pkfareBookingData)) {
-            throw new Exception('PKFare booking_data not found in flight_data. Available keys: ' . implode(', ', array_keys($flightData)));
-        }
-
-
-        // Extract solutionId and journey data
-        $solutionId = $pkfareBookingData['solutionId'] ?? null;
-        $journey_0 = $pkfareBookingData['journey_0'] ?? null;
-        $journey_1 = $pkfareBookingData['journey_1'] ?? null;
-
-        if (!$solutionId) {
-            throw new Exception('Solution ID not found. Available keys: ' . implode(', ', array_keys($flightData)));
-        }
-
-        // Build the solution structure for PKFare booking
-        $solution = [
-            'solutionId' => $solutionId,
-            'journeys' => []
-        ];
-
-        if ($journey_0) {
-            $solution['journeys']['journey_0'] = $journey_0;
-        }
-
-        if ($journey_1) {
-            $solution['journeys']['journey_1'] = $journey_1;
-        }
-
-        error_log("PKFARE ISSUE: Solution built with solutionId: " . $solutionId);
-
-        // Extract shopping ID if available (not required for preciseBooking)
-        $shoppingId = $flightData['shoppingId'] ?? '';
-
-        // ========================================
-        // STEP 4: BUILD PASSENGER PAYLOAD
-        // ========================================
-
-        error_log("PKFARE ISSUE: Building passenger payload");
-
-        // Parse travellers data
-        $travellers = json_decode($booking['travellers'], true);
-
-        if (!$travellers || !is_array($travellers)) {
-            throw new Exception('Invalid travellers data');
-        }
-
-        $passengerList = [];
-        $passengerIndex = 1;
-
-        foreach ($travellers as $traveller) {
-
-            // Validate required fields
-            if (empty($traveller['first_name']) || empty($traveller['last_name'])) {
-                throw new Exception('Missing passenger name for traveller');
-            }
-
-            // Determine passenger type and default DOB
-            $passengerType = strtoupper($traveller['type'] ?? 'ADT');
-            $defaultDob = date('Y-m-d', strtotime('-30 years')); // Default adult DOB
-
-            if ($passengerType === 'CHD' || $passengerType === 'CHILD') {
-                $passengerType = 'CHD';
-                $defaultDob = date('Y-m-d', strtotime('-5 years'));
-            } elseif ($passengerType === 'INF' || $passengerType === 'INFANT') {
-                $passengerType = 'INF';
-                $defaultDob = date('Y-m-d', strtotime('-1 year'));
-            } else {
-                $passengerType = 'ADT';
-            }
-
-            // Use provided DOB or default based on passenger type
-            $dob = !empty($traveller['dob']) ? $traveller['dob'] : $defaultDob;
-
-            // If DOB is provided, calculate age to verify passenger type
-            if (!empty($traveller['dob'])) {
-                try {
-                    $dobDate = new DateTime($traveller['dob']);
-                    $today = new DateTime();
-                    $age = $today->diff($dobDate)->y;
-
-                    // Override type based on age if DOB is provided
-                    if ($age < 2) {
-                        $passengerType = 'INF';
-                    } elseif ($age < 12) {
-                        $passengerType = 'CHD';
-                    } else {
-                        $passengerType = 'ADT';
-                    }
-                } catch (Exception $e) {
-                    error_log("PKFARE ISSUE: Invalid DOB format for " . $traveller['first_name'] . ", using default");
-                }
-            }
-
-            // Build passenger data
-            $passenger = [
-                'passengerIndex' => $passengerIndex,
-                'firstName' => strtoupper($traveller['first_name']),
-                'lastName' => strtoupper($traveller['last_name']),
-                'psgType' => $passengerType,
-                'birthday' => date('Y-m-d', strtotime($dob)),
-                'sex' => isset($traveller['gender']) ? (strtoupper($traveller['gender']) === 'MALE' ? 'M' : 'F') : 'M',
-                'nationality' => $traveller['nationality'] ?? 'PK'
-            ];
-
-            // Add infant association (infants must be associated with an adult)
-            if ($passengerType === 'INF') {
-                $passenger['associatedPassengerIndex'] = 1; // Associate with first adult
-            }
-
-            // Add to passenger list
-            $passengerList[] = $passenger;
-            $passengerIndex++;
-
-            error_log("PKFARE ISSUE: Added passenger: " . $passenger['firstName'] . ' ' . $passenger['lastName'] . ' (' . $passengerType . ')');
-        }
-
-        if (empty($passengerList)) {
-            throw new Exception('No valid passengers found');
-        }
-
-        // ========================================
-        // STEP 5: PREPARE BOOKING REQUEST
-        // ========================================
-
-        // PKFare expects booking data wrapped in "booking" object
-        $bookingRequest = [
-            'authentication' => [
-                'partnerId' => $partnerId,
-                'sign' => $sign
-            ],
-            'booking' => [
-                'passengers' => $passengerList,
-                'solution' => $solution
-            ]
-        ];
-
-        $requestJson = json_encode($bookingRequest, JSON_PRETTY_PRINT);
-
-        error_log("PKFARE ISSUE: Booking request prepared");
-
-        // ========================================
-        // STEP 6: CALL PKFARE BOOKING API
-        // ========================================
-
-        $apiEndpoint = 'https://api.pkfare.com/json/preciseBooking_V6';
-
-        error_log("PKFARE ISSUE: Calling PKFare preciseBooking API");
-        error_log("PKFARE ISSUE: Endpoint: " . $apiEndpoint);
-
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $apiEndpoint);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $requestJson);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Content-Type: application/json',
-            'Accept: application/json'
-        ]);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-
-        if ($curlError) {
-            throw new Exception('Curl error: ' . $curlError);
-        }
-
-        error_log("PKFARE ISSUE: API response received, HTTP code: " . $httpCode);
-
-        // ========================================
-        // STEP 8: PARSE BOOKING RESPONSE
-        // ========================================
-
-        $responseData = json_decode($response, true);
-
-        if (!$responseData) {
-            throw new Exception('Invalid JSON response from PKFare API');
-        }
-
-        // Check for errors
-        $success = $responseData['success'] ?? false;
-        $errorCode = $responseData['errorCode'] ?? null;
-        $errorMsg = $responseData['errorMsg'] ?? $responseData['message'] ?? 'Unknown error';
-
-        if (!$success || $errorCode) {
-            error_log("PKFARE ISSUE ERROR: Code={$errorCode}, Message={$errorMsg}");
-            throw new Exception("PKFare booking failed: [{$errorCode}] {$errorMsg}");
-        }
-
-        // Extract order number and PNR
-        $orderNo = null;
-        $pnr = null;
-
-        // Order number can be in different fields
-        if (isset($responseData['orderNo'])) {
-            $orderNo = $responseData['orderNo'];
-        } elseif (isset($responseData['data']['orderNo'])) {
-            $orderNo = $responseData['data']['orderNo'];
-        } elseif (isset($responseData['order']['orderNo'])) {
-            $orderNo = $responseData['order']['orderNo'];
-        }
-
-        // PNR can be in different fields
-        if (isset($responseData['pnr'])) {
-            $pnr = $responseData['pnr'];
-        } elseif (isset($responseData['data']['pnr'])) {
-            $pnr = $responseData['data']['pnr'];
-        } elseif (isset($responseData['order']['pnr'])) {
-            $pnr = $responseData['order']['pnr'];
-        } elseif (isset($responseData['data']['routing']['pnr'])) {
-            $pnr = $responseData['data']['routing']['pnr'];
-        }
-
-        // Use orderNo as PNR if PNR not found
-        if (!$pnr && $orderNo) {
-            $pnr = $orderNo;
-        }
-
-        if (!$pnr) {
-            error_log("PKFARE ISSUE WARNING: No PNR found in response");
-            error_log("PKFARE ISSUE: Available keys: " . implode(', ', array_keys($responseData)));
-            throw new Exception('PNR not found in booking response');
-        }
-
-
-        // ========================================
-        // STEP 9: UPDATE DATABASE
-        // ========================================
-
-        error_log("PKFARE ISSUE: Updating database with booking response");
-
-        $updateResult = $db->update('bookings', [
-            'pnr' => $pnr,
-            'booking_response' => $response,
-            'booking_status' => 'confirmed',
-            'updated_at' => date('Y-m-d H:i:s')
-        ], [
-            'invoice_id' => $invoice_id
-        ]);
-
-        if ($updateResult === false) {
-            $dbError = "";
-            error_log("PKFARE ISSUE: Database update failed: " . json_encode($dbError));
-            throw new Exception('Failed to update booking in database');
-        }
-
-
-        // ========================================
-        // STEP 10: RETURN SUCCESS RESPONSE
-        // ========================================
-
-        $successResponse = [
-            'status' => true,
-            'Prn' => $pnr,
-            'booking_reference' => $pnr,
-            'reference' => $pnr,
-            'message' => 'PNR issued successfully',
-            'response_error' => '',
-            'response' => [
-                'pnr' => $pnr,
-                'order_number' => $orderNo,
-                'booking_status' => 'confirmed',
-                'invoice_id' => $invoice_id,
-                'issued_at' => date('Y-m-d H:i:s')
-            ]
-        ];
-
-
-        echo json_encode($successResponse);
-
-    } catch (Exception $e) {
-
-        error_log("PKFARE ISSUE ERROR: " . $e->getMessage());
-        error_log("PKFARE ISSUE ERROR TRACE: " . $e->getTraceAsString());
-
-        // Save error to database for admin visibility
-        if (isset($invoice_id) && !empty($invoice_id)) {
-            $errorMessage = 'PKFare Issue Failed: ' . $e->getMessage();
-            $errorDetails = [
-                'error' => $e->getMessage(),
-                'timestamp' => date('Y-m-d H:i:s'),
-                'endpoint' => 'flights/pkfare/issue',
-                'trace' => $e->getTraceAsString()
-            ];
-
-
-            $updateResult = $db->update('bookings', [
-                'error_response' => json_encode($errorDetails)
-            ], [
-                'invoice_id' => $invoice_id
-            ]);
-
-            if ($updateResult) {
-                $rowsAffected = $updateResult->rowCount();
-            } else {
-                error_log("PKFARE ISSUE: Database update returned null");
-            }
-        } else {
-            error_log("PKFARE ISSUE: Cannot save error - invoice_id not set");
-        }
-
-        // Return error response
+        // Reverse the CUSTOMER's charge via the payment gateway. PKFare's airline
+        // refund runs through its OrderRefund desk (partner-gated), but the card
+        // refund we CAN do here. Only mark 'refunded' if the gateway refund works.
+        require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
+        $pkGwRefund = function_exists('refund_gateway_payment')
+            ? refund_gateway_payment($db, $booking, null, 'PKFare flight refund')
+            : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+        $pkGatewayRefunded = ($pkGwRefund['status'] === 'refunded');
+
+        // booking_status enum = confirmed|pending|cancelled; payment_status enum =
+        // paid|unpaid|refunded. Use those valid values only.
+        $db->update('bookings', [
+            'payment_status'      => $pkGatewayRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
+            'booking_status'      => 'cancelled',
+            'cancellation_status' => 1,
+            'cancellation_request'=> 1,
+            'cancellation_response'=> json_encode(['gateway_refund' => $pkGwRefund]),
+            'error_response'      => json_encode([
+                'refund_state' => $pkGatewayRefunded ? 'card_refunded_airline_desk_pending' : 'requested',
+                'note'         => 'PKFare refund on ' . date('Y-m-d H:i:s') .
+                                  '. Airline refund via PKFare OrderRefund/desk' .
+                                  ($pkGatewayRefunded ? '.' : '; customer card refund NOT automated (' . ($pkGwRefund['message'] ?? 'unsupported') . ') — process manually.'),
+            ]),
+        ], ['invoice_id' => $invoice_id]);
+
+        error_log('PKFARE REFUND: booking ' . $invoice_id . ' gateway_refund=' . $pkGwRefund['status']);
+
+        ob_clean();
         echo json_encode([
-            'status' => false,
-            'message' => 'Failed to issue PNR',
-            'error' => $e->getMessage(),
-            'response' => []
-        ]);
+            'status'         => true,
+            'message'        => $pkGatewayRefunded
+                ? ('Customer card refunded via ' . ($pkGwRefund['gateway'] ?? 'gateway') . '. The PKFare airline refund is processed via the PKFare desk.')
+                : ('Recorded. Automated card refund not possible (' . ($pkGwRefund['message'] ?? 'unsupported') . '); the airline (PKFare desk) and card refund are processed manually by an operator.'),
+            'invoice_id'     => $invoice_id,
+            'payment_status' => $pkGatewayRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
+            'gateway_refund' => $pkGatewayRefunded,
+        ], JSON_UNESCAPED_SLASHES);
+    } catch (Throwable $e) {
+        error_log('PKFARE REFUND ERROR (' . $invoice_id . '): ' . $e->getMessage());
+        ob_clean();
+        echo json_encode(['status' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_SLASHES);
     }
-
 });
-
-?>

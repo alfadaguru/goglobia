@@ -27458,7 +27458,8 @@ CREATE TABLE `modules` (
   `ancillaries_enabled` tinyint(1) DEFAULT 0,
   `emd_enabled` tinyint(1) DEFAULT 0,
   `credentials` enum('1','0') DEFAULT '1',
-  `ai_enabled` tinyint(1) NOT NULL DEFAULT 0
+  `ai_enabled` tinyint(1) NOT NULL DEFAULT 0,
+  `booking_class` enum('real','affiliate','own','stub','') NOT NULL DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 
 --
@@ -27507,7 +27508,8 @@ INSERT INTO `modules` (`id`, `name`, `active`, `type`, `status`, `c1`, `c2`, `c3
 (43, 'bus', '1', 'bus', '1', NULL, NULL, NULL, NULL, NULL, NULL, '0', '1', 'USD', '#0ea5e9', 1, '0', 'percentage', 3, 'directions_bus', 'percentage', '2', '1', '0', 0, 1, NULL, NULL, NULL, NULL, 0, 'percentage', 0, 0, '0', 0),
 (46, 'toursbms', '1', 'tours', '', '', 'MI000113', 'https://api.toursbms.com/', NULL, NULL, NULL, '1', '1', 'USD', NULL, 5, '0', 'percentage', 10, 'tour', 'percentage', '5', '1', '1', 0, 1, '', '', '', '', 0, 'percentage', 0, 0, '1', 0),
 (47, 'train', '1', 'rail', '1', 'YOUR_RAIL_API_KEY', 'YOUR_RAIL_BASE_URL', '', '', '', '', '0', '1', 'USD', '#4f46e5', 1, '', 'percentage', 5, 'train', 'percentage', '2', '', '', 0, 1, '', '', '', '', 0, 'percentage', 0, 0, '1', 0),
-(68, 'mozio', '1', 'cars', '1', '', '', '', '', '', '', '1', '1', 'USD', '#00a86b', 2, '0', 'percentage', 3, 'directions_car', 'percentage', '2', '1', '0', 0, 1, NULL, NULL, NULL, NULL, 0, 'percentage', 0, 0, '1', 0);
+(68, 'mozio', '1', 'cars', '1', '', '', '', '', '', '', '1', '1', 'USD', '#00a86b', 2, '0', 'percentage', 3, 'directions_car', 'percentage', '2', '1', '0', 0, 1, NULL, NULL, NULL, NULL, 0, 'percentage', 0, 0, '1', 0),
+(69, 'airhelp', '1', 'insurance', '0', '', '', '', '', '', '', '1', '0', 'USD', '#16a34a', 20, '0', 'percentage', 0, 'health_and_safety', 'percentage', '0', '1', '0', 0, 1, NULL, NULL, NULL, NULL, 0, 'percentage', 0, 0, '1', 0);
 
 -- --------------------------------------------------------
 
