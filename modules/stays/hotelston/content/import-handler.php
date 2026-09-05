@@ -14,6 +14,16 @@ while (@ob_get_level()) @ob_end_clean();
 header('Content-Type: application/json');
 header('Cache-Control: no-cache, no-store, must-revalidate');
 
+// SECURITY (§16 HIGH): this file is reachable as a direct URL and can TRUNCATE
+// hotelston tables / drive mass supplier calls. It had NO auth. Require an admin
+// session before doing anything. (Inline check — ADMIN_AUTH() is not loaded here.)
+if (session_status() === PHP_SESSION_NONE) { @session_start(); }
+if ((strtolower((string)($_SESSION['user_role'] ?? '')) !== 'admin') && empty($_SESSION['admin_logged_in'])) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Unauthorized: admin session required.']);
+    exit;
+}
+
 set_time_limit(120);
 ini_set('memory_limit', '512M');
 
@@ -60,7 +70,7 @@ $isDev       = !empty($module['dev_mode']);
 // Static content (hotel list/details) is always fetched from production —
 // the dev environment uses the same hotel data and production credentials.
 $wsdlUrl    = 'https://www.hotelston.com/ws/StaticDataServiceV2?wsdl';
-$endpointUrl = 'http://www.hotelston.com/ws/StaticDataServiceV2/StaticDataServiceHttpSoap11Endpoint';
+$endpointUrl = 'https://www.hotelston.com/ws/StaticDataServiceV2/StaticDataServiceHttpSoap11Endpoint';
 
 // ── Routing ───────────────────────────────────────────────────────────────────
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
@@ -191,8 +201,8 @@ function curlFetchWsdl(string $url): array
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_TIMEOUT        => 60,
         CURLOPT_USERAGENT      => 'Mozilla/5.0 (compatible; HotelstonImporter/1.0)',

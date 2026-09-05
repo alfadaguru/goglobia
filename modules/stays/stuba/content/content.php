@@ -70,7 +70,7 @@ function getStubaApiConfig($mainDb) {
         return [
             'environment' => 'test',
             // SOAP API (existing)
-            'soap_endpoint' => 'http://www.stubademo.com/RXLStagingServices/ASMX/XmlService.asmx',
+            'soap_endpoint' => 'https://www.stubademo.com/RXLStagingServices/ASMX/XmlService.asmx',
             // Content API (new test environment)
             'content_base_url' => 'https://testcontent.stuba.com',
             // Test credentials from Stuba email
@@ -84,7 +84,7 @@ function getStubaApiConfig($mainDb) {
         return [
             'environment' => 'production',
             // SOAP API (existing)
-            'soap_endpoint' => 'http://api.stuba.com/RXLServices/ASMX/XmlService.asmx',
+            'soap_endpoint' => 'https://api.stuba.com/RXLServices/ASMX/XmlService.asmx',
             // Content API (production)
             'content_base_url' => 'https://content.stuba.com',
             // Production credentials from database
@@ -121,7 +121,7 @@ function makeContentApiRequest($endpoint, $requestBody, $mainDb, $timeout = 60) 
         'Accept: application/json'
     ]);
     curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
 
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -197,7 +197,7 @@ $router->post('stays/stuba/content/validate', function() use ($db) {
                     'Content-Length: ' . strlen($xml_request)
                 ],
                 CURLOPT_TIMEOUT => 30,
-                CURLOPT_SSL_VERIFYPEER => false
+                CURLOPT_SSL_VERIFYPEER => true
             ]);
 
             $response = curl_exec($ch);

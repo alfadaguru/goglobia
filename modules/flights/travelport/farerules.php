@@ -41,7 +41,7 @@ $router->post('flights/travelport/farerules', function () use ($db) {
         }
 
         // Build Travelport GET URL for structured farerules
-        $baseUrl = 'https://api.pp.travelport.net/11';
+        $baseUrl = travelport_api_base($module);
         
         if (!empty($offeringId) && !empty($searchId)) {
             // Pre-booking search catalog fare rules
@@ -80,7 +80,7 @@ $router->post('flights/travelport/farerules', function () use ($db) {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPGET => true,
             CURLOPT_ENCODING => '',
-            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_HTTPHEADER => $headers
         ]);
 

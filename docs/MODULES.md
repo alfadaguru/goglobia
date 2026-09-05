@@ -1340,3 +1340,606 @@ Real-API providers are **substantially more correct and safer than at the start*
 and proven end-to-end."** Getting there needs: the remaining audit fixes, supplier
 sandbox credentials to actually book/refund/ticket, and confirmation of the 3–4
 gated re-price contracts.
+
+---
+
+## 15. Remaining Phase 2 audit findings — remediation (in progress)
+
+Continuing from §8's 41 critical + 64 high. §12–§14 fixed the broken modules, refunds,
+price-checks, and the enum/phantom-column data-integrity bugs. This section covers the
+next categories. All verified by grep + `php -l` + app boot (HTTP 200). Still static —
+no live supplier call executed.
+
+### 15.1 TLS verification re-enabled (Finding A) — 33 files fixed
+Every real-API provider hitting an **HTTPS** supplier endpoint that had
+`CURLOPT_SSL_VERIFYPEER => false` (and `VERIFYHOST => 0/false`) now verifies TLS
+(`VERIFYPEER => true`, `VERIFYHOST => 2`). Fixed across: cartrawler, airalo, amadeus,
+amadeus_enterprise, duffel, mystifly, pkfare, seeru (issue/cancel/refund/void/reval),
+travelport (flights+stays, incl helpers.php), ratehawk, stuba.
+- **Deliberately NOT flipped:** `hotelston` and `rail/train` fallback — these hit
+  **plaintext `http://`** endpoints (hotelston dev+prod use `http://…hotelston.com`,
+  rail fallback `http://121.43.107.128`), so VERIFYPEER is moot. Their real fix is to
+  move to an HTTPS endpoint (needs the supplier's HTTPS URL) — documented, not faked.
+- hotelbeds already used `VERIFYPEER => true` (mTLS-aware) — untouched.
+
+### 15.2 Fabricated passenger identity (Finding B) — safety-critical sites fixed
+Sending placeholder identity/documents to an airline creates a REAL ticket with invalid
+data → denied boarding / name-correction fees. Fixed the two worst offenders:
+- **flights/amadeus** — primary guest: now VALIDATES first/last/DOB/email/phone and
+  REJECTS with a clear error if missing (no more `noreply@example.com` / `1234567890`
+  fallbacks silently sent); the PASSPORT document is attached **only when a real
+  passport number exists** (was `?? 'XXXXXXXXX'` + fabricated US country/dates).
+- **flights/amadeus_enterprise** — throws "passport required" instead of sending
+  `'00000000'` (was creating orders with a fake document).
+- **NOTE / still open:** lower-severity fallbacks remain — fake contact email/phone in
+  sabre/travelport(stays)/kiwi/cartrawler/mozio issue payloads, and amadeus's
+  *additional* (non-primary) travelers, plus amadeus_enterprise's fallback contact
+  block. Also many `'US'`/`'USD'` defaults in stays/cars **search** files are NOT this
+  bug (they're availability-query inputs, not passenger identity). These should get the
+  same validate-don't-fabricate treatment per provider.
+
+### 15.3 Idempotency / double-book guard (Finding D) — completed for flights
+All 9 real-API flight providers now short-circuit if the booking already has a PNR
+(and refuse to re-issue a cancelled/voided booking). **flights/duffel** was the only
+one missing it — added (a retried payment callback could have created a duplicate
+Duffel order and double-charged the balance). amadeus/amadeus_enterprise/kiwi/mystifly/
+pkfare/sabre/seeru/tbo already had guards.
+- Stays/cars/ferries/rail: most guard on `pnr`/`booking_status` already; a full
+  cross-check of those is the next sub-task.
+
+### 15.4 Still OPEN (honest — not yet done)
+- **Finding C** (confirmed-on-failure): largely addressed by the §14 enum fixes
+  (`failed`→`pending`), but the specific tbo non-LCC "confirmed despite Ticket error"
+  and rail `fail_msg` logic paths need targeted review.
+- **Finding E** (CORS `*` + no auth/CSRF on state-changing supplier routes): ~64 files
+  set `Access-Control-Allow-Origin: *`; issue/cancel/refund routes are callable by
+  anyone with an invoice_id. Needs a shared auth/CSRF guard — significant, not yet done.
+- **Finding B** remainder (§15.2 note) — the lower-severity fabricated-contact fallbacks.
+- **No live/sandbox transaction test** of any of this.
+
+### 15.5 Finding E — auth guard on state-changing supplier routes (DONE, verified live)
+
+issue/cancel/refund/void routes create/cancel/refund real supplier bookings and money
+but had NO auth (CORS `*`) — anyone with an invoice_id could trigger them. Fixed with a
+**single central guard**, not 40 per-file edits:
+
+- **`supplier_action_guard($invoiceId)`** (modules/helpers.php) allows a request only if:
+  (1) it carries a valid **internal token** `HMAC-SHA256("supplier-action:"+invoice_id,
+  JWT_SECRET)` — invoice-bound, `hash_equals` compared; OR (2) an **admin session**; OR
+  (3) a valid **CSRF token**. Else → 403 JSON.
+- **Central enforcement** in `modules/index.php` (after verifyApiKey): any POST/PUT/DELETE
+  whose path ends in `/issue|/cancel|/refund|/void` must pass the guard. One choke point
+  covers every supplier module — no gaps, no missed files.
+- **Gateway loopback keeps working:** `app/lib/payment-gateway.php` now signs its
+  server-side auto-issue call with `_internal_token = supplier_internal_token(invoice_id)`.
+  The token fn lives in `app/lib/functions.php` (loaded by the main app) AND is mirrored
+  (function_exists-guarded) in `modules/helpers.php` (loaded by the gateway) — both compute
+  the identical token (verified).
+- **Admin panel** triggers issue/cancel/refund via direct `include` behind `ADMIN_AUTH()`
+  (app/routes/admin/bookingsRoutes.php) — it does not hit the HTTP route, so it's
+  unaffected and still authorized.
+
+**Verified live (running app):**
+- anonymous `POST /modules/flights/duffel/issue` → **403** "Unauthorized" ✅
+- same call with a valid `X-Internal-Token`/`_internal_token` → **200**, reaches the real
+  handler ("Booking not found") ✅
+- `POST /modules/flights/duffel/search` (read route) → **200** (unaffected) ✅
+- unit test: wrong token / token-for-another-invoice / bad CSRF → all DENY; admin / valid
+  token / valid CSRF → ALLOW ✅
+- app boots 200; all touched files `php -l` clean.
+
+Honest limit: unchanged — no live *supplier* transaction executed; this hardens who may
+*invoke* the routes.
+
+### 15.6 Finding B — fabricated passenger data (COMPLETE for booking payloads)
+
+Sending placeholder identity/documents to a supplier creates a REAL booking with invalid
+data (denied boarding / name-correction fees). All fabricated **identity, passport,
+email, phone** are now removed from every booking/issue payload — replaced with
+**validate-and-reject** (or attach-only-when-real):
+
+| Provider | Fixed |
+|---|---|
+| flights/amadeus | primary + additional + fallback travelers: validate name/DOB/email/phone (reject if missing); PASSPORT document attached only when a real number exists (no `XXXXXXXXX`); removed the whole invented fallback passenger; order-contact email/address de-faked |
+| flights/amadeus_enterprise | passport `'00000000'` → reject; per-traveler email fake → reject; invented fallback passenger (`GUEST/USER`+fake passport) → reject; order-contact email/address de-faked |
+| flights/sabre | contact email/phone validated + rejected if missing (was `noreply@`/`1234567890`) |
+| stays/travelport | guest name + valid email required (was `guest@example.com`/`1234567890`) |
+| cars/cartrawler | driver name/email/phone required (was `guest@example.com`/`1234567890`) |
+| cars/mozio | rider name/email/phone required via InvalidArgumentException the caller already handles |
+
+**Pattern:** never send fake identity to a supplier; require the real value and return a
+clear "missing X" error so the booking is corrected before ticketing. All 6 modules
+`php -l` clean, load without fatal, app boots 200.
+
+**Honest residue (low priority, NOT passenger identity):** a few order-**address**
+placeholders remain — `cartrawler` postal `'00000'`, `sabre`/amadeus_enterprise
+`CityName 'City'` / postal `'00000'`. These are agency/contact address-form fields (not
+passenger name/passport/contact), accepted generically by the suppliers; left as-is to
+avoid destabilising the order payload structure. Documented, not hidden.
+
+### 15.7 Finding C — "confirmed" set when the booking/ticket actually FAILED (DONE)
+
+A failed supplier order recorded as `booking_status='confirmed'` shows a failed sale as a
+completed one. Audited every real-API issue/action path; found and fixed the real cases,
+and verified the audit's other suspects were false alarms.
+
+**Fixed (verified true bugs):**
+- **rail/train `_train_apply_order_result`** (search.php) — on a supplier `fail_msg`
+  (which means a HARD failure: "Tickets could not be issued", "No supplier matched",
+  "Invalid document type" — per `_train_human_fail_message`) it marked **confirmed**
+  with a wrong comment ("seats pending"). Now → **pending** + failure in error_response.
+- **rail/train `_train_issue_booking`** (search.php) — computed `$failMsg` but then
+  UNCONDITIONALLY overwrote the row to **confirmed** and returned `status:true`, undoing
+  the per-result fix. Now: on `fail_msg` → **pending**, returns `status:false` with the
+  human error; only a clean result → confirmed.
+- **stays/stuba issue.php** — the exception `catch` block force-set **confirmed** on ANY
+  error during booking. Now → **pending** (an exception means it did not succeed).
+
+**Verified NOT bugs (audit suspects, checked in code):**
+- **tbo non-LCC** — marks `confirmed` only when a real PNR exists; if the Book succeeded
+  but Ticket errored, the PNR genuinely exists (held) and it's recorded as confirmed WITH
+  the ticket error noted + message "PNR held — ticketing pending". That's accurate, not a
+  false confirm. No-PNR case correctly → pending.
+- **hotelbeds** `confirmed` is inside `if (booking.reference)` = real success.
+- **sabre / pkfare / kiwi** `confirmed` near an error keyword = the already-issued
+  idempotency guard *reading* status, not writing a false one.
+
+All fixed files `php -l` clean, load without fatal, app boots 200.
+
+---
+
+## 16. COMPLETE LINE-BY-LINE CODE AUDIT — every real-API provider, every file
+
+**Scope (nothing skipped):** all 22 real-API provider modules, **every PHP file read
+line-by-line** — the booking lifecycle (issue/cancel/refund/void, ~234 files incl.
+delegated lib/api) AND every non-lifecycle file (search, creds, details, rooms,
+revalidate, content/import, api, helpers, apis/, install, packages, orders, stations —
+**147 files**, count reconciled 1:1 with the on-disk inventory). Endpoints below are
+quoted from code with file:line. Findings independently spot-verified (3 earlier
+agent claims were corrected by hand; the kikoto CRITICAL was found independently too).
+
+### 16.1 Verified booking endpoints (read from code)
+
+**FLIGHTS (10 — all have a real supplier booking HTTP call):**
+- duffel — `POST https://api.duffel.com/air/orders` (issue.php:530)
+- amadeus — `POST …/v1/booking/flight-orders` (issue.php:510)
+- amadeus_enterprise — `POST {travel.api.amadeus.com}/v1/booking/flight-orders` (issue.php:741)
+- kiwi — `POST https://api.tequila.kiwi.com/v2/booking` (issue.php:251)
+- mystifly — `POST …/api/v1/Book/Flight` (issue.php:359)
+- pkfare — `POST https://api.pkfare.com/…/preciseBooking_V6` (issue.php:293)
+- sabre — `POST …/v2.3.0/passenger/records` CreatePNR + AirTicketRQ
+- seeru — `/flights/booking/fare` → `/booking/save` → `/order/issue`
+- tbo — `Booking/Book` → `Booking/Ticket`
+- travelport — `POST …/air/book/reservation/reservations/{id}`
+
+**STAYS (6):**
+- hotelbeds — `POST {base}/hotel-api/1.0/bookings` (issue.php:663)
+- ratehawk — `…/api/b2b/v3/hotel/order/booking/finish/`
+- stuba — SOAP `api.stuba.com/RXLServices/ASMX/XmlService`
+- hotelston — SOAP `HotelServiceV2/bookHotel`
+- wanderbeds — `POST {base}/hotel/book` (issue.php:402)
+- travelport — SOAP `…/HotelService`
+
+**CARS/RAIL/FERRIES/eSIM/INSURANCE (6):**
+- cars/cartrawler — `POST https://ota.cartrawler.com/cartrawlerota` (OTA_VehRes)
+- cars/mozio — `POST /v2/reservations/` (lib.php:104)
+- rail/train — `POST {base}/ticket/order` (search.php _train_issue_booking)
+- ferries/kikoto — `POST /bookings/{ref}/confirm`
+- esim/airalo — `POST https://partners-api.airalo.com/v2/orders` (issue.php:92)
+- insurance/airhelp — `POST https://partner-api.airhelp.com/v2/booking/{id}` (index.php:227, WIRED path; create_order.php is a legacy placeholder test file — NOT the live path)
+
+### 16.2 End-to-end suite completeness (code verdict)
+
+Real book call present: **20/20**. Full search→book→cancel→refund suite complete in
+code: **8** — amadeus_enterprise, mystifly, seeru, travelport(flights), hotelbeds,
+ratehawk, wanderbeds, rail/train. The remainder are book-complete with a specific gap:
+- **refund missing / not gateway:** amadeus (no refund file), sabre (`refund_pending` only),
+  cartrawler (no refund), kikoto (no refund), mozio (Merchant-of-Record — N/A), airalo.
+- **cancel DB-only (no supplier call):** kiwi, tbo (request flag only).
+- **needs live credentials to fire:** airhelp (wired, no-ops until Partner Token set).
+
+### 16.3 NEW findings from the non-lifecycle read (not in prior §8/§15 audits)
+
+**CRITICAL (1):**
+- **ferries/kikoto** — hardcoded live-looking Bearer token
+  `zrOPZWOlp_ysifmbagp6jwD12gL10wal` committed in all 15 `apis/01-15` scratch scripts
+  (apis/01-ports.php:17 + siblings). These are standalone Postman-export test files with
+  hardcoded fake passenger data; not wired into the app, but they leak a real token.
+
+**HIGH (26) — grouped:**
+- **SQL injection (API data → raw query):** amadeus search.php:361 & :364
+  (`flights_airports WHERE code='".$seg2->…->iataCode."'`, unescaped).
+- **JSON/URL injection (POST → request body/URL):** kiwi search.php:295/297/108-113;
+  pkfare search.php:392-394.
+- **XML/SOAP injection (raw concat, no escaping):** stuba search.php:686-711 &
+  rooms.php:195-205; stays/travelport details.php:269 + search/rooms; cartrawler
+  creds.php:129.
+- **Plaintext HTTP / TLS disabled on supplier calls:** hotelston (cleartext `http://`
+  for all SOAP incl. login email+password — search.php:82, details.php:31, creds.php:65…
+  + `SSL_VERIFYPEER=>false` throughout); stuba (`http://api.stuba.com` — creds in clear);
+  rail/train (`SSL_VERIFYPEER=>false` search.php:280, index.php:275).
+- **Unauthenticated import/admin endpoints (public DDL/DML):** hotelston
+  import-handler.php:66-84 (public `TRUNCATE` on reset, no auth) & import-state.php;
+  ratehawk import-handler.php:57 (public `create_tables` = DROP/CREATE, `debug` leaks
+  error_log) & import-state.php:7 ("no security check needed here").
+- **Fabricated data shown to users:** ratehawk rooms.php:174 fabricates prices with
+  `rand(50,300)` on the DB-fallback path while returning success:true.
+- **Wrong environment in production:** travelport(flights) search.php:219, farerules.php:44,
+  helpers.php:457 hardcode the **pp (pre-prod/sandbox)** host → live would price against sandbox.
+- **Committed secret:** airhelp get_order.php:38-39 hardcoded docs username+password.
+- **State-changing routes without CSRF/auth:** airalo orders.php:5-44 & creds.php:5-56;
+  airhelp create_order.php:151 (live POST on page load, unauthenticated); seeru
+  detail.php dead route with undefined globals ($c1/$end_point).
+
+**MEDIUM/LOW:** ~50 more (env-detection inconsistencies, no urlencode on creds,
+missing curl_error/http_code checks, dead/commented debug code, stack traces echoed to
+clients). Full per-file detail in the workflow output; the criticals/highs above are the
+actionable set.
+
+### 16.4 Honesty
+Every file was opened and read (147 non-lifecycle reconciled to inventory; lifecycle
+covered in §8/§15). Endpoints/findings are code-quoted. NO live supplier transaction was
+executed — this is a static read. Fixes for §16.3 follow in §17.
+
+---
+
+## 17. §16 findings — remediation (in progress)
+
+Fixing the §16 audit findings. All changes static + load + app-boot(200) verified; the
+travelport hosts were additionally verified against Travelport's official docs
+(support.travelport.com JSON API Authentication + Endpoints: prod api.travelport.net /
+auth.travelport.net, pre-prod api.pp.travelport.net / auth.pp.travelport.net; old auth
+endpoints deprecated 30-Jan-2026 prod / 5-Dec-2025 pp).
+
+### 17.1 DONE
+- **CRITICAL — kikoto hardcoded live token:** deleted all 15 `apis/*.php` scratch
+  scripts + `apis/_db_seed.sql` (they leaked the real Bearer token — same value as the
+  live DB credential — and shipped fake PII). `apis/responses/*.json` (the only runtime
+  dependency) kept. Token removed from ALL source. **OPERATIONAL: rotate that Kikoto
+  token at the provider — it was committed and must be considered compromised.**
+- **HIGH — amadeus SQL injection:** search.php:361/364 airport lookups (API `iataCode`
+  interpolated into raw query) → prepared statements, matching the already-fixed
+  airline query at :352.
+- **HIGH — unauthenticated import endpoints (public TRUNCATE/DROP):** added inline
+  admin-session guards (403 for non-admin) to hotelston content/import-handler.php +
+  import-state.php and ratehawk content/import-handler.php + import-state.php. Verified
+  live: anonymous POST now returns **403** (previously would run TRUNCATE/reset).
+- **HIGH — ratehawk fabricated prices:** rooms.php DB-fallback used `rand(50,300)` as a
+  bookable price → now reads a real price if present, else marks the room
+  `price_unavailable` (0 + "Live price on request") so no fake bookable rate is shown.
+- **HIGH — airhelp committed secret + unauth live POST:** deleted the legacy standalone
+  test files create_order.php (unauth live AirHelp POST on page load) and get_order.php
+  (hardcoded docs username+password). The wired index.php (airhelp_register_claim,
+  DB-cred, auth via the §15.5 central guard) is the live path and remains.
+- **HIGH — travelport pre-prod host hardcoded (live would hit sandbox):** added
+  `travelport_env()/travelport_api_base()/travelport_oauth_url()` helpers (env/dev_mode
+  driven) and replaced hardcoded `api.pp.travelport.net`/`auth.pp.travelport.net` in
+  issue/search/farerules/cancel/void/refund/helpers. Hosts confirmed against Travelport
+  docs. (A linter briefly introduced a self-recursion in the oauth helper; caught and
+  fixed — module load-tested, no recursion, returns correct host per env.)
+
+### 17.2 STILL TO FIX (next batch)
+- **HIGH — plaintext HTTP + TLS-off for creds:** hotelston (all SOAP over `http://` +
+  SSL_VERIFYPEER=false) and stuba (`http://api.stuba.com`) — needs the supplier's HTTPS
+  endpoint (research/confirm before switching; flipping VERIFYPEER alone is moot on
+  http://).
+- **HIGH — XML/SOAP injection:** stuba search.php/rooms.php + stays/travelport
+  details/search/rooms build SOAP XML by raw concatenation without XML-escaping →
+  wrap interpolated values in htmlspecialchars(ENT_XML1).
+- **HIGH — JSON/URL injection:** kiwi search.php (POST ints into URL) + pkfare search.php
+  (POST ints into hand-built JSON) → cast/encode.
+- **HIGH — cartrawler creds.php XML injection** (client_id unescaped).
+- **HIGH — airalo orders.php/creds.php + no CSRF** on state-changing routes.
+- **HIGH — rail/train TLS disabled** (SSL_VERIFYPEER=false) — real HTTPS host, safe to enable.
+- **HIGH — seeru detail.php dead route** (undefined $c1/$end_point).
+- **LOW — travelport refund.php/void.php hardcoded absolute log path.**
+
+### 17.3 DONE (batch 2)
+- **HIGH — rail/train TLS disabled:** search.php/index.php now verify TLS on HTTPS
+  calls (conditional — skips only the plaintext http:// IP fallback where there's no
+  cert); stations.php (hardcoded https 12306 host) → VERIFYPEER=true.
+- **HIGH — airalo orders CSRF/auth:** `esim/airalo/orders` (places a real Airalo order)
+  now runs supplier_action_guard() — anonymous callers blocked.
+- **HIGH — cartrawler creds.php XML injection:** `$client_id` now
+  htmlspecialchars(ENT_XML1|ENT_QUOTES).
+- **HIGH — stuba XML/SOAP injection:** search.php + rooms.php Org/User/Password/RegionId/
+  HotelId/Nationality now htmlspecialchars(ENT_XML1); Nights cast (int).
+- **HIGH — stays/travelport XML injection:** hotelId/hotelCode/hotelChain/searchLocation
+  escaped across details.php/rooms.php/search.php (8 sites).
+- **HIGH — kiwi URL injection:** search.php pax counts cast (int), currency/codes
+  urlencoded (were raw $_POST in the URL).
+- **HIGH — pkfare JSON injection:** search.php pax counts cast (int) in the JSON body.
+- **HIGH — stuba plaintext HTTP:** switched all endpoints to **https** (prod
+  `https://api.stuba.com/RXLServices/ASMX/XmlService.asmx`, test
+  `https://www.stubademo.com/...`) — confirmed HTTPS-supported per Stuba developer docs
+  (developer.stuba.com). TLS verification is on, so creds no longer travel in cleartext.
+- **HIGH — seeru dead route:** deleted detail.php (unreferenced, undefined $c1/$end_point).
+
+### 17.4 STILL OPEN (honest — needs provider action or larger change)
+- **HIGH — hotelston plaintext HTTP:** its SOAP WSDL is served over `http://www.hotelston.com/ws/…`
+  (confirmed via docs — no HTTPS variant found). Cannot switch to https without an HTTPS
+  endpoint from Hotelston. **Action: obtain an HTTPS endpoint from Hotelston** — not a
+  code guess. TLS-verify remains moot until then. (Left as-is + documented.)
+- **OPERATIONAL — rotate the Kikoto Bearer token** (it was committed to source; the
+  leak is removed from code but the token value must be rotated at Kikoto).
+- **LOW — travelport refund.php/void.php hardcoded absolute log path** (`/Applications/
+  XAMPP/.../travelport/certification/`) — dev leftover, cosmetic.
+- **MEDIUM/LOW batch** from §16 (env-detection inconsistencies, no-urlencode on some
+  creds, missing curl_error checks, dead commented debug, stack traces to client) —
+  not yet swept.
+
+### 17.5 Verification
+Every fix in §17: `php -l` clean; travelport module load-tested (no recursion; correct
+host per env); import endpoints return **403** to anonymous (live-tested); app boots
+**200** throughout. Travelport + Stuba hosts confirmed against official provider docs.
+No live supplier transaction executed.
+
+### 17.6 Hotelston HTTPS — DONE (was §17.4 open), and Kikoto token — code side done
+
+**Hotelston plaintext HTTP → HTTPS (FIXED, live-verified).**
+- Live-probed both endpoints: `https://www.hotelston.com/ws/HotelServiceV2/...` and
+  `https://dev.hotelston.com/ws/...` return with a **valid TLS cert**
+  (`ssl_verify_result=0`) — HTTPS is genuinely supported (the earlier doc search only
+  surfaced the http URL; the probe proved https works). The prior claim "http-only" was
+  corrected by direct test.
+- Switched all **23 concrete endpoint URLs** (`http://{dev,www}.hotelston.com/ws/…`) to
+  `https://` across details/checkavailability/creds/search/rooms/issue/cancel/content/
+  import-handler. **Left the `xmlns:xsd="http://…hotelston.com/xsd"` namespace URIs
+  UNCHANGED** — those are XML identifiers, not addresses; changing them would break the
+  SOAP contract.
+- Enabled TLS verification (`SSL_VERIFYPEER=>true, VERIFYHOST=>2`) on all 9 hotelston
+  files now that traffic is HTTPS — SOAP login email+password are no longer sent in
+  cleartext. Module load-tested (no fatal); app boots 200.
+
+**Kikoto token rotation — code side complete; provider step is yours.**
+- The leaked token was already removed from ALL source (§17.1: deleted apis/*.php +
+  _db_seed.sql). A NEW token can only be issued by Kikoto (partner portal/support) — not
+  mintable in code. Per decision: the live token stays in the DB so kikoto bookings keep
+  working; **operator rotates it at Kikoto and pastes the new value in Admin → Settings →
+  Modules → kikoto (c1).** No further code change required.
+
+### 17.7 Remaining open (unchanged)
+- travelport refund.php/void.php hardcoded absolute log path (LOW, cosmetic).
+- §16 MEDIUM/LOW batch (env-detection quirks, missing curl_error checks, dead debug,
+  stack traces to client) — not yet swept.
+
+---
+
+## 18. MEDIUM/LOW batch sweep (§16 remainder)
+
+Swept the §16 medium/low set (117 raw items; ~30 were already-fixed/stale from §17 —
+kikoto apis deleted, airhelp legacy deleted, rail/stuba/hotelston already done). Fixed
+the high-value real ones by pattern:
+
+### 18.1 DONE
+- **Info disclosure — stack trace / internal detail to client (14 files):** removed
+  `'trace' => getTraceAsString()` / file+line from client JSON in amadeus (search+creds),
+  amadeus_enterprise (search+creds), duffel (creds), stuba (details), sabre
+  (issue/cancel/refund/void), kiwi (issue/cancel/refund/void), pkfare (issue),
+  travelport (creds). Detail is now error_log()'d server-side; client gets a generic
+  message. (Redacted to '[redacted]' where a key had to stay for array shape.)
+- **Validation logic bug — departure_date checked via $_POST['origin']:** fixed in
+  amadeus/search.php:90 and duffel/search.php:106 (empty departure_date used to pass).
+- **Misleading debug — 'ssl_verify'=>false reported while cURL uses true:** corrected in
+  amadeus/amadeus_enterprise/duffel creds.php.
+- **Hardcoded absolute dev log path:** travelport refund.php/void.php `log_cert()` now
+  writes to `__DIR__.'/../logs/'` and mkdir's it (was `/Applications/XAMPP/.../travelport/
+  certification/`).
+- **Unauthenticated creds/orders endpoints (MEDIUM, codebase-wide):** extended the §15.5
+  central guard regex to also cover `/creds` and `/orders` — ALL ~20 supplier
+  credential-test routes + airalo orders now require admin/CSRF/internal-token.
+  Verified live: `POST /modules/flights/{pkfare,sabre}/creds` → **403**; legit
+  gateway issue+token still **200**.
+
+### 18.2 Intentionally NOT changed (honest — low value / would risk noise)
+- **Dead commented-out debug logging** (amadeus/duffel/seeru/mystifly/tbo search.php
+  `// file_put_contents(...log...)`) — inert (commented); left rather than churn many
+  files. Recommend deletion in a formatting pass.
+- **Hardcoded User-Agent strings** (seeru insomnia/PHPTravels) — cosmetic, harmless.
+- **Mojibake emoji in admin import UIs** (hotelston-import.php) — display-only.
+- **Hardcoded business defaults** (amadeus excludedCarriers AA/TP/AZ; kiwi
+  refundable='1'; ratehawk/stuba estimated-pricing docs) — product decisions, not bugs;
+  noted, not silently changed.
+- **Missing curl_error/http_code checks in some search token calls** — robustness, not
+  security; large per-file surface; deferred.
+- **Two divergent ratehawk JSONL importers / lazy CREATE TABLE at runtime** — refactor,
+  not a fix; out of scope for a sweep.
+
+### 18.3 Verification
+Every changed file `php -l` clean; app boots **200**; creds/orders 403 for anonymous
+(live-tested); gateway issue+token 200 (live-tested). No live supplier transaction run.
+
+---
+
+## 19. Lifecycle-gap completion (refund/void where missing)
+
+Goal: close the remaining lifecycle gaps so every real-API provider has the full
+issue→cancel→refund→void surface. Policy (user-chosen): where the **supplier**
+exposes a real refund/void API, wire the real call; where it does **not**, use
+the **gateway-refund + manual-flag** pattern (reverse the customer's card charge
+via `refund_gateway_payment()` — real for Paystack/Stripe — and flag the
+supplier-side settlement for operations). Code-complete + static/boot verified;
+**no live supplier transaction executed** (needs sandbox keys).
+
+### 19.1 What was actually missing (verified by file inventory, not assumed)
+| Provider | Before | Added | Supplier refund API? | Method used |
+|---|---|---|---|---|
+| flights/amadeus | issue, cancel, void — **no refund** | `actions/refund.php` | No (Self-Service has no refund; ARC/BSP manual) | gateway refund + manual flag |
+| cars/cartrawler | issue, cancel only | `refund.php`, `void.php` | No (OTA has cancel only) | refund: gateway+manual; void: real OTA_CancelRQ |
+| cars/mozio | issue, cancel only | `refund.php`, `void.php` | Cancel DELETE auto-refunds (MoR) | refund/void: real DELETE /v2/reservations (reports Mozio `refunded`); **no** gateway call (MoR took the money — avoids double refund) |
+| tours/toursbms | issue, cancel only | `actions/refund.php` | No (local booking) | gateway refund + manual flag |
+| flights/duffel | void.php was **DB-only stub** | rewrote `void.php` | Yes (order_cancellations API) | real Duffel get→create→confirm; degrades to DB-void if outside window / no order_id |
+
+Not changed (verified already correct):
+- **sabre issue** — real e-ticket ticketing (AirTicketRQ in PostProcessing), not
+  PNR-only. No fix.
+- **tbo cancel** (flights & stays) — supplier has no self-serve cancel API; the
+  existing request-recording behavior is correct per policy.
+- **kiwi refund**, **travelport refund** — already gateway-refund+manual (§13/§17).
+
+### 19.2 Registration + auth
+- Each new file's route registered in the provider's `index.php`
+  (amadeus, cartrawler, mozio, toursbms, duffel void already registered).
+- All new state-changing routes are covered by the central
+  `supplier_action_guard` in `modules/index.php`
+  (regex `#/(issue|cancel|refund|void|creds|orders)/?$#i`).
+- toursbms refund also keeps the module's own inline admin check (mirrors its
+  cancel.php).
+
+### 19.3 Graceful degradation
+Every new endpoint returns a clean JSON error (no fatal) when: invoice missing,
+booking not found, module not configured, credentials/token missing, supplier
+reservation-id/order-id absent, or the supplier declines. Idempotent on
+already-refunded / already-cancelled.
+
+### 19.4 Verification (this pass)
+- `php -l` clean on all 11 new/changed files; **app boots 200**.
+- Live guard probes: anonymous POST to all 7 new endpoints → **403**
+  (`amadeus/refund, cartrawler/refund, cartrawler/void, mozio/refund, mozio/void,
+  toursbms/refund, duffel/void`).
+- Authorized path proven: `amadeus/refund` **with** valid `_internal_token` →
+  **200** handler runs ("Booking not found"); **without** token → **403** guard.
+  Confirms the payment-gateway auto-flow (which passes `_internal_token`) can
+  drive these, anonymous cannot.
+- **Honest caveat unchanged:** static + load + boot + guard/token live-probe
+  only. No real supplier search→book→cancel→refund round-trip has been executed
+  (blocked on sandbox credentials — user chose code-only for now).
+
+### 19.5 Still your (provider-side) actions — cannot be done in code
+- **Kikoto** token rotation at the provider (source leak already removed, §17).
+- **AirHelp** live Partner Token to activate insurance claims (§11).
+- **Sandbox/live credentials** for any provider still in `dev_mode=1` with
+  placeholder creds — required before "code-complete" can become "live-proven."
+
+---
+
+## 20. Line-by-line E2E audit (21 real-API providers) + remediation
+
+Method: read EVERY .php file of every `booking_class='real'` provider line by
+line (21-agent parallel workflow, each finding adversarially re-verified against
+the code), PLUS independent hand-verification of every finding before fixing.
+This deliberately did NOT trust prior notes — and caught real bugs earlier
+"sweeps" missed. Raw: 83 findings → 62 confirmed by the verify pass → I then
+hand-checked each and **rejected several as false positives** (below) rather than
+apply a wrong fix.
+
+### 20.1 Lifecycle map (verified, from code)
+Full search→revalidate→issue→cancel→refund→void status per provider is in the
+workflow result. Legend: real-api / gateway+manual (supplier has no API — max
+automation) / db-only / request-only / absent. All 21 are `route_registered:yes`
+and (after §19 + §20 fixes) `auth_guarded:yes`.
+
+### 20.2 CONFIRMED bugs fixed this pass
+Auth / security:
+- **rail/train `order|orderCancel|orderChange|orderRefund` were UNAUTHENTICATED**
+  real booking/refund mutations — the central guard regex didn't match those
+  path segments. Extended the guard (`modules/index.php`) with an explicit
+  alternation for `order|orderCancel|orderChange|orderRefund|reissue`. Live: all
+  now 403 anon, read-only query routes still open.
+- **flights/sabre/search.php** leaked HTTP codes + Sabre error internals to the
+  client on no-results → generic message + server log.
+
+Money / data-integrity (silent success-on-failure — the worst class):
+- **flights/travelport refund.php & void.php** — unchecked `curl_exec` meant a
+  failed OAuth/init call left `$token`/`$resId` null, downstream calls ran
+  anonymously, `$commitData` was null, and the code marked the booking
+  **refunded/void anyway**. Added token guard, resId guard, and null-commit
+  guard to all four spots. Also fixed void writing out-of-enum
+  `booking_status='void'` → `'cancelled'`.
+- **stays/travelport refund.php & void.php** — read/wrote a non-existent `status`
+  column (schema is `booking_status`); refund was permanently blocked and void
+  wrote to phantom columns + a non-existent `booking_logs` table. Rewrote void
+  to the standard invoice_id + enum convention; fixed refund's column.
+- **stays/travelport search.php & rooms.php** — `$markupResult` used without init
+  when `MARKUP()` throws → undefined-key → 0/null price in results. Initialised
+  a safe fallback before the try.
+- **stays/stuba issue.php** — **no idempotency**: a repeated auto-issue re-ran
+  PREPARE+CONFIRM → double charge. Added a confirmed/pnr guard. (Second stuba
+  item — price reconcile never loaded — see systemic fix below.)
+- **stays/stuba cancel.php** — silently stripped non-digits from the booking ref
+  (`AB123`→`123`) risking cancelling the WRONG booking. Now rejects non-numeric.
+- **stays/ratehawk rooms.php** — fabricated a `rand(50,200)` price and returned
+  it as a **bookable** rate when content DB had no rooms. Removed; real pricing
+  comes from the prebook API below (or no rooms).
+- **esim/airalo issue.php** — on a success response with no order id it minted a
+  synthetic `AIRALO-xxxx` id (breaks tracking/reconciliation). Now flags for
+  manual review + holds, no fake id.
+- **flights/seeru refund.php & void.php** — idempotency checked impossible
+  `booking_status='refunded'` (never fires → double refund) → now checks
+  `payment_status`; added missing `airline_pnr` guard before ticket/retrieve.
+- **flights/sabre refund.php** — added the missing gateway refund (was DB-log
+  only), fixed idempotency to `payment_status`, and stopped it regressing a
+  cancelled booking back to `pending`.
+- **stays/ratehawk issue.php** — added missing null-check + `type=>'stays'` scope
+  (was crashing when the module row was absent / could match wrong vertical).
+
+Booking correctness (silent skip of price/fare validation):
+- **flights/mystifly issue.php** — if the post-payment Revalidate call failed or
+  returned no total, the price reconcile was skipped and the ticket issued
+  unvalidated. Now blocks + holds on reval failure or non-positive live total.
+  Also registered the **ratecheck** route (file existed, was never `require`d →
+  route 404). Live: now 200.
+- **flights/tbo issue.php** — FareRules could be null in the Book/Ticket payload;
+  now logs a failed FareRule fetch and falls back to FareQuote rules / `[]`
+  (never literal null).
+- **flights/duffel search.php** — cURL error echoed but no `exit` → fell through
+  to `json_decode(false)` (silent no-results). Added exit + generic message +
+  SSL verifypeer/verifyhost.
+- **flights/kiwi search.php** — multicity leg had no `curl_errno` check → network
+  failure became "0 results". Added the check.
+
+### 20.3 SYSTEMIC critical (one fix, whole fleet)
+**Post-payment price reconciliation was DEAD in the modules context.**
+`reconcilePostPaymentPrice()` is defined only in `app/lib/functions.php`, which
+the modules API gateway (`modules/index.php`) deliberately never loads. Every
+provider calls it behind `function_exists()` — which was therefore **always
+false** in the issue flow, silently skipping the price check for ALL providers
+(duffel, tbo, amadeus, amadeus_enterprise, mystifly, stuba, …). Fixed by adding
+a guarded, byte-identical copy of `reconcilePostPaymentPrice()` +
+`_reconcile_block()` to `modules/helpers.php` (which the gateway does load).
+Verified now resolvable in the modules context.
+
+### 20.4 Config-completeness fix
+- **cars/mozio had no `modules` row in the live DB** → `mozioModuleConfig()`
+  always returned null → every mozio endpoint dead-ended at "not configured"
+  (the seed in `install/db.sql` already had id 68, but the running DB predated
+  it). Inserted the row (blank creds, `dev_mode=1`, `booking_class='real'`); now
+  installable/configurable in admin.
+
+### 20.5 REJECTED as false positives (verified, NOT changed — no guessing)
+- **flights/duffel refund "no auth guard"** — the agent audited the provider in
+  isolation and didn't know about the central guard in `modules/index.php`. Live:
+  `duffel/refund` anon → **403** already. No change.
+- **flights/sabre issue "c5 never fetched"** — the code reads `$module['c5']`
+  inline from the full `$db->get('modules','*',…)` row; the noticket flag IS
+  honored. No change.
+- **stays/hotelbeds issue "skips CheckRate"** — the booking payload sends
+  `'tolerance' => 2.00`; Hotelbeds enforces the ≤2% rate-change tolerance
+  server-side and rejects on drift (handled at issue.php ~L890). A separate
+  pre-flight CheckRate is not required. No change.
+- **~20 `curl_close()` "resource leak" mediums** — cosmetic; PHP frees handles at
+  request end. Not changed (would be churn/risk for no functional gain).
+
+### 20.6 RESOLVED — flights/pkfare signature inconsistency
+`issue.php` base64-decoded c1/c2 before the md5 signature, while `creds.php`,
+`search.php`, `cancel.php`, and `void.php` all sign the **raw stored** values.
+Confirmed (user-directed) that **issue.php was the outlier**: creds.php is the
+connection tester and defines the accepted form (sign over the stored strings).
+Fixed issue.php to use `$module['c1']`/`$module['c2']` as-is for both the
+signature and the `partnerId` sent in the body. Verified: the signature over raw
+stored creds (`f45b3f38…`) is now identical across issue/search/cancel/void/creds
+and differs from the old base64-decoded form (`5308aa1b…`) — the mismatch is
+eliminated. (Still not exercised against the live PKFare API — no sandbox key —
+but all five code paths are now provably consistent with the tester.)
+
+### 20.7 Verification (this pass)
+- 29 changed files `php -l` clean; **app boots 200**.
+- Live guard probes: `rail/train/order`, `rail/train/orderRefund`,
+  `mystifly/reissue`, `duffel/refund`, `stays/travelport/void`,
+  `travelport/refund` → **403** anon; `mystifly/ratecheck`, `duffel/search`,
+  `stays/travelport/search` → **200** (read-only open); `travelport/refund`
+  **+valid token → 200** (authorized path reaches handler).
+- `reconcilePostPaymentPrice` confirmed available in the modules context.
+- **Honest caveat (unchanged):** static + load + boot + guard/token live-probe
+  only. Still NO real supplier search→book→cancel→refund round-trip — that needs
+  sandbox credentials. "Code-complete + statically verified", not "live-proven".

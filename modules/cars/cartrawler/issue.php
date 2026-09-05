@@ -121,10 +121,15 @@ try {
         exit;
     }
 
-    $firstName = trim((string)($booking['first_name'] ?? 'Guest')) ?: 'Guest';
-    $lastName  = trim((string)($booking['last_name'] ?? 'User')) ?: 'User';
-    $email     = trim((string)($booking['email'] ?? 'guest@example.com')) ?: 'guest@example.com';
-    $phone     = preg_replace('/[^\d+]/', '', (string)($booking['phone'] ?? '')) ?: '1234567890';
+    $firstName = trim((string)($booking['first_name'] ?? ''));
+    $lastName  = trim((string)($booking['last_name'] ?? ''));
+    $email     = trim((string)($booking['email'] ?? ''));
+    $phone     = preg_replace('/[^\d+]/', '', (string)($booking['phone'] ?? ''));
+    // Validate driver contact — do NOT fabricate guest@example.com / 1234567890
+    // on a real car reservation. Reject if missing.
+    if ($firstName === '' || $lastName === '' || $email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || $phone === '') {
+        throw new Exception('Cannot issue: driver name, a valid email and phone are required on the booking.');
+    }
 
     // Country of residence MUST match the availability search (OTA_VehAvailRateRQ driver_country).
     // Prefer search_params first — changing it at issue time fails the quote.
@@ -283,7 +288,7 @@ try {
             'Content-Type: text/xml',
             'User-Agent: PHPTravels-v10/1.0'
         ],
-        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_FOLLOWLOCATION => true
     ]);
 

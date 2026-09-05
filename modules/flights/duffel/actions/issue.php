@@ -67,11 +67,36 @@ $router->post('flights/duffel/issue', function () use ($db) {
             exit;
         }
 
+        // Finding E: authorize caller (gateway loopback / admin / CSRF) before
+        // creating a real supplier order. Anonymous callers get 403.
+        if (function_exists('supplier_action_guard') && !supplier_action_guard($invoice_id)) { return; }
+
         // Fetch booking
         $booking = $db->get('bookings', '*', ['invoice_id' => $invoice_id]);
 
         if (!$booking) {
             echo json_encode(['status' => false, 'message' => 'Booking not found']);
+            exit;
+        }
+
+        // IDEMPOTENCY GUARD (§8 double-book fix): if this booking already has a
+        // Duffel order/PNR, do NOT create another one. A retried payment callback
+        // or double-submit would otherwise create a duplicate order and double-
+        // charge the Duffel balance. Return the existing PNR as success.
+        if (!empty($booking['pnr'])) {
+            echo json_encode([
+                'status'  => true,
+                'message' => 'Booking already issued',
+                'pnr'     => $booking['pnr'],
+                'booking_reference' => $booking['pnr'],
+                'invoice_id' => $invoice_id,
+                'already_issued' => true,
+            ]);
+            exit;
+        }
+        // A cancelled/voided booking must not be re-issued either.
+        if (in_array(strtolower((string)($booking['booking_status'] ?? '')), ['cancelled', 'voided'], true)) {
+            echo json_encode(['status' => false, 'message' => 'Booking is ' . $booking['booking_status'] . ' and cannot be issued.']);
             exit;
         }
 
@@ -573,7 +598,7 @@ $router->post('flights/duffel/issue', function () use ($db) {
 
                 // Update booking with error
                 $db->update('bookings', [
-                    'booking_status' => 'failed',
+                    'booking_status' => 'pending',
                     'error_response' => json_encode([
                         'status' => false,
                         'message' => $error_msg,

@@ -106,8 +106,8 @@ $router->post('stays/stuba/rooms', function() use ($db) {
         $moduleCurrency = 'USD';
 
         $base_endpoint = $environment === 'test'
-        ? 'http://www.stubademo.com/RXLStagingServices/ASMX/XmlService.asmx'
-        : 'http://api.stuba.com/RXLServices/ASMX/XmlService.asmx';
+        ? 'https://www.stubademo.com/RXLStagingServices/ASMX/XmlService.asmx'
+        : 'https://api.stuba.com/RXLServices/ASMX/XmlService.asmx';
 
         if (empty($dbName) || empty($org) || empty($user) || empty($password)) {
             echo json_encode([
@@ -192,17 +192,17 @@ $router->post('stays/stuba/rooms', function() use ($db) {
                 <AvailabilitySearch xmlns="http://www.reservwire.com/namespace/WebServices/Xml">
                 <xiRequest>
                     <Authority>
-                    <Org>' . $org . '</Org>
-                    <User>' . $user . '</User>
-                    <Password>' . $password . '</Password>
+                    <Org>' . htmlspecialchars((string) $org, ENT_XML1, 'UTF-8') . '</Org>
+                    <User>' . htmlspecialchars((string) $user, ENT_XML1, 'UTF-8') . '</User>
+                    <Password>' . htmlspecialchars((string) $password, ENT_XML1, 'UTF-8') . '</Password>
                     <Currency>USD</Currency>
                     <Version>1.28</Version>
                     </Authority>
-                    <HotelId>' . $hotelId . '</HotelId>
+                    <HotelId>' . htmlspecialchars((string) $hotelId, ENT_XML1, 'UTF-8') . '</HotelId>
                     <HotelStayDetails>
-                    <ArrivalDate>' . $arrival_date . '</ArrivalDate>
-                    <Nights>' . $nights . '</Nights>
-                    <Nationality>' . $nationality . '</Nationality>
+                    <ArrivalDate>' . htmlspecialchars((string) $arrival_date, ENT_XML1, 'UTF-8') . '</ArrivalDate>
+                    <Nights>' . (int) $nights . '</Nights>
+                    <Nationality>' . htmlspecialchars((string) $nationality, ENT_XML1, 'UTF-8') . '</Nationality>
                     <Room>
                     <Guests>
                         ' . $guestsXml . '
@@ -235,8 +235,8 @@ $router->post('stays/stuba/rooms', function() use ($db) {
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $xml_post_string);
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
         curl_setopt($ch, CURLOPT_VERBOSE, true);
 
         $response = curl_exec($ch);
@@ -516,8 +516,8 @@ XML;
                     CURLOPT_POST => true,
                     CURLOPT_POSTFIELDS => $request['xml'],
                     CURLOPT_HTTPHEADER => $headers,
-                    CURLOPT_SSL_VERIFYPEER => false,
-                    CURLOPT_SSL_VERIFYHOST => false,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                    CURLOPT_SSL_VERIFYHOST => 2,
                     CURLOPT_VERBOSE => false
                 ]);
                 

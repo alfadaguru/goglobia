@@ -24,8 +24,8 @@ if (!function_exists('hotelston_content_validate_creds')) {
 
         $isDev = in_array(strtolower((string)$environment), ['test', 'dev', 'development'], true);
         $endpoints = $isDev
-            ? ['static_endpoint' => 'http://dev.hotelston.com/ws/StaticDataServiceV2/StaticDataServiceHttpSoap12Endpoint/']
-            : ['static_endpoint' => 'http://www.hotelston.com/ws/StaticDataServiceV2/StaticDataServiceHttpSoap12Endpoint/'];
+            ? ['static_endpoint' => 'https://dev.hotelston.com/ws/StaticDataServiceV2/StaticDataServiceHttpSoap12Endpoint/']
+            : ['static_endpoint' => 'https://www.hotelston.com/ws/StaticDataServiceV2/StaticDataServiceHttpSoap12Endpoint/'];
 
         $xmlAttr = static function (string $value): string {
             return htmlspecialchars($value, ENT_XML1 | ENT_QUOTES, 'UTF-8');
@@ -562,8 +562,8 @@ function importHotelstonChunk($db, $email, $password, $profile, $chunkNumber, $m
 
         $isDev = in_array(strtolower((string)$environment), ['test', 'dev', 'development'], true);
         $endpoint = $isDev
-            ? 'http://dev.hotelston.com/ws/StaticDataServiceV2/StaticDataServiceHttpSoap12Endpoint/'
-            : 'http://www.hotelston.com/ws/StaticDataServiceV2/StaticDataServiceHttpSoap12Endpoint/';
+            ? 'https://dev.hotelston.com/ws/StaticDataServiceV2/StaticDataServiceHttpSoap12Endpoint/'
+            : 'https://www.hotelston.com/ws/StaticDataServiceV2/StaticDataServiceHttpSoap12Endpoint/';
 
         $xmlAttr = static function ($value) {
             return htmlspecialchars((string)$value, ENT_XML1 | ENT_QUOTES, 'UTF-8');
@@ -589,8 +589,8 @@ function importHotelstonChunk($db, $email, $password, $profile, $chunkNumber, $m
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => $envelope,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_TIMEOUT        => 120,
             CURLOPT_HTTPHEADER     => [
                 'SOAPAction: application/soap+xml; charset=utf-8',

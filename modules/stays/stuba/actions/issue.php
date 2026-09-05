@@ -134,7 +134,26 @@ $router->post('stays/stuba/issue', function() use ($db) {
         if (!$booking) {
             throw new Exception('Booking not found for invoice_id: ' . $invoice_id);
         }
-        
+
+        // ========================================
+        // IDEMPOTENCY GUARD — prevent double charges.
+        // The gateway auto-issue loopback can fire more than once (retries,
+        // duplicate webhooks). Without this, a repeat call re-runs PREPARE +
+        // CONFIRM on the Stuba API and books/charges twice. If the booking is
+        // already confirmed / already has a supplier reference, return success
+        // without re-issuing.
+        // ========================================
+        if (($booking['booking_status'] ?? '') === 'confirmed' || !empty($booking['pnr'])) {
+            echo json_encode([
+                'status'  => true,
+                'success' => true,
+                'message' => 'Booking already issued.',
+                'invoice_id' => $invoice_id,
+                'pnr' => $booking['pnr'] ?? null,
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
 
         // ========================================
         // STEP 2: GET MODULE CREDENTIALS
@@ -169,7 +188,7 @@ $router->post('stays/stuba/issue', function() use ($db) {
         // ========================================
         $apiUrl = $environment === 'production' 
             ? 'https://api.stuba.com/RXLServices/ASMX/XmlService.asmx'
-            : 'http://www.stubademo.com/RXLStagingServices/ASMX/XmlService.asmx';
+            : 'https://www.stubademo.com/RXLStagingServices/ASMX/XmlService.asmx';
         
         error_log("STUBA ISSUE: API URL: " . $apiUrl);
 
@@ -667,11 +686,13 @@ XML;
             ]
         ];
         
-        // Update booking error_response if we have invoice_id
+        // Update booking error_response if we have invoice_id. An EXCEPTION during
+        // booking means it did NOT succeed — must NOT be marked 'confirmed' (the
+        // old code did, masking a failed booking as confirmed). Use 'pending'.
         if (!empty($invoice_id)) {
             try {
                 $db->update('bookings', [
-                    'booking_status' => 'confirmed',
+                    'booking_status' => 'pending',
                     'error_response' => json_encode($errorResponse)
                 ], [
                     'invoice_id' => $invoice_id
@@ -747,8 +768,8 @@ function sendSoapRequest($xml, $url) {
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => $xml,
         CURLOPT_HTTPHEADER => $headers,
-        CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
         CURLOPT_VERBOSE => false
     ]);
 

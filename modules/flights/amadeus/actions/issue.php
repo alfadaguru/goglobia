@@ -295,39 +295,63 @@ $router->post('flights/amadeus/issue', function() use ($db) {
             if (!empty($travellersData['primary_guest'])) {
                 $primaryGuest = $travellersData['primary_guest'];
 
-                $travelers[] = [
+                // VALIDATE required identity fields — do NOT fabricate them. Sending
+                // placeholder DOB/name/contact to the airline creates a real ticket
+                // with wrong data (denied boarding / name-correction fees). Reject
+                // instead so the booking is fixed before ticketing.
+                $pgFirst = trim((string)($primaryGuest['first_name'] ?? $booking['first_name'] ?? ''));
+                $pgLast  = trim((string)($primaryGuest['last_name'] ?? $booking['last_name'] ?? ''));
+                $pgDob   = trim((string)($primaryGuest['dob'] ?? ''));
+                $pgEmail = trim((string)($booking['email'] ?? ''));
+                $pgPhone = trim((string)($booking['phone'] ?? ''));
+                $pgMissing = [];
+                if ($pgFirst === '') { $pgMissing[] = 'first name'; }
+                if ($pgLast === '')  { $pgMissing[] = 'last name'; }
+                if ($pgDob === '')   { $pgMissing[] = 'date of birth'; }
+                if ($pgEmail === '' || !filter_var($pgEmail, FILTER_VALIDATE_EMAIL)) { $pgMissing[] = 'valid email'; }
+                if ($pgPhone === '') { $pgMissing[] = 'phone'; }
+                if (!empty($pgMissing)) {
+                    $db->update('bookings', ['booking_status' => 'pending', 'error_response' => json_encode(['error' => 'missing_passenger_data', 'missing' => $pgMissing])], ['invoice_id' => $invoice_id]);
+                    echo json_encode(['status' => false, 'Prn' => '', 'message' => 'Cannot issue: missing required passenger data (' . implode(', ', $pgMissing) . '). Please complete the booking details.', 'response_error' => 'missing_passenger_data']);
+                    exit;
+                }
+
+                $traveler = [
                     'id' => (string)$travelerId,
-                    'dateOfBirth' => $primaryGuest['dob'] ?? '1990-01-01',
+                    'dateOfBirth' => $pgDob,
                     'name' => [
-                        'firstName' => $primaryGuest['first_name'] ?? $booking['first_name'] ?? 'Guest',
-                        'lastName' => $primaryGuest['last_name'] ?? $booking['last_name'] ?? 'User'
+                        'firstName' => $pgFirst,
+                        'lastName' => $pgLast
                     ],
                     'gender' => strtoupper($primaryGuest['gender'] ?? 'MALE'),
                     'contact' => [
-                        'emailAddress' => $booking['email'] ?? 'noreply@example.com',
+                        'emailAddress' => $pgEmail,
                         'phones' => [
                             [
                                 'deviceType' => 'MOBILE',
-                                'countryCallingCode' => '1',
-                                'number' => $booking['phone'] ?? '1234567890'
+                                'countryCallingCode' => (string)($primaryGuest['phone_country_code'] ?? '1'),
+                                'number' => $pgPhone
                             ]
-                        ]
-                    ],
-                    'documents' => [
-                        [
-                            'documentType' => 'PASSPORT',
-                            'birthPlace' => $primaryGuest['birth_place'] ?? 'Unknown',
-                            'issuanceLocation' => $primaryGuest['passport_country'] ?? 'US',
-                            'issuanceDate' => $primaryGuest['passport_issue_date'] ?? '2020-01-01',
-                            'number' => $primaryGuest['passport_number'] ?? 'XXXXXXXXX',
-                            'expiryDate' => $primaryGuest['passport_expiry'] ?? '2030-01-01',
-                            'issuanceCountry' => $primaryGuest['passport_country'] ?? 'US',
-                            'validityCountry' => $primaryGuest['passport_country'] ?? 'US',
-                            'nationality' => $primaryGuest['nationality'] ?? 'US',
-                            'holder' => true
                         ]
                     ]
                 ];
+                // Only attach a PASSPORT document when REAL passport data exists.
+                // (Domestic/document-optional fares don't need it; a fake passport
+                // number is never sent.)
+                $pgPassport = trim((string)($primaryGuest['passport_number'] ?? ''));
+                if ($pgPassport !== '') {
+                    $traveler['documents'] = [[
+                        'documentType' => 'PASSPORT',
+                        'number' => $pgPassport,
+                        'expiryDate' => $primaryGuest['passport_expiry'] ?? null,
+                        'issuanceCountry' => $primaryGuest['passport_country'] ?? null,
+                        'nationality' => $primaryGuest['nationality'] ?? ($primaryGuest['passport_country'] ?? null),
+                        'holder' => true
+                    ]];
+                    // Drop null sub-fields so we never send fabricated dates/countries.
+                    $traveler['documents'][0] = array_filter($traveler['documents'][0], fn($v) => $v !== null);
+                }
+                $travelers[] = $traveler;
 
                 $travelerId++;
             }
@@ -342,82 +366,68 @@ $router->post('flights/amadeus/issue', function() use ($db) {
 
                     $isAdult = strpos($travelerKey, 'adult_') === 0;
 
-                    $travelers[] = [
+                    // Validate identity — do NOT fabricate name/DOB for a real
+                    // airline ticket (denied boarding). Reject if missing.
+                    $tFirst = trim((string)($traveler['first_name'] ?? ''));
+                    $tLast  = trim((string)($traveler['last_name'] ?? ''));
+                    $tDob   = trim((string)($traveler['dob'] ?? ''));
+                    $tMissing = [];
+                    if ($tFirst === '') { $tMissing[] = 'first name'; }
+                    if ($tLast === '')  { $tMissing[] = 'last name'; }
+                    if ($tDob === '')   { $tMissing[] = 'date of birth'; }
+                    if (!empty($tMissing)) {
+                        $db->update('bookings', ['booking_status' => 'pending', 'error_response' => json_encode(['error' => 'missing_passenger_data', 'passenger' => $travelerKey, 'missing' => $tMissing])], ['invoice_id' => $invoice_id]);
+                        echo json_encode(['status' => false, 'Prn' => '', 'message' => 'Cannot issue: missing required data for passenger ' . $travelerKey . ' (' . implode(', ', $tMissing) . ').', 'response_error' => 'missing_passenger_data']);
+                        exit;
+                    }
+
+                    $addTraveler = [
                         'id' => (string)$travelerId,
-                        'dateOfBirth' => $traveler['dob'] ?? ($isAdult ? '1990-01-01' : '2015-01-01'),
+                        'dateOfBirth' => $tDob,
                         'name' => [
-                            'firstName' => $traveler['first_name'] ?? 'Guest',
-                            'lastName' => $traveler['last_name'] ?? 'User'
+                            'firstName' => $tFirst,
+                            'lastName' => $tLast
                         ],
                         'gender' => strtoupper($traveler['gender'] ?? 'MALE'),
                         'contact' => [
-                            'emailAddress' => $booking['email'] ?? 'noreply@example.com',
+                            'emailAddress' => trim((string)($booking['email'] ?? '')),
                             'phones' => [
                                 [
                                     'deviceType' => 'MOBILE',
-                                    'countryCallingCode' => '1',
-                                    'number' => $booking['phone'] ?? '1234567890'
+                                    'countryCallingCode' => (string)($traveler['phone_country_code'] ?? '1'),
+                                    'number' => trim((string)($booking['phone'] ?? ''))
                                 ]
-                            ]
-                        ],
-                        'documents' => [
-                            [
-                                'documentType' => 'PASSPORT',
-                                'birthPlace' => $traveler['birth_place'] ?? 'Unknown',
-                                'issuanceLocation' => $traveler['passport_country'] ?? 'US',
-                                'issuanceDate' => $traveler['passport_issue_date'] ?? '2020-01-01',
-                                'number' => $traveler['passport_number'] ?? 'XXXXXXXXX',
-                                'expiryDate' => $traveler['passport_expiry'] ?? '2030-01-01',
-                                'issuanceCountry' => $traveler['passport_country'] ?? 'US',
-                                'validityCountry' => $traveler['passport_country'] ?? 'US',
-                                'nationality' => $traveler['nationality'] ?? 'US',
-                                'holder' => true
                             ]
                         ]
                     ];
+                    // Passport only when a REAL number exists — never 'XXXXXXXXX'.
+                    $tPassport = trim((string)($traveler['passport_number'] ?? ''));
+                    if ($tPassport !== '') {
+                        $tDoc = array_filter([
+                            'documentType' => 'PASSPORT',
+                            'number' => $tPassport,
+                            'expiryDate' => $traveler['passport_expiry'] ?? null,
+                            'issuanceCountry' => $traveler['passport_country'] ?? null,
+                            'nationality' => $traveler['nationality'] ?? ($traveler['passport_country'] ?? null),
+                            'holder' => true,
+                        ], fn($v) => $v !== null);
+                        $addTraveler['documents'] = [$tDoc];
+                    }
+                    $travelers[] = $addTraveler;
 
                     $travelerId++;
                 }
             }
         }
 
-        // Fallback: create travelers from booking info if none found
+        // No fabricated fallback passenger: a booking with an entirely invented
+        // identity + fake passport ('XXXXXXXXX') would create a real, unusable
+        // airline ticket. If no valid traveler data was assembled, reject.
         if (empty($travelers)) {
-            error_log("AMADEUS ISSUE: No travelers found, creating default from booking");
-
-            $travelers[] = [
-                'id' => '1',
-                'dateOfBirth' => '1990-01-01',
-                'name' => [
-                    'firstName' => $booking['first_name'] ?? 'Guest',
-                    'lastName' => $booking['last_name'] ?? 'User'
-                ],
-                'gender' => 'MALE',
-                'contact' => [
-                    'emailAddress' => $booking['email'] ?? 'noreply@example.com',
-                    'phones' => [
-                        [
-                            'deviceType' => 'MOBILE',
-                            'countryCallingCode' => '1',
-                            'number' => $booking['phone'] ?? '1234567890'
-                        ]
-                    ]
-                ],
-                'documents' => [
-                    [
-                        'documentType' => 'PASSPORT',
-                        'birthPlace' => 'Unknown',
-                        'issuanceLocation' => 'US',
-                        'issuanceDate' => '2020-01-01',
-                        'number' => 'XXXXXXXXX',
-                        'expiryDate' => '2030-01-01',
-                        'issuanceCountry' => 'US',
-                        'validityCountry' => 'US',
-                        'nationality' => 'US',
-                        'holder' => true
-                    ]
-                ]
-            ];
+            error_log("AMADEUS ISSUE: No valid travelers assembled for invoice {$invoice_id}");
+            $db->update('bookings', ['booking_status' => 'pending', 'error_response' => json_encode(['error' => 'no_passenger_data'])], ['invoice_id' => $invoice_id]);
+            echo json_encode(['status' => false, 'Prn' => '', 'message' => 'Cannot issue: no passenger details found on this booking. Please add traveler information.', 'response_error' => 'no_passenger_data']);
+            exit;
         }
 
         error_log("AMADEUS ISSUE: Travelers built, count: " . count($travelers));
@@ -458,20 +468,26 @@ $router->post('flights/amadeus/issue', function() use ($db) {
                         ],
                         'companyName' => $GLOBALS['app']['business_name'] ?? $GLOBALS['app']['website_title'] ?? 'PHPTRAVELS',
                         'purpose' => 'STANDARD',
+                        // email/phone are guaranteed present — the primary-guest
+                        // validation above rejects the booking if they're missing,
+                        // so no fabricated noreply@/1234567890 is ever sent.
                         'phones' => [
                             [
                                 'deviceType' => 'MOBILE',
                                 'countryCallingCode' => $booking['phone_country_code'] ?? '1',
-                                'number' => preg_replace('/[^0-9]/', '', $booking['phone'] ?? '1234567890')
+                                'number' => preg_replace('/[^0-9]/', '', (string)($booking['phone'] ?? ''))
                             ]
                         ],
-                        'emailAddress' => $booking['email'] ?? 'noreply@example.com',
+                        'emailAddress' => trim((string)($booking['email'] ?? '')),
+                        // Address: send only the real value; omit the line rather
+                        // than fabricate '123 Main Street'. Amadeus contact address
+                        // is optional at order level.
                         'address' => [
-                            'lines' => [
-                                !empty($booking['address']) ? $booking['address'] : '123 Main Street'
-                            ],
-                            'postalCode' => !empty($booking['postal_code']) ? $booking['postal_code'] : '00000',
-                            'cityName' => !empty($booking['city']) ? $booking['city'] : 'City',
+                            'lines' => array_values(array_filter([
+                                trim((string)($booking['address'] ?? ''))
+                            ], fn($v) => $v !== '')),
+                            'postalCode' => !empty($booking['postal_code']) ? $booking['postal_code'] : null,
+                            'cityName' => !empty($booking['city']) ? $booking['city'] : null,
                             'countryCode' => strtoupper($primaryNationality)
                         ]
                     ]

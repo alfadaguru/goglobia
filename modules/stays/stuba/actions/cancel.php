@@ -244,7 +244,7 @@ $router->post('stays/stuba/cancel', function() use ($db) {
         
         $apiUrl = $environment === 'production' 
             ? 'https://api.stuba.com/RXLServices/ASMX/XmlService.asmx'
-            : 'http://www.stubademo.com/RXLStagingServices/ASMX/XmlService.asmx';
+            : 'https://www.stubademo.com/RXLStagingServices/ASMX/XmlService.asmx';
         
         error_log("STUBA ISSUE: API URL: " . $apiUrl);
         // ========================================
@@ -264,11 +264,11 @@ $router->post('stays/stuba/cancel', function() use ($db) {
             throw new Exception('Cannot cancel booking without valid booking_id. Booking may not be issued yet. Booking ID value: "' . $bookingReference . '"');
         }
         
-        // Clean and validate booking ID (should be numeric for Stuba)
-        $bookingReference = preg_replace('/[^0-9]/', '', $bookingReference);
-        
-        if (empty($bookingReference)) {
-            throw new Exception('Booking ID contains only invalid characters. Original: "' . $booking['pnr'] . '"');
+        // Validate booking ID (Stuba references are numeric). Do NOT silently
+        // strip non-digits — that could turn "AB123" into "123" and cancel the
+        // WRONG booking. Reject anything that is not purely numeric.
+        if (!ctype_digit($bookingReference)) {
+            throw new Exception('Stuba booking reference is not numeric ("' . $bookingReference . '"). Refusing to cancel to avoid acting on the wrong booking.');
         }
         
         
@@ -328,8 +328,8 @@ XML;
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $cancelXml,
             CURLOPT_HTTPHEADER => $headers,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_VERBOSE => false
         ]);
         

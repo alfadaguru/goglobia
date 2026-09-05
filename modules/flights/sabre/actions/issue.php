@@ -258,10 +258,16 @@ $router->post('flights/sabre/issue', function() use ($db) {
             ];
         }
         
-        // Get contact info from primary passenger
+        // Get contact info from primary passenger — validate, do NOT fabricate
+        // (a fake noreply@/1234567890 on a real PNR reaches the airline/customer).
         $primaryPax = $passengers[0];
-        $contactEmail = $primaryPax['email'] ?: 'noreply@example.com';
-        $contactPhone = $primaryPax['phone'] ?: '1234567890';
+        $contactEmail = trim((string)($primaryPax['email'] ?? '')) ?: trim((string)($booking['email'] ?? ''));
+        $contactPhone = trim((string)($primaryPax['phone'] ?? '')) ?: trim((string)($booking['phone'] ?? ''));
+        if ($contactEmail === '' || !filter_var($contactEmail, FILTER_VALIDATE_EMAIL) || $contactPhone === '') {
+            $db->update('bookings', ['booking_status' => 'pending', 'error_response' => json_encode(['error' => 'missing_contact', 'need' => ['valid email', 'phone']])], ['invoice_id' => $invoice_id]);
+            echo json_encode(['status' => false, 'message' => 'Cannot issue: a valid contact email and phone are required on the booking.', 'response_error' => 'missing_contact']);
+            exit;
+        }
         
         // ========================================
         // STEP 6b: BUILD AIR SEGMENTS (was MISSING — the PNR request previously
@@ -595,7 +601,7 @@ $router->post('flights/sabre/issue', function() use ($db) {
                 'error' => $e->getMessage(),
                 'timestamp' => date('Y-m-d H:i:s'),
                 'endpoint' => 'flights/sabre/issue',
-                'trace' => $e->getTraceAsString()
+                'trace' => '[redacted]'
             ];
             
             

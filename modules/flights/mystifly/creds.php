@@ -88,7 +88,7 @@ function mystiflyCreateSession($accountNumber, $username, $password, $baseUrl, &
             'Content-Type: application/json',
             'Accept: application/json',
         ],
-        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYPEER => true,
     ]);
 
     $result   = curl_exec($ch);
@@ -216,7 +216,7 @@ function _mystiflyDoRequest($url, $payload, $method, $token, $timeout = null)
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => $requestTimeout,
         CURLOPT_CONNECTTIMEOUT => defined('SUPPLIER_CONNECT_TIMEOUT')  ? (int) SUPPLIER_CONNECT_TIMEOUT  : 10,
-        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_HTTPHEADER     => [
             'Content-Type: application/json',
             'Accept: application/json',

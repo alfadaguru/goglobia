@@ -1255,7 +1255,14 @@ CREATE TABLE `bookings` (
   `booking_date` varchar(255) DEFAULT NULL,
   `updated_at` datetime NOT NULL DEFAULT current_timestamp(),
   `booking_payment_issue` text DEFAULT NULL,
-  `language` varchar(10) DEFAULT NULL
+  `language` varchar(10) DEFAULT NULL,
+  `void_response` text DEFAULT NULL,
+  `refund_response` text DEFAULT NULL,
+  `refund_amount` decimal(12,2) DEFAULT NULL,
+  `refund_status` varchar(50) DEFAULT NULL,
+  `refund_reason` varchar(255) DEFAULT NULL,
+  `refund_requested_at` datetime DEFAULT NULL,
+  `cancelled_at` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 
 -- --------------------------------------------------------

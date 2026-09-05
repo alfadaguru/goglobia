@@ -264,7 +264,7 @@ $router->post('stays/travelport/search', function() use ($db) {
                     $soapRequest .= '
                 <com:BillingPointOfSaleInfo OriginApplication="UAPI"/>
                 <hot:HotelSearchLocation>
-                    <hot:HotelLocation Location="' . $searchLocation . '"/>
+                    <hot:HotelLocation Location="' . htmlspecialchars((string)$searchLocation, ENT_XML1|ENT_QUOTES, 'UTF-8') . '"/>
                 </hot:HotelSearchLocation>
                 <hot:HotelSearchModifiers NumberOfAdults="' . $adults . '" NumberOfRooms="' . $rooms . '" MaxResults="' . $perPage . '"/>
                 <hot:HotelStay>
@@ -290,8 +290,8 @@ $router->post('stays/travelport/search', function() use ($db) {
                         ],
                         CURLOPT_USERPWD => $username . ':' . $password,
                         CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
-                        CURLOPT_SSL_VERIFYPEER => false,
-                        CURLOPT_SSL_VERIFYHOST => 0,
+                        CURLOPT_SSL_VERIFYPEER => true,
+                        CURLOPT_SSL_VERIFYHOST => 2,
                         CURLOPT_TIMEOUT => $requestTimeout,
                         CURLOPT_CONNECTTIMEOUT => $connectTimeout
                     ]);
@@ -348,9 +348,9 @@ $router->post('stays/travelport/search', function() use ($db) {
                         xmlns:com="http://www.travelport.com/schema/common_v52_0">
         <soapenv:Header/>
         <soapenv:Body>
-            <hot:HotelDetailsReq AuthorizedBy="user" TargetBranch="' . $branchCode . '" TraceId="details-' . time() . '-' . $hotelCode . '">
+            <hot:HotelDetailsReq AuthorizedBy="user" TargetBranch="' . $branchCode . '" TraceId="details-' . time() . '-' . htmlspecialchars((string)$hotelCode, ENT_XML1|ENT_QUOTES, 'UTF-8') . '">
                 <com:BillingPointOfSaleInfo OriginApplication="UAPI"/>
-                <hot:HotelProperty HotelCode="' . $hotelCode . '" HotelChain="' . $hotelChain . '"/>
+                <hot:HotelProperty HotelCode="' . htmlspecialchars((string)$hotelCode, ENT_XML1|ENT_QUOTES, 'UTF-8') . '" HotelChain="' . htmlspecialchars((string)$hotelChain, ENT_XML1|ENT_QUOTES, 'UTF-8') . '"/>
                 <hot:HotelDetailsModifiers RateRuleDetail="None" NumberOfAdults="' . $adults . '" NumberOfRooms="' . $rooms . '">
                     <hot:HotelStay>
                         <hot:CheckinDate>' . $checkinFormatted . '</hot:CheckinDate>
@@ -376,8 +376,8 @@ $router->post('stays/travelport/search', function() use ($db) {
                     ],
                     CURLOPT_USERPWD => $username . ':' . $password,
                     CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
-                    CURLOPT_SSL_VERIFYPEER => false,
-                    CURLOPT_SSL_VERIFYHOST => 0,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                    CURLOPT_SSL_VERIFYHOST => 2,
                     CURLOPT_TIMEOUT => $requestTimeout
                 ]);
 
@@ -391,9 +391,9 @@ $router->post('stays/travelport/search', function() use ($db) {
                         xmlns:com="http://www.travelport.com/schema/common_v52_0">
         <soapenv:Header/>
         <soapenv:Body>
-            <hot:HotelMediaLinksReq AuthorizedBy="user" TargetBranch="' . $branchCode . '" TraceId="media-' . time() . '-' . $hotelCode . '">
+            <hot:HotelMediaLinksReq AuthorizedBy="user" TargetBranch="' . $branchCode . '" TraceId="media-' . time() . '-' . htmlspecialchars((string)$hotelCode, ENT_XML1|ENT_QUOTES, 'UTF-8') . '">
                 <com:BillingPointOfSaleInfo OriginApplication="UAPI"/>
-                <hot:HotelProperty HotelCode="' . $hotelCode . '" HotelChain="' . $hotelChain . '"/>
+                <hot:HotelProperty HotelCode="' . htmlspecialchars((string)$hotelCode, ENT_XML1|ENT_QUOTES, 'UTF-8') . '" HotelChain="' . htmlspecialchars((string)$hotelChain, ENT_XML1|ENT_QUOTES, 'UTF-8') . '"/>
             </hot:HotelMediaLinksReq>
         </soapenv:Body>
         </soapenv:Envelope>';
@@ -413,8 +413,8 @@ $router->post('stays/travelport/search', function() use ($db) {
                     ],
                     CURLOPT_USERPWD => $username . ':' . $password,
                     CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
-                    CURLOPT_SSL_VERIFYPEER => false,
-                    CURLOPT_SSL_VERIFYHOST => 0,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                    CURLOPT_SSL_VERIFYHOST => 2,
                     CURLOPT_TIMEOUT => $requestTimeout
                 ]);
 
@@ -743,15 +743,19 @@ $router->post('stays/travelport/search', function() use ($db) {
                 $apiCurrency = $matches[1];
                 $basePrice = floatval($matches[2]);
 
-                // Apply markup
+                // Apply markup. Initialise $markupResult FIRST so that if
+                // MARKUP() throws, the fields read later (lines ~787-790) still
+                // resolve to the base price instead of an undefined key (which
+                // rendered as a 0/null price in results).
                 $finalPrice = $basePrice;
+                $markupResult = ['price' => $basePrice, 'converted_base_price' => $basePrice];
                 try {
                     $markupResult = MARKUP($basePrice, $module, $db, $apiCurrency, $currency);
                     if (isset($markupResult['price']) && $markupResult['price'] > 0) {
                         $finalPrice = $markupResult['price'];
                     }
                 } catch (Exception $e) {
-                    // Use base price if markup fails
+                    $markupResult = ['price' => $basePrice, 'converted_base_price' => $basePrice];
                 }
 
                 // Basic info from search

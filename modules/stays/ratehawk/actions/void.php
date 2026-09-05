@@ -134,7 +134,7 @@ $router->post('/stays/ratehawk/void', function() use ($db) {
         // Check response — cancel API returns status=ok when cancelled
         if ($httpCode === 200 && ($apiResponse['status'] ?? '') === 'ok') {
             $db->update('bookings', [
-                'booking_status' => 'voided',
+                'booking_status' => 'cancelled',
                 'cancellation_status' => 1,
                 'cancellation_response' => json_encode([
                     'status' => 'voided',

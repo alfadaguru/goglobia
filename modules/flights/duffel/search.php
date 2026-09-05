@@ -103,7 +103,7 @@ $router->post('flights/duffel/search', function() use ($db) {
         } else {
             if(isset($_POST['origin']) && trim($_POST['origin']) !== "") {} else {  echo "origin : LHE - param or value missing "; die; }
             if(isset($_POST['destination']) && trim($_POST['destination']) !== "") {} else { echo "destination : DXB - param or value missing "; die; }
-            if(isset($_POST['departure_date']) && trim($_POST['origin']) !== "") {} else {  echo "departure_date : 10-10-2021 - param or value missing "; die; }
+            if(isset($_POST['departure_date']) && trim($_POST['departure_date']) !== "") {} else {  echo "departure_date : 10-10-2021 - param or value missing "; die; }
         }
 
         if(isset($_POST['adults']) && trim($_POST['adults']) !== "") {} else {  echo "adults : 1 - param or value missing "; die; }
@@ -197,6 +197,8 @@ $router->post('flights/duffel/search', function() use ($db) {
             "Authorization: Bearer " . $api_token
         ];
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
         if (connection_aborted()) {
             error_log('search_guard: request aborted before supplier call');
             exit;
@@ -207,8 +209,13 @@ $router->post('flights/duffel/search', function() use ($db) {
                 error_log('search_guard: supplier timeout duffel');
             }
             $errorMsg = 'Error:' . curl_error($ch);
-            // file_put_contents("logs/_Api_Error.log", date('Y-m-d H:i:s') . " - " . $errorMsg);
-            echo $errorMsg;
+            error_log('DUFFEL SEARCH cURL error: ' . $errorMsg);
+            // Must stop here: on a cURL failure $result is false and continuing
+            // to json_decode(false) silently yields no results instead of
+            // surfacing the network error.
+            curl_close($ch);
+            echo json_encode(['status' => false, 'message' => 'Flight search is temporarily unavailable. Please try again.']);
+            exit;
         }
         $decode = json_decode($result, true);
 

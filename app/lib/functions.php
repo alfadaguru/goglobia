@@ -2,6 +2,29 @@
 
 // app/lib/functions.php
 
+// Finding E — internal supplier-action token. Defined here (loaded by the main
+// app) AND mirrored in modules/helpers.php (loaded by the modules gateway) with
+// function_exists guards, so BOTH contexts compute the SAME token: the payment
+// gateway (main app) signs its loopback issue call, and the module route
+// (modules gateway) verifies it. Keyed on the server-only .env JWT_SECRET.
+if (!function_exists('supplier_internal_secret')) {
+    function supplier_internal_secret(): string
+    {
+        $env = @parse_ini_file(dirname(__DIR__, 2) . '/.env');
+        $secret = is_array($env) ? trim((string)($env['JWT_SECRET'] ?? '')) : '';
+        if ($secret === '') {
+            $secret = hash('sha256', 'v10-supplier|' . (string)($env['DB_DATABASE'] ?? '') . '|' . (string)($env['DB_PASSWORD'] ?? ''));
+        }
+        return $secret;
+    }
+}
+if (!function_exists('supplier_internal_token')) {
+    function supplier_internal_token(string $invoiceId): string
+    {
+        return hash_hmac('sha256', 'supplier-action:' . $invoiceId, supplier_internal_secret());
+    }
+}
+
 // DEBUG FUNCTION
 function dd($d)
 {
@@ -267,6 +290,17 @@ function ensureCoreFixSchema($db): void
         ['settings', 'booking_notification_email', "ALTER TABLE `settings` ADD COLUMN `booking_notification_email` VARCHAR(255) NULL DEFAULT NULL"],
         ['settings', 'visa_passport_required', "ALTER TABLE `settings` ADD COLUMN `visa_passport_required` ENUM('0','1') NOT NULL DEFAULT '0'"],
         ['settings', 'visa_national_id_required', "ALTER TABLE `settings` ADD COLUMN `visa_national_id_required` ENUM('0','1') NOT NULL DEFAULT '0'"],
+        // Supplier cancel/void/refund handlers across ~16 modules write these
+        // columns. They did not exist on `bookings`, so MySQL silently DROPPED
+        // every write (lost void/refund/cancel metadata). Create them so those
+        // writes persist. Idempotent — no-op once present.
+        ['bookings', 'void_response',       "ALTER TABLE `bookings` ADD COLUMN `void_response` TEXT NULL DEFAULT NULL"],
+        ['bookings', 'refund_response',     "ALTER TABLE `bookings` ADD COLUMN `refund_response` TEXT NULL DEFAULT NULL"],
+        ['bookings', 'refund_amount',       "ALTER TABLE `bookings` ADD COLUMN `refund_amount` DECIMAL(12,2) NULL DEFAULT NULL"],
+        ['bookings', 'refund_status',       "ALTER TABLE `bookings` ADD COLUMN `refund_status` VARCHAR(50) NULL DEFAULT NULL"],
+        ['bookings', 'refund_reason',       "ALTER TABLE `bookings` ADD COLUMN `refund_reason` VARCHAR(255) NULL DEFAULT NULL"],
+        ['bookings', 'refund_requested_at', "ALTER TABLE `bookings` ADD COLUMN `refund_requested_at` DATETIME NULL DEFAULT NULL"],
+        ['bookings', 'cancelled_at',        "ALTER TABLE `bookings` ADD COLUMN `cancelled_at` DATETIME NULL DEFAULT NULL"],
     ];
 
     foreach ($columns as [$table, $column, $alterSql]) {

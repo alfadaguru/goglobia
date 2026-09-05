@@ -41,7 +41,7 @@ $router->post('stays/ratehawk/search', function () use ($db) {
             ],
             CURLOPT_CONNECTTIMEOUT => $connectTimeout,
             CURLOPT_TIMEOUT => $requestTimeout,
-            CURLOPT_SSL_VERIFYPEER => false
+            CURLOPT_SSL_VERIFYPEER => true
         ]);
 
         $response = curl_exec($ch);
@@ -81,7 +81,7 @@ $router->post('stays/ratehawk/search', function () use ($db) {
                 ],
                 CURLOPT_CONNECTTIMEOUT => $connectTimeout,
                 CURLOPT_TIMEOUT => $requestTimeout,
-                CURLOPT_SSL_VERIFYPEER => false
+                CURLOPT_SSL_VERIFYPEER => true
             ]);
             curl_multi_add_handle($mh, $ch);
             $handles[$idx] = $ch;

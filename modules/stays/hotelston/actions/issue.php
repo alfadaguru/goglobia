@@ -64,8 +64,8 @@ $router->post('stays/hotelston/issue', function () use ($db) {
         $isDev = in_array((string)($module['dev_mode'] ?? '0'), ['1', 'true', 'yes', 'on', 'test'], true);
         $env   = $isDev ? 'test' : 'production';
         $hotelEndpoint = $isDev
-            ? 'http://dev.hotelston.com/ws/HotelServiceV2/HotelServiceHttpSoap12Endpoint/'
-            : 'http://www.hotelston.com/ws/HotelServiceV2/HotelServiceHttpSoap12Endpoint/';
+            ? 'https://dev.hotelston.com/ws/HotelServiceV2/HotelServiceHttpSoap12Endpoint/'
+            : 'https://www.hotelston.com/ws/HotelServiceV2/HotelServiceHttpSoap12Endpoint/';
 
         $email    = $module['c1'];
         $password = $module['c2'];
@@ -145,8 +145,8 @@ $router->post('stays/hotelston/issue', function () use ($db) {
                 CURLOPT_POST           => true,
                 CURLOPT_POSTFIELDS     => $envelope,
                 CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_SSL_VERIFYHOST => false,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
                 CURLOPT_TIMEOUT        => 90,
                 CURLOPT_HTTPHEADER     => [
                     'SOAPAction: application/soap+xml; charset=utf-8',

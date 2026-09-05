@@ -229,7 +229,7 @@ $router->post('flights/kiwi/refund', function() use ($db) {
                 'error' => $e->getMessage(),
                 'timestamp' => date('Y-m-d H:i:s'),
                 'endpoint' => 'flights/kiwi/refund',
-                'trace' => $e->getTraceAsString()
+                'trace' => '[redacted]'
             ];
             
             

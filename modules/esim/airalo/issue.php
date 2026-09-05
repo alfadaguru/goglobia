@@ -108,8 +108,33 @@ $router->post('esim/airalo/issue', function () use ($db) {
 
         $orderData = (array) ($res['data']['data'] ?? []);
         $orderId = (string) ($orderData['id'] ?? $orderData['order_id'] ?? '');
+        // Do NOT fabricate a synthetic order id. A "success" response with no
+        // Airalo order id is a malformed/unexpected result — inventing an
+        // AIRALO-xxxx id would break order tracking (the customer could not
+        // reference it with Airalo) and hide the real problem. Flag for manual
+        // review instead and keep the payment.
         if ($orderId === '') {
-            $orderId = 'AIRALO-' . strtoupper(substr(md5($invoiceId . microtime(true)), 0, 8));
+            error_log('AIRALO ISSUE: success response missing order id for invoice ' . $invoiceId . ' — flagging for manual review. raw=' . json_encode($orderData));
+            try {
+                $db->update('bookings', [
+                    'booking_status' => 'pending',
+                    'error_response' => json_encode([
+                        'review_state' => 'airalo_missing_order_id',
+                        'reason'       => 'Airalo returned a success response with no order id; eSIM provisioning must be verified manually in the Airalo dashboard.',
+                        'raw'          => $orderData,
+                        'flagged_at'   => date('Y-m-d H:i:s'),
+                    ]),
+                ], ['invoice_id' => $invoiceId]);
+            } catch (\Throwable $e) {
+                error_log('AIRALO ISSUE: flag update failed: ' . $e->getMessage());
+            }
+            echo json_encode([
+                'status'          => false,
+                'message'         => 'Airalo did not return an order reference. The payment is held and the order has been flagged for manual review.',
+                'response_error'  => 'missing_order_id',
+                'airalo_response' => $orderData,
+            ], JSON_UNESCAPED_SLASHES);
+            exit;
         }
 
         $bookingData['airalo_provision'] = [

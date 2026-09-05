@@ -6,10 +6,12 @@ $router->post('flights/travelport/refund', function() use ($db) {
         header('Content-Type: application/json');
 
         function log_cert($step, $data) {
-            $file = "/Applications/XAMPP/xamppfiles/htdocs/travelport/certification/refund_" . date('H-i-s') . ".json";
+            $dir = __DIR__ . "/../logs";
+            if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
+            $file = $dir . "/refund_" . date("H-i-s") . ".json";
             $current = file_exists($file) ? json_decode(file_get_contents($file), true) : [];
             $current[$step] = $data;
-            file_put_contents($file, json_encode($current, JSON_PRETTY_PRINT));
+            @file_put_contents($file, json_encode($current, JSON_PRETTY_PRINT));
         }
 
         $raw_input = file_get_contents('php://input');
@@ -25,7 +27,7 @@ $router->post('flights/travelport/refund', function() use ($db) {
         $clientId = $module['c1']; $clientSecret = $module['c2'];
         $pcc = $module['c6']; $accessGroup = $module['c5'];
 
-        $tokenUrl = "https://auth.pp.travelport.net/oauth/token";
+        $tokenUrl = travelport_oauth_url($module);
         $auth = base64_encode($clientId . ":" . $clientSecret);
         $ch = curl_init($tokenUrl);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -33,11 +35,21 @@ $router->post('flights/travelport/refund', function() use ($db) {
         curl_setopt($ch, CURLOPT_POSTFIELDS, "grant_type=client_credentials");
         curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: Basic $auth", "Content-Type: application/x-www-form-urlencoded"]);
         $tokenRes = curl_exec($ch);
-        $tokenData = json_decode($tokenRes, true);
+        $tokenErr = curl_error($ch);
+        $tokenHttp = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $tokenData = json_decode((string) $tokenRes, true);
         curl_close($ch);
         $token = $tokenData['access_token'] ?? '';
+        // GUARD: without a valid OAuth token every subsequent call is anonymous
+        // and would return null — which the old success-branch mistook for
+        // "no error" and marked the booking refunded. Fail loudly instead.
+        if ($tokenRes === false || $token === '') {
+            echo json_encode(["status" => false, "message" => "Travelport authentication failed — refund not processed.",
+                "detail" => $tokenErr ?: ("HTTP " . $tokenHttp)]);
+            exit;
+        }
 
-        $baseUrl = "https://api.pp.travelport.net/11";
+        $baseUrl = travelport_api_base($module);
         $pnr = $booking['pnr'];
 
         $initUrl = "$baseUrl/air/book/session/reservationworkbench/buildfromlocator?Locator=$pnr";
@@ -54,6 +66,13 @@ $router->post('flights/travelport/refund', function() use ($db) {
 
         $resId = $initData['ReservationResponse']['Identifier']['value'] ?? null;
         $offerValue = $initData['ReservationResponse']['Reservation']['Offer'][0]['Identifier']['value'] ?? null;
+        // GUARD: no reservation id => buildfromlocator failed; do not fabricate
+        // downstream calls against null URLs (which silently "succeed").
+        if ($initRes === false || !$resId) {
+            echo json_encode(["status" => false, "message" => "Could not load the Travelport reservation for this PNR — refund not processed.",
+                "response" => $initData]);
+            exit;
+        }
 
         $cancelOfferUrl = "$baseUrl/air/book/airoffer/reservationworkbench/$resId/offers/canceloffer";
         $cancelPayload = ["@type" => "OfferQueryCancelOffer", "BuildFromOffer" => ["@type" => "BuildFromOfferAir", "OfferIdentifier" => ["Identifier" => ["value" => $offerValue]]]];
@@ -81,7 +100,10 @@ $router->post('flights/travelport/refund', function() use ($db) {
         $commitData = json_decode($commitRes, true);
         log_cert("Travelport_Res_Commit", $commitData);
 
-        if (isset($commitData['ReservationResponse']['Result']['Error'])) {
+        // GUARD: treat a failed/empty commit response as a failure, not success.
+        // A null $commitData (network/auth failure) must NOT fall through to the
+        // refunded branch.
+        if ($commitRes === false || !is_array($commitData) || isset($commitData['ReservationResponse']['Result']['Error'])) {
             $final_res = ["status" => false, "message" => "Refund failed", "response" => $commitData];
         } else {
             // GDS refund committed. Reverse the CUSTOMER's charge via the gateway;

@@ -112,7 +112,7 @@ $router->post('flights/tbo/issue', function () use ($db) {
         $quote = tboFareQuote($db, $tboData, $invoiceId);
         if (!$quote['ok']) {
             $db->update('bookings', [
-                'booking_status' => 'failed',
+                'booking_status' => 'pending',
                 'error_response' => json_encode(['step' => 'farequote', 'message' => $quote['message'], 'response' => $quote['raw'], 'timestamp' => date('Y-m-d H:i:s')]),
             ], ['id' => $booking['id']]);
 
@@ -126,8 +126,16 @@ $router->post('flights/tbo/issue', function () use ($db) {
         // ------------------------------------------------------------------
         $ruleResult = tboApiPost($urls['search'] . '/api/v1/Detail/FareRule', $commonParams, 60);
         tboLog($db, 'api/v1/Detail/FareRule', $commonParams, $ruleResult['raw'], $ruleResult['http_code'], $ruleResult['curl_error'], $invoiceId);
+        if (!empty($ruleResult['curl_error']) || (int) ($ruleResult['http_code'] ?? 0) >= 400) {
+            error_log('TBO ISSUE: FareRule fetch failed for ' . $invoiceId . ' — ' . ($ruleResult['curl_error'] ?? ('HTTP ' . ($ruleResult['http_code'] ?? '?'))) . '; falling back to FareQuote rules.');
+        }
+        // Never send a literal null into the Book/Ticket itinerary — fall back to
+        // the FareQuote rules, then to an empty array (TBO-safe shape).
         $fareRules = $ruleResult['data']['FareRules'][0]
-            ?? ($quoteResult['FareRules'] ?? null);
+            ?? ($quoteResult['FareRules'] ?? []);
+        if ($fareRules === null) {
+            $fareRules = [];
+        }
 
         // ------------------------------------------------------------------
         // STEP 3: Build passenger array
@@ -393,7 +401,7 @@ $router->post('flights/tbo/issue', function () use ($db) {
                 ?? ($ticketResult['curl_error'] ?: 'Ticket issue failed');
 
             $db->update('bookings', [
-                'booking_status' => 'failed',
+                'booking_status' => 'pending',
                 'error_response' => json_encode(['step' => 'lcc_ticket', 'message' => $errMsg, 'response' => $ticketData, 'timestamp' => date('Y-m-d H:i:s')]),
             ], ['id' => $booking['id']]);
 
@@ -415,7 +423,7 @@ $router->post('flights/tbo/issue', function () use ($db) {
         if (!empty($bookError) || $bookResult['curl_error']) {
             $errMsg = $bookError ?: $bookResult['curl_error'];
             $db->update('bookings', [
-                'booking_status' => 'failed',
+                'booking_status' => 'pending',
                 'error_response' => json_encode(['step' => 'book', 'message' => $errMsg, 'response' => $bookData, 'timestamp' => date('Y-m-d H:i:s')]),
             ], ['id' => $booking['id']]);
 
@@ -461,7 +469,7 @@ $router->post('flights/tbo/issue', function () use ($db) {
             ?? ($ticketResult['curl_error'] ?: 'Ticket issue failed');
 
         $db->update('bookings', [
-            'booking_status' => 'failed',
+            'booking_status' => 'pending',
             'error_response' => json_encode(['step' => 'ticket', 'message' => $errMsg, 'response' => $ticketData, 'timestamp' => date('Y-m-d H:i:s')]),
         ], ['id' => $booking['id']]);
 
@@ -473,7 +481,7 @@ $router->post('flights/tbo/issue', function () use ($db) {
         try {
             if (!empty($booking['id'])) {
                 $db->update('bookings', [
-                    'booking_status' => 'failed',
+                    'booking_status' => 'pending',
                     'error_response' => json_encode(['step' => 'exception', 'message' => $e->getMessage(), 'timestamp' => date('Y-m-d H:i:s')]),
                 ], ['id' => $booking['id']]);
             }

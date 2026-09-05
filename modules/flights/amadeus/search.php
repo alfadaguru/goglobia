@@ -87,7 +87,7 @@ $router->post('flights/amadeus/search', function() use ($db) {
         } else {
             if(isset($_POST['origin']) && trim($_POST['origin']) !== "") {} else { echo "origin : LHE - param or value missing "; die; }
             if(isset($_POST['destination']) && trim($_POST['destination']) !== "") {} else { echo "destination : DXB - param or value missing "; die; }
-            if(isset($_POST['departure_date']) && trim($_POST['origin']) !== "") {} else { echo "departure_date : 10-10-2021 - param or value missing "; die; }
+            if(isset($_POST['departure_date']) && trim($_POST['departure_date']) !== "") {} else { echo "departure_date : 10-10-2021 - param or value missing "; die; }
         }
         if(isset($_POST['adults']) && trim($_POST['adults']) !== "") {} else { echo "adults : 1 - param or value missing "; die; }
         if(isset($_POST['childrens']) && trim($_POST['childrens']) !== "") {} else { echo "childrens : 1 - param or value missing "; die; }
@@ -358,10 +358,16 @@ $router->post('flights/amadeus/search', function() use ($db) {
                         $airline_name = '';
                     }
 
-                    $departure_airport = $pdo->query("SELECT * FROM `flights_airports` WHERE `code` = '".$seg2->departure->iataCode."'")->fetch(\PDO::FETCH_OBJ);
+                    // SECURITY (H2): prepared statement — iataCode is from the
+                    // Amadeus API response; never interpolate into SQL.
+                    $depStmt = $pdo->prepare("SELECT * FROM `flights_airports` WHERE `code` = ? LIMIT 1");
+                    $depStmt->execute([$seg2->departure->iataCode]);
+                    $departure_airport = $depStmt->fetch(\PDO::FETCH_OBJ);
                     $airport_name = !empty($departure_airport) ? $departure_airport->airport : $seg2->departure->iataCode;
 
-                    $arrival_airport = $pdo->query("SELECT * FROM `flights_airports` WHERE `code` = '".$seg2->arrival->iataCode."'")->fetch(\PDO::FETCH_OBJ);
+                    $arrStmt = $pdo->prepare("SELECT * FROM `flights_airports` WHERE `code` = ? LIMIT 1");
+                    $arrStmt->execute([$seg2->arrival->iataCode]);
+                    $arrival_airport = $arrStmt->fetch(\PDO::FETCH_OBJ);
                     $airport_arrival = !empty($arrival_airport) ? $arrival_airport->airport : $seg2->arrival->iataCode;
 
                     // echo $seg2->duration; exit();
@@ -442,13 +448,13 @@ $router->post('flights/amadeus/search', function() use ($db) {
     } catch (\Throwable $e) {
         header('Access-Control-Allow-Origin: *');
         header('Content-Type: application/json');
+        // §16: log full detail server-side; do NOT leak file/line/stack trace to
+        // the client (info disclosure).
+        error_log('AMADEUS SEARCH ERROR: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
         echo json_encode([
             'status' => 'error',
             'msg' => 'internal_error',
-            'error' => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-            'trace' => explode("\n", $e->getTraceAsString())
+            'error' => 'An error occurred while searching. Please try again.'
         ]);
         exit;
     }

@@ -42,7 +42,7 @@ $router->post('stays/travelport/actions/refund', function() use ($db) {
             exit;
         }
 
-        if ($booking['status'] !== 'cancelled') {
+        if (($booking['booking_status'] ?? '') !== 'cancelled') {
             echo json_encode([
                 'success' => false,
                 'message' => 'Booking must be cancelled before refund'

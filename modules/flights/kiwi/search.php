@@ -126,7 +126,18 @@ $router->post('flights/kiwi/search', function() use ($db) {
                 curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $connectTimeout);
                 curl_setopt($ch, CURLOPT_TIMEOUT, $requestTimeout);
                 $legResult = curl_exec($ch);
+                $legErrno  = curl_errno($ch);
+                $legErr    = curl_error($ch);
                 curl_close($ch);
+
+                // A network failure must not be silently converted to "0 results".
+                if ($legErrno) {
+                    error_log('KIWI SEARCH (multicity leg ' . $legIndex . ') cURL error: ' . $legErr);
+                    header('Access-Control-Allow-Origin: *');
+                    header('Content-Type: application/json');
+                    echo json_encode(['status' => false, 'message' => 'Flight search is temporarily unavailable. Please try again.']);
+                    exit;
+                }
 
                 $legDecode = json_decode($legResult, true);
 
@@ -291,10 +302,19 @@ $router->post('flights/kiwi/search', function() use ($db) {
         $origin      = $_POST['origin'];
         /*end flight date & time*/
 
+        // §16 HIGH: sanitize POST values before putting them in the request URL —
+        // cast pax counts to int, urlencode currency (was raw $_POST → param injection).
+        $qAdults   = (int) ($_POST['adults'] ?? 1);
+        $qChildren = (int) ($_POST['childrens'] ?? 0);
+        $qInfants  = (int) ($_POST['infants'] ?? 0);
+        $qCurr     = urlencode(strtoupper((string) ($_POST['currency'] ?? 'USD')));
+        $qFrom     = urlencode(strtoupper((string) $origin));
+        $qTo       = urlencode(strtoupper((string) $destination));
+        $qCabins   = urlencode((string) $class_trip);
         if ($type == 'oneway') {
-            $url = "https://api.tequila.kiwi.com/v2/search?fly_from=" . strtoupper($origin) . "&fly_to=" . strtoupper($destination) . "&date_from=" . $departureDate . "&date_to=" . $departureDate . "&adults={$_POST['adults']}&children={$_POST['childrens']}&infants={$_POST['infants']}&curr=" . strtoupper($_POST['currency']) . "&selected_cabins={$class_trip}";
+            $url = "https://api.tequila.kiwi.com/v2/search?fly_from={$qFrom}&fly_to={$qTo}&date_from=" . urlencode((string)$departureDate) . "&date_to=" . urlencode((string)$departureDate) . "&adults={$qAdults}&children={$qChildren}&infants={$qInfants}&curr={$qCurr}&selected_cabins={$qCabins}";
         } else {
-            $url = "https://api.tequila.kiwi.com/v2/search?fly_from=" . strtoupper($origin) . "&fly_to=" . strtoupper($destination) . "&date_from=" . $departureDate . "&date_to=" . $departureDate . "&return_from=" . $returnDate . "&return_to=" . $returnDate . "&adults={$_POST['adults']}&children={$_POST['childrens']}&infants={$_POST['infants']}&curr=" . strtoupper($_POST['currency']) . "&selected_cabins={$class_trip}";
+            $url = "https://api.tequila.kiwi.com/v2/search?fly_from={$qFrom}&fly_to={$qTo}&date_from=" . urlencode((string)$departureDate) . "&date_to=" . urlencode((string)$departureDate) . "&return_from=" . urlencode((string)$returnDate) . "&return_to=" . urlencode((string)$returnDate) . "&adults={$qAdults}&children={$qChildren}&infants={$qInfants}&curr={$qCurr}&selected_cabins={$qCabins}";
         }
 
         $ch = curl_init();

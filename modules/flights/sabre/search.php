@@ -316,14 +316,9 @@ $router->post('flights/sabre/search', function () use ($db) {
         $decode = json_decode($result, true);
 
         if ($http_code !== 200 || empty($decode['groupedItineraryResponse'])) {
-            echo json_encode([
-                'debug' => [
-                    'http_code' => $http_code,
-                    'has_response' => !empty($decode),
-                    'response_keys' => array_keys($decode ?? []),
-                    'error' => $decode['error'] ?? $decode['Errors'] ?? null
-                ]
-            ]);
+            // Do NOT leak Sabre HTTP codes / error internals to the client.
+            error_log('SABRE SEARCH: no results (HTTP ' . $http_code . ') keys=' . implode(',', array_keys($decode ?? [])) . ' err=' . json_encode($decode['error'] ?? $decode['Errors'] ?? null));
+            echo json_encode(['status' => false, 'message' => 'No flights found for this search. Please try again.']);
             return;
         }
 

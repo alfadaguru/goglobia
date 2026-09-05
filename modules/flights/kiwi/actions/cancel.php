@@ -182,7 +182,7 @@ $router->post('flights/kiwi/cancel', function() use ($db) {
                 'error' => $e->getMessage(),
                 'timestamp' => date('Y-m-d H:i:s'),
                 'endpoint' => 'flights/kiwi/cancel',
-                'trace' => $e->getTraceAsString()
+                'trace' => '[redacted]'
             ];
             
             

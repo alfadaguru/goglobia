@@ -269,6 +269,10 @@ if (!function_exists('_train_request')) {
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             $ch = curl_init();
+            // §16 HIGH: verify TLS on HTTPS supplier calls (was hardcoded off).
+            // Only skip for the plaintext http:// IP fallback where there is no
+            // certificate to verify anyway.
+            $__isHttps = stripos((string) $url, 'https://') === 0;
             curl_setopt_array($ch, [
                 CURLOPT_URL            => $url,
                 CURLOPT_RETURNTRANSFER => true,
@@ -277,7 +281,8 @@ if (!function_exists('_train_request')) {
                 CURLOPT_HTTPHEADER     => $headers,
                 CURLOPT_CONNECTTIMEOUT => defined('SUPPLIER_CONNECT_TIMEOUT') ? SUPPLIER_CONNECT_TIMEOUT : 10,
                 CURLOPT_TIMEOUT        => $timeout,
-                CURLOPT_SSL_VERIFYPEER => false, // Bypass SSL verification for ease of testing
+                CURLOPT_SSL_VERIFYPEER => $__isHttps,
+                CURLOPT_SSL_VERIFYHOST => $__isHttps ? 2 : 0,
             ]);
 
             $raw    = curl_exec($ch);
@@ -420,20 +425,25 @@ if (!function_exists('_train_apply_order_result')) {
             : json_encode($storedResponse ?? ['data' => $data]);
 
         if ($failMsg !== '') {
-            // PNR exists — booking is confirmed; only seat numbers are still pending.
+            // fail_msg is a HARD FAILURE from the supplier (e.g. "Tickets could not
+            // be issued", "No railway supplier matched", "Invalid document type" —
+            // see _train_human_fail_message). The order did NOT succeed, so it must
+            // NOT be marked 'confirmed' (the old code did — a failed order shown as
+            // a confirmed sale). Record it as pending/for-review with the failure.
             $updated = $db->update('bookings', [
-                'booking_status'   => 'confirmed',
+                'booking_status'   => 'pending',
                 'booking_response' => $encodedResponse,
                 'error_response'   => json_encode([
                     'fail_msg'    => $failMsg,
                     'fail_msg_en' => _train_human_fail_message($failMsg),
                     'source'      => 'orderResultData',
+                    'note'        => 'Supplier reported a ticketing failure; not confirmed.',
                 ]),
                 'updated_at'       => date('Y-m-d H:i:s'),
             ], ['pnr' => $mainOrderId, 'module_type' => 'rail']);
 
             return [
-                'action'        => 'seats_pending',
+                'action'        => 'failed',
                 'rows_matched'  => $updated ? $updated->rowCount() : 0,
             ];
         }
@@ -631,6 +641,35 @@ if (!function_exists('_train_issue_booking')) {
         $hasSeats = is_array($pollData) && _train_order_has_seats($pollData);
         $failMsg  = is_array($pollData) ? trim((string)($pollData['fail_msg'] ?? '')) : '';
 
+        // If the supplier reported a hard failure (fail_msg), the order did NOT
+        // succeed — do NOT overwrite it to 'confirmed' (the old code did, masking a
+        // failed order as a confirmed sale). _train_apply_order_result already set
+        // it to 'pending' with the failure; return that truthfully.
+        if ($failMsg !== '') {
+            $db->update('bookings', [
+                'booking_status' => 'pending',
+                'error_response' => json_encode([
+                    'fail_msg'    => $failMsg,
+                    'fail_msg_en' => _train_human_fail_message($failMsg),
+                    'source'      => 'issue',
+                    'note'        => 'Supplier reported a ticketing failure; not confirmed.',
+                ]),
+                'updated_at'     => date('Y-m-d H:i:s'),
+            ], ['invoice_id' => $invoiceId]);
+
+            return [
+                'status'            => false,
+                'Prn'               => '',
+                'pnr'               => $mainOrderId,
+                'booking_status'    => 'pending',
+                'seats_assigned'    => false,
+                'message'           => _train_human_fail_message($failMsg) ?: 'Train ticketing failed at the supplier.',
+                'fail_msg'          => $failMsg,
+                'fail_msg_en'       => _train_human_fail_message($failMsg),
+                'response_error'    => $failMsg,
+            ];
+        }
+
         $db->update('bookings', [
             'booking_status' => 'confirmed',
             'updated_at'     => date('Y-m-d H:i:s'),
@@ -646,8 +685,8 @@ if (!function_exists('_train_issue_booking')) {
             'message'           => $hasSeats
                 ? 'Train order ticketed successfully.'
                 : 'Train order placed with supplier. Seat assignment pending.',
-            'fail_msg'          => $failMsg !== '' ? $failMsg : null,
-            'fail_msg_en'       => $failMsg !== '' ? _train_human_fail_message($failMsg) : null,
+            'fail_msg'          => null,
+            'fail_msg_en'       => null,
         ];
     }
 }

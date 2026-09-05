@@ -139,8 +139,8 @@ if (!function_exists('_airalo_request')) {
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_CONNECTTIMEOUT => (int) ($opts['connect_timeout'] ?? 10),
             CURLOPT_TIMEOUT => (int) ($opts['timeout'] ?? 30),
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
         ];
 
         if ($payload !== null) {

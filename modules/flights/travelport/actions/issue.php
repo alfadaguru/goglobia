@@ -70,7 +70,7 @@ $router->post('flights/travelport/issue', function () use ($db) {
         }
         $token = $tokenResult['token'];
 
-        $baseUrl = "https://api.pp.travelport.net/11";
+        $baseUrl = travelport_api_base($module);
         $sessionID = is_array($flight_offer) ? ($flight_offer['session_id'] ?? '') : '';
 
         // $opts:
@@ -107,7 +107,7 @@ $router->post('flights/travelport/issue', function () use ($db) {
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_HEADER => true,
                 CURLOPT_HTTPHEADER => $headers,
-                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_SSL_VERIFYPEER => true,
                 CURLOPT_TIMEOUT => 120,
                 CURLOPT_CUSTOMREQUEST => strtoupper($method),
             ];

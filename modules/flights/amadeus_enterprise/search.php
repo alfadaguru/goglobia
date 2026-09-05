@@ -684,7 +684,7 @@ $router->post('flights/amadeus_enterprise/search', function() use ($db) {
             'error' => $e->getMessage(),
             'file' => $e->getFile(),
             'line' => $e->getLine(),
-            'trace' => explode("\n", $e->getTraceAsString()),
+            'trace' => '[redacted]',
         ]);
 
         $respond([

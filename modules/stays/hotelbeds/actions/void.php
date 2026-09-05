@@ -259,7 +259,7 @@ $router->post('stays/hotelbeds/void', function() use ($db) {
         // STEP 8: UPDATE DATABASE - CLEAR PNR AND SET STATUS TO VOIDED
         // ========================================
         $updateData = [
-            'booking_status' => 'voided',
+            'booking_status' => 'cancelled',
             'pnr' => null, // CLEAR PNR
             'booking_response' => json_encode($responseData), // SAVE VOID RESPONSE
             'error_response' => null // CLEAR ANY PREVIOUS ERRORS
@@ -277,7 +277,7 @@ $router->post('stays/hotelbeds/void', function() use ($db) {
             'data' => [
                 'invoice_id' => $invoice_id,
                 'previous_pnr' => $bookingReference,
-                'booking_status' => 'voided',
+                'booking_status' => 'cancelled',
                 'cancellation_reference' => $responseData['booking']['reference'] ?? $bookingReference,
                 'cancellation_date' => date('Y-m-d H:i:s'),
                 'api_status' => $bookingStatus,

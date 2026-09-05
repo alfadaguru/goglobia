@@ -14,3 +14,5 @@ include "issue.php";
 
 // Admin "Cancel Booking" action
 include "cancel.php";
+include "refund.php";
+include "void.php";

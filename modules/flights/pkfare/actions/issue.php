@@ -98,16 +98,21 @@ $router->post('flights/pkfare/issue', function() use ($db) {
             throw new Exception('PKFare module not configured');
         }
 
-        // Decode credentials
-        $partnerId = base64_decode($module['c1']);
-        $apiKey = base64_decode($module['c2']);
+        // Credentials are used AS STORED (do NOT base64_decode). PKFare's
+        // signature is md5(partnerId . apiKey) over the stored credential
+        // strings, and partnerId is sent in the request body as-is. This is the
+        // form used by creds.php (the connection tester), search.php, cancel.php
+        // and void.php; issue.php previously base64_decoded first, producing a
+        // mismatched signature — that was the outlier bug.
+        $partnerId = $module['c1'] ?? '';
+        $apiKey = $module['c2'] ?? '';
         $environment = $module['env'] ?? 'live';
 
         if (empty($partnerId) || empty($apiKey)) {
             throw new Exception('PKFare credentials not configured properly');
         }
 
-        // Generate signature
+        // Generate signature (md5 of the stored partnerId + apiKey)
         $sign = md5($partnerId . $apiKey);
 
 
@@ -305,7 +310,7 @@ $router->post('flights/pkfare/issue', function() use ($db) {
             'Accept: application/json'
         ]);
         curl_setopt($ch, CURLOPT_TIMEOUT, 60);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -430,7 +435,7 @@ $router->post('flights/pkfare/issue', function() use ($db) {
                 'error' => $e->getMessage(),
                 'timestamp' => date('Y-m-d H:i:s'),
                 'endpoint' => 'flights/pkfare/issue',
-                'trace' => $e->getTraceAsString()
+                'trace' => '[redacted]'
             ];
 
 

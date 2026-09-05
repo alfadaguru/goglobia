@@ -76,7 +76,7 @@ try {
             'Authorization: Bearer ' . $api_token,
             'Duffel-Version: v2'
         ],
-        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_USERAGENT => 'Duffel-Test/1.0'
     ]);
 
@@ -100,7 +100,7 @@ try {
                 'endpoint' => $api_endpoint . 'air/aircraft',
                 'timeout' => 30,
                 'connect_timeout' => 10,
-                'ssl_verify' => false
+                'ssl_verify' => true
             ],
             'troubleshooting' => [
                 'Check internet connection',
@@ -321,7 +321,7 @@ try {
         'exception_details' => [
             'file' => $e->getFile(),
             'line' => $e->getLine(),
-            'trace' => $e->getTraceAsString()
+            'trace' => '[redacted]'
         ],
         'troubleshooting' => [
             'Contact system administrator',

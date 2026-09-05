@@ -376,7 +376,7 @@ $router->post('cars/cartrawler/search', function() use ($db) {
                 'Content-Type: application/xml',
                 'User-Agent: PHPTravels-v10/1.0'
             ],
-            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_FOLLOWLOCATION => true
         ]);
 

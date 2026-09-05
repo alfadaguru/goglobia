@@ -11,6 +11,15 @@ while (@ob_get_level()) @ob_end_clean();
 header('Content-Type: application/json');
 header('Cache-Control: no-cache, no-store, must-revalidate');
 
+// SECURITY (§16 HIGH): require an admin session — this endpoint can reset/pause
+// the import and read internal state. Was unauthenticated.
+if (session_status() === PHP_SESSION_NONE) { @session_start(); }
+if ((strtolower((string)($_SESSION['user_role'] ?? '')) !== 'admin') && empty($_SESSION['admin_logged_in'])) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Unauthorized: admin session required.']);
+    exit;
+}
+
 try {
     $env = parse_ini_file(__DIR__ . '/../../../../.env');
     require_once __DIR__ . '/../../../../vendor/autoload.php';

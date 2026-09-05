@@ -349,7 +349,7 @@ $router->post('flights/kiwi/issue', function() use ($db) {
                 'error' => $e->getMessage(),
                 'timestamp' => date('Y-m-d H:i:s'),
                 'endpoint' => 'flights/kiwi/issue',
-                'trace' => $e->getTraceAsString()
+                'trace' => '[redacted]'
             ];
             
             

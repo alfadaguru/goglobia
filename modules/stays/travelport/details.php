@@ -266,7 +266,7 @@ $router->post('stays/travelport/details', function() use ($db) {
    <soapenv:Body>
       <hot:HotelDetailsReq AuthorizedBy="user" TargetBranch="' . $branchCode . '" TraceId="details-' . time() . '">
          <com:BillingPointOfSaleInfo OriginApplication="UAPI"/>
-         <hot:HotelProperty HotelCode="' . $hotelId . '" HotelChain="' . $hotelChain . '"/>
+         <hot:HotelProperty HotelCode="' . htmlspecialchars((string)$hotelId, ENT_XML1|ENT_QUOTES, 'UTF-8') . '" HotelChain="' . htmlspecialchars((string)$hotelChain, ENT_XML1|ENT_QUOTES, 'UTF-8') . '"/>
          <hot:HotelDetailsModifiers RateRuleDetail="Complete" NumberOfAdults="' . $adults . '" NumberOfRooms="' . $rooms . '">
             <hot:HotelStay>
                <hot:CheckinDate>' . $checkinFormatted . '</hot:CheckinDate>
@@ -288,7 +288,7 @@ $router->post('stays/travelport/details', function() use ($db) {
    <soapenv:Body>
       <hot:HotelMediaLinksReq AuthorizedBy="user" TargetBranch="' . $branchCode . '" TraceId="media-' . time() . '">
          <com:BillingPointOfSaleInfo OriginApplication="UAPI"/>
-         <hot:HotelProperty HotelCode="' . $hotelId . '" HotelChain="' . $hotelChain . '"/>
+         <hot:HotelProperty HotelCode="' . htmlspecialchars((string)$hotelId, ENT_XML1|ENT_QUOTES, 'UTF-8') . '" HotelChain="' . htmlspecialchars((string)$hotelChain, ENT_XML1|ENT_QUOTES, 'UTF-8') . '"/>
       </hot:HotelMediaLinksReq>
    </soapenv:Body>
 </soapenv:Envelope>';
@@ -312,8 +312,8 @@ $router->post('stays/travelport/details', function() use ($db) {
             ],
             CURLOPT_USERPWD => $username . ':' . $password,
             CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_TIMEOUT => 30
         ]);
 
@@ -331,8 +331,8 @@ $router->post('stays/travelport/details', function() use ($db) {
             ],
             CURLOPT_USERPWD => $username . ':' . $password,
             CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_TIMEOUT => 30
         ]);
 

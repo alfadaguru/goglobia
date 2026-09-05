@@ -62,8 +62,8 @@ $router->post('stays/hotelston/creds', function () {
         }
 
         $endpoint = $environment === 'test'
-            ? 'http://dev.hotelston.com/ws/StaticDataServiceV2/StaticDataServiceHttpSoap12Endpoint/'
-            : 'http://www.hotelston.com/ws/StaticDataServiceV2/StaticDataServiceHttpSoap12Endpoint/';
+            ? 'https://dev.hotelston.com/ws/StaticDataServiceV2/StaticDataServiceHttpSoap12Endpoint/'
+            : 'https://www.hotelston.com/ws/StaticDataServiceV2/StaticDataServiceHttpSoap12Endpoint/';
 
         $xmlAttr = static function ($value) {
             return htmlspecialchars((string)$value, ENT_XML1 | ENT_QUOTES, 'UTF-8');
@@ -88,8 +88,8 @@ $router->post('stays/hotelston/creds', function () {
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => $envelope,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_TIMEOUT        => 60,
             CURLOPT_HTTPHEADER     => [
                 'SOAPAction: application/soap+xml; charset=utf-8',

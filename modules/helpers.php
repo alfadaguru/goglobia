@@ -1532,3 +1532,156 @@ if (!function_exists('hotelbedsUserFacingError')) {
         return $fallback;
     }
 }
+
+// ============================================================================
+// SUPPLIER ACTION GUARD (Finding E — auth on state-changing supplier routes)
+// ----------------------------------------------------------------------------
+// issue/cancel/refund/void routes create/cancel/refund REAL supplier bookings
+// and money. They previously had NO auth (CORS '*'), so anyone who knew an
+// invoice_id could trigger them. This guard permits ONLY legitimate callers:
+//   1. The payment gateway's server-side auto-issue loopback, which sends an
+//      X-Internal-Token header = HMAC-SHA256(invoice_id, internal secret).
+//   2. A logged-in admin ($_SESSION user_role='admin') — admin panel + AJAX.
+//   3. A valid CSRF token (admin-panel browser AJAX) via CSRF::validateToken.
+// Anonymous external callers have none of these → 403. Secret = server-only
+// .env JWT_SECRET (never sent to clients); falls back to a DB-derived value so
+// the guard is never keyless.
+// ============================================================================
+if (!function_exists('supplier_internal_secret')) {
+    function supplier_internal_secret(): string
+    {
+        $env = @parse_ini_file(dirname(__DIR__) . '/.env');
+        $secret = is_array($env) ? trim((string)($env['JWT_SECRET'] ?? '')) : '';
+        if ($secret === '') {
+            $secret = hash('sha256', 'v10-supplier|' . (string)($env['DB_DATABASE'] ?? '') . '|' . (string)($env['DB_PASSWORD'] ?? ''));
+        }
+        return $secret;
+    }
+}
+
+if (!function_exists('supplier_internal_token')) {
+    function supplier_internal_token(string $invoiceId): string
+    {
+        return hash_hmac('sha256', 'supplier-action:' . $invoiceId, supplier_internal_secret());
+    }
+}
+
+if (!function_exists('supplier_action_guard')) {
+    /**
+     * Authorize a state-changing supplier action. Returns true if allowed;
+     * otherwise emits 403 JSON and returns false (caller should return/exit).
+     */
+    function supplier_action_guard(string $invoiceId): bool
+    {
+        // 1. Admin session
+        $role = strtolower((string)($_SESSION['user_role'] ?? ''));
+        if ($role === 'admin' || !empty($_SESSION['admin_logged_in'])) {
+            return true;
+        }
+        // 2. Internal loopback token (constant-time compare)
+        $provided = $_SERVER['HTTP_X_INTERNAL_TOKEN']
+            ?? ($_POST['_internal_token'] ?? ($_GET['_internal_token'] ?? ''));
+        if (is_string($provided) && $provided !== '' && $invoiceId !== ''
+            && hash_equals(supplier_internal_token($invoiceId), $provided)) {
+            return true;
+        }
+        // 3. Valid CSRF token (admin-panel browser AJAX)
+        if (class_exists('CSRF')) {
+            $csrf = $_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+            if ($csrf !== '' && CSRF::validateToken($csrf)) {
+                return true;
+            }
+        }
+        // Denied.
+        if (!headers_sent()) {
+            http_response_code(403);
+            header('Content-Type: application/json');
+        }
+        error_log('supplier_action_guard: DENIED for invoice ' . $invoiceId);
+        echo json_encode([
+            'status'  => false,
+            'success' => false,
+            'message' => 'Unauthorized: this action requires an authenticated operator or the internal booking flow.',
+        ], JSON_UNESCAPED_SLASHES);
+        return false;
+    }
+}
+
+// ============================================================================
+// §19 E2E FIX — post-payment price reconciliation in the MODULES context.
+//
+// Every supplier issue.php calls reconcilePostPaymentPrice() behind a
+// function_exists() guard. That function is defined in app/lib/functions.php,
+// which the modules API gateway (modules/index.php) deliberately does NOT load
+// (see the note near the top of this file). Result: function_exists() was
+// ALWAYS false in the issue flow, so the post-payment price-check was silently
+// skipped for ALL providers — the safety net was dead code here.
+//
+// These are byte-for-byte the same implementations as app/lib/functions.php
+// (self-contained: only $db (Medoo) + standard PHP). Guarded so that if
+// functions.php ever is loaded, there is no redeclare conflict.
+// ============================================================================
+if (!function_exists('reconcilePostPaymentPrice')) {
+    function reconcilePostPaymentPrice($db, $booking, $supplierTotal, $supplierCurrency = null, $tolerancePct = 2.0)
+    {
+        $paid         = (float) ($booking['price_markup'] ?? 0);
+        $paidCurrency = strtoupper(trim((string) ($booking['currency_markup'] ?? '')));
+        $supplier     = (float) $supplierTotal;
+        $supCurrency  = strtoupper(trim((string) ($supplierCurrency ?? $paidCurrency)));
+        $invoiceId    = (string) ($booking['invoice_id'] ?? '');
+
+        if ($paid <= 0) {
+            return _reconcile_block($db, $invoiceId, 'Paid amount is zero/unknown — cannot reconcile price', $paid, $supplier, 0.0);
+        }
+        if ($supplier <= 0) {
+            return _reconcile_block($db, $invoiceId, 'Supplier returned no/zero price — cannot reconcile', $paid, $supplier, 0.0);
+        }
+        if ($paidCurrency !== '' && $supCurrency !== '' && $paidCurrency !== $supCurrency) {
+            return _reconcile_block($db, $invoiceId, "Currency mismatch (paid {$paidCurrency} vs supplier {$supCurrency})", $paid, $supplier, 0.0);
+        }
+
+        $deltaPct = (($supplier - $paid) / $paid) * 100.0;
+
+        if ($deltaPct <= $tolerancePct) {
+            $note = '';
+            if ($deltaPct < -$tolerancePct) {
+                $note = 'Supplier price is lower than paid by ' . round(abs($deltaPct), 2) . '% (customer not harmed).';
+            }
+            return ['ok' => true, 'reason' => $note, 'paid' => $paid, 'supplier' => $supplier, 'delta_pct' => round($deltaPct, 2)];
+        }
+
+        return _reconcile_block(
+            $db,
+            $invoiceId,
+            'Supplier price rose ' . round($deltaPct, 2) . '% above the amount paid (tolerance ' . $tolerancePct . '%). Auto-issue held for review.',
+            $paid,
+            $supplier,
+            $deltaPct
+        );
+    }
+}
+
+if (!function_exists('_reconcile_block')) {
+    function _reconcile_block($db, $invoiceId, $reason, $paid, $supplier, $deltaPct)
+    {
+        if ($invoiceId !== '' && $db) {
+            try {
+                $db->update('bookings', [
+                    'booking_status' => 'pending',
+                    'error_response' => json_encode([
+                        'review_state' => 'price_mismatch',
+                        'reason'       => $reason,
+                        'paid'         => $paid,
+                        'supplier'     => $supplier,
+                        'delta_pct'    => round($deltaPct, 2),
+                        'flagged_at'   => date('Y-m-d H:i:s'),
+                    ]),
+                ], ['invoice_id' => $invoiceId]);
+            } catch (\Throwable $e) {
+                error_log('reconcilePostPaymentPrice flag error (' . $invoiceId . '): ' . $e->getMessage());
+            }
+        }
+        error_log('PRICE RECONCILE BLOCK (' . $invoiceId . '): ' . $reason . " | paid={$paid} supplier={$supplier}");
+        return ['ok' => false, 'reason' => $reason, 'paid' => $paid, 'supplier' => $supplier, 'delta_pct' => round($deltaPct, 2)];
+    }
+}

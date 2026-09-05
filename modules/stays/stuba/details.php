@@ -399,10 +399,11 @@ $router->post('/stays/stuba/details', function() use ($db) {
 
     } catch (Exception $e) {
         ob_clean();
+        // §16: log detail server-side; never return the stack trace to the client.
+        error_log('STUBA DETAILS ERROR: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
         echo json_encode([
             'success' => false,
-            'message' => 'Server error: ' . $e->getMessage(),
-            'trace' => $e->getTraceAsString() // Remove in production
+            'message' => 'Server error while loading hotel details.'
         ]);
         ob_end_flush();
     }

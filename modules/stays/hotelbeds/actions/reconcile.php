@@ -122,7 +122,7 @@ function hotelbedsProcessReconcile($db, string $invoice_id, array $options = [])
         if ($matched === null || empty($matched['reference'])) {
             if ($markFailedIfNotFound) {
                 $db->update('bookings', [
-                    'booking_status' => 'failed',
+                    'booking_status' => 'pending',
                     'error_response' => json_encode([
                         'type' => 'BOOKING_RECONCILE_NOT_FOUND',
                         'clientReference' => $clientReference,

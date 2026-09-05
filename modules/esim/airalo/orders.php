@@ -6,6 +6,13 @@ $router->post('esim/airalo/orders', function () use ($db) {
     header('Content-Type: application/json; charset=utf-8');
 
     try {
+        // §16 HIGH: this places a REAL Airalo order — require an authorized caller
+        // (admin session / internal token / CSRF), same guard as issue/cancel/etc.
+        $__inv = (string) ($_POST['invoice_id'] ?? ($_POST['package_id'] ?? ''));
+        if (function_exists('supplier_action_guard') && !supplier_action_guard($__inv)) {
+            return;
+        }
+
         $cfg = _airalo_cfg($db);
         $env = _airalo_env($_POST['env'] ?? ($cfg['env'] ?? 'sandbox'));
 

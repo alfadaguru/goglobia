@@ -388,6 +388,12 @@ function handle_payment_callback($token, $action, $data = [])
                         $postData = [
                             'invoice_id' => $tokenData['invoice_id'],
                         ];
+                        // Finding E: sign this server-side loopback so the module's
+                        // supplier_action_guard accepts it (anonymous callers can't).
+                        $__internalToken = function_exists('supplier_internal_token')
+                            ? supplier_internal_token((string) $tokenData['invoice_id'])
+                            : '';
+                        $postData['_internal_token'] = $__internalToken;
 
                         // ============================================================
                         // EXECUTE cURL REQUEST TO MODULE BOOKING API

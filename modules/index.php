@@ -195,6 +195,54 @@ foreach ($suspiciousPatterns as $pattern) {
 // API Key verification middleware for modules
 verifyApiKey($db);
 
+// ============================================================================
+// FINDING E — CENTRAL GUARD for state-changing supplier actions
+// ----------------------------------------------------------------------------
+// issue / cancel / refund / void routes create/cancel/refund REAL supplier
+// bookings and money. Enforce authorization here, ONCE, for every such route
+// (instead of relying on each of ~40 handlers). Allowed callers:
+//   - payment gateway server loopback (carries a valid _internal_token)
+//   - a logged-in admin session
+//   - a valid CSRF token (admin-panel AJAX)
+// Anonymous external callers → 403. See supplier_action_guard() in helpers.php.
+// ============================================================================
+$__mePath = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '';
+// §16 MEDIUM: also guard /creds (admin credential-test endpoints — probe/leak
+// surface) and /orders (airalo real order). Anonymous callers get 403; the
+// gateway loopback (issue) still passes via its internal token.
+// §19 E2E audit: rail/train exposes raw supplier passthroughs whose path
+// segments do NOT end in the words above — order / orderCancel / orderChange /
+// orderRefund / reissue all create/cancel/refund/move REAL bookings and money.
+// Add them explicitly (whole final segment match) so they are guarded too.
+$__meIsSupplierAction =
+       preg_match('#/(issue|cancel|refund|void|creds|orders)/?$#i', (string) $__mePath)
+    || preg_match('#/(order|orderCancel|orderChange|orderRefund|reissue)/?$#i', (string) $__mePath);
+if ($__meIsSupplierAction
+    && in_array(strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET'), ['POST', 'PUT', 'DELETE'], true)) {
+    if (function_exists('supplier_action_guard')) {
+        $__meInvoice = (string) ($_POST['invoice_id'] ?? $_GET['invoice_id'] ?? '');
+        if (!$__meInvoice) {
+            // Some handlers read invoice_id from a JSON body — parse it once here.
+            $__meRaw = file_get_contents('php://input');
+            if ($__meRaw !== false && $__meRaw !== '') {
+                $__meJson = json_decode($__meRaw, true);
+                if (is_array($__meJson)) {
+                    $__meInvoice = (string) ($__meJson['invoice_id'] ?? '');
+                    // Re-expose the parsed body to downstream handlers that also
+                    // read php://input (they re-read the raw string, unaffected)
+                    // and to $_POST for handlers that expect it there.
+                    if ($__meInvoice !== '' && empty($_POST['invoice_id'])) {
+                        $_POST['invoice_id'] = $__meInvoice;
+                    }
+                }
+            }
+        }
+        if (!supplier_action_guard($__meInvoice)) {
+            exit; // 403 already emitted by the guard
+        }
+    }
+}
+
 
 
 // ============================================================================

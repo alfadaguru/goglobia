@@ -184,8 +184,8 @@ $router->post('flights/seeru/issue', function() use ($db) {
                 CURLOPT_POSTFIELDS     => json_encode($body),
                 CURLOPT_TIMEOUT        => 60,
                 CURLOPT_CONNECTTIMEOUT => 15,
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_SSL_VERIFYHOST => false,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
                 CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
                 CURLOPT_FOLLOWLOCATION => true,
                 CURLOPT_MAXREDIRS      => 3,
@@ -231,7 +231,7 @@ $router->post('flights/seeru/issue', function() use ($db) {
             // ─── Update DB: fare request connection error ─────────────────────────
             if ($booking_id) {
                 $db->update('bookings', [
-                    'booking_status' => 'failed',
+                    'booking_status' => 'pending',
                     'error_response' => json_encode([
                         'error'   => 'Fare validation cURL error',
                         'message' => $fare_result['curl_err']
@@ -256,7 +256,7 @@ $router->post('flights/seeru/issue', function() use ($db) {
             // ─── Update DB: fare validation failed ───────────────────────
             if ($booking_id) {
                 $db->update('bookings', [
-                    'booking_status' => 'failed',
+                    'booking_status' => 'pending',
                     'error_response' => json_encode([
                         'error'    => 'Fare validation failed',
                         'response' => $fare_data
@@ -374,7 +374,7 @@ $router->post('flights/seeru/issue', function() use ($db) {
             // ─── Update DB: save request connection error ─────────────────────────
             if ($booking_id) {
                 $db->update('bookings', [
-                    'booking_status' => 'failed',
+                    'booking_status' => 'pending',
                     'error_response' => json_encode([
                         'error'   => 'Booking save cURL error',
                         'message' => $save_result['curl_err']
@@ -396,7 +396,7 @@ $router->post('flights/seeru/issue', function() use ($db) {
             // ─── Update DB: save failed - no order_id ────────────────────────────
             if ($booking_id) {
                 $db->update('bookings', [
-                    'booking_status' => 'failed',
+                    'booking_status' => 'pending',
                     'error_response' => json_encode([
                         'error'    => 'Booking save failed - no order_id returned',
                         'response' => $save_data
@@ -474,7 +474,7 @@ $router->post('flights/seeru/issue', function() use ($db) {
             // ─── Update DB: booking saved but ticket issue failed ─────────────────
             if ($booking_id) {
                 $db->update('bookings', [
-                    'booking_status' => 'failed',
+                    'booking_status' => 'pending',
                     'error_response' => json_encode([
                         'error'    => 'Ticket issue failed',
                         'order_id' => $order_id,
@@ -503,7 +503,7 @@ $router->post('flights/seeru/issue', function() use ($db) {
         if (!empty($booking_id) && isset($db)) {
             try {
                 $db->update('bookings', [
-                    'booking_status' => 'failed',
+                    'booking_status' => 'pending',
                     'error_response' => json_encode([
                         'error'   => 'Exception during booking',
                         'message' => $e->getMessage()

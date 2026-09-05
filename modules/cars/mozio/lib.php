@@ -805,14 +805,26 @@ if (!function_exists('mozioModuleConfig')) {
         $tripType = (string)($carData['trip_type'] ?? $raw['trip_type'] ?? 'one_way');
         $isRoundTrip = $tripType === 'round_trip';
 
+        // Validate rider contact — do NOT fabricate Guest/Traveler/1234567890 on a
+        // real Mozio reservation. The caller (issue.php) catches
+        // InvalidArgumentException and surfaces a clean error.
+        $mzMissing = [];
+        if ($firstName === '') { $mzMissing[] = 'first name'; }
+        if ($lastName === '')  { $mzMissing[] = 'last name'; }
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) { $mzMissing[] = 'valid email'; }
+        if ($phone === '')     { $mzMissing[] = 'phone'; }
+        if (!empty($mzMissing)) {
+            throw new InvalidArgumentException('Missing required rider details: ' . implode(', ', $mzMissing) . '.');
+        }
+
         $payload = [
             'search_id'            => $searchId,
             'result_id'            => $resultId,
             'email'                => $email,
-            'first_name'           => $firstName !== '' ? $firstName : 'Guest',
-            'last_name'            => $lastName !== '' ? $lastName : 'Traveler',
+            'first_name'           => $firstName,
+            'last_name'            => $lastName,
             'country_code_name'    => $country,
-            'phone_number'         => $phone !== '' ? $phone : '1234567890',
+            'phone_number'         => $phone,
             'partner_tracking_id'  => $partnerTrackingId,
         ];
 

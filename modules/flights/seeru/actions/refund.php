@@ -53,7 +53,11 @@ $router->post('flights/seeru/refund', function () use ($db) {
 
         $booking_id = $booking['id'];
 
-        if ($booking['booking_status'] === 'refunded') {
+        // booking_status ENUM has no 'refunded' — the refund path sets
+        // booking_status='cancelled' + payment_status='refunded'. Check the
+        // column that actually carries the refunded state, or this guard never
+        // fires and a second call double-refunds.
+        if (($booking['payment_status'] ?? '') === 'refunded') {
             ob_clean();
             echo json_encode([
                 'status'         => true,
@@ -113,8 +117,8 @@ $router->post('flights/seeru/refund', function () use ($db) {
                 CURLOPT_POSTFIELDS     => json_encode($body),
                 CURLOPT_TIMEOUT        => 60,
                 CURLOPT_CONNECTTIMEOUT => 15,
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_SSL_VERIFYHOST => false,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
                 CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
                 CURLOPT_FOLLOWLOCATION => false,
             ]);
@@ -182,6 +186,9 @@ $router->post('flights/seeru/refund', function () use ($db) {
         }
 
         if (empty($ticket_id)) {
+            if (empty($airline_pnr)) {
+                throw new Exception('airline_pnr (pnr) not found in booking. Cannot retrieve ticket details.');
+            }
             if ($last_name === '') {
                 throw new Exception('last_name not found in booking. Cannot retrieve ticket details.');
             }

@@ -134,7 +134,7 @@ $router->post('stays/travelport/rooms', function() use ($db) {
         <soapenv:Body>
             <hot:HotelMediaLinksReq AuthorizedBy="user" TargetBranch="' . $branchCode . '" TraceId="media-' . time() . '">
                 <com:BillingPointOfSaleInfo OriginApplication="UAPI"/>
-                <hot:HotelProperty HotelCode="' . $hotelId . '" HotelChain="' . $hotelChain . '"/>
+                <hot:HotelProperty HotelCode="' . htmlspecialchars((string)$hotelId, ENT_XML1|ENT_QUOTES, 'UTF-8') . '" HotelChain="' . htmlspecialchars((string)$hotelChain, ENT_XML1|ENT_QUOTES, 'UTF-8') . '"/>
             </hot:HotelMediaLinksReq>
         </soapenv:Body>
         </soapenv:Envelope>';
@@ -152,8 +152,8 @@ $router->post('stays/travelport/rooms', function() use ($db) {
             ],
             CURLOPT_USERPWD => $username . ':' . $password,
             CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_TIMEOUT => 15
         ]);
 
@@ -193,7 +193,7 @@ $router->post('stays/travelport/rooms', function() use ($db) {
    <soapenv:Body>
       <hot:HotelDetailsReq AuthorizedBy="user" TargetBranch="' . $branchCode . '" TraceId="rooms-' . time() . '">
          <com:BillingPointOfSaleInfo OriginApplication="UAPI"/>
-         <hot:HotelProperty HotelCode="' . $hotelId . '" HotelChain="' . $hotelChain . '"/>
+         <hot:HotelProperty HotelCode="' . htmlspecialchars((string)$hotelId, ENT_XML1|ENT_QUOTES, 'UTF-8') . '" HotelChain="' . htmlspecialchars((string)$hotelChain, ENT_XML1|ENT_QUOTES, 'UTF-8') . '"/>
          <hot:HotelDetailsModifiers RateRuleDetail="Complete" NumberOfAdults="' . $adults . '" NumberOfRooms="' . $rooms . '">
             <hot:HotelStay>
                <hot:CheckinDate>' . $checkinFormatted . '</hot:CheckinDate>
@@ -220,8 +220,8 @@ $router->post('stays/travelport/rooms', function() use ($db) {
             ],
             CURLOPT_USERPWD => $username . ':' . $password,
             CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_TIMEOUT => 30
         ]);
 
@@ -359,15 +359,18 @@ $router->post('stays/travelport/rooms', function() use ($db) {
                 $totalPrice = $basePrice * $nights;
             }
 
-            // Apply markup
+            // Apply markup. Initialise $markupResult FIRST so a MARKUP()
+            // exception can't leave later reads (lines ~425-427) accessing an
+            // undefined key (which rendered as a 0/null price).
             $finalPrice = $totalPrice;
+            $markupResult = ['price' => $totalPrice, 'converted_base_price' => $totalPrice];
             try {
                 $markupResult = MARKUP($totalPrice, $module, $db, $apiCurrency, $currency);
                 if (isset($markupResult['price']) && $markupResult['price'] > 0) {
                     $finalPrice = $markupResult['price'];
                 }
             } catch (Exception $e) {
-                // Use base price if markup fails
+                $markupResult = ['price' => $totalPrice, 'converted_base_price' => $totalPrice];
             }
 
             // Price per night

@@ -61,6 +61,31 @@ if (!function_exists('travelport_get_token')) {
      * - Do NOT request a new token for every API/search call
      * @see https://developer.travelport.com/docs/getting-started/authentication
      */
+    // Resolve environment ('production'|'test') from the module row, same logic
+    // travelport_get_token uses. Centralised so hosts aren't hardcoded to pp.
+    function travelport_env($module): string {
+        $envRaw = strtolower(trim((string) ($module['env'] ?? $module['environment'] ?? '')));
+        if (in_array($envRaw, ['production', 'prod', 'live'], true)) return 'production';
+        if (in_array($envRaw, ['test', 'sandbox', 'pp', 'preprod', 'development', 'dev'], true)) return 'test';
+        return ((string) ($module['dev_mode'] ?? '1') === '0') ? 'production' : 'test';
+    }
+
+    // §16 HIGH fix: the REST API base was hardcoded to the pp (pre-prod/sandbox)
+    // host in search.php/farerules.php/helpers.php/issue.php, so a LIVE booking
+    // would price/search against sandbox. Return the correct host per env.
+    function travelport_api_base($module): string {
+        return travelport_env($module) === 'production'
+            ? 'https://api.travelport.net/11'
+            : 'https://api.pp.travelport.net/11';
+    }
+    function travelport_oauth_url($module): string {
+        // Hosts taken from the existing working token code below (prod
+        // auth.travelport.net, test auth.pp.travelport.net) — not guessed.
+        return travelport_env($module) === 'production'
+            ? 'https://auth.travelport.net/oauth/token'
+            : 'https://auth.pp.travelport.net/oauth/token';
+    }
+
     function travelport_get_token($module, $env = null) {
         $fixed = travelport_fix_oauth_creds(
             (string) ($module['c1'] ?? ''),
@@ -120,7 +145,7 @@ if (!function_exists('travelport_get_token')) {
 
         $tokenUrl = ($env === 'production')
             ? 'https://auth.travelport.net/oauth/token'
-            : 'https://auth.pp.travelport.net/oauth/token';
+            : travelport_oauth_url($module);
 
         // Postman-style body (RFC3986 encoding for special chars like — & ')
         $bodyFields = [
@@ -144,7 +169,7 @@ if (!function_exists('travelport_get_token')) {
                 'Content-Type: application/x-www-form-urlencoded',
                 'Accept: application/json',
             ],
-            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_TIMEOUT => 15,
         ]);
         $tokenRes = curl_exec($ch);
@@ -174,7 +199,7 @@ if (!function_exists('travelport_get_token')) {
                     'Content-Type: application/x-www-form-urlencoded',
                     'Accept: application/json',
                 ],
-                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_SSL_VERIFYPEER => true,
                 CURLOPT_TIMEOUT => 15,
             ]);
             $tokenRes = curl_exec($ch);
@@ -454,7 +479,7 @@ if (!function_exists('travelport_air_price')) {
             ],
         ];
 
-        $url = 'https://api.pp.travelport.net/11/air/price/offers/buildfromcatalogproductofferings';
+        $url = travelport_api_base($module) . '/air/price/offers/buildfromcatalogproductofferings';
         $headers = [
             "Authorization: Bearer $token",
             'Content-Type: application/json',
@@ -474,7 +499,7 @@ if (!function_exists('travelport_air_price')) {
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => json_encode($payload),
             CURLOPT_HTTPHEADER => $headers,
-            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_TIMEOUT => 90,
         ]);
         $resFull = curl_exec($ch);

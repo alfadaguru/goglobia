@@ -13,3 +13,5 @@ include "search.php";
 
 include "issue.php";
 include "cancel.php";
+include "refund.php";
+include "void.php";

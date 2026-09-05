@@ -173,14 +173,21 @@ $router->post('stays/travelport/issue', function() use ($db) {
         $travellersData = json_decode($booking['travellers'], true);
         
         $primaryGuest = [
-            'first_name' => $booking['first_name'] ?? 'Guest',
-            'last_name' => $booking['last_name'] ?? 'Traveler',
-            'email' => $booking['email'] ?? 'guest@example.com',
-            'phone' => $booking['phone'] ?? '1234567890'
+            'first_name' => $booking['first_name'] ?? '',
+            'last_name'  => $booking['last_name'] ?? '',
+            'email'      => $booking['email'] ?? '',
+            'phone'      => $booking['phone'] ?? ''
         ];
 
         if (!empty($travellersData) && !empty($travellersData['primary_guest'])) {
             $primaryGuest = array_merge($primaryGuest, $travellersData['primary_guest']);
+        }
+
+        // Validate guest contact — do NOT fabricate guest@example.com / 1234567890
+        // on a real hotel booking. Reject if the essentials are missing.
+        if (trim((string)$primaryGuest['first_name']) === '' || trim((string)$primaryGuest['last_name']) === ''
+            || trim((string)$primaryGuest['email']) === '' || !filter_var($primaryGuest['email'], FILTER_VALIDATE_EMAIL)) {
+            throw new Exception('Cannot issue: guest name and a valid email are required on the booking.');
         }
 
         // REQUIRED: Key attribute for BookingTraveler
@@ -273,8 +280,8 @@ $router->post('stays/travelport/issue', function() use ($db) {
             ],
             CURLOPT_USERPWD => $username . ':' . $password,
             CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_TIMEOUT => 60
         ]);
 

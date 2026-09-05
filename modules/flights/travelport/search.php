@@ -216,7 +216,7 @@ $router->post('flights/travelport/search', function () use ($db) {
         $payload = ["CatalogProductOfferingsQueryRequest" => ["@type" => "CatalogProductOfferingsQueryRequest", "CatalogProductOfferingsRequest" => $catalogRequest]];
 
         // ---------- STEP 3 : API Call ----------
-        $apiUrl = "https://api.pp.travelport.net/11/air/catalog/search/catalogproductofferings";
+        $apiUrl = travelport_api_base($module) . "/air/catalog/search/catalogproductofferings";
         $traceId = "TraceID_" . uniqid();
         $headers = [
             "Authorization: Bearer $token", "Content-Type: application/json", "Accept: application/json",
@@ -226,7 +226,7 @@ $router->post('flights/travelport/search', function () use ($db) {
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true, CURLOPT_HEADER => true, CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => json_encode($payload), CURLOPT_ENCODING => '',
-            CURLOPT_SSL_VERIFYPEER => false, CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_SSL_VERIFYPEER => true, CURLOPT_HTTPHEADER => $headers,
             CURLOPT_CONNECTTIMEOUT => $connectTimeout, CURLOPT_TIMEOUT => $requestTimeout
         ]);
         if (connection_aborted()) {

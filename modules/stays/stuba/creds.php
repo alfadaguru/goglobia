@@ -47,10 +47,10 @@ function processCredentials() {
 
         // Determine which environment to use
         if ($environment === 'test') {
-            $base_endpoint = 'http://www.stubademo.com/RXLStagingServices/ASMX/XmlService.asmx';
+            $base_endpoint = 'https://www.stubademo.com/RXLStagingServices/ASMX/XmlService.asmx';
             $response['debug']['validation_steps'][] = "[ENV] Environment: TEST/DEVELOPMENT";
         } else {
-            $base_endpoint = 'http://api.stuba.com/RXLServices/ASMX/XmlService.asmx';
+            $base_endpoint = 'https://api.stuba.com/RXLServices/ASMX/XmlService.asmx';
             $response['debug']['validation_steps'][] = "[ENV] Environment: PRODUCTION";
         }
 
@@ -156,7 +156,7 @@ function processCredentials() {
             ],
             CURLOPT_TIMEOUT => 30,
             CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_FOLLOWLOCATION => true
         ]);
 

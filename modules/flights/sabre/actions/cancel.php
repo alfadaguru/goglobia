@@ -283,14 +283,14 @@ $router->post('flights/sabre/cancel', function() use ($db) {
                 'error' => $e->getMessage(),
                 'timestamp' => date('Y-m-d H:i:s'),
                 'endpoint' => 'flights/sabre/cancel',
-                'trace' => $e->getTraceAsString()
+                'trace' => '[redacted]'
             ];
 
 
             try {
                 $updateResult = $db->update('bookings', [
                     'error_response' => json_encode($errorDetails),
-                    'booking_status' => 'cancel_failed'
+                    'booking_status' => 'pending'
                 ], [
                     'invoice_id' => $invoice_id
                 ]);

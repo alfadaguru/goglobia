@@ -389,9 +389,9 @@ $router->post('flights/pkfare/search', function() use ($db) {
                 "sign": "' . $sign . '"
             },
             "search": {
-                "adults": "' . $_POST['adults'] . '",
-                "children": "' . $_POST['childrens'] . '",
-                "infants": "' . $_POST['infants'] . '",
+                "adults": "' . (int) ($_POST['adults'] ?? 1) . '",
+                "children": "' . (int) ($_POST['childrens'] ?? 0) . '",
+                "infants": "' . (int) ($_POST['infants'] ?? 0) . '",
                 "nonstop": 0,
                 "airline": "",
                 "solutions": 50,

@@ -130,6 +130,18 @@ $router->post('flights/mystifly/issue', function () use ($db) {
         $revalResult = mystiflyApiRequest($db, 'api/v1/Revalidate/Flight', [
             'FareSourceCode' => $fareSourceCode,
         ], 'POST', $invoiceId);
+        // GUARD: if the post-payment revalidate call itself failed (network /
+        // non-2xx), we cannot compute a live fare to reconcile against. Do NOT
+        // fall through — that would skip the price check (mfLiveTotal stays 0)
+        // and ticket at an unvalidated price. Hold for review instead.
+        if (empty($revalResult['success']) || !empty($revalResult['curl_error'])) {
+            error_log('MYSTIFLY ISSUE: revalidate failed for ' . $invoiceId . ' — ' . ($revalResult['curl_error'] ?? ('HTTP ' . ($revalResult['http_code'] ?? '?'))));
+            echo json_encode([
+                'status'  => false,
+                'message' => 'Could not re-validate the fare with the airline before ticketing. The booking is held; no ticket was issued.',
+            ], JSON_UNESCAPED_SLASHES);
+            exit;
+        }
         $revalDecoded = $revalResult['data'] ?? [];
         $revalData    = $revalDecoded['Data'] ?? $revalDecoded;
         $revalItin    = $revalData['RevalidateItinerary'] ?? [];
@@ -147,7 +159,18 @@ $router->post('flights/mystifly/issue', function () use ($db) {
         $mfLiveCurrency= (string) ($revalPi['ItinTotalFare']['TotalFare']['CurrencyCode']
             ?? ($booking['currency_markup'] ?? 'USD'));
 
-        if (isset($booking) && is_array($booking) && function_exists('reconcilePostPaymentPrice') && $mfLiveTotal > 0) {
+        // A successful revalidate with no usable total is itself suspect — do not
+        // silently skip the price check; treat a non-positive live total as a
+        // reconcile failure (reconcilePostPaymentPrice also blocks on supplier<=0).
+        if ($mfLiveTotal <= 0) {
+            error_log('MYSTIFLY ISSUE: revalidate returned no usable total for ' . $invoiceId);
+            echo json_encode([
+                'status'  => false,
+                'message' => 'The airline did not return a valid fare on re-validation. The booking is held; no ticket was issued.',
+            ], JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+        if (isset($booking) && is_array($booking) && function_exists('reconcilePostPaymentPrice')) {
             $mfPriceCheck = reconcilePostPaymentPrice($db, $booking, $mfLiveTotal, $mfLiveCurrency);
             if (empty($mfPriceCheck['ok'])) {
                 echo json_encode([

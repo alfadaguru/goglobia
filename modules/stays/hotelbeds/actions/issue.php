@@ -738,7 +738,7 @@ $router->post('stays/hotelbeds/issue', function() use ($db) {
         ];
 
         $db->update('bookings', [
-            'booking_status' => 'booking_unknown',
+            'booking_status' => 'pending',
             'error_response' => json_encode($reconcileError),
         ], ['invoice_id' => $invoice_id]);
 

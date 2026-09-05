@@ -272,7 +272,9 @@ $router->post('rail/train/creds', function () use ($db) {
                 'apiKey: ' . $apiKey
             ],
             CURLOPT_TIMEOUT => 15,
-            CURLOPT_SSL_VERIFYPEER => false
+            // §16 HIGH: verify TLS on HTTPS; skip only for a plaintext http:// base.
+            CURLOPT_SSL_VERIFYPEER => (stripos((string) $endpointUrl, 'https://') === 0),
+            CURLOPT_SSL_VERIFYHOST => (stripos((string) $endpointUrl, 'https://') === 0) ? 2 : 0
         ]);
 
         $raw = curl_exec($ch);

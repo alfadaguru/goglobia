@@ -24,7 +24,7 @@ $router->post('flights/travelport/cancel', function () use ($db) {
         $module = $db->get('modules', '*', ['name' => 'travelport']);
         $accessGroup = $module['c5'];
         $pcc = travelport_normalize_pcc($module['c6']);
-        $baseUrl = 'https://api.pp.travelport.net/11';
+        $baseUrl = travelport_api_base($module);
         $pnr = $booking['pnr'];
 
         $tokenResult = travelport_get_token($module);

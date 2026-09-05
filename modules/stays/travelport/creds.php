@@ -336,7 +336,7 @@ $router->post('stays/travelport/creds', function() {
             'success' => false,
             'message' => 'Internal Server Error: ' . $e->getMessage(),
             'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
+            'trace' => '[redacted]'
         ], JSON_PRETTY_PRINT);
     }
 

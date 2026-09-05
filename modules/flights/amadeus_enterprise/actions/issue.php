@@ -281,7 +281,8 @@ $router->post('flights/amadeus_enterprise/issue', function () use ($db) {
 
                 $contactEmail = trim((string)($traveller['email'] ?? $bookingRow['email'] ?? ''));
                 if ($contactEmail === '' || !filter_var($contactEmail, FILTER_VALIDATE_EMAIL)) {
-                    $contactEmail = 'noreply@example.com';
+                    // Do NOT send a fake email on a real airline order.
+                    throw new Exception('A valid contact email is required to issue this booking.');
                 }
 
                 [, $contactPhone] = $normalizePhone(
@@ -329,8 +330,13 @@ $router->post('flights/amadeus_enterprise/issue', function () use ($db) {
                 if (strlen($passportNumber) > 15) {
                     $passportNumber = substr($passportNumber, 0, 15);
                 }
+                // Do NOT fabricate a passport number ('00000000' created real
+                // airline orders with an invalid document → denied boarding).
+                // This runs inside the traveler-mapping callback, so THROW (the
+                // route's try/catch aborts the whole booking) rather than return.
                 if ($passportNumber === '') {
-                    $passportNumber = '00000000';
+                    $paxLabel = trim((string)($traveller['first_name'] ?? '') . ' ' . (string)($traveller['last_name'] ?? '')) ?: 'a passenger';
+                    throw new Exception('Passport number is required for ' . $paxLabel . '. Please add passport details to the booking before issuing.');
                 }
 
                 $passportExpiry = '';
@@ -384,44 +390,9 @@ $router->post('flights/amadeus_enterprise/issue', function () use ($db) {
             }
 
             if (empty($travelers)) {
-                [$firstName, $lastName] = $fitAmadeusNamePair(
-                    (string)($bookingRow['first_name'] ?? 'Guest'),
-                    (string)($bookingRow['last_name'] ?? 'User')
-                );
-                [$fallbackCallingCode, $fallbackPhone] = $normalizePhone(
-                    (string)($bookingRow['phone'] ?? ''),
-                    (string)($bookingRow['phone_country_code'] ?? '1')
-                );
-                $fallbackCountry = $normalizeCountryCode((string)($bookingRow['nationality'] ?? 'US'));
-                $travelers[] = [
-                    'id' => '1',
-                    'dateOfBirth' => date('Y-m-d', strtotime('-30 years')),
-                    'gender' => 'MALE',
-                    'name' => [
-                        'firstName' => $firstName !== '' ? $firstName : 'GUEST',
-                        'lastName' => $lastName !== '' ? $lastName : 'USER',
-                    ],
-                    'contact' => [
-                        'emailAddress' => trim((string)($bookingRow['email'] ?? '')) ?: 'noreply@example.com',
-                        'phones' => [[
-                            'deviceType' => 'MOBILE',
-                            'countryCallingCode' => $fallbackCallingCode,
-                            'number' => $fallbackPhone,
-                        ]],
-                    ],
-                    'documents' => [[
-                        'documentType' => 'PASSPORT',
-                        'birthPlace' => 'Unknown',
-                        'issuanceLocation' => 'Unknown',
-                        'issuanceDate' => date('Y-m-d', strtotime('-5 years')),
-                        'number' => '00000000',
-                        'expiryDate' => date('Y-m-d', strtotime('+5 years')),
-                        'issuanceCountry' => $fallbackCountry,
-                        'validityCountry' => $fallbackCountry,
-                        'nationality' => $fallbackCountry,
-                        'holder' => true,
-                    ]],
-                ];
+                // No fabricated fallback passenger: inventing GUEST/USER + a fake
+                // passport ('00000000') would create a real, unusable airline order.
+                throw new Exception('Cannot issue: no valid passenger details found on this booking. Please add traveler information (name, DOB, passport).');
             }
 
             return $travelers;
@@ -676,7 +647,11 @@ $router->post('flights/amadeus_enterprise/issue', function () use ($db) {
 
         $contactEmail = trim((string)($booking['email'] ?? ''));
         if ($contactEmail === '' || !filter_var($contactEmail, FILTER_VALIDATE_EMAIL)) {
-            $contactEmail = (string)($amadeusTravelers[0]['contact']['emailAddress'] ?? 'noreply@example.com');
+            // Fall back to the traveler's already-validated email (never a fake).
+            $contactEmail = trim((string)($amadeusTravelers[0]['contact']['emailAddress'] ?? ''));
+        }
+        if ($contactEmail === '' || !filter_var($contactEmail, FILTER_VALIDATE_EMAIL)) {
+            throw new Exception('A valid contact email is required to issue this booking.');
         }
 
         $contactCountry = $normalizeCountryCode((string)(
@@ -698,9 +673,12 @@ $router->post('flights/amadeus_enterprise/issue', function () use ($db) {
         if ($cityName === '') {
             $cityName = 'City';
         }
+        // Use the real booking address; if absent, fall back to the real city
+        // rather than a fabricated street ('123 Main Street'). Amadeus needs a
+        // non-empty line, so city is the least-wrong real value.
         $addressLine = trim((string)($booking['address'] ?? ''));
         if ($addressLine === '') {
-            $addressLine = '123 Main Street';
+            $addressLine = $cityName !== '' ? $cityName : '';
         }
 
         $buildOrderPayload = static function (array $offer, array $travelers, bool $minimal = false) use (

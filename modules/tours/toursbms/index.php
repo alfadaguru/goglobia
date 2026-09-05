@@ -13,3 +13,4 @@ require_once __DIR__ . '/details.php';   // POST tours/toursbms/details
 // Local booking actions (no supplier booking API)
 if (file_exists(__DIR__ . '/actions/issue.php'))  require_once __DIR__ . '/actions/issue.php';
 if (file_exists(__DIR__ . '/actions/cancel.php')) require_once __DIR__ . '/actions/cancel.php';
+if (file_exists(__DIR__ . '/actions/refund.php')) require_once __DIR__ . '/actions/refund.php';

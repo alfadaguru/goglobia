@@ -109,8 +109,8 @@ $router->post('flights/seeru/cancel', function () use ($db) {
                 CURLOPT_POSTFIELDS     => json_encode($body),
                 CURLOPT_TIMEOUT        => 60,
                 CURLOPT_CONNECTTIMEOUT => 15,
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_SSL_VERIFYHOST => false,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
                 CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
                 CURLOPT_FOLLOWLOCATION => false,
             ]);
@@ -230,7 +230,7 @@ $router->post('flights/seeru/cancel', function () use ($db) {
 
         if ($void_result['http_code'] === 200 && ($void_result['data']['status'] ?? '') === 'success') {
             $db->update('bookings', [
-                'booking_status'        => 'voided',
+                'booking_status'        => 'cancelled',
                 'cancellation_request'  => 1,
                 'cancellation_status'   => 1,
                 'cancellation_response' => json_encode([
@@ -294,7 +294,11 @@ $router->post('flights/seeru/cancel', function () use ($db) {
 
         if ($refund_result['http_code'] === 200 && ($refund_result['data']['status'] ?? '') === 'success') {
             $db->update('bookings', [
-                'booking_status'        => 'refunded',
+                // booking_status ENUM = confirmed|pending|cancelled ('refunded'
+                // would truncate to ''); a refunded ticket is 'cancelled' and the
+                // money state lives in payment_status.
+                'booking_status'        => 'cancelled',
+                'payment_status'        => 'refunded',
                 'cancellation_request'  => 1,
                 'cancellation_status'   => 1,
                 'cancellation_response' => json_encode([

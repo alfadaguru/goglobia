@@ -4,10 +4,17 @@
  * Handles all state, progress, and persistence for large file imports
  */
 
-// Allow direct calls from frontend - no security check needed here
-// This endpoint only reads/updates import state, not sensitive data
+// SECURITY (§16 HIGH): previously "no security check needed" — but this endpoint
+// can reset/pause/resume the import and mutate the progress row, so it DOES need
+// auth. Require an admin session.
 header('Content-Type: application/json');
 header('Cache-Control: no-cache, no-store, must-revalidate');
+if (session_status() === PHP_SESSION_NONE) { @session_start(); }
+if ((strtolower((string)($_SESSION['user_role'] ?? '')) !== 'admin') && empty($_SESSION['admin_logged_in'])) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Unauthorized: admin session required.']);
+    exit;
+}
 
 // Initialize database connection if not already set
 if (!isset($db)) {

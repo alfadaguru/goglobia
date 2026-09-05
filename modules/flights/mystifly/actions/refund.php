@@ -256,11 +256,15 @@ $router->post('/flights/mystifly/refund', function () use ($db) {
             exit;
         }
 
-        // Mark as refund_requested while we wait for supplier
+        // Mark refund as requested while we wait for the supplier. payment_status
+        // ENUM = paid|unpaid|refunded ('refund_requested' would truncate), so the
+        // in-progress state lives in refund_status/refund_requested_at (real cols);
+        // payment_status stays 'paid' until the refund actually completes.
         $bookingData['refund_requested_at'] = date('Y-m-d H:i:s');
         $db->update('bookings', [
-            'payment_status' => 'refund_requested',
-            'booking_data'   => json_encode($bookingData),
+            'refund_status'       => 'requested',
+            'refund_requested_at' => date('Y-m-d H:i:s'),
+            'booking_data'        => json_encode($bookingData),
         ], ['invoice_id' => $invoiceId]);
 
         $passengers = mystiflyBuildRefundPassengers($booking, $bookingData);
@@ -329,7 +333,7 @@ $router->post('/flights/mystifly/refund', function () use ($db) {
                 $bookingData['refund_ptr_id'] = $ptrId;
             }
             $db->update('bookings', [
-                'payment_status'        => 'refund_pending',
+                'refund_status'        => 'pending',
                 'cancellation_response' => json_encode($data),
                 'booking_data'          => json_encode($bookingData),
             ], ['invoice_id' => $invoiceId]);
@@ -353,7 +357,7 @@ $router->post('/flights/mystifly/refund', function () use ($db) {
             // Mark as refund_pending – not failed, may still go through manually
             $bookingData['refund_response'] = $data;
             $db->update('bookings', [
-                'payment_status'        => 'refund_pending',
+                'refund_status'        => 'pending',
                 'cancellation_response' => json_encode($data),
                 'booking_data'          => json_encode($bookingData),
             ], ['invoice_id' => $invoiceId]);
@@ -369,7 +373,7 @@ $router->post('/flights/mystifly/refund', function () use ($db) {
         if (empty($ptrId)) {
             $bookingData['refund_response'] = $data;
             $db->update('bookings', [
-                'payment_status'        => 'refund_pending',
+                'refund_status'        => 'pending',
                 'cancellation_response' => json_encode($data),
                 'booking_data'          => json_encode($bookingData),
             ], ['invoice_id' => $invoiceId]);

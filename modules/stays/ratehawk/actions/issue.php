@@ -78,7 +78,13 @@ $router->post('/stays/ratehawk/issue', function() use ($db) {
         // =====================================
         // GET MODULE CONFIGURATION
         // =====================================
-        $moduleData = $db->get('modules', '*', ['name' => 'ratehawk']);
+        // Scope by type so a same-named module in another vertical can't be
+        // picked up, and guard against a missing row (was crashing on the next
+        // line accessing $moduleData['dev_mode'] when null).
+        $moduleData = $db->get('modules', '*', ['name' => 'ratehawk', 'type' => 'stays']);
+        if (!$moduleData) {
+            throw new Exception('RateHawk module not configured');
+        }
         $devMode = strtolower($moduleData['dev_mode'] ?? '0');
         $isTestEnvironment = in_array($devMode, ['1', 'test', 'on']);
 

@@ -86,15 +86,16 @@ $router->post('flights/sabre/refund', function() use ($db) {
             throw new Exception('Booking must be cancelled before processing refund. Current status: ' . $booking['booking_status']);
         }
 
-        // Check if already refunded
-        if ($booking['booking_status'] === 'refunded') {
+        // Check if already refunded. booking_status ENUM has no 'refunded';
+        // the refunded state lives in payment_status.
+        if (($booking['payment_status'] ?? '') === 'refunded') {
 
             ob_clean();
             echo json_encode([
                 'status' => true,
                 'message' => 'Booking already marked as refunded',
                 'invoice_id' => $invoice_id,
-                'booking_status' => $booking['booking_status']
+                'payment_status' => $booking['payment_status']
             ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -175,12 +176,22 @@ $router->post('flights/sabre/refund', function() use ($db) {
         error_log("SABRE REFUND: Refund details prepared");
 
         // ========================================
-        // STEP 6: UPDATE DATABASE
+        // STEP 6: REVERSE CUSTOMER CHARGE VIA GATEWAY + UPDATE DATABASE
+        // Sabre ticket refunds are settled manually (Red Workspace / ARC-BSP),
+        // but we can still return the customer's money now via the payment
+        // gateway (real for Paystack/Stripe). Keep booking_status='cancelled'
+        // (it must already be cancelled/voided to reach here — do NOT regress it
+        // to 'pending') and carry the money state in payment_status.
         // ========================================
-        error_log("SABRE REFUND: Updating database with refund details");
+        require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
+        $sabreGwRefund = function_exists('refund_gateway_payment')
+            ? refund_gateway_payment($db, $booking, ($refundAmount > 0 ? (float) $refundAmount : null), $refundReason)
+            : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+        $sabreGatewayRefunded = ($sabreGwRefund['status'] === 'refunded');
+        $refundDetails['gateway_refund'] = $sabreGwRefund;
 
         $db->update('bookings', [
-            'booking_status' => 'refund_pending',
+            'payment_status'  => $sabreGatewayRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
             'refund_response' => json_encode($refundDetails)
         ], [
             'invoice_id' => $invoice_id
@@ -223,14 +234,15 @@ $router->post('flights/sabre/refund', function() use ($db) {
                 'error' => $e->getMessage(),
                 'timestamp' => date('Y-m-d H:i:s'),
                 'endpoint' => 'flights/sabre/refund',
-                'trace' => $e->getTraceAsString()
+                'trace' => '[redacted]'
             ];
 
 
             try {
+                // Do NOT regress booking_status here — the booking is already
+                // cancelled/voided when refund runs; only record the error.
                 $updateResult = $db->update('bookings', [
-                    'error_response' => json_encode($errorDetails),
-                    'booking_status' => 'refund_failed'
+                    'error_response' => json_encode($errorDetails)
                 ], [
                     'invoice_id' => $invoice_id
                 ]);

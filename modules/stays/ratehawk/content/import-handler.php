@@ -9,6 +9,17 @@
 
 while (@ob_get_level()) @ob_end_clean();
 
+// SECURITY (§16 HIGH): this endpoint can create_tables (DROP/CREATE) and drive
+// imports + a debug action that leaks the error_log. It had NO auth. Require an
+// admin session. (Inline — ADMIN_AUTH() is not loaded in this standalone file.)
+header('Content-Type: application/json');
+if (session_status() === PHP_SESSION_NONE) { @session_start(); }
+if ((strtolower((string)($_SESSION['user_role'] ?? '')) !== 'admin') && empty($_SESSION['admin_logged_in'])) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Unauthorized: admin session required.']);
+    exit;
+}
+
 // Initialize database - get ratehawk module database credentials
 if (!isset($db)) {
     $env = parse_ini_file(__DIR__ . '/../../../../.env');

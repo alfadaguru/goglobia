@@ -170,7 +170,20 @@ $router->post('/stays/ratehawk/rooms', function() use ($db) {
 
         foreach ($roomsData as $idx => $room) {
             $uniqueRoomId = $hotelId . '_room_' . $idx . '_' . uniqid();
-            $basePrice = rand(50, 300);
+
+            // SECURITY/CORRECTNESS (§16 HIGH): this is the STATIC-DB fallback path
+            // (used when the live RateHawk rate call returns nothing). RateHawk is a
+            // live-rate supplier — static rooms have NO real price. The old code did
+            // `rand(50,300)` and returned it as a bookable price (customers could
+            // book at a fabricated amount). NEVER fabricate a price: read a real one
+            // from the room row if present, otherwise mark the room price-unavailable
+            // (0) so the UI shows "live price on request" instead of a fake bookable
+            // rate.
+            $realPrice = (float)(
+                $room['price'] ?? $room['daily_price'] ?? $room['min_price'] ?? $room['amount'] ?? 0
+            );
+            $priceUnavailable = ($realPrice <= 0);
+            $basePrice = $realPrice; // 0 when unavailable — no random value
 
             $pricePerNight = MARKUP($basePrice, $module, $db, $moduleCurrency, $sessionCurrency);
             $totalPrice = $pricePerNight['price'] * $number_of_nights;
@@ -206,6 +219,7 @@ $router->post('/stays/ratehawk/rooms', function() use ($db) {
                 'room_images' => $processedRoomImages,
                 'room_main_image' => !empty($processedRoomImages) ? $processedRoomImages[0] : null,
                 'min_price_per_night' => round($pricePerNight['price'], 2),
+                'price_unavailable' => $priceUnavailable,
                 'options_count' => 1,
                 'options' => [
                     [
@@ -218,6 +232,8 @@ $router->post('/stays/ratehawk/rooms', function() use ($db) {
                         'breakfast_included' => 0,
                         'price_per_night' => round($pricePerNight['price'], 2),
                         'total_price' => round($totalPrice, 2),
+                        'price_unavailable' => $priceUnavailable,
+                        'note' => $priceUnavailable ? 'Live price on request — not bookable at a listed rate.' : null,
                         'currency' => $sessionCurrency,
                         'adults' => $rooms[0]['adults'] ?? 2,
                         'children' => $rooms[0]['children'] ?? 0,
@@ -227,45 +243,12 @@ $router->post('/stays/ratehawk/rooms', function() use ($db) {
             ];
         }
 
-        if (empty($formattedRooms)) {
-            $uniqueRoomId = $hotelId . '_std_' . uniqid();
-            $basePrice = rand(50, 200);
-            $pricePerNight = MARKUP($basePrice, $module, $db, $moduleCurrency, $sessionCurrency);
-            $totalPrice = $pricePerNight['price'] * $number_of_nights;
-
-            $formattedRooms[] = [
-                'room_id' => $uniqueRoomId,
-                'room_type_id' => $uniqueRoomId,
-                'room_name' => 'Standard Room',
-                'room_type_name' => 'Standard',
-                'description' => 'Comfortable standard room with modern amenities',
-                'size_sqm' => null,
-                'max_adults' => 2,
-                'max_children' => 2,
-                'bed_type' => 'Double Bed',
-                'amenities' => [],
-                'room_main_image' => null,
-                'min_price_per_night' => round($pricePerNight['price'], 2),
-                'options_count' => 1,
-                'options' => [
-                    [
-                        'option_id' => $hotelId . '_std_001',
-                        'board_name' => 'Room Only',
-                        'board_code' => 'RO',
-                        'meal_plan' => 'Room Only',
-                        'cancellation_free' => 1,
-                        'refundable' => 1,
-                        'breakfast_included' => 0,
-                        'price_per_night' => round($pricePerNight['price'], 2),
-                        'total_price' => round($totalPrice, 2),
-                        'currency' => $sessionCurrency,
-                        'adults' => $rooms[0]['adults'] ?? 2,
-                        'children' => $rooms[0]['children'] ?? 0,
-                        'rate_key' => base64_encode($hotelId . '|std|001')
-                    ]
-                ]
-            ];
-        }
+        // NOTE: previously, when no rooms were formatted from the content DB, a
+        // placeholder "Standard Room" was fabricated with rand(50,200) as its
+        // price and returned as a BOOKABLE rate — customers could book at a fake
+        // price. That fabrication has been removed. Real, bookable pricing is
+        // fetched below from the RateHawk prebook API; if that returns nothing,
+        // we return no rooms rather than an invented price.
 
         // ============================================================================
         // CALL RATEHAWK PREBOOK API FOR REAL-TIME PRICING
@@ -347,7 +330,7 @@ $router->post('/stays/ratehawk/rooms', function() use ($db) {
             ],
             CURLOPT_POSTFIELDS => json_encode($hotelpageRequest),
             CURLOPT_TIMEOUT => 30,
-            CURLOPT_SSL_VERIFYPEER => false
+            CURLOPT_SSL_VERIFYPEER => true
         ]);
 
         $hotelpageResponse = curl_exec($ch);

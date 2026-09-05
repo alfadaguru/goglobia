@@ -125,7 +125,7 @@ if (!function_exists('_train_import_stations')) {
         curl_setopt_array($ch, [
             CURLOPT_URL            => 'https://kyfw.12306.cn/otn/resources/js/framework/station_name.js',
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_TIMEOUT        => 30,
         ]);
         $content = curl_exec($ch);

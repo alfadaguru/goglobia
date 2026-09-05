@@ -126,7 +126,7 @@ function processCredentials() {
   Version="1.005" Target="' . ($environment === 'test' ? 'Test' : 'Production') . '">
   <POS>
     <Source>
-      <RequestorID Type="16" ID="' . $client_id . '" ID_Context="CARTRAWLER"/>
+      <RequestorID Type="16" ID="' . htmlspecialchars((string) $client_id, ENT_XML1 | ENT_QUOTES, 'UTF-8') . '" ID_Context="CARTRAWLER"/>
     </Source>
   </POS>
   <VehLocSearchCriterion ExactMatch="true" ImportanceType="Mandatory">
@@ -152,7 +152,7 @@ function processCredentials() {
             ],
             CURLOPT_TIMEOUT => 30,
             CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_FOLLOWLOCATION => true
         ]);
 

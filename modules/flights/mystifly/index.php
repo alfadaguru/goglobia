@@ -16,3 +16,4 @@ require_once 'actions/void.php';
 require_once 'actions/cancel.php';
 require_once 'actions/refund.php';
 require_once 'actions/reissue.php';
+require_once 'actions/ratecheck.php';
