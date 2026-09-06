@@ -12,3 +12,5 @@ require_once __DIR__ . '/search.php';   // SEARCH: ports, routes, sailings, pric
 require_once __DIR__ . '/revalidate.php'; // REVALIDATE: re-price before booking
 require_once __DIR__ . '/actions/issue.php';   // BOOKING: create + confirm
 require_once __DIR__ . '/actions/cancel.php';  // BOOKING: cancel by locator
+require_once __DIR__ . '/actions/void.php';    // BOOKING: void (== supplier cancel)
+require_once __DIR__ . '/actions/refund.php';  // BOOKING: gateway refund + manual

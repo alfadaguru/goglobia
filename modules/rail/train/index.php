@@ -206,6 +206,7 @@ $router->post('rail/train/refundResultData', function () use ($db) {
 include "actions/issue.php";
 include "actions/cancel.php";
 include "actions/refund.php";
+include "actions/void.php";
 
 // ----------------------------------------------------------------------------
 // TEST API CREDENTIALS (USED BY ADMIN CONFIGURATION SCREEN)

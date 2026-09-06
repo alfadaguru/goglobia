@@ -7,4 +7,6 @@ require_once __DIR__ . '/search.php';
 require_once __DIR__ . '/orders.php';
 require_once __DIR__ . '/issue.php';
 require_once __DIR__ . '/cancel.php';
+require_once __DIR__ . '/refund.php';
+require_once __DIR__ . '/void.php';
 require_once __DIR__ . '/instructions.php';

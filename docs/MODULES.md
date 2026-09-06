@@ -1943,3 +1943,45 @@ but all five code paths are now provably consistent with the tester.)
 - **Honest caveat (unchanged):** static + load + boot + guard/token live-probe
   only. Still NO real supplier search→book→cancel→refund round-trip — that needs
   sandbox credentials. "Code-complete + statically verified", not "live-proven".
+
+---
+
+## 21. Remaining lifecycle-gap fills (the last `absent` stages)
+
+After §20, the lifecycle map still showed a few `absent` action files. Reviewed
+each; filled the real ones, left the not-applicable ones.
+
+### 21.1 Filled (new files, registered + guarded + token-tested)
+| Provider | Added | Method |
+|---|---|---|
+| esim/airalo | `refund.php`, `void.php` | refund = gateway+manual (Airalo has no refund API; issued orders need Airalo support); void = delegates to `airaloHandleCancel()` (was a 404 before). |
+| ferries/kikoto | `actions/refund.php`, `actions/void.php` | void = reuses the real per-locator `POST /bookings/{locator}/cancel`; refund = gateway+manual (no Kikoto refund endpoint). |
+| rail/train | `actions/void.php` | delegates to the real supplier `POST /ticket/orderCancel` (invoice-based, mirrors actions/cancel.php); a train order has no separate void. |
+
+All registered in their `index.php`; all covered by the central
+`supplier_action_guard`.
+
+### 21.2 Reviewed, NOT a gap (left as-is)
+- **flights/tbo void** — the map said `absent` but `actions/void.php` exists and
+  is registered; it correctly routes voids to the TBO change-request desk (TBO
+  has no void API). No change.
+- **insurance/airhelp** search/cancel/refund/void `absent` — airhelp is a
+  single-purpose AirHelp *claims* module (not bookable inventory); those stages
+  don't apply. No change.
+
+### 21.3 Verification (this pass)
+- 8 new/changed files `php -l` clean; **app boots 200** (no redeclare from
+  airalo's shared cancel.php via `require_once`).
+- Live: `esim/airalo/refund`, `esim/airalo/void`, `ferries/kikoto/refund`,
+  `ferries/kikoto/void`, `rail/train/void` → **403** anon (guarded, not 404);
+  with a valid `_internal_token` → **200**, handler runs ("booking not found").
+- Same honest caveat: no live supplier transaction executed.
+
+### 21.4 Net state — code-side lifecycle completeness
+Every `booking_class='real'` provider now has a registered, auth-guarded,
+non-silently-failing handler for each lifecycle stage that its supplier
+supports; where a supplier lacks an API (refund/void on Airalo, Kikoto, TBO,
+Amadeus, CarTrawler, ToursBMS, Kiwi, Sabre) the code does the maximum safe
+automation (gateway refund + manual flag). The remaining non-code items are
+unchanged: **live/sandbox testing**, and provider-side **Kikoto token rotation /
+AirHelp partner token / PKFare live signature confirmation**.
