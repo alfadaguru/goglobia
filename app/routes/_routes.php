@@ -51,6 +51,7 @@ require_once 'app/routes/users/supportRoutes.php';
 require_once 'app/routes/users/depositRoutes.php';
 require_once 'app/routes/users/agencyRoutes.php';
 require_once 'app/routes/users/agencySignupRoutes.php';
+require_once 'app/routes/users/agentApiRoutes.php';
 
 // FLIGHTS ROUTES
 require_once 'app/routes/flights/bookingRoutes.php';
@@ -133,6 +134,7 @@ require_once 'app/routes/admin/dashboardRoutes.php';
 require_once 'app/routes/admin/settingsRoutes.php';
 require_once 'app/routes/admin/modulesRoutes.php';
 require_once 'app/routes/admin/usersRoutes.php';
+require_once 'app/routes/admin/agentApiRoutes.php';
 require_once 'app/routes/admin/updatesRoutes.php';
 require_once 'app/routes/admin/databaseRoutes.php';
 require_once 'app/routes/admin/cmsRoutes.php';
@@ -162,12 +164,23 @@ endif; // admin routes
 
 // API ROUTES — only parsed on /api requests
 if ($__isApiRequest):
-    // API Key verification middleware
+    // AGENT API (docs/AGENT-API.md) — on the agent-API host, authenticate the
+    // request by its X-Agent-Key (sets the agent session context so the existing
+    // pricing/agent logic is reused) and enforce the per-service gate. This is a
+    // no-op on the normal site host. When it authenticates, it REPLACES the
+    // global-key check below (the agent key is the credential).
+    $__isAgentApi = false;
+    if (function_exists('agent_api_authenticate')) {
+        $__isAgentApi = agent_api_authenticate($db);
+    }
+
+    // API Key verification middleware (site/global key) — skipped for
+    // authenticated agent-API requests, which carry their own key.
     $__apiKeyExempt = (
         $__path === '/api/app-settings'
         || $__path === '/api/app/settings'
     );
-    if (!$__apiKeyExempt) {
+    if (!$__apiKeyExempt && !$__isAgentApi) {
         require_once 'modules/helpers.php';
         verifyApiKey($db);
     }

@@ -900,6 +900,9 @@ $router->post('/api/tours/booking/submit', function () use ($db) {
             throw new Exception('Failed to save tour booking');
         }
 
+        // AGENT API — wallet settlement (no-op unless agent-API request).
+        agent_api_settle_booking($db, 'tours', $bookingResult, $invoiceId, (float) $finalTotalWithTax);
+
         // Record promo code usage
         if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData) {
             $db->update('promo_codes', ['used_count[+]' => 1, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $promoData['id']]);

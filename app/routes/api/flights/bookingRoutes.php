@@ -960,6 +960,11 @@ $router->post('/api/flights/booking/submit', function () use ($db) {
             throw new Exception('Failed to create booking');
         }
 
+        // AGENT API — wallet settlement (docs/AGENT-API.md §6). No-op on normal
+        // web/gateway bookings; on an agent-API request charges the credits
+        // wallet (booking + service fee), marks paid, or rolls back + 402.
+        agent_api_settle_booking($db, 'flights', $bookingId, $invoiceId, (float) $finalTotalBase);
+
         // Record promo code usage
         if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData) {
             $db->update('promo_codes', ['used_count[+]' => 1, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $promoData['id']]);

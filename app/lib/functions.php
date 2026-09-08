@@ -4056,6 +4056,548 @@ function ensureCurrencyUpdateSchema($db): void
 }
 
 /**
+ * AGENT API — self-healing schema (Phase 1).
+ *
+ * Creates the three tables the Agent API feature needs, idempotently (same
+ * pattern as ensureCurrencyUpdateSchema): safe to call on every request, no-op
+ * once the tables exist. See docs/AGENT-API.md §4. Reuses the existing
+ * users/credits/bookings tables — these three are the only net-new storage.
+ *
+ *  - agent_api_keys    : per-agent API keys (secret HASHED at rest, never stored plaintext)
+ *  - agent_api_services: per-agent per-service enablement + fee (percentage|flat)
+ *  - agent_api_usage   : per-request audit log (basis for rate-limiting later)
+ */
+if (!function_exists('ensureAgentApiSchema')) {
+    function ensureAgentApiSchema($db): void
+    {
+        try {
+            // The hostname the agent API answers on (e.g. api.goglobia.com).
+            // Empty = feature dormant (key auth never activates on any host).
+            $col = $db->query("SHOW COLUMNS FROM `settings` LIKE 'agent_api_host'")->fetchAll();
+            if (empty($col)) {
+                $db->query("ALTER TABLE `settings` ADD COLUMN `agent_api_host` VARCHAR(255) NOT NULL DEFAULT ''");
+            }
+            // Configurable per-key rate limit (requests / rolling 60s). 0/empty
+            // → code default (120). Read by agent_api_authenticate().
+            $col2 = $db->query("SHOW COLUMNS FROM `settings` LIKE 'agent_api_rate_limit'")->fetchAll();
+            if (empty($col2)) {
+                $db->query("ALTER TABLE `settings` ADD COLUMN `agent_api_rate_limit` INT(11) NOT NULL DEFAULT 120");
+            }
+
+            $db->query("CREATE TABLE IF NOT EXISTS `agent_api_keys` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `user_id` varchar(255) NOT NULL,
+                `key_prefix` varchar(16) NOT NULL,
+                `key_hash` varchar(255) NOT NULL,
+                `label` varchar(255) DEFAULT NULL,
+                `ip_allowlist` text DEFAULT NULL,
+                `status` enum('active','revoked') NOT NULL DEFAULT 'active',
+                `last_used_at` datetime DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `revoked_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_key_prefix` (`key_prefix`),
+                KEY `idx_user_id` (`user_id`),
+                KEY `idx_status` (`status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `agent_api_services` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `user_id` varchar(255) NOT NULL,
+                `service` varchar(32) NOT NULL,
+                `enabled` tinyint(1) NOT NULL DEFAULT 0,
+                `fee_type` enum('percentage','flat') NOT NULL DEFAULT 'percentage',
+                `fee_value` decimal(12,2) NOT NULL DEFAULT 0.00,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_user_service` (`user_id`,`service`),
+                KEY `idx_user_id` (`user_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `agent_api_usage` (
+                `id` bigint(20) NOT NULL AUTO_INCREMENT,
+                `user_id` varchar(255) DEFAULT NULL,
+                `key_id` int(11) DEFAULT NULL,
+                `endpoint` varchar(255) DEFAULT NULL,
+                `ip` varchar(64) DEFAULT NULL,
+                `status_code` int(11) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_user_id` (`user_id`),
+                KEY `idx_key_id` (`key_id`),
+                KEY `idx_created_at` (`created_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+        } catch (\Throwable $e) {
+            // Match the codebase convention: swallow (e.g. a DB user without
+            // CREATE rights) and log, rather than fatal the whole request.
+            error_log('ensureAgentApiSchema: ' . $e->getMessage());
+        }
+    }
+}
+
+/**
+ * AGENT API — key lifecycle helpers (Phase 1). See docs/AGENT-API.md §5.
+ *
+ * Key format returned to the agent ONCE at creation: "{prefix}.{secret}".
+ *   - prefix: non-secret public identifier (stored, shown in UI)
+ *   - secret: crypto-random; only its sha256 hash is stored (never plaintext)
+ * Verification is constant-time (hash_equals). Nothing here trusts client input
+ * for identity beyond the presented key.
+ */
+if (!function_exists('agent_api_generate_key')) {
+    /**
+     * Generate + store a new API key for an agent user_id.
+     * @return array{ok:bool, key?:string, prefix?:string, id?:int, message?:string}
+     *   `key` (full "prefix.secret") is returned ONCE and never retrievable again.
+     */
+    function agent_api_generate_key($db, string $userId, string $label = '', ?string $ipAllowlist = null): array
+    {
+        $userId = trim($userId);
+        if ($userId === '') {
+            return ['ok' => false, 'message' => 'Missing agent user_id'];
+        }
+        // Confirm the target is a real agent (reuse existing users table).
+        $u = $db->get('users', ['user_id', 'role'], ['user_id' => $userId]);
+        if (!$u) {
+            return ['ok' => false, 'message' => 'Agent user not found'];
+        }
+        if (strtolower((string) ($u['role'] ?? '')) !== 'agent') {
+            return ['ok' => false, 'message' => 'User is not an agent'];
+        }
+
+        // Crypto-random secret + a short public prefix. Loop on the (unique)
+        // prefix in the astronomically-unlikely event of a collision.
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            try {
+                $prefix = 'gk_' . bin2hex(random_bytes(4));            // e.g. gk_1a2b3c4d (11 chars)
+                $secret = rtrim(strtr(base64_encode(random_bytes(24)), '+/', '-_'), '='); // url-safe
+            } catch (\Throwable $e) {
+                return ['ok' => false, 'message' => 'Secure RNG unavailable'];
+            }
+            if ($db->get('agent_api_keys', 'id', ['key_prefix' => $prefix])) {
+                continue; // prefix collision, retry
+            }
+            $ok = $db->insert('agent_api_keys', [
+                'user_id'      => $userId,
+                'key_prefix'   => $prefix,
+                'key_hash'     => hash('sha256', $secret),
+                'label'        => ($label !== '' ? $label : null),
+                'ip_allowlist' => ($ipAllowlist !== null && trim($ipAllowlist) !== '') ? trim($ipAllowlist) : null,
+                'status'       => 'active',
+                'created_at'   => date('Y-m-d H:i:s'),
+            ]);
+            if ($ok) {
+                return [
+                    'ok'     => true,
+                    'key'    => $prefix . '.' . $secret, // show ONCE
+                    'prefix' => $prefix,
+                    'id'     => (int) $db->id(),
+                ];
+            }
+            return ['ok' => false, 'message' => 'Failed to store key'];
+        }
+        return ['ok' => false, 'message' => 'Could not allocate a unique key prefix'];
+    }
+}
+
+if (!function_exists('agent_api_verify_key')) {
+    /**
+     * Resolve a presented "prefix.secret" to its active agent key row.
+     * Constant-time hash compare; optional IP allow-list enforcement.
+     * @return array|null  the agent_api_keys row (with resolved user role) or null
+     */
+    function agent_api_verify_key($db, string $presented, ?string $remoteIp = null): ?array
+    {
+        $presented = trim($presented);
+        $dot = strpos($presented, '.');
+        if ($dot === false) {
+            return null;
+        }
+        $prefix = substr($presented, 0, $dot);
+        $secret = substr($presented, $dot + 1);
+        if ($prefix === '' || $secret === '') {
+            return null;
+        }
+
+        $row = $db->get('agent_api_keys', '*', ['key_prefix' => $prefix, 'status' => 'active']);
+        if (!$row) {
+            return null;
+        }
+        // Constant-time comparison of the stored hash vs the presented secret.
+        if (!hash_equals((string) $row['key_hash'], hash('sha256', $secret))) {
+            return null;
+        }
+
+        // Optional IP allow-list (comma/space/newline separated exact IPs).
+        if (!empty($row['ip_allowlist']) && $remoteIp !== null && $remoteIp !== '') {
+            $allowed = preg_split('/[\s,]+/', (string) $row['ip_allowlist'], -1, PREG_SPLIT_NO_EMPTY);
+            if (!in_array($remoteIp, $allowed, true)) {
+                return null;
+            }
+        }
+
+        // Must still be an active agent.
+        $u = $db->get('users', ['user_id', 'role', 'status'], ['user_id' => $row['user_id']]);
+        if (!$u || strtolower((string) ($u['role'] ?? '')) !== 'agent') {
+            return null;
+        }
+        $row['agent'] = $u;
+        return $row;
+    }
+}
+
+if (!function_exists('agent_api_touch_key')) {
+    /** Stamp last_used_at (best-effort). */
+    function agent_api_touch_key($db, int $keyId): void
+    {
+        try {
+            $db->update('agent_api_keys', ['last_used_at' => date('Y-m-d H:i:s')], ['id' => $keyId]);
+        } catch (\Throwable $e) { /* non-fatal */ }
+    }
+}
+
+if (!function_exists('agent_api_revoke_key')) {
+    /** Revoke a key by id (optionally constrained to an owner user_id). */
+    function agent_api_revoke_key($db, int $keyId, ?string $ownerUserId = null): bool
+    {
+        $where = ['id' => $keyId];
+        if ($ownerUserId !== null) {
+            $where['user_id'] = $ownerUserId;
+        }
+        try {
+            $db->update('agent_api_keys', [
+                'status'     => 'revoked',
+                'revoked_at' => date('Y-m-d H:i:s'),
+            ], $where);
+            return true;
+        } catch (\Throwable $e) {
+            error_log('agent_api_revoke_key: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
+if (!function_exists('agent_api_log_usage')) {
+    /** Append a usage row (best-effort; basis for later rate-limiting). */
+    function agent_api_log_usage($db, ?string $userId, ?int $keyId, string $endpoint, ?string $ip, int $statusCode): void
+    {
+        try {
+            $db->insert('agent_api_usage', [
+                'user_id'     => $userId,
+                'key_id'      => $keyId,
+                'endpoint'    => mb_substr($endpoint, 0, 255),
+                'ip'          => $ip,
+                'status_code' => $statusCode,
+                'created_at'  => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) { /* non-fatal */ }
+    }
+}
+
+/**
+ * AGENT API — Phase 2 request layer. See docs/AGENT-API.md §5–§7.
+ */
+
+if (!function_exists('agent_api_host')) {
+    /** The configured agent-API hostname (e.g. api.goglobia.com); '' = disabled. */
+    function agent_api_host($db): string
+    {
+        static $host = null;
+        if ($host === null) {
+            $host = strtolower(trim((string) ($GLOBALS['app']['agent_api_host'] ?? '')));
+            if ($host === '') {
+                try {
+                    $row = $db->get('settings', ['agent_api_host'], ['id' => 1]);
+                    $host = strtolower(trim((string) ($row['agent_api_host'] ?? '')));
+                } catch (\Throwable $e) { $host = ''; }
+            }
+        }
+        return $host;
+    }
+}
+
+if (!function_exists('agent_api_is_host')) {
+    /** True when the CURRENT request is arriving on the agent-API host. */
+    function agent_api_is_host($db): bool
+    {
+        $configured = agent_api_host($db);
+        if ($configured === '') { return false; }
+        $reqHost = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
+        // Strip any :port
+        if (($p = strpos($reqHost, ':')) !== false) { $reqHost = substr($reqHost, 0, $p); }
+        return $reqHost === $configured;
+    }
+}
+
+if (!function_exists('agent_api_route_service')) {
+    /** Map an /api/<service>/... path to its service family, or '' if none. */
+    function agent_api_route_service(string $path): string
+    {
+        if (!preg_match('#^/api/([a-z]+)(/|$)#i', $path, $m)) { return ''; }
+        $svc = strtolower($m[1]);
+        $known = ['flights','stays','cars','tours','visa','visas','umrah','esim','bus','ferries','rail'];
+        if (!in_array($svc, $known, true)) { return ''; }
+        return $svc === 'visas' ? 'visa' : $svc; // normalise plural
+    }
+}
+
+if (!function_exists('agent_api_service_enabled')) {
+    /** Is a given service enabled for this agent? */
+    function agent_api_service_enabled($db, string $userId, string $service): bool
+    {
+        $row = $db->get('agent_api_services', ['enabled'], ['user_id' => $userId, 'service' => $service]);
+        return $row && (int) $row['enabled'] === 1;
+    }
+}
+
+if (!function_exists('agent_api_json_fail')) {
+    /** Emit a JSON error with a status code and stop. */
+    function agent_api_json_fail(int $code, string $message): void
+    {
+        if (!headers_sent()) {
+            http_response_code($code);
+            header('Content-Type: application/json');
+        }
+        echo json_encode(['success' => false, 'status' => false, 'message' => $message], JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+}
+
+if (!function_exists('agent_api_authenticate')) {
+    /**
+     * Agent-API middleware — call once in the /api/* request path.
+     *
+     * ONLY activates when the request host is the configured agent-API host, so
+     * the main site (goglobia.com) is completely unaffected. On that host:
+     *   - a valid X-Agent-Key resolves the agent and sets $_SESSION user_id +
+     *     user_role='agent' so ALL existing pricing/agent logic (MARKUP, etc.)
+     *     works unchanged — the API is only an auth shell.
+     *   - the per-service gate (agent_api_services.enabled) is enforced.
+     *   - usage is logged.
+     * Sets $GLOBALS['__agent_api'] with the key/user for the billing hook.
+     *
+     * Returns true if this request is an authenticated agent-API request.
+     */
+    function agent_api_authenticate($db): bool
+    {
+        if (!agent_api_is_host($db)) {
+            return false; // not the agent-API host → leave everything as-is
+        }
+
+        $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '';
+        // Normalise to the app-relative /api/... path (strip any base subdir).
+        if (($pos = strpos($path, '/api/')) !== false) {
+            $path = substr($path, $pos);
+        }
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+
+        $headers = function_exists('getallheaders') ? getallheaders() : [];
+        $headers = array_change_key_case((array) $headers, CASE_LOWER);
+        $presented = $headers['x-agent-key'] ?? ($_GET['agent_key'] ?? '');
+
+        if ($presented === '') {
+            // No agent key on the agent host → this API is key-only.
+            agent_api_json_fail(401, 'Missing API key. Send it in the X-Agent-Key header.');
+        }
+
+        $keyRow = agent_api_verify_key($db, (string) $presented, $ip);
+        if (!$keyRow) {
+            agent_api_log_usage($db, null, null, $path, $ip, 401);
+            agent_api_json_fail(401, 'Invalid or revoked API key.');
+        }
+
+        $agentUserId = (string) $keyRow['user_id'];
+
+        // Reuse the existing agent identity mechanism: MARKUP() and the booking
+        // routes read these two session keys.
+        if (session_status() === PHP_SESSION_NONE) { @session_start(); }
+        $_SESSION['user_id']       = $agentUserId;
+        $_SESSION['user_role']     = 'agent';
+        $_SESSION['is_web_client'] = false; // this is a keyed API caller, not the site JS
+
+        agent_api_touch_key($db, (int) $keyRow['id']);
+
+        // Rate limit: max N requests per key per rolling 60s window (from the
+        // usage log). Default 120/min; override via settings.agent_api_rate_limit.
+        $limit = (int) ($GLOBALS['app']['agent_api_rate_limit'] ?? 0);
+        if ($limit <= 0) { $limit = 120; }
+        try {
+            $recent = (int) $db->count('agent_api_usage', [
+                'key_id'      => (int) $keyRow['id'],
+                'created_at[>=]' => date('Y-m-d H:i:s', time() - 60),
+            ]);
+            if ($recent >= $limit) {
+                agent_api_log_usage($db, $agentUserId, (int) $keyRow['id'], $path, $ip, 429);
+                agent_api_json_fail(429, 'Rate limit exceeded. Please slow down and retry shortly.');
+            }
+        } catch (\Throwable $e) { /* if the log query fails, do not block the request */ }
+
+        // Per-service gate (only for service endpoints; utility/account endpoints pass).
+        $service = agent_api_route_service($path);
+        if ($service !== '' && !agent_api_service_enabled($db, $agentUserId, $service)) {
+            agent_api_log_usage($db, $agentUserId, (int) $keyRow['id'], $path, $ip, 403);
+            agent_api_json_fail(403, "Your API access does not include the '{$service}' service. Contact your account manager to enable it.");
+        }
+
+        agent_api_log_usage($db, $agentUserId, (int) $keyRow['id'], $path, $ip, 200);
+
+        $GLOBALS['__agent_api'] = [
+            'active'  => true,
+            'user_id' => $agentUserId,
+            'key_id'  => (int) $keyRow['id'],
+            'service' => $service,
+        ];
+        return true;
+    }
+}
+
+if (!function_exists('agent_api_active')) {
+    /** True if the current request was authenticated as an agent-API call. */
+    function agent_api_active(): bool
+    {
+        return !empty($GLOBALS['__agent_api']['active']);
+    }
+}
+
+if (!function_exists('agent_api_service_fee')) {
+    /**
+     * Compute the admin-set per-service fee for an agent on a booking amount.
+     * fee_type 'percentage' → amount * value/100 ; 'flat' → value. 0 if none.
+     */
+    function agent_api_service_fee($db, string $userId, string $service, float $amount): float
+    {
+        $row = $db->get('agent_api_services', ['enabled', 'fee_type', 'fee_value'], ['user_id' => $userId, 'service' => $service]);
+        if (!$row || (int) $row['enabled'] !== 1) { return 0.0; }
+        $val = (float) ($row['fee_value'] ?? 0);
+        if ($val <= 0) { return 0.0; }
+        if (($row['fee_type'] ?? 'percentage') === 'flat') {
+            return round($val, 2);
+        }
+        return round($amount * ($val / 100.0), 2);
+    }
+}
+
+if (!function_exists('agent_api_wallet_balance')) {
+    /** Agent credits balance = SUM(credit) - SUM(debit) (same as credits.php). */
+    function agent_api_wallet_balance($db, string $userId): float
+    {
+        $c = (float) ($db->sum('credits', 'credits', ['user_id' => $userId, 'type' => 'credit']) ?: 0);
+        $d = (float) ($db->sum('credits', 'credits', ['user_id' => $userId, 'type' => 'debit']) ?: 0);
+        return round($c - $d, 2);
+    }
+}
+
+if (!function_exists('agent_api_settle_booking')) {
+    /**
+     * Uniform booking-submit settlement for the agent API. Call right after a
+     * booking row is created, in every service's submit route:
+     *
+     *   agent_api_settle_booking($db, 'stays', $bookingId, $invoiceId, (float)$baseTotal);
+     *
+     * No-op unless the request is an authenticated agent-API call. On an agent
+     * request it charges the credits wallet (booking + admin service fee); on
+     * success marks the booking paid (gateway=Wallet) so issuance proceeds; on
+     * insufficient funds it DELETES the just-created booking, emits a 402 JSON
+     * body, and exits. Returns void (exits on the failure path).
+     */
+    function agent_api_settle_booking($db, string $service, $bookingId, string $invoiceId, float $baseTotal): void
+    {
+        if (!function_exists('agent_api_active') || !agent_api_active()) {
+            return; // normal web/gateway booking — leave untouched
+        }
+        $agentUserId = (string) ($GLOBALS['__agent_api']['user_id'] ?? ($_SESSION['user_id'] ?? ''));
+        $charge = agent_api_charge_wallet($db, $agentUserId, $service, $baseTotal, $invoiceId);
+        if (empty($charge['ok'])) {
+            if ($bookingId) { $db->delete('bookings', ['id' => $bookingId]); }
+            if (!headers_sent()) { http_response_code(402); header('Content-Type: application/json'); }
+            echo json_encode([
+                'success'  => false,
+                'status'   => false,
+                'message'  => $charge['message'] ?? 'Insufficient wallet balance.',
+                'required' => $charge['required'] ?? null,
+                'balance'  => $charge['balance'] ?? null,
+                'fee'      => $charge['fee'] ?? null,
+            ], JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+        $db->update('bookings', [
+            'payment_status'  => 'paid',
+            'payment_gateway' => 'Wallet',
+            'paid_at'         => date('Y-m-d H:i:s'),
+            'transaction_id'  => 'WALLET-' . $invoiceId,
+        ], ['id' => $bookingId]);
+    }
+}
+
+if (!function_exists('agent_api_charge_wallet')) {
+    /**
+     * Charge the agent's credits wallet for a booking + service fee, atomically
+     * enough for this ledger model: verify balance (+ credit_limits headroom),
+     * then write a booking debit and (if non-zero) a fee debit, both tagged with
+     * the invoice in the description for audit. Returns a result array.
+     *
+     * NOTE: only intended to be called on an agent-API-authenticated request.
+     */
+    function agent_api_charge_wallet($db, string $userId, string $service, float $bookingAmount, string $invoiceId): array
+    {
+        $fee   = agent_api_service_fee($db, $userId, $service, $bookingAmount);
+        $total = round($bookingAmount + $fee, 2);
+        $balance = agent_api_wallet_balance($db, $userId);
+
+        // Optional credit line: allow balance to go negative up to credit_limits.
+        $creditLimit = 0.0;
+        try {
+            $u = $db->get('users', ['credit_limits'], ['user_id' => $userId]);
+            $creditLimit = (float) ($u['credit_limits'] ?? 0);
+        } catch (\Throwable $e) { /* default 0 */ }
+
+        if (($balance + $creditLimit) < $total) {
+            return [
+                'ok'      => false,
+                'message' => 'Insufficient wallet balance.',
+                'balance' => $balance,
+                'fee'     => $fee,
+                'required'=> $total,
+            ];
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $currency = (string) ($GLOBALS['app']['default_currency'] ?? 'USD');
+        try {
+            $db->insert('credits', [
+                'user_id'     => $userId,
+                'type'        => 'debit',
+                'credits'     => $bookingAmount,
+                'currency'    => $currency,
+                'description' => 'API booking ' . $invoiceId . ' (' . $service . ')',
+                'created_at'  => $now,
+            ]);
+            if ($fee > 0) {
+                $db->insert('credits', [
+                    'user_id'     => $userId,
+                    'type'        => 'debit',
+                    'credits'     => $fee,
+                    'currency'    => $currency,
+                    'description' => 'API service fee ' . $invoiceId . ' (' . $service . ')',
+                    'created_at'  => $now,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            error_log('agent_api_charge_wallet: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Wallet charge failed.', 'balance' => $balance, 'fee' => $fee, 'required' => $total];
+        }
+
+        return [
+            'ok'          => true,
+            'charged'     => $total,
+            'fee'         => $fee,
+            'new_balance' => round($balance - $total, 2),
+        ];
+    }
+}
+
+/**
  * Ensure the settings.user_restriction column exists.
  *
  * Called from index.php on every request so an existing client database is

@@ -557,6 +557,10 @@ $router->post('/api/bus/booking/app-submit', function () use ($SECURE, $db) {
             'cancellation_status'  => 0,
         ]);
 
+        // AGENT API — wallet settlement (no-op unless agent-API request).
+        $busBookingId = $db->id();
+        agent_api_settle_booking($db, 'bus', $busBookingId, $invoiceId, (float) $finalTotal);
+
         if ($promoCodeStr !== '' && $promoDiscount > 0 && $promoData) {
             $db->update('promo_codes', ['used_count[+]' => 1, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $promoData['id']]);
         }

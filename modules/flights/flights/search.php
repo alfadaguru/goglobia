@@ -272,10 +272,12 @@ $router->post('flights/flights/search', function() use ($db) {
         }
 
     } catch (Exception $e) {
+        // Do not leak stack traces / internal messages to the client — log
+        // server-side and return a generic message.
+        error_log('FLIGHTS SEARCH ERROR: ' . $e->getMessage() . ' | ' . $e->getTraceAsString());
         echo json_encode([
-            "error" => "An error occurred.",
-            "message" => $e->getMessage(),
-            "trace" => $e->getTraceAsString()
+            "error"   => true,
+            "message" => "Flight search is temporarily unavailable. Please try again.",
         ]);
     }
 });

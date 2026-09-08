@@ -1621,10 +1621,36 @@ if (!function_exists('refund_gateway_payment')) {
                     return ['status' => 'failed', 'message' => $j['error']['message'] ?? "Stripe refund HTTP {$code}", 'gateway' => 'stripe'];
 
                 // ---- Internal ledger gateways: reversal is an in-app ledger post ----
+                case 'wallet':
                 case 'wallet balance':
                 case 'wallet_balance':
                 case 'credits':
-                    return ['status' => 'unsupported', 'message' => 'Internal ' . $gatewayName . ' reversal must be posted to the wallet/credits ledger by an operator', 'gateway' => $gatewayName];
+                    // Internal wallet payment → reverse it by posting a
+                    // compensating CREDIT row to the credits ledger (the same
+                    // ledger agent_api_charge_wallet debits). Idempotent: skip if
+                    // a refund credit for this invoice already exists.
+                    $walletUserId = (string) ($booking['user_id'] ?? '');
+                    $invoiceRef   = (string) ($booking['invoice_id'] ?? '');
+                    if ($walletUserId === '') {
+                        return ['status' => 'failed', 'message' => 'No wallet owner on booking', 'gateway' => $gatewayName];
+                    }
+                    $already = $db->get('credits', 'id', [
+                        'user_id'        => $walletUserId,
+                        'type'           => 'credit',
+                        'description[~]' => 'API refund ' . $invoiceRef,
+                    ]);
+                    if ($already) {
+                        return ['status' => 'refunded', 'reference' => 'WALLET-REFUND-' . $invoiceRef, 'amount' => $refundAmt, 'gateway' => $gatewayName, 'message' => 'Already refunded to wallet'];
+                    }
+                    $db->insert('credits', [
+                        'user_id'     => $walletUserId,
+                        'type'        => 'credit',
+                        'credits'     => $refundAmt,
+                        'currency'    => $currency,
+                        'description' => 'API refund ' . $invoiceRef . ' — ' . $reason,
+                        'created_at'  => date('Y-m-d H:i:s'),
+                    ]);
+                    return ['status' => 'refunded', 'reference' => 'WALLET-REFUND-' . $invoiceRef, 'amount' => $refundAmt, 'gateway' => $gatewayName];
 
                 // ---- No refund API implemented yet: be honest ----
                 default:

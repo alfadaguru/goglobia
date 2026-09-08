@@ -473,6 +473,9 @@ $router->post('/api/esim/booking/submit', function () use ($SECURE, $db) {
             throw new Exception('Failed to create booking');
         }
 
+        // AGENT API — wallet settlement (no-op unless agent-API request).
+        agent_api_settle_booking($db, 'esim', $bookingId, $invoiceId, (float) round($totalPrice, 2));
+
         // Record promo code usage if applicable
         if ($promoData && $couponDiscount > 0) {
             $db->update('promo_codes', [

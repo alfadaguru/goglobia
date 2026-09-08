@@ -493,6 +493,11 @@ if (($user['role'] ?? '') === 'agent') {
                            <span class="material-symbols-outlined">business</span>
                            <span><?= T::agency.' '.T::details ?></span>
                         </a>
+                        <!-- API Access Button (Agent Only) -->
+                        <a href="<?=root?>api-access" class="btn light w-full justify-start">
+                           <span class="material-symbols-outlined">api</span>
+                           <span>API Access</span>
+                        </a>
                         <?php endif; ?>
                         <!-- Edit Profile Button -->
                         <a href="<?=root?>profile" class="btn light w-full justify-start">

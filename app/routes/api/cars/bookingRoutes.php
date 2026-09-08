@@ -775,6 +775,9 @@ $router->post('/api/cars/booking/submit', function () use ($SECURE, $db) {
         $bookingId = $db->id();
 
         if ($bookingId) {
+            // AGENT API — wallet settlement (no-op unless agent-API request).
+            agent_api_settle_booking($db, 'cars', $bookingId, $invoiceId, (float) $finalTotalBase);
+
             // Record promo code usage
             if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData) {
                 $db->update('promo_codes', ['used_count[+]' => 1, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $promoData['id']]);

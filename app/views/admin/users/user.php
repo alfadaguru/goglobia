@@ -727,6 +727,12 @@ if (isset($_SESSION['error'])) {
                                 <span class="material-symbols-outlined text-white text-sm">account_balance</span>
                                 <span class="text-white text-xs font-medium"><?=T::manage_funds?></span>
                             </a>
+                            <?php if(($user['role'] ?? '') == 'agent'): ?>
+                            <a href="<?=root.admin?>/users/api-access/<?=$user['user_id']?>" class="flex items-center gap-1.5 px-3 py-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-lg transition-all">
+                                <span class="material-symbols-outlined text-white text-sm">api</span>
+                                <span class="text-white text-xs font-medium">API Access</span>
+                            </a>
+                            <?php endif; ?>
                         </div>
                         <?php if($user['role'] == 'agent'): ?>
                         <hr class="border my-3 border-slate-200">

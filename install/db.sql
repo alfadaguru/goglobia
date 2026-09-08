@@ -30043,6 +30043,63 @@ ALTER TABLE `visa_settings`
 --
 ALTER TABLE `blogs`
   ADD CONSTRAINT `blogs_ibfk_1` FOREIGN KEY (`post_category`) REFERENCES `blog_categories` (`id`) ON DELETE SET NULL;
+
+-- --------------------------------------------------------
+-- Agent API (docs/AGENT-API.md) — per-agent API keys, service enablement + fees,
+-- and usage log. Also created at runtime by ensureAgentApiSchema() so existing
+-- installs self-heal; kept here so fresh installs get them.
+-- --------------------------------------------------------
+
+-- Hostname the agent API answers on (e.g. api.goglobia.com). '' = feature off.
+ALTER TABLE `settings` ADD COLUMN IF NOT EXISTS `agent_api_host` VARCHAR(255) NOT NULL DEFAULT '';
+-- Per-key rate limit (requests / rolling 60s); 0 → code default (120).
+ALTER TABLE `settings` ADD COLUMN IF NOT EXISTS `agent_api_rate_limit` INT(11) NOT NULL DEFAULT 120;
+
+CREATE TABLE IF NOT EXISTS `agent_api_keys` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` varchar(255) NOT NULL,
+  `key_prefix` varchar(16) NOT NULL,
+  `key_hash` varchar(255) NOT NULL,
+  `label` varchar(255) DEFAULT NULL,
+  `ip_allowlist` text DEFAULT NULL,
+  `status` enum('active','revoked') NOT NULL DEFAULT 'active',
+  `last_used_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `revoked_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_key_prefix` (`key_prefix`),
+  KEY `idx_user_id` (`user_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `agent_api_services` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` varchar(255) NOT NULL,
+  `service` varchar(32) NOT NULL,
+  `enabled` tinyint(1) NOT NULL DEFAULT 0,
+  `fee_type` enum('percentage','flat') NOT NULL DEFAULT 'percentage',
+  `fee_value` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_user_service` (`user_id`,`service`),
+  KEY `idx_user_id` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `agent_api_usage` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `user_id` varchar(255) DEFAULT NULL,
+  `key_id` int(11) DEFAULT NULL,
+  `endpoint` varchar(255) DEFAULT NULL,
+  `ip` varchar(64) DEFAULT NULL,
+  `status_code` int(11) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_user_id` (`user_id`),
+  KEY `idx_key_id` (`key_id`),
+  KEY `idx_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

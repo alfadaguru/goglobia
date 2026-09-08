@@ -1014,6 +1014,9 @@ $router->post('/api/ferries/booking/submit', function () use ($SECURE, $db) {
 
         $bookingId = $db->id();
 
+        // AGENT API — wallet settlement (no-op unless agent-API request).
+        agent_api_settle_booking($db, 'ferries', $bookingId, $invoiceId, (float) $finalPrice);
+
         echo json_encode([
             'success'    => true,
             'message'    => 'Booking pending payment.',

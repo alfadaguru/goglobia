@@ -138,6 +138,8 @@ $router->post('/api/rail/booking/submit', function () use ($db) {
         }
 
         $created = _train_create_booking($db, $orderInput, $userCtx);
+        // AGENT API — wallet settlement (no-op unless agent-API request).
+        agent_api_settle_booking($db, 'rail', $created['booking_id'] ?? 0, (string) ($created['invoice_id'] ?? ''), (float) ($created['final_price'] ?? 0));
         $db->delete('logs_bookings', ['hash' => $hash]);
 
         _train_respond(true, 'Booking created successfully. Complete payment to issue tickets.', [
@@ -173,6 +175,8 @@ $router->post('/api/rail/booking/order', function () use ($db) {
         }
 
         $created = _train_create_booking($db, $input, $userCtx);
+        // AGENT API — wallet settlement (no-op unless agent-API request).
+        agent_api_settle_booking($db, 'rail', $created['booking_id'] ?? 0, (string) ($created['invoice_id'] ?? ''), (float) ($created['final_price'] ?? 0));
 
         _train_respond(true, 'Booking created successfully. Complete payment to issue tickets.', [
             'invoice_id'   => $created['invoice_id'],

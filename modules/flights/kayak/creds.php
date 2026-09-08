@@ -381,16 +381,14 @@ try {
     }
 
 } catch (Exception $e) {
+    // Log the full trace server-side; do not return file/line/stack trace in the
+    // response (even to admins — it can leak into logs/screenshots).
+    error_log('KAYAK CREDS ERROR: ' . $e->getMessage() . ' | ' . $e->getFile() . ':' . $e->getLine() . ' | ' . $e->getTraceAsString());
     $response['message'] = 'Internal validation error occurred';
     $response['data'] = [
         'error_type' => 'system_error',
         'error_code' => 'EXCEPTION',
         'error_description' => $e->getMessage(),
-        'exception_details' => [
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-            'trace' => $e->getTraceAsString()
-        ],
         'troubleshooting' => [
             'Contact system administrator',
             'Check server logs for details',

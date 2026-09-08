@@ -550,6 +550,9 @@ $router->post('/api/umrah/bookings/submit', function () use ($db) {
         $bookingResultId = $db->id();
 
         if ($bookingResultId) {
+            // AGENT API — wallet settlement (no-op unless agent-API request).
+            agent_api_settle_booking($db, 'umrah', $bookingResultId, $invoiceId, (float) $finalTotal);
+
             // 7. NOTIFICATIONS & WEBHOOKS
             triggerWebhook('umrah/booking', 'umrah.booking.confirmed', [
                 'booking_id' => $bookingResultId,

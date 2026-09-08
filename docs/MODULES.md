@@ -2147,3 +2147,44 @@ Re-verified every claim against files/runtime. Results:
 - **Still not verified (honest):** real-browser PWA install/offline behaviour and
   true cross-device rendering — both need on-device/BrowserStack QA not available
   here.
+
+---
+
+## 23. "Fix all pendings" pass (2026-09-08)
+
+Went through every documented open/deferred item and split into code-fixable vs.
+externally-blocked, verifying each against current code (the doc had stale items).
+
+### 23.1 Stale doc items — already fixed, corrected here
+- **stuba `http://api.stuba.com`** — VERIFIED already all `https://` (§17). Not open.
+- **hotelbeds `SSL_VERIFYPEER=false`** — VERIFIED all `=> true` now. Not open.
+
+### 23.2 Real items found & FIXED this pass
+Two genuine **stack-trace-to-client leaks** that the §18 sweep missed (re-scanned
+the whole `modules/` tree, classifying each `getTraceAsString` as error_log-safe
+vs client-echoed):
+- `modules/flights/flights/search.php:278` — `"trace" => getTraceAsString()` was
+  in the `echo json_encode([...])` error path → now logged server-side, client
+  gets a generic message.
+- `modules/flights/kayak/creds.php:392` — `trace`/`file`/`line` returned in the
+  response array → now logged server-side, dropped from the response.
+Re-scan confirms **0 remaining client-side trace leaks** in `modules/`. (The
+other `getTraceAsString` hits — mystifly/stuba/hotelbeds/amadeus issue+search —
+are `error_log` only; agoda is DEBUG_MODE-gated; seeru is commented — all SAFE,
+left untouched.)
+
+### 23.3 Genuinely CANNOT be fixed in code (not "pending on me")
+These require you/the supplier and would be dishonest to fake:
+- **Gated price-check TODOs (kiwi, cartrawler, kikoto)** — need a supplier
+  re-price endpoint/contract that cannot be confirmed or tested without access.
+  Wiring by guessing is explicitly out of scope.
+- **Live/sandbox transaction testing** — needs supplier credentials.
+- **Kikoto token rotation / AirHelp partner token / PKFare live signature
+  confirmation** — provider-side actions.
+- **Tailwind CDN → purged build** — real perf item, but you chose "flag only"
+  (would add a Node build toolchain). Left flagged, not changed.
+- **Real-device responsive + PWA install/offline QA** — needs a browser/device.
+
+### 23.4 Verification
+Both fixed files `php -l` clean; full `modules/` re-scan shows no client trace
+leaks; app boots 200.

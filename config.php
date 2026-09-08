@@ -284,6 +284,10 @@ try {
     // doesn't have yet (no-op once they exist — see functions.php). Fixes
     // "No payment methods available" on sites updated without migrating.
     ensureCoreFixSchema($db);
+    // Agent API (docs/AGENT-API.md) — idempotent, no-op once tables exist.
+    if (function_exists('ensureAgentApiSchema')) {
+        ensureAgentApiSchema($db);
+    }
 } catch (PDOException $e) {
     // Database connection failed - redirect to install
     if (!headers_sent()) {

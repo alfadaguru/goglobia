@@ -631,6 +631,10 @@ $router->post('/api/visas/booking/submit', function () use ($db) {
             throw new Exception('Failed to create booking. Please try again.');
         }
 
+        // AGENT API — wallet settlement (no-op unless agent-API request).
+        $visaBookingId = $db->id();
+        agent_api_settle_booking($db, 'visa', $visaBookingId, $invoiceId, (float) $finalPriceMarkup);
+
         // --------------------------------------------------
         // DELETE TEMPORARY DRAFT
         // --------------------------------------------------
