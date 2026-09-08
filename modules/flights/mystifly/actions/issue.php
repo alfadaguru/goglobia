@@ -589,42 +589,58 @@ mystiflyBookingLog($db, $booking['id'], 'issue_failed_orderticket', [
         $isPendingRef = str_starts_with($mfReference, 'PENDING-');
 
         if ($isPendingRef) {
-            // Demo/airline never assigned a real reference — use the hash suffix as a demo PNR
-            error_log("[MYSTIFLY_ISSUE:{$invoiceId}] STEP 4b — skipping TripDetails (placeholder ref)");
+            // BookFlight returned NO real supplier reference (host not responding /
+            // unconfirmed). We must NOT fake a confirmation: previously this block
+            // stripped "PENDING-" and wrote booking_status='confirmed' with the
+            // fabricated hash as the PNR, telling the customer "Booking confirmed
+            // successfully" — a FALSE confirmation with no real airline PNR.
+            //
+            // Correct behavior: hold as 'pending' (awaiting airline confirmation),
+            // keep the placeholder only as an internal tracking ref in
+            // booking_data (NOT in the pnr column), and tell the customer/ops the
+            // truth. A cron/reconcile or manual TripDetails on the real MFRef
+            // later can promote it to confirmed once the airline responds.
+            error_log("[MYSTIFLY_ISSUE:{$invoiceId}] STEP 4b — no real supplier ref; holding as PENDING (was falsely marking confirmed)");
 
-            // Extract the suffix after "PENDING-" as the demo PNR (e.g. PENDING-522DAFC1 → 522DAFC1)
-            $demoPnr = substr($mfReference, strlen('PENDING-'));
-
-            $bookingData['pnr']               = $demoPnr;
-            $bookingData['booking_status_mf'] = 'Confirmed';
-            $bookingData['ticket_status_mf']  = 'Confirmed';
+            $bookingData['pnr']               = '';
+            $bookingData['mf_pending_ref']    = $mfReference; // internal only
+            $bookingData['booking_status_mf'] = 'Pending';
+            $bookingData['ticket_status_mf']  = 'Pending';
 
             $db->update('bookings', [
-                'booking_status' => 'confirmed',
-                'pnr'            => $demoPnr,
+                'booking_status' => 'pending',
+                // Clear the pnr column too: the intermediate 'BookingInProcess'
+                // write (STEP 3) may have stored the PENDING- placeholder there.
+                // No fake ref should remain in pnr until the airline returns one.
+                'pnr'            => '',
                 'booking_data'   => json_encode($bookingData),
-                'error_response' => null,
-                'booking_payment_issue' => null,
+                'error_response' => json_encode([
+                    'review_state' => 'mystifly_pnr_pending',
+                    'reason'       => 'Airline did not return a confirmed PNR at ticketing (host not responding / unconfirmed). Booking held; verify with Mystifly TripDetails before treating as confirmed.',
+                    'mf_reference' => $mfReference,
+                    'flagged_at'   => date('Y-m-d H:i:s'),
+                ]),
             ], ['invoice_id' => $invoiceId]);
 
-            mystiflyBookingLog($db, $booking['id'], 'issue_completed', [
-                'step'           => 'completed_pending_pnr',
+            mystiflyBookingLog($db, $booking['id'], 'issue_pending', [
+                'step'           => 'pending_no_supplier_ref',
                 'mf_reference'   => $mfReference,
-                'pnr'            => $demoPnr,
-                'booking_status' => 'confirmed',
-                'ticket_status'  => 'Confirmed',
+                'pnr'            => '',
+                'booking_status' => 'pending',
+                'ticket_status'  => 'Pending',
                 'timestamp'      => date('Y-m-d H:i:s'),
             ]);
 
             echo json_encode([
                 'status'            => true,
-                'message'           => 'Booking confirmed successfully.',
-                'booking_reference' => $demoPnr,
-                'pnr'               => $demoPnr,
+                'pending'           => true,
+                'message'           => 'Payment received. The airline has not yet returned a confirmed PNR — your booking is being finalised and will be confirmed shortly.',
+                'booking_reference' => '',
+                'pnr'               => '',
                 'data'              => [
                     'mf_reference'   => $mfReference,
-                    'pnr'            => $demoPnr,
-                    'booking_status' => 'confirmed',
+                    'pnr'            => '',
+                    'booking_status' => 'pending',
                 ],
             ]);
             exit;
