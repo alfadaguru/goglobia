@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#3b82f6">
+  <title>You're offline — Goglobia</title>
+  <style>
+    :root { --brand:#3b82f6; --ink:#111827; --muted:#6b7280; --bg:#ffffff; --border:#e5e7eb; }
+    * { box-sizing:border-box; }
+    html,body { margin:0; height:100%; }
+    body {
+      font-family: 'Outfit', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg); color: var(--ink);
+      display:flex; align-items:center; justify-content:center; min-height:100%;
+      padding: 24px; text-align:center;
+    }
+    .card { max-width: 420px; width:100%; }
+    .logo { width:72px; height:72px; margin:0 auto 20px; display:block; border-radius:16px; }
+    h1 { font-size:1.375rem; margin:0 0 8px; font-weight:700; }
+    p { color: var(--muted); font-size:0.95rem; line-height:1.5; margin:0 0 24px; }
+    .icon {
+      width:64px; height:64px; margin:0 auto 20px; border-radius:50%;
+      background:#eff6ff; color:var(--brand);
+      display:flex; align-items:center; justify-content:center;
+    }
+    .icon svg { width:32px; height:32px; }
+    button {
+      appearance:none; border:0; cursor:pointer;
+      background: var(--brand); color:#fff; font-weight:600; font-size:0.95rem;
+      padding: 12px 28px; border-radius:10px; transition: background .15s ease;
+      min-height:44px; /* accessible tap target */
+    }
+    button:hover { background:#2563eb; }
+    .hint { margin-top:16px; font-size:0.8rem; color:var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 1l22 22"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
+        <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/>
+        <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+        <line x1="12" y1="20" x2="12.01" y2="20"/>
+      </svg>
+    </div>
+    <h1>You're offline</h1>
+    <p>It looks like you've lost your internet connection. Live prices and availability need a connection, so please reconnect and try again.</p>
+    <button onclick="location.reload()">Try again</button>
+    <div class="hint">Goglobia — your trips, one tap away.</div>
+  </div>
+</body>
+</html>

@@ -1,184 +1,280 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<?xml-stylesheet type="text/xsl" href="https://goglobia.com/uploads/global/sitemap.xsl"?>
+<?xml-stylesheet type="text/xsl" href="http://localhost/goglobia/uploads/global/sitemap.xsl"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://goglobia.com/</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2026-09-08</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
     <loc>https://goglobia.com/stays</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2026-09-08</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://goglobia.com/tours</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2026-09-08</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://goglobia.com/cars</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2026-09-08</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://goglobia.com/visa</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2026-09-08</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://goglobia.com/flights</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2026-09-08</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://goglobia.com/umrah</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2026-09-08</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://goglobia.com/esim</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2026-09-08</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://goglobia.com/bus</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2026-09-08</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/insurance</loc>
+    <lastmod>2026-09-08</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/about-us</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/contact-us</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/terms-of-use</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/cookies-policy</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/privacy-policy</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/become-a-supplier</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/booking-tips</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/file-a-claim</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/careers-and-jobs</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/how-to-book</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/investors</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/affiliate-program</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/refund-policy</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/explore</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/best-travel-deals</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/travel-documents</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/travel-insurance</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/disruption</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/frequently-asked-questions</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/accessibility</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-11-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://goglobia.com/page/blog</loc>
-    <lastmod>2026-08-29</lastmod>
+    <lastmod>2025-12-29</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/blog/10-hidden-beaches-you-need-to-visit</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/blog/how-to-travel-europe-on-50-a-day</loc>
+    <lastmod>2026-08-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/blog/ultimate-guide-japanese-street-food</loc>
+    <lastmod>2026-08-25</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/blog/safari-adventures-best-wildlife-africa</loc>
+    <lastmod>2026-08-28</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/blog/top-5-luxury-train-journeys</loc>
+    <lastmod>2026-08-27</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/blog/traveling-with-kids-parents-survival-guide</loc>
+    <lastmod>2026-08-28</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/blog/ancient-temples-southeast-asia</loc>
+    <lastmod>2026-08-27</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/blog/essential-travel-photography-tips</loc>
+    <lastmod>2026-08-25</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/blog/best-winter-escapes-sun-seekers-2026</loc>
+    <lastmod>2026-08-25</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/blog/must-have-travel-gadgets-gear-2026</loc>
+    <lastmod>2026-08-28</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/blog/island-hopping-greece-perfect-itinerary</loc>
+    <lastmod>2026-08-23</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/blog/how-to-plan-your-first-solo-trip</loc>
+    <lastmod>2026-08-25</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/blog/worlds-most-stunning-hiking-trails</loc>
+    <lastmod>2026-08-25</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/blog/food-lovers-guide-istanbul</loc>
+    <lastmod>2026-08-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://goglobia.com/blog/sustainable-travel-reduce-carbon-footprint</loc>
+    <lastmod>2026-08-24</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
   </url>
 </urlset>

@@ -1,5 +1,40 @@
 # Supplier Modules — Booking Reality Audit
 
+> ## ⚠️ READ FIRST — document status & how to read it (updated 2026-09-08)
+> This file grew **chronologically** across many work sessions. Earlier sections
+> (§1–§15) were written as findings were *discovered* and describe gaps/bugs that
+> were **later fixed** in the remediation sections (§13, §15.5, §16–§21). Where an
+> early section and a later section disagree, **the later section is authoritative.**
+> Do not read §1–§15 as the current state — they are the historical audit trail.
+>
+> **Current end state (authoritative summary):**
+> - **Every `booking_class='real'` provider has a full, registered, auth-guarded,
+>   non-silently-failing lifecycle** for each stage its supplier supports
+>   (search → revalidate → issue → cancel → refund → void). See **§20** (line-by-line
+>   audit + fixes) and **§21** (final lifecycle-gap fills).
+> - Where a supplier has **no** refund/void API, the code does the max safe
+>   automation: **gateway refund + manual flag** (Airalo, Kikoto, TBO, Amadeus,
+>   CarTrawler, ToursBMS, Kiwi, Sabre).
+> - **Auth:** all state-changing supplier routes are gated by
+>   `supplier_action_guard()` (central guard in `modules/index.php`). Finding E
+>   is **DONE** (see §15.5) — ignore the "not yet done" wording left in §15.4.
+> - **Post-payment price reconciliation** now actually runs in the modules
+>   context (systemic fix, §20.3). Providers with a real re-price call wired:
+>   duffel, ratehawk, tbo, amadeus, amadeus_enterprise, hotelston, seeru,
+>   mystifly, **stuba, wanderbeds**. Still **gated TODO** (need a supplier
+>   re-price contract we cannot confirm/test): **kiwi, cartrawler, kikoto**.
+>   **N/A:** mozio (Merchant-of-Record). (This supersedes §16.3's "TODO (6)".)
+> - **mystifly** no longer fakes a confirmation when the airline returns no PNR —
+>   it now holds the booking as `pending` (§21.5 / fixed 2026-09-08).
+> - **Not real-API (out of scope for E2E):** travelpayouts (`booking_class=stub`,
+>   `issue.php` is an intentional empty stub — search/redirect only), plus all
+>   affiliate/own/redirect modules in §3.
+> - **Genuinely NOT done (cannot be, in code):** any **live/sandbox transaction
+>   test**; provider-side **Kikoto token rotation**, **AirHelp partner token**,
+>   **PKFare live signature confirmation**. Everything else is code-complete +
+>   statically verified (php -l + boot + guard/token live-probe), **not**
+>   live-proven.
+
 **What this document answers, truthfully:** for every travel service the platform
 sells, *which supplier is connected*, *whether a booking is actually created via
 the supplier's API after payment*, *how that supplier booking is paid for*, and
@@ -1391,9 +1426,10 @@ pkfare/sabre/seeru/tbo already had guards.
 - **Finding C** (confirmed-on-failure): largely addressed by the §14 enum fixes
   (`failed`→`pending`), but the specific tbo non-LCC "confirmed despite Ticket error"
   and rail `fail_msg` logic paths need targeted review.
-- **Finding E** (CORS `*` + no auth/CSRF on state-changing supplier routes): ~64 files
-  set `Access-Control-Allow-Origin: *`; issue/cancel/refund routes are callable by
-  anyone with an invoice_id. Needs a shared auth/CSRF guard — significant, not yet done.
+- **Finding E** (CORS `*` + no auth/CSRF on state-changing supplier routes):
+  **DONE — see §15.5** (central `supplier_action_guard()` in `modules/index.php`,
+  extended in §19/§20 to cover creds/orders and rail `order*`/`reissue`). The
+  "not yet done" wording here is historical; the guard is live and probe-verified.
 - **Finding B** remainder (§15.2 note) — the lower-severity fabricated-contact fallbacks.
 - **No live/sandbox transaction test** of any of this.
 
@@ -1985,3 +2021,129 @@ Amadeus, CarTrawler, ToursBMS, Kiwi, Sabre) the code does the maximum safe
 automation (gateway refund + manual flag). The remaining non-code items are
 unchanged: **live/sandbox testing**, and provider-side **Kikoto token rotation /
 AirHelp partner token / PKFare live signature confirmation**.
+
+### 21.5 mystifly false-confirmation fix (2026-09-08)
+`flights/mystifly/actions/issue.php` — when BookFlight returned no real supplier
+reference (host not responding / unconfirmed), the code invented a
+`PENDING-xxxx` hash, stripped the prefix, wrote **`booking_status='confirmed'`**
+with that fake hash as the **PNR**, and told the customer "Booking confirmed
+successfully" — a **false confirmation with no real airline PNR** (original §8
+audit finding, still live until now). Fixed: such a booking is now held as
+**`pending`** with a `mystifly_pnr_pending` review flag; the placeholder is kept
+only as an internal `mf_pending_ref` in `booking_data` (never in the `pnr`
+column — which is also cleared of any intermediate placeholder write), and the
+customer message says the booking is being finalised, not confirmed. Verified:
+`php -l` clean, app boots 200, route still 403 anon.
+
+### 21.6 Documentation reconciliation (2026-09-08)
+Added the "READ FIRST" status banner at the top and corrected the two
+self-contradictory stale claims (Finding E "not yet done" in §15.4 → DONE per
+§15.5; §16.3 "TODO (6)" price-checks → stuba/wanderbeds since wired, only
+kiwi/cartrawler/kikoto remain gated, mozio N/A). §1–§15 are retained as the
+historical audit trail; §20/§21 + the banner are authoritative for current state.
+
+---
+
+## 22. SEO, mobile responsiveness & PWA (2026-09-08)
+
+Verified-first pass (read the actual files/DB before every change; no guessing).
+All changes static + boot + serve verified; **not** device-tested (noted below).
+
+### 22.1 PWA — installable + offline shell
+- `assets/pwa/` — real square icons generated with ImageMagick from
+  `uploads/global/logo.png`: `icon-192/512.png` (any), `maskable-192/512.png`,
+  `apple-touch-icon.png` (180). (Source logo is 672×667 non-square, so it could
+  NOT be used directly — icons were padded to square.)
+- `manifest.webmanifest` — name/short_name, theme `#3b82f6` (the real Tailwind
+  `primary`), bg `#ffffff`, `display:standalone`, **relative** `start_url`/`scope`
+  (the app runs at a subpath locally — `root` is dynamic — so absolute URLs would
+  break it). Served `application/manifest+json` via a new `.htaccess` AddType.
+- `sw.js` — offline-shell strategy: cache-first static assets, **network-first
+  HTML** (never serve stale prices), offline.html fallback, versioned cache with
+  cleanup. NEVER caches `/api/ /modules/ /admin /checkout /payment /booking
+  /login /dashboard /partials/`. Registered from `header.php` at the runtime
+  `root` scope (subpath-safe), deferred to `load`.
+- `offline.html` — branded, self-contained fallback.
+- Caveats: install/offline UX **not** verified in a real browser here (needs
+  Chrome DevTools → Application on-device); SW only runs over HTTPS/localhost
+  (graceful no-op on plain-HTTP prod).
+
+### 22.2 SEO
+- **Empty title/description fallback** (`header.php`): ~93 of 191 route files
+  never set `$title`; ~104 never set `$description`. Added a fallback to the real
+  settings fields `home_title` / `meta_description` / `site_keywords` so no page
+  renders an empty `<title>`/description. OG/Twitter/robots/og:locale wired to
+  the same values; added per-page `$ogImage`/`$ogType`/`$robots` hooks.
+- **JSON-LD** (`header.php`, public pages only): Organization + WebSite
+  (+ SearchAction) built ONLY from verified settings fields (business_name,
+  site_url, contact_phone, contact_email, address, logo file). `sameAs` omitted
+  on purpose — settings has NO social-profile columns; inventing URLs would be
+  wrong. Both blocks validated as well-formed JSON.
+- **Sitemap bug fixed** (`generateSitemap()`): blog loop selected `slug` but the
+  column is `post_slug` → all 15 blog URLs were emitted as empty `blog/`. Now
+  uses `post_slug` + real `updated_at`/`created_at` lastmod. Regenerated: 46 URLs,
+  15 valid blog URLs, 0 broken.
+- **robots.txt**: added `Sitemap: https://goglobia.com/sitemap.xml` and
+  Disallow for private/transactional paths (admin, api, modules, checkout,
+  payment, invoice, dashboard, login, install).
+- **NO hreflang** — deliberate. Language is session-based (`/lang?lang=xx` →
+  session → redirect); there are NO per-language URLs. hreflang needs distinct
+  crawlable URLs per language; fake alternates would HARM SEO. Multilingual SEO
+  would require a URL-structure change (e.g. `/fr/…`) — a separate project.
+- Content caveat: `home_title`/`meta_description` are placeholder values in the
+  DB ("GoGlobia" / "Website meta description") — plumbing is correct, real
+  marketing copy must be set in admin settings.
+
+### 22.3 Responsive audit — findings + fixes
+Honest result: the **customer-facing frontend is already substantially
+responsive** and I did NOT manufacture edits where code was already correct:
+- Already present: `body{overflow-x:hidden}` (app.css), correct viewport (zoom
+  allowed — no `user-scalable=no`), `max-w-[…]+w-full` patterns, `sm:/md:/lg:`
+  breakpoints, **separate mobile/desktop layouts** (`block lg:hidden` /
+  `hidden lg:block`), intentional horizontal carousels (`shrink-0` in
+  `overflow` tracks). The heavy fixed-width usage is concentrated in **admin**
+  views (desktop tools), inside desktop-only (`hidden lg:block`) blocks.
+- Only additive, zero-layout-risk hardening added to `app.css`:
+  `text-size-adjust:100%` (stop iOS landscape text inflation),
+  `touch-action:manipulation` + tap-highlight on interactive elements (removes
+  300ms tap delay), and `img/video/svg{max-width:100%}` safety.
+- **Caveat (important):** this is a STATIC audit. True cross-device
+  responsiveness still needs a real-device / BrowserStack QA pass — not performed
+  here.
+
+### 22.4 Performance note (not changed)
+Tailwind is loaded via `cdn.tailwindcss.com` (a dev CDN — unpurged, blocks
+render). For production Core Web Vitals it should be compiled to a purged static
+CSS via the Tailwind CLI. Left as-is this pass (would introduce a Node build
+toolchain); flagged as the top perf follow-up.
+
+### 22.5 Files touched
+New: `manifest.webmanifest`, `sw.js`, `offline.html`, `assets/pwa/*`.
+Modified: `.htaccess`, `app/views/includes/header.php`, `app/lib/functions.php`,
+`assets/css/app.css`, `robots.txt`, `uploads/global/sitemap.xml`.
+All `php -l` clean; app boots 200; manifest/sw/offline/sitemap serve with correct
+content-types.
+
+### 22.6 Self-audit (2026-09-08) — findings + hardening
+Re-verified every claim against files/runtime. Results:
+- **PHP syntax / boot:** clean; the 6 "error-like" strings in the homepage HTML
+  are false positives (`--color-warning`, `.badge-warning`, `toLocaleString(undefined…)`,
+  `typeof jQuery === 'undefined'`) — no real PHP errors, no Whoops output.
+- **JSON-LD:** both blocks valid; all 8 referenced `settings` columns exist
+  (no silent warnings).
+- **PWA assets:** manifest `application/manifest+json`, sw `text/javascript`,
+  offline `text/html`, icons `image/png` — all 200. `AddType .js` did not break
+  existing `app.js` (still `text/javascript`).
+- **Routes:** `/flights` 200, `/blog` 200, `/admin` 302 (correct) — header
+  changes did not fatal any context.
+- **Sitemap:** valid XML, 46 urls, 15 blog urls, 0 broken.
+- **Two risks I found in my OWN work and fixed during the audit:**
+  1. `svg`/`canvas` were in the `max-width:100%` rule — 17 inline SVGs use
+     `width="100%"`/`w-full`, so a blanket svg rule could subtly shift icons
+     (unverifiable without a browser). **Narrowed the rule to `img, video` only.**
+  2. SW `scope` was emitted as an absolute URL based on hand-reasoning. **Changed
+     to derive the scope from the script URL's PATH at runtime** (`/goglobia/`),
+     which is unambiguous and correct at any subpath/root — no assumption.
+- **Still not verified (honest):** real-browser PWA install/offline behaviour and
+  true cross-device rendering — both need on-device/BrowserStack QA not available
+  here.

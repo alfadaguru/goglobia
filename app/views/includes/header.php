@@ -246,21 +246,110 @@ if (!empty($activeCurrencyRow)) {
     <link rel="stylesheet" href="<?=versionedAssetUrl('assets/css/app.css')?>">
 
     <!-- META -->
-    <title><?= htmlspecialchars($title ?? '') ?></title>
-    <meta name="description" content="<?= htmlspecialchars($description ?? '') ?>">
-    <meta name="keywords" content="<?= htmlspecialchars($keywords ?? '') ?>">
+    <?php
+    // SEO fallbacks: ~half of the route files never set $title/$description, so
+    // those pages would otherwise render an EMPTY <title>/description (bad for
+    // SEO). Fall back to the global site values from settings ($GLOBALS['app'])
+    // — verified fields: home_title, meta_description, site_keywords.
+    $seoBrand       = $GLOBALS['app']['business_name'] ?? ($GLOBALS['app']['home_title'] ?? 'Goglobia');
+    $seoTitle       = (isset($title) && trim((string)$title) !== '') ? $title : ($GLOBALS['app']['home_title'] ?? $seoBrand);
+    $seoDescription = (isset($description) && trim((string)$description) !== '') ? $description : ($GLOBALS['app']['meta_description'] ?? '');
+    $seoKeywords    = (isset($keywords) && trim((string)$keywords) !== '') ? $keywords : ($GLOBALS['app']['site_keywords'] ?? '');
+    ?>
+    <title><?= htmlspecialchars($seoTitle) ?></title>
+    <meta name="description" content="<?= htmlspecialchars($seoDescription) ?>">
+    <meta name="keywords" content="<?= htmlspecialchars($seoKeywords) ?>">
     <link rel="canonical" href="<?= htmlspecialchars($canonical ?? ((isset($_SERVER['REQUEST_SCHEME']) ? $_SERVER['REQUEST_SCHEME'] : 'https') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'])) ?>">
     <meta name="author" content="<?=$GLOBALS['app']['business_name']?>">
-    <meta property="og:title" content="<?= htmlspecialchars($title ?? '') ?>">
-    <meta property="og:description" content="<?= htmlspecialchars($description ?? '') ?>">
+    <meta name="robots" content="<?= htmlspecialchars($robots ?? 'index, follow') ?>">
+    <meta property="og:title" content="<?= htmlspecialchars($seoTitle) ?>">
+    <meta property="og:description" content="<?= htmlspecialchars($seoDescription) ?>">
     <meta property="og:url" content="<?= htmlspecialchars($canonical ?? ((isset($_SERVER['REQUEST_SCHEME']) ? $_SERVER['REQUEST_SCHEME'] : 'https') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'])) ?>">
-    <meta property="og:image" content="<?=versionedAssetUrl('uploads/global/cover.png')?>">
+    <meta property="og:image" content="<?= htmlspecialchars($ogImage ?? versionedAssetUrl('uploads/global/cover.png')) ?>">
     <meta property="og:site_name" content="<?=$GLOBALS['app']['business_name']?>">
-    <meta property="og:type" content="website">
+    <meta property="og:type" content="<?= htmlspecialchars($ogType ?? 'website') ?>">
+    <meta property="og:locale" content="<?= htmlspecialchars($_SESSION['app_language'] ?? 'en') ?>">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="<?= htmlspecialchars($title ?? '') ?>">
-    <meta name="twitter:description" content="<?= htmlspecialchars($description ?? '') ?>">
-    <meta name="twitter:image" content="<?=versionedAssetUrl('uploads/global/cover.png')?>">
+    <meta name="twitter:title" content="<?= htmlspecialchars($seoTitle) ?>">
+    <meta name="twitter:description" content="<?= htmlspecialchars($seoDescription) ?>">
+    <meta name="twitter:image" content="<?= htmlspecialchars($ogImage ?? versionedAssetUrl('uploads/global/cover.png')) ?>">
+
+    <?php
+    // -----------------------------------------------------------------------
+    // STRUCTURED DATA (JSON-LD) — Organization + WebSite.
+    // Built ONLY from verified settings fields; each optional field is included
+    // only when non-empty so we never emit a broken/empty value. `sameAs`
+    // (social profiles) is intentionally omitted: the settings table has no
+    // social-profile columns, and inventing URLs would be wrong. Emitted once,
+    // sitewide, on the public frontend.
+    // -----------------------------------------------------------------------
+    if (!$isAdminSidebar) {
+        $ldSiteUrl = rtrim((string)($GLOBALS['app']['site_url'] ?? (defined('root') ? root : '')), '/');
+        $orgLd = [
+            '@context' => 'https://schema.org',
+            '@type'    => 'Organization',
+            'name'     => (string)($GLOBALS['app']['business_name'] ?? 'Goglobia'),
+        ];
+        if ($ldSiteUrl !== '')                              $orgLd['url']   = $ldSiteUrl;
+        if ($ldSiteUrl !== '')                              $orgLd['logo']  = $ldSiteUrl . '/uploads/global/logo.png';
+        if (!empty($GLOBALS['app']['contact_phone']))       $orgLd['telephone'] = (string)$GLOBALS['app']['contact_phone'];
+        if (!empty($GLOBALS['app']['contact_email']))       $orgLd['email']     = (string)$GLOBALS['app']['contact_email'];
+        if (!empty($GLOBALS['app']['address'])) {
+            $orgLd['address'] = [
+                '@type'         => 'PostalAddress',
+                'streetAddress' => (string)$GLOBALS['app']['address'],
+            ];
+        }
+
+        $siteLd = [
+            '@context' => 'https://schema.org',
+            '@type'    => 'WebSite',
+            'name'     => (string)($GLOBALS['app']['business_name'] ?? 'Goglobia'),
+        ];
+        if ($ldSiteUrl !== '') {
+            $siteLd['url'] = $ldSiteUrl;
+            // Sitelinks search box → the site's flights search entry point.
+            $siteLd['potentialAction'] = [
+                '@type'       => 'SearchAction',
+                'target'      => [
+                    '@type'       => 'EntryPoint',
+                    'urlTemplate' => $ldSiteUrl . '/flights?q={search_term_string}',
+                ],
+                'query-input' => 'required name=search_term_string',
+            ];
+        }
+        ?>
+    <script type="application/ld+json"><?= json_encode($orgLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?></script>
+    <script type="application/ld+json"><?= json_encode($siteLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?></script>
+    <?php } ?>
+
+    <!-- PWA -->
+    <link rel="manifest" href="<?=root?>manifest.webmanifest">
+    <meta name="theme-color" content="#3b82f6">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Goglobia">
+    <link rel="apple-touch-icon" href="<?=root?>assets/pwa/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="<?=root?>assets/pwa/icon-192.png">
+    <script>
+      // Register the service worker at the APP BASE PATH (root may be a subpath
+      // like /goglobia/). The SW URL is absolute same-origin; the scope is
+      // derived from that URL's PATH (not a full URL) so it is unambiguous and
+      // correct whether the app runs at a subpath (local) or the domain root
+      // (prod). A SW can only control a scope at or below its own path, so this
+      // always matches. Deferred to load so it never blocks first paint.
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          try {
+            var swUrl = '<?=root?>sw.js';
+            var scopePath = new URL(swUrl, location.href).pathname.replace(/sw\.js$/, '');
+            navigator.serviceWorker.register(swUrl, { scope: scopePath })
+              .catch(function (e) { /* non-fatal: PWA is a progressive enhancement */ });
+          } catch (e) { /* non-fatal */ }
+        });
+      }
+    </script>
 
   </head>
   <body class="bg-background text-foreground<?= $sidebarBodyClass ?>">

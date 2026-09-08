@@ -20,5 +20,22 @@ Allow: /blog$
 Allow: /blog/
 Allow: /blog/*
 
+# Keep private / transactional / API paths out of the index (crawl-budget + privacy)
+Disallow: /admin
+Disallow: /api/
+Disallow: /modules/
+Disallow: /dashboard
+Disallow: /profile
+Disallow: /bookings
+Disallow: /checkout
+Disallow: /payment
+Disallow: /invoice
+Disallow: /login
+Disallow: /register
+Disallow: /install/
+
 # Block team images directory listing
 Disallow: /assets/img/company/team/
+
+# Sitemap (served by the /sitemap.xml route)
+Sitemap: https://goglobia.com/sitemap.xml

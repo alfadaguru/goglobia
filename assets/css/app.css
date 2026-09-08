@@ -115,3 +115,28 @@ body{overflow-x:hidden;font-size:16px;line-height:28px;color:#000000;-webkit-fon
 }
 
 .material-symbols-outlined { font-display: swap; }
+
+/* ---------------------------------------------------------------------------
+   Mobile behaviour hardening (additive, no layout impact):
+   - text-size-adjust: stop iOS Safari from auto-inflating text in landscape.
+   - touch-action: manipulation: remove the 300ms tap delay on older mobile
+     browsers for snappier taps.
+   - tap-highlight-color: remove the grey flash box on tap for a native feel.
+   The site already ships body{overflow-x:hidden} and a viewport meta, plus
+   responsive per-view mobile/desktop layouts — these only refine touch feel.
+   --------------------------------------------------------------------------- */
+html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+}
+a, button, [role="button"], input[type="submit"], input[type="button"], label, summary {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(0, 0, 0, 0.05);
+}
+/* Raster media never forces horizontal overflow on small screens. Scoped to
+   img/video only — SVG/canvas are excluded on purpose: 17 inline SVGs use
+   width="100%"/w-full and 294 use explicit pixel sizes, so a blanket svg rule
+   risks subtle icon layout changes that can't be browser-verified here. */
+img, video {
+    max-width: 100%;
+}

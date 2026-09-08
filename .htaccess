@@ -4,6 +4,10 @@ RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 # Serve the Swagger/OpenAPI YAML file with the correct content type for /docs/.
 AddType application/yaml .yaml .yml
 
+# PWA: correct MIME types for the web app manifest and service worker.
+AddType application/manifest+json .webmanifest
+AddType text/javascript .js
+
 # Standalone updates installer — /updates → updates.php (must be BEFORE index.php catch-all).
 # This file ships through the updates system — keep it generic, no per-site paths.
 RewriteRule ^updates/?$ updates.php [QSA,L]

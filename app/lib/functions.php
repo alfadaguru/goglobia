@@ -3833,15 +3833,16 @@ function generateSitemap($db)
             }
         }
 
-        // Add CMS pages
-        $cms_pages = $db->select("cms", ["slug_url"], ["status" => 1]);
+        // Add CMS pages (real lastmod from created_at when present).
+        $cms_pages = $db->select("cms", ["slug_url", "created_at"], ["status" => 1]);
         if ($cms_pages) {
             foreach ($cms_pages as $page) {
                 $slug = trim((string)($page['slug_url'] ?? ''));
                 if (!empty($slug)) {
+                    $ts = !empty($page['created_at']) ? date('Y-m-d', strtotime((string)$page['created_at'])) : date('Y-m-d');
                     $urls[] = [
                         'loc' => $site_url . 'page/' . $slug,
-                        'lastmod' => date('Y-m-d'),
+                        'lastmod' => $ts,
                         'changefreq' => 'monthly',
                         'priority' => '0.6'
                     ];
@@ -3849,14 +3850,20 @@ function generateSitemap($db)
             }
         }
 
-        // Add Blog posts if table exists
+        // Add Blog posts if table exists. NOTE: the slug column is `post_slug`
+        // (there is no `slug` column) — the previous code read `slug`, producing
+        // empty/broken `blog/` URLs. Use real updated_at for lastmod.
         try {
-            $posts = $db->select("blogs", ["slug"], ["status" => 1]);
+            $posts = $db->select("blogs", ["post_slug", "updated_at", "created_at"], ["status" => 1]);
             if ($posts) {
                 foreach ($posts as $post) {
+                    $slug = trim((string)($post['post_slug'] ?? ''));
+                    if ($slug === '') { continue; }
+                    $when = $post['updated_at'] ?? ($post['created_at'] ?? null);
+                    $ts   = !empty($when) ? date('Y-m-d', strtotime((string)$when)) : date('Y-m-d');
                     $urls[] = [
-                        'loc' => $site_url . 'blog/' . $post['slug'],
-                        'lastmod' => date('Y-m-d'),
+                        'loc' => $site_url . 'blog/' . $slug,
+                        'lastmod' => $ts,
                         'changefreq' => 'monthly',
                         'priority' => '0.5'
                     ];
