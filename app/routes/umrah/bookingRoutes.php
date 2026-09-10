@@ -102,13 +102,18 @@ $router->post('/api/umrah/booking/save-draft', function () use ($SECURE, $db) {
 // ============================================================================
 $router->get('/api/umrah/booking/download-invoice/([A-Z0-9]{8})', function ($invoiceId) use ($SECURE, $db) {
     try {
-        // Check if it's an umrah booking
-        $booking = $db->get('bookings', ['invoice_id', 'module_type'], ['invoice_id' => $invoiceId]);
+        // Check if it's an umrah booking (include user_id for the IDOR check).
+        $booking = $db->get('bookings', ['invoice_id', 'module_type', 'user_id'], ['invoice_id' => $invoiceId]);
 
         if (!$booking) {
             http_response_code(404);
             die('Invoice not found');
         }
+
+        // SECURITY (IDOR): only owner / admin / creating session may download.
+        // enforceInvoiceAccess() emits a 403 JSON response and exits on denial
+        // for /api/ paths (this route is under /api/).
+        enforceInvoiceAccess($db, $booking);
 
         // Always generate/refresh PDF before download
         $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
@@ -143,6 +148,12 @@ $router->post('/api/umrah/booking/resend-invoice', function () use ($SECURE, $db
             throw new Exception('Invoice ID is required');
         }
 
+        // VALIDATE CSRF TOKEN (state-changing POST that sends email).
+        $csrfToken = $input['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!CSRF::validateToken($csrfToken)) {
+            throw new Exception('Invalid security token');
+        }
+
         $invoiceId = $input['invoice_id'];
 
         // Fetch booking details
@@ -151,6 +162,9 @@ $router->post('/api/umrah/booking/resend-invoice', function () use ($SECURE, $db
         if (!$booking) {
             throw new Exception('Booking not found');
         }
+
+        // SECURITY (IDOR): only owner / admin / creating session may resend.
+        enforceInvoiceAccess($db, $booking);
 
         // Fetch payment gateway name
         $paymentGatewayName = $booking['payment_gateway'];

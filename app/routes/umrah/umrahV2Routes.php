@@ -103,6 +103,22 @@ $router->get('/umrah/packages/([a-z0-9\-]+)', function ($slug) use ($SECURE, $db
 $router->get('/umrah/booking/(GGU-[A-Z0-9]+)', function ($ref) use ($SECURE, $db) {
     $ub = $db->get('umrah_bookings', '*', ['booking_ref' => $ref]);
     if (!$ub) { header('Location: ' . root . 'umrah'); exit; }
+
+    // SECURITY (IDOR): only the booking owner, an admin, or the guest who just
+    // created it (ref recorded in their session allow-list) may view it.
+    $sessUid = (string) ($_SESSION['user_id'] ?? '');
+    $isAdmin = (($_SESSION['user_role'] ?? '') === 'admin');
+    $owner   = (string) ($ub['user_id'] ?? '');
+    $guestAllow = in_array($ub['booking_ref'], (array) ($_SESSION['umrah_guest_bookings'] ?? []), true);
+    $allowed = $isAdmin
+        || ($owner !== '' && $sessUid !== '' && $owner === $sessUid)
+        || ($owner === '' && $guestAllow);
+    if (!$allowed) {
+        if ($sessUid === '') { header('Location: ' . root . 'login?redirect=' . urlencode(root . 'umrah/booking/' . $ub['booking_ref'])); }
+        else { header('Location: ' . root . 'umrah'); }
+        exit;
+    }
+
     $ub['snapshot'] = json_decode((string) $ub['snapshot'], true) ?: [];
     $installments = $db->select('umrah_installments', '*', ['umrah_booking_id' => $ub['id'], 'ORDER' => ['seq' => 'ASC']]) ?: [];
 

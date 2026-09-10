@@ -155,6 +155,34 @@ $router->post('/api/v1/umrah/bookings', function () use ($db) {
     if ($lead['email'] === '' && $lead['phone'] === '') { umrah_v1_json(['success' => false, 'message' => 'Lead contact (email or phone) required'], 422); }
     $b = umrah_booking_create($db, $quoteRef, $holdId, $lead, $plan);
     if (empty($b['ok'])) { umrah_v1_json(['success' => false, 'message' => $b['message'] ?? 'Booking failed'], 409); }
+
+    // AGENT API — wallet settlement. No-op on normal web bookings; on an
+    // authenticated agent-API request this charges the agent's wallet for the
+    // FULL booking total + service fee and, on insufficient funds, deletes the
+    // booking and emits a 402 + exits. Mirrors every other service's submit route.
+    if (function_exists('agent_api_active') && agent_api_active() && !empty($b['booking_id'])) {
+        $walletTotal = (float) ($b['total_price'] ?? 0);
+        $walletTxn   = 'WALLET-' . (string) $b['invoice_id'];
+        // 1) Charge the wallet + mark the generic bookings row paid (or 402+exit).
+        agent_api_settle_booking($db, 'umrah', (int) $b['booking_id'], (string) $b['invoice_id'], $walletTotal);
+        // 2) Reconcile the umrah domain row + installments to fully paid, consume
+        //    the hold and price-lock — agents pay the full amount upfront by
+        //    wallet, so the installment schedule is satisfied in one settlement.
+        //    Idempotent (keyed on invoice+txn).
+        if (function_exists('umrah_settle_payment')) {
+            umrah_settle_payment($db, (string) $b['invoice_id'], $walletTotal, (string) ($b['currency'] ?? ''), $walletTxn);
+        }
+    }
+
+    // Guest bookings have no owner user_id — record the ref in this session's
+    // allow-list so the guest can view their own confirmation page (IDOR guard
+    // in the web route relies on this). Owned bookings gate on user_id instead.
+    if (empty($lead['user_id']) && !empty($b['booking_ref'])) {
+        $_SESSION['umrah_guest_bookings'] = array_values(array_unique(array_merge(
+            (array) ($_SESSION['umrah_guest_bookings'] ?? []),
+            [$b['booking_ref']]
+        )));
+    }
     umrah_v1_json(['success' => true, 'booking' => $b]);
 });
 
