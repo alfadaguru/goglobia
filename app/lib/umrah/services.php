@@ -833,3 +833,80 @@ if (!function_exists('umrah_audit')) {
         } catch (\Throwable $e) { /* non-fatal */ }
     }
 }
+
+if (!function_exists('umrah_quote_request_create')) {
+    /**
+     * Persist a Customize / Personalize-a-trip quote request (Phase 3). Pure
+     * request — no price is computed; staff respond with a tailored quote from
+     * the admin inbox. Returns ['ok'=>true,'request_ref'=>..,'id'=>..] or
+     * ['ok'=>false,'message'=>..].
+     *
+     * @param array $in sanitised fields: template_id, departure_id, origin_city,
+     *   preferred_month, preferred_date, tier_code, pax, madinah_nights,
+     *   makkah_nights, total_weeks, ziyarah[], addons[], options[], notes,
+     *   name, email, phone.
+     */
+    function umrah_quote_request_create($db, array $in): array
+    {
+        $name  = trim((string) ($in['name'] ?? ''));
+        $email = trim((string) ($in['email'] ?? ''));
+        $phone = trim((string) ($in['phone'] ?? ''));
+        if ($name === '') { return ['ok' => false, 'message' => 'Please enter your name']; }
+        if ($email === '' && $phone === '') { return ['ok' => false, 'message' => 'Please enter your email or phone']; }
+
+        $pax = max(1, (int) ($in['pax'] ?? 1));
+        $ref = umrah_ref('GGR');
+        $now = date('Y-m-d H:i:s');
+
+        // Free-form structured extras kept as JSON for staff review.
+        $ziyarah = $in['ziyarah'] ?? null;
+        $addons  = $in['addons'] ?? null;
+        $options = $in['options'] ?? null;
+
+        try {
+            $db->insert('umrah_quote_requests', [
+                'request_ref'    => $ref,
+                'user_id'        => (string) ($in['user_id'] ?? ($_SESSION['user_id'] ?? '')) ?: null,
+                'template_id'    => !empty($in['template_id']) ? (int) $in['template_id'] : null,
+                'departure_id'   => !empty($in['departure_id']) ? (int) $in['departure_id'] : null,
+                'origin_city'    => ($in['origin_city'] ?? '') !== '' ? (string) $in['origin_city'] : null,
+                'preferred_month'=> ($in['preferred_month'] ?? '') !== '' ? (string) $in['preferred_month'] : null,
+                'preferred_date' => !empty($in['preferred_date']) ? (string) $in['preferred_date'] : null,
+                'tier_code'      => ($in['tier_code'] ?? '') !== '' ? (string) $in['tier_code'] : null,
+                'pax'            => $pax,
+                'madinah_nights' => isset($in['madinah_nights']) ? (int) $in['madinah_nights'] : null,
+                'makkah_nights'  => isset($in['makkah_nights']) ? (int) $in['makkah_nights'] : null,
+                'total_weeks'    => isset($in['total_weeks']) ? (int) $in['total_weeks'] : null,
+                'ziyarah'        => $ziyarah !== null ? json_encode($ziyarah, JSON_UNESCAPED_SLASHES) : null,
+                'addons'         => $addons !== null ? json_encode($addons, JSON_UNESCAPED_SLASHES) : null,
+                'options'        => $options !== null ? json_encode($options, JSON_UNESCAPED_SLASHES) : null,
+                'notes'          => ($in['notes'] ?? '') !== '' ? (string) $in['notes'] : null,
+                'name'           => $name,
+                'email'          => $email ?: null,
+                'phone'          => $phone ?: null,
+                'status'         => 'new',
+                'created_at'     => $now,
+            ]);
+            $id = (int) $db->id();
+        } catch (\Throwable $e) {
+            error_log('umrah_quote_request_create: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not submit your request. Please try again.'];
+        }
+
+        umrah_audit($db, 'umrah_quote_request', $ref, 'created', null,
+            ['pax' => $pax, 'tier' => $in['tier_code'] ?? null, 'weeks' => $in['total_weeks'] ?? null]);
+
+        // Best-effort staff notification (non-fatal). Reuses the umrah notify
+        // queue if present; otherwise silently skips.
+        if (function_exists('umrah_notify')) {
+            try {
+                umrah_notify($db, null, 'umrah_quote_request',
+                    'New Umrah customize request ' . $ref,
+                    "New personalized Umrah request {$ref} from {$name} ({$email}{$phone}). Pax {$pax}.",
+                    'email', false);
+            } catch (\Throwable $e) { /* non-fatal */ }
+        }
+
+        return ['ok' => true, 'request_ref' => $ref, 'id' => $id];
+    }
+}

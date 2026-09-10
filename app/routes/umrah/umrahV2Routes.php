@@ -153,6 +153,69 @@ $router->get('/umrah/packages/([a-z0-9\-]+)', function ($slug) use ($SECURE, $db
     require_once views . 'includes/footer.php';
 });
 
+// ---- CUSTOMIZE / PERSONALIZE: GET /umrah/customize (wizard) -------------
+$router->get('/umrah/customize', function () use ($SECURE, $db) {
+    $template = $db->get('umrah_package_templates', '*', ['slug' => 'normal-umrah-14-day'])
+        ?: $db->get('umrah_package_templates', '*', ['ORDER' => ['id' => 'ASC']]);
+    if ($template) {
+        $template['inclusions'] = json_decode((string) $template['inclusions'], true) ?: [];
+    }
+    // Facets to prefill the wizard.
+    $departures = umrahV2PublishedDepartures($db);
+    $cities = []; $months = [];
+    foreach ($departures as $d) { $cities[$d['origin_city']] = true; if (!isset($months[$d['month_bucket']])) { $months[$d['month_bucket']] = $d['departure_date']; } }
+    $cities = array_keys($cities); asort($months); $months = array_keys($months);
+    $tiers = $db->select('umrah_tiers', ['code', 'public_label', 'name', 'room_sharing'], ['status' => 1, 'ORDER' => ['sort_order' => 'ASC']]) ?: [];
+    $selectedDepartureId = isset($_GET['departure']) ? (int) $_GET['departure'] : 0;
+    $submitted = $_SESSION['umrah_customize_done'] ?? null;
+    unset($_SESSION['umrah_customize_done']);
+
+    $title = 'Customize your Umrah | ' . ($GLOBALS['app']['business_name'] ?? 'GoGlobia');
+    $description = 'Personalize your Umrah — choose your nights in Madinah and Makkah, extend your stay, add Ziyarah and request a tailored quote.';
+    $robots = 'noindex, nofollow';
+
+    require_once views . 'includes/header.php';
+    require_once views . 'modules/umrah/v2/customize.php';
+    require_once views . 'includes/footer.php';
+});
+
+// ---- CUSTOMIZE SUBMIT: POST /umrah/customize ---------------------------
+$router->post('/umrah/customize', function () use ($SECURE, $db) {
+    // CSRF (form post). CSRF::validateToken accepts field or X-CSRF-TOKEN header.
+    $token = $_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+    if (!class_exists('CSRF') || !CSRF::validateToken($token)) {
+        $_SESSION['umrah_customize_done'] = ['ok' => false, 'message' => 'Your session expired. Please try again.'];
+        header('Location: ' . root . 'umrah/customize'); exit;
+    }
+    // Normalise checkbox arrays.
+    $ziyarah = array_values(array_filter(array_map('trim', (array) ($_POST['ziyarah'] ?? []))));
+    $addons  = array_values(array_filter(array_map('trim', (array) ($_POST['addons'] ?? []))));
+    $in = [
+        'user_id'        => $_SESSION['user_id'] ?? '',
+        'template_id'    => $_POST['template_id'] ?? null,
+        'departure_id'   => $_POST['departure_id'] ?? null,
+        'origin_city'    => $_POST['origin_city'] ?? '',
+        'preferred_month'=> $_POST['preferred_month'] ?? '',
+        'preferred_date' => $_POST['preferred_date'] ?? '',
+        'tier_code'      => $_POST['tier_code'] ?? '',
+        'pax'            => $_POST['pax'] ?? 1,
+        'madinah_nights' => ($_POST['madinah_nights'] ?? '') !== '' ? $_POST['madinah_nights'] : null,
+        'makkah_nights'  => ($_POST['makkah_nights'] ?? '') !== '' ? $_POST['makkah_nights'] : null,
+        'total_weeks'    => ($_POST['total_weeks'] ?? '') !== '' ? $_POST['total_weeks'] : null,
+        'ziyarah'        => $ziyarah ?: null,
+        'addons'         => $addons ?: null,
+        'notes'          => $_POST['notes'] ?? '',
+        'name'           => $_POST['name'] ?? '',
+        'email'          => $_POST['email'] ?? '',
+        'phone'          => $_POST['phone'] ?? '',
+    ];
+    $r = umrah_quote_request_create($db, $in);
+    $_SESSION['umrah_customize_done'] = $r['ok']
+        ? ['ok' => true, 'ref' => $r['request_ref']]
+        : ['ok' => false, 'message' => $r['message'] ?? 'Could not submit'];
+    header('Location: ' . root . 'umrah/customize'); exit;
+});
+
 // ---- BOOKING CONFIRMATION / VIEW: GET /umrah/booking/{ref} --------------
 // GGU-XXXXXXXX reference (new). Legacy 16-hex booking route stays on the old file.
 $router->get('/umrah/booking/(GGU-[A-Z0-9]+)', function ($ref) use ($SECURE, $db) {
