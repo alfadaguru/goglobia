@@ -113,6 +113,10 @@ try {
         'customer_email' => $booking['email'],
         'payment_method_types' => ['card'],
         'mode' => 'payment',
+        // SECURITY (P1): bind the session to this invoice so verification can
+        // confirm the paid session belongs to this booking (not another).
+        'client_reference_id' => (string) $booking['invoice_id'],
+        'metadata' => ['invoice_id' => (string) $booking['invoice_id']],
         'line_items' => [
             [
                 'price_data' => [

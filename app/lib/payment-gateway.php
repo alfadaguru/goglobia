@@ -1219,6 +1219,37 @@ function get_payment_transaction($hash)
  * @param object $db - Database instance
  * @return string - Verified action: 'success', 'cancel', or 'failure'
  */
+/**
+ * SECURITY (audit P1): reconcile a gateway-reported paid amount + currency
+ * against the expected charge from the trusted server-side token. Prevents
+ * underpayment and cross-transaction confirmation (paying a cheap transaction
+ * to confirm an expensive booking). All amounts are normalised to a float in
+ * MAJOR units before comparison; a small epsilon absorbs rounding.
+ *
+ * @param float  $paidMajor      amount the gateway says was paid, in MAJOR units
+ * @param string $paidCurrency   currency the gateway says was paid in
+ * @param array  $tokenData      the trusted token (amount = price_markup, currency)
+ * @return bool  true when the paid amount+currency match the expected charge
+ */
+function payment_amount_matches($paidMajor, $paidCurrency, $tokenData): bool
+{
+    $expected = (float) ($tokenData['amount'] ?? 0);
+    $expectedCur = strtoupper(trim((string) ($tokenData['currency'] ?? '')));
+    $paidCur = strtoupper(trim((string) $paidCurrency));
+
+    // Currency must match when both are known.
+    if ($expectedCur !== '' && $paidCur !== '' && $expectedCur !== $paidCur) {
+        error_log("PAYMENT VERIFY: currency mismatch expected {$expectedCur} got {$paidCur}");
+        return false;
+    }
+    // Paid amount must be at least the expected amount (allow overpay, block underpay).
+    if ($expected > 0 && ($paidMajor + 0.01) < $expected) {
+        error_log("PAYMENT VERIFY: amount mismatch expected {$expected} got {$paidMajor}");
+        return false;
+    }
+    return true;
+}
+
 function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
 {
     $gatewayData = $data['gateway_data'] ?? $data ?? [];
@@ -1269,8 +1300,23 @@ function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
                 $status = $result['data']['status'] ?? '';
 
                 if ($status === 'success') {
-                    // Store verified transaction ID
-                    $data['transaction_id'] = $result['data']['reference'] ?? $reference;
+                    // SECURITY (P1): the verified transaction must be for THIS
+                    // booking's expected amount + currency. Paystack amount is in
+                    // kobo/minor units. Also bind the reference to this invoice
+                    // (Paystack refs are 'PSK-{invoice_id}-{time}').
+                    $paidMajor = ((float) ($result['data']['amount'] ?? 0)) / 100;
+                    $paidCur   = $result['data']['currency'] ?? '';
+                    if (!payment_amount_matches($paidMajor, $paidCur, $tokenData)) {
+                        error_log("PAYSTACK VERIFY: amount/currency mismatch for ref {$reference}");
+                        return 'failure';
+                    }
+                    $invId = (string) ($tokenData['invoice_id'] ?? '');
+                    $refInv = $result['data']['reference'] ?? $reference;
+                    if ($invId !== '' && strpos((string) $refInv, 'PSK-' . $invId . '-') !== 0
+                        && strpos((string) $reference, 'PSK-' . $invId . '-') !== 0) {
+                        error_log("PAYSTACK VERIFY: reference {$refInv} not bound to invoice {$invId}");
+                        return 'failure';
+                    }
                     return 'success';
                 } elseif ($status === 'abandoned' || $status === 'cancelled') {
                     return 'cancel';
@@ -1332,7 +1378,19 @@ function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
                 $orderStatus = $result['order_status'] ?? '';
 
                 if ($orderStatus === 'PAID') {
-                    $data['transaction_id'] = $result['cf_order_id'] ?? $orderId;
+                    // SECURITY (P1): amount/currency must match; order id is
+                    // 'CF-{invoice_id}-{time}' so bind it to this invoice.
+                    $paidMajor = (float) ($result['order_amount'] ?? 0);
+                    $paidCur   = $result['order_currency'] ?? '';
+                    if (!payment_amount_matches($paidMajor, $paidCur, $tokenData)) {
+                        error_log("CASHFREE VERIFY: amount/currency mismatch for order {$orderId}");
+                        return 'failure';
+                    }
+                    $invId = (string) ($tokenData['invoice_id'] ?? '');
+                    if ($invId !== '' && strpos((string) $orderId, 'CF-' . $invId . '-') !== 0) {
+                        error_log("CASHFREE VERIFY: order {$orderId} not bound to invoice {$invId}");
+                        return 'failure';
+                    }
                     return 'success';
                 } elseif (in_array($orderStatus, ['EXPIRED', 'CANCELLED', 'VOID'])) {
                     return 'cancel';
@@ -1382,6 +1440,20 @@ function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
                 $paymentStatus = $session['payment_status'] ?? '';
 
                 if ($paymentStatus === 'paid') {
+                    // SECURITY (P1): amount_total is in minor units; bind the
+                    // session to this invoice via client_reference_id/metadata.
+                    $paidMajor = ((float) ($session['amount_total'] ?? 0)) / 100;
+                    $paidCur   = $session['currency'] ?? '';
+                    if (!payment_amount_matches($paidMajor, $paidCur, $tokenData)) {
+                        error_log("STRIPE VERIFY: amount/currency mismatch for session {$sessionId}");
+                        return 'failure';
+                    }
+                    $invId = (string) ($tokenData['invoice_id'] ?? '');
+                    $sessInv = (string) ($session['client_reference_id'] ?? ($session['metadata']['invoice_id'] ?? ''));
+                    if ($invId !== '' && $sessInv !== $invId) {
+                        error_log("STRIPE VERIFY: session {$sessionId} not bound to invoice {$invId} (got {$sessInv})");
+                        return 'failure';
+                    }
                     return 'success';
                 } elseif ($paymentStatus === 'unpaid') {
                     return 'cancel';
