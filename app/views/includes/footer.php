@@ -283,7 +283,7 @@ $footer_menus = array_values(array_filter(array_map(
                             © <?= date('Y') ?>     <?= isset($GLOBALS['app']['business_name']) ? $GLOBALS['app']['business_name'] : '' ?>. All rights reserved.
                         </p>
                         <p class="text-xs mt-1" style="color: var(--footer-text-color);">
-                           Powered by <a href="https://phptravels.com" class="hover:underline font-semibold transition-colors" style="color: var(--footer-link-color);" target="_blank">PHPTRAVELS</a>
+                           Built with <span style="color:#e0245e;" aria-label="love">&hearts;</span> by <a href="https://goglobia.com" class="hover:underline font-semibold transition-colors" style="color: var(--footer-link-color);" target="_blank" rel="noopener">GoGlobia.com</a> &mdash; making travel easy for the world
                         </p>
                     </div>
 
