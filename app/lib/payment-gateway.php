@@ -141,12 +141,14 @@ function process_payment($invoiceId)
             'failure_url' => $callbackBase . 'failure'
         ];
 
-        // Create legacy POST format for backward compatibility
+        // Create legacy POST format for backward compatibility. Charge the amount
+        // DUE NOW (deposit/installment-aware for umrah), not always the full total.
+        $chargeNow = payment_amount_due($booking, $db);
         $legacyPayload = [
             'booking_ref_no' => $booking['ref'] ?? $booking['invoice_id'],
             'invoice_id' => $booking['invoice_id'],
             'client_email' => $booking['email'],
-            'price' => $booking['price_markup'],
+            'price' => $chargeNow,
             'currency' => $booking['currency_markup'],
             'invoice_url' => $invoiceBaseUrl . $booking['invoice_id']
         ];
@@ -977,14 +979,49 @@ function get_booking_gateway_id($booking)
 }
 
 /**
+ * The amount to CHARGE NOW for a booking (audit M7 / deposit collection).
+ * For most modules this is the full contract price (bookings.price_markup). For
+ * umrah bookings on an installment plan it is the NEXT pending/overdue
+ * installment (the deposit first, then the balance) — so the deposit schedule is
+ * actually collected instead of always charging 100% upfront. Falls back to the
+ * full price_markup whenever no pending installment is found or on any error.
+ */
+function payment_amount_due($booking, $db)
+{
+    $full = (float) ($booking['price_markup'] ?? 0);
+    $module = strtolower((string) ($booking['module'] ?? $booking['module_type'] ?? ''));
+    if ($module !== 'umrah') { return $full; }
+    try {
+        $ub = $db->get('umrah_bookings', ['id'], ['invoice_id' => $booking['invoice_id']]);
+        if (!$ub) { return $full; }
+        $next = $db->get('umrah_installments', ['amount'], [
+            'umrah_booking_id' => (int) $ub['id'],
+            'status' => ['pending', 'overdue'],
+            'ORDER' => ['seq' => 'ASC'],
+        ]);
+        if ($next && (float) $next['amount'] > 0) {
+            return round((float) $next['amount'], 2);
+        }
+    } catch (\Throwable $e) {
+        error_log('payment_amount_due: ' . $e->getMessage());
+    }
+    return $full;
+}
+
+/**
  * Create secure payment token
  */
 function create_payment_token($booking, $gateway)
 {
+    global $db;
+    // Charge the amount DUE NOW (deposit/installment aware), not always the full
+    // total. The settlement engine allocates this across installments (audit M7).
+    $chargeNow = function_exists('payment_amount_due') ? payment_amount_due($booking, $db) : ((float) $booking['price_markup']);
+
     $tokenData = [
         'invoice_id' => $booking['invoice_id'],
         'booking_id' => $booking['id'],
-        'amount' => $booking['price_markup'],
+        'amount' => $chargeNow,
         'currency' => $booking['currency_markup'],
         'gateway_id' => $gateway['id'],
         'gateway_name' => $gateway['name'],
