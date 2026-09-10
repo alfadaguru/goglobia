@@ -187,7 +187,14 @@ function umrahBooking() {
       this.total = t ? t.unit_price * this.pax : 0;
     },
     async post(url, body) {
-      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      // Send the CSRF token (header + body) — the v1 API requires it for
+      // cookie/session (browser) requests (audit M1).
+      const payload = Object.assign({ csrf_token: this.csrf }, body);
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrf },
+        body: JSON.stringify(payload)
+      });
       return r.json();
     },
     async startBooking() {

@@ -37,6 +37,26 @@ if (!function_exists('umrah_v1_user')) {
         return null;
     }
 }
+if (!function_exists('umrah_v1_csrf_guard')) {
+    /**
+     * CSRF guard for state-mutating v1 endpoints (audit M1). A Bearer-token
+     * (mobile/API) client is NOT cookie-authenticated and therefore not CSRF-
+     * exploitable — it is exempt. Any request WITHOUT a Bearer token is treated
+     * as a browser/session (cookie) request and MUST carry a valid CSRF token
+     * (JSON body `csrf_token` or the X-CSRF-TOKEN header). Dies 403 otherwise.
+     */
+    function umrah_v1_csrf_guard(array $in): void
+    {
+        $headers = function_exists('getallheaders') ? array_change_key_case((array) getallheaders(), CASE_LOWER) : [];
+        $hasBearer = !empty($headers['authorization']) && preg_match('/Bearer\s+\S+/i', (string) $headers['authorization']);
+        if ($hasBearer) { return; } // token client — no cookies, no CSRF risk
+
+        $token = $in['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($headers['x-csrf-token'] ?? ''));
+        if (!class_exists('CSRF') || !CSRF::validateToken((string) $token)) {
+            umrah_v1_json(['success' => false, 'message' => 'Invalid or missing security token'], 403);
+        }
+    }
+}
 
 // ---- GET /api/v1/umrah/departures ---------------------------------------
 // Published departures with their Standard (bookable) tier price + availability.
@@ -116,6 +136,7 @@ $router->get('/api/v1/umrah/departures/([0-9]+)', function ($id) use ($db) {
 // ---- POST /api/v1/umrah/quotes ------------------------------------------
 $router->post('/api/v1/umrah/quotes', function () use ($db) {
     $in = umrah_v1_body();
+    umrah_v1_csrf_guard($in);
     $dtId = (int) ($in['departure_tier_id'] ?? 0);
     $pax  = (int) ($in['pax'] ?? 1);
     if ($dtId <= 0) { umrah_v1_json(['success' => false, 'message' => 'departure_tier_id required'], 422); }
@@ -127,6 +148,7 @@ $router->post('/api/v1/umrah/quotes', function () use ($db) {
 // ---- POST /api/v1/umrah/holds -------------------------------------------
 $router->post('/api/v1/umrah/holds', function () use ($db) {
     $in = umrah_v1_body();
+    umrah_v1_csrf_guard($in);
     $quoteRef = trim((string) ($in['quote_ref'] ?? ''));
     if ($quoteRef === '') { umrah_v1_json(['success' => false, 'message' => 'quote_ref required'], 422); }
     $quote = $db->get('umrah_quotes', '*', ['quote_ref' => $quoteRef]);
@@ -140,6 +162,7 @@ $router->post('/api/v1/umrah/holds', function () use ($db) {
 // ---- POST /api/v1/umrah/bookings ----------------------------------------
 $router->post('/api/v1/umrah/bookings', function () use ($db) {
     $in = umrah_v1_body();
+    umrah_v1_csrf_guard($in);
     $quoteRef = trim((string) ($in['quote_ref'] ?? ''));
     $holdId   = (int) ($in['hold_id'] ?? 0);
     $plan     = trim((string) ($in['payment_plan'] ?? 'PP-50-25-25'));
@@ -210,8 +233,10 @@ $router->post('/api/v1/umrah/bookings/([A-Za-z0-9\-]+)/travellers', function ($r
     $uid = umrah_v1_user();
     $isAdmin = (($_SESSION['user_role'] ?? '') === 'admin');
     if (!$isAdmin && (!$uid || (string) $ub['user_id'] !== (string) $uid)) { umrah_v1_json(['success' => false, 'message' => 'Unauthorized'], 403); }
+    $travIn = umrah_v1_body();
+    umrah_v1_csrf_guard($travIn);
     if (!function_exists('umrah_traveller_add')) { umrah_v1_json(['success' => false, 'message' => 'Unavailable'], 500); }
-    $r = umrah_traveller_add($db, (int) $ub['id'], umrah_v1_body());
+    $r = umrah_traveller_add($db, (int) $ub['id'], $travIn);
     umrah_v1_json($r['ok'] ? ['success' => true, 'traveller_id' => $r['traveller_id']] : ['success' => false, 'message' => $r['message'] ?? 'Failed'], $r['ok'] ? 200 : 422);
 });
 
@@ -224,6 +249,7 @@ $router->post('/api/v1/umrah/travellers/([0-9]+)/documents', function ($tid) use
     $uid = umrah_v1_user();
     $isAdmin = (($_SESSION['user_role'] ?? '') === 'admin');
     if (!$isAdmin && (!$uid || (string) ($ub['user_id'] ?? '') !== (string) $uid)) { umrah_v1_json(['success' => false, 'message' => 'Unauthorized'], 403); }
+    umrah_v1_csrf_guard($_POST); // multipart upload — token in POST field / header
     $docType = $_POST['doc_type'] ?? 'passport';
     if (!function_exists('umrah_document_upload')) { umrah_v1_json(['success' => false, 'message' => 'Unavailable'], 500); }
     $r = umrah_document_upload($db, (int) $tid, (string) $docType, 'file');
@@ -233,6 +259,7 @@ $router->post('/api/v1/umrah/travellers/([0-9]+)/documents', function ($tid) use
 // ---- POST /api/v1/umrah/waitlist ----------------------------------------
 $router->post('/api/v1/umrah/waitlist', function () use ($db) {
     $in = umrah_v1_body();
+    umrah_v1_csrf_guard($in);
     $db->insert('umrah_waitlist', [
         'departure_id' => !empty($in['departure_id']) ? (int) $in['departure_id'] : null,
         'tier_code' => $in['tier_code'] ?? 'standard',
