@@ -429,12 +429,13 @@ $router->get('/payment/([a-f0-9]{32})', function ($hash) use ($SECURE, $db) {
         'failure_url' => $callbackBase . 'failure',
     ];
 
-    // Prepare legacy payload format for gateways
+    // Prepare legacy payload format for gateways. Charge the amount DUE NOW
+    // (deposit/installment-aware for umrah), not always the full total (M7).
     $payload = [
         'booking_ref_no' => $booking['ref'] ?? $booking['invoice_id'],
         'invoice_id' => $booking['invoice_id'],
         'client_email' => $booking['email'],
-        'price' => $booking['price_markup'],
+        'price' => function_exists('payment_amount_due') ? payment_amount_due($booking, $db) : $booking['price_markup'],
         'currency' => $booking['currency_markup'],
         'invoice_url' => root . 'invoice/' . $booking['invoice_id']
     ];
@@ -495,12 +496,13 @@ $router->get('/payment/gateway/([a-f0-9]{32})', function ($hash) use ($SECURE, $
         'failure_url' => $callbackBase . 'failure',
     ];
 
-    // Prepare legacy payload format
+    // Prepare legacy payload format. Charge the amount DUE NOW (deposit/
+    // installment-aware for umrah), not always the full total (M7).
     $payload = [
         'booking_ref_no' => $booking['ref'] ?? $booking['invoice_id'],
         'invoice_id' => $booking['invoice_id'],
         'client_email' => $booking['email'],
-        'price' => $booking['price_markup'],
+        'price' => function_exists('payment_amount_due') ? payment_amount_due($booking, $db) : $booking['price_markup'],
         'currency' => $booking['currency_markup'],
         'invoice_url' => root . 'invoice/' . $booking['invoice_id']
     ];

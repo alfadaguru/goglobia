@@ -43,13 +43,11 @@ if (isset($_POST['payload'])) {
 // Try multiple possible field names for secret key
 $secretKey = $config['c1'] ?? $gateway['c1'] ?? $config['secret_key'] ?? $gateway['secret_key'] ?? '';
 if (empty($secretKey)) {
+    // Audit: do NOT dump config/gateway key names to the browser (recon leak).
     echo '<div style="max-width:420px;margin:0 auto;padding:20px;background:#fff;border-radius:12px">';
-    echo '<p style="color:red">Paystack secret key not configured.</p>';
-    if (!empty($config['dev_mode']) || !empty($gateway['dev_mode'])) {
-        echo '<p style="font-size:12px">Debug - Available config keys: ' . implode(', ', array_keys($config)) . '</p>';
-        echo '<p style="font-size:12px">Debug - Available gateway keys: ' . implode(', ', array_keys($gateway ?? [])) . '</p>';
-    }
+    echo '<p style="color:red">Paystack is not configured. Please contact support.</p>';
     echo '</div>';
+    error_log('Paystack: secret key (c1) not configured for gateway ' . ($gateway['id'] ?? '?'));
     return;
 }
 

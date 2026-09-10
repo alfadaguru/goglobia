@@ -33,7 +33,28 @@ $fmt = fn($n) => '₦' . number_format((float) $n, 0);
             <tr>
               <td class="font-mono text-xs"><?= htmlspecialchars($refById[$t['umrah_booking_id']] ?? '') ?></td>
               <td><?= htmlspecialchars(trim(($t['first_name'] ?? '').' '.($t['last_name'] ?? ''))) ?: '<span class="text-slate-400">—</span>' ?></td>
-              <td><span class="badge <?= $t['doc_status']==='verified'?'badge-success':($t['doc_status']==='action_required'?'badge-error':'badge-gray') ?>"><?= htmlspecialchars($t['doc_status']) ?></span></td>
+              <td>
+                <span class="badge <?= $t['doc_status']==='verified'?'badge-success':($t['doc_status']==='action_required'?'badge-error':'badge-gray') ?>"><?= htmlspecialchars($t['doc_status']) ?></span>
+                <?php $tdocs = $documentsByTraveller[(int)$t['id']] ?? []; ?>
+                <?php if ($tdocs): ?>
+                  <div class="mt-1 space-y-1">
+                    <?php foreach ($tdocs as $d): ?>
+                      <div class="flex items-center gap-2 text-xs">
+                        <a href="<?= root . admin ?>/umrah-manager/document/<?= (int)$d['id'] ?>" target="_blank" rel="noopener" class="text-primary underline">
+                          <?= htmlspecialchars($d['doc_type'] ?: 'document') ?>
+                        </a>
+                        <span class="badge <?= $d['verify_status']==='verified'?'badge-success':($d['verify_status']==='rejected'?'badge-error':'badge-warning') ?>"><?= htmlspecialchars($d['verify_status']) ?></span>
+                        <?php if ($d['verify_status'] === 'pending'): ?>
+                          <button type="button" class="text-green-600 hover:underline" onclick="umrahOpsVerifyDoc(<?= (int)$d['id'] ?>,'verify')">verify</button>
+                          <button type="button" class="text-rose-600 hover:underline" onclick="umrahOpsVerifyDoc(<?= (int)$d['id'] ?>,'reject')">reject</button>
+                        <?php endif; ?>
+                      </div>
+                    <?php endforeach; ?>
+                  </div>
+                <?php else: ?>
+                  <div class="text-xs text-slate-400 mt-1">no documents</div>
+                <?php endif; ?>
+              </td>
               <td><?= $sel('visa',$t['visa_status'],['not_started','ready_to_submit','submitted','approved','rejected','action_required']) ?></td>
               <td><?= $sel('ticket',$t['ticket_status'],['not_started','reserved','ticketed','changed','cancelled']) ?></td>
               <td><?= $sel('rooming',$t['rooming_status'],['unassigned','requested','assigned','confirmed']) ?></td>
@@ -108,5 +129,11 @@ async function umrahOpsSet(tid, domain, value){
   const f=new FormData(); f.append('csrf_token','<?= htmlspecialchars($csrf, ENT_QUOTES) ?>'); f.append('traveller_id',tid); f.append('domain',domain); f.append('value',value);
   const r=await fetch('<?= $base ?>/traveller-status',{method:'POST',body:f}); const j=await r.json();
   if(!j.success) alert(j.message||'Failed');
+}
+async function umrahOpsVerifyDoc(docId, decision){
+  if(!confirm(decision==='reject'?'Reject this document?':'Mark this document verified?')) return;
+  const f=new FormData(); f.append('csrf_token','<?= htmlspecialchars($csrf, ENT_QUOTES) ?>'); f.append('document_id',docId); f.append('decision',decision);
+  const r=await fetch('<?= $base ?>/verify-document',{method:'POST',body:f}); const j=await r.json();
+  if(j.success) location.reload(); else alert(j.message||'Failed');
 }
 </script>

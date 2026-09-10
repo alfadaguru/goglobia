@@ -46,6 +46,40 @@ if (!function_exists('umrah_ref')) {
     }
 }
 
+if (!function_exists('umrah_is_agent')) {
+    /** True when the current request actor is a logged-in agent (B2B). */
+    function umrah_is_agent(): bool
+    {
+        return strtolower((string) ($_SESSION['user_role'] ?? '')) === 'agent';
+    }
+}
+
+if (!function_exists('umrah_b2c_unit_price')) {
+    /**
+     * The B2C (customer-facing) unit sell price for a departure-tier, ignoring
+     * any agent B2B rate. This is always the price a pilgrim pays and the basis
+     * for the agent's earning (B2C − B2B net). Mirrors the direct-sell precedence
+     * (promo-in-window → regular → 0).
+     */
+    function umrah_b2c_unit_price(array $dt): float
+    {
+        $now = time();
+        $promoActive = (int) ($dt['promo_active'] ?? 0) === 1
+            && $dt['promo_price'] !== null && (float) $dt['promo_price'] > 0;
+        if ($promoActive) {
+            $start = !empty($dt['promo_start']) ? strtotime((string) $dt['promo_start']) : null;
+            $end   = !empty($dt['promo_end'])   ? strtotime((string) $dt['promo_end'])   : null;
+            if (($start === null || $now >= $start) && ($end === null || $now <= $end)) {
+                return (float) $dt['promo_price'];
+            }
+        }
+        if ($dt['regular_price'] !== null && (float) $dt['regular_price'] > 0) {
+            return (float) $dt['regular_price'];
+        }
+        return 0.0;
+    }
+}
+
 if (!function_exists('umrah_price_resolve')) {
     /**
      * Resolve the UNIT price for a departure-tier by the spec §8.2 precedence:
@@ -58,12 +92,50 @@ if (!function_exists('umrah_price_resolve')) {
      * CRITICAL (§8.3): a direct sell price is used VERBATIM — MARKUP() is NOT
      * applied on top of it (that was the legacy double-markup bug).
      *
-     * @return array{unit:float, currency:string, source:string, promo:array|null}
+     * AGENT B2B (spec §35.1): when the actor is an agent AND the departure-tier
+     * carries a B2B net rate (b2b_promo_price preferred, else b2b_net_price), the
+     * agent transacts at that NET price. The B2C sell price is still surfaced
+     * (as `b2c_unit`) so the booking can record agent_earning = (B2C − net) × pax.
+     * Customer-facing receipts must never show the net/margin (spec §35).
+     *
+     * @param bool|null $forAgent  null → auto-detect via session role.
+     * @return array{unit:float, currency:string, source:string, promo:array|null,
+     *               b2c_unit:float, is_agent:bool}
      */
-    function umrah_price_resolve($db, array $dt): array
+    function umrah_price_resolve($db, array $dt, ?bool $forAgent = null): array
     {
         $currency = strtoupper(trim((string) ($dt['currency'] ?? 'NGN'))) ?: 'NGN';
         $now = time();
+        $isAgent = ($forAgent === null) ? umrah_is_agent() : $forAgent;
+        $b2cUnit = umrah_b2c_unit_price($dt);
+
+        // AGENT B2B net rate — takes precedence for agents when set. Prefer the
+        // B2B promo net (only within the promo window — audit M2), else the B2B
+        // net. 0/NULL means "no special agent rate" → agent pays B2C.
+        if ($isAgent) {
+            $b2bNet = null;
+            // B2B promo shares the tier's promo_start/promo_end window; once the
+            // window passes it must NOT keep applying (previously never expired).
+            $bStart = !empty($dt['promo_start']) ? strtotime((string) $dt['promo_start']) : null;
+            $bEnd   = !empty($dt['promo_end'])   ? strtotime((string) $dt['promo_end'])   : null;
+            $b2bPromoInWindow = ($bStart === null || $now >= $bStart) && ($bEnd === null || $now <= $bEnd);
+            if ($b2bPromoInWindow && isset($dt['b2b_promo_price']) && $dt['b2b_promo_price'] !== null && (float) $dt['b2b_promo_price'] > 0) {
+                $b2bNet = (float) $dt['b2b_promo_price'];
+            } elseif (isset($dt['b2b_net_price']) && $dt['b2b_net_price'] !== null && (float) $dt['b2b_net_price'] > 0) {
+                $b2bNet = (float) $dt['b2b_net_price'];
+            }
+            if ($b2bNet !== null && $b2cUnit > 0) {
+                return [
+                    'unit'     => $b2bNet,
+                    'currency' => $currency,
+                    'source'   => 'departure_tier_b2b_net',
+                    'promo'    => null,
+                    'b2c_unit' => $b2cUnit,
+                    'is_agent' => true,
+                ];
+            }
+            // No B2B rate → fall through to B2C pricing (agent pays B2C).
+        }
 
         $promoActive = (int) ($dt['promo_active'] ?? 0) === 1
             && $dt['promo_price'] !== null && (float) $dt['promo_price'] > 0;
@@ -84,13 +156,15 @@ if (!function_exists('umrah_price_resolve')) {
                         'savings'   => ($regular !== null) ? round($regular - $promo, 2) : null,
                         'savings_pct' => ($regular > 0) ? round((($regular - $promo) / $regular) * 100, 2) : null,
                     ],
+                    'b2c_unit' => $b2cUnit,
+                    'is_agent' => $isAgent,
                 ];
             }
         }
 
         // 2. departure-tier regular direct price
         if ($dt['regular_price'] !== null && (float) $dt['regular_price'] > 0) {
-            return ['unit' => (float) $dt['regular_price'], 'currency' => $currency, 'source' => 'departure_tier_regular', 'promo' => null];
+            return ['unit' => (float) $dt['regular_price'], 'currency' => $currency, 'source' => 'departure_tier_regular', 'promo' => null, 'b2c_unit' => $b2cUnit, 'is_agent' => $isAgent];
         }
 
         // 4/5. cost + markup fallback (only when NO direct price is set). Uses the
@@ -108,11 +182,11 @@ if (!function_exists('umrah_price_resolve')) {
             $module = $db->get('modules', '*', ['name' => 'umrah', 'type' => 'umrah']);
             $marked = MARKUP($base, $module ?: null, $db, $currency, $currency);
             $unit = (!empty($marked['price']) && $marked['price'] > 0) ? (float) $marked['price'] : $base;
-            return ['unit' => round($unit, 2), 'currency' => $currency, 'source' => 'cost_plus_markup', 'promo' => null];
+            return ['unit' => round($unit, 2), 'currency' => $currency, 'source' => 'cost_plus_markup', 'promo' => null, 'b2c_unit' => round($unit, 2), 'is_agent' => $isAgent];
         }
 
         // Nothing priced → 0 (caller treats as not-bookable/quote-required).
-        return ['unit' => 0.0, 'currency' => $currency, 'source' => 'unpriced', 'promo' => null];
+        return ['unit' => 0.0, 'currency' => $currency, 'source' => 'unpriced', 'promo' => null, 'b2c_unit' => 0.0, 'is_agent' => $isAgent];
     }
 }
 
@@ -203,11 +277,13 @@ if (!function_exists('umrah_capacity_for')) {
     {
         $dt = $db->get('umrah_departure_tiers', ['id', 'departure_id', 'tier_capacity'], ['id' => $departureTierId]);
         if (!$dt) { return ['ok' => false, 'capacity' => 0, 'remaining' => 0]; }
+        $depId = (int) $dt['departure_id'];
         $cap = ($dt['tier_capacity'] !== null) ? (int) $dt['tier_capacity'] : 0;
         if ($cap <= 0) {
-            $dep = $db->get('umrah_departures', ['capacity'], ['id' => $dt['departure_id']]);
+            $dep = $db->get('umrah_departures', ['capacity'], ['id' => $depId]);
             $cap = (int) ($dep['capacity'] ?? 0);
         }
+        $now = date('Y-m-d H:i:s');
         $confirmed = (int) $db->sum('umrah_bookings', 'pax', [
             'departure_tier_id' => $departureTierId,
             'booking_status'    => ['held', 'confirmed', 'completed'],
@@ -215,10 +291,47 @@ if (!function_exists('umrah_capacity_for')) {
         $activeHolds = (int) $db->sum('umrah_inventory_holds', 'qty', [
             'departure_tier_id' => $departureTierId,
             'state'             => 'held',
-            'expires_at[>]'     => date('Y-m-d H:i:s'),
+            'expires_at[>]'     => $now,
         ]);
-        $remaining = max(0, $cap - $confirmed - $activeHolds);
-        return ['ok' => true, 'capacity' => $cap, 'confirmed' => $confirmed, 'active_holds' => $activeHolds, 'remaining' => $remaining];
+        $tierRemaining = max(0, $cap - $confirmed - $activeHolds);
+
+        // DEPARTURE-LEVEL CAP (audit H4): tiers share the physical departure
+        // seats, so the effective remaining is also bounded by the whole
+        // departure's capacity minus ALL tiers' confirmed/held pax. Prevents
+        // selling 50 on each of two tiers of a 50-seat departure.
+        $depRemaining = umrah_departure_remaining($db, $depId, $now);
+        $remaining = max(0, min($tierRemaining, $depRemaining));
+        return ['ok' => true, 'capacity' => $cap, 'confirmed' => $confirmed, 'active_holds' => $activeHolds, 'remaining' => $remaining, 'departure_remaining' => $depRemaining];
+    }
+}
+
+if (!function_exists('umrah_departure_remaining')) {
+    /**
+     * Remaining seats at the DEPARTURE level = departure capacity minus the pax
+     * of all held/confirmed/completed bookings across ALL its tiers minus all
+     * active (unexpired) inventory holds across ALL its tiers. Used to bound
+     * per-tier availability so shared-capacity departures cannot oversell.
+     */
+    function umrah_departure_remaining($db, int $departureId, ?string $now = null): int
+    {
+        $now = $now ?: date('Y-m-d H:i:s');
+        $dep = $db->get('umrah_departures', ['capacity'], ['id' => $departureId]);
+        $cap = (int) ($dep['capacity'] ?? 0);
+        if ($cap <= 0) { return 0; }
+        $confirmed = (int) $db->sum('umrah_bookings', 'pax', [
+            'departure_id'   => $departureId,
+            'booking_status' => ['held', 'confirmed', 'completed'],
+        ]);
+        // Active holds across all tiers of this departure (join via tier rows).
+        $holds = $db->query(
+            "SELECT COALESCE(SUM(h.qty),0) AS q
+             FROM umrah_inventory_holds h
+             JOIN umrah_departure_tiers dt ON dt.id = h.departure_tier_id
+             WHERE dt.departure_id = :dep AND h.state = 'held' AND h.expires_at > :now",
+            [':dep' => $departureId, ':now' => $now]
+        );
+        $activeHolds = $holds ? (int) ($holds->fetch(\PDO::FETCH_ASSOC)['q'] ?? 0) : 0;
+        return max(0, $cap - $confirmed - $activeHolds);
     }
 }
 
@@ -276,6 +389,13 @@ if (!function_exists('umrah_hold_create')) {
                     'expires_at[>]'     => $now,
                 ]);
                 $remaining = $cap - $confirmed - $activeHolds;
+
+                // DEPARTURE-LEVEL CAP (audit H4): also bound by the whole
+                // departure's remaining across ALL tiers, so shared-capacity
+                // departures cannot oversell (e.g. 50 standard + 50 vip on a
+                // 50-seat departure). Computed inside the same locked tx.
+                $depRemaining = umrah_departure_remaining($db, (int) $row['departure_id'], $now);
+                $remaining = min($remaining, $depRemaining);
 
                 if ($pax > $remaining) {
                     $result = ['ok' => false, 'message' => 'Not enough seats available', 'remaining' => max(0, $remaining)];
@@ -337,6 +457,70 @@ if (!function_exists('umrah_hold_expire_sweep')) {
             return count($ids);
         } catch (\Throwable $e) {
             error_log('umrah_hold_expire_sweep: ' . $e->getMessage());
+            return 0;
+        }
+    }
+}
+
+if (!function_exists('umrah_booking_expire_sweep')) {
+    /**
+     * Cron (audit H5): cancel abandoned unpaid 'held' umrah_bookings so they stop
+     * consuming inventory forever. A held booking is abandoned when it has no
+     * payment (amount_paid = 0) and its inventory hold is no longer active
+     * (expired/released/consumed-elsewhere/missing) — i.e. the 20-minute hold
+     * lapsed without a qualifying payment. These are moved to 'cancelled' so the
+     * capacity sums (which count 'held') free the seats. A small grace window
+     * past the hold expiry avoids racing an in-flight payment callback.
+     * Returns the number of bookings cancelled.
+     */
+    function umrah_booking_expire_sweep($db, int $graceMinutes = 30): int
+    {
+        try {
+            $now = time();
+            $cutoff = date('Y-m-d H:i:s', $now - max(0, $graceMinutes) * 60);
+            // Candidate abandoned bookings: held + unpaid + created before cutoff.
+            $rows = $db->select('umrah_bookings', ['id', 'hold_id', 'invoice_id'], [
+                'booking_status' => 'held',
+                'payment_status' => 'unpaid',
+                'amount_paid'    => 0,
+                'created_at[<]'  => $cutoff,
+            ]) ?: [];
+            if (!$rows) { return 0; }
+
+            $cancelIds = [];
+            foreach ($rows as $r) {
+                $holdId = (int) ($r['hold_id'] ?? 0);
+                $holdActive = false;
+                if ($holdId > 0) {
+                    $h = $db->get('umrah_inventory_holds', ['state', 'expires_at'], ['id' => $holdId]);
+                    if ($h && ($h['state'] ?? '') === 'held' && !empty($h['expires_at']) && strtotime((string) $h['expires_at']) > $now) {
+                        $holdActive = true; // still within a live hold — leave it
+                    }
+                }
+                if (!$holdActive) { $cancelIds[] = (int) $r['id']; }
+            }
+            if (!$cancelIds) { return 0; }
+
+            $ts = date('Y-m-d H:i:s', $now);
+            $db->update('umrah_bookings', [
+                'booking_status' => 'cancelled',
+                'updated_at'     => $ts,
+            ], ['id' => $cancelIds]);
+
+            // Reflect cancellation on the generic bookings row (best-effort).
+            $invoices = array_values(array_filter(array_map(fn($r) => (string) ($r['invoice_id'] ?? ''), array_filter($rows, fn($r) => in_array((int) $r['id'], $cancelIds, true)))));
+            if ($invoices) {
+                try {
+                    $db->update('bookings', ['booking_status' => 'cancelled'], [
+                        'invoice_id' => $invoices,
+                        'module_type' => 'umrah',
+                        'payment_status' => 'unpaid',
+                    ]);
+                } catch (\Throwable $e) { /* non-fatal */ }
+            }
+            return count($cancelIds);
+        } catch (\Throwable $e) {
+            error_log('umrah_booking_expire_sweep: ' . $e->getMessage());
             return 0;
         }
     }
@@ -456,10 +640,31 @@ if (!function_exists('umrah_booking_create')) {
         }
         $template  = $departure ? $db->get('umrah_package_templates', '*', ['id' => $departure['template_id']]) : null;
 
-        $total    = (float) $quote['total_price'];
-        $currency = (string) $quote['currency'];
         $pax      = (int) $quote['pax'];
         $userId   = (string) ($lead['user_id'] ?? ($_SESSION['user_id'] ?? ''));
+
+        // SECURITY (H1): the quote is NOT a price authority — it carries no owner
+        // or pricing basis, so an agent-priced (B2B net) quote_ref could otherwise
+        // be redeemed by a non-agent to underpay. Re-resolve the price for the
+        // ACTUAL booker from the live departure-tier at commit time. umrah_price_
+        // resolve is agent-aware (session/JWT), so a non-agent is charged B2C and
+        // an agent with a B2B rate is charged the net.
+        $pricedNow = umrah_price_resolve($db, $dt);
+        $unitNow = (float) ($pricedNow['unit'] ?? 0);
+        if ($unitNow <= 0) {
+            return ['ok' => false, 'message' => 'This option is not currently priced for booking'];
+        }
+        $total    = round($unitNow * max(1, $pax), 2);
+        $currency = (string) ($pricedNow['currency'] ?? $quote['currency']);
+
+        // Agent earning (spec §35.1): agent_earning = (B2C_unit − paid_unit) × pax,
+        // both recomputed from the live tier for the current actor (anti-tamper).
+        $agentEarning = 0.0;
+        if (umrah_is_agent()) {
+            $b2cUnit  = umrah_b2c_unit_price($dt);
+            $marginUnit = $b2cUnit - $unitNow;
+            if ($marginUnit > 0) { $agentEarning = round($marginUnit * $pax, 2); }
+        }
 
         $schedule = umrah_payment_schedule($db, $planCode, $total, (string) ($departure['departure_date'] ?? date('Y-m-d')));
         $amountDueNow = $schedule['installments'][0]['amount'] ?? $total;
@@ -467,7 +672,7 @@ if (!function_exists('umrah_booking_create')) {
         // Commercial snapshot (spec §57) — frozen at booking creation.
         $snapshot = [
             'quote_ref'    => $quoteRef,
-            'unit_price'   => (float) $quote['unit_price'],
+            'unit_price'   => $unitNow, // actually-charged unit (re-resolved at commit)
             'total_price'  => $total,
             'currency'     => $currency,
             'pax'          => $pax,
@@ -495,17 +700,10 @@ if (!function_exists('umrah_booking_create')) {
         try {
             $db->action(function ($db) use (
                 $invoiceId, $bookingRef, $userId, $departure, $dt, $pax, $currency, $total,
-                $planCode, $snapshot, $schedule, $lead, $holdId, $now, $quote, &$result
+                $planCode, $snapshot, $schedule, $lead, $holdId, $now, $quote, $agentEarning, &$result
             ) {
-                // Agent earning: the Phase 1 pricing model is DIRECT SELL
-                // (regular_price / promo_price bypass MARKUP by design, spec §8.3
-                // "no double markup"). There is therefore no B2B markup component
-                // to record as commission on this path. A per-departure-tier B2B
-                // net rate (spec §35.1) is a future feature; until that column
-                // ships, agent_earning is 0 here (a direct-sell price has no
-                // margin the platform earns on the agent). Kept explicit so the
-                // intent is unambiguous.
-                $agentEarning = 0;
+                // $agentEarning computed above: (B2C − agent net) × pax for agent
+                // bookings on tiers with a B2B rate; 0 otherwise (direct-sell).
 
                 // 1. Generic bookings row (payment/invoice of record).
                 $db->insert('bookings', [
@@ -621,12 +819,17 @@ if (!function_exists('umrah_settle_payment')) {
         if (!$ub) { return ['ok' => false, 'status' => 'error', 'message' => 'Umrah booking not found']; }
         $ubId = (int) $ub['id'];
 
+        // Audit (low): gateways that return no transaction id would otherwise
+        // bypass the (invoice, txn) idempotency key and store an empty txn.
+        // Synthesize a stable key from invoice + amount so duplicates are caught
+        // and the ledger never stores an empty transaction_id.
+        $txnId = (string) $txnId;
+        if ($txnId === '') { $txnId = 'AUTO-' . $invoiceId . '-' . number_format((float) $amount, 2, '', ''); }
+
         // Idempotency: if this txn is already recorded, do nothing.
-        if ($txnId) {
-            $seen = $db->get('umrah_installments', 'id', ['umrah_booking_id' => $ubId, 'transaction_id' => $txnId]);
-            if ($seen) {
-                return ['ok' => true, 'status' => 'already', 'confirmed' => ($ub['booking_status'] === 'confirmed'), 'price_locked' => !empty($ub['price_locked_at'])];
-            }
+        $seen = $db->get('umrah_installments', 'id', ['umrah_booking_id' => $ubId, 'transaction_id' => $txnId]);
+        if ($seen) {
+            return ['ok' => true, 'status' => 'already', 'confirmed' => ($ub['booking_status'] === 'confirmed'), 'price_locked' => !empty($ub['price_locked_at'])];
         }
 
         $result = ['ok' => false, 'status' => 'error'];
@@ -755,5 +958,82 @@ if (!function_exists('umrah_audit')) {
                 'created_at' => date('Y-m-d H:i:s'),
             ]);
         } catch (\Throwable $e) { /* non-fatal */ }
+    }
+}
+
+if (!function_exists('umrah_quote_request_create')) {
+    /**
+     * Persist a Customize / Personalize-a-trip quote request (Phase 3). Pure
+     * request — no price is computed; staff respond with a tailored quote from
+     * the admin inbox. Returns ['ok'=>true,'request_ref'=>..,'id'=>..] or
+     * ['ok'=>false,'message'=>..].
+     *
+     * @param array $in sanitised fields: template_id, departure_id, origin_city,
+     *   preferred_month, preferred_date, tier_code, pax, madinah_nights,
+     *   makkah_nights, total_weeks, ziyarah[], addons[], options[], notes,
+     *   name, email, phone.
+     */
+    function umrah_quote_request_create($db, array $in): array
+    {
+        $name  = trim((string) ($in['name'] ?? ''));
+        $email = trim((string) ($in['email'] ?? ''));
+        $phone = trim((string) ($in['phone'] ?? ''));
+        if ($name === '') { return ['ok' => false, 'message' => 'Please enter your name']; }
+        if ($email === '' && $phone === '') { return ['ok' => false, 'message' => 'Please enter your email or phone']; }
+
+        $pax = max(1, (int) ($in['pax'] ?? 1));
+        $ref = umrah_ref('GGR');
+        $now = date('Y-m-d H:i:s');
+
+        // Free-form structured extras kept as JSON for staff review.
+        $ziyarah = $in['ziyarah'] ?? null;
+        $addons  = $in['addons'] ?? null;
+        $options = $in['options'] ?? null;
+
+        try {
+            $db->insert('umrah_quote_requests', [
+                'request_ref'    => $ref,
+                'user_id'        => (string) ($in['user_id'] ?? ($_SESSION['user_id'] ?? '')) ?: null,
+                'template_id'    => !empty($in['template_id']) ? (int) $in['template_id'] : null,
+                'departure_id'   => !empty($in['departure_id']) ? (int) $in['departure_id'] : null,
+                'origin_city'    => ($in['origin_city'] ?? '') !== '' ? (string) $in['origin_city'] : null,
+                'preferred_month'=> ($in['preferred_month'] ?? '') !== '' ? (string) $in['preferred_month'] : null,
+                'preferred_date' => !empty($in['preferred_date']) ? (string) $in['preferred_date'] : null,
+                'tier_code'      => ($in['tier_code'] ?? '') !== '' ? (string) $in['tier_code'] : null,
+                'pax'            => $pax,
+                'madinah_nights' => isset($in['madinah_nights']) ? (int) $in['madinah_nights'] : null,
+                'makkah_nights'  => isset($in['makkah_nights']) ? (int) $in['makkah_nights'] : null,
+                'total_weeks'    => isset($in['total_weeks']) ? (int) $in['total_weeks'] : null,
+                'ziyarah'        => $ziyarah !== null ? json_encode($ziyarah, JSON_UNESCAPED_SLASHES) : null,
+                'addons'         => $addons !== null ? json_encode($addons, JSON_UNESCAPED_SLASHES) : null,
+                'options'        => $options !== null ? json_encode($options, JSON_UNESCAPED_SLASHES) : null,
+                'notes'          => ($in['notes'] ?? '') !== '' ? (string) $in['notes'] : null,
+                'name'           => $name,
+                'email'          => $email ?: null,
+                'phone'          => $phone ?: null,
+                'status'         => 'new',
+                'created_at'     => $now,
+            ]);
+            $id = (int) $db->id();
+        } catch (\Throwable $e) {
+            error_log('umrah_quote_request_create: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not submit your request. Please try again.'];
+        }
+
+        umrah_audit($db, 'umrah_quote_request', $ref, 'created', null,
+            ['pax' => $pax, 'tier' => $in['tier_code'] ?? null, 'weeks' => $in['total_weeks'] ?? null]);
+
+        // Best-effort staff notification (non-fatal). Reuses the umrah notify
+        // queue if present; otherwise silently skips.
+        if (function_exists('umrah_notify')) {
+            try {
+                umrah_notify($db, null, 'umrah_quote_request',
+                    'New Umrah customize request ' . $ref,
+                    "New personalized Umrah request {$ref} from {$name} ({$email}{$phone}). Pax {$pax}.",
+                    'email', false);
+            } catch (\Throwable $e) { /* non-fatal */ }
+        }
+
+        return ['ok' => true, 'request_ref' => $ref, 'id' => $id];
     }
 }

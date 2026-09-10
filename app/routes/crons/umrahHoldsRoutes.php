@@ -8,5 +8,8 @@
 $router->get('/umrah_expire_holds', function () use ($SECURE, $db) {
     header('Content-Type: application/json');
     $expired = function_exists('umrah_hold_expire_sweep') ? umrah_hold_expire_sweep($db) : 0;
-    echo json_encode(['status' => true, 'expired' => $expired, 'ran_at' => date('Y-m-d H:i:s')]);
+    // Audit H5: also cancel abandoned unpaid 'held' bookings whose hold lapsed,
+    // so they stop permanently consuming departure capacity.
+    $cancelled = function_exists('umrah_booking_expire_sweep') ? umrah_booking_expire_sweep($db) : 0;
+    echo json_encode(['status' => true, 'expired' => $expired, 'cancelled_bookings' => $cancelled, 'ran_at' => date('Y-m-d H:i:s')]);
 });

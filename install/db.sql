@@ -4998,7 +4998,7 @@ CREATE TABLE `credits` (
   `id` int(11) NOT NULL,
   `user_id` varchar(255) NOT NULL,
   `type` enum('credit','debit') NOT NULL,
-  `credits` int(11) NOT NULL,
+  `credits` decimal(14,2) NOT NULL DEFAULT 0.00,
   `currency` varchar(100) NOT NULL,
   `description` varchar(255) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
@@ -27677,7 +27677,7 @@ CREATE TABLE `payment_gateways` (
 --
 
 INSERT INTO `payment_gateways` (`id`, `status`, `name`, `c1`, `c2`, `c3`, `c4`, `c5`, `dev_mode`, `currency`, `order`, `active`, `note`, `type`, `module`, `default`, `display_name`) VALUES
-(3, '1', 'PayPal', '', '', 'sb-itxir5994130@personal.example.com', 'testpayment', 'Password : testpayment', '1', 'USD', 4, '1', '', 'digital_wallet', NULL, '', NULL),
+(3, '1', 'PayPal', '', '', '', '', '', '1', 'USD', 4, '1', '', 'digital_wallet', NULL, '', NULL),
 (5, '0', 'Wire Transfer', 'Account holder Elon Musk', 'Routing number  084009519', 'Account number 9600001474383599', '26th Street, Sixth Floor New York NY 10010 United States', 'IBAN GBPXXXIP0024456987', '1', 'USD', 1, '1', '', 'bank_transfer', NULL, '', NULL),
 (6, '1', 'Pay Later', '', '', '', '', NULL, '1', 'USD', 2, '1', '', 'pay_later', NULL, '', NULL),
 (7, '1', 'Stripe', '', '', '4242 4242 4242 4242 ', '12/26 123', 'Any date and CVV code', '1', 'USD', 5, '1', '', 'credit_card', NULL, '1', NULL),
@@ -27691,8 +27691,8 @@ INSERT INTO `payment_gateways` (`id`, `status`, `name`, `c1`, `c2`, `c3`, `c4`, 
 (23, '1', 'mpesa', NULL, NULL, NULL, NULL, NULL, '1', 'NGN', 10, '0', '', 'digital_wallet', '', '', NULL),
 (24, '0', 'Cashfree', '', '', '', '', '', '1', 'INR', 0, '1', '', 'credit_card', NULL, '', NULL),
 (25, '0', 'Fawaterak', '', NULL, NULL, NULL, NULL, '1', 'EGP', 12, '1', '', 'credit_card', NULL, '', NULL),
-(26, '0', 'xMoney', 'u_test_api_..........', 'YOUR_SECRET_KEY_HERE', NULL, NULL, NULL, '1', 'USD', 10, '1', '', 'digital_wallet', NULL, '', NULL),
-(27, '0', 'Adyen', 'AQElhmfuXNWTK0Qc+iSAulQMlcWtbad+AE675WhcudcQe/BOOzQILxDBXVsNvuR83LVYjEgiTGAH-XO4RFI8xOe4QKuKwP+Q5mxMBZ61QHBpg8JnttP7dU+Y=-i1iWay_p<_r;s<F[ee3', 'PHPTRAVELSECOM', '', '', NULL, '1', 'USD', 11, '1', 'Visa	\r\n4111 1111 1111 1111	\r\n03/30	\r\n737', 'credit_card', NULL, '', 'Adyen');
+(26, '0', 'xMoney', '', '', NULL, NULL, NULL, '1', 'USD', 10, '1', '', 'digital_wallet', NULL, '', NULL),
+(27, '0', 'Adyen', '', '', '', '', NULL, '1', 'USD', 11, '1', '', 'credit_card', NULL, '', 'Adyen');
 
 -- --------------------------------------------------------
 
@@ -30170,6 +30170,8 @@ CREATE TABLE IF NOT EXISTS `umrah_departure_tiers` (
   `tier_id` int(11) NOT NULL,
   `regular_price` decimal(14,2) DEFAULT NULL,
   `promo_price` decimal(14,2) DEFAULT NULL,
+  `b2b_net_price` decimal(14,2) DEFAULT NULL,
+  `b2b_promo_price` decimal(14,2) DEFAULT NULL,
   `promo_start` datetime DEFAULT NULL,
   `promo_end` datetime DEFAULT NULL,
   `promo_active` tinyint(1) NOT NULL DEFAULT 0,
@@ -30323,6 +30325,9 @@ CREATE TABLE IF NOT EXISTS `umrah_booking_addons` (\n  `id` int(11) NOT NULL AUT
 CREATE TABLE IF NOT EXISTS `umrah_notifications` (\n  `id` bigint(20) NOT NULL AUTO_INCREMENT,\n  `umrah_booking_id` int(11) DEFAULT NULL,\n  `departure_id` int(11) DEFAULT NULL,\n  `channel` varchar(24) NOT NULL DEFAULT 'email',\n  `template` varchar(64) DEFAULT NULL,\n  `subject` varchar(200) DEFAULT NULL,\n  `body` text DEFAULT NULL,\n  `status` enum('queued','sent','failed') NOT NULL DEFAULT 'queued',\n  `error` varchar(255) DEFAULT NULL,\n  `created_at` datetime NOT NULL DEFAULT current_timestamp(),\n  `sent_at` datetime DEFAULT NULL,\n  PRIMARY KEY (`id`),\n  KEY `idx_booking` (`umrah_booking_id`),\n  KEY `idx_status` (`status`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
 ;
 CREATE TABLE IF NOT EXISTS `umrah_waitlist` (\n  `id` int(11) NOT NULL AUTO_INCREMENT,\n  `departure_id` int(11) DEFAULT NULL,\n  `tier_code` varchar(32) DEFAULT NULL,\n  `name` varchar(160) DEFAULT NULL,\n  `email` varchar(160) DEFAULT NULL,\n  `phone` varchar(64) DEFAULT NULL,\n  `pax` int(11) NOT NULL DEFAULT 1,\n  `alt_dates` varchar(255) DEFAULT NULL,\n  `status` enum('waiting','notified','converted','closed') NOT NULL DEFAULT 'waiting',\n  `created_at` datetime NOT NULL DEFAULT current_timestamp(),\n  PRIMARY KEY (`id`),\n  KEY `idx_departure` (`departure_id`),\n  KEY `idx_status` (`status`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+;
+
+CREATE TABLE IF NOT EXISTS `umrah_quote_requests` (\n  `id` int(11) NOT NULL AUTO_INCREMENT,\n  `request_ref` varchar(40) NOT NULL,\n  `user_id` varchar(255) DEFAULT NULL,\n  `template_id` int(11) DEFAULT NULL,\n  `departure_id` int(11) DEFAULT NULL,\n  `origin_city` varchar(120) DEFAULT NULL,\n  `preferred_month` varchar(32) DEFAULT NULL,\n  `preferred_date` date DEFAULT NULL,\n  `tier_code` varchar(32) DEFAULT NULL,\n  `pax` int(11) NOT NULL DEFAULT 1,\n  `madinah_nights` smallint(6) DEFAULT NULL,\n  `makkah_nights` smallint(6) DEFAULT NULL,\n  `total_weeks` smallint(6) DEFAULT NULL,\n  `ziyarah` text DEFAULT NULL,\n  `addons` text DEFAULT NULL,\n  `options` longtext DEFAULT NULL,\n  `notes` text DEFAULT NULL,\n  `name` varchar(160) DEFAULT NULL,\n  `email` varchar(160) DEFAULT NULL,\n  `phone` varchar(64) DEFAULT NULL,\n  `status` enum('new','in_review','quoted','converted','closed') NOT NULL DEFAULT 'new',\n  `quote_amount` decimal(14,2) DEFAULT NULL,\n  `quote_currency` varchar(10) DEFAULT NULL,\n  `staff_note` text DEFAULT NULL,\n  `handled_by` varchar(255) DEFAULT NULL,\n  `quoted_at` datetime DEFAULT NULL,\n  `created_at` datetime NOT NULL DEFAULT current_timestamp(),\n  `updated_at` datetime DEFAULT NULL,\n  PRIMARY KEY (`id`),\n  UNIQUE KEY `uq_request_ref` (`request_ref`),\n  KEY `idx_status` (`status`),\n  KEY `idx_user` (`user_id`),\n  KEY `idx_created` (`created_at`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
 ;
 
 COMMIT;

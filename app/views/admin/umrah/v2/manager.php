@@ -15,6 +15,7 @@ $stdTierId = 0; foreach ($tiers as $t) { if ($t['code'] === 'standard') { $stdTi
     </div>
     <div class="flex gap-2">
       <a href="<?= root ?>admin/umrah-manager/bookings" class="btn outline"><span class="material-symbols-outlined">list_alt</span><span>Bookings</span></a>
+      <a href="<?= root ?>admin/umrah-manager/quote-requests" class="btn outline"><span class="material-symbols-outlined">contact_support</span><span>Quote requests</span></a>
       <button class="btn" @click="showCreate=!showCreate"><span class="material-symbols-outlined">add</span><span>New departure</span></button>
       <button class="btn outline" @click="showBulk=!showBulk"><span class="material-symbols-outlined">event_repeat</span><span>Bulk 12th/28th</span></button>
     </div>

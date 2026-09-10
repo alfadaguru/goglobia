@@ -113,6 +113,10 @@ try {
         'customer_email' => $booking['email'],
         'payment_method_types' => ['card'],
         'mode' => 'payment',
+        // SECURITY (P1): bind the session to this invoice so verification can
+        // confirm the paid session belongs to this booking (not another).
+        'client_reference_id' => (string) $booking['invoice_id'],
+        'metadata' => ['invoice_id' => (string) $booking['invoice_id']],
         'line_items' => [
             [
                 'price_data' => [
@@ -195,18 +199,10 @@ try {
     echo '<h4 style="color:#dc2626;margin-top:0;">Stripe Payment Error</h4>';
     echo '<p style="color:#991b1b;margin-bottom:10px;">' . htmlspecialchars($errorMsg) . '</p>';
     
-    if (!empty($config['dev_mode'])) {
-        echo '<details style="margin-top:15px;font-size:12px;color:#6b7280;">';
-        echo '<summary style="cursor:pointer;">Debug Information</summary>';
-        echo '<pre style="background:#f3f4f6;padding:10px;margin-top:10px;overflow:auto;">';
-        echo 'Secret Key Present: ' . (empty($config['secret_key']) ? 'NO' : 'YES') . "\n";
-        echo 'Amount: ' . ($amount ?? 'N/A') . ' cents' . "\n";
-        echo 'Currency: ' . ($booking['currency_markup'] ?? 'N/A') . "\n";
-        echo 'Email: ' . ($booking['email'] ?? 'N/A') . "\n";
-        echo '</pre>';
-        echo '</details>';
-    }
-    
+    // Audit: do NOT render key-presence / amount / email debug to the browser.
+    error_log('Stripe error for invoice ' . ($booking['invoice_id'] ?? '?') . ': ' . $errorMsg
+        . ' (secret ' . (empty($config['secret_key']) ? 'MISSING' : 'present') . ')');
+
     echo '<p style="margin-top:15px;"><a href="' . htmlspecialchars(root . 'invoice/' . $booking['invoice_id']) . '" style="color:#2563eb;">← Return to Invoice</a></p>';
     echo '</div>';
 }

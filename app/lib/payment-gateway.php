@@ -141,12 +141,14 @@ function process_payment($invoiceId)
             'failure_url' => $callbackBase . 'failure'
         ];
 
-        // Create legacy POST format for backward compatibility
+        // Create legacy POST format for backward compatibility. Charge the amount
+        // DUE NOW (deposit/installment-aware for umrah), not always the full total.
+        $chargeNow = payment_amount_due($booking, $db);
         $legacyPayload = [
             'booking_ref_no' => $booking['ref'] ?? $booking['invoice_id'],
             'invoice_id' => $booking['invoice_id'],
             'client_email' => $booking['email'],
-            'price' => $booking['price_markup'],
+            'price' => $chargeNow,
             'currency' => $booking['currency_markup'],
             'invoice_url' => $invoiceBaseUrl . $booking['invoice_id']
         ];
@@ -977,14 +979,49 @@ function get_booking_gateway_id($booking)
 }
 
 /**
+ * The amount to CHARGE NOW for a booking (audit M7 / deposit collection).
+ * For most modules this is the full contract price (bookings.price_markup). For
+ * umrah bookings on an installment plan it is the NEXT pending/overdue
+ * installment (the deposit first, then the balance) — so the deposit schedule is
+ * actually collected instead of always charging 100% upfront. Falls back to the
+ * full price_markup whenever no pending installment is found or on any error.
+ */
+function payment_amount_due($booking, $db)
+{
+    $full = (float) ($booking['price_markup'] ?? 0);
+    $module = strtolower((string) ($booking['module'] ?? $booking['module_type'] ?? ''));
+    if ($module !== 'umrah') { return $full; }
+    try {
+        $ub = $db->get('umrah_bookings', ['id'], ['invoice_id' => $booking['invoice_id']]);
+        if (!$ub) { return $full; }
+        $next = $db->get('umrah_installments', ['amount'], [
+            'umrah_booking_id' => (int) $ub['id'],
+            'status' => ['pending', 'overdue'],
+            'ORDER' => ['seq' => 'ASC'],
+        ]);
+        if ($next && (float) $next['amount'] > 0) {
+            return round((float) $next['amount'], 2);
+        }
+    } catch (\Throwable $e) {
+        error_log('payment_amount_due: ' . $e->getMessage());
+    }
+    return $full;
+}
+
+/**
  * Create secure payment token
  */
 function create_payment_token($booking, $gateway)
 {
+    global $db;
+    // Charge the amount DUE NOW (deposit/installment aware), not always the full
+    // total. The settlement engine allocates this across installments (audit M7).
+    $chargeNow = function_exists('payment_amount_due') ? payment_amount_due($booking, $db) : ((float) $booking['price_markup']);
+
     $tokenData = [
         'invoice_id' => $booking['invoice_id'],
         'booking_id' => $booking['id'],
-        'amount' => $booking['price_markup'],
+        'amount' => $chargeNow,
         'currency' => $booking['currency_markup'],
         'gateway_id' => $gateway['id'],
         'gateway_name' => $gateway['name'],
@@ -1219,8 +1256,42 @@ function get_payment_transaction($hash)
  * @param object $db - Database instance
  * @return string - Verified action: 'success', 'cancel', or 'failure'
  */
-function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
+/**
+ * SECURITY (audit P1): reconcile a gateway-reported paid amount + currency
+ * against the expected charge from the trusted server-side token. Prevents
+ * underpayment and cross-transaction confirmation (paying a cheap transaction
+ * to confirm an expensive booking). All amounts are normalised to a float in
+ * MAJOR units before comparison; a small epsilon absorbs rounding.
+ *
+ * @param float  $paidMajor      amount the gateway says was paid, in MAJOR units
+ * @param string $paidCurrency   currency the gateway says was paid in
+ * @param array  $tokenData      the trusted token (amount = price_markup, currency)
+ * @return bool  true when the paid amount+currency match the expected charge
+ */
+function payment_amount_matches($paidMajor, $paidCurrency, $tokenData): bool
 {
+    $expected = (float) ($tokenData['amount'] ?? 0);
+    $expectedCur = strtoupper(trim((string) ($tokenData['currency'] ?? '')));
+    $paidCur = strtoupper(trim((string) $paidCurrency));
+
+    // Currency must match when both are known.
+    if ($expectedCur !== '' && $paidCur !== '' && $expectedCur !== $paidCur) {
+        error_log("PAYMENT VERIFY: currency mismatch expected {$expectedCur} got {$paidCur}");
+        return false;
+    }
+    // Paid amount must be at least the expected amount (allow overpay, block underpay).
+    if ($expected > 0 && ($paidMajor + 0.01) < $expected) {
+        error_log("PAYMENT VERIFY: amount mismatch expected {$expected} got {$paidMajor}");
+        return false;
+    }
+    return true;
+}
+
+function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
+{
+    // $data is by REFERENCE (audit P5) so the gateway-VERIFIED transaction_id
+    // (set in the success branches) is persisted by the caller instead of the
+    // attacker-supplied $_GET value — required for correct refunds/reconciliation.
     $gatewayData = $data['gateway_data'] ?? $data ?? [];
 
     try {
@@ -1269,8 +1340,25 @@ function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
                 $status = $result['data']['status'] ?? '';
 
                 if ($status === 'success') {
-                    // Store verified transaction ID
-                    $data['transaction_id'] = $result['data']['reference'] ?? $reference;
+                    // SECURITY (P1): the verified transaction must be for THIS
+                    // booking's expected amount + currency. Paystack amount is in
+                    // kobo/minor units. Also bind the reference to this invoice
+                    // (Paystack refs are 'PSK-{invoice_id}-{time}').
+                    $paidMajor = ((float) ($result['data']['amount'] ?? 0)) / 100;
+                    $paidCur   = $result['data']['currency'] ?? '';
+                    if (!payment_amount_matches($paidMajor, $paidCur, $tokenData)) {
+                        error_log("PAYSTACK VERIFY: amount/currency mismatch for ref {$reference}");
+                        return 'failure';
+                    }
+                    $invId = (string) ($tokenData['invoice_id'] ?? '');
+                    $refInv = $result['data']['reference'] ?? $reference;
+                    if ($invId !== '' && strpos((string) $refInv, 'PSK-' . $invId . '-') !== 0
+                        && strpos((string) $reference, 'PSK-' . $invId . '-') !== 0) {
+                        error_log("PAYSTACK VERIFY: reference {$refInv} not bound to invoice {$invId}");
+                        return 'failure';
+                    }
+                    // Persist the gateway-verified reference (P5, by-ref).
+                    $data['transaction_id'] = $refInv;
                     return 'success';
                 } elseif ($status === 'abandoned' || $status === 'cancelled') {
                     return 'cancel';
@@ -1332,6 +1420,20 @@ function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
                 $orderStatus = $result['order_status'] ?? '';
 
                 if ($orderStatus === 'PAID') {
+                    // SECURITY (P1): amount/currency must match; order id is
+                    // 'CF-{invoice_id}-{time}' so bind it to this invoice.
+                    $paidMajor = (float) ($result['order_amount'] ?? 0);
+                    $paidCur   = $result['order_currency'] ?? '';
+                    if (!payment_amount_matches($paidMajor, $paidCur, $tokenData)) {
+                        error_log("CASHFREE VERIFY: amount/currency mismatch for order {$orderId}");
+                        return 'failure';
+                    }
+                    $invId = (string) ($tokenData['invoice_id'] ?? '');
+                    if ($invId !== '' && strpos((string) $orderId, 'CF-' . $invId . '-') !== 0) {
+                        error_log("CASHFREE VERIFY: order {$orderId} not bound to invoice {$invId}");
+                        return 'failure';
+                    }
+                    // Persist the gateway-verified reference (P5, by-ref).
                     $data['transaction_id'] = $result['cf_order_id'] ?? $orderId;
                     return 'success';
                 } elseif (in_array($orderStatus, ['EXPIRED', 'CANCELLED', 'VOID'])) {
@@ -1382,6 +1484,23 @@ function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
                 $paymentStatus = $session['payment_status'] ?? '';
 
                 if ($paymentStatus === 'paid') {
+                    // SECURITY (P1): amount_total is in minor units; bind the
+                    // session to this invoice via client_reference_id/metadata.
+                    $paidMajor = ((float) ($session['amount_total'] ?? 0)) / 100;
+                    $paidCur   = $session['currency'] ?? '';
+                    if (!payment_amount_matches($paidMajor, $paidCur, $tokenData)) {
+                        error_log("STRIPE VERIFY: amount/currency mismatch for session {$sessionId}");
+                        return 'failure';
+                    }
+                    $invId = (string) ($tokenData['invoice_id'] ?? '');
+                    $sessInv = (string) ($session['client_reference_id'] ?? ($session['metadata']['invoice_id'] ?? ''));
+                    if ($invId !== '' && $sessInv !== $invId) {
+                        error_log("STRIPE VERIFY: session {$sessionId} not bound to invoice {$invId} (got {$sessInv})");
+                        return 'failure';
+                    }
+                    // Persist the gateway-verified reference: the PaymentIntent id
+                    // (needed for Stripe refunds) if present, else the session id.
+                    $data['transaction_id'] = $session['payment_intent'] ?? $sessionId;
                     return 'success';
                 } elseif ($paymentStatus === 'unpaid') {
                     return 'cancel';
@@ -1441,6 +1560,110 @@ function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
                 return 'pending';
 
             // ============================================================
+            // PAYPAL VERIFICATION (Orders v2) — audit P86
+            // GET /v2/checkout/orders/{id} with an OAuth token (client id c1 +
+            // secret c2 from the DB). status COMPLETED + amount match = paid.
+            // ============================================================
+            case 'paypal':
+                $orderId = $gatewayData['transaction_id'] ?? $gatewayData['order_id'] ?? '';
+                $gatewayId = $tokenData['gateway_id'] ?? null;
+                if (empty($orderId) || !$gatewayId) { return 'pending'; }
+                $gateway = $db->get('payment_gateways', '*', ['id' => $gatewayId]);
+                if (!$gateway) { return 'pending'; }
+                $clientId = $gateway['c1'] ?? '';
+                $secret   = $gateway['c2'] ?? '';
+                if ($clientId === '' || $secret === '') { return 'pending'; }
+                $base = !empty($gateway['dev_mode']) ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+
+                // OAuth token.
+                $ch = curl_init($base . '/v1/oauth2/token');
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_USERPWD => $clientId . ':' . $secret,
+                    CURLOPT_POSTFIELDS => 'grant_type=client_credentials',
+                    CURLOPT_HTTPHEADER => ['Accept: application/json'],
+                    CURLOPT_TIMEOUT => 30,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                ]);
+                $tokResp = curl_exec($ch); $tokCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+                if ($tokCode !== 200) { error_log("PAYPAL VERIFY: oauth HTTP {$tokCode}"); return 'pending'; }
+                $access = json_decode($tokResp, true)['access_token'] ?? '';
+                if ($access === '') { return 'pending'; }
+
+                // Fetch the order.
+                $ch = curl_init($base . '/v2/checkout/orders/' . urlencode($orderId));
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $access, 'Content-Type: application/json'],
+                    CURLOPT_TIMEOUT => 30,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                ]);
+                $ordResp = curl_exec($ch); $ordCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+                if ($ordCode !== 200) { error_log("PAYPAL VERIFY: order HTTP {$ordCode}"); return 'pending'; }
+                $order = json_decode($ordResp, true);
+                $ostatus = strtoupper((string) ($order['status'] ?? ''));
+                if ($ostatus === 'COMPLETED' || $ostatus === 'APPROVED') {
+                    $pu = $order['purchase_units'][0]['amount'] ?? [];
+                    $paidMajor = (float) ($pu['value'] ?? 0);
+                    $paidCur   = $pu['currency_code'] ?? '';
+                    if (!payment_amount_matches($paidMajor, $paidCur, $tokenData)) {
+                        error_log("PAYPAL VERIFY: amount/currency mismatch order {$orderId}");
+                        return 'failure';
+                    }
+                    $data['transaction_id'] = $order['id'] ?? $orderId;
+                    return 'success';
+                }
+                if (in_array($ostatus, ['VOIDED', 'CANCELLED'], true)) { return 'cancel'; }
+                return 'pending';
+
+            // ============================================================
+            // FLUTTERWAVE VERIFICATION (v3) — audit P86
+            // GET /v3/transactions/{id}/verify with secret key (c2 from DB).
+            // status successful + amount + tx_ref bound to invoice = paid.
+            // ============================================================
+            case 'flutterwave':
+                $txId  = $gatewayData['transaction_id'] ?? '';
+                $txRef = $gatewayData['tx_ref'] ?? '';
+                $gatewayId = $tokenData['gateway_id'] ?? null;
+                if (empty($txId) || !$gatewayId) { return 'pending'; }
+                $gateway = $db->get('payment_gateways', '*', ['id' => $gatewayId]);
+                if (!$gateway) { return 'pending'; }
+                $secret = $gateway['c2'] ?? $gateway['c1'] ?? '';
+                if ($secret === '') { return 'pending'; }
+
+                $ch = curl_init('https://api.flutterwave.com/v3/transactions/' . urlencode($txId) . '/verify');
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $secret],
+                    CURLOPT_TIMEOUT => 30,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                ]);
+                $fResp = curl_exec($ch); $fCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+                if ($fCode !== 200) { error_log("FLUTTERWAVE VERIFY: HTTP {$fCode}"); return 'pending'; }
+                $fj = json_decode($fResp, true);
+                $fdata = $fj['data'] ?? [];
+                $fstatus = strtolower((string) ($fdata['status'] ?? ''));
+                if ($fstatus === 'successful') {
+                    $paidMajor = (float) ($fdata['amount'] ?? 0);
+                    $paidCur   = $fdata['currency'] ?? '';
+                    if (!payment_amount_matches($paidMajor, $paidCur, $tokenData)) {
+                        error_log("FLUTTERWAVE VERIFY: amount/currency mismatch txn {$txId}");
+                        return 'failure';
+                    }
+                    // Bind tx_ref to this invoice (FLW-{invoice_id}-{time}).
+                    $invId = (string) ($tokenData['invoice_id'] ?? '');
+                    $seenRef = (string) ($fdata['tx_ref'] ?? $txRef);
+                    if ($invId !== '' && strpos($seenRef, 'FLW-' . $invId . '-') !== 0) {
+                        error_log("FLUTTERWAVE VERIFY: tx_ref {$seenRef} not bound to invoice {$invId}");
+                        return 'failure';
+                    }
+                    $data['transaction_id'] = (string) ($fdata['id'] ?? $txId);
+                    return 'success';
+                }
+                if (in_array($fstatus, ['cancelled', 'failed'], true)) { return 'cancel'; }
+                return 'pending';
+
+            // ============================================================
             // OTHER GATEWAYS (PayPal, Flutterwave, M-Pesa, Coinsbuy, Fawaterak…)
             // SECURITY: the browser return URL is attacker-controllable, so it
             // must NOT mark a booking paid. These gateways confirm via their own
@@ -1464,6 +1687,11 @@ function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
  */
 function get_gateway_config($gateway)
 {
+    // NOTE (audit): the generic label names (api_key/secret_key/username/password)
+    // do NOT reflect the per-gateway meaning of c1..c6 — each gateway view reads
+    // the specific c-columns it needs (see the per-gateway views). The extra
+    // aliases below expose c3..c6 under the names some views expect (e.g. M-Pesa)
+    // so every gateway is configurable purely from the DB row, no hardcoding.
     return [
         'api_key' => $gateway['c1'] ?? '',
         'secret_key' => $gateway['c2'] ?? '',
@@ -1471,6 +1699,14 @@ function get_gateway_config($gateway)
         'password' => $gateway['c4'] ?? '',
         'additional_1' => $gateway['c5'] ?? '',
         'additional_2' => $gateway['c6'] ?? '',
+        // M-Pesa (audit P87): map the required fields onto DB columns so it can
+        // actually be configured (c3=provider code, c4=market, c5=api url,
+        // c6=country code). Only set when non-empty so the view's own defaults
+        // (?? 'TZN' etc.) still apply. Harmless for other gateways.
+        'service_provider_code' => ($gateway['c3'] ?? '') !== '' ? $gateway['c3'] : null,
+        'market' => ($gateway['c4'] ?? '') !== '' ? $gateway['c4'] : null,
+        'api_url' => ($gateway['c5'] ?? '') !== '' ? $gateway['c5'] : null,
+        'country_code' => ($gateway['c6'] ?? '') !== '' ? $gateway['c6'] : null,
         'dev_mode' => $gateway['dev_mode'] ?? 0,
         'environment' => $gateway['env'] ?? 'test'
     ];
