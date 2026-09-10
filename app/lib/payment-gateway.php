@@ -1523,6 +1523,110 @@ function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
                 return 'pending';
 
             // ============================================================
+            // PAYPAL VERIFICATION (Orders v2) — audit P86
+            // GET /v2/checkout/orders/{id} with an OAuth token (client id c1 +
+            // secret c2 from the DB). status COMPLETED + amount match = paid.
+            // ============================================================
+            case 'paypal':
+                $orderId = $gatewayData['transaction_id'] ?? $gatewayData['order_id'] ?? '';
+                $gatewayId = $tokenData['gateway_id'] ?? null;
+                if (empty($orderId) || !$gatewayId) { return 'pending'; }
+                $gateway = $db->get('payment_gateways', '*', ['id' => $gatewayId]);
+                if (!$gateway) { return 'pending'; }
+                $clientId = $gateway['c1'] ?? '';
+                $secret   = $gateway['c2'] ?? '';
+                if ($clientId === '' || $secret === '') { return 'pending'; }
+                $base = !empty($gateway['dev_mode']) ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+
+                // OAuth token.
+                $ch = curl_init($base . '/v1/oauth2/token');
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_USERPWD => $clientId . ':' . $secret,
+                    CURLOPT_POSTFIELDS => 'grant_type=client_credentials',
+                    CURLOPT_HTTPHEADER => ['Accept: application/json'],
+                    CURLOPT_TIMEOUT => 30,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                ]);
+                $tokResp = curl_exec($ch); $tokCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+                if ($tokCode !== 200) { error_log("PAYPAL VERIFY: oauth HTTP {$tokCode}"); return 'pending'; }
+                $access = json_decode($tokResp, true)['access_token'] ?? '';
+                if ($access === '') { return 'pending'; }
+
+                // Fetch the order.
+                $ch = curl_init($base . '/v2/checkout/orders/' . urlencode($orderId));
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $access, 'Content-Type: application/json'],
+                    CURLOPT_TIMEOUT => 30,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                ]);
+                $ordResp = curl_exec($ch); $ordCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+                if ($ordCode !== 200) { error_log("PAYPAL VERIFY: order HTTP {$ordCode}"); return 'pending'; }
+                $order = json_decode($ordResp, true);
+                $ostatus = strtoupper((string) ($order['status'] ?? ''));
+                if ($ostatus === 'COMPLETED' || $ostatus === 'APPROVED') {
+                    $pu = $order['purchase_units'][0]['amount'] ?? [];
+                    $paidMajor = (float) ($pu['value'] ?? 0);
+                    $paidCur   = $pu['currency_code'] ?? '';
+                    if (!payment_amount_matches($paidMajor, $paidCur, $tokenData)) {
+                        error_log("PAYPAL VERIFY: amount/currency mismatch order {$orderId}");
+                        return 'failure';
+                    }
+                    $data['transaction_id'] = $order['id'] ?? $orderId;
+                    return 'success';
+                }
+                if (in_array($ostatus, ['VOIDED', 'CANCELLED'], true)) { return 'cancel'; }
+                return 'pending';
+
+            // ============================================================
+            // FLUTTERWAVE VERIFICATION (v3) — audit P86
+            // GET /v3/transactions/{id}/verify with secret key (c2 from DB).
+            // status successful + amount + tx_ref bound to invoice = paid.
+            // ============================================================
+            case 'flutterwave':
+                $txId  = $gatewayData['transaction_id'] ?? '';
+                $txRef = $gatewayData['tx_ref'] ?? '';
+                $gatewayId = $tokenData['gateway_id'] ?? null;
+                if (empty($txId) || !$gatewayId) { return 'pending'; }
+                $gateway = $db->get('payment_gateways', '*', ['id' => $gatewayId]);
+                if (!$gateway) { return 'pending'; }
+                $secret = $gateway['c2'] ?? $gateway['c1'] ?? '';
+                if ($secret === '') { return 'pending'; }
+
+                $ch = curl_init('https://api.flutterwave.com/v3/transactions/' . urlencode($txId) . '/verify');
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $secret],
+                    CURLOPT_TIMEOUT => 30,
+                    CURLOPT_SSL_VERIFYPEER => true,
+                ]);
+                $fResp = curl_exec($ch); $fCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+                if ($fCode !== 200) { error_log("FLUTTERWAVE VERIFY: HTTP {$fCode}"); return 'pending'; }
+                $fj = json_decode($fResp, true);
+                $fdata = $fj['data'] ?? [];
+                $fstatus = strtolower((string) ($fdata['status'] ?? ''));
+                if ($fstatus === 'successful') {
+                    $paidMajor = (float) ($fdata['amount'] ?? 0);
+                    $paidCur   = $fdata['currency'] ?? '';
+                    if (!payment_amount_matches($paidMajor, $paidCur, $tokenData)) {
+                        error_log("FLUTTERWAVE VERIFY: amount/currency mismatch txn {$txId}");
+                        return 'failure';
+                    }
+                    // Bind tx_ref to this invoice (FLW-{invoice_id}-{time}).
+                    $invId = (string) ($tokenData['invoice_id'] ?? '');
+                    $seenRef = (string) ($fdata['tx_ref'] ?? $txRef);
+                    if ($invId !== '' && strpos($seenRef, 'FLW-' . $invId . '-') !== 0) {
+                        error_log("FLUTTERWAVE VERIFY: tx_ref {$seenRef} not bound to invoice {$invId}");
+                        return 'failure';
+                    }
+                    $data['transaction_id'] = (string) ($fdata['id'] ?? $txId);
+                    return 'success';
+                }
+                if (in_array($fstatus, ['cancelled', 'failed'], true)) { return 'cancel'; }
+                return 'pending';
+
+            // ============================================================
             // OTHER GATEWAYS (PayPal, Flutterwave, M-Pesa, Coinsbuy, Fawaterak…)
             // SECURITY: the browser return URL is attacker-controllable, so it
             // must NOT mark a booking paid. These gateways confirm via their own

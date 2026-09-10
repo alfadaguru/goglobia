@@ -242,6 +242,7 @@ $customerName = $booking['name'] ?? 'Customer';
                     const transactionId = data.transaction_id || data.tx_ref;
                     window.location.href = buildRedirectUrl(flwSuccessUrl, {
                         transaction_id: transactionId,
+                        tx_ref: data.tx_ref || "<?= htmlspecialchars($txRef) ?>",
                         gateway: 'flutterwave',
                         payment_status: 'success'
                     });
