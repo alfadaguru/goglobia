@@ -167,6 +167,95 @@ $router->post(admin.'/umrah-manager/departures/pricing', function () use ($SECUR
     umrahV2AdminJson(['success' => true, 'message' => 'Updated']);
 });
 
+// ---- SET ORIGIN CITY: POST admin/umrah-manager/departures/origin --------
+$router->post(admin.'/umrah-manager/departures/origin', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $id = (int) ($_POST['departure_id'] ?? 0);
+    $city = trim((string) ($_POST['origin_city'] ?? ''));
+    if ($id <= 0) { umrahV2AdminJson(['success' => false, 'message' => 'Departure required']); }
+    $db->update('umrah_departures', ['origin_city' => ($city !== '' ? $city : null), 'updated_at' => date('Y-m-d H:i:s')], ['id' => $id]);
+    if (function_exists('umrah_audit')) { umrah_audit($db, 'umrah_departure', (string) $id, 'origin_city', null, ['origin_city' => $city]); }
+    umrahV2AdminJson(['success' => true, 'message' => 'Departure city updated']);
+});
+
+// ---- PER-TIER PRICING (B2C + B2B): POST .../departures/tier-pricing ------
+// Update ONE departure-tier: B2C regular/promo, B2B net/promo, capacity, status.
+$router->post(admin.'/umrah-manager/departures/tier-pricing', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $dtId = (int) ($_POST['departure_tier_id'] ?? 0);
+    if ($dtId <= 0) { umrahV2AdminJson(['success' => false, 'message' => 'Departure-tier required']); }
+    $dt = $db->get('umrah_departure_tiers', '*', ['id' => $dtId]);
+    if (!$dt) { umrahV2AdminJson(['success' => false, 'message' => 'Departure-tier not found']); }
+
+    $u = ['updated_at' => date('Y-m-d H:i:s')];
+    // Nullable price fields: empty string clears (NULL); numeric sets.
+    $priceField = function (string $key) {
+        if (!isset($_POST[$key])) { return '__skip__'; }
+        $v = trim((string) $_POST[$key]);
+        return ($v === '') ? null : (float) $v;
+    };
+    foreach (['regular_price', 'promo_price', 'b2b_net_price', 'b2b_promo_price'] as $f) {
+        $val = $priceField($f);
+        if ($val !== '__skip__') { $u[$f] = $val; }
+    }
+    if (array_key_exists('promo_price', $u)) { $u['promo_active'] = ($u['promo_price'] !== null && $u['promo_price'] > 0) ? 1 : 0; }
+    if (isset($_POST['tier_capacity']) && trim((string) $_POST['tier_capacity']) !== '') {
+        $cap = (int) $_POST['tier_capacity'];
+        $confirmed = (int) $db->sum('umrah_bookings', 'pax', ['departure_tier_id' => $dtId, 'booking_status' => ['confirmed', 'completed']]);
+        if ($cap < $confirmed) { umrahV2AdminJson(['success' => false, 'message' => "Tier capacity cannot be below confirmed pax ($confirmed)."]); }
+        $u['tier_capacity'] = $cap;
+    }
+    if (isset($_POST['status']) && in_array($_POST['status'], ['draft', 'active', 'hidden', 'sold_out'], true)) {
+        $u['status'] = $_POST['status'];
+    }
+    $db->update('umrah_departure_tiers', $u, ['id' => $dtId]);
+    if (function_exists('umrah_audit')) { umrah_audit($db, 'umrah_departure_tier', (string) $dtId, 'tier_pricing_update', null, $u); }
+    umrahV2AdminJson(['success' => true, 'message' => 'Tier pricing updated']);
+});
+
+// ---- QUOTE-REQUEST INBOX: GET admin/umrah-manager/quote-requests --------
+$router->get(admin.'/umrah-manager/quote-requests', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    $status = trim((string) ($_GET['status'] ?? ''));
+    $where = ['ORDER' => ['id' => 'DESC'], 'LIMIT' => 300];
+    if (in_array($status, ['new', 'in_review', 'quoted', 'converted', 'closed'], true)) { $where['status'] = $status; }
+    $requests = $db->select('umrah_quote_requests', '*', $where) ?: [];
+    $counts = [];
+    foreach (['new', 'in_review', 'quoted', 'converted', 'closed'] as $s) {
+        $counts[$s] = (int) $db->count('umrah_quote_requests', ['status' => $s]);
+    }
+    $title = 'Umrah Quote Requests'; $description = ''; $header = true; $footer = true;
+    require_once views . 'includes/header.php';
+    require_once views . 'admin/umrah/v2/quote-requests.php';
+    require_once views . 'includes/footer.php';
+});
+
+// ---- QUOTE-REQUEST RESPOND: POST admin/umrah-manager/quote-requests/respond
+$router->post(admin.'/umrah-manager/quote-requests/respond', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $id = (int) ($_POST['id'] ?? 0);
+    $status = trim((string) ($_POST['status'] ?? ''));
+    if ($id <= 0 || !in_array($status, ['new', 'in_review', 'quoted', 'converted', 'closed'], true)) {
+        umrahV2AdminJson(['success' => false, 'message' => 'Invalid request']);
+    }
+    $req = $db->get('umrah_quote_requests', '*', ['id' => $id]);
+    if (!$req) { umrahV2AdminJson(['success' => false, 'message' => 'Request not found']); }
+    $u = ['status' => $status, 'updated_at' => date('Y-m-d H:i:s')];
+    if (isset($_POST['staff_note'])) { $u['staff_note'] = trim((string) $_POST['staff_note']) ?: null; }
+    if (isset($_POST['quote_amount']) && trim((string) $_POST['quote_amount']) !== '') {
+        $u['quote_amount'] = (float) $_POST['quote_amount'];
+        $u['quote_currency'] = trim((string) ($_POST['quote_currency'] ?? 'NGN')) ?: 'NGN';
+    }
+    if ($status === 'quoted' && empty($req['quoted_at'])) { $u['quoted_at'] = date('Y-m-d H:i:s'); }
+    $u['handled_by'] = (string) ($_SESSION['user_id'] ?? '') ?: null;
+    $db->update('umrah_quote_requests', $u, ['id' => $id]);
+    if (function_exists('umrah_audit')) { umrah_audit($db, 'umrah_quote_request', (string) $req['request_ref'], 'respond_' . $status, null, $u); }
+    umrahV2AdminJson(['success' => true, 'message' => 'Request updated']);
+});
+
 // ---- BOOKINGS LIST: GET admin/umrah-manager/bookings -------------------
 $router->get(admin.'/umrah-manager/bookings', function () use ($SECURE, $db) {
     ADMIN_AUTH();
