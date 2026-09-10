@@ -285,6 +285,27 @@ function adyen_finalize_payment($db, string $invoiceId, ?string $pspReference, a
         }
     }
 
+    // Amount reconciliation (audit): even though the HMAC authenticates the
+    // notification, verify the captured amount/currency matches the booking so a
+    // genuine partial-capture / under-authorisation does not finalize the
+    // booking as fully paid. Adyen amount.value is in MINOR units.
+    $notifCur = strtoupper(trim((string) ($rawEvent['amount']['currency'] ?? '')));
+    $notifMinor = $rawEvent['amount']['value'] ?? null;
+    if ($notifMinor !== null) {
+        $exp = adyen_currency_exponent($booking['currency_markup'] ?? 'USD');
+        $notifMajor = ((float) $notifMinor) / (10 ** $exp);
+        $expMajor = (float) ($booking['price_markup'] ?? 0);
+        $expCur = strtoupper(trim((string) ($booking['currency_markup'] ?? '')));
+        if ($notifCur !== '' && $expCur !== '' && $notifCur !== $expCur) {
+            error_log("ADYEN FINALIZE: currency mismatch inv {$invoiceId} exp {$expCur} got {$notifCur}");
+            return ['success' => false, 'message' => 'Currency mismatch', 'already' => false];
+        }
+        if ($expMajor > 0 && ($notifMajor + 0.01) < $expMajor) {
+            error_log("ADYEN FINALIZE: underpayment inv {$invoiceId} exp {$expMajor} got {$notifMajor}");
+            return ['success' => false, 'message' => 'Amount mismatch', 'already' => false];
+        }
+    }
+
     // Mark paid.
     $db->update('bookings', [
         'payment_status' => 'paid',
