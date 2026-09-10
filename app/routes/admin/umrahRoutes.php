@@ -42,6 +42,7 @@ $router->get(admin.'/umrah/add', function () use ($SECURE,$db) {
 // ================================ POST /umrah/add - ADD NEW UMRAH PACKAGE
 $router->post(admin.'/umrah/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::verifyRequest(); // form posts a CSRF token (manage-umrah.php)
 
     $name = trim($_POST['umrah_name'] ?? '');
     $description = trim($_POST['description'] ?? '');
@@ -549,6 +550,7 @@ $router->get(admin.'/umrah/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /umrah/edit/{id} - UPDATE UMRAH PACKAGE
 $router->post(admin.'/umrah/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::verifyRequest(); // form posts a CSRF token (manage-umrah.php)
     $umrah_id = intval($id);
 
     $umrah = $db->get('umrah', '*', ['id' => $umrah_id]);
@@ -1024,6 +1026,7 @@ $router->post(admin.'/umrah/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /umrah/delete - DELETE UMRAH PACKAGE
 $router->post(admin.'/umrah/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::verifyRequest(); // state-changing delete — require CSRF token
     $umrah_id = intval($_POST['id'] ?? 0);
 
     if ($umrah_id <= 0) {
@@ -1227,6 +1230,7 @@ $router->get(admin.'/umrah/settings/edit/(.*)', function ($id) use ($SECURE,$db)
 // ================================ POST /umrah/settings/save - SAVE SETTING
 $router->post(admin.'/umrah/settings/save', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::verifyRequest(); // form posts a CSRF token (umrah-settings.php)
 
     $setting_id = intval($_POST['id'] ?? 0);
     $isEdit = $setting_id > 0;
@@ -1343,6 +1347,7 @@ $router->post(admin.'/umrah/settings/save', function () use ($SECURE,$db) {
 // ================================ POST /umrah/settings/delete - DELETE SETTING
 $router->post(admin.'/umrah/settings/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::verifyRequest(); // state-changing delete — require CSRF token
 
     $setting_id = intval($_POST['id'] ?? 0);
 

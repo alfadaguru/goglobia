@@ -4331,10 +4331,13 @@ if (!function_exists('agent_api_is_host')) {
 }
 
 if (!function_exists('agent_api_route_service')) {
-    /** Map an /api/<service>/... path to its service family, or '' if none. */
+    /** Map an /api/<service>/... path to its service family, or '' if none.
+     *  Tolerates an optional API version segment, e.g. /api/v1/umrah/... — the
+     *  service is the first segment that is NOT a version marker (v1, v2, …). */
     function agent_api_route_service(string $path): string
     {
-        if (!preg_match('#^/api/([a-z]+)(/|$)#i', $path, $m)) { return ''; }
+        // Capture an optional leading version segment (vN) then the service.
+        if (!preg_match('#^/api/(?:v\d+/)?([a-z]+)(/|$)#i', $path, $m)) { return ''; }
         $svc = strtolower($m[1]);
         $known = ['flights','stays','cars','tours','visa','visas','umrah','esim','bus','ferries','rail'];
         if (!in_array($svc, $known, true)) { return ''; }

@@ -6,6 +6,26 @@
 // the server recomputes/validates at hold, booking and payment.
 // ============================================================================
 
+if (!function_exists('umrah_departure_bookable')) {
+    /**
+     * SECURITY GATE: a departure-tier is bookable only when the PARENT departure
+     * is 'published' AND the tier is not draft/hidden/sold_out. Used by
+     * quote/hold/booking so a crafted departure_tier_id cannot transact against a
+     * draft/closed departure that the public list pages correctly hide.
+     * @param array|null $dt optional already-loaded departure_tier row
+     */
+    function umrah_departure_bookable($db, int $departureId, ?array $dt = null): bool
+    {
+        $dep = $db->get('umrah_departures', ['status'], ['id' => $departureId]);
+        if (!$dep || ($dep['status'] ?? '') !== 'published') { return false; }
+        if ($dt !== null) {
+            $ts = $dt['status'] ?? '';
+            if (in_array($ts, ['draft', 'hidden', 'sold_out'], true)) { return false; }
+        }
+        return true;
+    }
+}
+
 if (!function_exists('umrah_default_currency')) {
     function umrah_default_currency($db): string
     {
@@ -75,7 +95,14 @@ if (!function_exists('umrah_price_resolve')) {
 
         // 4/5. cost + markup fallback (only when NO direct price is set). Uses the
         // shared MARKUP() against the umrah module — this is the ONLY branch that
-        // applies markup.
+        // applies markup (spec §8.2).
+        //
+        // NOTE: Phase 1 ships DIRECT-SELL pricing only, so umrah_departure_tiers
+        // has no `cost_price` column yet — this fallback is intentionally inert
+        // until that column (+ an admin UI to set it) ships. The null-coalesce
+        // keeps it safe (no undefined-key notice) and yields $base=0 so the
+        // branch is skipped rather than mispricing at 0. When cost pricing is
+        // added, add the `cost_price` column and this branch activates unchanged.
         $base = (float) ($dt['cost_price'] ?? 0);
         if ($base > 0 && function_exists('MARKUP')) {
             $module = $db->get('modules', '*', ['name' => 'umrah', 'type' => 'umrah']);
@@ -108,6 +135,12 @@ if (!function_exists('umrah_price_quote')) {
         }
         if (($dt['status'] ?? '') === 'hidden') {
             return ['ok' => false, 'message' => 'This option is not available'];
+        }
+        // SECURITY: the parent departure must be published + the tier active.
+        // GET list pages filter to published, but this POST endpoint must not
+        // let a crafted departure_tier_id quote a draft/closed departure.
+        if (!umrah_departure_bookable($db, (int) $dt['departure_id'], $dt)) {
+            return ['ok' => false, 'message' => 'This departure is not open for booking'];
         }
 
         $priced = umrah_price_resolve($db, $dt);
@@ -206,8 +239,10 @@ if (!function_exists('umrah_hold_create')) {
         try {
             $db->action(function ($db) use ($departureTierId, $pax, $quoteId, $userId, $sessionRef, $holdMinutes, &$result) {
                 // Lock the departure-tier row for the duration of the transaction.
+                // Include the parent departure status in the locked read so the
+                // published-gate is enforced atomically (not TOCTOU-racy).
                 $locked = $db->query(
-                    "SELECT dt.id, dt.departure_id, dt.tier_capacity, dt.status, d.capacity AS dep_capacity
+                    "SELECT dt.id, dt.departure_id, dt.tier_capacity, dt.status, d.capacity AS dep_capacity, d.status AS dep_status
                      FROM umrah_departure_tiers dt
                      JOIN umrah_departures d ON d.id = dt.departure_id
                      WHERE dt.id = :id FOR UPDATE",
@@ -218,7 +253,12 @@ if (!function_exists('umrah_hold_create')) {
                     $result = ['ok' => false, 'message' => 'Departure-tier not found'];
                     return false; // rollback
                 }
-                if (($row['status'] ?? '') === 'sold_out' || ($row['status'] ?? '') === 'hidden') {
+                // SECURITY: parent departure must be published; tier not draft/hidden/sold_out.
+                if (($row['dep_status'] ?? '') !== 'published') {
+                    $result = ['ok' => false, 'message' => 'This departure is not open for booking'];
+                    return false;
+                }
+                if (in_array(($row['status'] ?? ''), ['sold_out', 'hidden', 'draft'], true)) {
                     $result = ['ok' => false, 'message' => 'This departure is not available'];
                     return false;
                 }
@@ -409,6 +449,11 @@ if (!function_exists('umrah_booking_create')) {
         $dt = $db->get('umrah_departure_tiers', '*', ['id' => $quote['departure_tier_id']]);
         if (!$dt) { return ['ok' => false, 'message' => 'Departure-tier not found']; }
         $departure = $db->get('umrah_departures', '*', ['id' => $dt['departure_id']]);
+        // SECURITY: re-check the departure is still published + tier bookable at
+        // commit time (it could have been unpublished between hold and booking).
+        if (!$departure || !umrah_departure_bookable($db, (int) $dt['departure_id'], $dt)) {
+            return ['ok' => false, 'message' => 'This departure is not open for booking'];
+        }
         $template  = $departure ? $db->get('umrah_package_templates', '*', ['id' => $departure['template_id']]) : null;
 
         $total    = (float) $quote['total_price'];
@@ -452,6 +497,16 @@ if (!function_exists('umrah_booking_create')) {
                 $invoiceId, $bookingRef, $userId, $departure, $dt, $pax, $currency, $total,
                 $planCode, $snapshot, $schedule, $lead, $holdId, $now, $quote, &$result
             ) {
+                // Agent earning: the Phase 1 pricing model is DIRECT SELL
+                // (regular_price / promo_price bypass MARKUP by design, spec §8.3
+                // "no double markup"). There is therefore no B2B markup component
+                // to record as commission on this path. A per-departure-tier B2B
+                // net rate (spec §35.1) is a future feature; until that column
+                // ships, agent_earning is 0 here (a direct-sell price has no
+                // margin the platform earns on the agent). Kept explicit so the
+                // intent is unambiguous.
+                $agentEarning = 0;
+
                 // 1. Generic bookings row (payment/invoice of record).
                 $db->insert('bookings', [
                     'invoice_id'      => $invoiceId,
@@ -459,6 +514,7 @@ if (!function_exists('umrah_booking_create')) {
                     'payment_status'  => 'unpaid',
                     'price_original'  => $total,
                     'price_markup'    => $total,
+                    'agent_earning'   => $agentEarning,
                     'currency_markup' => $currency,
                     'first_name'      => $lead['first_name'] ?? '',
                     'last_name'       => $lead['last_name'] ?? '',
@@ -475,6 +531,7 @@ if (!function_exists('umrah_booking_create')) {
                     'created_at'      => $now,
                     'booking_date'    => date('Y-m-d'),
                 ]);
+                $genericBookingId = (int) $db->id();
 
                 // 2. umrah_bookings domain row.
                 $db->insert('umrah_bookings', [
@@ -517,6 +574,7 @@ if (!function_exists('umrah_booking_create')) {
                     'ok'               => true,
                     'booking_ref'      => $bookingRef,
                     'invoice_id'       => $invoiceId,
+                    'booking_id'       => $genericBookingId, // generic bookings.id (for wallet settlement)
                     'umrah_booking_id' => $umrahBookingId,
                     'total_price'      => $total,
                     'amount_due_now'   => $schedule['installments'][0]['amount'] ?? $total,
