@@ -6,6 +6,112 @@
 @$SECURE or die('Access Denied!');
 
 // ============================================================================
+// SERVER-AUTHORITATIVE PRICING (security fix: legacy submit must NOT trust
+// client-supplied prices or promo discounts). Prices are recomputed from the
+// legacy `umrah` product row + platform MARKUP(); promo is recomputed from the
+// `promo_codes` row with full validation. See docs/SECURITY-AUDIT (Umrah C1/C2).
+// ============================================================================
+if (!function_exists('umrahLegacyServerPrice')) {
+    /**
+     * Recompute the authoritative umrah price from the DB product row, ignoring
+     * any client-sent amount. Returns base (net), markup (customer sell) and tax.
+     * @return array{ok:bool, actual:float, markup:float, tax:float, currency:string, tax_type:string, message?:string}
+     */
+    function umrahLegacyServerPrice($db, $umrahId, int $adults, int $children, int $infants): array
+    {
+        $umrahId = (int) $umrahId;
+        if ($umrahId <= 0) { return ['ok' => false, 'message' => 'Missing package reference']; }
+        $u = $db->get('umrah', ['id', 'currency', 'adult_price', 'child_price', 'infant_price', 'discount_percentage', 'status'], ['id' => $umrahId]);
+        if (!$u) { return ['ok' => false, 'message' => 'Package not found']; }
+        if (isset($u['status']) && (string) $u['status'] !== '1' && (string) $u['status'] !== 'active') {
+            return ['ok' => false, 'message' => 'Package is not available'];
+        }
+        $adults   = max(1, $adults);
+        $children = max(0, $children);
+        $infants  = max(0, $infants);
+
+        $currency = (string) ($u['currency'] ?? 'USD') ?: 'USD';
+        $gross = ($adults * (float) $u['adult_price'])
+               + ($children * (float) $u['child_price'])
+               + ($infants * (float) $u['infant_price']);
+
+        // Package-level percentage discount (net price before markup).
+        $disc = (float) ($u['discount_percentage'] ?? 0);
+        if ($disc > 0 && $disc <= 100) { $gross = $gross * (1 - $disc / 100); }
+        $actual = round($gross, 2);
+
+        // Platform markup (agent-aware via session/JWT inside MARKUP()).
+        $markup = $actual;
+        if (function_exists('MARKUP')) {
+            $module = $db->get('modules', '*', ['name' => 'umrah', 'type' => 'umrah'])
+                   ?: $db->get('modules', '*', ['type' => 'umrah']);
+            $m = MARKUP($actual, $module ?: null, $db, $currency, $currency);
+            if (!empty($m['price']) && (float) $m['price'] > 0) { $markup = round((float) $m['price'], 2); }
+        }
+
+        // Tax on the sell price via the platform helper.
+        $tax = 0.0; $taxType = 'percentage';
+        if (function_exists('calculateTax')) {
+            $t = calculateTax($markup, 'umrah', $db);
+            $tax = round((float) ($t['tax_amount'] ?? 0), 2);
+            $taxType = $t['tax_type'] ?? 'percentage';
+        }
+
+        return ['ok' => true, 'actual' => $actual, 'markup' => $markup, 'tax' => $tax, 'currency' => $currency, 'tax_type' => $taxType];
+    }
+}
+
+if (!function_exists('umrahLegacyPromoDiscount')) {
+    /**
+     * Recompute an authoritative promo discount from the promo_codes row against
+     * a given order amount. Validates status/module/date window/min-order and
+     * caps by max_discount_amount. Never trusts a client-supplied discount value.
+     * @return array{discount:float, row:?array, json:?string}
+     */
+    function umrahLegacyPromoDiscount($db, string $code, float $orderAmount): array
+    {
+        $code = trim($code);
+        if ($code === '' || $orderAmount <= 0) { return ['discount' => 0.0, 'row' => null, 'json' => null]; }
+        $p = $db->get('promo_codes', '*', ['code' => $code]);
+        if (!$p) { return ['discount' => 0.0, 'row' => null, 'json' => null]; }
+
+        // Status active.
+        if (isset($p['status']) && (int) $p['status'] !== 1) { return ['discount' => 0.0, 'row' => null, 'json' => null]; }
+        // Module scope (allow 'all'/'umrah').
+        $mod = strtolower((string) ($p['module'] ?? 'all'));
+        if ($mod !== '' && $mod !== 'all' && $mod !== 'umrah') { return ['discount' => 0.0, 'row' => null, 'json' => null]; }
+        // Date window.
+        $now = time();
+        if (!empty($p['start_date']) && $now < strtotime((string) $p['start_date'])) { return ['discount' => 0.0, 'row' => null, 'json' => null]; }
+        if (!empty($p['end_date']) && $now > strtotime((string) $p['end_date'])) { return ['discount' => 0.0, 'row' => null, 'json' => null]; }
+        // Usage limit.
+        if ($p['usage_limit'] !== null && (int) $p['used_count'] >= (int) $p['usage_limit']) { return ['discount' => 0.0, 'row' => null, 'json' => null]; }
+        // Minimum order.
+        if ($p['min_order_amount'] !== null && $orderAmount < (float) $p['min_order_amount']) { return ['discount' => 0.0, 'row' => null, 'json' => null]; }
+
+        // Compute discount from type/value, cap by max_discount_amount and order.
+        $discount = ((string) $p['discount_type'] === 'percentage')
+            ? $orderAmount * ((float) $p['discount_value'] / 100)
+            : (float) $p['discount_value'];
+        if ($p['max_discount_amount'] !== null && (float) $p['max_discount_amount'] > 0) {
+            $discount = min($discount, (float) $p['max_discount_amount']);
+        }
+        $discount = round(max(0.0, min($discount, $orderAmount)), 2); // never exceed order
+
+        $json = json_encode([
+            'code' => $p['code'],
+            'discount_type' => $p['discount_type'],
+            'discount_value' => (float) $p['discount_value'],
+            'discount_amount' => $discount,
+            'max_discount_amount' => $p['max_discount_amount'] !== null ? (float) $p['max_discount_amount'] : null,
+            'description' => $p['description'] ?? null,
+            'module' => $p['module'] ?? null,
+        ]);
+        return ['discount' => $discount, 'row' => $p, 'json' => $json];
+    }
+}
+
+// ============================================================================
 // GET: Booking page with hash
 // GET /umrah/booking/{hash}
 // ============================================================================
@@ -333,20 +439,25 @@ $router->post('/api/umrah/booking/submit', function () use ($SECURE, $db) {
         }
         $bookingData = json_decode($booking['data'], true);
 
-        // GET PRICES FROM BOOKING DATA (prices are in draft currency)
-        $actualPrice = $bookingData['actual_total_umrah_price'] ?? 0;
-        $markupPrice = $bookingData['markup_total_umrah_price'] ?? 0;
-        $currency = $bookingData['currency'] ?? 'USD';
-
-        // USE PRICES FROM FRONTEND IF PROVIDED, OTHERWISE FROM BOOKING DATA
-        if ($subtotal == 0) {
-            $subtotal = $markupPrice;
+        // SECURITY (C2): recompute the price SERVER-SIDE from the umrah product
+        // row. NEVER trust actual_total_umrah_price / markup_total_umrah_price /
+        // subtotal / final_total from the client draft or request body.
+        $totalAdults   = (int) ($bookingData['total_adults'] ?? 1);
+        $totalChildren = (int) ($bookingData['total_children'] ?? 0);
+        $totalInfants  = (int) ($bookingData['total_infants'] ?? 0);
+        $priced = umrahLegacyServerPrice($db, $bookingData['umrah_id'] ?? 0, $totalAdults, $totalChildren, $totalInfants);
+        if (empty($priced['ok'])) {
+            throw new Exception($priced['message'] ?? 'Unable to price this booking');
         }
-        if ($finalTotal == 0) {
-            $finalTotal = $markupPrice + $taxAmount;
-        }
+        $actualPrice = $priced['actual'];   // authoritative net
+        $markupPrice = $priced['markup'];   // authoritative customer sell price
+        $currency    = $priced['currency'];
+        // Tax is recomputed authoritatively too (ignore any client tax_amount).
+        $taxAmount   = $priced['tax'];
+        $subtotal    = $markupPrice;
+        $finalTotal  = $markupPrice + $taxAmount;
 
-        // Use the draft/booking currency (what client was shown), not the system base
+        // Use the package currency (server truth), not a client-declared currency.
         $bookingCurrency = $currency;
 
         // GENERATE 8-CHARACTER UUID FOR INVOICE
@@ -359,18 +470,8 @@ $router->post('/api/umrah/booking/submit', function () use ($SECURE, $db) {
         // EXTRACT PRIMARY GUEST DETAILS
         $primaryGuest = $guestDetails['primary_guest'];
 
-        // COUNT ADULTS AND CHILDREN FROM BOOKING DATA
-        $totalAdults = $bookingData['total_adults'] ?? 1;
-        $totalChildren = $bookingData['total_children'] ?? 0;
-
-        // CALCULATE TAX DETAILS
+        // Tax info (tax_type) from the authoritative calc; $taxAmount already set.
         $taxInfo = calculateTax($markupPrice, 'umrah', $db);
-        $calculatedTaxAmount = $taxInfo['tax_amount'] ?? 0;
-
-        // USE TAX AMOUNT FROM FRONTEND IF PROVIDED
-        if ($taxAmount == 0) {
-            $taxAmount = $calculatedTaxAmount;
-        }
 
         // CALCULATE COMMISSION (MARKUP MINUS ACTUAL PRICE)
         $commission = $markupPrice - $actualPrice;
@@ -379,38 +480,26 @@ $router->post('/api/umrah/booking/submit', function () use ($SECURE, $db) {
         $finalTotalWithTax = $markupPrice + $taxAmount;
 
         // ============================================================================
-        // PRICES ARE ALREADY IN BASE CURRENCY (FROM FRONTEND)
+        // All prices above are SERVER-COMPUTED (base currency). No client trust.
         // ============================================================================
-        
         $actualPriceBase = $actualPrice;
         $markupPriceBase = $markupPrice;
         $taxAmountBase = $taxAmount;
         $commissionBase = $commission;
         $finalTotalWithTaxBase = $finalTotalWithTax;
 
-        // PROMO CODE HANDLING
+        // PROMO CODE HANDLING (C1): recompute the discount SERVER-SIDE from the
+        // promo_codes row; never trust the client-sent promo_discount amount.
         $promoCodeStr = trim($input['promo_code'] ?? '');
-        $promoDiscount = (float)($input['promo_discount'] ?? 0);
-        $promoCodeJson = null;
-        $promoData = null;
-        if (!empty($promoCodeStr) && $promoDiscount > 0) {
-            $promoData = $db->get('promo_codes', '*', ['code' => $promoCodeStr]);
-            if ($promoData) {
-                $promoCodeJson = json_encode([
-                    'code' => $promoData['code'],
-                    'discount_type' => $promoData['discount_type'],
-                    'discount_value' => floatval($promoData['discount_value']),
-                    'discount_amount' => $promoDiscount,
-                    'max_discount_amount' => $promoData['max_discount_amount'] ? floatval($promoData['max_discount_amount']) : null,
-                    'description' => $promoData['description'],
-                    'module' => $promoData['module']
-                ]);
-            }
-        }
+        $promo = umrahLegacyPromoDiscount($db, $promoCodeStr, $finalTotalWithTaxBase);
+        $promoDiscount = $promo['discount'];
+        $promoData = $promo['row'];
+        $promoCodeJson = $promo['json'];
 
-        // APPLY PROMO DISCOUNT TO FINAL TOTAL
+        // APPLY the server-computed discount (already floored to >=0 and <= order).
         if ($promoDiscount > 0 && $promoData) {
             $finalTotalWithTaxBase = round($finalTotalWithTaxBase - $promoDiscount, 2);
+            if ($finalTotalWithTaxBase < 0) { $finalTotalWithTaxBase = 0; }
         }
 
         // PREPARE TRAVELLERS JSON

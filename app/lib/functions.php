@@ -314,6 +314,21 @@ function ensureCoreFixSchema($db): void
         }
     }
 
+    // MONEY-INTEGRITY FIX (Umrah audit H2, platform-wide): the credits ledger
+    // amount column `credits.credits` shipped as int(11), silently rounding any
+    // decimal wallet debit/credit (agent-API booking charge, % service fee,
+    // refunds). Widen to DECIMAL(14,2). Idempotent: only runs while the column
+    // is still an integer type. Every reader already casts with (float)/intval,
+    // so widening is backward-compatible.
+    try {
+        $col = $db->query("SHOW COLUMNS FROM `credits` LIKE 'credits'")->fetch(\PDO::FETCH_ASSOC);
+        if ($col && isset($col['Type']) && stripos((string) $col['Type'], 'int') !== false) {
+            $db->pdo->exec("ALTER TABLE `credits` MODIFY `credits` DECIMAL(14,2) NOT NULL DEFAULT 0.00");
+        }
+    } catch (Throwable $e) {
+        error_log('ensureCoreFixSchema: could not widen credits.credits to DECIMAL: ' . $e->getMessage());
+    }
+
     // Classify each supplier module (real API / affiliate / own inventory /
     // stub) so the admin panel can badge it. Runs inside the same self-healing
     // pass; idempotent and seeds once. See ensureModulesBookingClass() below.
@@ -4546,57 +4561,66 @@ if (!function_exists('agent_api_charge_wallet')) {
     {
         $fee   = agent_api_service_fee($db, $userId, $service, $bookingAmount);
         $total = round($bookingAmount + $fee, 2);
-        $balance = agent_api_wallet_balance($db, $userId);
-
-        // Optional credit line: allow balance to go negative up to credit_limits.
-        $creditLimit = 0.0;
-        try {
-            $u = $db->get('users', ['credit_limits'], ['user_id' => $userId]);
-            $creditLimit = (float) ($u['credit_limits'] ?? 0);
-        } catch (\Throwable $e) { /* default 0 */ }
-
-        if (($balance + $creditLimit) < $total) {
-            return [
-                'ok'      => false,
-                'message' => 'Insufficient wallet balance.',
-                'balance' => $balance,
-                'fee'     => $fee,
-                'required'=> $total,
-            ];
-        }
-
         $now = date('Y-m-d H:i:s');
         $currency = (string) ($GLOBALS['app']['default_currency'] ?? 'USD');
+        $bookingDesc = 'API booking ' . $invoiceId . ' (' . $service . ')';
+        $feeDesc     = 'API service fee ' . $invoiceId . ' (' . $service . ')';
+
+        // IDEMPOTENCY (audit H3): a retried/duplicate charge for the SAME invoice
+        // must not double-debit. If a booking debit for this invoice already
+        // exists, treat the charge as already applied (no-op success).
         try {
-            $db->insert('credits', [
-                'user_id'     => $userId,
-                'type'        => 'debit',
-                'credits'     => $bookingAmount,
-                'currency'    => $currency,
-                'description' => 'API booking ' . $invoiceId . ' (' . $service . ')',
-                'created_at'  => $now,
+            $already = $db->get('credits', 'id', [
+                'user_id' => $userId, 'type' => 'debit', 'description' => $bookingDesc,
             ]);
-            if ($fee > 0) {
-                $db->insert('credits', [
-                    'user_id'     => $userId,
-                    'type'        => 'debit',
-                    'credits'     => $fee,
-                    'currency'    => $currency,
-                    'description' => 'API service fee ' . $invoiceId . ' (' . $service . ')',
-                    'created_at'  => $now,
-                ]);
+            if ($already) {
+                $bal = agent_api_wallet_balance($db, $userId);
+                return ['ok' => true, 'charged' => $total, 'fee' => $fee, 'new_balance' => $bal, 'idempotent' => true];
             }
+        } catch (\Throwable $e) { /* fall through to charge */ }
+
+        // ATOMIC (audit H3): balance check + both debit rows run inside ONE
+        // transaction so a mid-charge failure can never post the booking debit
+        // while losing the fee debit (no orphaned debit). Rolls back on any error.
+        $result = ['ok' => false, 'message' => 'Wallet charge failed.'];
+        try {
+            $db->action(function ($db) use (
+                $userId, $service, $bookingAmount, $fee, $total, $currency, $now,
+                $bookingDesc, $feeDesc, &$result
+            ) {
+                // Re-read balance inside the transaction.
+                $balance = agent_api_wallet_balance($db, $userId);
+                $creditLimit = 0.0;
+                try {
+                    $u = $db->get('users', ['credit_limits'], ['user_id' => $userId]);
+                    $creditLimit = (float) ($u['credit_limits'] ?? 0);
+                } catch (\Throwable $e) { /* default 0 */ }
+
+                if (($balance + $creditLimit) < $total) {
+                    $result = ['ok' => false, 'message' => 'Insufficient wallet balance.', 'balance' => $balance, 'fee' => $fee, 'required' => $total];
+                    return false; // rollback (nothing written yet)
+                }
+
+                $db->insert('credits', [
+                    'user_id' => $userId, 'type' => 'debit', 'credits' => round($bookingAmount, 2),
+                    'currency' => $currency, 'description' => $bookingDesc, 'created_at' => $now,
+                ]);
+                if ($fee > 0) {
+                    $db->insert('credits', [
+                        'user_id' => $userId, 'type' => 'debit', 'credits' => round($fee, 2),
+                        'currency' => $currency, 'description' => $feeDesc, 'created_at' => $now,
+                    ]);
+                }
+
+                $result = ['ok' => true, 'charged' => $total, 'fee' => $fee, 'new_balance' => round($balance - $total, 2)];
+                return true; // commit
+            });
         } catch (\Throwable $e) {
             error_log('agent_api_charge_wallet: ' . $e->getMessage());
-            return ['ok' => false, 'message' => 'Wallet charge failed.', 'balance' => $balance, 'fee' => $fee, 'required' => $total];
+            return ['ok' => false, 'message' => 'Wallet charge failed.', 'fee' => $fee, 'required' => $total];
         }
 
-        return [
-            'ok'          => true,
-            'charged'     => $total,
-            'fee'         => $fee,
-            'new_balance' => round($balance - $total, 2),
-        ];
+        return $result;
     }
 }
 
@@ -4676,6 +4700,8 @@ if (!function_exists('ensureUmrahSchema')) {
                 `tier_id` int(11) NOT NULL,
                 `regular_price` decimal(14,2) DEFAULT NULL,
                 `promo_price` decimal(14,2) DEFAULT NULL,
+                `b2b_net_price` decimal(14,2) DEFAULT NULL,
+                `b2b_promo_price` decimal(14,2) DEFAULT NULL,
                 `promo_start` datetime DEFAULT NULL,
                 `promo_end` datetime DEFAULT NULL,
                 `promo_active` tinyint(1) NOT NULL DEFAULT 0,
@@ -4689,6 +4715,16 @@ if (!function_exists('ensureUmrahSchema')) {
                 UNIQUE KEY `uq_departure_tier` (`departure_id`,`tier_id`),
                 KEY `idx_departure` (`departure_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+            // Idempotent add of B2B columns for EXISTING installs (CREATE IF NOT
+            // EXISTS will not alter a pre-existing table). Safe to run every boot.
+            foreach (['b2b_net_price', 'b2b_promo_price'] as $__b2bCol) {
+                try {
+                    $has = $db->query("SHOW COLUMNS FROM `umrah_departure_tiers` LIKE '{$__b2bCol}'")->fetch();
+                    if (!$has) {
+                        $db->query("ALTER TABLE `umrah_departure_tiers` ADD COLUMN `{$__b2bCol}` decimal(14,2) DEFAULT NULL AFTER `promo_price`");
+                    }
+                } catch (\Throwable $e) { error_log('ensureUmrahSchema b2b col: ' . $e->getMessage()); }
+            }
 
             $db->query("CREATE TABLE IF NOT EXISTS `umrah_payment_plans` (
                 `id` int(11) NOT NULL AUTO_INCREMENT,
@@ -4980,6 +5016,45 @@ if (!function_exists('ensureUmrahSchema')) {
                 KEY `idx_departure` (`departure_id`),
                 KEY `idx_status` (`status`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            // Customize / Personalize-a-trip quote requests (Phase 3). A customer
+            // builds a bespoke Umrah (days in Madinah/Makkah, extend weeks, extra
+            // Ziyarah, tier, add-ons) and submits; staff respond with a quote.
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_quote_requests` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `request_ref` varchar(40) NOT NULL,
+                `user_id` varchar(255) DEFAULT NULL,
+                `template_id` int(11) DEFAULT NULL,
+                `departure_id` int(11) DEFAULT NULL,
+                `origin_city` varchar(120) DEFAULT NULL,
+                `preferred_month` varchar(32) DEFAULT NULL,
+                `preferred_date` date DEFAULT NULL,
+                `tier_code` varchar(32) DEFAULT NULL,
+                `pax` int(11) NOT NULL DEFAULT 1,
+                `madinah_nights` smallint(6) DEFAULT NULL,
+                `makkah_nights` smallint(6) DEFAULT NULL,
+                `total_weeks` smallint(6) DEFAULT NULL,
+                `ziyarah` text DEFAULT NULL,
+                `addons` text DEFAULT NULL,
+                `options` longtext DEFAULT NULL,
+                `notes` text DEFAULT NULL,
+                `name` varchar(160) DEFAULT NULL,
+                `email` varchar(160) DEFAULT NULL,
+                `phone` varchar(64) DEFAULT NULL,
+                `status` enum('new','in_review','quoted','converted','closed') NOT NULL DEFAULT 'new',
+                `quote_amount` decimal(14,2) DEFAULT NULL,
+                `quote_currency` varchar(10) DEFAULT NULL,
+                `staff_note` text DEFAULT NULL,
+                `handled_by` varchar(255) DEFAULT NULL,
+                `quoted_at` datetime DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_request_ref` (`request_ref`),
+                KEY `idx_status` (`status`),
+                KEY `idx_user` (`user_id`),
+                KEY `idx_created` (`created_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
         } catch (\Throwable $e) {
             error_log('ensureUmrahSchema: ' . $e->getMessage());
         }
@@ -4987,13 +5062,13 @@ if (!function_exists('ensureUmrahSchema')) {
 }
 
 /**
- * UMRAH REDESIGN — Phase 1 seed data (idempotent).
- * See docs/UMRAH-PHASE1-BUILD-PLAN.md §7. Seeds the NORMAL-14D template, 5 tiers
- * (Standard bookable; premium tiers as not-bookable placeholders), the
- * PP-50-25-25 + PP-FULL plans, and the six Oct–Dec 2026 departures as DRAFT with
- * a Standard departure-tier (promo 2,490,000 / regular 2,800,000 / cap 50).
- * Departures seed as DRAFT — publishing requires confirmed inventory (spec).
- * Every insert is guarded so re-running is a no-op.
+ * UMRAH REDESIGN — seed data (idempotent). Phase 3 update.
+ * Seeds the NORMAL-14D template, 5 BOOKABLE tiers (Standard + VIP/VVIP/VVVIP/
+ * VVVVIP, premium priced via placeholder multipliers off the Standard promo),
+ * the PP-50-25-25 + PP-FULL plans, and GoGlobia's 5 real PUBLISHED 14-day
+ * Kano departures (Oct 6 / Oct 17 / Oct 20 / Nov 17 / Dec 8 2026), each with a
+ * full set of active departure-tiers. Every insert is guarded so re-running is
+ * a no-op; pre-seeded premium tiers are upgraded to bookable in place.
  */
 if (!function_exists('seedUmrahPhase1')) {
     function seedUmrahPhase1($db): void
@@ -5026,14 +5101,17 @@ if (!function_exists('seedUmrahPhase1')) {
             }
             $tplId = (int) $tplId;
 
-            // --- Tiers ---
+            // --- Tiers --- (all 5 bookable; premium tiers are now priced)
+            // cols: code, name, public_label, sort_order, occupancy, room_sharing,
+            //       bookable, price_multiplier (x Standard promo 2,490,000)
             $tiers = [
-                ['standard','Standard Economy','Standard Economy',1,5,'4-5 sharing',1],
-                ['vip','VIP Comfort','VIP Comfort',2,4,'Quad sharing',0],
-                ['vvip','VVIP Premium','VVIP Premium',3,3,'Triple sharing',0],
-                ['vvvip','VVVIP Executive','VVVIP Executive',4,2,'Double sharing',0],
-                ['vvvvip','VVVVIP Luxury','VVVVIP Luxury',5,1,'Private single/double',0],
+                ['standard','Standard Economy','Standard Economy',1,5,'4-5 sharing',1,1.00],
+                ['vip','VIP Comfort','VIP Comfort',2,4,'Quad sharing',1,1.30],
+                ['vvip','VVIP Premium','VVIP Premium',3,3,'Triple sharing',1,1.60],
+                ['vvvip','VVVIP Executive','VVVIP Executive',4,2,'Double sharing',1,2.00],
+                ['vvvvip','VVVVIP Luxury','VVVVIP Luxury',5,1,'Private single/double',1,2.60],
             ];
+            $tierMultiplier = [];
             foreach ($tiers as $t) {
                 if (!$db->get('umrah_tiers', 'id', ['code' => $t[0]])) {
                     $db->insert('umrah_tiers', [
@@ -5041,7 +5119,11 @@ if (!function_exists('seedUmrahPhase1')) {
                         'sort_order' => $t[3], 'default_occupancy' => $t[4], 'room_sharing' => $t[5],
                         'bookable' => $t[6], 'status' => 1, 'created_at' => date('Y-m-d H:i:s'),
                     ]);
+                } else {
+                    // Upgrade pre-seeded premium tiers to bookable (Phase 3).
+                    $db->update('umrah_tiers', ['bookable' => $t[6]], ['code' => $t[0]]);
                 }
+                $tierMultiplier[$t[0]] = (float) $t[7];
             }
             $standardTierId = (int) $db->get('umrah_tiers', 'id', ['code' => 'standard']);
 
@@ -5064,37 +5146,48 @@ if (!function_exists('seedUmrahPhase1')) {
                 ]);
             }
 
-            // --- Departures (draft) + Standard departure-tier ---
+            // --- Departures (PUBLISHED, Kano) + ALL FIVE departure-tiers ---
+            // GoGlobia's real open 14-day departures (owner-confirmed), all ex-Kano.
+            // Base prices: Standard regular 2,800,000 / promo 2,490,000 NGN; premium
+            // tiers scale off the Standard PROMO by the per-tier multiplier seeded
+            // above (placeholder pricing — editable in the admin manager).
+            $STD_REGULAR = 2800000.00;
+            $STD_PROMO   = 2490000.00;
             $departures = [
-                ['UMR-20261012-STD','2026-10-12','2026-10-26','October 2026'],
-                ['UMR-20261028-STD','2026-10-28','2026-11-11','October 2026'],
-                ['UMR-20261112-STD','2026-11-12','2026-11-26','November 2026'],
-                ['UMR-20261128-STD','2026-11-28','2026-12-12','November 2026'],
-                ['UMR-20261212-STD','2026-12-12','2026-12-26','December 2026'],
-                ['UMR-20261228-STD','2026-12-28','2027-01-11','December 2026'],
+                ['UMR-20261006-KAN','2026-10-06','2026-10-20','October 2026'],
+                ['UMR-20261017-KAN','2026-10-17','2026-10-31','October 2026'],
+                ['UMR-20261020-KAN','2026-10-20','2026-11-03','October 2026'],
+                ['UMR-20261117-KAN','2026-11-17','2026-12-01','November 2026'],
+                ['UMR-20261208-KAN','2026-12-08','2026-12-22','December 2026'],
             ];
+            // All tiers, keyed by code → tier id, for per-departure fan-out.
+            $allTierRows = $db->select('umrah_tiers', ['id', 'code'], ['status' => 1]) ?: [];
             foreach ($departures as $d) {
                 $depId = $db->get('umrah_departures', 'id', ['code' => $d[0]]);
                 if (!$depId) {
                     $db->insert('umrah_departures', [
                         'template_id' => $tplId, 'code' => $d[0],
                         'departure_date' => $d[1], 'return_date' => $d[2], 'month_bucket' => $d[3],
-                        'origin_city' => null, 'capacity' => 50, 'low_stock_threshold' => 10,
-                        'display_inventory_count' => 0, 'status' => 'draft',
+                        'origin_city' => 'Kano', 'capacity' => 50, 'low_stock_threshold' => 10,
+                        'display_inventory_count' => 0, 'status' => 'published',
                         'created_at' => date('Y-m-d H:i:s'),
                     ]);
                     $depId = (int) $db->id();
                 }
                 $depId = (int) $depId;
-                // Standard departure-tier for this departure
-                if ($standardTierId && !$db->get('umrah_departure_tiers', 'id', ['departure_id' => $depId, 'tier_id' => $standardTierId])) {
-                    $db->insert('umrah_departure_tiers', [
-                        'departure_id' => $depId, 'tier_id' => $standardTierId,
-                        'regular_price' => 2800000.00, 'promo_price' => 2490000.00,
-                        'promo_active' => 1, 'currency' => 'NGN',
-                        'tier_capacity' => 50, 'booking_mode' => 'instant', 'status' => 'draft',
-                        'created_at' => date('Y-m-d H:i:s'),
-                    ]);
+                // One departure-tier per tier (Standard + VIP…VVVVIP), all active.
+                foreach ($allTierRows as $tr) {
+                    $mult = $tierMultiplier[$tr['code']] ?? 1.00;
+                    if (!$db->get('umrah_departure_tiers', 'id', ['departure_id' => $depId, 'tier_id' => (int) $tr['id']])) {
+                        $db->insert('umrah_departure_tiers', [
+                            'departure_id' => $depId, 'tier_id' => (int) $tr['id'],
+                            'regular_price' => round($STD_REGULAR * $mult, 2),
+                            'promo_price'   => round($STD_PROMO * $mult, 2),
+                            'promo_active'  => 1, 'currency' => 'NGN',
+                            'tier_capacity' => 50, 'booking_mode' => 'instant', 'status' => 'active',
+                            'created_at' => date('Y-m-d H:i:s'),
+                        ]);
+                    }
                 }
             }
         } catch (\Throwable $e) {

@@ -1,6 +1,7 @@
 <?php
-// UMRAH v2 — package detail + booking wizard (docs §12/§14). Mobile-first.
-// Expects: $template, $departures, $selectedDepartureId, $plans.
+// UMRAH v2 — package detail + booking wizard (tier-aware). Mobile-first.
+// Expects: $template, $departures, $departureTiers (dep_id => [tiers]),
+//          $selectedDepartureId, $plans.
 @$SECURE or die('Access Denied!');
 $brand = $GLOBALS['app']['business_name'] ?? 'GoGlobia';
 $wa = preg_replace('/[^0-9]/', '', (string) ($GLOBALS['app']['contact_phone'] ?? ''));
@@ -8,25 +9,29 @@ $waLink = $wa ? ('https://wa.me/' . $wa) : '#';
 $fmt = fn($n) => '₦' . number_format((float) $n, 0);
 $madinah = (int) ($template['madinah_nights'] ?? 4);
 $makkah  = (int) ($template['makkah_nights'] ?? 10);
+$slug = $template['slug'] ?? 'normal-umrah-14-day';
 $csrf = $_SESSION['csrf_token'] ?? '';
 $apiBase = root . 'api/v1/umrah';
-// Build a JS-friendly departures array (id → tier + price + availability)
+$departureTiers = $departureTiers ?? [];
+
+// Departures for the selector (id → dates/city/label).
 $depJs = [];
 foreach ($departures as $d) {
     $depJs[] = [
         'departure_id' => $d['departure_id'],
-        'departure_tier_id' => $d['departure_tier_id'],
-        'label' => date('d M', strtotime($d['departure_date'])) . ' → ' . date('d M Y', strtotime($d['return_date'])),
-        'month' => $d['month_bucket'],
-        'unit_price' => $d['unit_price'],
-        'currency' => $d['currency'],
-        'availability' => $d['availability'],
-        'room_sharing' => $d['room_sharing'],
+        'city'   => $d['origin_city'] ?? 'Kano',
+        'label'  => date('d M', strtotime($d['departure_date'])) . ' → ' . date('d M Y', strtotime($d['return_date'])),
+        'month'  => $d['month_bucket'],
     ];
 }
 $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $plans);
 ?>
-<div class="bg-white" x-data="umrahBooking()" x-init="init(<?= htmlspecialchars(json_encode($depJs), ENT_QUOTES) ?>, <?= (int) $selectedDepartureId ?>, <?= htmlspecialchars(json_encode($plansJs), ENT_QUOTES) ?>)">
+<div class="bg-white" x-data="umrahBooking()"
+     x-init="init(
+        <?= htmlspecialchars(json_encode($depJs), ENT_QUOTES) ?>,
+        <?= htmlspecialchars(json_encode($departureTiers, JSON_FORCE_OBJECT), ENT_QUOTES) ?>,
+        <?= (int) $selectedDepartureId ?>,
+        <?= htmlspecialchars(json_encode($plansJs), ENT_QUOTES) ?>)">
   <div class="container py-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
 
     <!-- MAIN -->
@@ -47,6 +52,36 @@ $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $pl
             </button>
           </template>
         </div>
+      </div>
+
+      <!-- Tier selector -->
+      <div class="section">
+        <div class="section-header"><h2>Choose your comfort tier</h2></div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <template x-for="t in currentTiers" :key="t.departure_tier_id">
+            <button type="button" @click="selectTier(t.departure_tier_id)"
+              :disabled="t.availability==='sold_out'"
+              :class="[
+                t.departure_tier_id === selectedTierId ? 'border-primary ring-1 ring-primary/40' : 'border-gray-200',
+                t.availability==='sold_out' ? 'opacity-50 cursor-not-allowed' : 'hover:border-primary'
+              ]"
+              class="text-left border rounded-xl p-4 transition-colors bg-white">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-gray-900" x-text="t.tier_label"></span>
+                <span class="badge"
+                  :class="t.availability==='sold_out' ? 'badge-error' : (t.availability==='limited' ? 'badge-warning' : 'badge-success')"
+                  x-text="t.availability==='sold_out' ? 'Sold out' : (t.availability==='limited' ? 'Limited' : 'Available')"></span>
+              </div>
+              <div class="text-sm text-gray-500 mt-0.5" x-text="t.room_sharing"></div>
+              <div class="mt-2 flex items-baseline gap-2">
+                <span class="text-xl font-extrabold text-gray-900" x-text="money(t.unit_price)"></span>
+                <template x-if="t.regular && t.regular > t.unit_price"><span class="text-sm text-gray-400 line-through" x-text="money(t.regular)"></span></template>
+                <span class="text-xs text-gray-500">/ pilgrim</span>
+              </div>
+            </button>
+          </template>
+        </div>
+        <p class="text-xs text-gray-500 mt-3">Prices are per pilgrim. Need a bespoke plan? <a class="text-primary" href="<?= root ?>umrah/customize?departure=<?= (int) $selectedDepartureId ?>">Customize this Umrah</a>.</p>
       </div>
 
       <!-- Inclusions -->
@@ -74,11 +109,12 @@ $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $pl
       <div id="book" class="card border lg:sticky lg:top-24">
         <h2 class="text-lg font-bold text-gray-900 mb-3">Book this Umrah</h2>
 
-        <template x-if="currentDeparture">
+        <template x-if="currentTier">
           <div>
-            <div class="text-sm text-gray-600" x-text="currentDeparture.label"></div>
+            <div class="text-sm text-gray-600" x-text="currentDeparture ? currentDeparture.label : ''"></div>
+            <div class="text-xs text-primary font-semibold mt-0.5" x-text="currentTier.tier_label"></div>
             <div class="mt-1 flex items-baseline gap-2">
-              <span class="text-2xl font-extrabold text-gray-900" x-text="money(currentDeparture.unit_price)"></span>
+              <span class="text-2xl font-extrabold text-gray-900" x-text="money(currentTier.unit_price)"></span>
               <span class="text-xs text-gray-500">per pilgrim</span>
             </div>
 
@@ -100,15 +136,15 @@ $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $pl
               <input class="input" placeholder="WhatsApp / phone" x-model="lead.phone">
             </div>
 
-            <button class="btn w-full justify-center mt-4" :disabled="busy" @click="startBooking()"
+            <button class="btn w-full justify-center mt-4" :disabled="busy || currentTier.availability==='sold_out'" @click="startBooking()"
               x-text="busy ? 'Please wait…' : 'Continue to secure your seat'"></button>
             <p class="text-xs text-gray-500 mt-2" x-show="msg" x-text="msg"></p>
             <p class="text-xs text-gray-400 mt-2">A 20-minute seat hold is created when you continue. Your price locks once the qualifying payment clears.</p>
           </div>
         </template>
 
-        <template x-if="!currentDeparture">
-          <p class="text-sm text-gray-600">Select a departure to see pricing and book. Or <a class="text-primary" href="<?= htmlspecialchars($waLink) ?>" target="_blank">chat with us</a>.</p>
+        <template x-if="!currentTier">
+          <p class="text-sm text-gray-600">Select a departure and tier to see pricing and book. Or <a class="text-primary" href="<?= htmlspecialchars($waLink) ?>" target="_blank">chat with us</a>.</p>
         </template>
       </div>
     </div>
@@ -120,29 +156,53 @@ function umrahBooking() {
   return {
     apiBase: '<?= $apiBase ?>',
     csrf: '<?= htmlspecialchars($csrf, ENT_QUOTES) ?>',
-    departures: [], plans: [], selectedId: 0, pax: 1, plan: 'PP-50-25-25',
+    departures: [], tiersByDep: {}, plans: [],
+    selectedId: 0, selectedTierId: 0,
+    pax: 1, plan: 'PP-50-25-25',
     total: 0, busy: false, msg: '', step: 'select',
     lead: { name: '', email: '', phone: '' },
     quote: null, hold: null,
-    init(deps, sel, plans) {
-      this.departures = deps || []; this.plans = plans || [];
+    init(deps, tiersByDep, sel, plans) {
+      this.departures = deps || [];
+      this.tiersByDep = tiersByDep || {};
+      this.plans = plans || [];
       this.selectedId = sel || (this.departures[0] ? this.departures[0].departure_id : 0);
+      this.pickFirstTier();
       this.recalc();
     },
     get currentDeparture() { return this.departures.find(d => d.departure_id === this.selectedId) || null; },
+    get currentTiers() { return this.tiersByDep[this.selectedId] || []; },
+    get currentTier() { return this.currentTiers.find(t => t.departure_tier_id === this.selectedTierId) || null; },
     money(n) { return '₦' + Number(n||0).toLocaleString('en-NG'); },
-    selectDeparture(id) { this.selectedId = id; this.quote = null; this.hold = null; this.recalc(); },
-    recalc() { if (this.pax < 1) this.pax = 1; if (this.pax > 10) this.pax = 10; const d = this.currentDeparture; this.total = d ? d.unit_price * this.pax : 0; },
+    pickFirstTier() {
+      const list = this.currentTiers;
+      const firstBookable = list.find(t => t.availability !== 'sold_out') || list[0];
+      this.selectedTierId = firstBookable ? firstBookable.departure_tier_id : 0;
+    },
+    selectDeparture(id) { this.selectedId = id; this.quote = null; this.hold = null; this.pickFirstTier(); this.recalc(); },
+    selectTier(tierId) { this.selectedTierId = tierId; this.quote = null; this.hold = null; this.recalc(); },
+    recalc() {
+      if (this.pax < 1) this.pax = 1; if (this.pax > 10) this.pax = 10;
+      const t = this.currentTier;
+      this.total = t ? t.unit_price * this.pax : 0;
+    },
     async post(url, body) {
-      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      // Send the CSRF token (header + body) — the v1 API requires it for
+      // cookie/session (browser) requests (audit M1).
+      const payload = Object.assign({ csrf_token: this.csrf }, body);
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrf },
+        body: JSON.stringify(payload)
+      });
       return r.json();
     },
     async startBooking() {
-      const d = this.currentDeparture; if (!d) return;
+      const t = this.currentTier; if (!t) return;
       if (!this.lead.name || (!this.lead.email && !this.lead.phone)) { this.msg = 'Please enter your name and email or phone.'; return; }
       this.busy = true; this.msg = 'Reserving your seat…';
       try {
-        const q = await this.post(this.apiBase + '/quotes', { departure_tier_id: d.departure_tier_id, pax: this.pax });
+        const q = await this.post(this.apiBase + '/quotes', { departure_tier_id: t.departure_tier_id, pax: this.pax });
         if (!q.success) { this.msg = q.message || 'Could not create quote'; this.busy = false; return; }
         this.quote = q.quote;
         const h = await this.post(this.apiBase + '/holds', { quote_ref: q.quote.quote_ref });
@@ -155,7 +215,6 @@ function umrahBooking() {
           email: this.lead.email, phone: this.lead.phone
         });
         if (!b.success) { this.msg = b.message || 'Booking failed'; this.busy = false; return; }
-        // Go to confirmation / payment page.
         window.location.href = '<?= root ?>umrah/booking/' + b.booking.booking_ref;
       } catch (e) { this.msg = 'Something went wrong. Please try again.'; this.busy = false; }
     }
