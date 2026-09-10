@@ -46,6 +46,40 @@ if (!function_exists('umrah_ref')) {
     }
 }
 
+if (!function_exists('umrah_is_agent')) {
+    /** True when the current request actor is a logged-in agent (B2B). */
+    function umrah_is_agent(): bool
+    {
+        return strtolower((string) ($_SESSION['user_role'] ?? '')) === 'agent';
+    }
+}
+
+if (!function_exists('umrah_b2c_unit_price')) {
+    /**
+     * The B2C (customer-facing) unit sell price for a departure-tier, ignoring
+     * any agent B2B rate. This is always the price a pilgrim pays and the basis
+     * for the agent's earning (B2C − B2B net). Mirrors the direct-sell precedence
+     * (promo-in-window → regular → 0).
+     */
+    function umrah_b2c_unit_price(array $dt): float
+    {
+        $now = time();
+        $promoActive = (int) ($dt['promo_active'] ?? 0) === 1
+            && $dt['promo_price'] !== null && (float) $dt['promo_price'] > 0;
+        if ($promoActive) {
+            $start = !empty($dt['promo_start']) ? strtotime((string) $dt['promo_start']) : null;
+            $end   = !empty($dt['promo_end'])   ? strtotime((string) $dt['promo_end'])   : null;
+            if (($start === null || $now >= $start) && ($end === null || $now <= $end)) {
+                return (float) $dt['promo_price'];
+            }
+        }
+        if ($dt['regular_price'] !== null && (float) $dt['regular_price'] > 0) {
+            return (float) $dt['regular_price'];
+        }
+        return 0.0;
+    }
+}
+
 if (!function_exists('umrah_price_resolve')) {
     /**
      * Resolve the UNIT price for a departure-tier by the spec §8.2 precedence:
@@ -58,12 +92,45 @@ if (!function_exists('umrah_price_resolve')) {
      * CRITICAL (§8.3): a direct sell price is used VERBATIM — MARKUP() is NOT
      * applied on top of it (that was the legacy double-markup bug).
      *
-     * @return array{unit:float, currency:string, source:string, promo:array|null}
+     * AGENT B2B (spec §35.1): when the actor is an agent AND the departure-tier
+     * carries a B2B net rate (b2b_promo_price preferred, else b2b_net_price), the
+     * agent transacts at that NET price. The B2C sell price is still surfaced
+     * (as `b2c_unit`) so the booking can record agent_earning = (B2C − net) × pax.
+     * Customer-facing receipts must never show the net/margin (spec §35).
+     *
+     * @param bool|null $forAgent  null → auto-detect via session role.
+     * @return array{unit:float, currency:string, source:string, promo:array|null,
+     *               b2c_unit:float, is_agent:bool}
      */
-    function umrah_price_resolve($db, array $dt): array
+    function umrah_price_resolve($db, array $dt, ?bool $forAgent = null): array
     {
         $currency = strtoupper(trim((string) ($dt['currency'] ?? 'NGN'))) ?: 'NGN';
         $now = time();
+        $isAgent = ($forAgent === null) ? umrah_is_agent() : $forAgent;
+        $b2cUnit = umrah_b2c_unit_price($dt);
+
+        // AGENT B2B net rate — takes precedence for agents when set. Prefer the
+        // B2B promo net, else the B2B net. 0/NULL means "no special agent rate"
+        // → agent pays B2C (agent_earning = 0).
+        if ($isAgent) {
+            $b2bNet = null;
+            if (isset($dt['b2b_promo_price']) && $dt['b2b_promo_price'] !== null && (float) $dt['b2b_promo_price'] > 0) {
+                $b2bNet = (float) $dt['b2b_promo_price'];
+            } elseif (isset($dt['b2b_net_price']) && $dt['b2b_net_price'] !== null && (float) $dt['b2b_net_price'] > 0) {
+                $b2bNet = (float) $dt['b2b_net_price'];
+            }
+            if ($b2bNet !== null && $b2cUnit > 0) {
+                return [
+                    'unit'     => $b2bNet,
+                    'currency' => $currency,
+                    'source'   => 'departure_tier_b2b_net',
+                    'promo'    => null,
+                    'b2c_unit' => $b2cUnit,
+                    'is_agent' => true,
+                ];
+            }
+            // No B2B rate → fall through to B2C pricing (agent pays B2C).
+        }
 
         $promoActive = (int) ($dt['promo_active'] ?? 0) === 1
             && $dt['promo_price'] !== null && (float) $dt['promo_price'] > 0;
@@ -84,13 +151,15 @@ if (!function_exists('umrah_price_resolve')) {
                         'savings'   => ($regular !== null) ? round($regular - $promo, 2) : null,
                         'savings_pct' => ($regular > 0) ? round((($regular - $promo) / $regular) * 100, 2) : null,
                     ],
+                    'b2c_unit' => $b2cUnit,
+                    'is_agent' => $isAgent,
                 ];
             }
         }
 
         // 2. departure-tier regular direct price
         if ($dt['regular_price'] !== null && (float) $dt['regular_price'] > 0) {
-            return ['unit' => (float) $dt['regular_price'], 'currency' => $currency, 'source' => 'departure_tier_regular', 'promo' => null];
+            return ['unit' => (float) $dt['regular_price'], 'currency' => $currency, 'source' => 'departure_tier_regular', 'promo' => null, 'b2c_unit' => $b2cUnit, 'is_agent' => $isAgent];
         }
 
         // 4/5. cost + markup fallback (only when NO direct price is set). Uses the
@@ -108,11 +177,11 @@ if (!function_exists('umrah_price_resolve')) {
             $module = $db->get('modules', '*', ['name' => 'umrah', 'type' => 'umrah']);
             $marked = MARKUP($base, $module ?: null, $db, $currency, $currency);
             $unit = (!empty($marked['price']) && $marked['price'] > 0) ? (float) $marked['price'] : $base;
-            return ['unit' => round($unit, 2), 'currency' => $currency, 'source' => 'cost_plus_markup', 'promo' => null];
+            return ['unit' => round($unit, 2), 'currency' => $currency, 'source' => 'cost_plus_markup', 'promo' => null, 'b2c_unit' => round($unit, 2), 'is_agent' => $isAgent];
         }
 
         // Nothing priced → 0 (caller treats as not-bookable/quote-required).
-        return ['unit' => 0.0, 'currency' => $currency, 'source' => 'unpriced', 'promo' => null];
+        return ['unit' => 0.0, 'currency' => $currency, 'source' => 'unpriced', 'promo' => null, 'b2c_unit' => 0.0, 'is_agent' => $isAgent];
     }
 }
 
@@ -461,6 +530,20 @@ if (!function_exists('umrah_booking_create')) {
         $pax      = (int) $quote['pax'];
         $userId   = (string) ($lead['user_id'] ?? ($_SESSION['user_id'] ?? ''));
 
+        // Agent earning (spec §35.1): for an agent booking where the tier carries
+        // a B2B net rate, the quote total is the agent NET. The agent earns the
+        // margin between the B2C sell price and what they paid:
+        //   agent_earning = (B2C_unit − net_unit) × pax  (>= 0).
+        // For non-agents or tiers with no B2B rate this is 0. Recomputed from the
+        // live departure-tier (not a client value) so it cannot be tampered.
+        $agentEarning = 0.0;
+        if (umrah_is_agent()) {
+            $b2cUnit  = umrah_b2c_unit_price($dt);
+            $paidUnit = ($pax > 0) ? ($total / $pax) : $total;
+            $marginUnit = $b2cUnit - $paidUnit;
+            if ($marginUnit > 0) { $agentEarning = round($marginUnit * $pax, 2); }
+        }
+
         $schedule = umrah_payment_schedule($db, $planCode, $total, (string) ($departure['departure_date'] ?? date('Y-m-d')));
         $amountDueNow = $schedule['installments'][0]['amount'] ?? $total;
 
@@ -495,17 +578,10 @@ if (!function_exists('umrah_booking_create')) {
         try {
             $db->action(function ($db) use (
                 $invoiceId, $bookingRef, $userId, $departure, $dt, $pax, $currency, $total,
-                $planCode, $snapshot, $schedule, $lead, $holdId, $now, $quote, &$result
+                $planCode, $snapshot, $schedule, $lead, $holdId, $now, $quote, $agentEarning, &$result
             ) {
-                // Agent earning: the Phase 1 pricing model is DIRECT SELL
-                // (regular_price / promo_price bypass MARKUP by design, spec §8.3
-                // "no double markup"). There is therefore no B2B markup component
-                // to record as commission on this path. A per-departure-tier B2B
-                // net rate (spec §35.1) is a future feature; until that column
-                // ships, agent_earning is 0 here (a direct-sell price has no
-                // margin the platform earns on the agent). Kept explicit so the
-                // intent is unambiguous.
-                $agentEarning = 0;
+                // $agentEarning computed above: (B2C − agent net) × pax for agent
+                // bookings on tiers with a B2B rate; 0 otherwise (direct-sell).
 
                 // 1. Generic bookings row (payment/invoice of record).
                 $db->insert('bookings', [
