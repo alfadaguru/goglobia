@@ -30100,6 +30100,231 @@ CREATE TABLE IF NOT EXISTS `agent_api_usage` (
   KEY `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- --------------------------------------------------------
+-- Umrah redesign (docs/UMRAH-PHASE1-BUILD-PLAN.md) — departure/tier/quote/hold/
+-- installment domain. Also created + seeded at runtime by ensureUmrahSchema() /
+-- seedUmrahPhase1(); kept here so fresh installs get the tables. Seed data is
+-- applied by seedUmrahPhase1() at first boot.
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `umrah_package_templates` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `code` varchar(64) NOT NULL,
+  `slug` varchar(191) NOT NULL,
+  `name` varchar(250) NOT NULL,
+  `season` varchar(32) NOT NULL DEFAULT 'normal',
+  `marketing_duration` varchar(64) DEFAULT NULL,
+  `madinah_nights` smallint(6) NOT NULL DEFAULT 0,
+  `makkah_nights` smallint(6) NOT NULL DEFAULT 0,
+  `itinerary_order` text DEFAULT NULL,
+  `inclusions` longtext DEFAULT NULL,
+  `rooming_note` text DEFAULT NULL,
+  `meta_title` varchar(250) DEFAULT NULL,
+  `meta_description` text DEFAULT NULL,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_code` (`code`),
+  UNIQUE KEY `uq_slug` (`slug`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `umrah_tiers` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `code` varchar(32) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `public_label` varchar(120) DEFAULT NULL,
+  `sort_order` smallint(6) NOT NULL DEFAULT 0,
+  `default_occupancy` smallint(6) NOT NULL DEFAULT 1,
+  `room_sharing` varchar(64) DEFAULT NULL,
+  `bookable` tinyint(1) NOT NULL DEFAULT 0,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `umrah_departures` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `template_id` int(11) NOT NULL,
+  `code` varchar(64) NOT NULL,
+  `departure_date` date NOT NULL,
+  `return_date` date DEFAULT NULL,
+  `month_bucket` varchar(32) DEFAULT NULL,
+  `origin_city` varchar(120) DEFAULT NULL,
+  `booking_close_at` datetime DEFAULT NULL,
+  `capacity` int(11) NOT NULL DEFAULT 0,
+  `low_stock_threshold` int(11) NOT NULL DEFAULT 10,
+  `display_inventory_count` tinyint(1) NOT NULL DEFAULT 0,
+  `status` enum('draft','published','closed') NOT NULL DEFAULT 'draft',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_code` (`code`),
+  KEY `idx_template` (`template_id`),
+  KEY `idx_status_date` (`status`,`departure_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `umrah_departure_tiers` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `departure_id` int(11) NOT NULL,
+  `tier_id` int(11) NOT NULL,
+  `regular_price` decimal(14,2) DEFAULT NULL,
+  `promo_price` decimal(14,2) DEFAULT NULL,
+  `promo_start` datetime DEFAULT NULL,
+  `promo_end` datetime DEFAULT NULL,
+  `promo_active` tinyint(1) NOT NULL DEFAULT 0,
+  `currency` varchar(10) NOT NULL DEFAULT 'NGN',
+  `tier_capacity` int(11) DEFAULT NULL,
+  `booking_mode` enum('instant','quote') NOT NULL DEFAULT 'instant',
+  `status` enum('draft','active','hidden','sold_out') NOT NULL DEFAULT 'draft',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_departure_tier` (`departure_id`,`tier_id`),
+  KEY `idx_departure` (`departure_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `umrah_payment_plans` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `code` varchar(32) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `deposit_percent` decimal(5,2) NOT NULL DEFAULT 100.00,
+  `second_percent` decimal(5,2) NOT NULL DEFAULT 0.00,
+  `final_percent` decimal(5,2) NOT NULL DEFAULT 0.00,
+  `second_due_days_before` int(11) DEFAULT NULL,
+  `final_due_days_before` int(11) DEFAULT NULL,
+  `grace_hours` int(11) NOT NULL DEFAULT 72,
+  `price_lock_on_cleared_deposit` tinyint(1) NOT NULL DEFAULT 1,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `umrah_quotes` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `quote_ref` varchar(40) NOT NULL,
+  `departure_tier_id` int(11) NOT NULL,
+  `tier_code` varchar(32) DEFAULT NULL,
+  `pax` int(11) NOT NULL DEFAULT 1,
+  `unit_price` decimal(14,2) NOT NULL DEFAULT 0,
+  `total_price` decimal(14,2) NOT NULL DEFAULT 0,
+  `amount_due_now` decimal(14,2) NOT NULL DEFAULT 0,
+  `promo_snapshot` text DEFAULT NULL,
+  `policy_version` varchar(32) DEFAULT NULL,
+  `currency` varchar(10) NOT NULL DEFAULT 'NGN',
+  `expires_at` datetime NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_quote_ref` (`quote_ref`),
+  KEY `idx_departure_tier` (`departure_tier_id`),
+  KEY `idx_expires` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `umrah_inventory_holds` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `departure_tier_id` int(11) NOT NULL,
+  `quote_id` int(11) DEFAULT NULL,
+  `session_ref` varchar(64) DEFAULT NULL,
+  `user_id` varchar(255) DEFAULT NULL,
+  `qty` int(11) NOT NULL DEFAULT 1,
+  `state` enum('held','consumed','expired','released') NOT NULL DEFAULT 'held',
+  `expires_at` datetime NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_dt_state` (`departure_tier_id`,`state`),
+  KEY `idx_expires` (`expires_at`),
+  KEY `idx_quote` (`quote_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `umrah_bookings` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `booking_ref` varchar(40) NOT NULL,
+  `invoice_id` varchar(255) DEFAULT NULL,
+  `user_id` varchar(255) DEFAULT NULL,
+  `departure_id` int(11) NOT NULL,
+  `departure_tier_id` int(11) NOT NULL,
+  `pax` int(11) NOT NULL DEFAULT 1,
+  `currency` varchar(10) NOT NULL DEFAULT 'NGN',
+  `total_price` decimal(14,2) NOT NULL DEFAULT 0,
+  `amount_paid` decimal(14,2) NOT NULL DEFAULT 0,
+  `balance` decimal(14,2) NOT NULL DEFAULT 0,
+  `payment_plan_code` varchar(32) DEFAULT NULL,
+  `price_locked_at` datetime DEFAULT NULL,
+  `booking_status` enum('held','confirmed','cancelled','completed') NOT NULL DEFAULT 'held',
+  `payment_status` enum('unpaid','deposit_paid','partially_paid','fully_paid','overdue','refund_pending','refunded') NOT NULL DEFAULT 'unpaid',
+  `snapshot` longtext DEFAULT NULL,
+  `hold_id` int(11) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_booking_ref` (`booking_ref`),
+  KEY `idx_invoice` (`invoice_id`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_departure` (`departure_id`),
+  KEY `idx_departure_tier` (`departure_tier_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `umrah_installments` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `umrah_booking_id` int(11) NOT NULL,
+  `seq` smallint(6) NOT NULL DEFAULT 1,
+  `percent` decimal(5,2) NOT NULL DEFAULT 0,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0,
+  `due_at` datetime DEFAULT NULL,
+  `status` enum('pending','paid','overdue','waived') NOT NULL DEFAULT 'pending',
+  `paid_at` datetime DEFAULT NULL,
+  `transaction_id` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_booking` (`umrah_booking_id`),
+  KEY `idx_status_due` (`status`,`due_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `umrah_audit_log` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `actor` varchar(255) DEFAULT NULL,
+  `role` varchar(64) DEFAULT NULL,
+  `entity` varchar(64) DEFAULT NULL,
+  `entity_id` varchar(64) DEFAULT NULL,
+  `action` varchar(64) DEFAULT NULL,
+  `old_value` longtext DEFAULT NULL,
+  `new_value` longtext DEFAULT NULL,
+  `reason` text DEFAULT NULL,
+  `ip` varchar(64) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_entity` (`entity`,`entity_id`),
+  KEY `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+
+-- --------------------------------------------------------
+-- Umrah redesign Phase 2 — operations tables (docs/UMRAH-PHASE1-BUILD-PLAN.md).
+-- Also created at runtime by ensureUmrahSchema(); kept here for fresh installs.
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `umrah_booking_travellers` (\n  `id` int(11) NOT NULL AUTO_INCREMENT,\n  `umrah_booking_id` int(11) NOT NULL,\n  `title` varchar(16) DEFAULT NULL,\n  `first_name` varchar(120) DEFAULT NULL,\n  `middle_name` varchar(120) DEFAULT NULL,\n  `last_name` varchar(120) DEFAULT NULL,\n  `gender` enum('male','female') DEFAULT NULL,\n  `dob` date DEFAULT NULL,\n  `nationality` varchar(80) DEFAULT NULL,\n  `passport_number` varchar(64) DEFAULT NULL,\n  `passport_issue` date DEFAULT NULL,\n  `passport_expiry` date DEFAULT NULL,\n  `emergency_contact` varchar(160) DEFAULT NULL,\n  `family_group` varchar(64) DEFAULT NULL,\n  `room_group` varchar(64) DEFAULT NULL,\n  `room_preference` varchar(64) DEFAULT NULL,\n  `ring_size` varchar(16) DEFAULT NULL,\n  `is_lead` tinyint(1) NOT NULL DEFAULT 0,\n  `doc_status` enum('not_started','incomplete','ready','verified','action_required') NOT NULL DEFAULT 'not_started',\n  `visa_status` enum('not_started','ready_to_submit','submitted','approved','rejected','action_required') NOT NULL DEFAULT 'not_started',\n  `ticket_status` enum('not_started','reserved','ticketed','changed','cancelled') NOT NULL DEFAULT 'not_started',\n  `rooming_status` enum('unassigned','requested','assigned','confirmed') NOT NULL DEFAULT 'unassigned',\n  `pnr` varchar(64) DEFAULT NULL,\n  `eticket` varchar(120) DEFAULT NULL,\n  `extra` longtext DEFAULT NULL,\n  `created_at` datetime NOT NULL DEFAULT current_timestamp(),\n  `updated_at` datetime DEFAULT NULL,\n  PRIMARY KEY (`id`),\n  KEY `idx_booking` (`umrah_booking_id`),\n  KEY `idx_visa` (`visa_status`),\n  KEY `idx_doc` (`doc_status`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+;
+CREATE TABLE IF NOT EXISTS `umrah_documents` (\n  `id` int(11) NOT NULL AUTO_INCREMENT,\n  `traveller_id` int(11) NOT NULL,\n  `umrah_booking_id` int(11) NOT NULL,\n  `doc_type` varchar(48) NOT NULL,\n  `file_path` varchar(255) NOT NULL,\n  `original_name` varchar(255) DEFAULT NULL,\n  `mime` varchar(80) DEFAULT NULL,\n  `verify_status` enum('pending','verified','rejected') NOT NULL DEFAULT 'pending',\n  `verified_by` varchar(120) DEFAULT NULL,\n  `verified_at` datetime DEFAULT NULL,\n  `note` varchar(255) DEFAULT NULL,\n  `created_at` datetime NOT NULL DEFAULT current_timestamp(),\n  PRIMARY KEY (`id`),\n  KEY `idx_traveller` (`traveller_id`),\n  KEY `idx_booking` (`umrah_booking_id`),\n  KEY `idx_verify` (`verify_status`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+;
+CREATE TABLE IF NOT EXISTS `umrah_hotels` (\n  `id` int(11) NOT NULL AUTO_INCREMENT,\n  `name` varchar(200) NOT NULL,\n  `city` enum('makkah','madinah','other') NOT NULL DEFAULT 'makkah',\n  `supplier` varchar(160) DEFAULT NULL,\n  `category` varchar(48) DEFAULT NULL,\n  `distance_note` varchar(200) DEFAULT NULL,\n  `contact` varchar(160) DEFAULT NULL,\n  `status` tinyint(1) NOT NULL DEFAULT 1,\n  `created_at` datetime NOT NULL DEFAULT current_timestamp(),\n  PRIMARY KEY (`id`),\n  KEY `idx_city` (`city`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+;
+CREATE TABLE IF NOT EXISTS `umrah_hotel_allocations` (\n  `id` int(11) NOT NULL AUTO_INCREMENT,\n  `departure_id` int(11) NOT NULL,\n  `tier_id` int(11) DEFAULT NULL,\n  `hotel_id` int(11) NOT NULL,\n  `city` enum('makkah','madinah','other') NOT NULL DEFAULT 'makkah',\n  `nights` smallint(6) NOT NULL DEFAULT 0,\n  `check_in` date DEFAULT NULL,\n  `check_out` date DEFAULT NULL,\n  `room_type` varchar(64) DEFAULT NULL,\n  `rooms` int(11) NOT NULL DEFAULT 0,\n  `beds` int(11) NOT NULL DEFAULT 0,\n  `cost` decimal(14,2) DEFAULT NULL,\n  `confirmation_ref` varchar(120) DEFAULT NULL,\n  `status` varchar(32) NOT NULL DEFAULT 'planned',\n  `created_at` datetime NOT NULL DEFAULT current_timestamp(),\n  PRIMARY KEY (`id`),\n  KEY `idx_departure` (`departure_id`),\n  KEY `idx_hotel` (`hotel_id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+;
+CREATE TABLE IF NOT EXISTS `umrah_transport_allocations` (\n  `id` int(11) NOT NULL AUTO_INCREMENT,\n  `departure_id` int(11) NOT NULL,\n  `route` varchar(160) NOT NULL,\n  `vehicle_type` varchar(80) DEFAULT NULL,\n  `vehicle_capacity` int(11) DEFAULT NULL,\n  `supplier` varchar(160) DEFAULT NULL,\n  `contact` varchar(160) DEFAULT NULL,\n  `cost` decimal(14,2) DEFAULT NULL,\n  `schedule` varchar(160) DEFAULT NULL,\n  `group_number` varchar(64) DEFAULT NULL,\n  `status` varchar(32) NOT NULL DEFAULT 'planned',\n  `created_at` datetime NOT NULL DEFAULT current_timestamp(),\n  PRIMARY KEY (`id`),\n  KEY `idx_departure` (`departure_id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+;
+CREATE TABLE IF NOT EXISTS `umrah_room_assignments` (\n  `id` int(11) NOT NULL AUTO_INCREMENT,\n  `hotel_allocation_id` int(11) NOT NULL,\n  `room_ref` varchar(64) DEFAULT NULL,\n  `traveller_id` int(11) NOT NULL,\n  `state` enum('assigned','confirmed') NOT NULL DEFAULT 'assigned',\n  `created_at` datetime NOT NULL DEFAULT current_timestamp(),\n  PRIMARY KEY (`id`),\n  KEY `idx_alloc` (`hotel_allocation_id`),\n  KEY `idx_traveller` (`traveller_id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+;
+CREATE TABLE IF NOT EXISTS `umrah_addons` (\n  `id` int(11) NOT NULL AUTO_INCREMENT,\n  `code` varchar(48) NOT NULL,\n  `name` varchar(160) NOT NULL,\n  `pricing_model` varchar(48) NOT NULL DEFAULT 'per_pilgrim',\n  `price` decimal(14,2) DEFAULT NULL,\n  `currency` varchar(10) NOT NULL DEFAULT 'NGN',\n  `active` tinyint(1) NOT NULL DEFAULT 0,\n  `created_at` datetime NOT NULL DEFAULT current_timestamp(),\n  PRIMARY KEY (`id`),\n  UNIQUE KEY `uq_code` (`code`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+;
+CREATE TABLE IF NOT EXISTS `umrah_booking_addons` (\n  `id` int(11) NOT NULL AUTO_INCREMENT,\n  `umrah_booking_id` int(11) NOT NULL,\n  `addon_id` int(11) NOT NULL,\n  `qty` int(11) NOT NULL DEFAULT 1,\n  `price_snapshot` decimal(14,2) NOT NULL DEFAULT 0.00,\n  `created_at` datetime NOT NULL DEFAULT current_timestamp(),\n  PRIMARY KEY (`id`),\n  KEY `idx_booking` (`umrah_booking_id`),\n  KEY `idx_addon` (`addon_id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+;
+CREATE TABLE IF NOT EXISTS `umrah_notifications` (\n  `id` bigint(20) NOT NULL AUTO_INCREMENT,\n  `umrah_booking_id` int(11) DEFAULT NULL,\n  `departure_id` int(11) DEFAULT NULL,\n  `channel` varchar(24) NOT NULL DEFAULT 'email',\n  `template` varchar(64) DEFAULT NULL,\n  `subject` varchar(200) DEFAULT NULL,\n  `body` text DEFAULT NULL,\n  `status` enum('queued','sent','failed') NOT NULL DEFAULT 'queued',\n  `error` varchar(255) DEFAULT NULL,\n  `created_at` datetime NOT NULL DEFAULT current_timestamp(),\n  `sent_at` datetime DEFAULT NULL,\n  PRIMARY KEY (`id`),\n  KEY `idx_booking` (`umrah_booking_id`),\n  KEY `idx_status` (`status`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+;
+CREATE TABLE IF NOT EXISTS `umrah_waitlist` (\n  `id` int(11) NOT NULL AUTO_INCREMENT,\n  `departure_id` int(11) DEFAULT NULL,\n  `tier_code` varchar(32) DEFAULT NULL,\n  `name` varchar(160) DEFAULT NULL,\n  `email` varchar(160) DEFAULT NULL,\n  `phone` varchar(64) DEFAULT NULL,\n  `pax` int(11) NOT NULL DEFAULT 1,\n  `alt_dates` varchar(255) DEFAULT NULL,\n  `status` enum('waiting','notified','converted','closed') NOT NULL DEFAULT 'waiting',\n  `created_at` datetime NOT NULL DEFAULT current_timestamp(),\n  PRIMARY KEY (`id`),\n  KEY `idx_departure` (`departure_id`),\n  KEY `idx_status` (`status`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+;
+
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

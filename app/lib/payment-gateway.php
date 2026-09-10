@@ -324,6 +324,14 @@ function handle_payment_callback($token, $action, $data = [])
                         // Record the transaction
                         record_transaction($tokenData, $data['transaction_id'] ?? null, 'success', $data);
 
+                        // Umrah: settle installment + price-lock even on dev-mode mismatch (money collected).
+                        if (($booking['module_type'] ?? '') === 'umrah' && function_exists('umrah_settle_payment')) {
+                            umrah_settle_payment($db, (string) $tokenData['invoice_id'],
+                                (float) ($tokenData['amount'] ?? ($booking['price_markup'] ?? 0)),
+                                (string) ($tokenData['currency'] ?? 'NGN'),
+                                (string) ($data['transaction_id'] ?? ''));
+                        }
+
                         // Rail: still place supplier order even when dev_mode blocks auto-issue curl
                         if (($booking['module_type'] ?? '') === 'rail') {
                             require_once dirname(__DIR__, 2) . '/modules/rail/train/search.php';
@@ -750,6 +758,22 @@ function handle_payment_callback($token, $action, $data = [])
             $db->update('bookings', $paidUpdate, [
                 'invoice_id' => $tokenData['invoice_id']
             ]);
+
+            // ============================================================
+            // UMRAH: settle the installment + price-lock on cleared payment.
+            // Idempotent (keyed on invoice+txn). Confirms the umrah_booking,
+            // marks the installment paid, consumes the inventory hold and locks
+            // the price. Runs only for umrah bookings; no-op otherwise.
+            // ============================================================
+            if (($booking['module_type'] ?? '') === 'umrah' && function_exists('umrah_settle_payment')) {
+                umrah_settle_payment(
+                    $db,
+                    (string) $tokenData['invoice_id'],
+                    (float) ($tokenData['amount'] ?? ($booking['price_markup'] ?? 0)),
+                    (string) ($tokenData['currency'] ?? ($booking['currency_markup'] ?? 'NGN')),
+                    (string) ($data['transaction_id'] ?? '')
+                );
+            }
 
             // ============================================================
             // RAIL: ISSUE AFTER PAYMENT IS MARKED PAID

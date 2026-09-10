@@ -66,6 +66,8 @@ require_once 'app/lib/i18n.php';
 require_once 'app/lib/mailer.php';
 require_once 'app/lib/captcha.php';
 require_once 'app/lib/webhooks.php';
+require_once 'app/lib/umrah/services.php';
+require_once 'app/lib/umrah/operations.php';
 
 // Load demo warning helper with error handling
 try {
@@ -287,6 +289,13 @@ try {
     // Agent API (docs/AGENT-API.md) — idempotent, no-op once tables exist.
     if (function_exists('ensureAgentApiSchema')) {
         ensureAgentApiSchema($db);
+    }
+    // Umrah redesign (docs/UMRAH-PHASE1-BUILD-PLAN.md) — schema + seeds, idempotent.
+    if (function_exists('ensureUmrahSchema')) {
+        ensureUmrahSchema($db);
+        if (function_exists('seedUmrahPhase1')) {
+            seedUmrahPhase1($db);
+        }
     }
 } catch (PDOException $e) {
     // Database connection failed - redirect to install
