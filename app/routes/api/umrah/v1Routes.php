@@ -260,14 +260,32 @@ $router->post('/api/v1/umrah/travellers/([0-9]+)/documents', function ($tid) use
 $router->post('/api/v1/umrah/waitlist', function () use ($db) {
     $in = umrah_v1_body();
     umrah_v1_csrf_guard($in);
+    // Audit (low): validate input so the table can't be flooded with junk.
+    $name  = trim((string) ($in['name'] ?? ''));
+    $email = trim((string) ($in['email'] ?? ''));
+    $phone = trim((string) ($in['phone'] ?? ''));
+    if ($name === '') { umrah_v1_json(['success' => false, 'message' => 'Name is required'], 422); }
+    if ($email === '' && $phone === '') { umrah_v1_json(['success' => false, 'message' => 'Email or phone is required'], 422); }
+    if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) { umrah_v1_json(['success' => false, 'message' => 'Invalid email'], 422); }
+    // departure_id, if given, must reference a real departure.
+    $depId = !empty($in['departure_id']) ? (int) $in['departure_id'] : null;
+    if ($depId !== null && !$db->get('umrah_departures', 'id', ['id' => $depId])) {
+        umrah_v1_json(['success' => false, 'message' => 'Unknown departure'], 422);
+    }
+    // Lightweight anti-spam: collapse duplicate waiting rows for same contact+departure.
+    $dupWhere = ['status' => 'waiting', 'departure_id' => $depId];
+    if ($email !== '') { $dupWhere['email'] = $email; } else { $dupWhere['phone'] = $phone; }
+    if ($db->get('umrah_waitlist', 'id', $dupWhere)) {
+        umrah_v1_json(['success' => true, 'message' => "You're already on the waitlist"]);
+    }
     $db->insert('umrah_waitlist', [
-        'departure_id' => !empty($in['departure_id']) ? (int) $in['departure_id'] : null,
-        'tier_code' => $in['tier_code'] ?? 'standard',
-        'name' => trim((string) ($in['name'] ?? '')),
-        'email' => trim((string) ($in['email'] ?? '')),
-        'phone' => trim((string) ($in['phone'] ?? '')),
-        'pax' => max(1, (int) ($in['pax'] ?? 1)),
-        'alt_dates' => $in['alt_dates'] ?? null,
+        'departure_id' => $depId,
+        'tier_code' => mb_substr((string) ($in['tier_code'] ?? 'standard'), 0, 32),
+        'name' => mb_substr($name, 0, 160),
+        'email' => mb_substr($email, 0, 160),
+        'phone' => mb_substr($phone, 0, 64),
+        'pax' => min(50, max(1, (int) ($in['pax'] ?? 1))),
+        'alt_dates' => isset($in['alt_dates']) ? mb_substr((string) $in['alt_dates'], 0, 255) : null,
         'status' => 'waiting',
         'created_at' => date('Y-m-d H:i:s'),
     ]);

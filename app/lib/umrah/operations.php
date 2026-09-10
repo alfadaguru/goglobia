@@ -101,9 +101,14 @@ if (!function_exists('umrah_document_upload')) {
         $allowed = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'application/pdf' => 'pdf'];
         if (!isset($allowed[$mime])) { return ['ok' => false, 'message' => 'Only JPG, PNG or PDF allowed']; }
         if ($file['size'] > $maxBytes) { return ['ok' => false, 'message' => 'File too large (max ' . ($maxBytes / 1048576) . 'MB)']; }
-        // PHP-injection guard for image-typed uploads.
-        if ($mime !== 'application/pdf' && preg_match('/<\?php/i', (string) file_get_contents($file['tmp_name']))) {
-            return ['ok' => false, 'message' => 'Invalid file content'];
+        // PHP-injection guard for image-typed uploads (audit low): catch the
+        // full <?php opener, the <?= short-echo tag, a bare <? opener, and the
+        // <script language="php"> form — not just literal "<?php".
+        if ($mime !== 'application/pdf') {
+            $head = (string) file_get_contents($file['tmp_name']);
+            if (preg_match('/<\?(php|=)?\s/i', $head) || preg_match('/<\?(php|=)/i', $head) || preg_match('/<script[^>]*language\s*=\s*["\']?php/i', $head)) {
+                return ['ok' => false, 'message' => 'Invalid file content'];
+            }
         }
 
         // Project-root uploads dir. Use the `uploads` constant (config.php) when

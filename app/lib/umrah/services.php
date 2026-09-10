@@ -110,11 +110,16 @@ if (!function_exists('umrah_price_resolve')) {
         $b2cUnit = umrah_b2c_unit_price($dt);
 
         // AGENT B2B net rate — takes precedence for agents when set. Prefer the
-        // B2B promo net, else the B2B net. 0/NULL means "no special agent rate"
-        // → agent pays B2C (agent_earning = 0).
+        // B2B promo net (only within the promo window — audit M2), else the B2B
+        // net. 0/NULL means "no special agent rate" → agent pays B2C.
         if ($isAgent) {
             $b2bNet = null;
-            if (isset($dt['b2b_promo_price']) && $dt['b2b_promo_price'] !== null && (float) $dt['b2b_promo_price'] > 0) {
+            // B2B promo shares the tier's promo_start/promo_end window; once the
+            // window passes it must NOT keep applying (previously never expired).
+            $bStart = !empty($dt['promo_start']) ? strtotime((string) $dt['promo_start']) : null;
+            $bEnd   = !empty($dt['promo_end'])   ? strtotime((string) $dt['promo_end'])   : null;
+            $b2bPromoInWindow = ($bStart === null || $now >= $bStart) && ($bEnd === null || $now <= $bEnd);
+            if ($b2bPromoInWindow && isset($dt['b2b_promo_price']) && $dt['b2b_promo_price'] !== null && (float) $dt['b2b_promo_price'] > 0) {
                 $b2bNet = (float) $dt['b2b_promo_price'];
             } elseif (isset($dt['b2b_net_price']) && $dt['b2b_net_price'] !== null && (float) $dt['b2b_net_price'] > 0) {
                 $b2bNet = (float) $dt['b2b_net_price'];
@@ -814,12 +819,17 @@ if (!function_exists('umrah_settle_payment')) {
         if (!$ub) { return ['ok' => false, 'status' => 'error', 'message' => 'Umrah booking not found']; }
         $ubId = (int) $ub['id'];
 
+        // Audit (low): gateways that return no transaction id would otherwise
+        // bypass the (invoice, txn) idempotency key and store an empty txn.
+        // Synthesize a stable key from invoice + amount so duplicates are caught
+        // and the ledger never stores an empty transaction_id.
+        $txnId = (string) $txnId;
+        if ($txnId === '') { $txnId = 'AUTO-' . $invoiceId . '-' . number_format((float) $amount, 2, '', ''); }
+
         // Idempotency: if this txn is already recorded, do nothing.
-        if ($txnId) {
-            $seen = $db->get('umrah_installments', 'id', ['umrah_booking_id' => $ubId, 'transaction_id' => $txnId]);
-            if ($seen) {
-                return ['ok' => true, 'status' => 'already', 'confirmed' => ($ub['booking_status'] === 'confirmed'), 'price_locked' => !empty($ub['price_locked_at'])];
-            }
+        $seen = $db->get('umrah_installments', 'id', ['umrah_booking_id' => $ubId, 'transaction_id' => $txnId]);
+        if ($seen) {
+            return ['ok' => true, 'status' => 'already', 'confirmed' => ($ub['booking_status'] === 'confirmed'), 'price_locked' => !empty($ub['price_locked_at'])];
         }
 
         $result = ['ok' => false, 'status' => 'error'];

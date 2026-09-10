@@ -148,6 +148,10 @@ $router->post(admin.'/umrah-manager/departures/pricing', function () use ($SECUR
     $regular = isset($_POST['regular_price']) ? (float) $_POST['regular_price'] : null;
     $promo = isset($_POST['promo_price']) ? (float) $_POST['promo_price'] : null;
     if ($id <= 0) { umrahV2AdminJson(['success' => false, 'message' => 'Departure required']); }
+    // Audit M4: reject negative money / capacity.
+    if (($capacity !== null && $capacity < 0) || ($regular !== null && $regular < 0) || ($promo !== null && $promo < 0)) {
+        umrahV2AdminJson(['success' => false, 'message' => 'Prices and capacity cannot be negative']);
+    }
 
     if ($capacity !== null) {
         // Guard: do not drop capacity below confirmed pax.
@@ -198,7 +202,12 @@ $router->post(admin.'/umrah-manager/departures/tier-pricing', function () use ($
     };
     foreach (['regular_price', 'promo_price', 'b2b_net_price', 'b2b_promo_price'] as $f) {
         $val = $priceField($f);
-        if ($val !== '__skip__') { $u[$f] = $val; }
+        if ($val !== '__skip__') {
+            if ($val !== null && $val < 0) { // audit M4: no negative money
+                umrahV2AdminJson(['success' => false, 'message' => ucfirst(str_replace('_', ' ', $f)) . ' cannot be negative']);
+            }
+            $u[$f] = $val;
+        }
     }
     if (array_key_exists('promo_price', $u)) { $u['promo_active'] = ($u['promo_price'] !== null && $u['promo_price'] > 0) ? 1 : 0; }
     if (isset($_POST['tier_capacity']) && trim((string) $_POST['tier_capacity']) !== '') {
@@ -208,6 +217,14 @@ $router->post(admin.'/umrah-manager/departures/tier-pricing', function () use ($
         $u['tier_capacity'] = $cap;
     }
     if (isset($_POST['status']) && in_array($_POST['status'], ['draft', 'active', 'hidden', 'sold_out'], true)) {
+        // Audit (low): don't hide/draft a tier that still has confirmed pilgrims
+        // (it would vanish from resolve/inventory while bookings reference it).
+        if (in_array($_POST['status'], ['draft', 'hidden'], true)) {
+            $confirmedOnTier = (int) $db->sum('umrah_bookings', 'pax', ['departure_tier_id' => $dtId, 'booking_status' => ['confirmed', 'completed']]);
+            if ($confirmedOnTier > 0) {
+                umrahV2AdminJson(['success' => false, 'message' => "Cannot set this tier to '{$_POST['status']}' — it has {$confirmedOnTier} confirmed pilgrim(s). Use 'sold_out' to stop new sales."]);
+            }
+        }
         $u['status'] = $_POST['status'];
     }
     $db->update('umrah_departure_tiers', $u, ['id' => $dtId]);
@@ -302,11 +319,13 @@ $router->post(admin.'/umrah-manager/operations/traveller-status', function () us
     $domain = trim($_POST['domain'] ?? '');
     $value = trim($_POST['value'] ?? '');
     if ($tid <= 0 || !function_exists('umrah_traveller_set_status')) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid request']); }
-    // Optional PNR/eticket capture for the ticket domain.
-    if ($domain === 'ticket' && isset($_POST['pnr'])) {
+    // Validate the status transition FIRST (audit low): only persist PNR/eticket
+    // once the transition is accepted, so a rejected transition can't leave
+    // stale PNR data on the traveller.
+    $r = umrah_traveller_set_status($db, $tid, $domain, $value);
+    if (!empty($r['ok']) && $domain === 'ticket' && isset($_POST['pnr'])) {
         $db->update('umrah_booking_travellers', ['pnr' => trim($_POST['pnr']), 'eticket' => trim($_POST['eticket'] ?? '')], ['id' => $tid]);
     }
-    $r = umrah_traveller_set_status($db, $tid, $domain, $value);
     umrahV2AdminJson($r, $r['ok'] ? 200 : 422);
 });
 
@@ -397,15 +416,32 @@ $router->post(admin.'/umrah-manager/operations/assign-room', function () use ($S
     $travellerId = (int) ($_POST['traveller_id'] ?? 0);
     $roomRef = trim($_POST['room_ref'] ?? '');
     if ($allocId <= 0 || $travellerId <= 0) { umrahV2AdminJson(['success' => false, 'message' => 'Allocation and traveller required']); }
-    // Gender-conflict guard: don't mix genders in the same room_ref.
+
+    // Audit (low): reject a duplicate assignment of the SAME traveller (no
+    // unique index on traveller_id) so a pilgrim can't end up in two rooms.
+    $existing = $db->get('umrah_room_assignments', ['id', 'room_ref'], ['hotel_allocation_id' => $allocId, 'traveller_id' => $travellerId]);
+    if ($existing) { umrahV2AdminJson(['success' => false, 'message' => 'This pilgrim is already assigned a room in this allocation']); }
+
+    $newG = $db->get('umrah_booking_travellers', ['gender'], ['id' => $travellerId])['gender'] ?? null;
     if ($roomRef !== '') {
         $mates = $db->select('umrah_room_assignments', ['traveller_id'], ['hotel_allocation_id' => $allocId, 'room_ref' => $roomRef]) ?: [];
-        if ($mates) {
-            $newG = $db->get('umrah_booking_travellers', ['gender'], ['id' => $travellerId])['gender'] ?? null;
-            foreach ($mates as $m) {
-                $g = $db->get('umrah_booking_travellers', ['gender'], ['id' => (int) $m['traveller_id']])['gender'] ?? null;
-                if ($newG && $g && $newG !== $g) { umrahV2AdminJson(['success' => false, 'message' => 'Gender conflict: room already has a ' . $g . ' occupant']); }
-            }
+        // Audit (gender-null): require a known gender before placing into an
+        // OCCUPIED room (can't verify parity otherwise).
+        if ($mates && !$newG) {
+            umrahV2AdminJson(['success' => false, 'message' => "Set this pilgrim's gender before assigning them to a shared room"]);
+        }
+        foreach ($mates as $m) {
+            $g = $db->get('umrah_booking_travellers', ['gender'], ['id' => (int) $m['traveller_id']])['gender'] ?? null;
+            // A mate with unknown gender is also unsafe to mix against.
+            if (!$g) { umrahV2AdminJson(['success' => false, 'message' => 'Room has an occupant with unset gender — resolve it first']); }
+            if ($newG && $newG !== $g) { umrahV2AdminJson(['success' => false, 'message' => 'Gender conflict: room already has a ' . $g . ' occupant']); }
+        }
+        // Audit (low): don't exceed the allocation's beds-per-room.
+        $alloc = $db->get('umrah_hotel_allocations', ['beds'], ['id' => $allocId]);
+        $beds = (int) ($alloc['beds'] ?? 0);
+        if ($beds > 0) {
+            $occupied = (int) $db->count('umrah_room_assignments', ['hotel_allocation_id' => $allocId, 'room_ref' => $roomRef]);
+            if ($occupied >= $beds) { umrahV2AdminJson(['success' => false, 'message' => "Room is full ($beds bed(s))"]); }
         }
     }
     $db->insert('umrah_room_assignments', ['hotel_allocation_id' => $allocId, 'room_ref' => $roomRef ?: null, 'traveller_id' => $travellerId, 'state' => 'assigned', 'created_at' => date('Y-m-d H:i:s')]);
