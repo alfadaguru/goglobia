@@ -27677,7 +27677,7 @@ CREATE TABLE `payment_gateways` (
 --
 
 INSERT INTO `payment_gateways` (`id`, `status`, `name`, `c1`, `c2`, `c3`, `c4`, `c5`, `dev_mode`, `currency`, `order`, `active`, `note`, `type`, `module`, `default`, `display_name`) VALUES
-(3, '1', 'PayPal', '', '', 'sb-itxir5994130@personal.example.com', 'testpayment', 'Password : testpayment', '1', 'USD', 4, '1', '', 'digital_wallet', NULL, '', NULL),
+(3, '1', 'PayPal', '', '', '', '', '', '1', 'USD', 4, '1', '', 'digital_wallet', NULL, '', NULL),
 (5, '0', 'Wire Transfer', 'Account holder Elon Musk', 'Routing number  084009519', 'Account number 9600001474383599', '26th Street, Sixth Floor New York NY 10010 United States', 'IBAN GBPXXXIP0024456987', '1', 'USD', 1, '1', '', 'bank_transfer', NULL, '', NULL),
 (6, '1', 'Pay Later', '', '', '', '', NULL, '1', 'USD', 2, '1', '', 'pay_later', NULL, '', NULL),
 (7, '1', 'Stripe', '', '', '4242 4242 4242 4242 ', '12/26 123', 'Any date and CVV code', '1', 'USD', 5, '1', '', 'credit_card', NULL, '1', NULL),
@@ -27691,8 +27691,8 @@ INSERT INTO `payment_gateways` (`id`, `status`, `name`, `c1`, `c2`, `c3`, `c4`, 
 (23, '1', 'mpesa', NULL, NULL, NULL, NULL, NULL, '1', 'NGN', 10, '0', '', 'digital_wallet', '', '', NULL),
 (24, '0', 'Cashfree', '', '', '', '', '', '1', 'INR', 0, '1', '', 'credit_card', NULL, '', NULL),
 (25, '0', 'Fawaterak', '', NULL, NULL, NULL, NULL, '1', 'EGP', 12, '1', '', 'credit_card', NULL, '', NULL),
-(26, '0', 'xMoney', 'u_test_api_..........', 'YOUR_SECRET_KEY_HERE', NULL, NULL, NULL, '1', 'USD', 10, '1', '', 'digital_wallet', NULL, '', NULL),
-(27, '0', 'Adyen', 'AQElhmfuXNWTK0Qc+iSAulQMlcWtbad+AE675WhcudcQe/BOOzQILxDBXVsNvuR83LVYjEgiTGAH-XO4RFI8xOe4QKuKwP+Q5mxMBZ61QHBpg8JnttP7dU+Y=-i1iWay_p<_r;s<F[ee3', 'PHPTRAVELSECOM', '', '', NULL, '1', 'USD', 11, '1', 'Visa	\r\n4111 1111 1111 1111	\r\n03/30	\r\n737', 'credit_card', NULL, '', 'Adyen');
+(26, '0', 'xMoney', '', '', NULL, NULL, NULL, '1', 'USD', 10, '1', '', 'digital_wallet', NULL, '', NULL),
+(27, '0', 'Adyen', '', '', '', '', NULL, '1', 'USD', 11, '1', '', 'credit_card', NULL, '', 'Adyen');
 
 -- --------------------------------------------------------
 
