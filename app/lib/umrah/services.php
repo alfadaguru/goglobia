@@ -525,22 +525,29 @@ if (!function_exists('umrah_booking_create')) {
         }
         $template  = $departure ? $db->get('umrah_package_templates', '*', ['id' => $departure['template_id']]) : null;
 
-        $total    = (float) $quote['total_price'];
-        $currency = (string) $quote['currency'];
         $pax      = (int) $quote['pax'];
         $userId   = (string) ($lead['user_id'] ?? ($_SESSION['user_id'] ?? ''));
 
-        // Agent earning (spec §35.1): for an agent booking where the tier carries
-        // a B2B net rate, the quote total is the agent NET. The agent earns the
-        // margin between the B2C sell price and what they paid:
-        //   agent_earning = (B2C_unit − net_unit) × pax  (>= 0).
-        // For non-agents or tiers with no B2B rate this is 0. Recomputed from the
-        // live departure-tier (not a client value) so it cannot be tampered.
+        // SECURITY (H1): the quote is NOT a price authority — it carries no owner
+        // or pricing basis, so an agent-priced (B2B net) quote_ref could otherwise
+        // be redeemed by a non-agent to underpay. Re-resolve the price for the
+        // ACTUAL booker from the live departure-tier at commit time. umrah_price_
+        // resolve is agent-aware (session/JWT), so a non-agent is charged B2C and
+        // an agent with a B2B rate is charged the net.
+        $pricedNow = umrah_price_resolve($db, $dt);
+        $unitNow = (float) ($pricedNow['unit'] ?? 0);
+        if ($unitNow <= 0) {
+            return ['ok' => false, 'message' => 'This option is not currently priced for booking'];
+        }
+        $total    = round($unitNow * max(1, $pax), 2);
+        $currency = (string) ($pricedNow['currency'] ?? $quote['currency']);
+
+        // Agent earning (spec §35.1): agent_earning = (B2C_unit − paid_unit) × pax,
+        // both recomputed from the live tier for the current actor (anti-tamper).
         $agentEarning = 0.0;
         if (umrah_is_agent()) {
             $b2cUnit  = umrah_b2c_unit_price($dt);
-            $paidUnit = ($pax > 0) ? ($total / $pax) : $total;
-            $marginUnit = $b2cUnit - $paidUnit;
+            $marginUnit = $b2cUnit - $unitNow;
             if ($marginUnit > 0) { $agentEarning = round($marginUnit * $pax, 2); }
         }
 
@@ -550,7 +557,7 @@ if (!function_exists('umrah_booking_create')) {
         // Commercial snapshot (spec §57) — frozen at booking creation.
         $snapshot = [
             'quote_ref'    => $quoteRef,
-            'unit_price'   => (float) $quote['unit_price'],
+            'unit_price'   => $unitNow, // actually-charged unit (re-resolved at commit)
             'total_price'  => $total,
             'currency'     => $currency,
             'pax'          => $pax,
