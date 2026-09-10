@@ -106,12 +106,15 @@ if (!function_exists('umrah_document_upload')) {
             return ['ok' => false, 'message' => 'Invalid file content'];
         }
 
-        $dir = dirname(__DIR__, 2) . '/uploads/umrah/documents/' . (int) $tr['umrah_booking_id'];
+        // Project-root uploads dir. Use the `uploads` constant (config.php) when
+        // available; fall back to dirname(__DIR__,3) (umrah→lib→app→root).
+        $uploadsBase = defined('uploads') ? rtrim(uploads, '/') : dirname(__DIR__, 3) . '/uploads';
+        $dir = $uploadsBase . '/umrah/documents/' . (int) $tr['umrah_booking_id'];
         if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
             return ['ok' => false, 'message' => 'Storage unavailable'];
         }
         // Drop a hardening .htaccess so the directory is not directly web-served.
-        $ht = dirname(__DIR__, 2) . '/uploads/umrah/documents/.htaccess';
+        $ht = $uploadsBase . '/umrah/documents/.htaccess';
         if (!file_exists($ht)) { @file_put_contents($ht, "Require all denied\nDeny from all\n"); }
 
         try { $rand = bin2hex(random_bytes(8)); } catch (\Throwable $e) { $rand = substr(md5(uniqid('', true)), 0, 16); }

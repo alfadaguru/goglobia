@@ -1,0 +1,4 @@
+# Private pilgrim documents — never commit runtime uploads.
+*
+!.gitignore
+!.htaccess
