@@ -277,6 +277,13 @@ $router->get(admin.'/umrah-manager/operations/([0-9]+)', function ($departureId)
     $bIds = array_map(fn($b) => (int) $b['id'], $bookings);
     $refById = []; foreach ($bookings as $b) { $refById[(int) $b['id']] = $b['booking_ref']; }
     $travellers = $bIds ? ($db->select('umrah_booking_travellers', '*', ['umrah_booking_id' => $bIds, 'ORDER' => ['id' => 'ASC']]) ?: []) : [];
+    // Documents per traveller (audit H6) so the ops view can list + open them.
+    $tIds = array_map(fn($t) => (int) $t['id'], $travellers);
+    $documentsByTraveller = [];
+    if ($tIds) {
+        $docs = $db->select('umrah_documents', ['id', 'traveller_id', 'doc_type', 'original_name', 'mime', 'verify_status', 'created_at'], ['traveller_id' => $tIds, 'ORDER' => ['id' => 'DESC']]) ?: [];
+        foreach ($docs as $d) { $documentsByTraveller[(int) $d['traveller_id']][] = $d; }
+    }
     $hotels = $db->select('umrah_hotels', '*', ['status' => 1]) ?: [];
     $allocations = $db->select('umrah_hotel_allocations', '*', ['departure_id' => (int) $departureId]) ?: [];
     $transport = $db->select('umrah_transport_allocations', '*', ['departure_id' => (int) $departureId]) ?: [];
@@ -309,9 +316,41 @@ $router->post(admin.'/umrah-manager/operations/verify-document', function () use
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $docId = (int) ($_POST['document_id'] ?? 0);
     $decision = trim($_POST['decision'] ?? '');
+    // Map the UI verbs to the service's canonical enum values.
+    $decisionMap = ['verify' => 'verified', 'approve' => 'verified', 'verified' => 'verified', 'reject' => 'rejected', 'rejected' => 'rejected'];
+    $decision = $decisionMap[$decision] ?? $decision;
     if ($docId <= 0 || !function_exists('umrah_document_verify')) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid request']); }
     $r = umrah_document_verify($db, $docId, $decision, $_SESSION['user_id'] ?? 'admin', $_POST['note'] ?? null);
     umrahV2AdminJson($r, !empty($r['ok']) ? 200 : 422);
+});
+
+// ---- SERVE DOCUMENT (audit H6): GET admin/umrah-manager/document/{id} ---
+// Streams an uploaded passport/ID to an authenticated admin. The files live
+// under uploads/umrah/documents/ behind a Deny-all .htaccess; this is the ONLY
+// authorised read path. Validates the resolved path stays inside that dir
+// (no traversal) and serves inline with the stored MIME.
+$router->get(admin.'/umrah-manager/document/([0-9]+)', function ($docId) use ($SECURE, $db) {
+    ADMIN_AUTH();
+    $doc = $db->get('umrah_documents', ['file_path', 'mime', 'original_name'], ['id' => (int) $docId]);
+    if (!$doc || empty($doc['file_path'])) { http_response_code(404); die('Document not found'); }
+
+    $root = defined('uploads') ? dirname(rtrim(uploads, '/')) : dirname(__DIR__, 3);
+    $docsDir = realpath($root . '/uploads/umrah/documents');
+    $full = realpath($root . '/' . ltrim((string) $doc['file_path'], '/'));
+    // Path-traversal guard: the resolved file MUST sit inside the umrah docs dir.
+    if ($docsDir === false || $full === false || strpos($full, $docsDir . DIRECTORY_SEPARATOR) !== 0 || !is_file($full)) {
+        http_response_code(404); die('Document not available');
+    }
+    $mime = (string) ($doc['mime'] ?? '');
+    if (!in_array($mime, ['image/jpeg', 'image/png', 'application/pdf'], true)) { $mime = 'application/octet-stream'; }
+    $name = preg_replace('/[^A-Za-z0-9._-]/', '_', (string) ($doc['original_name'] ?? ('document-' . (int) $docId)));
+    header('Content-Type: ' . $mime);
+    header('Content-Disposition: inline; filename="' . $name . '"');
+    header('Content-Length: ' . filesize($full));
+    header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: private, no-store');
+    readfile($full);
+    exit;
 });
 
 // ---- HOTEL / TRANSPORT ALLOCATION: POST .../operations/allocate --------
