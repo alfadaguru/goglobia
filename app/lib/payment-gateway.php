@@ -1650,6 +1650,11 @@ function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
  */
 function get_gateway_config($gateway)
 {
+    // NOTE (audit): the generic label names (api_key/secret_key/username/password)
+    // do NOT reflect the per-gateway meaning of c1..c6 — each gateway view reads
+    // the specific c-columns it needs (see the per-gateway views). The extra
+    // aliases below expose c3..c6 under the names some views expect (e.g. M-Pesa)
+    // so every gateway is configurable purely from the DB row, no hardcoding.
     return [
         'api_key' => $gateway['c1'] ?? '',
         'secret_key' => $gateway['c2'] ?? '',
@@ -1657,6 +1662,14 @@ function get_gateway_config($gateway)
         'password' => $gateway['c4'] ?? '',
         'additional_1' => $gateway['c5'] ?? '',
         'additional_2' => $gateway['c6'] ?? '',
+        // M-Pesa (audit P87): map the required fields onto DB columns so it can
+        // actually be configured (c3=provider code, c4=market, c5=api url,
+        // c6=country code). Only set when non-empty so the view's own defaults
+        // (?? 'TZN' etc.) still apply. Harmless for other gateways.
+        'service_provider_code' => ($gateway['c3'] ?? '') !== '' ? $gateway['c3'] : null,
+        'market' => ($gateway['c4'] ?? '') !== '' ? $gateway['c4'] : null,
+        'api_url' => ($gateway['c5'] ?? '') !== '' ? $gateway['c5'] : null,
+        'country_code' => ($gateway['c6'] ?? '') !== '' ? $gateway['c6'] : null,
         'dev_mode' => $gateway['dev_mode'] ?? 0,
         'environment' => $gateway['env'] ?? 'test'
     ];
