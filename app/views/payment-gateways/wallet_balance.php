@@ -90,6 +90,34 @@ $paymentAmount = floatval($booking['price_markup']);
 $paymentCurrency = $booking['currency_markup'];
 
 // ============================================================================
+// IDEMPOTENCY GUARD (audit P6): never deduct the wallet again for an invoice
+// that is already paid (e.g. browser back / replay of /payment/gateway/{hash}).
+// ============================================================================
+$freshStatus = $db->get('bookings', 'payment_status', ['invoice_id' => $booking['invoice_id']]);
+if (($freshStatus ?? '') === 'paid') {
+    echo '<div style="max-width:420px;margin:0 auto;padding:20px;background:#fff;border-radius:12px;border:1px solid #bbf7d0;">';
+    echo '<h4 style="color:#16a34a;margin-top:0;">Already Paid</h4>';
+    echo '<p style="color:#166534;margin-bottom:10px;">This invoice has already been paid — no further charge was made.</p>';
+    echo '<p style="margin-top:15px;"><a href="' . htmlspecialchars(root . 'invoice/' . $booking['invoice_id']) . '" style="color:#2563eb;">← Return to Invoice</a></p>';
+    echo '</div>';
+    return;
+}
+
+// ============================================================================
+// CURRENCY GUARD (audit money): the wallet balance and the invoice must be in
+// the SAME currency — there is no FX conversion here, so a raw comparison
+// across currencies would let a user underpay.
+// ============================================================================
+if (strtoupper(trim((string) $userCurrency)) !== strtoupper(trim((string) $paymentCurrency))) {
+    echo '<div style="max-width:420px;margin:0 auto;padding:20px;background:#fff;border-radius:12px;border:1px solid #fecaca;">';
+    echo '<h4 style="color:#dc2626;margin-top:0;">Currency Mismatch</h4>';
+    echo '<p style="color:#991b1b;margin-bottom:10px;">Your wallet is in ' . htmlspecialchars($userCurrency) . ' but this invoice is in ' . htmlspecialchars($paymentCurrency) . '. Wallet payment requires the same currency.</p>';
+    echo '<p style="margin-top:15px;"><a href="' . htmlspecialchars(root . 'invoice/' . $booking['invoice_id']) . '" style="color:#2563eb;">← Return to Invoice</a></p>';
+    echo '</div>';
+    return;
+}
+
+// ============================================================================
 // VALIDATE SUFFICIENT BALANCE
 // ============================================================================
 if ($userBalance < $paymentAmount) {
