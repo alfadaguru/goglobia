@@ -1250,8 +1250,11 @@ function payment_amount_matches($paidMajor, $paidCurrency, $tokenData): bool
     return true;
 }
 
-function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
+function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
 {
+    // $data is by REFERENCE (audit P5) so the gateway-VERIFIED transaction_id
+    // (set in the success branches) is persisted by the caller instead of the
+    // attacker-supplied $_GET value — required for correct refunds/reconciliation.
     $gatewayData = $data['gateway_data'] ?? $data ?? [];
 
     try {
@@ -1317,6 +1320,8 @@ function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
                         error_log("PAYSTACK VERIFY: reference {$refInv} not bound to invoice {$invId}");
                         return 'failure';
                     }
+                    // Persist the gateway-verified reference (P5, by-ref).
+                    $data['transaction_id'] = $refInv;
                     return 'success';
                 } elseif ($status === 'abandoned' || $status === 'cancelled') {
                     return 'cancel';
@@ -1391,6 +1396,8 @@ function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
                         error_log("CASHFREE VERIFY: order {$orderId} not bound to invoice {$invId}");
                         return 'failure';
                     }
+                    // Persist the gateway-verified reference (P5, by-ref).
+                    $data['transaction_id'] = $result['cf_order_id'] ?? $orderId;
                     return 'success';
                 } elseif (in_array($orderStatus, ['EXPIRED', 'CANCELLED', 'VOID'])) {
                     return 'cancel';
@@ -1454,6 +1461,9 @@ function verify_gateway_payment($gatewayName, $data, $tokenData, $db)
                         error_log("STRIPE VERIFY: session {$sessionId} not bound to invoice {$invId} (got {$sessInv})");
                         return 'failure';
                     }
+                    // Persist the gateway-verified reference: the PaymentIntent id
+                    // (needed for Stripe refunds) if present, else the session id.
+                    $data['transaction_id'] = $session['payment_intent'] ?? $sessionId;
                     return 'success';
                 } elseif ($paymentStatus === 'unpaid') {
                     return 'cancel';
