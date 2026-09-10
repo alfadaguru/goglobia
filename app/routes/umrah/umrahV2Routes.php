@@ -6,7 +6,9 @@
 // routes so /umrah, /umrah/packages/* and the legacy redirect take precedence.
 @$SECURE or die('Access Denied!');
 
-// Shared loader: published departures grouped by month, with Standard tier price.
+// Shared loader: published departures, each summarised by its CHEAPEST active
+// tier as the "from" price (so a departure card shows the entry price and the
+// detail page shows every tier). Carries origin_city for the city+month search.
 if (!function_exists('umrahV2PublishedDepartures')) {
     function umrahV2PublishedDepartures($db): array
     {
@@ -16,30 +18,41 @@ if (!function_exists('umrahV2PublishedDepartures')) {
         ]) ?: [];
         $out = [];
         foreach ($rows as $d) {
-            $dt = $db->get('umrah_departure_tiers', '*', [
+            $tiers = $db->select('umrah_departure_tiers', '*', [
                 'departure_id' => $d['id'], 'status' => 'active',
                 'ORDER' => ['id' => 'ASC'],
-            ]);
-            if (!$dt) { continue; }
-            $priced = function_exists('umrah_price_resolve') ? umrah_price_resolve($db, $dt) : ['unit' => (float) ($dt['promo_price'] ?? 0), 'currency' => $dt['currency'] ?? 'NGN', 'promo' => null];
-            $cap = function_exists('umrah_capacity_for') ? umrah_capacity_for($db, (int) $dt['id']) : ['remaining' => 0];
-            $tier = $db->get('umrah_tiers', ['code', 'public_label', 'room_sharing'], ['id' => $dt['tier_id']]);
+            ]) ?: [];
+            if (!$tiers) { continue; }
+            // Pick the cheapest priced tier as the "from" entry price.
+            $best = null; $bestPriced = null;
+            foreach ($tiers as $dt) {
+                $priced = function_exists('umrah_price_resolve')
+                    ? umrah_price_resolve($db, $dt)
+                    : ['unit' => (float) ($dt['promo_price'] ?? 0), 'currency' => $dt['currency'] ?? 'NGN', 'promo' => null];
+                if (($priced['unit'] ?? 0) <= 0) { continue; }
+                if ($best === null || $priced['unit'] < $bestPriced['unit']) { $best = $dt; $bestPriced = $priced; }
+            }
+            if ($best === null) { continue; }
+            $cap = function_exists('umrah_capacity_for') ? umrah_capacity_for($db, (int) $best['id']) : ['remaining' => 0];
+            $tier = $db->get('umrah_tiers', ['code', 'public_label', 'room_sharing'], ['id' => $best['tier_id']]);
             $avail = ($cap['remaining'] <= 0) ? 'sold_out'
                 : (($cap['remaining'] <= (int) ($d['low_stock_threshold'] ?? 10)) ? 'limited' : 'available');
             $out[] = [
                 'departure_id'      => (int) $d['id'],
-                'departure_tier_id' => (int) $dt['id'],
+                'departure_tier_id' => (int) $best['id'],
                 'code'              => $d['code'],
+                'origin_city'       => $d['origin_city'] ?: 'Kano',
                 'departure_date'    => $d['departure_date'],
                 'return_date'       => $d['return_date'],
                 'month_bucket'      => $d['month_bucket'] ?: date('F Y', strtotime($d['departure_date'])),
                 'tier_code'         => $tier['code'] ?? 'standard',
                 'tier_label'        => $tier['public_label'] ?? 'Standard Economy',
                 'room_sharing'      => $tier['room_sharing'] ?? '4-5 sharing',
-                'unit_price'        => $priced['unit'],
-                'currency'          => $priced['currency'],
-                'promo'             => $priced['promo'],
+                'unit_price'        => $bestPriced['unit'],
+                'currency'          => $bestPriced['currency'],
+                'promo'             => $bestPriced['promo'],
                 'availability'      => $avail,
+                'tier_count'        => count($tiers),
             ];
         }
         return $out;
@@ -58,6 +71,18 @@ $umrahV2Landing = function () use ($SECURE, $db) {
     $byMonth = [];
     foreach ($departures as $d) { $byMonth[$d['month_bucket']][] = $d; }
     $tiers = $db->select('umrah_tiers', '*', ['status' => 1, 'ORDER' => ['sort_order' => 'ASC']]) ?: [];
+
+    // Search facets: distinct departure cities + months (preserve chronological
+    // order for months by keying on the first departure_date seen).
+    $cities = [];
+    $months = [];
+    foreach ($departures as $d) {
+        $cities[$d['origin_city']] = true;
+        if (!isset($months[$d['month_bucket']])) { $months[$d['month_bucket']] = $d['departure_date']; }
+    }
+    $cities = array_keys($cities);
+    asort($months); // chronological by first date
+    $months = array_keys($months);
 
     $title = ($template['meta_title'] ?? null) ?: ('Umrah 2026 | ' . ($GLOBALS['app']['business_name'] ?? 'GoGlobia'));
     $description = ($template['meta_description'] ?? null) ?: 'GoGlobia Umrah 2026 — 14-day packages, flights, visa, hotels, transport and support.';
