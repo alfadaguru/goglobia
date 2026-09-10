@@ -272,11 +272,13 @@ if (!function_exists('umrah_capacity_for')) {
     {
         $dt = $db->get('umrah_departure_tiers', ['id', 'departure_id', 'tier_capacity'], ['id' => $departureTierId]);
         if (!$dt) { return ['ok' => false, 'capacity' => 0, 'remaining' => 0]; }
+        $depId = (int) $dt['departure_id'];
         $cap = ($dt['tier_capacity'] !== null) ? (int) $dt['tier_capacity'] : 0;
         if ($cap <= 0) {
-            $dep = $db->get('umrah_departures', ['capacity'], ['id' => $dt['departure_id']]);
+            $dep = $db->get('umrah_departures', ['capacity'], ['id' => $depId]);
             $cap = (int) ($dep['capacity'] ?? 0);
         }
+        $now = date('Y-m-d H:i:s');
         $confirmed = (int) $db->sum('umrah_bookings', 'pax', [
             'departure_tier_id' => $departureTierId,
             'booking_status'    => ['held', 'confirmed', 'completed'],
@@ -284,10 +286,47 @@ if (!function_exists('umrah_capacity_for')) {
         $activeHolds = (int) $db->sum('umrah_inventory_holds', 'qty', [
             'departure_tier_id' => $departureTierId,
             'state'             => 'held',
-            'expires_at[>]'     => date('Y-m-d H:i:s'),
+            'expires_at[>]'     => $now,
         ]);
-        $remaining = max(0, $cap - $confirmed - $activeHolds);
-        return ['ok' => true, 'capacity' => $cap, 'confirmed' => $confirmed, 'active_holds' => $activeHolds, 'remaining' => $remaining];
+        $tierRemaining = max(0, $cap - $confirmed - $activeHolds);
+
+        // DEPARTURE-LEVEL CAP (audit H4): tiers share the physical departure
+        // seats, so the effective remaining is also bounded by the whole
+        // departure's capacity minus ALL tiers' confirmed/held pax. Prevents
+        // selling 50 on each of two tiers of a 50-seat departure.
+        $depRemaining = umrah_departure_remaining($db, $depId, $now);
+        $remaining = max(0, min($tierRemaining, $depRemaining));
+        return ['ok' => true, 'capacity' => $cap, 'confirmed' => $confirmed, 'active_holds' => $activeHolds, 'remaining' => $remaining, 'departure_remaining' => $depRemaining];
+    }
+}
+
+if (!function_exists('umrah_departure_remaining')) {
+    /**
+     * Remaining seats at the DEPARTURE level = departure capacity minus the pax
+     * of all held/confirmed/completed bookings across ALL its tiers minus all
+     * active (unexpired) inventory holds across ALL its tiers. Used to bound
+     * per-tier availability so shared-capacity departures cannot oversell.
+     */
+    function umrah_departure_remaining($db, int $departureId, ?string $now = null): int
+    {
+        $now = $now ?: date('Y-m-d H:i:s');
+        $dep = $db->get('umrah_departures', ['capacity'], ['id' => $departureId]);
+        $cap = (int) ($dep['capacity'] ?? 0);
+        if ($cap <= 0) { return 0; }
+        $confirmed = (int) $db->sum('umrah_bookings', 'pax', [
+            'departure_id'   => $departureId,
+            'booking_status' => ['held', 'confirmed', 'completed'],
+        ]);
+        // Active holds across all tiers of this departure (join via tier rows).
+        $holds = $db->query(
+            "SELECT COALESCE(SUM(h.qty),0) AS q
+             FROM umrah_inventory_holds h
+             JOIN umrah_departure_tiers dt ON dt.id = h.departure_tier_id
+             WHERE dt.departure_id = :dep AND h.state = 'held' AND h.expires_at > :now",
+            [':dep' => $departureId, ':now' => $now]
+        );
+        $activeHolds = $holds ? (int) ($holds->fetch(\PDO::FETCH_ASSOC)['q'] ?? 0) : 0;
+        return max(0, $cap - $confirmed - $activeHolds);
     }
 }
 
@@ -345,6 +384,13 @@ if (!function_exists('umrah_hold_create')) {
                     'expires_at[>]'     => $now,
                 ]);
                 $remaining = $cap - $confirmed - $activeHolds;
+
+                // DEPARTURE-LEVEL CAP (audit H4): also bound by the whole
+                // departure's remaining across ALL tiers, so shared-capacity
+                // departures cannot oversell (e.g. 50 standard + 50 vip on a
+                // 50-seat departure). Computed inside the same locked tx.
+                $depRemaining = umrah_departure_remaining($db, (int) $row['departure_id'], $now);
+                $remaining = min($remaining, $depRemaining);
 
                 if ($pax > $remaining) {
                     $result = ['ok' => false, 'message' => 'Not enough seats available', 'remaining' => max(0, $remaining)];
@@ -406,6 +452,70 @@ if (!function_exists('umrah_hold_expire_sweep')) {
             return count($ids);
         } catch (\Throwable $e) {
             error_log('umrah_hold_expire_sweep: ' . $e->getMessage());
+            return 0;
+        }
+    }
+}
+
+if (!function_exists('umrah_booking_expire_sweep')) {
+    /**
+     * Cron (audit H5): cancel abandoned unpaid 'held' umrah_bookings so they stop
+     * consuming inventory forever. A held booking is abandoned when it has no
+     * payment (amount_paid = 0) and its inventory hold is no longer active
+     * (expired/released/consumed-elsewhere/missing) — i.e. the 20-minute hold
+     * lapsed without a qualifying payment. These are moved to 'cancelled' so the
+     * capacity sums (which count 'held') free the seats. A small grace window
+     * past the hold expiry avoids racing an in-flight payment callback.
+     * Returns the number of bookings cancelled.
+     */
+    function umrah_booking_expire_sweep($db, int $graceMinutes = 30): int
+    {
+        try {
+            $now = time();
+            $cutoff = date('Y-m-d H:i:s', $now - max(0, $graceMinutes) * 60);
+            // Candidate abandoned bookings: held + unpaid + created before cutoff.
+            $rows = $db->select('umrah_bookings', ['id', 'hold_id', 'invoice_id'], [
+                'booking_status' => 'held',
+                'payment_status' => 'unpaid',
+                'amount_paid'    => 0,
+                'created_at[<]'  => $cutoff,
+            ]) ?: [];
+            if (!$rows) { return 0; }
+
+            $cancelIds = [];
+            foreach ($rows as $r) {
+                $holdId = (int) ($r['hold_id'] ?? 0);
+                $holdActive = false;
+                if ($holdId > 0) {
+                    $h = $db->get('umrah_inventory_holds', ['state', 'expires_at'], ['id' => $holdId]);
+                    if ($h && ($h['state'] ?? '') === 'held' && !empty($h['expires_at']) && strtotime((string) $h['expires_at']) > $now) {
+                        $holdActive = true; // still within a live hold — leave it
+                    }
+                }
+                if (!$holdActive) { $cancelIds[] = (int) $r['id']; }
+            }
+            if (!$cancelIds) { return 0; }
+
+            $ts = date('Y-m-d H:i:s', $now);
+            $db->update('umrah_bookings', [
+                'booking_status' => 'cancelled',
+                'updated_at'     => $ts,
+            ], ['id' => $cancelIds]);
+
+            // Reflect cancellation on the generic bookings row (best-effort).
+            $invoices = array_values(array_filter(array_map(fn($r) => (string) ($r['invoice_id'] ?? ''), array_filter($rows, fn($r) => in_array((int) $r['id'], $cancelIds, true)))));
+            if ($invoices) {
+                try {
+                    $db->update('bookings', ['booking_status' => 'cancelled'], [
+                        'invoice_id' => $invoices,
+                        'module_type' => 'umrah',
+                        'payment_status' => 'unpaid',
+                    ]);
+                } catch (\Throwable $e) { /* non-fatal */ }
+            }
+            return count($cancelIds);
+        } catch (\Throwable $e) {
+            error_log('umrah_booking_expire_sweep: ' . $e->getMessage());
             return 0;
         }
     }
