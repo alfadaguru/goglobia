@@ -114,6 +114,36 @@ $router->get('/umrah/packages/([a-z0-9\-]+)', function ($slug) use ($SECURE, $db
     $selectedDepartureId = isset($_GET['departure']) ? (int) $_GET['departure'] : ($departures[0]['departure_id'] ?? 0);
     $plans = $db->select('umrah_payment_plans', '*', ['active' => 1, 'ORDER' => ['deposit_percent' => 'DESC']]) ?: [];
 
+    // All active tiers per departure (for the tier selector on the detail page).
+    // Priced via umrah_price_resolve (agent-aware: an agent sees their B2B net).
+    $departureTiers = [];
+    foreach ($departures as $d) {
+        $rows = $db->select('umrah_departure_tiers', '*', [
+            'departure_id' => $d['departure_id'], 'status' => 'active',
+        ]) ?: [];
+        $list = [];
+        foreach ($rows as $dt) {
+            $priced = umrah_price_resolve($db, $dt);
+            if (($priced['unit'] ?? 0) <= 0) { continue; }
+            $tier = $db->get('umrah_tiers', ['code', 'name', 'public_label', 'room_sharing', 'sort_order'], ['id' => $dt['tier_id']]);
+            $cap = umrah_capacity_for($db, (int) $dt['id']);
+            $list[] = [
+                'departure_tier_id' => (int) $dt['id'],
+                'tier_code'   => $tier['code'] ?? 'standard',
+                'tier_label'  => $tier['public_label'] ?: ($tier['name'] ?? 'Standard'),
+                'room_sharing'=> $tier['room_sharing'] ?? '',
+                'sort_order'  => (int) ($tier['sort_order'] ?? 0),
+                'unit_price'  => (float) $priced['unit'],
+                'regular'     => $priced['promo']['regular'] ?? null,
+                'currency'    => $priced['currency'],
+                'availability'=> ($cap['remaining'] <= 0) ? 'sold_out'
+                                  : (($cap['remaining'] <= (int) 10) ? 'limited' : 'available'),
+            ];
+        }
+        usort($list, fn($a, $b) => $a['sort_order'] <=> $b['sort_order']);
+        $departureTiers[(int) $d['departure_id']] = $list;
+    }
+
     $title = ($template['name'] ?? 'Umrah Package') . ' | ' . ($GLOBALS['app']['business_name'] ?? 'GoGlobia');
     $description = $template['meta_description'] ?? '';
     $canonical = rtrim((string) ($GLOBALS['app']['site_url'] ?? root), '/') . '/umrah/packages/' . $slug;
