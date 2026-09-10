@@ -177,6 +177,114 @@ $router->get(admin.'/umrah-manager/bookings', function () use ($SECURE, $db) {
     require_once views . 'includes/footer.php';
 });
 
+// ---- OPERATIONS PAGE: GET admin/umrah-manager/operations/{departureId} --
+// Visa / ticket / rooming batch view for a departure's travellers.
+$router->get(admin.'/umrah-manager/operations/([0-9]+)', function ($departureId) use ($SECURE, $db) {
+    ADMIN_AUTH();
+    $departure = $db->get('umrah_departures', '*', ['id' => (int) $departureId]);
+    if (!$departure) { header('Location: ' . root . 'admin/umrah-manager'); exit; }
+    // All travellers on confirmed/held bookings for this departure.
+    $bookings = $db->select('umrah_bookings', ['id', 'booking_ref'], ['departure_id' => (int) $departureId]) ?: [];
+    $bIds = array_map(fn($b) => (int) $b['id'], $bookings);
+    $refById = []; foreach ($bookings as $b) { $refById[(int) $b['id']] = $b['booking_ref']; }
+    $travellers = $bIds ? ($db->select('umrah_booking_travellers', '*', ['umrah_booking_id' => $bIds, 'ORDER' => ['id' => 'ASC']]) ?: []) : [];
+    $hotels = $db->select('umrah_hotels', '*', ['status' => 1]) ?: [];
+    $allocations = $db->select('umrah_hotel_allocations', '*', ['departure_id' => (int) $departureId]) ?: [];
+    $transport = $db->select('umrah_transport_allocations', '*', ['departure_id' => (int) $departureId]) ?: [];
+
+    $title = 'Umrah Operations'; $description = ''; $header = true; $footer = true;
+    require_once views . 'includes/header.php';
+    require_once views . 'admin/umrah/v2/operations.php';
+    require_once views . 'includes/footer.php';
+});
+
+// ---- SET TRAVELLER STATUS: POST .../operations/traveller-status ---------
+$router->post(admin.'/umrah-manager/operations/traveller-status', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $tid = (int) ($_POST['traveller_id'] ?? 0);
+    $domain = trim($_POST['domain'] ?? '');
+    $value = trim($_POST['value'] ?? '');
+    if ($tid <= 0 || !function_exists('umrah_traveller_set_status')) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid request']); }
+    // Optional PNR/eticket capture for the ticket domain.
+    if ($domain === 'ticket' && isset($_POST['pnr'])) {
+        $db->update('umrah_booking_travellers', ['pnr' => trim($_POST['pnr']), 'eticket' => trim($_POST['eticket'] ?? '')], ['id' => $tid]);
+    }
+    $r = umrah_traveller_set_status($db, $tid, $domain, $value);
+    umrahV2AdminJson($r, $r['ok'] ? 200 : 422);
+});
+
+// ---- VERIFY DOCUMENT: POST .../operations/verify-document --------------
+$router->post(admin.'/umrah-manager/operations/verify-document', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $docId = (int) ($_POST['document_id'] ?? 0);
+    $decision = trim($_POST['decision'] ?? '');
+    if ($docId <= 0 || !function_exists('umrah_document_verify')) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid request']); }
+    $r = umrah_document_verify($db, $docId, $decision, $_SESSION['user_id'] ?? 'admin', $_POST['note'] ?? null);
+    umrahV2AdminJson($r, !empty($r['ok']) ? 200 : 422);
+});
+
+// ---- HOTEL / TRANSPORT ALLOCATION: POST .../operations/allocate --------
+$router->post(admin.'/umrah-manager/operations/allocate', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $kind = trim($_POST['kind'] ?? '');
+    $depId = (int) ($_POST['departure_id'] ?? 0);
+    if ($depId <= 0) { umrahV2AdminJson(['success' => false, 'message' => 'Departure required']); }
+    $now = date('Y-m-d H:i:s');
+    if ($kind === 'hotel') {
+        // Create hotel if a new name is given, else use hotel_id.
+        $hotelId = (int) ($_POST['hotel_id'] ?? 0);
+        if ($hotelId <= 0 && trim($_POST['hotel_name'] ?? '') !== '') {
+            $db->insert('umrah_hotels', ['name' => trim($_POST['hotel_name']), 'city' => in_array($_POST['city'] ?? '', ['makkah','madinah','other'], true) ? $_POST['city'] : 'makkah', 'supplier' => $_POST['supplier'] ?? null, 'category' => $_POST['category'] ?? null, 'status' => 1, 'created_at' => $now]);
+            $hotelId = (int) $db->id();
+        }
+        if ($hotelId <= 0) { umrahV2AdminJson(['success' => false, 'message' => 'Hotel required']); }
+        $db->insert('umrah_hotel_allocations', [
+            'departure_id' => $depId, 'hotel_id' => $hotelId,
+            'city' => in_array($_POST['city'] ?? '', ['makkah','madinah','other'], true) ? $_POST['city'] : 'makkah',
+            'nights' => (int) ($_POST['nights'] ?? 0), 'rooms' => (int) ($_POST['rooms'] ?? 0), 'beds' => (int) ($_POST['beds'] ?? 0),
+            'room_type' => $_POST['room_type'] ?? null, 'cost' => isset($_POST['cost']) ? (float) $_POST['cost'] : null,
+            'confirmation_ref' => $_POST['confirmation_ref'] ?? null, 'status' => 'planned', 'created_at' => $now,
+        ]);
+        umrahV2AdminJson(['success' => true, 'message' => 'Hotel allocated']);
+    } elseif ($kind === 'transport') {
+        $db->insert('umrah_transport_allocations', [
+            'departure_id' => $depId, 'route' => trim($_POST['route'] ?? 'Transfer'),
+            'vehicle_type' => $_POST['vehicle_type'] ?? null, 'vehicle_capacity' => isset($_POST['vehicle_capacity']) ? (int) $_POST['vehicle_capacity'] : null,
+            'supplier' => $_POST['supplier'] ?? null, 'cost' => isset($_POST['cost']) ? (float) $_POST['cost'] : null,
+            'group_number' => $_POST['group_number'] ?? null, 'status' => 'planned', 'created_at' => $now,
+        ]);
+        umrahV2AdminJson(['success' => true, 'message' => 'Transport allocated']);
+    }
+    umrahV2AdminJson(['success' => false, 'message' => 'Unknown allocation kind']);
+});
+
+// ---- ROOM ASSIGN: POST .../operations/assign-room ----------------------
+$router->post(admin.'/umrah-manager/operations/assign-room', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $allocId = (int) ($_POST['hotel_allocation_id'] ?? 0);
+    $travellerId = (int) ($_POST['traveller_id'] ?? 0);
+    $roomRef = trim($_POST['room_ref'] ?? '');
+    if ($allocId <= 0 || $travellerId <= 0) { umrahV2AdminJson(['success' => false, 'message' => 'Allocation and traveller required']); }
+    // Gender-conflict guard: don't mix genders in the same room_ref.
+    if ($roomRef !== '') {
+        $mates = $db->select('umrah_room_assignments', ['traveller_id'], ['hotel_allocation_id' => $allocId, 'room_ref' => $roomRef]) ?: [];
+        if ($mates) {
+            $newG = $db->get('umrah_booking_travellers', ['gender'], ['id' => $travellerId])['gender'] ?? null;
+            foreach ($mates as $m) {
+                $g = $db->get('umrah_booking_travellers', ['gender'], ['id' => (int) $m['traveller_id']])['gender'] ?? null;
+                if ($newG && $g && $newG !== $g) { umrahV2AdminJson(['success' => false, 'message' => 'Gender conflict: room already has a ' . $g . ' occupant']); }
+            }
+        }
+    }
+    $db->insert('umrah_room_assignments', ['hotel_allocation_id' => $allocId, 'room_ref' => $roomRef ?: null, 'traveller_id' => $travellerId, 'state' => 'assigned', 'created_at' => date('Y-m-d H:i:s')]);
+    $db->update('umrah_booking_travellers', ['rooming_status' => 'assigned', 'updated_at' => date('Y-m-d H:i:s')], ['id' => $travellerId]);
+    umrahV2AdminJson(['success' => true, 'message' => 'Room assigned']);
+});
+
 // ---- shared: create a departure + its departure-tier row ---------------
 if (!function_exists('umrahV2CreateDeparture')) {
     function umrahV2CreateDeparture($db, int $templateId, string $depDate, string $retDate, int $capacity, int $tierId, float $regular, float $promo): array

@@ -174,6 +174,51 @@ $router->get('/api/v1/umrah/bookings/([A-Za-z0-9\-]+)', function ($ref) use ($db
     umrah_v1_json(['success' => true, 'booking' => $ub, 'installments' => $installments]);
 });
 
+// ---- POST /api/v1/umrah/bookings/{ref}/travellers -----------------------
+// Add/update a pilgrim on the booking (owner or admin).
+$router->post('/api/v1/umrah/bookings/([A-Za-z0-9\-]+)/travellers', function ($ref) use ($db) {
+    $ub = $db->get('umrah_bookings', '*', ['booking_ref' => $ref]);
+    if (!$ub) { umrah_v1_json(['success' => false, 'message' => 'Booking not found'], 404); }
+    $uid = umrah_v1_user();
+    $isAdmin = (($_SESSION['user_role'] ?? '') === 'admin');
+    if (!$isAdmin && (!$uid || (string) $ub['user_id'] !== (string) $uid)) { umrah_v1_json(['success' => false, 'message' => 'Unauthorized'], 403); }
+    if (!function_exists('umrah_traveller_add')) { umrah_v1_json(['success' => false, 'message' => 'Unavailable'], 500); }
+    $r = umrah_traveller_add($db, (int) $ub['id'], umrah_v1_body());
+    umrah_v1_json($r['ok'] ? ['success' => true, 'traveller_id' => $r['traveller_id']] : ['success' => false, 'message' => $r['message'] ?? 'Failed'], $r['ok'] ? 200 : 422);
+});
+
+// ---- POST /api/v1/umrah/travellers/{id}/documents -----------------------
+// Secure document upload (multipart). Owner or admin.
+$router->post('/api/v1/umrah/travellers/([0-9]+)/documents', function ($tid) use ($db) {
+    $tr = $db->get('umrah_booking_travellers', ['id', 'umrah_booking_id'], ['id' => (int) $tid]);
+    if (!$tr) { umrah_v1_json(['success' => false, 'message' => 'Traveller not found'], 404); }
+    $ub = $db->get('umrah_bookings', ['user_id'], ['id' => $tr['umrah_booking_id']]);
+    $uid = umrah_v1_user();
+    $isAdmin = (($_SESSION['user_role'] ?? '') === 'admin');
+    if (!$isAdmin && (!$uid || (string) ($ub['user_id'] ?? '') !== (string) $uid)) { umrah_v1_json(['success' => false, 'message' => 'Unauthorized'], 403); }
+    $docType = $_POST['doc_type'] ?? 'passport';
+    if (!function_exists('umrah_document_upload')) { umrah_v1_json(['success' => false, 'message' => 'Unavailable'], 500); }
+    $r = umrah_document_upload($db, (int) $tid, (string) $docType, 'file');
+    umrah_v1_json($r['ok'] ? ['success' => true, 'document_id' => $r['document_id']] : ['success' => false, 'message' => $r['message'] ?? 'Upload failed'], $r['ok'] ? 200 : 422);
+});
+
+// ---- POST /api/v1/umrah/waitlist ----------------------------------------
+$router->post('/api/v1/umrah/waitlist', function () use ($db) {
+    $in = umrah_v1_body();
+    $db->insert('umrah_waitlist', [
+        'departure_id' => !empty($in['departure_id']) ? (int) $in['departure_id'] : null,
+        'tier_code' => $in['tier_code'] ?? 'standard',
+        'name' => trim((string) ($in['name'] ?? '')),
+        'email' => trim((string) ($in['email'] ?? '')),
+        'phone' => trim((string) ($in['phone'] ?? '')),
+        'pax' => max(1, (int) ($in['pax'] ?? 1)),
+        'alt_dates' => $in['alt_dates'] ?? null,
+        'status' => 'waiting',
+        'created_at' => date('Y-m-d H:i:s'),
+    ]);
+    umrah_v1_json(['success' => true, 'message' => 'Added to waitlist']);
+});
+
 // ---- POST /api/v1/umrah/bookings/{ref}/payments -------------------------
 // Phase 1: initiate payment for the next due installment. Returns the amount +
 // invoice so the existing gateway flow (process_payment) can take over. The

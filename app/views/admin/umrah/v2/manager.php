@@ -92,6 +92,7 @@ $stdTierId = 0; foreach ($tiers as $t) { if ($t['code'] === 'standard') { $stdTi
                   <button class="btn btn-sm outline" @click="setStatus(<?= (int)$d['id'] ?>,'closed')">Close</button>
                 <?php endif; ?>
                 <button class="btn btn-sm outline" @click="clone(<?= (int)$d['id'] ?>)">Clone</button>
+                <a class="btn btn-sm outline" href="<?= root ?>admin/umrah-manager/operations/<?= (int)$d['id'] ?>">Ops</a>
               </td>
             </tr>
           <?php endforeach; endif; ?>

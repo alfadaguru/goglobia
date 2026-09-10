@@ -665,6 +665,16 @@ if (!function_exists('umrah_settle_payment')) {
             umrah_audit($db, 'umrah_booking', $ub['booking_ref'], 'payment_settled', null,
                 ['amount' => $amount, 'txn' => $txnId, 'paid' => $result['amount_paid'] ?? null, 'confirmed' => $result['confirmed'] ?? null], $ub['user_id']);
         }
+        // Queue a payment-confirmed notification when the booking just confirmed.
+        if (!empty($result['ok']) && !empty($result['confirmed']) && $ub['booking_status'] === 'held' && function_exists('umrah_notify')) {
+            $gen = $db->get('bookings', ['first_name', 'last_name', 'email'], ['invoice_id' => $invoiceId]);
+            $body = "Assalamu Alaikum,\n\nYour GoGlobia Umrah booking {$ub['booking_ref']} is confirmed and your package price is locked.\n"
+                . 'Paid: ' . number_format((float) ($result['amount_paid'] ?? 0), 2) . ' ' . $ub['currency'] . "\n"
+                . 'Balance: ' . number_format((float) ($result['balance'] ?? 0), 2) . " {$ub['currency']}\n\n"
+                . "Next: complete each pilgrim's details in your dashboard.\n";
+            umrah_notify($db, (int) $ub['id'], 'payment_confirmed', 'Umrah booking confirmed — ' . $ub['booking_ref'], $body, 'email',
+                $gen ? ['email' => $gen['email'] ?? '', 'name' => trim(($gen['first_name'] ?? '') . ' ' . ($gen['last_name'] ?? ''))] : null);
+        }
         return $result;
     }
 }

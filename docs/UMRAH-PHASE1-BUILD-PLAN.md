@@ -333,3 +333,23 @@ Final regression: 15 files php -l clean; app boots 200; cron 200. Departures lef
 - Nothing committed (working tree).
 
 **Gateway wiring ✅ (verified)** — `handle_payment_callback()` (app/lib/payment-gateway.php) now calls `umrah_settle_payment()` for umrah bookings on cleared payment, on BOTH the normal paid path (~L768) and the dev-mode-mismatch path (~L328). Idempotent. Integration-proven: settling with the exact callback args (invoice/amount/currency/txn) confirms the umrah booking + price-locks + consumes hold + fully_paid. The Phase-1 money path is now end-to-end (still not driven through a live external gateway, but the internal confirmation→settle chain is complete and verified).
+
+## PHASE 2 (post-payment operations) — build log
+
+**P2.1 — Operations schema ✅ (verified)**
+- Extended ensureUmrahSchema with 10 tables: umrah_booking_travellers (+ independent doc/visa/ticket/rooming statuses), umrah_documents, umrah_hotels, umrah_hotel_allocations, umrah_transport_allocations, umrah_room_assignments, umrah_addons, umrah_booking_addons, umrah_notifications, umrah_waitlist. All created live; idempotent; added to install/db.sql (SHOW CREATE-exact, test-imported 10/10 in isolation).
+- ⚠️ PRE-EXISTING db.sql bug found (NOT from this work, NOT fixed): a full fresh import aborts at ~line 29297 `ALTER TABLE blogs ADD UNIQUE KEY post_slug` due to duplicate empty post_slug in the shipped blogs seed. Umrah tables (defined after) are unaffected on existing installs because ensureUmrahSchema creates them at runtime. Flagged for a separate fix (seed data, risky to touch blind).
+
+**P2.2 — Traveller + document services ✅ (verified)**
+- app/lib/umrah/operations.php (required in config.php): umrah_traveller_add (pax-cap enforced, identity→doc_status), umrah_document_upload (private uploads/umrah/documents/{booking}/ + .htaccess deny, finfo MIME jpg/png/pdf, size + PHP-injection guard, no bytes logged), umrah_document_verify (→ recompute doc_status), umrah_traveller_set_status (visa/ticket/rooming validated transitions), umrah_traveller_recompute_doc_status, umrah_booking_readiness roll-up.
+- Live: identity readiness (ready/incomplete), pax-cap block, malicious upload rejected, valid upload+verify→verified, visa→approved, readiness roll-up correct. Private doc dir hardened with Require-all-denied .htaccess.
+
+**P2.3–P2.7 — Ops surfaces, dashboard API, notifications ✅ (verified)**
+- Customer API v1 added: POST bookings/{ref}/travellers, POST travellers/{id}/documents (secure upload), POST waitlist.
+- Admin ops (admin/umrah-manager/operations/{departureId} + actions): traveller visa/ticket/rooming batch (validated transitions), document verify, hotel + transport allocation, room assign with GENDER-CONFLICT guard. "Ops" link added to departures table.
+- Notifications: umrah_notify() queues to umrah_notifications + best-effort SENDEMAIL; payment-confirmed notification fired from umrah_settle_payment on first confirm.
+- Phase 2 acceptance 8/8: payment confirms + notification queued; travellers add; visa/ticket/rooming transitions; invalid status rejected; readiness roll-up. Gender-conflict rooming blocked. All admin routes 302-gated; waitlist API works.
+
+## PHASE 2 COMPLETE (core operations). 
+Built: operations schema (10 tables), traveller+document services (secure upload, verification), visa/ticket/rooming workflow, hotel/transport/rooming admin, waitlist, notifications, customer+admin surfaces.
+Honest remaining (lower priority, not built): premium-tier live pricing, addons checkout wiring, agent-umrah B2B flow, advanced reports/exports, full customer traveller-completion UI polish (API exists; a dedicated dashboard page can be expanded). No live external gateway/email actually sent (queued + unit-verified).

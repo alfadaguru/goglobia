@@ -4801,6 +4801,182 @@ if (!function_exists('ensureUmrahSchema')) {
                 KEY `idx_entity` (`entity`,`entity_id`),
                 KEY `idx_created` (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            // ================= PHASE 2 — operations tables =================
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_booking_travellers` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `umrah_booking_id` int(11) NOT NULL,
+                `title` varchar(16) DEFAULT NULL,
+                `first_name` varchar(120) DEFAULT NULL,
+                `middle_name` varchar(120) DEFAULT NULL,
+                `last_name` varchar(120) DEFAULT NULL,
+                `gender` enum('male','female') DEFAULT NULL,
+                `dob` date DEFAULT NULL,
+                `nationality` varchar(80) DEFAULT NULL,
+                `passport_number` varchar(64) DEFAULT NULL,
+                `passport_issue` date DEFAULT NULL,
+                `passport_expiry` date DEFAULT NULL,
+                `emergency_contact` varchar(160) DEFAULT NULL,
+                `family_group` varchar(64) DEFAULT NULL,
+                `room_group` varchar(64) DEFAULT NULL,
+                `room_preference` varchar(64) DEFAULT NULL,
+                `ring_size` varchar(16) DEFAULT NULL,
+                `is_lead` tinyint(1) NOT NULL DEFAULT 0,
+                `doc_status` enum('not_started','incomplete','ready','verified','action_required') NOT NULL DEFAULT 'not_started',
+                `visa_status` enum('not_started','ready_to_submit','submitted','approved','rejected','action_required') NOT NULL DEFAULT 'not_started',
+                `ticket_status` enum('not_started','reserved','ticketed','changed','cancelled') NOT NULL DEFAULT 'not_started',
+                `rooming_status` enum('unassigned','requested','assigned','confirmed') NOT NULL DEFAULT 'unassigned',
+                `pnr` varchar(64) DEFAULT NULL,
+                `eticket` varchar(120) DEFAULT NULL,
+                `extra` longtext DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `idx_booking` (`umrah_booking_id`),
+                KEY `idx_visa` (`visa_status`),
+                KEY `idx_doc` (`doc_status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_documents` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `traveller_id` int(11) NOT NULL,
+                `umrah_booking_id` int(11) NOT NULL,
+                `doc_type` varchar(48) NOT NULL,
+                `file_path` varchar(255) NOT NULL,
+                `original_name` varchar(255) DEFAULT NULL,
+                `mime` varchar(80) DEFAULT NULL,
+                `verify_status` enum('pending','verified','rejected') NOT NULL DEFAULT 'pending',
+                `verified_by` varchar(120) DEFAULT NULL,
+                `verified_at` datetime DEFAULT NULL,
+                `note` varchar(255) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_traveller` (`traveller_id`),
+                KEY `idx_booking` (`umrah_booking_id`),
+                KEY `idx_verify` (`verify_status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_hotels` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `name` varchar(200) NOT NULL,
+                `city` enum('makkah','madinah','other') NOT NULL DEFAULT 'makkah',
+                `supplier` varchar(160) DEFAULT NULL,
+                `category` varchar(48) DEFAULT NULL,
+                `distance_note` varchar(200) DEFAULT NULL,
+                `contact` varchar(160) DEFAULT NULL,
+                `status` tinyint(1) NOT NULL DEFAULT 1,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_city` (`city`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_hotel_allocations` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `departure_id` int(11) NOT NULL,
+                `tier_id` int(11) DEFAULT NULL,
+                `hotel_id` int(11) NOT NULL,
+                `city` enum('makkah','madinah','other') NOT NULL DEFAULT 'makkah',
+                `nights` smallint(6) NOT NULL DEFAULT 0,
+                `check_in` date DEFAULT NULL,
+                `check_out` date DEFAULT NULL,
+                `room_type` varchar(64) DEFAULT NULL,
+                `rooms` int(11) NOT NULL DEFAULT 0,
+                `beds` int(11) NOT NULL DEFAULT 0,
+                `cost` decimal(14,2) DEFAULT NULL,
+                `confirmation_ref` varchar(120) DEFAULT NULL,
+                `status` varchar(32) NOT NULL DEFAULT 'planned',
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_departure` (`departure_id`),
+                KEY `idx_hotel` (`hotel_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_transport_allocations` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `departure_id` int(11) NOT NULL,
+                `route` varchar(160) NOT NULL,
+                `vehicle_type` varchar(80) DEFAULT NULL,
+                `vehicle_capacity` int(11) DEFAULT NULL,
+                `supplier` varchar(160) DEFAULT NULL,
+                `contact` varchar(160) DEFAULT NULL,
+                `cost` decimal(14,2) DEFAULT NULL,
+                `schedule` varchar(160) DEFAULT NULL,
+                `group_number` varchar(64) DEFAULT NULL,
+                `status` varchar(32) NOT NULL DEFAULT 'planned',
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_departure` (`departure_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_room_assignments` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `hotel_allocation_id` int(11) NOT NULL,
+                `room_ref` varchar(64) DEFAULT NULL,
+                `traveller_id` int(11) NOT NULL,
+                `state` enum('assigned','confirmed') NOT NULL DEFAULT 'assigned',
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_alloc` (`hotel_allocation_id`),
+                KEY `idx_traveller` (`traveller_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_addons` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `code` varchar(48) NOT NULL,
+                `name` varchar(160) NOT NULL,
+                `pricing_model` varchar(48) NOT NULL DEFAULT 'per_pilgrim',
+                `price` decimal(14,2) DEFAULT NULL,
+                `currency` varchar(10) NOT NULL DEFAULT 'NGN',
+                `active` tinyint(1) NOT NULL DEFAULT 0,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_code` (`code`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_booking_addons` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `umrah_booking_id` int(11) NOT NULL,
+                `addon_id` int(11) NOT NULL,
+                `qty` int(11) NOT NULL DEFAULT 1,
+                `price_snapshot` decimal(14,2) NOT NULL DEFAULT 0,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_booking` (`umrah_booking_id`),
+                KEY `idx_addon` (`addon_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_notifications` (
+                `id` bigint(20) NOT NULL AUTO_INCREMENT,
+                `umrah_booking_id` int(11) DEFAULT NULL,
+                `departure_id` int(11) DEFAULT NULL,
+                `channel` varchar(24) NOT NULL DEFAULT 'email',
+                `template` varchar(64) DEFAULT NULL,
+                `subject` varchar(200) DEFAULT NULL,
+                `body` text DEFAULT NULL,
+                `status` enum('queued','sent','failed') NOT NULL DEFAULT 'queued',
+                `error` varchar(255) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `sent_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `idx_booking` (`umrah_booking_id`),
+                KEY `idx_status` (`status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_waitlist` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `departure_id` int(11) DEFAULT NULL,
+                `tier_code` varchar(32) DEFAULT NULL,
+                `name` varchar(160) DEFAULT NULL,
+                `email` varchar(160) DEFAULT NULL,
+                `phone` varchar(64) DEFAULT NULL,
+                `pax` int(11) NOT NULL DEFAULT 1,
+                `alt_dates` varchar(255) DEFAULT NULL,
+                `status` enum('waiting','notified','converted','closed') NOT NULL DEFAULT 'waiting',
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_departure` (`departure_id`),
+                KEY `idx_status` (`status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
         } catch (\Throwable $e) {
             error_log('ensureUmrahSchema: ' . $e->getMessage());
         }

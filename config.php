@@ -67,6 +67,7 @@ require_once 'app/lib/mailer.php';
 require_once 'app/lib/captcha.php';
 require_once 'app/lib/webhooks.php';
 require_once 'app/lib/umrah/services.php';
+require_once 'app/lib/umrah/operations.php';
 
 // Load demo warning helper with error handling
 try {
