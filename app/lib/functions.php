@@ -4598,6 +4598,333 @@ if (!function_exists('agent_api_charge_wallet')) {
 }
 
 /**
+ * UMRAH REDESIGN — Phase 1 self-healing schema.
+ * See docs/UMRAH-PHASE1-BUILD-PLAN.md §1. Idempotent (CREATE TABLE IF NOT
+ * EXISTS), real AUTO_INCREMENT (the legacy `umrah` table used MAX(id)+1). Safe
+ * to call every request; no-op once the tables exist. The generic
+ * bookings/transactions/users tables are reused — these umrah_* tables model the
+ * departure/tier/quote/hold/installment domain the flat `umrah` table lacked.
+ */
+if (!function_exists('ensureUmrahSchema')) {
+    function ensureUmrahSchema($db): void
+    {
+        try {
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_package_templates` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `code` varchar(64) NOT NULL,
+                `slug` varchar(191) NOT NULL,
+                `name` varchar(250) NOT NULL,
+                `season` varchar(32) NOT NULL DEFAULT 'normal',
+                `marketing_duration` varchar(64) DEFAULT NULL,
+                `madinah_nights` smallint(6) NOT NULL DEFAULT 0,
+                `makkah_nights` smallint(6) NOT NULL DEFAULT 0,
+                `itinerary_order` text DEFAULT NULL,
+                `inclusions` longtext DEFAULT NULL,
+                `rooming_note` text DEFAULT NULL,
+                `meta_title` varchar(250) DEFAULT NULL,
+                `meta_description` text DEFAULT NULL,
+                `status` tinyint(1) NOT NULL DEFAULT 1,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_code` (`code`),
+                UNIQUE KEY `uq_slug` (`slug`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_tiers` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `code` varchar(32) NOT NULL,
+                `name` varchar(120) NOT NULL,
+                `public_label` varchar(120) DEFAULT NULL,
+                `sort_order` smallint(6) NOT NULL DEFAULT 0,
+                `default_occupancy` smallint(6) NOT NULL DEFAULT 1,
+                `room_sharing` varchar(64) DEFAULT NULL,
+                `bookable` tinyint(1) NOT NULL DEFAULT 0,
+                `status` tinyint(1) NOT NULL DEFAULT 1,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_code` (`code`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_departures` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `template_id` int(11) NOT NULL,
+                `code` varchar(64) NOT NULL,
+                `departure_date` date NOT NULL,
+                `return_date` date DEFAULT NULL,
+                `month_bucket` varchar(32) DEFAULT NULL,
+                `origin_city` varchar(120) DEFAULT NULL,
+                `booking_close_at` datetime DEFAULT NULL,
+                `capacity` int(11) NOT NULL DEFAULT 0,
+                `low_stock_threshold` int(11) NOT NULL DEFAULT 10,
+                `display_inventory_count` tinyint(1) NOT NULL DEFAULT 0,
+                `status` enum('draft','published','closed') NOT NULL DEFAULT 'draft',
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_code` (`code`),
+                KEY `idx_template` (`template_id`),
+                KEY `idx_status_date` (`status`,`departure_date`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_departure_tiers` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `departure_id` int(11) NOT NULL,
+                `tier_id` int(11) NOT NULL,
+                `regular_price` decimal(14,2) DEFAULT NULL,
+                `promo_price` decimal(14,2) DEFAULT NULL,
+                `promo_start` datetime DEFAULT NULL,
+                `promo_end` datetime DEFAULT NULL,
+                `promo_active` tinyint(1) NOT NULL DEFAULT 0,
+                `currency` varchar(10) NOT NULL DEFAULT 'NGN',
+                `tier_capacity` int(11) DEFAULT NULL,
+                `booking_mode` enum('instant','quote') NOT NULL DEFAULT 'instant',
+                `status` enum('draft','active','hidden','sold_out') NOT NULL DEFAULT 'draft',
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_departure_tier` (`departure_id`,`tier_id`),
+                KEY `idx_departure` (`departure_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_payment_plans` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `code` varchar(32) NOT NULL,
+                `name` varchar(120) NOT NULL,
+                `deposit_percent` decimal(5,2) NOT NULL DEFAULT 100.00,
+                `second_percent` decimal(5,2) NOT NULL DEFAULT 0.00,
+                `final_percent` decimal(5,2) NOT NULL DEFAULT 0.00,
+                `second_due_days_before` int(11) DEFAULT NULL,
+                `final_due_days_before` int(11) DEFAULT NULL,
+                `grace_hours` int(11) NOT NULL DEFAULT 72,
+                `price_lock_on_cleared_deposit` tinyint(1) NOT NULL DEFAULT 1,
+                `active` tinyint(1) NOT NULL DEFAULT 1,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_code` (`code`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_quotes` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `quote_ref` varchar(40) NOT NULL,
+                `departure_tier_id` int(11) NOT NULL,
+                `tier_code` varchar(32) DEFAULT NULL,
+                `pax` int(11) NOT NULL DEFAULT 1,
+                `unit_price` decimal(14,2) NOT NULL DEFAULT 0,
+                `total_price` decimal(14,2) NOT NULL DEFAULT 0,
+                `amount_due_now` decimal(14,2) NOT NULL DEFAULT 0,
+                `promo_snapshot` text DEFAULT NULL,
+                `policy_version` varchar(32) DEFAULT NULL,
+                `currency` varchar(10) NOT NULL DEFAULT 'NGN',
+                `expires_at` datetime NOT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_quote_ref` (`quote_ref`),
+                KEY `idx_departure_tier` (`departure_tier_id`),
+                KEY `idx_expires` (`expires_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_inventory_holds` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `departure_tier_id` int(11) NOT NULL,
+                `quote_id` int(11) DEFAULT NULL,
+                `session_ref` varchar(64) DEFAULT NULL,
+                `user_id` varchar(255) DEFAULT NULL,
+                `qty` int(11) NOT NULL DEFAULT 1,
+                `state` enum('held','consumed','expired','released') NOT NULL DEFAULT 'held',
+                `expires_at` datetime NOT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `idx_dt_state` (`departure_tier_id`,`state`),
+                KEY `idx_expires` (`expires_at`),
+                KEY `idx_quote` (`quote_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_bookings` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `booking_ref` varchar(40) NOT NULL,
+                `invoice_id` varchar(255) DEFAULT NULL,
+                `user_id` varchar(255) DEFAULT NULL,
+                `departure_id` int(11) NOT NULL,
+                `departure_tier_id` int(11) NOT NULL,
+                `pax` int(11) NOT NULL DEFAULT 1,
+                `currency` varchar(10) NOT NULL DEFAULT 'NGN',
+                `total_price` decimal(14,2) NOT NULL DEFAULT 0,
+                `amount_paid` decimal(14,2) NOT NULL DEFAULT 0,
+                `balance` decimal(14,2) NOT NULL DEFAULT 0,
+                `payment_plan_code` varchar(32) DEFAULT NULL,
+                `price_locked_at` datetime DEFAULT NULL,
+                `booking_status` enum('held','confirmed','cancelled','completed') NOT NULL DEFAULT 'held',
+                `payment_status` enum('unpaid','deposit_paid','partially_paid','fully_paid','overdue','refund_pending','refunded') NOT NULL DEFAULT 'unpaid',
+                `snapshot` longtext DEFAULT NULL,
+                `hold_id` int(11) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_booking_ref` (`booking_ref`),
+                KEY `idx_invoice` (`invoice_id`),
+                KEY `idx_user` (`user_id`),
+                KEY `idx_departure` (`departure_id`),
+                KEY `idx_departure_tier` (`departure_tier_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_installments` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `umrah_booking_id` int(11) NOT NULL,
+                `seq` smallint(6) NOT NULL DEFAULT 1,
+                `percent` decimal(5,2) NOT NULL DEFAULT 0,
+                `amount` decimal(14,2) NOT NULL DEFAULT 0,
+                `due_at` datetime DEFAULT NULL,
+                `status` enum('pending','paid','overdue','waived') NOT NULL DEFAULT 'pending',
+                `paid_at` datetime DEFAULT NULL,
+                `transaction_id` varchar(255) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_booking` (`umrah_booking_id`),
+                KEY `idx_status_due` (`status`,`due_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_audit_log` (
+                `id` bigint(20) NOT NULL AUTO_INCREMENT,
+                `actor` varchar(255) DEFAULT NULL,
+                `role` varchar(64) DEFAULT NULL,
+                `entity` varchar(64) DEFAULT NULL,
+                `entity_id` varchar(64) DEFAULT NULL,
+                `action` varchar(64) DEFAULT NULL,
+                `old_value` longtext DEFAULT NULL,
+                `new_value` longtext DEFAULT NULL,
+                `reason` text DEFAULT NULL,
+                `ip` varchar(64) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_entity` (`entity`,`entity_id`),
+                KEY `idx_created` (`created_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+        } catch (\Throwable $e) {
+            error_log('ensureUmrahSchema: ' . $e->getMessage());
+        }
+    }
+}
+
+/**
+ * UMRAH REDESIGN — Phase 1 seed data (idempotent).
+ * See docs/UMRAH-PHASE1-BUILD-PLAN.md §7. Seeds the NORMAL-14D template, 5 tiers
+ * (Standard bookable; premium tiers as not-bookable placeholders), the
+ * PP-50-25-25 + PP-FULL plans, and the six Oct–Dec 2026 departures as DRAFT with
+ * a Standard departure-tier (promo 2,490,000 / regular 2,800,000 / cap 50).
+ * Departures seed as DRAFT — publishing requires confirmed inventory (spec).
+ * Every insert is guarded so re-running is a no-op.
+ */
+if (!function_exists('seedUmrahPhase1')) {
+    function seedUmrahPhase1($db): void
+    {
+        try {
+            // --- Package template ---
+            $tplId = $db->get('umrah_package_templates', 'id', ['code' => 'NORMAL-14D']);
+            if (!$tplId) {
+                $inclusions = ['return_flight','umrah_visa','madinah_stay','makkah_stay','airport_transfers',
+                    'madinah_makkah_transfer','makkah_ziyarah','madinah_ziyarah','zain_sim','goglobia_esim',
+                    'data_1gb','discounted_topups','nusuk_assistance','gift_kit','yahaji_ring',
+                    'group_coordination','whatsapp_support','orientation'];
+                $db->insert('umrah_package_templates', [
+                    'code' => 'NORMAL-14D',
+                    'slug' => 'normal-umrah-14-day',
+                    'name' => 'GoGlobia Normal Umrah - 14 Day',
+                    'season' => 'normal',
+                    'marketing_duration' => '14 days',
+                    'madinah_nights' => 4,
+                    'makkah_nights' => 10,
+                    'itinerary_order' => json_encode(['Madinah','Makkah']),
+                    'inclusions' => json_encode($inclusions),
+                    'rooming_note' => 'Standard Economy price is based on shared economy accommodation, normally 4-5 pilgrims per room. Rooming is subject to gender/family configuration.',
+                    'meta_title' => 'Umrah Packages from Nigeria 2026 | GoGlobia',
+                    'meta_description' => '14-Day Umrah with flights, visa, 4 nights Madinah + 10 nights Makkah, transport, Ziyarah and connectivity.',
+                    'status' => 1,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+                $tplId = (int) $db->id();
+            }
+            $tplId = (int) $tplId;
+
+            // --- Tiers ---
+            $tiers = [
+                ['standard','Standard Economy','Standard Economy',1,5,'4-5 sharing',1],
+                ['vip','VIP Comfort','VIP Comfort',2,4,'Quad sharing',0],
+                ['vvip','VVIP Premium','VVIP Premium',3,3,'Triple sharing',0],
+                ['vvvip','VVVIP Executive','VVVIP Executive',4,2,'Double sharing',0],
+                ['vvvvip','VVVVIP Luxury','VVVVIP Luxury',5,1,'Private single/double',0],
+            ];
+            foreach ($tiers as $t) {
+                if (!$db->get('umrah_tiers', 'id', ['code' => $t[0]])) {
+                    $db->insert('umrah_tiers', [
+                        'code' => $t[0], 'name' => $t[1], 'public_label' => $t[2],
+                        'sort_order' => $t[3], 'default_occupancy' => $t[4], 'room_sharing' => $t[5],
+                        'bookable' => $t[6], 'status' => 1, 'created_at' => date('Y-m-d H:i:s'),
+                    ]);
+                }
+            }
+            $standardTierId = (int) $db->get('umrah_tiers', 'id', ['code' => 'standard']);
+
+            // --- Payment plans ---
+            if (!$db->get('umrah_payment_plans', 'id', ['code' => 'PP-50-25-25'])) {
+                $db->insert('umrah_payment_plans', [
+                    'code' => 'PP-50-25-25', 'name' => 'Price Lock Installment Plan',
+                    'deposit_percent' => 50.00, 'second_percent' => 25.00, 'final_percent' => 25.00,
+                    'second_due_days_before' => 45, 'final_due_days_before' => 21,
+                    'grace_hours' => 72, 'price_lock_on_cleared_deposit' => 1, 'active' => 1,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
+            if (!$db->get('umrah_payment_plans', 'id', ['code' => 'PP-FULL'])) {
+                $db->insert('umrah_payment_plans', [
+                    'code' => 'PP-FULL', 'name' => 'Full Payment',
+                    'deposit_percent' => 100.00, 'second_percent' => 0.00, 'final_percent' => 0.00,
+                    'grace_hours' => 72, 'price_lock_on_cleared_deposit' => 1, 'active' => 1,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
+
+            // --- Departures (draft) + Standard departure-tier ---
+            $departures = [
+                ['UMR-20261012-STD','2026-10-12','2026-10-26','October 2026'],
+                ['UMR-20261028-STD','2026-10-28','2026-11-11','October 2026'],
+                ['UMR-20261112-STD','2026-11-12','2026-11-26','November 2026'],
+                ['UMR-20261128-STD','2026-11-28','2026-12-12','November 2026'],
+                ['UMR-20261212-STD','2026-12-12','2026-12-26','December 2026'],
+                ['UMR-20261228-STD','2026-12-28','2027-01-11','December 2026'],
+            ];
+            foreach ($departures as $d) {
+                $depId = $db->get('umrah_departures', 'id', ['code' => $d[0]]);
+                if (!$depId) {
+                    $db->insert('umrah_departures', [
+                        'template_id' => $tplId, 'code' => $d[0],
+                        'departure_date' => $d[1], 'return_date' => $d[2], 'month_bucket' => $d[3],
+                        'origin_city' => null, 'capacity' => 50, 'low_stock_threshold' => 10,
+                        'display_inventory_count' => 0, 'status' => 'draft',
+                        'created_at' => date('Y-m-d H:i:s'),
+                    ]);
+                    $depId = (int) $db->id();
+                }
+                $depId = (int) $depId;
+                // Standard departure-tier for this departure
+                if ($standardTierId && !$db->get('umrah_departure_tiers', 'id', ['departure_id' => $depId, 'tier_id' => $standardTierId])) {
+                    $db->insert('umrah_departure_tiers', [
+                        'departure_id' => $depId, 'tier_id' => $standardTierId,
+                        'regular_price' => 2800000.00, 'promo_price' => 2490000.00,
+                        'promo_active' => 1, 'currency' => 'NGN',
+                        'tier_capacity' => 50, 'booking_mode' => 'instant', 'status' => 'draft',
+                        'created_at' => date('Y-m-d H:i:s'),
+                    ]);
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('seedUmrahPhase1: ' . $e->getMessage());
+        }
+    }
+}
+
+/**
  * Ensure the settings.user_restriction column exists.
  *
  * Called from index.php on every request so an existing client database is

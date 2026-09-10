@@ -1,5 +1,10 @@
 <?php
 // app/routes/umrah/detailRoutes.php
+// SUPERSEDED by the Umrah redesign — /umrah/detail/* is now handled by
+// umrahV2Routes.php (redirects legacy URLs to the stable package page). This
+// legacy handler is disabled to avoid a same-key route collision; the `return`
+// makes the rest of the file (kept for reference) inert.
+return;
 
 $router->get('/umrah/detail/(.*)', function ($params) use ($SECURE,$db) {
 

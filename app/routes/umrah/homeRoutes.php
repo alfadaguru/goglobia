@@ -1,10 +1,7 @@
 <?php
 // app/routes/umrah/homeRoutes.php
-
-$router->get('/umrah/', function () use ($SECURE,$db) {
-    $title = T::umrah ?? 'Umrah';
-    $description = '';
-    require_once views."includes/header.php";
-    require_once views."modules/umrah/index.php";
-    require_once views."includes/footer.php";
-});
+// SUPERSEDED by the Umrah redesign — the /umrah landing is now served by
+// app/routes/umrah/umrahV2Routes.php (docs/UMRAH-PHASE1-BUILD-PLAN.md Step 7).
+// The old generic landing is disabled to avoid a same-key route collision
+// (both registered '/umrah/'; the later registration would overwrite v2).
+// Kept as a file (still required by _routes.php) but registers nothing.

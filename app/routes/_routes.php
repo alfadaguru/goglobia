@@ -77,6 +77,7 @@ require_once 'app/routes/tours/detailRoutes.php';
 require_once 'app/routes/tours/destinationSuggestionRoutes.php';
 
 // Umrah Routes
+require_once 'app/routes/umrah/umrahV2Routes.php'; // NEW redesign — must precede legacy so /umrah, /umrah/packages/*, /umrah/detail redirect win
 require_once 'app/routes/umrah/homeRoutes.php';
 require_once 'app/routes/umrah/bookingRoutes.php';
 require_once 'app/routes/umrah/invoiceRoutes.php';
@@ -150,6 +151,7 @@ require_once 'app/routes/admin/airportsRoutes.php';
 require_once 'app/routes/admin/locationsRoutes.php';
 require_once 'app/routes/admin/toursRoutes.php';
 require_once 'app/routes/admin/umrahRoutes.php';
+require_once 'app/routes/admin/umrahV2Routes.php';
 require_once 'app/routes/admin/carsRoutes.php';
 require_once 'app/routes/admin/busRoutes.php';
 require_once 'app/routes/admin/visaRoutes.php';
@@ -245,6 +247,7 @@ require_once 'app/routes/api/tours/invoice.php';
 require_once 'app/routes/api/umrah/featuredRoutes.php';
 require_once 'app/routes/api/umrah/homeRoutes.php';
 require_once 'app/routes/api/umrah/bookingRoutes.php';
+require_once 'app/routes/api/umrah/v1Routes.php';
 
 //VISA API ROUTES
 require_once 'app/routes/api/visa/homeRoutes.php';
@@ -296,3 +299,4 @@ require_once 'app/routes/paymentAdyenRoutes.php';
 // CRON ROUTES
 require_once 'app/routes/crons/creditsRemindersRoutes.php';
 require_once 'app/routes/crons/currencyRatesRoutes.php';
+require_once 'app/routes/crons/umrahHoldsRoutes.php';
