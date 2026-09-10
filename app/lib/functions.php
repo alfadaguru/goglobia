@@ -314,6 +314,21 @@ function ensureCoreFixSchema($db): void
         }
     }
 
+    // MONEY-INTEGRITY FIX (Umrah audit H2, platform-wide): the credits ledger
+    // amount column `credits.credits` shipped as int(11), silently rounding any
+    // decimal wallet debit/credit (agent-API booking charge, % service fee,
+    // refunds). Widen to DECIMAL(14,2). Idempotent: only runs while the column
+    // is still an integer type. Every reader already casts with (float)/intval,
+    // so widening is backward-compatible.
+    try {
+        $col = $db->query("SHOW COLUMNS FROM `credits` LIKE 'credits'")->fetch(\PDO::FETCH_ASSOC);
+        if ($col && isset($col['Type']) && stripos((string) $col['Type'], 'int') !== false) {
+            $db->pdo->exec("ALTER TABLE `credits` MODIFY `credits` DECIMAL(14,2) NOT NULL DEFAULT 0.00");
+        }
+    } catch (Throwable $e) {
+        error_log('ensureCoreFixSchema: could not widen credits.credits to DECIMAL: ' . $e->getMessage());
+    }
+
     // Classify each supplier module (real API / affiliate / own inventory /
     // stub) so the admin panel can badge it. Runs inside the same self-healing
     // pass; idempotent and seeds once. See ensureModulesBookingClass() below.
@@ -4546,57 +4561,66 @@ if (!function_exists('agent_api_charge_wallet')) {
     {
         $fee   = agent_api_service_fee($db, $userId, $service, $bookingAmount);
         $total = round($bookingAmount + $fee, 2);
-        $balance = agent_api_wallet_balance($db, $userId);
-
-        // Optional credit line: allow balance to go negative up to credit_limits.
-        $creditLimit = 0.0;
-        try {
-            $u = $db->get('users', ['credit_limits'], ['user_id' => $userId]);
-            $creditLimit = (float) ($u['credit_limits'] ?? 0);
-        } catch (\Throwable $e) { /* default 0 */ }
-
-        if (($balance + $creditLimit) < $total) {
-            return [
-                'ok'      => false,
-                'message' => 'Insufficient wallet balance.',
-                'balance' => $balance,
-                'fee'     => $fee,
-                'required'=> $total,
-            ];
-        }
-
         $now = date('Y-m-d H:i:s');
         $currency = (string) ($GLOBALS['app']['default_currency'] ?? 'USD');
+        $bookingDesc = 'API booking ' . $invoiceId . ' (' . $service . ')';
+        $feeDesc     = 'API service fee ' . $invoiceId . ' (' . $service . ')';
+
+        // IDEMPOTENCY (audit H3): a retried/duplicate charge for the SAME invoice
+        // must not double-debit. If a booking debit for this invoice already
+        // exists, treat the charge as already applied (no-op success).
         try {
-            $db->insert('credits', [
-                'user_id'     => $userId,
-                'type'        => 'debit',
-                'credits'     => $bookingAmount,
-                'currency'    => $currency,
-                'description' => 'API booking ' . $invoiceId . ' (' . $service . ')',
-                'created_at'  => $now,
+            $already = $db->get('credits', 'id', [
+                'user_id' => $userId, 'type' => 'debit', 'description' => $bookingDesc,
             ]);
-            if ($fee > 0) {
-                $db->insert('credits', [
-                    'user_id'     => $userId,
-                    'type'        => 'debit',
-                    'credits'     => $fee,
-                    'currency'    => $currency,
-                    'description' => 'API service fee ' . $invoiceId . ' (' . $service . ')',
-                    'created_at'  => $now,
-                ]);
+            if ($already) {
+                $bal = agent_api_wallet_balance($db, $userId);
+                return ['ok' => true, 'charged' => $total, 'fee' => $fee, 'new_balance' => $bal, 'idempotent' => true];
             }
+        } catch (\Throwable $e) { /* fall through to charge */ }
+
+        // ATOMIC (audit H3): balance check + both debit rows run inside ONE
+        // transaction so a mid-charge failure can never post the booking debit
+        // while losing the fee debit (no orphaned debit). Rolls back on any error.
+        $result = ['ok' => false, 'message' => 'Wallet charge failed.'];
+        try {
+            $db->action(function ($db) use (
+                $userId, $service, $bookingAmount, $fee, $total, $currency, $now,
+                $bookingDesc, $feeDesc, &$result
+            ) {
+                // Re-read balance inside the transaction.
+                $balance = agent_api_wallet_balance($db, $userId);
+                $creditLimit = 0.0;
+                try {
+                    $u = $db->get('users', ['credit_limits'], ['user_id' => $userId]);
+                    $creditLimit = (float) ($u['credit_limits'] ?? 0);
+                } catch (\Throwable $e) { /* default 0 */ }
+
+                if (($balance + $creditLimit) < $total) {
+                    $result = ['ok' => false, 'message' => 'Insufficient wallet balance.', 'balance' => $balance, 'fee' => $fee, 'required' => $total];
+                    return false; // rollback (nothing written yet)
+                }
+
+                $db->insert('credits', [
+                    'user_id' => $userId, 'type' => 'debit', 'credits' => round($bookingAmount, 2),
+                    'currency' => $currency, 'description' => $bookingDesc, 'created_at' => $now,
+                ]);
+                if ($fee > 0) {
+                    $db->insert('credits', [
+                        'user_id' => $userId, 'type' => 'debit', 'credits' => round($fee, 2),
+                        'currency' => $currency, 'description' => $feeDesc, 'created_at' => $now,
+                    ]);
+                }
+
+                $result = ['ok' => true, 'charged' => $total, 'fee' => $fee, 'new_balance' => round($balance - $total, 2)];
+                return true; // commit
+            });
         } catch (\Throwable $e) {
             error_log('agent_api_charge_wallet: ' . $e->getMessage());
-            return ['ok' => false, 'message' => 'Wallet charge failed.', 'balance' => $balance, 'fee' => $fee, 'required' => $total];
+            return ['ok' => false, 'message' => 'Wallet charge failed.', 'fee' => $fee, 'required' => $total];
         }
 
-        return [
-            'ok'          => true,
-            'charged'     => $total,
-            'fee'         => $fee,
-            'new_balance' => round($balance - $total, 2),
-        ];
+        return $result;
     }
 }
 

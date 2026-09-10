@@ -4998,7 +4998,7 @@ CREATE TABLE `credits` (
   `id` int(11) NOT NULL,
   `user_id` varchar(255) NOT NULL,
   `type` enum('credit','debit') NOT NULL,
-  `credits` int(11) NOT NULL,
+  `credits` decimal(14,2) NOT NULL DEFAULT 0.00,
   `currency` varchar(100) NOT NULL,
   `description` varchar(255) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
