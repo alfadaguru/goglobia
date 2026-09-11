@@ -449,6 +449,99 @@ $router->post(admin.'/umrah-manager/operations/assign-room', function () use ($S
     umrahV2AdminJson(['success' => true, 'message' => 'Room assigned']);
 });
 
+// ---- AGENT GROUPS ADMIN (Phase C): list + status/visa + Nusuk export ----
+$router->get(admin.'/umrah-manager/groups', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    $status = trim((string) ($_GET['status'] ?? ''));
+    $where = ['ORDER' => ['id' => 'DESC'], 'LIMIT' => 300];
+    if (in_array($status, ['draft','pending','paid','submitted','processing','confirmed','cancelled'], true)) { $where['status'] = $status; }
+    $groups = $db->select('umrah_groups', '*', $where) ?: [];
+    // Attach agent name + departure label for the list.
+    foreach ($groups as &$g) {
+        $u = $db->get('users', ['first_name', 'last_name', 'email'], ['user_id' => $g['agent_user_id']]);
+        $g['agent_name'] = $u ? trim(($u['first_name'] ?? '') . ' ' . ($u['last_name'] ?? '')) : $g['agent_user_id'];
+        $dep = $db->get('umrah_departures', ['origin_city', 'departure_date'], ['id' => (int) $g['departure_id']]);
+        $g['dep_label'] = $dep ? (($dep['origin_city'] ?? '') . ' ' . date('d M Y', strtotime($dep['departure_date']))) : '';
+    }
+    unset($g);
+    $counts = [];
+    foreach (['draft','pending','paid','submitted','processing','confirmed','cancelled'] as $s) { $counts[$s] = (int) $db->count('umrah_groups', ['status' => $s]); }
+    $title = 'Umrah Groups'; $description = ''; $header = true; $footer = true;
+    require_once views . 'includes/header.php';
+    require_once views . 'admin/umrah/v2/groups.php';
+    require_once views . 'includes/footer.php';
+});
+
+// Admin: drive a group's status + visa_status (full flexibility).
+$router->post(admin.'/umrah-manager/groups/status', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $gid = (int) ($_POST['group_id'] ?? 0);
+    if ($gid <= 0 || !function_exists('umrah_group_set_status')) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid request']); }
+    $r = umrah_group_set_status($db, $gid, trim((string) ($_POST['status'] ?? '')), $_POST['visa_status'] ?? null);
+    umrahV2AdminJson($r['ok'] ? ['success' => true, 'message' => 'Group updated'] : ['success' => false, 'message' => $r['message'] ?? 'Failed'], $r['ok'] ? 200 : 422);
+});
+
+// Nusuk manifest export (CSV). Columns are admin-configurable via
+// settings.umrah_nusuk_columns (comma-separated field keys); a sensible
+// default is used when unset. Scope: ?group=ID (a group) or ?departure=ID
+// (all travellers on that departure).
+$router->get(admin.'/umrah-manager/manifest', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    $groupId = (int) ($_GET['group'] ?? 0);
+    $departureId = (int) ($_GET['departure'] ?? 0);
+
+    // Resolve the traveller rows for the requested scope.
+    $rows = [];
+    if ($groupId > 0) {
+        $g = $db->get('umrah_groups', ['group_ref', 'umrah_booking_id'], ['id' => $groupId]);
+        if (!$g) { http_response_code(404); die('Group not found'); }
+        $scopeName = $g['group_ref'];
+        if (!empty($g['umrah_booking_id'])) {
+            $rows = $db->select('umrah_booking_travellers', '*', ['umrah_booking_id' => (int) $g['umrah_booking_id'], 'ORDER' => ['id' => 'ASC']]) ?: [];
+        } else {
+            // Not yet materialized — export the staged members.
+            $rows = $db->select('umrah_group_members', '*', ['group_id' => $groupId, 'ORDER' => ['id' => 'ASC']]) ?: [];
+        }
+    } elseif ($departureId > 0) {
+        $bookings = $db->select('umrah_bookings', ['id'], ['departure_id' => $departureId]) ?: [];
+        $bIds = array_map(fn($b) => (int) $b['id'], $bookings);
+        $rows = $bIds ? ($db->select('umrah_booking_travellers', '*', ['umrah_booking_id' => $bIds, 'ORDER' => ['id' => 'ASC']]) ?: []) : [];
+        $dep = $db->get('umrah_departures', ['code'], ['id' => $departureId]);
+        $scopeName = $dep['code'] ?? ('departure-' . $departureId);
+    } else {
+        http_response_code(422); die('Specify ?group=ID or ?departure=ID');
+    }
+
+    // Column set (admin-configurable). Keys map to traveller/member fields.
+    $default = ['passport_number', 'first_name', 'middle_name', 'last_name', 'gender', 'dob', 'nationality', 'passport_issue', 'passport_expiry', 'mobile', 'email'];
+    $cfg = $db->get('settings', ['umrah_nusuk_columns']);
+    $cols = $default;
+    if ($cfg && !empty($cfg['umrah_nusuk_columns'])) {
+        $parsed = array_values(array_filter(array_map('trim', explode(',', (string) $cfg['umrah_nusuk_columns']))));
+        if ($parsed) { $cols = $parsed; }
+    }
+    $headers = [
+        'passport_number' => 'Passport Number', 'first_name' => 'First Name', 'middle_name' => 'Middle Name',
+        'last_name' => 'Last Name', 'gender' => 'Gender', 'dob' => 'Date of Birth', 'nationality' => 'Nationality',
+        'passport_issue' => 'Passport Issue', 'passport_expiry' => 'Passport Expiry', 'mobile' => 'Mobile', 'email' => 'Email',
+    ];
+
+    // Stream CSV.
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="nusuk-manifest-' . preg_replace('/[^A-Za-z0-9_-]/', '_', (string) $scopeName) . '.csv"');
+    $out = fopen('php://output', 'w');
+    fputcsv($out, array_map(fn($c) => $headers[$c] ?? ucwords(str_replace('_', ' ', $c)), $cols));
+    foreach ($rows as $r) {
+        $line = [];
+        foreach ($cols as $c) { $line[] = (string) ($r[$c] ?? ''); }
+        fputcsv($out, $line);
+    }
+    fclose($out);
+    exit;
+});
+
 // ---- shared: create a departure + its departure-tier row ---------------
 if (!function_exists('umrahV2CreateDeparture')) {
     function umrahV2CreateDeparture($db, int $templateId, string $depDate, string $retDate, int $capacity, int $tierId, float $regular, float $promo): array

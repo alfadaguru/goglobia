@@ -290,6 +290,8 @@ function ensureCoreFixSchema($db): void
         ['settings', 'booking_notification_email', "ALTER TABLE `settings` ADD COLUMN `booking_notification_email` VARCHAR(255) NULL DEFAULT NULL"],
         ['settings', 'visa_passport_required', "ALTER TABLE `settings` ADD COLUMN `visa_passport_required` ENUM('0','1') NOT NULL DEFAULT '0'"],
         ['settings', 'visa_national_id_required', "ALTER TABLE `settings` ADD COLUMN `visa_national_id_required` ENUM('0','1') NOT NULL DEFAULT '0'"],
+        // Umrah Nusuk manifest export — admin-configurable column list (Phase C).
+        ['settings', 'umrah_nusuk_columns', "ALTER TABLE `settings` ADD COLUMN `umrah_nusuk_columns` VARCHAR(500) NULL DEFAULT NULL"],
         // Supplier cancel/void/refund handlers across ~16 modules write these
         // columns. They did not exist on `bookings`, so MySQL silently DROPPED
         // every write (lost void/refund/cancel metadata). Create them so those
