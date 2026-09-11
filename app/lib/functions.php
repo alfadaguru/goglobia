@@ -4648,6 +4648,8 @@ if (!function_exists('ensureUmrahSchema')) {
                 `itinerary_order` text DEFAULT NULL,
                 `inclusions` longtext DEFAULT NULL,
                 `rooming_note` text DEFAULT NULL,
+                `hero_image` varchar(255) DEFAULT NULL,
+                `gallery` longtext DEFAULT NULL,
                 `meta_title` varchar(250) DEFAULT NULL,
                 `meta_description` text DEFAULT NULL,
                 `status` tinyint(1) NOT NULL DEFAULT 1,
@@ -4666,6 +4668,8 @@ if (!function_exists('ensureUmrahSchema')) {
                 `sort_order` smallint(6) NOT NULL DEFAULT 0,
                 `default_occupancy` smallint(6) NOT NULL DEFAULT 1,
                 `room_sharing` varchar(64) DEFAULT NULL,
+                `image` varchar(255) DEFAULT NULL,
+                `min_group_same_gender` smallint(6) NOT NULL DEFAULT 0,
                 `bookable` tinyint(1) NOT NULL DEFAULT 0,
                 `status` tinyint(1) NOT NULL DEFAULT 1,
                 `created_at` datetime NOT NULL DEFAULT current_timestamp(),
@@ -4681,6 +4685,8 @@ if (!function_exists('ensureUmrahSchema')) {
                 `return_date` date DEFAULT NULL,
                 `month_bucket` varchar(32) DEFAULT NULL,
                 `origin_city` varchar(120) DEFAULT NULL,
+                `hero_image` varchar(255) DEFAULT NULL,
+                `gallery` longtext DEFAULT NULL,
                 `booking_close_at` datetime DEFAULT NULL,
                 `capacity` int(11) NOT NULL DEFAULT 0,
                 `low_stock_threshold` int(11) NOT NULL DEFAULT 10,
@@ -4702,6 +4708,7 @@ if (!function_exists('ensureUmrahSchema')) {
                 `promo_price` decimal(14,2) DEFAULT NULL,
                 `b2b_net_price` decimal(14,2) DEFAULT NULL,
                 `b2b_promo_price` decimal(14,2) DEFAULT NULL,
+                `inclusions` longtext DEFAULT NULL,
                 `promo_start` datetime DEFAULT NULL,
                 `promo_end` datetime DEFAULT NULL,
                 `promo_active` tinyint(1) NOT NULL DEFAULT 0,
@@ -4715,15 +4722,26 @@ if (!function_exists('ensureUmrahSchema')) {
                 UNIQUE KEY `uq_departure_tier` (`departure_id`,`tier_id`),
                 KEY `idx_departure` (`departure_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
-            // Idempotent add of B2B columns for EXISTING installs (CREATE IF NOT
-            // EXISTS will not alter a pre-existing table). Safe to run every boot.
-            foreach (['b2b_net_price', 'b2b_promo_price'] as $__b2bCol) {
+            // Idempotent column top-ups for EXISTING installs (CREATE IF NOT
+            // EXISTS will not alter a pre-existing table). Safe every boot.
+            // [table, column, "ADD COLUMN ... " SQL fragment]
+            $__umrahCols = [
+                ['umrah_departure_tiers', 'b2b_net_price',    "ADD COLUMN `b2b_net_price` decimal(14,2) DEFAULT NULL AFTER `promo_price`"],
+                ['umrah_departure_tiers', 'b2b_promo_price',  "ADD COLUMN `b2b_promo_price` decimal(14,2) DEFAULT NULL AFTER `b2b_net_price`"],
+                ['umrah_departure_tiers', 'inclusions',       "ADD COLUMN `inclusions` longtext DEFAULT NULL AFTER `b2b_promo_price`"],
+                // Phase A (flight-style rebuild): images + per-tier group rule.
+                ['umrah_package_templates', 'hero_image', "ADD COLUMN `hero_image` varchar(255) DEFAULT NULL AFTER `rooming_note`"],
+                ['umrah_package_templates', 'gallery',    "ADD COLUMN `gallery` longtext DEFAULT NULL AFTER `hero_image`"],
+                ['umrah_departures', 'hero_image', "ADD COLUMN `hero_image` varchar(255) DEFAULT NULL AFTER `origin_city`"],
+                ['umrah_departures', 'gallery',    "ADD COLUMN `gallery` longtext DEFAULT NULL AFTER `hero_image`"],
+                ['umrah_tiers', 'image',                 "ADD COLUMN `image` varchar(255) DEFAULT NULL AFTER `room_sharing`"],
+                ['umrah_tiers', 'min_group_same_gender', "ADD COLUMN `min_group_same_gender` smallint(6) NOT NULL DEFAULT 0 AFTER `image`"],
+            ];
+            foreach ($__umrahCols as [$__t, $__c, $__sql]) {
                 try {
-                    $has = $db->query("SHOW COLUMNS FROM `umrah_departure_tiers` LIKE '{$__b2bCol}'")->fetch();
-                    if (!$has) {
-                        $db->query("ALTER TABLE `umrah_departure_tiers` ADD COLUMN `{$__b2bCol}` decimal(14,2) DEFAULT NULL AFTER `promo_price`");
-                    }
-                } catch (\Throwable $e) { error_log('ensureUmrahSchema b2b col: ' . $e->getMessage()); }
+                    $has = $db->query("SHOW COLUMNS FROM `{$__t}` LIKE '{$__c}'")->fetch();
+                    if (!$has) { $db->query("ALTER TABLE `{$__t}` {$__sql}"); }
+                } catch (\Throwable $e) { error_log("ensureUmrahSchema col {$__t}.{$__c}: " . $e->getMessage()); }
             }
 
             $db->query("CREATE TABLE IF NOT EXISTS `umrah_payment_plans` (
@@ -5103,13 +5121,14 @@ if (!function_exists('seedUmrahPhase1')) {
 
             // --- Tiers --- (all 5 bookable; premium tiers are now priced)
             // cols: code, name, public_label, sort_order, occupancy, room_sharing,
-            //       bookable, price_multiplier (x Standard promo 2,490,000)
+            //       bookable, price_multiplier (x Standard promo 2,490,000),
+            //       min_group_same_gender (agent group rule per tier — Phase A).
             $tiers = [
-                ['standard','Standard Economy','Standard Economy',1,5,'4-5 sharing',1,1.00],
-                ['vip','VIP Comfort','VIP Comfort',2,4,'Quad sharing',1,1.30],
-                ['vvip','VVIP Premium','VVIP Premium',3,3,'Triple sharing',1,1.60],
-                ['vvvip','VVVIP Executive','VVVIP Executive',4,2,'Double sharing',1,2.00],
-                ['vvvvip','VVVVIP Luxury','VVVVIP Luxury',5,1,'Private single/double',1,2.60],
+                ['standard','Standard Economy','Standard Economy',1,5,'4-5 sharing',1,1.00,3],
+                ['vip','VIP Comfort','VIP Comfort',2,4,'Quad sharing',1,1.30,2],
+                ['vvip','VVIP Premium','VVIP Premium',3,3,'Triple sharing',1,1.60,2],
+                ['vvvip','VVVIP Executive','VVVIP Executive',4,2,'Double sharing',1,2.00,2],
+                ['vvvvip','VVVVIP Luxury','VVVVIP Luxury',5,1,'Private single/double',1,2.60,0],
             ];
             $tierMultiplier = [];
             foreach ($tiers as $t) {
@@ -5117,11 +5136,16 @@ if (!function_exists('seedUmrahPhase1')) {
                     $db->insert('umrah_tiers', [
                         'code' => $t[0], 'name' => $t[1], 'public_label' => $t[2],
                         'sort_order' => $t[3], 'default_occupancy' => $t[4], 'room_sharing' => $t[5],
-                        'bookable' => $t[6], 'status' => 1, 'created_at' => date('Y-m-d H:i:s'),
+                        'bookable' => $t[6], 'min_group_same_gender' => $t[8],
+                        'status' => 1, 'created_at' => date('Y-m-d H:i:s'),
                     ]);
                 } else {
-                    // Upgrade pre-seeded premium tiers to bookable (Phase 3).
-                    $db->update('umrah_tiers', ['bookable' => $t[6]], ['code' => $t[0]]);
+                    // Upgrade pre-seeded tiers: bookable + group rule (only set the
+                    // group-min if it is still 0 so an admin edit is never clobbered).
+                    $existing = $db->get('umrah_tiers', ['id', 'min_group_same_gender'], ['code' => $t[0]]);
+                    $upd = ['bookable' => $t[6]];
+                    if ((int) ($existing['min_group_same_gender'] ?? 0) === 0) { $upd['min_group_same_gender'] = $t[8]; }
+                    $db->update('umrah_tiers', $upd, ['code' => $t[0]]);
                 }
                 $tierMultiplier[$t[0]] = (float) $t[7];
             }
@@ -5153,7 +5177,14 @@ if (!function_exists('seedUmrahPhase1')) {
             // above (placeholder pricing — editable in the admin manager).
             $STD_REGULAR = 2800000.00;
             $STD_PROMO   = 2490000.00;
-            $departures = [
+            // Stock imagery placeholders (owner replaces via admin later). Remote
+            // URLs so no binaries ship in the repo; admin can overwrite per package.
+            $STOCK = [
+                'https://images.unsplash.com/photo-1591604129939-f1efa4d9f7fa?w=1200&q=70', // Kaaba / Makkah
+                'https://images.unsplash.com/photo-1519817650390-64a93db51149?w=1200&q=70', // Masjid al-Haram
+                'https://images.unsplash.com/photo-1565019011521-b0575cbb57c8?w=1200&q=70', // Madinah / Nabawi
+            ];
+            $depSeed = [
                 ['UMR-20261006-KAN','2026-10-06','2026-10-20','October 2026'],
                 ['UMR-20261017-KAN','2026-10-17','2026-10-31','October 2026'],
                 ['UMR-20261020-KAN','2026-10-20','2026-11-03','October 2026'],
@@ -5162,17 +5193,26 @@ if (!function_exists('seedUmrahPhase1')) {
             ];
             // All tiers, keyed by code → tier id, for per-departure fan-out.
             $allTierRows = $db->select('umrah_tiers', ['id', 'code'], ['status' => 1]) ?: [];
-            foreach ($departures as $d) {
+            foreach ($depSeed as $i => $d) {
+                $hero = $STOCK[$i % 3];
+                $gallery = json_encode([$STOCK[0], $STOCK[1], $STOCK[2]], JSON_UNESCAPED_SLASHES);
                 $depId = $db->get('umrah_departures', 'id', ['code' => $d[0]]);
                 if (!$depId) {
                     $db->insert('umrah_departures', [
                         'template_id' => $tplId, 'code' => $d[0],
                         'departure_date' => $d[1], 'return_date' => $d[2], 'month_bucket' => $d[3],
-                        'origin_city' => 'Kano', 'capacity' => 50, 'low_stock_threshold' => 10,
+                        'origin_city' => 'Kano', 'hero_image' => $hero, 'gallery' => $gallery,
+                        'capacity' => 50, 'low_stock_threshold' => 10,
                         'display_inventory_count' => 0, 'status' => 'published',
                         'created_at' => date('Y-m-d H:i:s'),
                     ]);
                     $depId = (int) $db->id();
+                } else {
+                    // Backfill hero/gallery only if still empty (never clobber admin edits).
+                    $row = $db->get('umrah_departures', ['hero_image'], ['id' => (int) $depId]);
+                    if (empty($row['hero_image'])) {
+                        $db->update('umrah_departures', ['hero_image' => $hero, 'gallery' => $gallery], ['id' => (int) $depId]);
+                    }
                 }
                 $depId = (int) $depId;
                 // One departure-tier per tier (Standard + VIP…VVVVIP), all active.
