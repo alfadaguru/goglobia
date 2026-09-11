@@ -57,6 +57,31 @@ if (!function_exists('umrah_v1_csrf_guard')) {
         }
     }
 }
+if (!function_exists('umrah_v1_can_manage_booking')) {
+    /**
+     * True when the caller may manage this umrah booking's pilgrims/documents:
+     *   - admin; OR
+     *   - the account owner (session/JWT user_id === booking user_id); OR
+     *   - the GUEST who created it (booking_ref in the session allow-list that
+     *     POST /bookings stamps for guest bookings). This mirrors the web
+     *     confirmation-page gate so a guest can complete their own pilgrim
+     *     details in the seamless post-booking flow (audit M6 fix, Phase B).
+     * @param array $ub umrah_bookings row (needs user_id, booking_ref)
+     */
+    function umrah_v1_can_manage_booking(array $ub): bool
+    {
+        if (($_SESSION['user_role'] ?? '') === 'admin') { return true; }
+        $uid = umrah_v1_user();
+        $owner = (string) ($ub['user_id'] ?? '');
+        if ($uid && $owner !== '' && $owner === (string) $uid) { return true; }
+        // Guest booking (no owner) — must hold the ref in their session allow-list.
+        if ($owner === '' && !empty($ub['booking_ref'])) {
+            $allow = (array) ($_SESSION['umrah_guest_bookings'] ?? []);
+            if (in_array($ub['booking_ref'], $allow, true)) { return true; }
+        }
+        return false;
+    }
+}
 
 // ---- GET /api/v1/umrah/departures ---------------------------------------
 // Published departures with their Standard (bookable) tier price + availability.
@@ -230,9 +255,7 @@ $router->get('/api/v1/umrah/bookings/([A-Za-z0-9\-]+)', function ($ref) use ($db
 $router->post('/api/v1/umrah/bookings/([A-Za-z0-9\-]+)/travellers', function ($ref) use ($db) {
     $ub = $db->get('umrah_bookings', '*', ['booking_ref' => $ref]);
     if (!$ub) { umrah_v1_json(['success' => false, 'message' => 'Booking not found'], 404); }
-    $uid = umrah_v1_user();
-    $isAdmin = (($_SESSION['user_role'] ?? '') === 'admin');
-    if (!$isAdmin && (!$uid || (string) $ub['user_id'] !== (string) $uid)) { umrah_v1_json(['success' => false, 'message' => 'Unauthorized'], 403); }
+    if (!umrah_v1_can_manage_booking($ub)) { umrah_v1_json(['success' => false, 'message' => 'Unauthorized'], 403); }
     $travIn = umrah_v1_body();
     umrah_v1_csrf_guard($travIn);
     if (!function_exists('umrah_traveller_add')) { umrah_v1_json(['success' => false, 'message' => 'Unavailable'], 500); }
@@ -245,10 +268,8 @@ $router->post('/api/v1/umrah/bookings/([A-Za-z0-9\-]+)/travellers', function ($r
 $router->post('/api/v1/umrah/travellers/([0-9]+)/documents', function ($tid) use ($db) {
     $tr = $db->get('umrah_booking_travellers', ['id', 'umrah_booking_id'], ['id' => (int) $tid]);
     if (!$tr) { umrah_v1_json(['success' => false, 'message' => 'Traveller not found'], 404); }
-    $ub = $db->get('umrah_bookings', ['user_id'], ['id' => $tr['umrah_booking_id']]);
-    $uid = umrah_v1_user();
-    $isAdmin = (($_SESSION['user_role'] ?? '') === 'admin');
-    if (!$isAdmin && (!$uid || (string) ($ub['user_id'] ?? '') !== (string) $uid)) { umrah_v1_json(['success' => false, 'message' => 'Unauthorized'], 403); }
+    $ub = $db->get('umrah_bookings', ['user_id', 'booking_ref'], ['id' => $tr['umrah_booking_id']]);
+    if (!$ub || !umrah_v1_can_manage_booking($ub)) { umrah_v1_json(['success' => false, 'message' => 'Unauthorized'], 403); }
     umrah_v1_csrf_guard($_POST); // multipart upload — token in POST field / header
     $docType = $_POST['doc_type'] ?? 'passport';
     if (!function_exists('umrah_document_upload')) { umrah_v1_json(['success' => false, 'message' => 'Unavailable'], 500); }

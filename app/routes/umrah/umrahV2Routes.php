@@ -299,6 +299,18 @@ $router->get('/umrah/booking/(GGU-[A-Z0-9]+)', function ($ref) use ($SECURE, $db
     $ub['snapshot'] = json_decode((string) $ub['snapshot'], true) ?: [];
     $installments = $db->select('umrah_installments', '*', ['umrah_booking_id' => $ub['id'], 'ORDER' => ['seq' => 'ASC']]) ?: [];
 
+    // Phase B: pilgrim-details + document step on the confirmation page.
+    $travellers = $db->select('umrah_booking_travellers', '*', ['umrah_booking_id' => $ub['id'], 'ORDER' => ['id' => 'ASC']]) ?: [];
+    $docsByTraveller = [];
+    $tIds = array_map(fn($t) => (int) $t['id'], $travellers);
+    if ($tIds) {
+        foreach (($db->select('umrah_documents', ['id', 'traveller_id', 'doc_type', 'verify_status'], ['traveller_id' => $tIds]) ?: []) as $dd) {
+            $docsByTraveller[(int) $dd['traveller_id']][] = $dd;
+        }
+    }
+    $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicename' => 'ASC']]) ?: [];
+    $umrahCsrf = class_exists('CSRF') ? CSRF::getToken() : ($_SESSION['csrf_token'] ?? '');
+
     $title = 'Booking ' . $ub['booking_ref'] . ' | ' . ($GLOBALS['app']['business_name'] ?? 'GoGlobia');
     $description = '';
     $robots = 'noindex, nofollow';
