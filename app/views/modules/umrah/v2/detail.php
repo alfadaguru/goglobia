@@ -166,8 +166,11 @@ $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $pl
 
             <button class="btn w-full justify-center mt-4" :disabled="busy || currentTier.availability==='sold_out'" @click="startBooking()"
               x-text="busy ? 'Please wait…' : 'Continue to secure your seat'"></button>
+            <!-- Multi-departure cart: add this departure and keep browsing. -->
+            <button type="button" class="btn outline w-full justify-center mt-2" :disabled="cartBusy || currentTier.availability==='sold_out'" @click="addToCart()"
+              x-text="cartBusy ? 'Adding…' : 'Add to cart & book more'"></button>
             <p class="text-xs text-gray-500 mt-2" x-show="msg" x-text="msg"></p>
-            <p class="text-xs text-gray-400 mt-2">A 20-minute seat hold is created when you continue. Your price locks once the qualifying payment clears.</p>
+            <p class="text-xs text-gray-400 mt-2">A 20-minute seat hold is created when you continue. Your price locks once the qualifying payment clears. Booking for several people/dates? Add each to the cart and pay together.</p>
           </div>
         </template>
 
@@ -188,7 +191,7 @@ function umrahBooking() {
     selectedId: 0, selectedTierId: 0,
     hero: '', gallery: [], activeImage: '',
     pax: 1, plan: 'PP-50-25-25',
-    total: 0, busy: false, msg: '', step: 'select',
+    total: 0, busy: false, cartBusy: false, msg: '', step: 'select',
     lead: { name: '', email: '', phone: '' },
     quote: null, hold: null,
     inclLabels: {
@@ -243,6 +246,15 @@ function umrahBooking() {
         body: JSON.stringify(payload)
       });
       return r.json();
+    },
+    async addToCart() {
+      const t = this.currentTier; if (!t) return;
+      this.cartBusy = true; this.msg = '';
+      try {
+        const j = await this.post(this.apiBase + '/cart/add', { departure_tier_id: t.departure_tier_id, pax: this.pax });
+        if (j.success) { window.location.href = '<?= root ?>umrah/cart'; }
+        else { this.msg = j.message || 'Could not add to cart'; this.cartBusy = false; }
+      } catch (e) { this.msg = 'Something went wrong.'; this.cartBusy = false; }
     },
     async startBooking() {
       const t = this.currentTier; if (!t) return;

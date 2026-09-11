@@ -320,6 +320,17 @@ $router->get('/umrah/booking/(GGU-[A-Z0-9]+)', function ($ref) use ($SECURE, $db
     require_once views . 'includes/footer.php';
 });
 
+// ---- MULTI-DEPARTURE CART PAGE: GET /umrah/cart (Phase B3) --------------
+$router->get('/umrah/cart', function () use ($SECURE, $db) {
+    $plans = $db->select('umrah_payment_plans', '*', ['active' => 1, 'ORDER' => ['deposit_percent' => 'DESC']]) ?: [];
+    $umrahCsrf = class_exists('CSRF') ? CSRF::getToken() : ($_SESSION['csrf_token'] ?? '');
+    $title = 'Your Umrah cart | ' . ($GLOBALS['app']['business_name'] ?? 'GoGlobia');
+    $description = ''; $robots = 'noindex, nofollow';
+    require_once views . 'includes/header.php';
+    require_once views . 'modules/umrah/v2/cart.php';
+    require_once views . 'includes/footer.php';
+});
+
 // ---- LEGACY REDIRECT: /umrah/detail/* → nearest package/landing ---------
 // Replaces the fragile 6-part detail URL. If the package slug is recognised,
 // redirect to the stable package page; otherwise to the landing.
