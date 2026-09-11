@@ -6,6 +6,10 @@
 // the server recomputes/validates at hold, booking and payment.
 // ============================================================================
 
+// Max pilgrims a NON-AGENT customer may put on a single departure booking
+// (owner rule, Phase B). Agents (umrah_is_agent) are exempt — they use groups.
+if (!defined('UMRAH_CUSTOMER_MAX_PAX')) { define('UMRAH_CUSTOMER_MAX_PAX', 5); }
+
 if (!function_exists('umrah_departure_bookable')) {
     /**
      * SECURITY GATE: a departure-tier is bookable only when the PARENT departure
@@ -203,6 +207,12 @@ if (!function_exists('umrah_price_quote')) {
     function umrah_price_quote($db, int $departureTierId, int $pax, int $holdMinutes = 20): array
     {
         if ($pax < 1) { $pax = 1; }
+        // Phase B: cap non-agent customers at UMRAH_CUSTOMER_MAX_PAX per booking.
+        // Agents have no cap here (they book via groups). This is the primary
+        // server gate; umrah_booking_create re-checks as defense-in-depth.
+        if (!umrah_is_agent() && $pax > UMRAH_CUSTOMER_MAX_PAX) {
+            return ['ok' => false, 'message' => 'A single booking is limited to ' . UMRAH_CUSTOMER_MAX_PAX . ' pilgrims. For larger groups, please use an agent group or contact us.'];
+        }
         $dt = $db->get('umrah_departure_tiers', '*', ['id' => $departureTierId]);
         if (!$dt) {
             return ['ok' => false, 'message' => 'Departure-tier not found'];
@@ -642,6 +652,12 @@ if (!function_exists('umrah_booking_create')) {
 
         $pax      = (int) $quote['pax'];
         $userId   = (string) ($lead['user_id'] ?? ($_SESSION['user_id'] ?? ''));
+
+        // Phase B defense-in-depth: re-enforce the customer pilgrim cap at commit
+        // (agents exempt). Also covers a quote minted before the cap existed.
+        if (!umrah_is_agent() && $pax > UMRAH_CUSTOMER_MAX_PAX) {
+            return ['ok' => false, 'message' => 'A single booking is limited to ' . UMRAH_CUSTOMER_MAX_PAX . ' pilgrims.'];
+        }
 
         // SECURITY (H1): the quote is NOT a price authority — it carries no owner
         // or pricing basis, so an agent-priced (B2B net) quote_ref could otherwise

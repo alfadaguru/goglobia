@@ -13,6 +13,8 @@ $slug = $template['slug'] ?? 'normal-umrah-14-day';
 $csrf = $_SESSION['csrf_token'] ?? '';
 $apiBase = root . 'api/v1/umrah';
 $departureTiers = $departureTiers ?? [];
+// Agent viewing? Show the "Create a group" entry (Phase C).
+$isAgentViewer = function_exists('umrah_is_agent') && umrah_is_agent();
 
 // Departures for the selector (id → dates/city/label).
 $depJs = [];
@@ -31,14 +33,32 @@ $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $pl
         <?= htmlspecialchars(json_encode($depJs), ENT_QUOTES) ?>,
         <?= htmlspecialchars(json_encode($departureTiers, JSON_FORCE_OBJECT), ENT_QUOTES) ?>,
         <?= (int) $selectedDepartureId ?>,
-        <?= htmlspecialchars(json_encode($plansJs), ENT_QUOTES) ?>)">
+        <?= htmlspecialchars(json_encode($plansJs), ENT_QUOTES) ?>,
+        <?= htmlspecialchars(json_encode($departureMedia ?? [], JSON_FORCE_OBJECT), ENT_QUOTES) ?>)">
   <div class="container py-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
 
     <!-- MAIN -->
     <div class="lg:col-span-2 min-w-0">
-      <a href="<?= root ?>umrah" class="text-sm text-primary inline-flex items-center gap-1 mb-3"><span class="material-symbols-outlined text-[18px]">arrow_back</span> All departures</a>
+      <a href="<?= root ?>umrah/search" class="text-sm text-primary inline-flex items-center gap-1 mb-3"><span class="material-symbols-outlined text-[18px]">arrow_back</span> All departures</a>
       <h1 class="text-2xl md:text-3xl font-extrabold text-gray-900"><?= htmlspecialchars($template['name']) ?></h1>
       <p class="text-gray-600 mt-1">14-Day Umrah · <?= $madinah ?> nights Madinah + <?= $makkah ?> nights Makkah</p>
+
+      <!-- HERO IMAGE + GALLERY -->
+      <div class="mt-4" x-show="hero">
+        <div class="rounded-2xl overflow-hidden bg-slate-100 aspect-[16/9]">
+          <img :src="activeImage || hero" alt="Umrah package" class="w-full h-full object-cover"
+               onerror="this.style.visibility='hidden'">
+        </div>
+        <div class="flex gap-2 mt-2 overflow-x-auto" x-show="gallery.length > 1">
+          <template x-for="(g, i) in gallery" :key="i">
+            <button type="button" @click="activeImage = g"
+              class="w-20 h-14 rounded-lg overflow-hidden border shrink-0"
+              :class="(activeImage||hero) === g ? 'border-primary ring-1 ring-primary/40' : 'border-gray-200'">
+              <img :src="g" alt="" class="w-full h-full object-cover" onerror="this.style.display='none'">
+            </button>
+          </template>
+        </div>
+      </div>
 
       <!-- Departure selector -->
       <div class="section mt-6">
@@ -77,6 +97,15 @@ $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $pl
                 <span class="text-xl font-extrabold text-gray-900" x-text="money(t.unit_price)"></span>
                 <template x-if="t.regular && t.regular > t.unit_price"><span class="text-sm text-gray-400 line-through" x-text="money(t.regular)"></span></template>
                 <span class="text-xs text-gray-500">/ pilgrim</span>
+              </div>
+              <!-- per-tier inclusions preview -->
+              <div class="mt-2 flex flex-wrap gap-1" x-show="t.inclusions && t.inclusions.length">
+                <template x-for="(code, i) in (t.inclusions || []).slice(0, 4)" :key="i">
+                  <span class="text-[10px] bg-slate-100 text-slate-600 rounded-full px-2 py-0.5" x-text="inclLabel(code)"></span>
+                </template>
+                <template x-if="(t.inclusions || []).length > 4">
+                  <span class="text-[10px] text-slate-400" x-text="'+' + ((t.inclusions||[]).length - 4) + ' more'"></span>
+                </template>
               </div>
             </button>
           </template>
@@ -119,7 +148,8 @@ $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $pl
             </div>
 
             <label class="block text-sm font-medium text-gray-700 mt-4 mb-1">Travellers</label>
-            <input type="number" min="1" max="10" class="input" x-model.number="pax" @input="recalc()">
+            <input type="number" min="1" max="5" class="input" x-model.number="pax" @input="recalc()">
+            <p class="text-xs text-gray-400 mt-1">Up to 5 pilgrims per booking. Larger groups: <a class="text-primary" href="<?= root ?>umrah/customize">contact us</a>.</p>
 
             <label class="block text-sm font-medium text-gray-700 mt-4 mb-1">Payment</label>
             <select class="select" x-model="plan">
@@ -138,8 +168,16 @@ $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $pl
 
             <button class="btn w-full justify-center mt-4" :disabled="busy || currentTier.availability==='sold_out'" @click="startBooking()"
               x-text="busy ? 'Please wait…' : 'Continue to secure your seat'"></button>
+            <!-- Multi-departure cart: add this departure and keep browsing. -->
+            <button type="button" class="btn outline w-full justify-center mt-2" :disabled="cartBusy || currentTier.availability==='sold_out'" @click="addToCart()"
+              x-text="cartBusy ? 'Adding…' : 'Add to cart & book more'"></button>
+            <?php if ($isAgentViewer): ?>
+            <!-- AGENT: create a group from this tier (Phase C). -->
+            <button type="button" class="btn secondary w-full justify-center mt-2" :disabled="groupBusy" @click="createGroup()"
+              x-text="groupBusy ? 'Creating group…' : 'Create a group (agents)'"></button>
+            <?php endif; ?>
             <p class="text-xs text-gray-500 mt-2" x-show="msg" x-text="msg"></p>
-            <p class="text-xs text-gray-400 mt-2">A 20-minute seat hold is created when you continue. Your price locks once the qualifying payment clears.</p>
+            <p class="text-xs text-gray-400 mt-2">A 20-minute seat hold is created when you continue. Your price locks once the qualifying payment clears. Booking for several people/dates? Add each to the cart and pay together.</p>
           </div>
         </template>
 
@@ -156,19 +194,38 @@ function umrahBooking() {
   return {
     apiBase: '<?= $apiBase ?>',
     csrf: '<?= htmlspecialchars($csrf, ENT_QUOTES) ?>',
-    departures: [], tiersByDep: {}, plans: [],
+    departures: [], tiersByDep: {}, plans: [], media: {},
     selectedId: 0, selectedTierId: 0,
+    hero: '', gallery: [], activeImage: '',
     pax: 1, plan: 'PP-50-25-25',
-    total: 0, busy: false, msg: '', step: 'select',
+    total: 0, busy: false, cartBusy: false, groupBusy: false, msg: '', step: 'select',
     lead: { name: '', email: '', phone: '' },
     quote: null, hold: null,
-    init(deps, tiersByDep, sel, plans) {
+    inclLabels: {
+      return_flight:'Return flight', umrah_visa:'Umrah visa', madinah_stay:'Madinah stay',
+      makkah_stay:'Makkah stay', airport_transfers:'Airport transfers',
+      madinah_makkah_transfer:'Inter-city transport', makkah_ziyarah:'Makkah Ziyarah',
+      madinah_ziyarah:'Madinah Ziyarah', zain_sim:'Zain SIM', goglobia_esim:'eSIM',
+      data_1gb:'1GB data', discounted_topups:'Top-ups', nusuk_assistance:'Nusuk help',
+      gift_kit:'Gift kit', yahaji_ring:'Yahaji Ring', group_coordination:'Group coord.',
+      whatsapp_support:'24/7 support', orientation:'Orientation'
+    },
+    inclLabel(code) { return this.inclLabels[code] || String(code||'').replace(/_/g,' '); },
+    init(deps, tiersByDep, sel, plans, media) {
       this.departures = deps || [];
       this.tiersByDep = tiersByDep || {};
       this.plans = plans || [];
+      this.media = media || {};
       this.selectedId = sel || (this.departures[0] ? this.departures[0].departure_id : 0);
+      this.applyMedia();
       this.pickFirstTier();
       this.recalc();
+    },
+    applyMedia() {
+      const m = this.media[this.selectedId] || this.media[String(this.selectedId)] || {};
+      this.hero = m.hero || '';
+      this.gallery = (m.gallery && m.gallery.length) ? m.gallery : (this.hero ? [this.hero] : []);
+      this.activeImage = this.hero;
     },
     get currentDeparture() { return this.departures.find(d => d.departure_id === this.selectedId) || null; },
     get currentTiers() { return this.tiersByDep[this.selectedId] || []; },
@@ -179,10 +236,10 @@ function umrahBooking() {
       const firstBookable = list.find(t => t.availability !== 'sold_out') || list[0];
       this.selectedTierId = firstBookable ? firstBookable.departure_tier_id : 0;
     },
-    selectDeparture(id) { this.selectedId = id; this.quote = null; this.hold = null; this.pickFirstTier(); this.recalc(); },
+    selectDeparture(id) { this.selectedId = id; this.quote = null; this.hold = null; this.applyMedia(); this.pickFirstTier(); this.recalc(); },
     selectTier(tierId) { this.selectedTierId = tierId; this.quote = null; this.hold = null; this.recalc(); },
     recalc() {
-      if (this.pax < 1) this.pax = 1; if (this.pax > 10) this.pax = 10;
+      if (this.pax < 1) this.pax = 1; if (this.pax > 5) this.pax = 5;
       const t = this.currentTier;
       this.total = t ? t.unit_price * this.pax : 0;
     },
@@ -196,6 +253,24 @@ function umrahBooking() {
         body: JSON.stringify(payload)
       });
       return r.json();
+    },
+    async addToCart() {
+      const t = this.currentTier; if (!t) return;
+      this.cartBusy = true; this.msg = '';
+      try {
+        const j = await this.post(this.apiBase + '/cart/add', { departure_tier_id: t.departure_tier_id, pax: this.pax });
+        if (j.success) { window.location.href = '<?= root ?>umrah/cart'; }
+        else { this.msg = j.message || 'Could not add to cart'; this.cartBusy = false; }
+      } catch (e) { this.msg = 'Something went wrong.'; this.cartBusy = false; }
+    },
+    async createGroup() {
+      const t = this.currentTier; if (!t) return;
+      this.groupBusy = true; this.msg = '';
+      try {
+        const j = await this.post('<?= root ?>api/v1/umrah/groups', { departure_tier_id: t.departure_tier_id });
+        if (j.success) { window.location.href = '<?= root ?>umrah/groups/' + j.group_id; }
+        else { this.msg = j.message || 'Could not create group'; this.groupBusy = false; }
+      } catch (e) { this.msg = 'Something went wrong.'; this.groupBusy = false; }
     },
     async startBooking() {
       const t = this.currentTier; if (!t) return;
