@@ -5073,6 +5073,70 @@ if (!function_exists('ensureUmrahSchema')) {
                 KEY `idx_user` (`user_id`),
                 KEY `idx_created` (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            // ---- AGENT GROUPS (Phase C, Nusuk-style) ----------------------
+            // An agent builds a group on a package: staged (counts first), the
+            // wallet is debited only on SUBMIT, then add/drop members and upload
+            // documents while pending/processing. Lifecycle:
+            //   draft -> pending -> paid -> submitted -> processing
+            //   (+ visa_status: none/partial/all/rejected ; per-member ticket).
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_groups` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `group_ref` varchar(40) NOT NULL,
+                `agent_user_id` varchar(255) NOT NULL,
+                `name` varchar(160) DEFAULT NULL,
+                `departure_id` int(11) NOT NULL,
+                `departure_tier_id` int(11) NOT NULL,
+                `tier_code` varchar(32) DEFAULT NULL,
+                `declared_male` int(11) NOT NULL DEFAULT 0,
+                `declared_female` int(11) NOT NULL DEFAULT 0,
+                `pax_count` int(11) NOT NULL DEFAULT 0,
+                `unit_net` decimal(14,2) NOT NULL DEFAULT 0,
+                `total_price` decimal(14,2) NOT NULL DEFAULT 0,
+                `currency` varchar(10) NOT NULL DEFAULT 'NGN',
+                `status` enum('draft','pending','paid','submitted','processing','confirmed','cancelled') NOT NULL DEFAULT 'draft',
+                `visa_status` enum('none','partial','all','rejected') NOT NULL DEFAULT 'none',
+                `paid` tinyint(1) NOT NULL DEFAULT 0,
+                `invoice_id` varchar(255) DEFAULT NULL,
+                `umrah_booking_id` int(11) DEFAULT NULL,
+                `wallet_txn` varchar(255) DEFAULT NULL,
+                `notes` text DEFAULT NULL,
+                `submitted_at` datetime DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_group_ref` (`group_ref`),
+                KEY `idx_agent` (`agent_user_id`),
+                KEY `idx_status` (`status`),
+                KEY `idx_departure` (`departure_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `umrah_group_members` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `group_id` int(11) NOT NULL,
+                `traveller_id` int(11) DEFAULT NULL,
+                `title` varchar(16) DEFAULT NULL,
+                `first_name` varchar(120) DEFAULT NULL,
+                `middle_name` varchar(120) DEFAULT NULL,
+                `last_name` varchar(120) DEFAULT NULL,
+                `gender` enum('male','female') DEFAULT NULL,
+                `dob` date DEFAULT NULL,
+                `nationality` varchar(80) DEFAULT NULL,
+                `passport_number` varchar(64) DEFAULT NULL,
+                `passport_issue` date DEFAULT NULL,
+                `passport_expiry` date DEFAULT NULL,
+                `mobile` varchar(64) DEFAULT NULL,
+                `email` varchar(160) DEFAULT NULL,
+                `room_group` varchar(64) DEFAULT NULL,
+                `doc_status` enum('not_started','incomplete','ready','verified','action_required') NOT NULL DEFAULT 'not_started',
+                `visa_status` enum('not_started','submitted','approved','rejected') NOT NULL DEFAULT 'not_started',
+                `ticket_status` enum('not_started','reserved','ticketed','changed','cancelled') NOT NULL DEFAULT 'not_started',
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `idx_group` (`group_id`),
+                KEY `idx_traveller` (`traveller_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
         } catch (\Throwable $e) {
             error_log('ensureUmrahSchema: ' . $e->getMessage());
         }
