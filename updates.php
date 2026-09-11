@@ -257,6 +257,37 @@ function upd_autoskip_internal($repo, $token, array $commits, array &$history) {
         $sha = $commit['sha'];
         if (in_array($sha, $installed, true)) continue;
 
+        // MERGE COMMITS: GitHub's single-commit API returns 200 with NO `files`
+        // for a merge (2+ parents), which the installer treats as an error. But
+        // a merge introduces no new file content of its own — its changes arrive
+        // via the individual commits it merges. So auto-skip merges (mark
+        // installed, 0 files) and CONTINUE past them so later real commits still
+        // resolve. This does not count against the per-request lookup budget
+        // because it needs no extra API call (parents come with the list).
+        if (count($commit['parents'] ?? []) >= 2) {
+            $history['updates'][] = [
+                'uid'           => $sha,
+                'status'        => 'installed',
+                'internal'      => true,
+                'merge'         => true,
+                'installed_at'  => date('Y-m-d H:i:s'),
+                'files_updated' => 0,
+                'files_failed'  => 0,
+                'files_skipped' => 0,
+                'db_executed'   => false,
+                'db_skipped'    => true,
+                'db_queries'    => 0,
+                'db_errors'     => 0,
+                'message'       => $commit['commit']['message'] ?? '',
+                'author'        => $commit['commit']['author']['name'] ?? '',
+                'date'          => $commit['commit']['author']['date'] ?? '',
+                'note'          => 'Auto-skipped — merge commit (its file changes arrive via the merged commits)',
+            ];
+            $installed[] = $sha;
+            $changed = true;
+            continue;
+        }
+
         if ($lookups >= 5) break; // keep page loads fast; the rest resolves next visit
         $lookups++;
 
@@ -454,6 +485,28 @@ if (($_POST['action'] ?? '') === 'install') {
         }
         if (empty($pendingOldestFirst)) upd_json(['success' => true, 'message' => 'Everything is up to date', 'data' => ['files_updated' => 0, 'files_failed' => 0, 'files_skipped' => 0]]);
         if ($sha !== $pendingOldestFirst[0]) upd_json(['success' => false, 'message' => 'Updates must be installed in order — install the oldest pending update first']);
+
+        // MERGE COMMIT guard: a merge (2+ parents) carries no file diff of its
+        // own on GitHub's single-commit API (200 but no `files`), and its
+        // changes already arrive via the merged commits. Record it as installed
+        // (0 files) so the queue advances instead of hard-failing with
+        // "Could not load update details (HTTP 200)".
+        $targetCommit = null;
+        foreach ($commits as $c) { if ($c['sha'] === $sha) { $targetCommit = $c; break; } }
+        if ($targetCommit && count($targetCommit['parents'] ?? []) >= 2) {
+            $history['updates'][] = [
+                'uid' => $sha, 'status' => 'installed', 'internal' => true, 'merge' => true,
+                'installed_at' => date('Y-m-d H:i:s'),
+                'files_updated' => 0, 'files_failed' => 0, 'files_skipped' => 0,
+                'db_executed' => false, 'db_skipped' => true, 'db_queries' => 0, 'db_errors' => 0,
+                'message' => $targetCommit['commit']['message'] ?? '',
+                'author'  => $targetCommit['commit']['author']['name'] ?? '',
+                'date'    => $targetCommit['commit']['author']['date'] ?? '',
+                'note'    => 'Auto-skipped — merge commit (its file changes arrive via the merged commits)',
+            ];
+            upd_history_save($history);
+            upd_json(['success' => true, 'message' => 'Merge commit skipped (no files to apply)', 'data' => ['files_updated' => 0, 'files_failed' => 0, 'files_skipped' => 0]]);
+        }
 
         $result = upd_github('/repos/' . $repo . '/commits/' . $sha, $token);
         if ($result['code'] !== 200 || empty($result['body']['files'])) {
