@@ -355,6 +355,72 @@ $router->post('/api/v1/umrah/cart/checkout', function () use ($db) {
     umrah_v1_json(['success' => true, 'bookings' => $created, 'errors' => $errors]);
 });
 
+// ========================================================================
+// AGENT GROUPS (Phase C). All CSRF-guarded; the service layer enforces the
+// agent-only / owner checks and the tier group rules. Money moves ONLY at
+// /groups/submit (wallet debit).
+// ========================================================================
+$router->post('/api/v1/umrah/groups', function () use ($db) {
+    $in = umrah_v1_body(); umrah_v1_csrf_guard($in);
+    if (!function_exists('umrah_group_create')) { umrah_v1_json(['success' => false, 'message' => 'Unavailable'], 500); }
+    $r = umrah_group_create($db, $in);
+    umrah_v1_json($r['ok'] ? ['success' => true, 'group_ref' => $r['group_ref'], 'group_id' => $r['group_id']] : ['success' => false, 'message' => $r['message'] ?? 'Failed'], $r['ok'] ? 200 : 422);
+});
+
+// List the agent's own groups (+ a summary).
+$router->get('/api/v1/umrah/groups', function () use ($db) {
+    if (!function_exists('umrah_group_actor')) { umrah_v1_json(['success' => false, 'message' => 'Unavailable'], 500); }
+    $agent = umrah_group_actor();
+    if ($agent === '') { umrah_v1_json(['success' => false, 'message' => 'Agents only'], 403); }
+    $groups = $db->select('umrah_groups', '*', ['agent_user_id' => $agent, 'ORDER' => ['id' => 'DESC']]) ?: [];
+    umrah_v1_json(['success' => true, 'groups' => $groups]);
+});
+
+// Group detail (owner/admin) + its members.
+$router->get('/api/v1/umrah/groups/([0-9]+)', function ($gid) use ($db) {
+    $g = function_exists('umrah_group_owned') ? umrah_group_owned($db, (int) $gid) : null;
+    if (!$g) { umrah_v1_json(['success' => false, 'message' => 'Group not found'], 404); }
+    $members = $db->select('umrah_group_members', '*', ['group_id' => (int) $gid, 'ORDER' => ['id' => 'ASC']]) ?: [];
+    umrah_v1_json(['success' => true, 'group' => $g, 'members' => $members]);
+});
+
+// Update declared counts.
+$router->post('/api/v1/umrah/groups/([0-9]+)/counts', function ($gid) use ($db) {
+    $in = umrah_v1_body(); umrah_v1_csrf_guard($in);
+    $r = umrah_group_set_counts($db, (int) $gid, (int) ($in['declared_male'] ?? 0), (int) ($in['declared_female'] ?? 0));
+    umrah_v1_json($r['ok'] ? ['success' => true, 'group' => $r] : ['success' => false, 'message' => $r['message'] ?? 'Failed'], $r['ok'] ? 200 : 422);
+});
+
+// Add / update a member.
+$router->post('/api/v1/umrah/groups/([0-9]+)/members', function ($gid) use ($db) {
+    $in = umrah_v1_body(); umrah_v1_csrf_guard($in);
+    $r = umrah_group_add_member($db, (int) $gid, $in);
+    umrah_v1_json($r['ok'] ? ['success' => true, 'member_id' => $r['member_id']] : ['success' => false, 'message' => $r['message'] ?? 'Failed'], $r['ok'] ? 200 : 422);
+});
+
+// Drop a member.
+$router->post('/api/v1/umrah/groups/([0-9]+)/members/([0-9]+)/drop', function ($gid, $mid) use ($db) {
+    $in = umrah_v1_body(); umrah_v1_csrf_guard($in);
+    $r = umrah_group_drop_member($db, (int) $gid, (int) $mid);
+    umrah_v1_json($r['ok'] ? ['success' => true] : ['success' => false, 'message' => $r['message'] ?? 'Failed'], $r['ok'] ? 200 : 422);
+});
+
+// Submit the group (debits the agent wallet, materializes the booking).
+$router->post('/api/v1/umrah/groups/([0-9]+)/submit', function ($gid) use ($db) {
+    $in = umrah_v1_body(); umrah_v1_csrf_guard($in);
+    $r = umrah_group_submit($db, (int) $gid, $in);
+    if (!empty($r['ok'])) { umrah_v1_json(['success' => true, 'booking_ref' => $r['booking_ref'] ?? null, 'invoice_id' => $r['invoice_id'] ?? null, 'already' => !empty($r['already'])]); }
+    $code = (($r['code'] ?? '') === 'insufficient_funds') ? 402 : 422;
+    umrah_v1_json(['success' => false, 'message' => $r['message'] ?? 'Submit failed', 'required' => $r['required'] ?? null, 'balance' => $r['balance'] ?? null], $code);
+});
+
+// Cancel (agent, pre-payment).
+$router->post('/api/v1/umrah/groups/([0-9]+)/cancel', function ($gid) use ($db) {
+    $in = umrah_v1_body(); umrah_v1_csrf_guard($in);
+    $r = umrah_group_set_status($db, (int) $gid, 'cancelled');
+    umrah_v1_json($r['ok'] ? ['success' => true] : ['success' => false, 'message' => $r['message'] ?? 'Failed'], $r['ok'] ? 200 : 422);
+});
+
 // ---- GET /api/v1/umrah/bookings/{ref} -----------------------------------
 $router->get('/api/v1/umrah/bookings/([A-Za-z0-9\-]+)', function ($ref) use ($db) {
     $ub = $db->get('umrah_bookings', '*', ['booking_ref' => $ref]);

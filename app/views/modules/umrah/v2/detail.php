@@ -13,6 +13,8 @@ $slug = $template['slug'] ?? 'normal-umrah-14-day';
 $csrf = $_SESSION['csrf_token'] ?? '';
 $apiBase = root . 'api/v1/umrah';
 $departureTiers = $departureTiers ?? [];
+// Agent viewing? Show the "Create a group" entry (Phase C).
+$isAgentViewer = function_exists('umrah_is_agent') && umrah_is_agent();
 
 // Departures for the selector (id → dates/city/label).
 $depJs = [];
@@ -169,6 +171,11 @@ $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $pl
             <!-- Multi-departure cart: add this departure and keep browsing. -->
             <button type="button" class="btn outline w-full justify-center mt-2" :disabled="cartBusy || currentTier.availability==='sold_out'" @click="addToCart()"
               x-text="cartBusy ? 'Adding…' : 'Add to cart & book more'"></button>
+            <?php if ($isAgentViewer): ?>
+            <!-- AGENT: create a group from this tier (Phase C). -->
+            <button type="button" class="btn secondary w-full justify-center mt-2" :disabled="groupBusy" @click="createGroup()"
+              x-text="groupBusy ? 'Creating group…' : 'Create a group (agents)'"></button>
+            <?php endif; ?>
             <p class="text-xs text-gray-500 mt-2" x-show="msg" x-text="msg"></p>
             <p class="text-xs text-gray-400 mt-2">A 20-minute seat hold is created when you continue. Your price locks once the qualifying payment clears. Booking for several people/dates? Add each to the cart and pay together.</p>
           </div>
@@ -191,7 +198,7 @@ function umrahBooking() {
     selectedId: 0, selectedTierId: 0,
     hero: '', gallery: [], activeImage: '',
     pax: 1, plan: 'PP-50-25-25',
-    total: 0, busy: false, cartBusy: false, msg: '', step: 'select',
+    total: 0, busy: false, cartBusy: false, groupBusy: false, msg: '', step: 'select',
     lead: { name: '', email: '', phone: '' },
     quote: null, hold: null,
     inclLabels: {
@@ -255,6 +262,15 @@ function umrahBooking() {
         if (j.success) { window.location.href = '<?= root ?>umrah/cart'; }
         else { this.msg = j.message || 'Could not add to cart'; this.cartBusy = false; }
       } catch (e) { this.msg = 'Something went wrong.'; this.cartBusy = false; }
+    },
+    async createGroup() {
+      const t = this.currentTier; if (!t) return;
+      this.groupBusy = true; this.msg = '';
+      try {
+        const j = await this.post('<?= root ?>api/v1/umrah/groups', { departure_tier_id: t.departure_tier_id });
+        if (j.success) { window.location.href = '<?= root ?>umrah/groups/' + j.group_id; }
+        else { this.msg = j.message || 'Could not create group'; this.groupBusy = false; }
+      } catch (e) { this.msg = 'Something went wrong.'; this.groupBusy = false; }
     },
     async startBooking() {
       const t = this.currentTier; if (!t) return;

@@ -320,6 +320,41 @@ $router->get('/umrah/booking/(GGU-[A-Z0-9]+)', function ($ref) use ($SECURE, $db
     require_once views . 'includes/footer.php';
 });
 
+// ---- AGENT GROUPS (Phase C) --------------------------------------------
+// Agents only. Dashboard lists the agent's groups; builder manages one group.
+$router->get('/umrah/groups', function () use ($SECURE, $db) {
+    if (!(function_exists('umrah_is_agent') && umrah_is_agent())) {
+        header('Location: ' . root . 'login?redirect=' . urlencode(root . 'umrah/groups')); exit;
+    }
+    $agent = (string) ($_SESSION['user_id'] ?? '');
+    $groups = $db->select('umrah_groups', '*', ['agent_user_id' => $agent, 'ORDER' => ['id' => 'DESC']]) ?: [];
+    $umrahCsrf = class_exists('CSRF') ? CSRF::getToken() : ($_SESSION['csrf_token'] ?? '');
+    $title = 'My Umrah groups | ' . ($GLOBALS['app']['business_name'] ?? 'GoGlobia');
+    $description = ''; $robots = 'noindex, nofollow';
+    require_once views . 'includes/header.php';
+    require_once views . 'modules/umrah/v2/groups.php';
+    require_once views . 'includes/footer.php';
+});
+
+$router->get('/umrah/groups/([0-9]+)', function ($gid) use ($SECURE, $db) {
+    if (!(function_exists('umrah_is_agent') && umrah_is_agent())) {
+        header('Location: ' . root . 'login?redirect=' . urlencode(root . 'umrah/groups')); exit;
+    }
+    $group = function_exists('umrah_group_owned') ? umrah_group_owned($db, (int) $gid) : null;
+    if (!$group) { header('Location: ' . root . 'umrah/groups'); exit; }
+    $members = $db->select('umrah_group_members', '*', ['group_id' => (int) $gid, 'ORDER' => ['id' => 'ASC']]) ?: [];
+    // Wallet balance for the affordability hint.
+    $walletBalance = function_exists('agent_api_wallet_balance') ? agent_api_wallet_balance($db, (string) $group['agent_user_id']) : 0;
+    $dep = $db->get('umrah_departures', ['origin_city', 'departure_date', 'return_date'], ['id' => (int) $group['departure_id']]);
+    $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicename' => 'ASC']]) ?: [];
+    $umrahCsrf = class_exists('CSRF') ? CSRF::getToken() : ($_SESSION['csrf_token'] ?? '');
+    $title = 'Group ' . $group['group_ref'] . ' | ' . ($GLOBALS['app']['business_name'] ?? 'GoGlobia');
+    $description = ''; $robots = 'noindex, nofollow';
+    require_once views . 'includes/header.php';
+    require_once views . 'modules/umrah/v2/group-builder.php';
+    require_once views . 'includes/footer.php';
+});
+
 // ---- MULTI-DEPARTURE CART PAGE: GET /umrah/cart (Phase B3) --------------
 $router->get('/umrah/cart', function () use ($SECURE, $db) {
     $plans = $db->select('umrah_payment_plans', '*', ['active' => 1, 'ORDER' => ['deposit_percent' => 'DESC']]) ?: [];
