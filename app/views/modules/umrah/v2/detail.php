@@ -146,7 +146,8 @@ $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $pl
             </div>
 
             <label class="block text-sm font-medium text-gray-700 mt-4 mb-1">Travellers</label>
-            <input type="number" min="1" max="10" class="input" x-model.number="pax" @input="recalc()">
+            <input type="number" min="1" max="5" class="input" x-model.number="pax" @input="recalc()">
+            <p class="text-xs text-gray-400 mt-1">Up to 5 pilgrims per booking. Larger groups: <a class="text-primary" href="<?= root ?>umrah/customize">contact us</a>.</p>
 
             <label class="block text-sm font-medium text-gray-700 mt-4 mb-1">Payment</label>
             <select class="select" x-model="plan">
@@ -228,7 +229,7 @@ function umrahBooking() {
     selectDeparture(id) { this.selectedId = id; this.quote = null; this.hold = null; this.applyMedia(); this.pickFirstTier(); this.recalc(); },
     selectTier(tierId) { this.selectedTierId = tierId; this.quote = null; this.hold = null; this.recalc(); },
     recalc() {
-      if (this.pax < 1) this.pax = 1; if (this.pax > 10) this.pax = 10;
+      if (this.pax < 1) this.pax = 1; if (this.pax > 5) this.pax = 5;
       const t = this.currentTier;
       this.total = t ? t.unit_price * this.pax : 0;
     },
