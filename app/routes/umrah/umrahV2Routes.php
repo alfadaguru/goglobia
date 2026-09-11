@@ -16,8 +16,17 @@ if (!function_exists('umrahV2PublishedDepartures')) {
             'status' => 'published',
             'ORDER'  => ['departure_date' => 'ASC'],
         ]) ?: [];
+        // Resolve each departure's template slug once (cached per template_id) so
+        // result cards link to the CORRECT package detail page — not a hardcoded
+        // slug. Falls back to a safe default only if the template row is missing.
+        $slugCache = [];
         $out = [];
         foreach ($rows as $d) {
+            $tplId = (int) ($d['template_id'] ?? 0);
+            if ($tplId && !array_key_exists($tplId, $slugCache)) {
+                $slugCache[$tplId] = (string) ($db->get('umrah_package_templates', 'slug', ['id' => $tplId]) ?: '');
+            }
+            $tplSlug = $tplId ? ($slugCache[$tplId] ?: '') : '';
             $tiers = $db->select('umrah_departure_tiers', '*', [
                 'departure_id' => $d['id'], 'status' => 'active',
                 'ORDER' => ['id' => 'ASC'],
@@ -48,6 +57,8 @@ if (!function_exists('umrahV2PublishedDepartures')) {
             $out[] = [
                 'departure_id'      => (int) $d['id'],
                 'departure_tier_id' => (int) $best['id'],
+                'template_id'       => $tplId,
+                'slug'              => $tplSlug,
                 'code'              => $d['code'],
                 'origin_city'       => $d['origin_city'] ?: 'Kano',
                 'hero_image'        => $d['hero_image'] ?: '',
@@ -103,8 +114,11 @@ $umrahV2Landing = function () use ($SECURE, $db) {
     require_once views . 'modules/umrah/v2/landing.php';
     require_once views . 'includes/footer.php';
 };
-$router->get('/umrah', $umrahV2Landing);
-$router->get('/umrah/', $umrahV2Landing);
+// NOTE: the OLD tiers-list landing ($umrahV2Landing / v2/landing.php) is retired.
+// Per owner decision the DEFAULT /umrah page IS the flight-style search+results
+// experience (search bar city/month/pilgrims/tier on top + result cards below),
+// so /umrah and /umrah/ now dispatch to $umrahV2Results (defined below) exactly
+// like /umrah/search does. $umrahV2Landing is kept for reference only.
 
 // ---- DEDICATED RESULTS PAGE (flight-style): GET /umrah/search[/{city}/{month}/{pax}]
 // Mirrors the flights listing: a filter sidebar (city/month/price/tier/avail)
@@ -124,10 +138,16 @@ $umrahV2Results = function ($city = 'any', $month = 'any', $pax = '1') use ($SEC
     $months = array_keys($months);
     $tiers = $db->select('umrah_tiers', ['code', 'public_label', 'name', 'sort_order'], ['status' => 1, 'ORDER' => ['sort_order' => 'ASC']]) ?: [];
 
-    // Prefill from the widget (URL-decoded; 'any' = no filter).
-    $preCity  = ($city !== 'any' && $city !== '') ? urldecode($city) : '';
-    $preMonth = ($month !== 'any' && $month !== '') ? urldecode($month) : '';
-    $prePax   = max(1, min(5, (int) $pax));
+    // Online per-booking pilgrim cap (agents may exceed via group flow).
+    $GLOBALS['__umrah_customer_max_pax'] = (function_exists('umrah_is_agent') && umrah_is_agent())
+        ? 99
+        : (defined('UMRAH_CUSTOMER_MAX_PAX') ? UMRAH_CUSTOMER_MAX_PAX : 5);
+
+    // Prefill from the widget. Path segments take precedence; else query string
+    // (the home widget now submits ?city=&month=&adults=&children=&infants=&tier=).
+    $preCity  = ($city !== 'any' && $city !== '') ? urldecode($city) : trim((string) ($_GET['city'] ?? ''));
+    $preMonth = ($month !== 'any' && $month !== '') ? urldecode($month) : trim((string) ($_GET['month'] ?? ''));
+    $prePax   = max(1, min((int) $GLOBALS['__umrah_customer_max_pax'], (int) $pax));
 
     $title = 'Umrah packages' . ($preCity ? ' from ' . htmlspecialchars($preCity) : '') . ' | ' . ($GLOBALS['app']['business_name'] ?? 'GoGlobia');
     $description = 'Choose your GoGlobia Umrah departure — filter by city, month, price and comfort tier.';
@@ -138,6 +158,9 @@ $umrahV2Results = function ($city = 'any', $month = 'any', $pax = '1') use ($SEC
 };
 $router->get('/umrah/search', $umrahV2Results);
 $router->get('/umrah/search/([^/]+)/([^/]+)/([0-9]+)', $umrahV2Results);
+// DEFAULT /umrah IS the flight-style search+results page (retires old landing).
+$router->get('/umrah', $umrahV2Results);
+$router->get('/umrah/', $umrahV2Results);
 
 // ---- STABLE PACKAGE DETAIL: GET /umrah/packages/{slug} ------------------
 $router->get('/umrah/packages/([a-z0-9\-]+)', function ($slug) use ($SECURE, $db) {
@@ -156,8 +179,18 @@ $router->get('/umrah/packages/([a-z0-9\-]+)', function ($slug) use ($SECURE, $db
         return $dep && (int) $dep['template_id'] === (int) $template['id'];
     }));
 
-    $selectedDepartureId = isset($_GET['departure']) ? (int) $_GET['departure'] : ($departures[0]['departure_id'] ?? 0);
+    // Validate ?departure= against THIS template's published departures; fall
+    // back to the first departure if it is missing/foreign (audit LOW).
+    $validDepIds = array_map(fn($d) => (int) $d['departure_id'], $departures);
+    $requestedDep = isset($_GET['departure']) ? (int) $_GET['departure'] : 0;
+    $selectedDepartureId = in_array($requestedDep, $validDepIds, true)
+        ? $requestedDep
+        : ($departures[0]['departure_id'] ?? 0);
     $plans = $db->select('umrah_payment_plans', '*', ['active' => 1, 'ORDER' => ['deposit_percent' => 'DESC']]) ?: [];
+    // Online per-booking pilgrim cap (agents may exceed via the group flow).
+    $GLOBALS['__umrah_customer_max_pax'] = (function_exists('umrah_is_agent') && umrah_is_agent())
+        ? 99
+        : (defined('UMRAH_CUSTOMER_MAX_PAX') ? UMRAH_CUSTOMER_MAX_PAX : 5);
 
     // Images per departure: hero + gallery (fall back to the template hero).
     $departureMedia = [];
@@ -209,6 +242,59 @@ $router->get('/umrah/packages/([a-z0-9\-]+)', function ($slug) use ($SECURE, $db
 
     require_once views . 'includes/header.php';
     require_once views . 'modules/umrah/v2/detail.php';
+    require_once views . 'includes/footer.php';
+});
+
+// ---- FLIGHT-STYLE CHECKOUT: GET /umrah/checkout -------------------------
+// One page: review selection -> per-pilgrim details (A/C/I) + contact ->
+// Confirm & Pay. Posts once to /api/v1/umrah/checkout which quotes+holds+books+
+// writes travellers, then redirects to the invoice/payment page. Server is the
+// sole price authority; nothing here trusts a client-supplied price.
+$router->get('/umrah/checkout', function () use ($SECURE, $db) {
+    $dtId     = (int) ($_GET['departure_tier_id'] ?? 0);
+    $maxPax   = (function_exists('umrah_is_agent') && umrah_is_agent()) ? 99
+              : (defined('UMRAH_CUSTOMER_MAX_PAX') ? UMRAH_CUSTOMER_MAX_PAX : 5);
+    $adults   = max(1, min($maxPax, (int) ($_GET['adults'] ?? 1)));
+    $children = max(0, (int) ($_GET['children'] ?? 0));
+    $infants  = max(0, (int) ($_GET['infants'] ?? 0));
+    // Clamp the total to the cap (trim extras off the tail: infants, then children).
+    while (($adults + $children + $infants) > $maxPax && $infants > 0)  { $infants--; }
+    while (($adults + $children + $infants) > $maxPax && $children > 0) { $children--; }
+
+    // Resolve the selected departure-tier (priced server-side, agent-aware).
+    $dt = $dtId > 0 ? $db->get('umrah_departure_tiers', '*', ['id' => $dtId]) : null;
+    if (!$dt || ($dt['status'] ?? '') !== 'active') {
+        header('Location: ' . root . 'umrah'); exit;
+    }
+    $dep  = $db->get('umrah_departures', '*', ['id' => (int) $dt['departure_id']]);
+    $tpl  = $dep ? $db->get('umrah_package_templates', ['name', 'slug'], ['id' => (int) $dep['template_id']]) : null;
+    $tier = $db->get('umrah_tiers', ['code', 'name', 'public_label', 'room_sharing'], ['id' => (int) $dt['tier_id']]);
+    if (!$dep || !$tier) { header('Location: ' . root . 'umrah'); exit; }
+    $priced = umrah_price_resolve($db, $dt);
+    if (($priced['unit'] ?? 0) <= 0) { header('Location: ' . root . 'umrah'); exit; }
+
+    // Availability check up front (still re-checked atomically at hold time).
+    $cap = function_exists('umrah_capacity_for') ? umrah_capacity_for($db, $dtId) : ['remaining' => 0];
+    $soldOut = ((int) ($cap['remaining'] ?? 0)) <= 0;
+
+    $plans     = $db->select('umrah_payment_plans', '*', ['active' => 1, 'ORDER' => ['deposit_percent' => 'DESC']]) ?: [];
+    $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicename' => 'ASC']]) ?: [];
+    $umrahCsrf = class_exists('CSRF') ? CSRF::getToken() : ($_SESSION['csrf_token'] ?? '');
+
+    // Prefill lead contact from the logged-in user when available.
+    $leadEmail = ''; $leadPhone = '';
+    if (!empty($_SESSION['user_id'])) {
+        $u = $db->get('users', ['email', 'phone'], ['id' => $_SESSION['user_id']]);
+        $leadEmail = (string) ($u['email'] ?? '');
+        $leadPhone = (string) ($u['phone'] ?? '');
+    }
+
+    $GLOBALS['__umrah_customer_max_pax'] = $maxPax;
+    $title = 'Checkout — ' . ($tier['public_label'] ?: $tier['name']) . ' | ' . ($GLOBALS['app']['business_name'] ?? 'GoGlobia');
+    $description = ''; $robots = 'noindex, nofollow';
+
+    require_once views . 'includes/header.php';
+    require_once views . 'modules/umrah/v2/checkout.php';
     require_once views . 'includes/footer.php';
 });
 

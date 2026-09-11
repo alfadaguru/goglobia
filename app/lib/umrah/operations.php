@@ -37,6 +37,12 @@ if (!function_exists('umrah_traveller_add')) {
             'ring_size' => $data['ring_size'] ?? null,
             'is_lead' => !empty($data['is_lead']) ? 1 : 0,
         ];
+        // Optional extra JSON (e.g. {"pax_type":"adult|child|infant"} for the
+        // Nusuk manifest). Only persisted when provided so existing callers are
+        // unaffected; accepts either a JSON string or an array.
+        if (isset($data['extra']) && $data['extra'] !== null && $data['extra'] !== '') {
+            $fields['extra'] = is_array($data['extra']) ? json_encode($data['extra']) : (string) $data['extra'];
+        }
 
         $existingId = (int) ($data['id'] ?? 0);
         if ($existingId > 0) {

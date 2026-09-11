@@ -772,10 +772,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function requestCancellation() {
     if (confirm('<?= T::cancellation_confirmation_message ?>')) {
+        var _csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
         fetch('<?= root ?>api/umrah/booking/request-cancellation', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ invoice_id: '<?= $invoiceId ?>' })
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': _csrf },
+            body: JSON.stringify({ invoice_id: '<?= $invoiceId ?>', csrf_token: _csrf })
         })
         .then(response => response.json())
         .then(data => {

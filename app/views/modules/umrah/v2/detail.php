@@ -147,27 +147,29 @@ $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $pl
               <span class="text-xs text-gray-500">per pilgrim</span>
             </div>
 
-            <label class="block text-sm font-medium text-gray-700 mt-4 mb-1">Travellers</label>
-            <input type="number" min="1" max="5" class="input" x-model.number="pax" @input="recalc()">
-            <p class="text-xs text-gray-400 mt-1">Up to 5 pilgrims per booking. Larger groups: <a class="text-primary" href="<?= root ?>umrah/customize">contact us</a>.</p>
-
-            <label class="block text-sm font-medium text-gray-700 mt-4 mb-1">Payment</label>
-            <select class="select" x-model="plan">
-              <template x-for="p in plans" :key="p.code"><option :value="p.code" x-text="p.name"></option></template>
-            </select>
+            <label class="block text-sm font-medium text-gray-700 mt-4 mb-1">Pilgrims</label>
+            <div class="space-y-2">
+              <template x-for="row in paxRows" :key="row.key">
+                <div class="flex items-center justify-between border rounded-lg px-3 py-2">
+                  <div>
+                    <div class="text-sm font-medium text-gray-700" x-text="row.label"></div>
+                    <div class="text-[11px] text-gray-400" x-text="row.hint"></div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button type="button" class="w-7 h-7 rounded-full border text-gray-600 disabled:opacity-40" @click="dec(row.key)" :disabled="!canDec(row.key)">−</button>
+                    <span class="w-5 text-center text-sm" x-text="counts[row.key]"></span>
+                    <button type="button" class="w-7 h-7 rounded-full border text-gray-600 disabled:opacity-40" @click="inc(row.key)" :disabled="!canInc()">+</button>
+                  </div>
+                </div>
+              </template>
+            </div>
+            <p class="text-xs text-gray-400 mt-1">Up to <?= (int) ($GLOBALS['__umrah_customer_max_pax'] ?? 5) ?> pilgrims per booking. Larger groups: <a class="text-primary" href="<?= root ?>umrah/customize">contact us</a>.</p>
 
             <div class="mt-4 border-t border-gray-100 pt-3 text-sm space-y-1">
-              <div class="flex justify-between"><span class="text-gray-600">Total</span><span class="font-semibold" x-text="money(total)"></span></div>
+              <div class="flex justify-between"><span class="text-gray-600"><span x-text="pax"></span> × <span x-text="money(currentTier.unit_price)"></span></span><span class="font-semibold" x-text="money(total)"></span></div>
             </div>
 
-            <div class="mt-4 space-y-2" x-show="step==='select'">
-              <input class="input" placeholder="Full name" x-model="lead.name">
-              <input class="input" placeholder="Email" type="email" x-model="lead.email">
-              <input class="input" placeholder="WhatsApp / phone" x-model="lead.phone">
-            </div>
-
-            <button class="btn w-full justify-center mt-4" :disabled="busy || currentTier.availability==='sold_out'" @click="startBooking()"
-              x-text="busy ? 'Please wait…' : 'Continue to secure your seat'"></button>
+            <button class="btn w-full justify-center mt-4" :disabled="currentTier.availability==='sold_out'" @click="goToCheckout()">Continue to secure your seat</button>
             <!-- Multi-departure cart: add this departure and keep browsing. -->
             <button type="button" class="btn outline w-full justify-center mt-2" :disabled="cartBusy || currentTier.availability==='sold_out'" @click="addToCart()"
               x-text="cartBusy ? 'Adding…' : 'Add to cart & book more'"></button>
@@ -197,10 +199,14 @@ function umrahBooking() {
     departures: [], tiersByDep: {}, plans: [], media: {},
     selectedId: 0, selectedTierId: 0,
     hero: '', gallery: [], activeImage: '',
-    pax: 1, plan: 'PP-50-25-25',
+    maxPax: <?= (int) ($GLOBALS['__umrah_customer_max_pax'] ?? 5) ?>,
+    counts: { adults: 1, children: 0, infants: 0 },
+    paxRows: [
+      { key: 'adults',   label: 'Adults',   hint: '12+ years' },
+      { key: 'children', label: 'Children', hint: '2–11 years' },
+      { key: 'infants',  label: 'Infants',  hint: 'under 2' },
+    ],
     total: 0, busy: false, cartBusy: false, groupBusy: false, msg: '', step: 'select',
-    lead: { name: '', email: '', phone: '' },
-    quote: null, hold: null,
     inclLabels: {
       return_flight:'Return flight', umrah_visa:'Umrah visa', madinah_stay:'Madinah stay',
       makkah_stay:'Makkah stay', airport_transfers:'Airport transfers',
@@ -217,9 +223,32 @@ function umrahBooking() {
       this.plans = plans || [];
       this.media = media || {};
       this.selectedId = sel || (this.departures[0] ? this.departures[0].departure_id : 0);
+      // Prefill pilgrim counts from the URL (?adults=&children=&infants=), as set
+      // by the search/results page, clamped to the online cap.
+      const qs = new URLSearchParams(window.location.search);
+      const a = Math.max(1, parseInt(qs.get('adults')   || '1', 10));
+      const c = Math.max(0, parseInt(qs.get('children') || '0', 10));
+      const inf = Math.max(0, parseInt(qs.get('infants') || '0', 10));
+      this.counts = { adults: a, children: c, infants: inf };
+      while (this.pax > this.maxPax && this.counts.infants > 0)  { this.counts.infants--; }
+      while (this.pax > this.maxPax && this.counts.children > 0) { this.counts.children--; }
       this.applyMedia();
       this.pickFirstTier();
       this.recalc();
+    },
+    get pax() { return this.counts.adults + this.counts.children + this.counts.infants; },
+    canInc() { return this.pax < this.maxPax; },
+    canDec(k) { return k === 'adults' ? this.counts.adults > 1 : this.counts[k] > 0; },
+    inc(k) { if (this.canInc()) { this.counts[k]++; this.recalc(); } },
+    dec(k) { if (this.canDec(k)) { this.counts[k]--; this.recalc(); } },
+    goToCheckout() {
+      const t = this.currentTier; if (!t) return;
+      const q = new URLSearchParams();
+      q.set('departure_tier_id', t.departure_tier_id);
+      q.set('adults', this.counts.adults);
+      q.set('children', this.counts.children);
+      q.set('infants', this.counts.infants);
+      window.location.href = '<?= root ?>umrah/checkout?' + q.toString();
     },
     applyMedia() {
       const m = this.media[this.selectedId] || this.media[String(this.selectedId)] || {};
@@ -236,10 +265,9 @@ function umrahBooking() {
       const firstBookable = list.find(t => t.availability !== 'sold_out') || list[0];
       this.selectedTierId = firstBookable ? firstBookable.departure_tier_id : 0;
     },
-    selectDeparture(id) { this.selectedId = id; this.quote = null; this.hold = null; this.applyMedia(); this.pickFirstTier(); this.recalc(); },
-    selectTier(tierId) { this.selectedTierId = tierId; this.quote = null; this.hold = null; this.recalc(); },
+    selectDeparture(id) { this.selectedId = id; this.applyMedia(); this.pickFirstTier(); this.recalc(); },
+    selectTier(tierId) { this.selectedTierId = tierId; this.recalc(); },
     recalc() {
-      if (this.pax < 1) this.pax = 1; if (this.pax > 5) this.pax = 5;
       const t = this.currentTier;
       this.total = t ? t.unit_price * this.pax : 0;
     },
@@ -271,27 +299,6 @@ function umrahBooking() {
         if (j.success) { window.location.href = '<?= root ?>umrah/groups/' + j.group_id; }
         else { this.msg = j.message || 'Could not create group'; this.groupBusy = false; }
       } catch (e) { this.msg = 'Something went wrong.'; this.groupBusy = false; }
-    },
-    async startBooking() {
-      const t = this.currentTier; if (!t) return;
-      if (!this.lead.name || (!this.lead.email && !this.lead.phone)) { this.msg = 'Please enter your name and email or phone.'; return; }
-      this.busy = true; this.msg = 'Reserving your seat…';
-      try {
-        const q = await this.post(this.apiBase + '/quotes', { departure_tier_id: t.departure_tier_id, pax: this.pax });
-        if (!q.success) { this.msg = q.message || 'Could not create quote'; this.busy = false; return; }
-        this.quote = q.quote;
-        const h = await this.post(this.apiBase + '/holds', { quote_ref: q.quote.quote_ref });
-        if (!h.success) { this.msg = h.message || 'Seats not available'; this.busy = false; return; }
-        this.hold = h.hold;
-        const parts = (this.lead.name || '').trim().split(' ');
-        const b = await this.post(this.apiBase + '/bookings', {
-          quote_ref: q.quote.quote_ref, hold_id: h.hold.hold_id, payment_plan: this.plan,
-          first_name: parts[0] || '', last_name: parts.slice(1).join(' ') || '',
-          email: this.lead.email, phone: this.lead.phone
-        });
-        if (!b.success) { this.msg = b.message || 'Booking failed'; this.busy = false; return; }
-        window.location.href = '<?= root ?>umrah/booking/' + b.booking.booking_ref;
-      } catch (e) { this.msg = 'Something went wrong. Please try again.'; this.busy = false; }
     }
   };
 }

@@ -234,6 +234,119 @@ $router->post('/api/v1/umrah/bookings', function () use ($db) {
     umrah_v1_json(['success' => true, 'booking' => $b]);
 });
 
+// ---- POST /api/v1/umrah/checkout ----------------------------------------
+// FLIGHT-STYLE ONE-SHOT CHECKOUT. The dedicated checkout page collects the
+// selection (departure_tier_id), the pilgrim breakdown (adults/children/infants)
+// AND every pilgrim's identity details up front, then calls this once. The
+// server is the sole price authority: it (re)quotes, holds seats, creates the
+// booking, then writes each traveller — all before returning the pay URL. This
+// replaces the old inline detail-page dance and gives the customer a single
+// clear "Confirm & Pay" that lands straight on the invoice/payment page.
+$router->post('/api/v1/umrah/checkout', function () use ($db) {
+    $in = umrah_v1_body();
+    umrah_v1_csrf_guard($in);
+
+    $dtId     = (int) ($in['departure_tier_id'] ?? 0);
+    $adults   = max(1, (int) ($in['adults'] ?? 0));
+    $children = max(0, (int) ($in['children'] ?? 0));
+    $infants  = max(0, (int) ($in['infants'] ?? 0));
+    $pax      = $adults + $children + $infants;
+    $plan     = trim((string) ($in['payment_plan'] ?? 'PP-50-25-25'));
+    if ($dtId <= 0) { umrah_v1_json(['success' => false, 'message' => 'departure_tier_id required'], 422); }
+
+    // Enforce the online per-booking cap for non-agents (agents use the group
+    // flow). umrah_price_quote also enforces this, but fail fast with a clear msg.
+    $maxPax = defined('UMRAH_CUSTOMER_MAX_PAX') ? UMRAH_CUSTOMER_MAX_PAX : 5;
+    $isAgent = function_exists('umrah_is_agent') && umrah_is_agent();
+    if (!$isAgent && $pax > $maxPax) {
+        umrah_v1_json(['success' => false, 'message' => 'Up to ' . $maxPax . ' pilgrims per online booking. For larger groups please use the agent group flow or contact us.'], 422);
+    }
+
+    // Pilgrims array — one per pax; the count MUST match the breakdown so the
+    // seats we hold/charge equal the identities we capture (no under/over-fill).
+    $pilgrims = is_array($in['pilgrims'] ?? null) ? array_values($in['pilgrims']) : [];
+    if (count($pilgrims) !== $pax) {
+        umrah_v1_json(['success' => false, 'message' => 'Please complete details for all ' . $pax . ' pilgrim(s)'], 422);
+    }
+    // Validate each pilgrim's required identity fields before we take any money.
+    $req = ['first_name', 'last_name', 'gender', 'dob', 'nationality', 'passport_number', 'passport_expiry'];
+    foreach ($pilgrims as $i => $p) {
+        foreach ($req as $f) {
+            if (trim((string) ($p[$f] ?? '')) === '') {
+                umrah_v1_json(['success' => false, 'message' => 'Pilgrim ' . ($i + 1) . ': ' . str_replace('_', ' ', $f) . ' is required'], 422);
+            }
+        }
+        if (!in_array($p['gender'], ['male', 'female'], true)) {
+            umrah_v1_json(['success' => false, 'message' => 'Pilgrim ' . ($i + 1) . ': invalid gender'], 422);
+        }
+    }
+
+    // Lead contact (from the first pilgrim / contact block).
+    $lead = [
+        'first_name' => trim((string) ($pilgrims[0]['first_name'] ?? '')),
+        'last_name'  => trim((string) ($pilgrims[0]['last_name'] ?? '')),
+        'email'      => trim((string) ($in['email'] ?? '')),
+        'phone'      => trim((string) ($in['phone'] ?? '')),
+        'phone_country_code' => trim((string) ($in['phone_country_code'] ?? '')),
+        'user_id'    => umrah_v1_user(),
+    ];
+    if ($lead['email'] === '' && $lead['phone'] === '') {
+        umrah_v1_json(['success' => false, 'message' => 'Contact email or phone is required'], 422);
+    }
+
+    // 1) Quote (server price authority). 2) Hold (atomic capacity). 3) Book.
+    $q = umrah_price_quote($db, $dtId, $pax);
+    if (empty($q['ok'])) { umrah_v1_json(['success' => false, 'message' => $q['message'] ?? 'Cannot quote'], 422); }
+    $h = umrah_hold_create($db, $dtId, $pax, (int) $q['quote_id'], $lead['user_id']);
+    if (empty($h['ok'])) { umrah_v1_json(['success' => false, 'message' => $h['message'] ?? 'Seats not available', 'remaining' => $h['remaining'] ?? 0], 409); }
+    $b = umrah_booking_create($db, (string) $q['quote_ref'], (int) $h['hold_id'], $lead, $plan);
+    if (empty($b['ok'])) { umrah_v1_json(['success' => false, 'message' => $b['message'] ?? 'Booking failed'], 409); }
+
+    // 4) Write every pilgrim onto the booking (first is lead). A partial failure
+    //    here still leaves a valid booking the customer can complete on the
+    //    confirmation page, so we don't unwind — but we report what stuck.
+    $ubId = (int) ($b['umrah_booking_id'] ?? 0);
+    if ($ubId <= 0) {
+        $ubRow = $db->get('umrah_bookings', ['id'], ['booking_ref' => $b['booking_ref']]);
+        $ubId = (int) ($ubRow['id'] ?? 0);
+    }
+    $savedTravellers = 0;
+    if ($ubId > 0 && function_exists('umrah_traveller_add')) {
+        foreach ($pilgrims as $i => $p) {
+            $ptype = in_array(($p['pax_type'] ?? ''), ['adult', 'child', 'infant'], true) ? $p['pax_type'] : 'adult';
+            $res = umrah_traveller_add($db, $ubId, [
+                'is_lead'         => $i === 0 ? 1 : 0,
+                'title'           => $p['title'] ?? null,
+                'first_name'      => $p['first_name'] ?? '',
+                'last_name'       => $p['last_name'] ?? '',
+                'gender'          => $p['gender'] ?? '',
+                'dob'             => $p['dob'] ?? '',
+                'nationality'     => $p['nationality'] ?? '',
+                'passport_number' => $p['passport_number'] ?? '',
+                'passport_expiry' => $p['passport_expiry'] ?? '',
+                // pax_type (adult/child/infant) recorded for the Nusuk manifest.
+                'extra'           => json_encode(['pax_type' => $ptype]),
+            ]);
+            if (!empty($res['ok'])) { $savedTravellers++; }
+        }
+    }
+
+    // Guest booking allow-list so a not-logged-in customer can view/pay it.
+    if (empty($lead['user_id']) && !empty($b['booking_ref'])) {
+        $_SESSION['umrah_guest_bookings'] = array_values(array_unique(array_merge(
+            (array) ($_SESSION['umrah_guest_bookings'] ?? []),
+            [$b['booking_ref']]
+        )));
+    }
+
+    umrah_v1_json([
+        'success'      => true,
+        'booking'      => $b,
+        'saved_travellers' => $savedTravellers,
+        'pay_url'      => root . 'invoice/umrah/' . rawurlencode((string) $b['invoice_id']),
+    ]);
+});
+
 // ========================================================================
 // MULTI-DEPARTURE CART (Phase B3) — a customer can add several Umrah
 // departures and pay together, like buying tickets for multiple passengers.
@@ -425,10 +538,10 @@ $router->post('/api/v1/umrah/groups/([0-9]+)/cancel', function ($gid) use ($db) 
 $router->get('/api/v1/umrah/bookings/([A-Za-z0-9\-]+)', function ($ref) use ($db) {
     $ub = $db->get('umrah_bookings', '*', ['booking_ref' => $ref]);
     if (!$ub) { umrah_v1_json(['success' => false, 'message' => 'Booking not found'], 404); }
-    // Authorisation: owner or admin only.
-    $uid = umrah_v1_user();
-    $isAdmin = (($_SESSION['user_role'] ?? '') === 'admin');
-    if (!$isAdmin && (!$uid || (string) $ub['user_id'] !== (string) $uid)) {
+    // Authorisation: admin, owner, OR the guest who created it (audit L). Use the
+    // shared gate so a not-logged-in customer can read the booking they just made
+    // (matches the travellers/documents endpoints and the web confirmation page).
+    if (!umrah_v1_can_manage_booking($ub)) {
         umrah_v1_json(['success' => false, 'message' => 'Unauthorized'], 403);
     }
     $installments = $db->select('umrah_installments', ['seq', 'percent', 'amount', 'due_at', 'status', 'paid_at'],
@@ -507,9 +620,11 @@ $router->post('/api/v1/umrah/waitlist', function () use ($db) {
 $router->post('/api/v1/umrah/bookings/([A-Za-z0-9\-]+)/payments', function ($ref) use ($db) {
     $ub = $db->get('umrah_bookings', '*', ['booking_ref' => $ref]);
     if (!$ub) { umrah_v1_json(['success' => false, 'message' => 'Booking not found'], 404); }
-    $uid = umrah_v1_user();
-    $isAdmin = (($_SESSION['user_role'] ?? '') === 'admin');
-    if (!$isAdmin && (!$uid || (string) $ub['user_id'] !== (string) $uid)) {
+    umrah_v1_csrf_guard(umrah_v1_body());
+    // Admin, owner, or the creating guest (audit L — same gate as the read/
+    // travellers endpoints; the previous check locked guests out of paying for
+    // the booking they just made).
+    if (!umrah_v1_can_manage_booking($ub)) {
         umrah_v1_json(['success' => false, 'message' => 'Unauthorized'], 403);
     }
     $next = $db->get('umrah_installments', ['seq', 'amount', 'due_at'],
