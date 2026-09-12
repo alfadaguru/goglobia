@@ -37,6 +37,27 @@ foreach ($templatesActive as $t) { $tplName[(int) $t['id']] = $t['name']; }
     </div>
   </div>
 
+  <?php if (!empty($stockImageCount)): ?>
+    <!-- One-click fix: replace stock/empty departure images with verified real
+         Umrah photos. Shows only while some departure still lacks a real upload. -->
+    <div class="card border mb-4" style="border-color:#f59e0b;background:#fffbeb">
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div class="flex items-start gap-3">
+          <span class="material-symbols-outlined text-amber-600 text-3xl">image</span>
+          <div>
+            <div class="font-bold text-slate-900"><?= (int) $stockImageCount ?> departure(s) are showing stock/placeholder images</div>
+            <div class="text-sm text-slate-600">Click to set genuine, verified Umrah photos (distinct per departure). Your own uploaded photos are kept.</div>
+          </div>
+        </div>
+        <button class="btn" :disabled="media.seedBusy" @click="seedVerified()">
+          <span class="material-symbols-outlined">auto_awesome</span>
+          <span x-text="media.seedBusy ? 'Applying…' : 'Set real Umrah images now'"></span>
+        </button>
+      </div>
+      <p class="text-xs mt-2" :class="media.msgOk?'text-green-600':'text-rose-600'" x-text="media.msg"></p>
+    </div>
+  <?php endif; ?>
+
   <?php if ($showArchived): ?>
     <div class="alert-warning mb-4"><span class="material-icon material-symbols-outlined">inventory_2</span>
       <p>Showing archived records too. Archived items are hidden from the public site.</p></div>
