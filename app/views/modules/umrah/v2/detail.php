@@ -31,10 +31,10 @@ $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $pl
 <div class="bg-white" x-data="umrahBooking()"
      x-init="init(
         <?= htmlspecialchars(json_encode($depJs), ENT_QUOTES) ?>,
-        <?= htmlspecialchars(json_encode($departureTiers, JSON_FORCE_OBJECT), ENT_QUOTES) ?>,
+        <?= htmlspecialchars(json_encode((object) $departureTiers), ENT_QUOTES) ?>,
         <?= (int) $selectedDepartureId ?>,
         <?= htmlspecialchars(json_encode($plansJs), ENT_QUOTES) ?>,
-        <?= htmlspecialchars(json_encode($departureMedia ?? [], JSON_FORCE_OBJECT), ENT_QUOTES) ?>)">
+        <?= htmlspecialchars(json_encode((object) ($departureMedia ?? [])), ENT_QUOTES) ?>)">
   <div class="container py-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
 
     <!-- MAIN -->
@@ -43,11 +43,19 @@ $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $pl
       <h1 class="text-2xl md:text-3xl font-extrabold text-gray-900"><?= htmlspecialchars($template['name']) ?></h1>
       <p class="text-gray-600 mt-1">14-Day Umrah · <?= $madinah ?> nights Madinah + <?= $makkah ?> nights Makkah</p>
 
-      <!-- HERO IMAGE + GALLERY -->
-      <div class="mt-4" x-show="hero">
-        <div class="rounded-2xl overflow-hidden bg-slate-100 aspect-[16/9]">
-          <img :src="activeImage || hero" alt="Umrah package" class="w-full h-full object-cover"
-               onerror="this.style.visibility='hidden'">
+      <!-- HERO IMAGE + GALLERY (branded placeholder when no image yet) -->
+      <div class="mt-4">
+        <div class="rounded-2xl overflow-hidden aspect-[16/9] relative"
+             style="background:linear-gradient(135deg,#0f766e 0%,#065f46 55%,#064e3b 100%)">
+          <template x-if="hero">
+            <img :src="activeImage || hero" alt="Umrah package" class="w-full h-full object-cover"
+                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+          </template>
+          <div class="absolute inset-0 flex-col items-center justify-center text-white/90 gap-2"
+               :class="hero ? 'hidden' : 'flex'" :style="hero ? 'display:none' : ''">
+            <span class="material-symbols-outlined text-6xl leading-none">mosque</span>
+            <span class="text-sm font-medium tracking-wide"><?= htmlspecialchars($template['name']) ?></span>
+          </div>
         </div>
         <div class="flex gap-2 mt-2 overflow-x-auto" x-show="gallery.length > 1">
           <template x-for="(g, i) in gallery" :key="i">
