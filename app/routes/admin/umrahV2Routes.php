@@ -80,6 +80,21 @@ $router->get(admin.'/umrah-manager', function () use ($SECURE, $db) {
     $dueSoon = (float) $db->sum('umrah_installments', 'amount', ['status' => 'pending', 'due_at[<>]' => [$now, $in7]]);
     $overdue = (float) $db->sum('umrah_installments', 'amount', ['status' => ['pending', 'overdue'], 'due_at[<]' => $now]);
 
+    // Does any departure still have an EMPTY hero or an off/stock image (i.e. not
+    // a real /uploads/ photo AND not one of the verified Umrah photos)? Drives
+    // the prominent "Set real Umrah images" banner so the fix is one click. The
+    // banner correctly disappears once every departure has either a real upload
+    // or a verified Umrah image (so it never nags after the fix worked).
+    $verifiedUrls = function_exists('umrah_admin_verified_images')
+        ? array_map(fn($x) => $x['url'], umrah_admin_verified_images()) : [];
+    $stockImageCount = 0;
+    foreach ($db->select('umrah_departures', ['hero_image']) ?: [] as $__d) {
+        $h = (string) ($__d['hero_image'] ?? '');
+        $isUpload   = $h !== '' && strpos($h, '/uploads/') !== false;
+        $isVerified = $h !== '' && in_array($h, $verifiedUrls, true);
+        if (!$isUpload && !$isVerified) { $stockImageCount++; }
+    }
+
     $title = 'Umrah Manager'; $description = ''; $header = true; $footer = true;
     require_once views . 'includes/header.php';
     require_once views . 'admin/umrah/v2/manager.php';
