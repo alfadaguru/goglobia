@@ -263,13 +263,15 @@ foreach ($templatesActive as $t) { $tplName[(int) $t['id']] = $t['name']; }
         <h2 class="font-semibold text-slate-900">Media library</h2>
         <p class="text-sm text-slate-500">Realistic Umrah images you upload once and reuse on any departure.</p>
       </div>
-      <div class="flex gap-2">
+      <div class="flex gap-2 flex-wrap">
         <label class="btn cursor-pointer">
           <span class="material-symbols-outlined text-[18px]">upload</span>
           <span x-text="media.uploading ? 'Uploading…' : 'Upload image'"></span>
           <input type="file" class="hidden" accept="image/png,image/jpeg,image/webp" @change="mediaUpload($event)">
         </label>
         <button class="btn outline" @click="media.showUrl=!media.showUrl"><span class="material-symbols-outlined text-[18px]">link</span><span>Add by URL</span></button>
+        <button class="btn outline" @click="seedVerified()"><span class="material-symbols-outlined text-[18px]">auto_awesome</span><span x-text="media.seedBusy?'Applying…':'Set real Umrah images (all departures)'"></span></button>
+        <button class="btn outline text-rose-600" @click="clearExternal()"><span class="material-symbols-outlined text-[18px]">hide_image</span><span>Clear stock images</span></button>
       </div>
     </div>
 
@@ -493,7 +495,21 @@ function umrahMgr() {
     },
 
     // ---- Media library ----
-    media:{ items:[], loading:false, uploading:false, showUrl:false, url:'', label:'', msg:'', msgOk:false },
+    media:{ items:[], loading:false, uploading:false, showUrl:false, url:'', label:'', msg:'', msgOk:false, seedBusy:false },
+    async seedVerified(){
+      if(!confirm('Set verified real Umrah photos as the hero + gallery on every departure? (Your own uploaded photos are kept.)')) return;
+      this.media.seedBusy=true; this.media.msg='';
+      const j=await this.post(this.base+'/images/seed-verified',{});
+      this.media.seedBusy=false;
+      if(j.success){ this.media.msg='Applied to '+(j.set||0)+' departure(s).'; this.media.msgOk=true; await this.loadMedia(); setTimeout(()=>location.reload(),800); }
+      else { this.media.msg=j.message||'Failed'; this.media.msgOk=false; }
+    },
+    async clearExternal(){
+      if(!confirm('Clear stock/external images from all departures? Your own uploaded photos are kept.')) return;
+      const j=await this.post(this.base+'/images/clear-external',{});
+      if(j.success){ this.media.msg='Cleared on '+(j.cleared||0)+' departure(s).'; this.media.msgOk=true; await this.loadMedia(); setTimeout(()=>location.reload(),800); }
+      else { this.media.msg=j.message||'Failed'; this.media.msgOk=false; }
+    },
     async loadMedia(){
       this.media.loading=true;
       try{ const r=await fetch(this.base+'/media?service=umrah'); const j=await r.json(); this.media.items=j.images||[]; }
