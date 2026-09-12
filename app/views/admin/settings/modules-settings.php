@@ -670,6 +670,18 @@ $defaultModuleTab = $availableModuleTabs[0] ?? 'credentials';
                         <?=T::id?>: <?= $module['id'] ?>
                     </span>
                 </div>
+                <?php if (strtolower($module['type'] ?? '') === 'umrah'): ?>
+                <!-- Umrah has its own dedicated CRUD console (packages, tiers,
+                     payment plans, departures, images). Surface it right here so
+                     it is reachable from Settings -> Modules -> Umrah. -->
+                <div class="mt-3">
+                    <a href="<?= root.admin ?>/umrah-manager" class="btn inline-flex items-center gap-2">
+                        <span class="material-symbols-outlined text-base">tune</span>
+                        Manage Umrah (packages, tiers, departures &amp; images)
+                    </a>
+                    <p class="text-xs text-slate-500 mt-1">Create/edit/archive packages, tiers, payment plans and departures, and set real Umrah images.</p>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
 
