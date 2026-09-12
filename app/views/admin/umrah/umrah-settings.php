@@ -246,10 +246,16 @@ $isAdd = !$isEdit && $isManageMode;
                     <span class="material-symbols-outlined">settings</span>
                     <?= T::umrah_settings_management ?? 'Umrah Settings Management' ?>
                 </h1>
-                <a :href="'<?= root . admin ?>/umrah/settings?add=1&type=' + activeTab" class="btn">
-                    <span class="material-symbols-outlined text-lg">add</span>
-                    <?= T::add_new_setting ?? 'Add New Setting' ?>
-                </a>
+                <div class="flex gap-2">
+                    <a href="<?= root . admin ?>/umrah-manager" class="btn">
+                        <span class="material-symbols-outlined text-lg">tune</span>
+                        Manage Umrah (packages, tiers, departures &amp; images)
+                    </a>
+                    <a :href="'<?= root . admin ?>/umrah/settings?add=1&type=' + activeTab" class="btn outline">
+                        <span class="material-symbols-outlined text-lg">add</span>
+                        <?= T::add_new_setting ?? 'Add New Setting' ?>
+                    </a>
+                </div>
             </div>
 
             <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-0 mb-4">
