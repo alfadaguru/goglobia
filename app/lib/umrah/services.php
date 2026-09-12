@@ -639,6 +639,12 @@ if (!function_exists('umrah_booking_create')) {
         if (strtotime($hold['expires_at']) < time()) { return ['ok' => false, 'message' => 'Hold expired — please start again']; }
         if ((int) $hold['departure_tier_id'] !== (int) $quote['departure_tier_id']) {
             return ['ok' => false, 'message' => 'Quote/hold mismatch']; }
+        // Bind the quote pax to the hold qty (audit H): the price is computed from
+        // the quote pax while seats are reserved by the hold qty, so a quote(pax=1)
+        // paired with a hold(qty=5) — or the reverse — would charge for one and
+        // reserve five (or reserve one and charge five). Require they match.
+        if ((int) $hold['qty'] !== (int) $quote['pax']) {
+            return ['ok' => false, 'message' => 'Quote/hold pax mismatch — please start again']; }
 
         $dt = $db->get('umrah_departure_tiers', '*', ['id' => $quote['departure_tier_id']]);
         if (!$dt) { return ['ok' => false, 'message' => 'Departure-tier not found']; }
@@ -835,12 +841,25 @@ if (!function_exists('umrah_settle_payment')) {
         if (!$ub) { return ['ok' => false, 'status' => 'error', 'message' => 'Umrah booking not found']; }
         $ubId = (int) $ub['id'];
 
-        // Audit (low): gateways that return no transaction id would otherwise
-        // bypass the (invoice, txn) idempotency key and store an empty txn.
-        // Synthesize a stable key from invoice + amount so duplicates are caught
-        // and the ledger never stores an empty transaction_id.
+        // Gateways that return no transaction id would otherwise bypass the
+        // (invoice, txn) idempotency key and store an empty txn. Synthesize one —
+        // but keying it on invoice+amount alone COLLIDES when two DISTINCT
+        // payments share the same amount (e.g. the two equal 25% tail
+        // installments of a 50-25-25 plan): the second real payment would be
+        // mistaken for a duplicate and silently dropped (audit H). Suffix the key
+        // with the count of settlements already recorded on this booking so
+        // successive empty-txn payments get distinct keys, while a re-fired
+        // callback for the SAME payment still needs a real txn id to dedupe.
         $txnId = (string) $txnId;
-        if ($txnId === '') { $txnId = 'AUTO-' . $invoiceId . '-' . number_format((float) $amount, 2, '', ''); }
+        if ($txnId === '') {
+            // Number of settlements already recorded on this booking (any txn).
+            // Suffixing with it makes each successive empty-txn payment unique.
+            $prior = (int) $db->count('umrah_installments', [
+                'umrah_booking_id' => $ubId,
+                'transaction_id[!]' => null,
+            ]);
+            $txnId = 'AUTO-' . $invoiceId . '-' . number_format((float) $amount, 2, '', '') . '-' . ($prior + 1);
+        }
 
         // Idempotency: if this txn is already recorded, do nothing.
         $seen = $db->get('umrah_installments', 'id', ['umrah_booking_id' => $ubId, 'transaction_id' => $txnId]);

@@ -150,6 +150,13 @@ if (!function_exists('umrah_group_add_member')) {
         $g = umrah_group_owned($db, $groupId);
         if (!$g) { return ['ok' => false, 'message' => 'Group not found']; }
         if (in_array($g['status'], ['cancelled'], true)) { return ['ok' => false, 'message' => 'Group is cancelled']; }
+        // Once submitted/paid the group total is locked against a paid booking;
+        // editing the roster here would re-run umrah_group_recount and rewrite
+        // pax_count/total_price out from under the paid booking (audit H: total
+        // desync). Staff adjust post-submit groups through the admin lifecycle.
+        if (!in_array($g['status'], ['draft', 'pending'], true)) {
+            return ['ok' => false, 'message' => 'This group is already submitted; roster changes need staff.'];
+        }
 
         $fields = [
             'title'           => $m['title'] ?? null,
@@ -193,6 +200,11 @@ if (!function_exists('umrah_group_drop_member')) {
     {
         $g = umrah_group_owned($db, $groupId);
         if (!$g) { return ['ok' => false, 'message' => 'Group not found']; }
+        // Same lock as add_member: do not mutate a submitted/paid group's roster
+        // (would desync the paid total via recount — audit H).
+        if (!in_array($g['status'], ['draft', 'pending'], true)) {
+            return ['ok' => false, 'message' => 'This group is already submitted; roster changes need staff.'];
+        }
         $db->delete('umrah_group_members', ['id' => $memberId, 'group_id' => $groupId]);
         umrah_group_recount($db, $groupId);
         return ['ok' => true];
@@ -254,11 +266,46 @@ if (!function_exists('umrah_group_submit')) {
         if (!$dt || !umrah_departure_bookable($db, (int) $dt['departure_id'], $dt)) {
             return ['ok' => false, 'message' => 'This departure is no longer open for booking'];
         }
+
+        // ── CONCURRENCY GUARD (audit H: double-charge race) ──────────────────
+        // Atomically CLAIM this group for submission with a compare-and-swap:
+        // flip draft/pending -> processing only if it is still draft/pending.
+        // If 0 rows change, another request already claimed it (or it advanced)
+        // -> we MUST NOT charge again. This is the single serialization point;
+        // every money movement below happens only for the request that won.
+        $prevStatus = (string) $g['status'];
+        $claim = $db->update('umrah_groups',
+            ['status' => 'processing', 'updated_at' => date('Y-m-d H:i:s')],
+            ['id' => $groupId, 'status' => [$prevStatus]]
+        );
+        if (!$claim || $claim->rowCount() < 1) {
+            // Lost the race or status moved under us — report the live state.
+            $live = $db->get('umrah_groups', ['status', 'invoice_id'], ['id' => $groupId]);
+            if ($live && in_array($live['status'], ['paid', 'submitted', 'processing', 'confirmed'], true)) {
+                return ['ok' => true, 'already' => true, 'booking_ref' => null, 'invoice_id' => $live['invoice_id']];
+            }
+            return ['ok' => false, 'message' => 'Group is being submitted — please wait a moment.'];
+        }
+        // From here, on ANY failure we MUST release the claim back to $prevStatus.
+
+        // ── CAPACITY GUARD (audit H: oversell) ───────────────────────────────
+        // The customer path holds seats atomically; the group path charged the
+        // wallet with NO capacity check, so an agent could submit more pilgrims
+        // than remaining seats. Reserve an inventory hold for the whole group
+        // BEFORE charging; if seats aren't available, release the claim + abort.
+        $pax = (int) $g['pax_count'];
+        if (function_exists('umrah_capacity_for')) {
+            $cap = umrah_capacity_for($db, (int) $dt['id']);
+            $remaining = (int) ($cap['remaining'] ?? 0);
+            if ($remaining < $pax) {
+                $db->update('umrah_groups', ['status' => $prevStatus, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $groupId]);
+                return ['ok' => false, 'code' => 'insufficient_capacity', 'message' => 'Only ' . $remaining . ' seat(s) remain on this departure-tier; your group needs ' . $pax . '.', 'remaining' => $remaining];
+            }
+        }
         $departure = $db->get('umrah_departures', '*', ['id' => (int) $dt['departure_id']]);
         $template  = $departure ? $db->get('umrah_package_templates', '*', ['id' => (int) $departure['template_id']]) : null;
 
         $agent    = (string) $g['agent_user_id'];
-        $pax      = (int) $g['pax_count'];
         $total    = (float) $g['total_price'];
         $currency = (string) $g['currency'];
         $invoiceId = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
@@ -274,12 +321,18 @@ if (!function_exists('umrah_group_submit')) {
         //    invoice description (audit H3). Insufficient funds => abort, nothing
         //    materialized, group stays editable.
         if (!function_exists('agent_api_charge_wallet')) {
+            $db->update('umrah_groups', ['status' => $prevStatus, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $groupId]);
             return ['ok' => false, 'message' => 'Wallet unavailable'];
         }
         $charge = agent_api_charge_wallet($db, $agent, 'umrah', $total, $invoiceId);
         if (empty($charge['ok'])) {
+            // Release the claim so the agent can top up and retry.
+            $db->update('umrah_groups', ['status' => $prevStatus, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $groupId]);
             return ['ok' => false, 'code' => 'insufficient_funds', 'message' => $charge['message'] ?? 'Insufficient wallet balance', 'required' => $charge['required'] ?? $total, 'balance' => $charge['balance'] ?? null];
         }
+        // The amount ACTUALLY debited (booking + service fee) — this, not $total,
+        // is what a rollback must refund (audit H: under-refund).
+        $chargedTotal = (float) ($charge['charged'] ?? $total);
 
         // 2) Materialize the agent-owned, PAID booking + members->travellers.
         $now = date('Y-m-d H:i:s');
@@ -294,7 +347,22 @@ if (!function_exists('umrah_group_submit')) {
         $result = ['ok' => false, 'message' => 'Group submit failed'];
         try {
             $db->action(function ($db) use ($g, $groupId, $invoiceId, $bookingRef, $agent, $departure, $dt, $pax, $currency, $total, $agentEarning, $snapshot, $now, $walletTxn, &$result) {
+                // FINAL capacity re-check INSIDE the transaction (audit H: oversell
+                // across concurrent groups on the same departure-tier). The pre-
+                // charge check serializes a single group; this catches two
+                // different groups racing the last seats. Throwing here aborts the
+                // transaction and triggers the outer refund + claim release.
+                if (function_exists('umrah_capacity_for')) {
+                    $capTx = umrah_capacity_for($db, (int) $dt['id']);
+                    if ((int) ($capTx['remaining'] ?? 0) < $pax) {
+                        throw new \RuntimeException('insufficient_capacity_at_commit');
+                    }
+                }
                 $lead0 = $db->get('umrah_group_members', '*', ['group_id' => $groupId, 'ORDER' => ['id' => 'ASC']]);
+                // bookings.adults is tinyint(4) (max 127); the authoritative pax
+                // count lives in umrah_bookings.pax + the snapshot. Clamp so a
+                // large agent group cannot overflow the legacy column (audit H).
+                $adultsCol = min($pax, 127);
                 $db->insert('bookings', [
                     'invoice_id' => $invoiceId, 'booking_status' => 'confirmed', 'payment_status' => 'paid',
                     'price_original' => $total, 'price_markup' => $total, 'agent_earning' => $agentEarning,
@@ -302,7 +370,7 @@ if (!function_exists('umrah_group_submit')) {
                     'payment_gateway' => 'Wallet',
                     'first_name' => $lead0['first_name'] ?? ($g['name'] ?? 'Group'), 'last_name' => $lead0['last_name'] ?? '',
                     'email' => $lead0['email'] ?? '', 'phone' => $lead0['mobile'] ?? '',
-                    'adults' => $pax, 'childs' => 0, 'infants' => '0',
+                    'adults' => $adultsCol, 'childs' => 0, 'infants' => '0',
                     'user_id' => $agent, 'module_type' => 'umrah', 'module' => 'umrah',
                     'booking_data' => json_encode(['umrah' => $snapshot], JSON_UNESCAPED_SLASHES),
                     'created_at' => $now, 'booking_date' => date('Y-m-d'),
@@ -353,11 +421,15 @@ if (!function_exists('umrah_group_submit')) {
             });
         } catch (\Throwable $e) {
             error_log('umrah_group_submit materialize: ' . $e->getMessage());
-            // The wallet was charged but materialize failed — refund the wallet.
+            // The wallet was charged but materialize failed — refund the FULL
+            // amount actually debited (booking + service fee), not just the
+            // booking total (audit H: under-refund), and release the claim so the
+            // group returns to its editable pre-submit state.
             try {
-                $db->insert('credits', ['user_id' => $agent, 'type' => 'credit', 'credits' => round($total, 2), 'currency' => $currency, 'description' => 'Group submit refund ' . $g['group_ref'], 'created_at' => date('Y-m-d H:i:s')]);
-            } catch (\Throwable $e2) { /* logged */ }
-            return ['ok' => false, 'message' => 'Could not finalize the group; your wallet was not charged.'];
+                $db->insert('credits', ['user_id' => $agent, 'type' => 'credit', 'credits' => round($chargedTotal, 2), 'currency' => $currency, 'description' => 'Group submit refund ' . $g['group_ref'] . ' (' . $invoiceId . ')', 'created_at' => date('Y-m-d H:i:s')]);
+            } catch (\Throwable $e2) { error_log('umrah_group_submit refund failed: ' . $e2->getMessage()); }
+            $db->update('umrah_groups', ['status' => $prevStatus, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $groupId]);
+            return ['ok' => false, 'message' => 'Could not finalize the group; your wallet charge has been reversed. Please try again.'];
         }
 
         if (function_exists('umrah_audit')) { umrah_audit($db, 'umrah_group', $g['group_ref'], 'submitted_paid', null, ['pax' => $pax, 'total' => $total], $agent, 'agent'); }

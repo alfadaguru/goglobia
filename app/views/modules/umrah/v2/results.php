@@ -2,13 +2,17 @@
 // UMRAH v2 — dedicated results page (flight-listing style). Mobile-first.
 // Expects: $departures, $cities, $months, $tiers, $preCity, $preMonth, $prePax.
 @$SECURE or die('Access Denied!');
-$slug = 'normal-umrah-14-day';
 $wa = preg_replace('/[^0-9]/', '', (string) ($GLOBALS['app']['contact_phone'] ?? ''));
 $waLink = $wa ? ('https://wa.me/' . $wa) : '#';
 
-// JS payload — one entry per departure (a "package").
-$rows = array_map(function ($d) use ($slug) {
-    return [
+// JS payload — one entry per departure (a "package"). Each card links to ITS OWN
+// template slug (resolved in umrahV2PublishedDepartures) so View/Book go to the
+// correct package; departures with no resolvable slug are skipped from linking.
+$rows = [];
+foreach ($departures as $d) {
+    $rowSlug = (string) ($d['slug'] ?? '');
+    if ($rowSlug === '') { continue; } // no valid package page — don't render a broken link
+    $rows[] = [
         'id'         => $d['departure_id'],
         'city'       => $d['origin_city'],
         'month'      => $d['month_bucket'],
@@ -24,9 +28,9 @@ $rows = array_map(function ($d) use ($slug) {
         'tier_count' => $d['tier_count'],
         'tier_codes' => array_values(array_unique($d['tier_codes'] ?? [])),
         'image'      => $d['hero_image'] ?: '',
-        'url'        => root . 'umrah/packages/' . rawurlencode($slug) . '?departure=' . $d['departure_id'],
+        'url'        => root . 'umrah/packages/' . rawurlencode($rowSlug) . '?departure=' . $d['departure_id'],
     ];
-}, $departures);
+}
 
 $allPrices = array_merge(
     array_map(fn($r) => $r['from'], $rows),
@@ -34,11 +38,33 @@ $allPrices = array_merge(
 );
 $priceFloor = $allPrices ? (int) floor(min($allPrices)) : 0;
 $priceCeil  = $allPrices ? (int) ceil(max($allPrices)) : 0;
+
+// Default comfort tier = Standard Economy (owner decision). Prefer the tier whose
+// code is literally 'standard'; else the lowest sort_order tier; else '' (all).
+$defaultTier = '';
+foreach ($tiers as $t) {
+    if (($t['code'] ?? '') === 'standard') { $defaultTier = 'standard'; break; }
+}
+if ($defaultTier === '' && !empty($tiers)) { $defaultTier = (string) ($tiers[0]['code'] ?? ''); }
+// Honour an explicit ?tier= from the home widget when it names a real tier.
+$reqTier = trim((string) ($_GET['tier'] ?? ''));
+if ($reqTier !== '') {
+    foreach ($tiers as $t) { if (($t['code'] ?? '') === $reqTier) { $defaultTier = $reqTier; break; } }
+}
+
+// Pilgrim prefill (A/C/I) from the homepage widget when present, else 1 adult.
+$preAdults   = max(1, (int) ($_GET['adults']   ?? ($prePax ?? 1)));
+$preChildren = max(0, (int) ($_GET['children'] ?? 0));
+$preInfants  = max(0, (int) ($_GET['infants']  ?? 0));
 ?>
+<style>[x-cloak]{display:none!important}</style>
 <div class="bg-slate-50 min-h-screen"
      x-data="umrahResults(<?= htmlspecialchars(json_encode($rows), ENT_QUOTES) ?>, {
         city: '<?= htmlspecialchars($preCity ?? '', ENT_QUOTES) ?>',
         month: '<?= htmlspecialchars($preMonth ?? '', ENT_QUOTES) ?>',
+        tier: '<?= htmlspecialchars($defaultTier, ENT_QUOTES) ?>',
+        adults: <?= (int) $preAdults ?>, children: <?= (int) $preChildren ?>, infants: <?= (int) $preInfants ?>,
+        maxPax: <?= (int) ($GLOBALS['__umrah_customer_max_pax'] ?? 5) ?>,
         floor: <?= $priceFloor ?>, ceil: <?= $priceCeil ?>
      })">
   <div class="container py-6">
@@ -52,9 +78,71 @@ $priceCeil  = $allPrices ? (int) ceil(max($allPrices)) : 0;
       <a href="<?= root ?>umrah" class="text-sm text-primary inline-flex items-center gap-1"><span class="material-symbols-outlined text-[18px]">arrow_back</span> Overview</a>
     </div>
 
-    <!-- Mobile filter toggle -->
+    <!-- TOP SEARCH BAR (flight-listing style): city · month · pilgrims · tier -->
+    <div class="card border mb-4 p-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+        <!-- City -->
+        <div>
+          <label class="block text-xs font-medium text-slate-500 mb-1">Departure city</label>
+          <select class="select w-full" x-model="fCity">
+            <option value="">All cities</option>
+            <?php foreach ($cities as $c): ?><option value="<?= htmlspecialchars($c) ?>"><?= htmlspecialchars($c) ?></option><?php endforeach; ?>
+          </select>
+        </div>
+        <!-- Month -->
+        <div>
+          <label class="block text-xs font-medium text-slate-500 mb-1">Month</label>
+          <select class="select w-full" x-model="fMonth">
+            <option value="">Any month</option>
+            <?php foreach ($months as $m): ?><option value="<?= htmlspecialchars($m) ?>"><?= htmlspecialchars($m) ?></option><?php endforeach; ?>
+          </select>
+        </div>
+        <!-- Pilgrims (Adults / Children / Infants — like flight pax selector) -->
+        <div class="relative" @click.outside="showPax=false">
+          <label class="block text-xs font-medium text-slate-500 mb-1">Pilgrims</label>
+          <button type="button" class="select w-full text-left flex items-center justify-between" @click="showPax=!showPax">
+            <span x-text="paxLabel()"></span>
+            <span class="material-symbols-outlined text-[18px] text-slate-400">expand_more</span>
+          </button>
+          <div x-show="showPax" x-cloak class="absolute z-20 mt-1 w-72 card border p-3 space-y-2 right-0">
+            <template x-for="row in paxRows" :key="row.key">
+              <div class="flex items-center justify-between">
+                <div>
+                  <div class="text-sm font-medium text-slate-700" x-text="row.label"></div>
+                  <div class="text-[11px] text-slate-400" x-text="row.hint"></div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button type="button" class="w-7 h-7 rounded-full border text-slate-600 disabled:opacity-40"
+                          @click="dec(row.key)" :disabled="!canDec(row.key)">−</button>
+                  <span class="w-6 text-center text-sm" x-text="pax[row.key]"></span>
+                  <button type="button" class="w-7 h-7 rounded-full border text-slate-600 disabled:opacity-40"
+                          @click="inc(row.key)" :disabled="!canInc()">+</button>
+                </div>
+              </div>
+            </template>
+            <p class="text-[11px] text-slate-400 pt-1 border-t">Max <?= (int) ($GLOBALS['__umrah_customer_max_pax'] ?? 5) ?> pilgrims per booking online. Agents can book larger groups.</p>
+          </div>
+        </div>
+        <!-- Comfort tier -->
+        <div>
+          <label class="block text-xs font-medium text-slate-500 mb-1">Comfort tier</label>
+          <select class="select w-full" x-model="fTier">
+            <option value="">All tiers</option>
+            <?php foreach ($tiers as $t): ?><option value="<?= htmlspecialchars($t['code']) ?>"><?= htmlspecialchars($t['public_label'] ?: $t['name']) ?></option><?php endforeach; ?>
+          </select>
+        </div>
+        <!-- Reset -->
+        <div>
+          <button class="btn outline w-full justify-center" @click="reset()">
+            <span class="material-symbols-outlined text-[18px]">refresh</span> Reset
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile filter toggle (secondary refinements: price / availability) -->
     <button class="btn outline w-full justify-center mb-3 md:hidden" @click="showFilters = !showFilters">
-      <span class="material-symbols-outlined text-[18px]">tune</span> Filters
+      <span class="material-symbols-outlined text-[18px]">tune</span> More filters
     </button>
 
     <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
@@ -63,39 +151,8 @@ $priceCeil  = $allPrices ? (int) ceil(max($allPrices)) : 0;
       <aside class="md:col-span-3" :class="showFilters ? 'block' : 'hidden md:block'">
         <div class="card border sticky top-24 space-y-5">
           <div class="flex items-center justify-between">
-            <h2 class="font-bold text-slate-900">Filters</h2>
+            <h2 class="font-bold text-slate-900">Refine</h2>
             <button class="text-xs text-primary" @click="reset()">Reset</button>
-          </div>
-
-          <!-- City -->
-          <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Departure city</label>
-            <select class="select w-full" x-model="fCity">
-              <option value="">All cities</option>
-              <?php foreach ($cities as $c): ?><option value="<?= htmlspecialchars($c) ?>"><?= htmlspecialchars($c) ?></option><?php endforeach; ?>
-            </select>
-          </div>
-
-          <!-- Month -->
-          <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Month</label>
-            <select class="select w-full" x-model="fMonth">
-              <option value="">Any month</option>
-              <?php foreach ($months as $m): ?><option value="<?= htmlspecialchars($m) ?>"><?= htmlspecialchars($m) ?></option><?php endforeach; ?>
-            </select>
-          </div>
-
-          <!-- Tier (like flight cabin class) -->
-          <div>
-            <label class="block text-sm font-medium text-slate-700 mb-2">Comfort tier</label>
-            <div class="space-y-1.5">
-              <?php foreach ($tiers as $t): ?>
-                <label class="flex items-center gap-2 text-sm text-slate-700">
-                  <input type="checkbox" value="<?= htmlspecialchars($t['code']) ?>" x-model="fTiers" class="rounded border-gray-300">
-                  <?= htmlspecialchars($t['public_label'] ?: $t['name']) ?>
-                </label>
-              <?php endforeach; ?>
-            </div>
           </div>
 
           <!-- Price range -->
@@ -166,8 +223,8 @@ $priceCeil  = $allPrices ? (int) ceil(max($allPrices)) : 0;
                       <div class="text-xs text-slate-400 line-through" x-text="money(p.regular)"></div>
                     </template>
                     <div class="text-[11px] text-slate-500 mb-2">per pilgrim</div>
-                    <a :href="p.url" class="btn w-full justify-center">View package</a>
-                    <a :href="p.url + '#book'" class="btn outline w-full justify-center mt-2" x-show="p.availability!=='sold_out'">Book now</a>
+                    <a :href="p.url + paxQuery()" class="btn w-full justify-center">View package</a>
+                    <a :href="p.url + paxQuery() + '#book'" class="btn outline w-full justify-center mt-2" x-show="p.availability!=='sold_out'">Book now</a>
                   </div>
                 </div>
               </div>
@@ -190,23 +247,57 @@ function umrahResults(rows, opts) {
   return {
     all: rows || [],
     showFilters: false,
+    showPax: false,
     fCity: opts.city || '',
     fMonth: opts.month || '',
-    fTiers: [],
+    fTier: opts.tier || '',          // single comfort tier, defaults to Standard
+    defaultTier: opts.tier || '',
+    maxPax: opts.maxPax || 5,
+    pax: {
+      adults: Math.max(1, opts.adults || 1),
+      children: Math.max(0, opts.children || 0),
+      infants: Math.max(0, opts.infants || 0),
+    },
+    paxRows: [
+      { key: 'adults',   label: 'Adults',   hint: '12+ years' },
+      { key: 'children', label: 'Children', hint: '2–11 years' },
+      { key: 'infants',  label: 'Infants',  hint: 'under 2' },
+    ],
     floor: opts.floor || 0,
     ceil: opts.ceil || 0,
     fMaxPrice: opts.ceil || 0,
     fHideSoldOut: false,
     money(n) { return '₦' + Number(n||0).toLocaleString('en-NG'); },
-    reset() { this.fCity=''; this.fMonth=''; this.fTiers=[]; this.fMaxPrice=this.ceil; this.fHideSoldOut=false; },
+    totalPax() { return this.pax.adults + this.pax.children + this.pax.infants; },
+    paxLabel() {
+      const p = this.pax, parts = [p.adults + ' adult' + (p.adults===1?'':'s')];
+      if (p.children) parts.push(p.children + ' child' + (p.children===1?'':'ren'));
+      if (p.infants)  parts.push(p.infants + ' infant' + (p.infants===1?'':'s'));
+      return parts.join(', ');
+    },
+    canInc() { return this.totalPax() < this.maxPax; },
+    canDec(k) { return k === 'adults' ? this.pax.adults > 1 : this.pax[k] > 0; },
+    inc(k) { if (this.canInc()) this.pax[k]++; },
+    dec(k) { if (this.canDec(k)) this.pax[k]--; },
+    paxQuery() {
+      const p = this.pax;
+      let q = '&adults=' + p.adults + '&children=' + p.children + '&infants=' + p.infants;
+      if (this.fTier) q += '&tier=' + encodeURIComponent(this.fTier);
+      return q;
+    },
+    reset() {
+      this.fCity=''; this.fMonth=''; this.fTier=this.defaultTier;
+      this.fMaxPrice=this.ceil; this.fHideSoldOut=false;
+      this.pax={adults:1,children:0,infants:0};
+    },
     get filtered() {
       return this.all.filter(p => {
         if (this.fCity && p.city !== this.fCity) return false;
         if (this.fMonth && p.month !== this.fMonth) return false;
         if (this.fHideSoldOut && p.availability === 'sold_out') return false;
         if (this.fMaxPrice && p.from > this.fMaxPrice) return false;
-        if (this.fTiers.length) {
-          const has = (p.tier_codes || []).some(c => this.fTiers.includes(c));
+        if (this.fTier) {
+          const has = (p.tier_codes || []).includes(this.fTier);
           if (!has) return false;
         }
         return true;

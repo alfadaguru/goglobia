@@ -340,6 +340,19 @@ $router->post('/api/umrah/booking/request-cancellation', function () use ($SECUR
 
     try {
         $input = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($input)) { $input = $_POST; }
+
+        // SECURITY (audit H): this is a state-changing POST. Require a valid CSRF
+        // token (body csrf_token or X-CSRF-TOKEN header) — the route previously
+        // accepted any invoice_id with no token and no ownership check, so anyone
+        // could flag any booking for cancellation (CSRF + IDOR).
+        $csrf = $input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+        if (!class_exists('CSRF') || !CSRF::validateToken((string) $csrf)) {
+            http_response_code(403);
+            ob_clean();
+            echo json_encode(['status' => false, 'message' => 'Invalid or missing security token']);
+            exit;
+        }
 
         if (empty($input['invoice_id'])) {
             throw new Exception('Invoice ID is required');
@@ -352,6 +365,15 @@ $router->post('/api/umrah/booking/request-cancellation', function () use ($SECUR
 
         if (!$booking) {
             throw new Exception('Booking not found');
+        }
+
+        // SECURITY (audit H — IDOR): only the booking owner, an admin, or the
+        // guest/session that created it may request cancellation.
+        if (!enforceInvoiceAccess($db, $booking)) {
+            http_response_code(403);
+            ob_clean();
+            echo json_encode(['status' => false, 'message' => 'You are not authorized to modify this booking']);
+            exit;
         }
 
         if ($booking['cancellation_request'] == 1) {
@@ -439,12 +461,32 @@ $router->post('/api/umrah/booking/submit', function () use ($SECURE, $db) {
         }
         $bookingData = json_decode($booking['data'], true);
 
+        // DOUBLE-CREATE GUARD (audit M): consume the draft atomically up front.
+        // The draft was only deleted AFTER the booking insert, so two concurrent
+        // submits of the same hash could both pass the read and each create a
+        // booking. Delete-then-check-rowCount makes exactly one request the
+        // owner; a racing duplicate deletes 0 rows and is rejected here.
+        $claimDraft = $db->delete('logs_bookings', ['hash' => $bookingHash]);
+        if (!$claimDraft || $claimDraft->rowCount() < 1) {
+            throw new Exception('This booking is already being processed.');
+        }
+
         // SECURITY (C2): recompute the price SERVER-SIDE from the umrah product
         // row. NEVER trust actual_total_umrah_price / markup_total_umrah_price /
         // subtotal / final_total from the client draft or request body.
         $totalAdults   = (int) ($bookingData['total_adults'] ?? 1);
         $totalChildren = (int) ($bookingData['total_children'] ?? 0);
         $totalInfants  = (int) ($bookingData['total_infants'] ?? 0);
+
+        // PAX CAP (audit M): a single non-agent customer may book at most
+        // UMRAH_CUSTOMER_MAX_PAX pilgrims online; larger parties use the agent
+        // group flow. Agents (session role) are exempt.
+        $legacyPax = $totalAdults + $totalChildren + $totalInfants;
+        $legacyMax = defined('UMRAH_CUSTOMER_MAX_PAX') ? UMRAH_CUSTOMER_MAX_PAX : 5;
+        $legacyIsAgent = (($_SESSION['user_role'] ?? '') === 'agent');
+        if (!$legacyIsAgent && $legacyPax > $legacyMax) {
+            throw new Exception('A single booking is limited to ' . $legacyMax . ' pilgrims. For larger groups please contact us.');
+        }
         $priced = umrahLegacyServerPrice($db, $bookingData['umrah_id'] ?? 0, $totalAdults, $totalChildren, $totalInfants);
         if (empty($priced['ok'])) {
             throw new Exception($priced['message'] ?? 'Unable to price this booking');
