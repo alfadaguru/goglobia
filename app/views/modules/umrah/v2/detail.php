@@ -68,12 +68,36 @@ $plansJs = array_map(fn($p) => ['code' => $p['code'], 'name' => $p['name']], $pl
         </div>
       </div>
 
-      <!-- Departure selector -->
+      <!-- Departure: shows the CHOSEN date up front (no re-prompt). "Change date"
+           reveals the full list only if the traveller wants a different date. -->
       <div class="section mt-6">
-        <div class="section-header"><h2>Select your departure</h2></div>
-        <div class="flex flex-wrap gap-2">
+        <div class="section-header">
+          <h2 x-text="currentDeparture ? 'Your departure' : 'Select your departure'"></h2>
+        </div>
+
+        <!-- Selected date summary -->
+        <template x-if="currentDeparture">
+          <div class="flex items-center justify-between flex-wrap gap-3 rounded-xl border border-primary/40 bg-primary/5 px-4 py-3">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-primary">event_available</span>
+              <div>
+                <div class="font-bold text-gray-900" x-text="currentDeparture.label"></div>
+                <div class="text-xs text-gray-500" x-text="currentDeparture.city + ' · ' + currentDeparture.month"></div>
+              </div>
+            </div>
+            <button type="button" class="text-sm text-primary font-medium inline-flex items-center gap-1"
+              @click="showDates = !showDates" x-show="departures.length > 1">
+              <span class="material-symbols-outlined text-[18px]">edit_calendar</span>
+              <span x-text="showDates ? 'Close' : 'Change date'"></span>
+            </button>
+          </div>
+        </template>
+
+        <!-- Full date list: hidden by default when a date is already chosen;
+             always shown if nothing is selected yet. -->
+        <div class="flex flex-wrap gap-2 mt-3" x-show="showDates || !currentDeparture">
           <template x-for="d in departures" :key="d.departure_id">
-            <button type="button" @click="selectDeparture(d.departure_id)"
+            <button type="button" @click="selectDeparture(d.departure_id); showDates = false"
               :class="d.departure_id === selectedId ? 'bg-primary text-white border-primary' : 'bg-white text-gray-700 border-gray-200'"
               class="border rounded-lg px-3 py-2 text-sm font-medium transition-colors">
               <span x-text="d.label"></span>
@@ -205,7 +229,7 @@ function umrahBooking() {
     apiBase: '<?= $apiBase ?>',
     csrf: '<?= htmlspecialchars($csrf, ENT_QUOTES) ?>',
     departures: [], tiersByDep: {}, plans: [], media: {},
-    selectedId: 0, selectedTierId: 0,
+    selectedId: 0, selectedTierId: 0, showDates: false,
     hero: '', gallery: [], activeImage: '',
     maxPax: <?= (int) ($GLOBALS['__umrah_customer_max_pax'] ?? 5) ?>,
     counts: { adults: 1, children: 0, infants: 0 },

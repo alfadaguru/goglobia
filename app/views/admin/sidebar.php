@@ -221,8 +221,12 @@ if ($umrah_count > 0) {
         'name' => T::umrah ?? 'Umrah',
         'url' => root.admin.'/umrah',
         'submenu' => [
-            ['name' => T::umrah ?? 'Umrah', 'icon' => 'mosque', 'url' => root.admin.'/umrah'],
-            ['name' => T::umrah_settings ?? 'Umrah Settings', 'icon' => 'settings', 'url' => root.admin.'/umrah/settings']
+            // Full CRUD console (packages, tiers, plans, departures, images).
+            ['name' => 'Umrah Manager', 'icon' => 'tune', 'url' => root.admin.'/umrah-manager'],
+            ['name' => 'Bookings', 'icon' => 'list_alt', 'url' => root.admin.'/umrah-manager/bookings'],
+            ['name' => 'Agent groups', 'icon' => 'groups', 'url' => root.admin.'/umrah-manager/groups'],
+            ['name' => T::umrah_settings ?? 'Umrah Settings', 'icon' => 'settings', 'url' => root.admin.'/umrah/settings'],
+            ['name' => (T::umrah ?? 'Umrah') . ' (legacy)', 'icon' => 'mosque', 'url' => root.admin.'/umrah'],
         ]
     ];
 }

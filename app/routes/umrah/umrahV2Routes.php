@@ -13,7 +13,7 @@ if (!function_exists('umrahV2PublishedDepartures')) {
     function umrahV2PublishedDepartures($db): array
     {
         $rows = $db->select('umrah_departures', '*', [
-            'status' => 'published',
+            'status' => 'published', 'archived' => 0,
             'ORDER'  => ['departure_date' => 'ASC'],
         ]) ?: [];
         // Resolve each departure's template slug once (cached per template_id) so
@@ -93,7 +93,7 @@ $umrahV2Landing = function () use ($SECURE, $db) {
     // group by month bucket for the cards section
     $byMonth = [];
     foreach ($departures as $d) { $byMonth[$d['month_bucket']][] = $d; }
-    $tiers = $db->select('umrah_tiers', '*', ['status' => 1, 'ORDER' => ['sort_order' => 'ASC']]) ?: [];
+    $tiers = $db->select('umrah_tiers', '*', ['status' => 1, 'archived' => 0, 'ORDER' => ['sort_order' => 'ASC']]) ?: [];
 
     // Search facets: distinct departure cities + months (preserve chronological
     // order for months by keying on the first departure_date seen).
@@ -136,7 +136,7 @@ $umrahV2Results = function ($city = 'any', $month = 'any', $pax = '1') use ($SEC
     $cities = array_keys($cities);
     asort($months);
     $months = array_keys($months);
-    $tiers = $db->select('umrah_tiers', ['code', 'public_label', 'name', 'sort_order'], ['status' => 1, 'ORDER' => ['sort_order' => 'ASC']]) ?: [];
+    $tiers = $db->select('umrah_tiers', ['code', 'public_label', 'name', 'sort_order'], ['status' => 1, 'archived' => 0, 'ORDER' => ['sort_order' => 'ASC']]) ?: [];
 
     // Online per-booking pilgrim cap (agents may exceed via group flow).
     $GLOBALS['__umrah_customer_max_pax'] = (function_exists('umrah_is_agent') && umrah_is_agent())
@@ -164,7 +164,7 @@ $router->get('/umrah/', $umrahV2Results);
 
 // ---- STABLE PACKAGE DETAIL: GET /umrah/packages/{slug} ------------------
 $router->get('/umrah/packages/([a-z0-9\-]+)', function ($slug) use ($SECURE, $db) {
-    $template = $db->get('umrah_package_templates', '*', ['slug' => $slug, 'status' => 1]);
+    $template = $db->get('umrah_package_templates', '*', ['slug' => $slug, 'status' => 1, 'archived' => 0]);
     if (!$template) {
         header('Location: ' . root . 'umrah');
         exit;
@@ -186,7 +186,7 @@ $router->get('/umrah/packages/([a-z0-9\-]+)', function ($slug) use ($SECURE, $db
     $selectedDepartureId = in_array($requestedDep, $validDepIds, true)
         ? $requestedDep
         : ($departures[0]['departure_id'] ?? 0);
-    $plans = $db->select('umrah_payment_plans', '*', ['active' => 1, 'ORDER' => ['deposit_percent' => 'DESC']]) ?: [];
+    $plans = $db->select('umrah_payment_plans', '*', ['active' => 1, 'archived' => 0, 'ORDER' => ['deposit_percent' => 'DESC']]) ?: [];
     // Online per-booking pilgrim cap (agents may exceed via the group flow).
     $GLOBALS['__umrah_customer_max_pax'] = (function_exists('umrah_is_agent') && umrah_is_agent())
         ? 99
@@ -277,7 +277,7 @@ $router->get('/umrah/checkout', function () use ($SECURE, $db) {
     $cap = function_exists('umrah_capacity_for') ? umrah_capacity_for($db, $dtId) : ['remaining' => 0];
     $soldOut = ((int) ($cap['remaining'] ?? 0)) <= 0;
 
-    $plans     = $db->select('umrah_payment_plans', '*', ['active' => 1, 'ORDER' => ['deposit_percent' => 'DESC']]) ?: [];
+    $plans     = $db->select('umrah_payment_plans', '*', ['active' => 1, 'archived' => 0, 'ORDER' => ['deposit_percent' => 'DESC']]) ?: [];
     $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicename' => 'ASC']]) ?: [];
     $umrahCsrf = class_exists('CSRF') ? CSRF::getToken() : ($_SESSION['csrf_token'] ?? '');
 
@@ -310,7 +310,7 @@ $router->get('/umrah/customize', function () use ($SECURE, $db) {
     $cities = []; $months = [];
     foreach ($departures as $d) { $cities[$d['origin_city']] = true; if (!isset($months[$d['month_bucket']])) { $months[$d['month_bucket']] = $d['departure_date']; } }
     $cities = array_keys($cities); asort($months); $months = array_keys($months);
-    $tiers = $db->select('umrah_tiers', ['code', 'public_label', 'name', 'room_sharing'], ['status' => 1, 'ORDER' => ['sort_order' => 'ASC']]) ?: [];
+    $tiers = $db->select('umrah_tiers', ['code', 'public_label', 'name', 'room_sharing'], ['status' => 1, 'archived' => 0, 'ORDER' => ['sort_order' => 'ASC']]) ?: [];
     $selectedDepartureId = isset($_GET['departure']) ? (int) $_GET['departure'] : 0;
     $submitted = $_SESSION['umrah_customize_done'] ?? null;
     unset($_SESSION['umrah_customize_done']);
@@ -443,7 +443,7 @@ $router->get('/umrah/groups/([0-9]+)', function ($gid) use ($SECURE, $db) {
 
 // ---- MULTI-DEPARTURE CART PAGE: GET /umrah/cart (Phase B3) --------------
 $router->get('/umrah/cart', function () use ($SECURE, $db) {
-    $plans = $db->select('umrah_payment_plans', '*', ['active' => 1, 'ORDER' => ['deposit_percent' => 'DESC']]) ?: [];
+    $plans = $db->select('umrah_payment_plans', '*', ['active' => 1, 'archived' => 0, 'ORDER' => ['deposit_percent' => 'DESC']]) ?: [];
     $umrahCsrf = class_exists('CSRF') ? CSRF::getToken() : ($_SESSION['csrf_token'] ?? '');
     $title = 'Your Umrah cart | ' . ($GLOBALS['app']['business_name'] ?? 'GoGlobia');
     $description = ''; $robots = 'noindex, nofollow';

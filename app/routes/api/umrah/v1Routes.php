@@ -87,7 +87,7 @@ if (!function_exists('umrah_v1_can_manage_booking')) {
 // Published departures with their Standard (bookable) tier price + availability.
 $router->get('/api/v1/umrah/departures', function () use ($db) {
     $rows = $db->select('umrah_departures', '*', [
-        'status' => 'published',
+        'status' => 'published', 'archived' => 0,
         'ORDER'  => ['departure_date' => 'ASC'],
     ]) ?: [];
     $out = [];
@@ -125,19 +125,19 @@ $router->get('/api/v1/umrah/departures', function () use ($db) {
 
 // ---- GET /api/v1/umrah/packages/{slug} ----------------------------------
 $router->get('/api/v1/umrah/packages/([a-z0-9\-]+)', function ($slug) use ($db) {
-    $tpl = $db->get('umrah_package_templates', '*', ['slug' => $slug, 'status' => 1]);
+    $tpl = $db->get('umrah_package_templates', '*', ['slug' => $slug, 'status' => 1, 'archived' => 0]);
     if (!$tpl) { umrah_v1_json(['success' => false, 'message' => 'Package not found'], 404); }
     $tpl['itinerary_order'] = json_decode((string) $tpl['itinerary_order'], true);
     $tpl['inclusions'] = json_decode((string) $tpl['inclusions'], true);
     // Attach published departures for this template.
     $deps = $db->select('umrah_departures', ['id', 'code', 'departure_date', 'return_date', 'month_bucket'],
-        ['template_id' => $tpl['id'], 'status' => 'published', 'ORDER' => ['departure_date' => 'ASC']]) ?: [];
+        ['template_id' => $tpl['id'], 'status' => 'published', 'archived' => 0, 'ORDER' => ['departure_date' => 'ASC']]) ?: [];
     umrah_v1_json(['success' => true, 'package' => $tpl, 'departures' => $deps]);
 });
 
 // ---- GET /api/v1/umrah/departures/{id} ----------------------------------
 $router->get('/api/v1/umrah/departures/([0-9]+)', function ($id) use ($db) {
-    $d = $db->get('umrah_departures', '*', ['id' => (int) $id, 'status' => 'published']);
+    $d = $db->get('umrah_departures', '*', ['id' => (int) $id, 'status' => 'published', 'archived' => 0]);
     if (!$d) { umrah_v1_json(['success' => false, 'message' => 'Departure not found'], 404); }
     $tpl = $db->get('umrah_package_templates', '*', ['id' => $d['template_id']]);
     if ($tpl) { $tpl['inclusions'] = json_decode((string) $tpl['inclusions'], true); }
@@ -154,7 +154,7 @@ $router->get('/api/v1/umrah/departures/([0-9]+)', function ($id) use ($db) {
             'availability' => ($cap['remaining'] <= 0) ? 'sold_out' : (($cap['remaining'] <= ($d['low_stock_threshold'] ?? 10)) ? 'limited' : 'available'),
         ];
     }
-    $plans = $db->select('umrah_payment_plans', ['code', 'name', 'deposit_percent', 'second_percent', 'final_percent'], ['active' => 1]) ?: [];
+    $plans = $db->select('umrah_payment_plans', ['code', 'name', 'deposit_percent', 'second_percent', 'final_percent'], ['active' => 1, 'archived' => 0]) ?: [];
     umrah_v1_json(['success' => true, 'departure' => $d, 'template' => $tpl, 'tiers' => $tiers, 'payment_plans' => $plans]);
 });
 

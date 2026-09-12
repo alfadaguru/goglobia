@@ -69,6 +69,7 @@ require_once 'app/lib/webhooks.php';
 require_once 'app/lib/umrah/services.php';
 require_once 'app/lib/umrah/operations.php';
 require_once 'app/lib/umrah/groups.php';
+require_once 'app/lib/umrah/admin_crud.php';
 
 // Load demo warning helper with error handling
 try {

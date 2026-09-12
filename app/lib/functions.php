@@ -4738,6 +4738,13 @@ if (!function_exists('ensureUmrahSchema')) {
                 ['umrah_departures', 'gallery',    "ADD COLUMN `gallery` longtext DEFAULT NULL AFTER `hero_image`"],
                 ['umrah_tiers', 'image',                 "ADD COLUMN `image` varchar(255) DEFAULT NULL AFTER `room_sharing`"],
                 ['umrah_tiers', 'min_group_same_gender', "ADD COLUMN `min_group_same_gender` smallint(6) NOT NULL DEFAULT 0 AFTER `image`"],
+                // Admin full-CRUD: reversible ARCHIVE flag on every Umrah entity
+                // (soft-delete). archived=1 hides it from the public site + normal
+                // admin lists but never removes data; restore sets it back to 0.
+                ['umrah_package_templates', 'archived', "ADD COLUMN `archived` tinyint(1) NOT NULL DEFAULT 0"],
+                ['umrah_tiers',             'archived', "ADD COLUMN `archived` tinyint(1) NOT NULL DEFAULT 0"],
+                ['umrah_payment_plans',     'archived', "ADD COLUMN `archived` tinyint(1) NOT NULL DEFAULT 0"],
+                ['umrah_departures',        'archived', "ADD COLUMN `archived` tinyint(1) NOT NULL DEFAULT 0"],
             ];
             foreach ($__umrahCols as [$__t, $__c, $__sql]) {
                 try {
@@ -4745,6 +4752,22 @@ if (!function_exists('ensureUmrahSchema')) {
                     if (!$has) { $db->query("ALTER TABLE `{$__t}` {$__sql}"); }
                 } catch (\Throwable $e) { error_log("ensureUmrahSchema col {$__t}.{$__c}: " . $e->getMessage()); }
             }
+
+            // Reusable MEDIA LIBRARY — an image bank the admin manages once and
+            // reuses across services. Each image is tagged with a service so the
+            // picker can filter (e.g. only 'umrah' images). archived = soft-delete.
+            $db->query("CREATE TABLE IF NOT EXISTS `media_library` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `url` varchar(500) NOT NULL,
+                `service` varchar(32) NOT NULL DEFAULT 'umrah',
+                `label` varchar(160) DEFAULT NULL,
+                `is_external` tinyint(1) NOT NULL DEFAULT 0,
+                `archived` tinyint(1) NOT NULL DEFAULT 0,
+                `created_by` varchar(64) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_service` (`service`,`archived`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
             $db->query("CREATE TABLE IF NOT EXISTS `umrah_payment_plans` (
                 `id` int(11) NOT NULL AUTO_INCREMENT,

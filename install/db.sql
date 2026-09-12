@@ -30123,6 +30123,7 @@ CREATE TABLE IF NOT EXISTS `umrah_package_templates` (
   `meta_title` varchar(250) DEFAULT NULL,
   `meta_description` text DEFAULT NULL,
   `status` tinyint(1) NOT NULL DEFAULT 1,
+  `archived` tinyint(1) NOT NULL DEFAULT 0,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -30142,6 +30143,7 @@ CREATE TABLE IF NOT EXISTS `umrah_tiers` (
   `min_group_same_gender` smallint(6) NOT NULL DEFAULT 0,
   `bookable` tinyint(1) NOT NULL DEFAULT 0,
   `status` tinyint(1) NOT NULL DEFAULT 1,
+  `archived` tinyint(1) NOT NULL DEFAULT 0,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_code` (`code`)
@@ -30162,6 +30164,7 @@ CREATE TABLE IF NOT EXISTS `umrah_departures` (
   `low_stock_threshold` int(11) NOT NULL DEFAULT 10,
   `display_inventory_count` tinyint(1) NOT NULL DEFAULT 0,
   `status` enum('draft','published','closed') NOT NULL DEFAULT 'draft',
+  `archived` tinyint(1) NOT NULL DEFAULT 0,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -30205,9 +30208,24 @@ CREATE TABLE IF NOT EXISTS `umrah_payment_plans` (
   `grace_hours` int(11) NOT NULL DEFAULT 72,
   `price_lock_on_cleared_deposit` tinyint(1) NOT NULL DEFAULT 1,
   `active` tinyint(1) NOT NULL DEFAULT 1,
+  `archived` tinyint(1) NOT NULL DEFAULT 0,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Reusable media/image library, tagged by service (admin-managed image bank).
+CREATE TABLE IF NOT EXISTS `media_library` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `url` varchar(500) NOT NULL,
+  `service` varchar(32) NOT NULL DEFAULT 'umrah',
+  `label` varchar(160) DEFAULT NULL,
+  `is_external` tinyint(1) NOT NULL DEFAULT 0,
+  `archived` tinyint(1) NOT NULL DEFAULT 0,
+  `created_by` varchar(64) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_service` (`service`,`archived`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE IF NOT EXISTS `umrah_quotes` (
