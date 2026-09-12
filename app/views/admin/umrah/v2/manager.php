@@ -94,6 +94,7 @@ $stdTierId = 0; foreach ($tiers as $t) { if ($t['code'] === 'standard') { $stdTi
                   <button class="btn btn-sm outline" @click="setStatus(<?= (int)$d['id'] ?>,'closed')">Close</button>
                 <?php endif; ?>
                 <button class="btn btn-sm outline" @click="clone(<?= (int)$d['id'] ?>)">Clone</button>
+                <button class="btn btn-sm outline" @click='openImages(<?= (int)$d['id'] ?>, <?= htmlspecialchars(json_encode((string)($d['hero_image'] ?? '')), ENT_QUOTES) ?>, <?= htmlspecialchars(json_encode(json_decode((string)($d['gallery'] ?? ''), true) ?: []), ENT_QUOTES) ?>)'>Images</button>
                 <a class="btn btn-sm outline" href="<?= root ?>admin/umrah-manager/operations/<?= (int)$d['id'] ?>">Ops</a>
               </td>
             </tr>
@@ -102,8 +103,66 @@ $stdTierId = 0; foreach ($tiers as $t) { if ($t['code'] === 'standard') { $stdTi
       </table>
     </div>
   </div>
+
+  <!-- IMAGE MANAGER MODAL (per departure) -->
+  <div x-show="img.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,.5)" @click.self="closeImages()">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold text-slate-900">Departure images</h2>
+        <button class="text-slate-400 hover:text-slate-700" @click="closeImages()"><span class="material-symbols-outlined">close</span></button>
+      </div>
+
+      <!-- Hero -->
+      <div class="mb-5">
+        <label class="block text-sm font-medium text-slate-700 mb-2">Hero image <span class="text-slate-400 font-normal">(main card + detail banner)</span></label>
+        <div class="flex items-start gap-3">
+          <div class="w-40 h-24 rounded-lg bg-slate-100 overflow-hidden shrink-0 flex items-center justify-center">
+            <template x-if="img.hero"><img :src="img.hero" class="w-full h-full object-cover"></template>
+            <template x-if="!img.hero"><span class="material-symbols-outlined text-slate-300 text-3xl">mosque</span></template>
+          </div>
+          <div class="flex-1">
+            <label class="btn btn-sm cursor-pointer">
+              <span class="material-symbols-outlined text-[18px]">upload</span>
+              <span x-text="img.busy==='hero' ? 'Uploading…' : 'Upload hero'"></span>
+              <input type="file" class="hidden" accept="image/png,image/jpeg,image/webp" @change="uploadImage('hero',$event)">
+            </label>
+            <button class="btn btn-sm outline ml-2" x-show="img.hero" @click="deleteImage('hero', img.hero)">Remove</button>
+            <p class="text-[11px] text-slate-400 mt-1">JPG/PNG/WebP, up to 6MB. Auto-converted to PNG.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gallery -->
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-2">Gallery <span class="text-slate-400 font-normal">(shown on the detail page)</span></label>
+        <div class="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
+          <template x-for="g in img.gallery" :key="g">
+            <div class="relative group">
+              <img :src="g" class="w-full h-20 object-cover rounded-lg border">
+              <button class="absolute top-1 right-1 bg-white/90 rounded-full w-6 h-6 flex items-center justify-center text-rose-600 shadow"
+                      @click="deleteImage('gallery', g)"><span class="material-symbols-outlined text-[16px]">delete</span></button>
+            </div>
+          </template>
+          <template x-if="!img.gallery.length">
+            <div class="col-span-full text-sm text-slate-400 py-3">No gallery images yet.</div>
+          </template>
+        </div>
+        <label class="btn btn-sm outline cursor-pointer">
+          <span class="material-symbols-outlined text-[18px]">add_photo_alternate</span>
+          <span x-text="img.busy==='gallery' ? 'Uploading…' : 'Add gallery image'"></span>
+          <input type="file" class="hidden" accept="image/png,image/jpeg,image/webp" @change="uploadImage('gallery',$event)">
+        </label>
+      </div>
+
+      <p class="text-xs mt-3" :class="img.msgOk ? 'text-green-600' : 'text-rose-600'" x-text="img.msg"></p>
+      <div class="mt-4 text-right">
+        <button class="btn outline" @click="closeImages()">Done</button>
+      </div>
+    </div>
+  </div>
 </div>
 
+<style>[x-cloak]{display:none!important}</style>
 <script>
 function umrahMgr() {
   return {
@@ -116,7 +175,31 @@ function umrahMgr() {
     async create(){ this.busy=true; this.msg='Creating…'; const j=await this.post(this.base+'/departures/create',this.c); this.busy=false; this.msg=j.message||''; if(j.success) location.reload(); },
     async bulk(){ this.busy=true; this.msg='Generating…'; const j=await this.post(this.base+'/departures/bulk',this.bk); this.busy=false; this.msg=(j.created||0)+' created'; if(j.success) setTimeout(()=>location.reload(),700); },
     async setStatus(id,s){ if(s==='closed'&&!confirm('Close bookings for this departure?'))return; const j=await this.post(this.base+'/departures/status',{departure_id:id,status:s}); if(j.success) location.reload(); else alert(j.message); },
-    async clone(id){ const dt=prompt('New departure date (YYYY-MM-DD):'); if(!dt)return; const j=await this.post(this.base+'/departures/clone',{departure_id:id,departure_date:dt}); if(j.success) location.reload(); else alert(j.message); }
+    async clone(id){ const dt=prompt('New departure date (YYYY-MM-DD):'); if(!dt)return; const j=await this.post(this.base+'/departures/clone',{departure_id:id,departure_date:dt}); if(j.success) location.reload(); else alert(j.message); },
+
+    // ---- Per-departure image manager ----
+    img:{ open:false, depId:0, hero:'', gallery:[], busy:'', msg:'', msgOk:false },
+    openImages(id, hero, gallery){ this.img={ open:true, depId:id, hero:hero||'', gallery:Array.isArray(gallery)?gallery:[], busy:'', msg:'', msgOk:false }; },
+    closeImages(){ this.img.open=false; },
+    async uploadImage(slot, ev){
+      const file = ev.target.files && ev.target.files[0];
+      if(!file){ return; }
+      this.img.busy=slot; this.img.msg='';
+      const f=new FormData(); f.append('csrf_token',this.csrf); f.append('departure_id',this.img.depId); f.append('slot',slot); f.append('image',file);
+      try{
+        const r=await fetch(this.base+'/departures/images',{method:'POST',body:f});
+        const j=await r.json();
+        if(j.success){ if(slot==='hero'){ this.img.hero=j.url; } else { this.img.gallery.push(j.url); } this.img.msg='Uploaded'; this.img.msgOk=true; }
+        else { this.img.msg=j.message||'Upload failed'; this.img.msgOk=false; }
+      }catch(e){ this.img.msg='Network error'; this.img.msgOk=false; }
+      this.img.busy=''; ev.target.value='';
+    },
+    async deleteImage(slot, url){
+      if(!confirm('Remove this image?')) return;
+      const j=await this.post(this.base+'/departures/images/delete',{departure_id:this.img.depId,slot:slot,url:url});
+      if(j.success){ if(slot==='hero'){ this.img.hero=''; } else { this.img.gallery=this.img.gallery.filter(g=>g!==url); } this.img.msg='Removed'; this.img.msgOk=true; }
+      else { this.img.msg=j.message||'Delete failed'; this.img.msgOk=false; }
+    }
   };
 }
 </script>

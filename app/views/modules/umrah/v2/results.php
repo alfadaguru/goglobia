@@ -182,15 +182,20 @@ $preInfants  = max(0, (int) ($_GET['infants']  ?? 0));
         <div class="space-y-4">
           <template x-for="p in filtered" :key="p.id">
             <div class="card border p-0 overflow-hidden hover:shadow-lg transition-all">
-              <div class="flex flex-col sm:flex-row">
-                <!-- Image -->
-                <div class="sm:w-56 h-40 sm:h-auto bg-slate-100 shrink-0 relative">
+              <div class="flex flex-col sm:flex-row sm:items-stretch">
+                <!-- Image — FIXED, uniform box on every card (no h-auto so tall/
+                     short source images can't make cards different heights) -->
+                <div class="w-full sm:w-64 h-48 sm:h-44 shrink-0 relative overflow-hidden"
+                     style="background:linear-gradient(135deg,#0f766e 0%,#065f46 55%,#064e3b 100%)">
                   <template x-if="p.image">
                     <img :src="p.image" :alt="'Umrah ' + p.label" class="w-full h-full object-cover" loading="lazy"
                          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
                   </template>
-                  <div class="w-full h-full items-center justify-center text-slate-400" :class="p.image ? 'hidden' : 'flex'" style="display:none">
-                    <span class="material-symbols-outlined text-4xl">mosque</span>
+                  <!-- Polished branded placeholder (shows when no/broken image) -->
+                  <div class="w-full h-full flex-col items-center justify-center text-white/90 gap-1"
+                       :class="p.image ? 'hidden' : 'flex'" style="display:none">
+                    <span class="material-symbols-outlined text-5xl leading-none">mosque</span>
+                    <span class="text-[11px] font-medium tracking-wide" x-text="p.city + ' · 14-day Umrah'"></span>
                   </div>
                   <span class="absolute top-2 left-2 badge"
                     :class="p.availability==='sold_out' ? 'badge-error' : (p.availability==='limited' ? 'badge-warning' : 'badge-success')"

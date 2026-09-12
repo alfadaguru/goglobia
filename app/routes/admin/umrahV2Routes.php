@@ -17,6 +17,27 @@ if (!function_exists('umrahV2AdminJson')) {
 if (!function_exists('umrahV2AdminCsrfOk')) {
     function umrahV2AdminCsrfOk(): bool { return class_exists('CSRF') && CSRF::validateToken($_POST['csrf_token'] ?? ''); }
 }
+if (!function_exists('umrahV2AdminDeleteLocalImage')) {
+    /**
+     * Delete an uploaded departure image FILE from disk when it lives inside our
+     * own uploads/umrah/departures/ folder. Ignores external URLs (e.g. seeded
+     * stock links) and anything outside that folder — never touches arbitrary
+     * paths. Best-effort; a missing file is not an error.
+     */
+    function umrahV2AdminDeleteLocalImage(string $url): void
+    {
+        $url = trim($url);
+        if ($url === '') { return; }
+        $needle = 'uploads/umrah/departures/';
+        $pos = strpos($url, $needle);
+        if ($pos === false) { return; } // external / not ours
+        $basename = basename(parse_url($url, PHP_URL_PATH) ?: $url);
+        // Whitelist the filename shape we generate to avoid any traversal.
+        if (!preg_match('/^dep-\d+-(hero|gallery)-[a-f0-9]{8}\.png$/', $basename)) { return; }
+        $path = rtrim(uploads, '/') . '/umrah/departures/' . $basename;
+        if (is_file($path)) { @unlink($path); }
+    }
+}
 
 // ---- DASHBOARD PAGE: GET admin/umrah-manager ----------------------------
 $router->get(admin.'/umrah-manager', function () use ($SECURE, $db) {
@@ -71,6 +92,70 @@ $router->post(admin.'/umrah-manager/departures/create', function () use ($SECURE
 
     $res = umrahV2CreateDeparture($db, $templateId, $depDate, $retDate, $capacity, $tierId, $regular, $promo);
     umrahV2AdminJson($res, $res['success'] ? 200 : 422);
+});
+
+// ---- IMAGES: upload a hero or gallery image for a departure -------------
+// POST admin/umrah-manager/departures/images  (multipart: departure_id, slot, image)
+// slot = 'hero' | 'gallery'. Stores under uploads/umrah/departures/ via the
+// secure handleFileUpload (MIME + size + php-injection checked, converted to
+// PNG). Updates umrah_departures.hero_image / gallery (JSON array).
+$router->post(admin.'/umrah-manager/departures/images', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $depId = (int) ($_POST['departure_id'] ?? 0);
+    $slot  = ($_POST['slot'] ?? 'gallery') === 'hero' ? 'hero' : 'gallery';
+    $dep = $depId > 0 ? $db->get('umrah_departures', ['id', 'hero_image', 'gallery'], ['id' => $depId]) : null;
+    if (!$dep) { umrahV2AdminJson(['success' => false, 'message' => 'Departure not found'], 404); }
+    if (!isset($_FILES['image']) || ($_FILES['image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        umrahV2AdminJson(['success' => false, 'message' => 'No image uploaded'], 422);
+    }
+
+    $dir = rtrim(uploads, '/') . '/umrah/departures/';
+    if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
+    // Unique filename (handleFileUpload converts to PNG). random_bytes → no clobber.
+    $fname = 'dep-' . $depId . '-' . $slot . '-' . bin2hex(random_bytes(4)) . '.png';
+    $target = $dir . $fname;
+    $res = handleFileUpload('image', $target, ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'], 6 * 1024 * 1024, true);
+    if (empty($res['success'])) { umrahV2AdminJson(['success' => false, 'message' => $res['error'] ?? 'Upload failed'], 422); }
+
+    // Public URL (relative to app root). root already ends with '/'.
+    $url = root . 'uploads/umrah/departures/' . $fname;
+
+    if ($slot === 'hero') {
+        // Replace hero; remove the previous hero FILE if it lived in our folder.
+        $old = (string) ($dep['hero_image'] ?? '');
+        umrahV2AdminDeleteLocalImage($old);
+        $db->update('umrah_departures', ['hero_image' => $url, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $depId]);
+    } else {
+        $gallery = json_decode((string) ($dep['gallery'] ?? ''), true);
+        if (!is_array($gallery)) { $gallery = []; }
+        $gallery[] = $url;
+        $db->update('umrah_departures', ['gallery' => json_encode(array_values($gallery)), 'updated_at' => date('Y-m-d H:i:s')], ['id' => $depId]);
+    }
+    umrahV2AdminJson(['success' => true, 'url' => $url, 'slot' => $slot]);
+});
+
+// ---- IMAGES: delete a departure image (hero or one gallery entry) -------
+$router->post(admin.'/umrah-manager/departures/images/delete', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $depId = (int) ($_POST['departure_id'] ?? 0);
+    $slot  = ($_POST['slot'] ?? 'gallery') === 'hero' ? 'hero' : 'gallery';
+    $url   = trim((string) ($_POST['url'] ?? ''));
+    $dep = $depId > 0 ? $db->get('umrah_departures', ['id', 'hero_image', 'gallery'], ['id' => $depId]) : null;
+    if (!$dep) { umrahV2AdminJson(['success' => false, 'message' => 'Departure not found'], 404); }
+
+    if ($slot === 'hero') {
+        umrahV2AdminDeleteLocalImage((string) ($dep['hero_image'] ?? ''));
+        $db->update('umrah_departures', ['hero_image' => '', 'updated_at' => date('Y-m-d H:i:s')], ['id' => $depId]);
+    } else {
+        $gallery = json_decode((string) ($dep['gallery'] ?? ''), true);
+        if (!is_array($gallery)) { $gallery = []; }
+        $gallery = array_values(array_filter($gallery, fn($g) => (string) $g !== $url));
+        umrahV2AdminDeleteLocalImage($url);
+        $db->update('umrah_departures', ['gallery' => json_encode($gallery), 'updated_at' => date('Y-m-d H:i:s')], ['id' => $depId]);
+    }
+    umrahV2AdminJson(['success' => true]);
 });
 
 // ---- BULK CREATE 12th/28th: POST admin/umrah-manager/departures/bulk ----
