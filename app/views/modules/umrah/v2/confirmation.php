@@ -14,6 +14,11 @@ foreach ($installments as $i) { if (in_array($i['status'], ['pending','overdue']
 <div class="bg-white">
   <div class="container py-8 max-w-3xl">
 
+    <?php $ppNeeded = trim((string) ($_GET['passport_needed'] ?? '')); if ($ppNeeded !== ''): ?>
+      <div class="alert-warning mb-5"><span class="material-icon material-symbols-outlined">badge</span>
+        <p>We couldn't save the passport for pilgrim(s) <strong><?= htmlspecialchars($ppNeeded) ?></strong>. Please upload the passport photo below — it's required for the visa.</p></div>
+    <?php endif; ?>
+
     <div class="card border">
       <div class="flex items-center gap-3">
         <span class="material-symbols-outlined text-3xl <?= $confirmed ? 'text-green-600' : 'text-amber-500' ?>">
@@ -150,7 +155,7 @@ foreach ($installments as $i) { if (in_array($i['status'], ['pending','overdue']
             <label class="btn btn-sm outline cursor-pointer" :class="!p.id ? 'opacity-50 pointer-events-none' : ''">
               <span class="material-symbols-outlined text-[18px]">upload_file</span>
               <span x-text="p.uploading ? 'Uploading…' : 'Upload passport'"></span>
-              <input type="file" class="hidden" accept="image/jpeg,image/png,application/pdf" @change="uploadDoc(idx, $event)">
+              <input type="file" class="hidden" accept="image/jpeg,image/png,image/webp,application/pdf" @change="uploadDoc(idx, $event)">
             </label>
 
             <span class="text-xs" :class="p.msgOk ? 'text-green-600' : 'text-rose-600'" x-text="p.msg"></span>
