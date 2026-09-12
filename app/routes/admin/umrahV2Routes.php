@@ -209,6 +209,24 @@ $router->post(admin.'/umrah-manager/departures/images/pick', function () use ($S
     umrahV2AdminJson(['success' => true, 'url' => $url, 'slot' => $slot]);
 });
 
+// ---- IMAGES: seed VERIFIED real Umrah photos on all departures ---------
+$router->post(admin.'/umrah-manager/images/seed-verified', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    if (!function_exists('umrah_admin_seed_verified_images')) { umrahV2AdminJson(['success' => false, 'message' => 'Unavailable'], 500); }
+    $r = umrah_admin_seed_verified_images($db);
+    umrahV2AdminJson(['success' => !empty($r['ok']), 'set' => $r['set'] ?? 0, 'library' => $r['library'] ?? 0]);
+});
+
+// ---- IMAGES: clear all external/stock images (keep real uploads) -------
+$router->post(admin.'/umrah-manager/images/clear-external', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    if (!function_exists('umrah_admin_clear_external_images')) { umrahV2AdminJson(['success' => false, 'message' => 'Unavailable'], 500); }
+    $r = umrah_admin_clear_external_images($db);
+    umrahV2AdminJson(['success' => !empty($r['ok']), 'cleared' => $r['cleared'] ?? 0]);
+});
+
 // ---- IMAGES: apply a departure's hero+gallery to ALL departures --------
 $router->post(admin.'/umrah-manager/departures/images/apply-all', function () use ($SECURE, $db) {
     ADMIN_AUTH();

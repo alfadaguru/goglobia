@@ -311,6 +311,86 @@ if (!function_exists('umrah_media_set_archived')) {
 }
 
 // ---------------------------------------------------------------------------
+// Seed VERIFIED real Umrah photographs (Wikimedia Commons, CC/CC0, each checked
+// HTTP-200 image/jpeg and confirmed as a genuine Umrah photo). Gives every
+// departure a DISTINCT hero + a shared gallery, and refreshes the media library.
+// One-shot, safe to re-run: only overwrites EXTERNAL heroes, never a real upload.
+// ---------------------------------------------------------------------------
+if (!function_exists('umrah_admin_verified_images')) {
+    function umrah_admin_verified_images(): array
+    {
+        return [
+            ['url' => 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/Edited_Great_Mosque_of_Mecca1_5-2019-ccsa4.0.jpg/1280px-Edited_Great_Mosque_of_Mecca1_5-2019-ccsa4.0.jpg', 'label' => 'Masjid al-Haram & the Kaaba, Makkah'],
+            ['url' => 'https://upload.wikimedia.org/wikipedia/commons/b/bf/Tawaf.jpg', 'label' => 'Pilgrims performing Tawaf around the Kaaba'],
+            ['url' => 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Al-Masjid_an-Nabawi.jpg/1280px-Al-Masjid_an-Nabawi.jpg', 'label' => 'Masjid an-Nabawi, Madinah'],
+            ['url' => 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/Edited_Great_Mosque_of_Mecca1_5-2019-ccsa4.0_%28cropped%29.jpg/1280px-Edited_Great_Mosque_of_Mecca1_5-2019-ccsa4.0_%28cropped%29.jpg', 'label' => 'The Kaaba, Masjid al-Haram'],
+            ['url' => 'https://upload.wikimedia.org/wikipedia/commons/1/10/Kaaba_at_night.jpg', 'label' => 'Kaaba at night with pilgrims'],
+        ];
+    }
+}
+if (!function_exists('umrah_admin_seed_verified_images')) {
+    function umrah_admin_seed_verified_images($db): array
+    {
+        $imgs = umrah_admin_verified_images();
+        $urls = array_map(fn($x) => $x['url'], $imgs);
+
+        // Refresh the media library: archive prior external seeds, (re)add these.
+        $db->update('media_library', ['archived' => 1], ['service' => 'umrah', 'is_external' => 1, 'archived' => 0]);
+        foreach ($imgs as $x) {
+            $exists = $db->get('media_library', 'id', ['url' => $x['url']]);
+            if ($exists) {
+                $db->update('media_library', ['archived' => 0, 'label' => $x['label']], ['id' => $exists]);
+            } else {
+                $db->insert('media_library', ['url' => $x['url'], 'service' => 'umrah', 'label' => $x['label'], 'is_external' => 1, 'archived' => 0, 'created_at' => date('Y-m-d H:i:s')]);
+            }
+        }
+
+        // Distinct hero per departure + full gallery. Never clobber a real upload.
+        $deps = $db->select('umrah_departures', ['id', 'hero_image'], ['ORDER' => ['id' => 'ASC']]) ?: [];
+        $i = 0; $set = 0;
+        foreach ($deps as $d) {
+            $hero = (string) ($d['hero_image'] ?? '');
+            $isLocalUpload = $hero !== '' && strpos($hero, '/uploads/') !== false;
+            if ($isLocalUpload) { $i++; continue; } // keep admin's real upload
+            $pick = $urls[$i % count($urls)];
+            $gallery = array_values(array_unique(array_merge([$pick], $urls)));
+            $db->update('umrah_departures', ['hero_image' => $pick, 'gallery' => json_encode($gallery), 'updated_at' => date('Y-m-d H:i:s')], ['id' => (int) $d['id']]);
+            $i++; $set++;
+        }
+        umrah_admin_audit($db, 'umrah_departure', '*', 'seeded_verified_images', ['set' => $set]);
+        return ['ok' => true, 'set' => $set, 'library' => count($imgs)];
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Clear EXTERNAL (stock/off) images from all departures — keeps any real files
+// uploaded into uploads/. Lets an admin wipe seeded stock imagery on production
+// without DB access; re-uploading replaces the placeholder afterwards.
+// ---------------------------------------------------------------------------
+if (!function_exists('umrah_admin_clear_external_images')) {
+    function umrah_admin_clear_external_images($db): array
+    {
+        $cleared = 0;
+        foreach ($db->select('umrah_departures', ['id', 'hero_image', 'gallery'], []) ?: [] as $d) {
+            $hero = (string) ($d['hero_image'] ?? '');
+            $heroLocal = $hero !== '' && strpos($hero, '/uploads/') !== false;
+            $g = json_decode((string) ($d['gallery'] ?? ''), true); if (!is_array($g)) { $g = []; }
+            $localGallery = array_values(array_filter($g, fn($u) => strpos((string) $u, '/uploads/') !== false));
+            $db->update('umrah_departures', [
+                'hero_image' => $heroLocal ? $hero : '',
+                'gallery'    => json_encode($localGallery),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ], ['id' => (int) $d['id']]);
+            $cleared++;
+        }
+        // Archive seeded external library entries too (reversible).
+        $db->update('media_library', ['archived' => 1], ['is_external' => 1, 'archived' => 0]);
+        umrah_admin_audit($db, 'umrah_departure', '*', 'cleared_external_images', ['departures' => $cleared]);
+        return ['ok' => true, 'cleared' => $cleared];
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ARCHIVE / RESTORE (generic, whitelisted table + entity name)
 // ---------------------------------------------------------------------------
 if (!function_exists('umrah_admin_set_archived')) {
