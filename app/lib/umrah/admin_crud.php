@@ -242,6 +242,75 @@ if (!function_exists('umrah_admin_departure_update')) {
 }
 
 // ---------------------------------------------------------------------------
+// IMAGES: copy one departure's hero+gallery to EVERY other departure so a good
+// image set only has to be uploaded once. Non-destructive to the source.
+// ---------------------------------------------------------------------------
+if (!function_exists('umrah_admin_images_apply_to_all')) {
+    function umrah_admin_images_apply_to_all($db, int $sourceDepartureId, bool $onlyEmpty = false): array
+    {
+        $src = $db->get('umrah_departures', ['id', 'hero_image', 'gallery'], ['id' => $sourceDepartureId]);
+        if (!$src) { return ['ok' => false, 'message' => 'Source departure not found']; }
+        $hero = (string) ($src['hero_image'] ?? '');
+        $gallery = (string) ($src['gallery'] ?? '');
+        if ($hero === '' && ($gallery === '' || $gallery === '[]')) {
+            return ['ok' => false, 'message' => 'Upload a hero/gallery on this departure first, then apply to all'];
+        }
+        $targets = $db->select('umrah_departures', ['id', 'hero_image'], ['id[!]' => $sourceDepartureId]) ?: [];
+        $applied = 0;
+        foreach ($targets as $t) {
+            if ($onlyEmpty && trim((string) ($t['hero_image'] ?? '')) !== '') { continue; }
+            $db->update('umrah_departures', ['hero_image' => $hero, 'gallery' => $gallery, 'updated_at' => date('Y-m-d H:i:s')], ['id' => (int) $t['id']]);
+            $applied++;
+        }
+        umrah_admin_audit($db, 'umrah_departure', (string) $sourceDepartureId, 'images_applied_to_all', ['applied' => $applied]);
+        return ['ok' => true, 'applied' => $applied];
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MEDIA LIBRARY — reusable image bank, tagged by service. Admin uploads once,
+// reuses everywhere via the picker.
+// ---------------------------------------------------------------------------
+if (!function_exists('umrah_media_list')) {
+    function umrah_media_list($db, string $service = 'umrah', bool $includeArchived = false): array
+    {
+        $where = ['service' => $service];
+        if (!$includeArchived) { $where['archived'] = 0; }
+        $where['ORDER'] = ['id' => 'DESC'];
+        return $db->select('media_library', '*', $where) ?: [];
+    }
+}
+if (!function_exists('umrah_media_add')) {
+    /** Register a URL in the library (used after an upload, or to add an external URL). */
+    function umrah_media_add($db, string $url, string $service = 'umrah', ?string $label = null, bool $external = false): array
+    {
+        $url = trim($url);
+        if ($url === '') { return ['ok' => false, 'message' => 'Image URL required']; }
+        $service = preg_replace('/[^a-z0-9_\-]/', '', strtolower($service)) ?: 'umrah';
+        $db->insert('media_library', [
+            'url'         => $url,
+            'service'     => $service,
+            'label'       => ($label !== null && trim($label) !== '') ? trim($label) : null,
+            'is_external' => $external ? 1 : 0,
+            'created_by'  => (string) ($_SESSION['user_id'] ?? ''),
+            'created_at'  => date('Y-m-d H:i:s'),
+        ]);
+        $id = (int) $db->id();
+        umrah_admin_audit($db, 'media_library', (string) $id, 'added', ['service' => $service]);
+        return ['ok' => true, 'id' => $id, 'url' => $url];
+    }
+}
+if (!function_exists('umrah_media_set_archived')) {
+    function umrah_media_set_archived($db, int $id, bool $archive): array
+    {
+        if ($id <= 0 || !$db->get('media_library', 'id', ['id' => $id])) { return ['ok' => false, 'message' => 'Image not found']; }
+        $db->update('media_library', ['archived' => $archive ? 1 : 0], ['id' => $id]);
+        umrah_admin_audit($db, 'media_library', (string) $id, $archive ? 'archived' : 'restored', []);
+        return ['ok' => true];
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ARCHIVE / RESTORE (generic, whitelisted table + entity name)
 // ---------------------------------------------------------------------------
 if (!function_exists('umrah_admin_set_archived')) {

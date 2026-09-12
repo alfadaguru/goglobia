@@ -4753,6 +4753,22 @@ if (!function_exists('ensureUmrahSchema')) {
                 } catch (\Throwable $e) { error_log("ensureUmrahSchema col {$__t}.{$__c}: " . $e->getMessage()); }
             }
 
+            // Reusable MEDIA LIBRARY — an image bank the admin manages once and
+            // reuses across services. Each image is tagged with a service so the
+            // picker can filter (e.g. only 'umrah' images). archived = soft-delete.
+            $db->query("CREATE TABLE IF NOT EXISTS `media_library` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `url` varchar(500) NOT NULL,
+                `service` varchar(32) NOT NULL DEFAULT 'umrah',
+                `label` varchar(160) DEFAULT NULL,
+                `is_external` tinyint(1) NOT NULL DEFAULT 0,
+                `archived` tinyint(1) NOT NULL DEFAULT 0,
+                `created_by` varchar(64) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_service` (`service`,`archived`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
             $db->query("CREATE TABLE IF NOT EXISTS `umrah_payment_plans` (
                 `id` int(11) NOT NULL AUTO_INCREMENT,
                 `code` varchar(32) NOT NULL,

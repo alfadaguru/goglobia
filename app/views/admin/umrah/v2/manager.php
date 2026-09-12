@@ -256,6 +256,47 @@ foreach ($templatesActive as $t) { $tplName[(int) $t['id']] = $t['name']; }
     </table></div></div>
   </div>
 
+  <!-- ============================ MEDIA LIBRARY ============================ -->
+  <div x-show="tab==='media'" x-cloak x-init="loadMedia()">
+    <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
+      <div>
+        <h2 class="font-semibold text-slate-900">Media library</h2>
+        <p class="text-sm text-slate-500">Realistic Umrah images you upload once and reuse on any departure.</p>
+      </div>
+      <div class="flex gap-2">
+        <label class="btn cursor-pointer">
+          <span class="material-symbols-outlined text-[18px]">upload</span>
+          <span x-text="media.uploading ? 'Uploading…' : 'Upload image'"></span>
+          <input type="file" class="hidden" accept="image/png,image/jpeg,image/webp" @change="mediaUpload($event)">
+        </label>
+        <button class="btn outline" @click="media.showUrl=!media.showUrl"><span class="material-symbols-outlined text-[18px]">link</span><span>Add by URL</span></button>
+      </div>
+    </div>
+
+    <div x-show="media.showUrl" x-cloak class="section mb-4">
+      <div class="flex gap-2 flex-wrap items-end">
+        <div class="flex-1 min-w-[240px]"><label class="block text-xs text-slate-500 mb-1">Image URL</label><input class="input w-full" x-model="media.url" placeholder="https://…/photo.jpg"></div>
+        <div><label class="block text-xs text-slate-500 mb-1">Label</label><input class="input" x-model="media.label" placeholder="Kaaba — tawaf"></div>
+        <button class="btn" @click="mediaAddUrl()">Add</button>
+      </div>
+    </div>
+
+    <p class="text-xs mb-3" :class="media.msgOk?'text-green-600':'text-rose-600'" x-text="media.msg"></p>
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+      <template x-for="m in media.items" :key="m.id">
+        <div class="relative group border rounded-lg overflow-hidden bg-slate-100">
+          <img :src="m.url" class="w-full h-28 object-cover" onerror="this.style.opacity=.3">
+          <div class="p-1.5 text-[11px] text-slate-600 truncate" x-text="m.label || ('#'+m.id)"></div>
+          <button class="absolute top-1 right-1 bg-white/90 rounded-full w-6 h-6 flex items-center justify-center text-rose-600 shadow"
+                  @click="mediaArchive(m.id)" title="Archive"><span class="material-symbols-outlined text-[16px]">delete</span></button>
+        </div>
+      </template>
+      <template x-if="!media.items.length && !media.loading">
+        <div class="col-span-full text-sm text-slate-400 py-6 text-center">No images yet. Upload realistic Umrah photos to build your library.</div>
+      </template>
+    </div>
+  </div>
+
   <!-- ==================== EDIT MODAL (shared) ==================== -->
   <div x-show="edit.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,.5)" @click.self="edit.open=false">
     <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5">
@@ -355,6 +396,7 @@ foreach ($templatesActive as $t) { $tplName[(int) $t['id']] = $t['name']; }
               <span x-text="img.busy==='hero' ? 'Uploading…' : 'Upload hero'"></span>
               <input type="file" class="hidden" accept="image/png,image/jpeg,image/webp" @change="uploadImage('hero',$event)">
             </label>
+            <button class="btn btn-sm outline ml-2" @click="openPicker('hero')"><span class="material-symbols-outlined text-[18px]">photo_library</span> Pick from library</button>
             <button class="btn btn-sm outline ml-2" x-show="img.hero" @click="deleteImage('hero', img.hero)">Remove</button>
             <p class="text-[11px] text-slate-400 mt-1">JPG/PNG/WebP, up to 6MB. Auto-converted to PNG.</p>
           </div>
@@ -376,9 +418,32 @@ foreach ($templatesActive as $t) { $tplName[(int) $t['id']] = $t['name']; }
           <span x-text="img.busy==='gallery' ? 'Uploading…' : 'Add gallery image'"></span>
           <input type="file" class="hidden" accept="image/png,image/jpeg,image/webp" @change="uploadImage('gallery',$event)">
         </label>
+        <button class="btn btn-sm outline ml-2" @click="openPicker('gallery')"><span class="material-symbols-outlined text-[18px]">photo_library</span> Pick from library</button>
+      </div>
+
+      <!-- Library picker overlay (inside the image modal) -->
+      <div x-show="picker.open" x-cloak class="mt-4 border-t pt-3">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-sm font-medium text-slate-700">Pick a library image for <span x-text="picker.slot"></span></div>
+          <button class="text-slate-400 hover:text-slate-700" @click="picker.open=false"><span class="material-symbols-outlined text-[18px]">close</span></button>
+        </div>
+        <div class="grid grid-cols-3 sm:grid-cols-5 gap-2 max-h-64 overflow-y-auto">
+          <template x-for="m in media.items" :key="m.id">
+            <button type="button" class="border rounded-lg overflow-hidden hover:ring-2 ring-primary" @click="pickFromLibrary(m.url)">
+              <img :src="m.url" class="w-full h-16 object-cover">
+            </button>
+          </template>
+          <template x-if="!media.items.length"><div class="col-span-full text-xs text-slate-400 py-3">Library is empty — upload images in the Media library tab.</div></template>
+        </div>
       </div>
       <p class="text-xs mt-3" :class="img.msgOk ? 'text-green-600' : 'text-rose-600'" x-text="img.msg"></p>
-      <div class="mt-4 text-right"><button class="btn outline" @click="closeImages()">Done</button></div>
+      <div class="mt-4 flex items-center justify-between gap-2 border-t pt-3">
+        <button class="btn outline" :disabled="img.applyBusy || (!img.hero && !img.gallery.length)" @click="applyToAll()">
+          <span class="material-symbols-outlined text-[18px]">library_add</span>
+          <span x-text="img.applyBusy ? 'Applying…' : 'Apply these images to ALL departures'"></span>
+        </button>
+        <button class="btn" @click="closeImages()">Done</button>
+      </div>
     </div>
   </div>
 </div>
@@ -389,7 +454,7 @@ function umrahMgr() {
     csrf: '<?= htmlspecialchars($csrf, ENT_QUOTES) ?>', base: '<?= $base ?>',
     busy:false, msg:'', showCreate:false, showBulk:false,
     tab:'departures',
-    tabs:[{key:'departures',label:'Departures'},{key:'packages',label:'Packages'},{key:'tiers',label:'Tiers'},{key:'plans',label:'Payment plans'}],
+    tabs:[{key:'departures',label:'Departures'},{key:'packages',label:'Packages'},{key:'tiers',label:'Tiers'},{key:'plans',label:'Payment plans'},{key:'media',label:'Media library'}],
     c:{ template_id:'<?= $templatesActive[0]['id']??'' ?>', tier_id:'<?= $stdTierId ?>', departure_date:'', return_date:'', capacity:50, regular_price:2800000, promo_price:2490000 },
     bk:{ template_id:'<?= $templatesActive[0]['id']??'' ?>', months:'', capacity:50, regular_price:2800000, promo_price:2490000 },
     form(o){ const f=new FormData(); f.append('csrf_token',this.csrf); for(const k in o){ let v=o[k]; if(typeof v==='boolean') v=v?1:0; if(v===null||v===undefined) v=''; f.append(k,v);} return f; },
@@ -427,9 +492,55 @@ function umrahMgr() {
       else { this.edit.ok=false; this.edit.msg=j.message||'Save failed'; }
     },
 
+    // ---- Media library ----
+    media:{ items:[], loading:false, uploading:false, showUrl:false, url:'', label:'', msg:'', msgOk:false },
+    async loadMedia(){
+      this.media.loading=true;
+      try{ const r=await fetch(this.base+'/media?service=umrah'); const j=await r.json(); this.media.items=j.images||[]; }
+      catch(e){ this.media.msg='Could not load library'; this.media.msgOk=false; }
+      this.media.loading=false;
+    },
+    async mediaUpload(ev){
+      const file=ev.target.files&&ev.target.files[0]; if(!file)return;
+      this.media.uploading=true; this.media.msg='';
+      const f=new FormData(); f.append('csrf_token',this.csrf); f.append('service','umrah'); f.append('image',file);
+      try{ const r=await fetch(this.base+'/media/upload',{method:'POST',body:f}); const j=await r.json();
+        if(j.success){ await this.loadMedia(); this.media.msg='Uploaded'; this.media.msgOk=true; } else { this.media.msg=j.message||'Upload failed'; this.media.msgOk=false; }
+      }catch(e){ this.media.msg='Network error'; this.media.msgOk=false; }
+      this.media.uploading=false; ev.target.value='';
+    },
+    async mediaAddUrl(){
+      if(!this.media.url){ this.media.msg='Enter a URL'; this.media.msgOk=false; return; }
+      const j=await this.post(this.base+'/media/add-url',{service:'umrah',url:this.media.url,label:this.media.label});
+      if(j.success){ this.media.url=''; this.media.label=''; this.media.showUrl=false; await this.loadMedia(); this.media.msg='Added'; this.media.msgOk=true; }
+      else { this.media.msg=j.message||'Failed'; this.media.msgOk=false; }
+    },
+    async mediaArchive(id){
+      if(!confirm('Archive this library image?'))return;
+      const j=await this.post(this.base+'/media/archive',{id:id,archive:1});
+      if(j.success){ await this.loadMedia(); } else { alert(j.message||'Failed'); }
+    },
+
+    // ---- Library picker (inside the departure image modal) ----
+    picker:{ open:false, slot:'hero' },
+    async openPicker(slot){ this.picker={open:true,slot:slot}; if(!this.media.items.length){ await this.loadMedia(); } },
+    async pickFromLibrary(url){
+      const j=await this.post(this.base+'/departures/images/pick',{departure_id:this.img.depId,slot:this.picker.slot,url:url});
+      if(j.success){ if(this.picker.slot==='hero'){ this.img.hero=url; } else if(!this.img.gallery.includes(url)){ this.img.gallery.push(url); } this.picker.open=false; this.img.msg='Set from library'; this.img.msgOk=true; }
+      else { this.img.msg=j.message||'Failed'; this.img.msgOk=false; }
+    },
+
     // ---- Per-departure image manager ----
-    img:{ open:false, depId:0, hero:'', gallery:[], busy:'', msg:'', msgOk:false },
-    openImages(id, hero, gallery){ this.img={ open:true, depId:id, hero:hero||'', gallery:Array.isArray(gallery)?gallery:[], busy:'', msg:'', msgOk:false }; },
+    img:{ open:false, depId:0, hero:'', gallery:[], busy:'', msg:'', msgOk:false, applyBusy:false },
+    openImages(id, hero, gallery){ this.img={ open:true, depId:id, hero:hero||'', gallery:Array.isArray(gallery)?gallery:[], busy:'', msg:'', msgOk:false, applyBusy:false }; },
+    async applyToAll(){
+      if(!confirm('Copy this departure’s hero + gallery to EVERY other departure? This overwrites their current images.')) return;
+      this.img.applyBusy=true; this.img.msg='';
+      const j=await this.post(this.base+'/departures/images/apply-all',{departure_id:this.img.depId, only_empty:0});
+      this.img.applyBusy=false;
+      if(j.success){ this.img.msg='Applied to '+(j.applied||0)+' departure(s)'; this.img.msgOk=true; }
+      else { this.img.msg=j.message||'Failed'; this.img.msgOk=false; }
+    },
     closeImages(){ this.img.open=false; },
     async uploadImage(slot, ev){
       const file = ev.target.files && ev.target.files[0]; if(!file){ return; }

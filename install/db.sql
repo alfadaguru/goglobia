@@ -30214,6 +30214,20 @@ CREATE TABLE IF NOT EXISTS `umrah_payment_plans` (
   UNIQUE KEY `uq_code` (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- Reusable media/image library, tagged by service (admin-managed image bank).
+CREATE TABLE IF NOT EXISTS `media_library` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `url` varchar(500) NOT NULL,
+  `service` varchar(32) NOT NULL DEFAULT 'umrah',
+  `label` varchar(160) DEFAULT NULL,
+  `is_external` tinyint(1) NOT NULL DEFAULT 0,
+  `archived` tinyint(1) NOT NULL DEFAULT 0,
+  `created_by` varchar(64) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_service` (`service`,`archived`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 CREATE TABLE IF NOT EXISTS `umrah_quotes` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `quote_ref` varchar(40) NOT NULL,
