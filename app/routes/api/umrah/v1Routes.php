@@ -234,6 +234,100 @@ $router->post('/api/v1/umrah/bookings', function () use ($db) {
     umrah_v1_json(['success' => true, 'booking' => $b]);
 });
 
+// ---- POST /api/v1/umrah/passport/extract --------------------------------
+// PASSPORT-FIRST checkout: the pilgrim uploads their passport photo and the
+// system reads (OCRs) the details so they only confirm + add contact. Reuses the
+// shared AI provider layer (passportAiActiveProviderConfig + provider->extract)
+// WITHOUT the flights logs_bookings coupling. Graceful fallback: if AI is
+// disabled/unconfigured or the scan fails, returns ok=false so the UI shows the
+// manual fields (the booking is never blocked). Does NOT persist anything here —
+// the file is stored against the booking later via umrah_document_upload.
+$router->post('/api/v1/umrah/passport/extract', function () use ($db) {
+    umrah_v1_csrf_guard($_POST); // multipart — token in POST field / X-CSRF-TOKEN
+
+    if (!function_exists('passportAiIsEnabled') || !passportAiIsEnabled($db)) {
+        umrah_v1_json(['success' => false, 'error_code' => 'AI_DISABLED', 'message' => 'Passport scanning is off — please enter details manually.']);
+    }
+    $config = function_exists('passportAiActiveProviderConfig') ? passportAiActiveProviderConfig($db) : null;
+    if ($config === null) {
+        umrah_v1_json(['success' => false, 'error_code' => 'AI_NOT_CONFIGURED', 'message' => 'Passport scanning is not configured — please enter details manually.']);
+    }
+
+    // Lightweight per-session rate limit (10 / 15 min) — mirrors the flights svc.
+    if (session_status() !== PHP_SESSION_ACTIVE) { @session_start(); }
+    $now = time(); $entry = $_SESSION['umrah_pp_rate'] ?? ['start' => $now, 'count' => 0];
+    if (($now - (int) $entry['start']) > 900) { $entry = ['start' => $now, 'count' => 0]; }
+    if ((int) $entry['count'] >= 10) { $_SESSION['umrah_pp_rate'] = $entry; umrah_v1_json(['success' => false, 'error_code' => 'AI_RATE_LIMITED', 'message' => 'Too many scans — please wait a few minutes or enter details manually.']); }
+    $entry['count']++; $_SESSION['umrah_pp_rate'] = $entry;
+
+    // Validate the uploaded image (size/type/resolution) before hitting the API.
+    if (!isset($_FILES['passport_image']) || ($_FILES['passport_image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        umrah_v1_json(['success' => false, 'error_code' => 'AI_UPLOAD_FAILED', 'message' => 'No passport image uploaded.'], 422);
+    }
+    $f = $_FILES['passport_image'];
+    $tmp = (string) ($f['tmp_name'] ?? '');
+    if ($tmp === '' || !is_uploaded_file($tmp)) { umrah_v1_json(['success' => false, 'error_code' => 'AI_UPLOAD_FAILED', 'message' => 'Invalid upload.'], 422); }
+    $maxSize = (int) ($config['max_file_size'] ?? 5242880);
+    if ((int) ($f['size'] ?? 0) <= 0 || (int) $f['size'] > $maxSize) {
+        umrah_v1_json(['success' => false, 'error_code' => 'AI_FILE_TOO_LARGE', 'message' => 'File too large. Max ' . max(1, (int) round($maxSize / 1048576)) . ' MB.'], 422);
+    }
+    $ext = strtolower(pathinfo((string) ($f['name'] ?? ''), PATHINFO_EXTENSION));
+    $allowed = $config['allowed_file_types'] ?? ['jpg', 'jpeg', 'png', 'webp'];
+    if ($ext === '' || !in_array($ext, $allowed, true)) {
+        umrah_v1_json(['success' => false, 'error_code' => 'AI_INVALID_FILE_TYPE', 'message' => 'Upload a JPG, PNG or WEBP passport photo.'], 422);
+    }
+    $finfo = function_exists('finfo_open') ? finfo_open(FILEINFO_MIME_TYPE) : false;
+    $mime = $finfo ? (string) finfo_file($finfo, $tmp) : '';
+    if ($finfo) { finfo_close($finfo); }
+    if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+        umrah_v1_json(['success' => false, 'error_code' => 'AI_INVALID_FILE_TYPE', 'message' => 'The file is not a supported image.'], 422);
+    }
+    $dim = @getimagesize($tmp);
+    if ($dim === false || (int) ($dim[0] ?? 0) < 200 || (int) ($dim[1] ?? 0) < 200) {
+        umrah_v1_json(['success' => false, 'error_code' => 'AI_LOW_RESOLUTION', 'message' => 'Photo too small/blurry — retake with the full passport page visible, or enter details manually.'], 422);
+    }
+
+    try {
+        $binary = file_get_contents($tmp);
+        if ($binary === false || $binary === '') { umrah_v1_json(['success' => false, 'error_code' => 'AI_CORRUPT_IMAGE', 'message' => 'Could not read the image.'], 422); }
+        $providerKey = (string) ($config['key'] ?? '');
+        $provider = match ($providerKey) {
+            'openai' => new \App\lib\ai\openAiProvider(),
+            'claude' => new \App\lib\ai\claudeProvider(),
+            'gemini' => new \App\lib\ai\geminiProvider(),
+            default  => null,
+        };
+        if ($provider === null) { umrah_v1_json(['success' => false, 'error_code' => 'AI_PROVIDER_UNSUPPORTED', 'message' => 'Scanner unavailable — enter details manually.']); }
+        $result = $provider->extract($binary, $mime, $config);
+        unset($result['usage']);
+        if (empty($result['status'])) {
+            umrah_v1_json(['success' => false, 'error_code' => $result['error_code'] ?? 'AI_FAILED', 'message' => $result['message'] ?? 'Could not read the passport — enter details manually.']);
+        }
+        // Map the extractor's field names to our traveller fields for the UI.
+        // Extractor gender is M/F/X → our selector uses male/female.
+        $d = $result['data'] ?? [];
+        $g = strtoupper((string) ($d['gender'] ?? ''));
+        $gender = $g === 'M' ? 'male' : ($g === 'F' ? 'female' : '');
+        umrah_v1_json([
+            'success'    => true,
+            'confidence' => $result['confidence'] ?? null,
+            'warnings'   => $result['warnings'] ?? [],
+            'fields'     => [
+                'first_name'      => $d['first_name'] ?? '',
+                'last_name'       => $d['last_name'] ?? '',
+                'gender'          => $gender,
+                'dob'             => $d['date_of_birth'] ?? '',
+                'nationality'     => $d['nationality'] ?? '',
+                'passport_number' => $d['passport_number'] ?? '',
+                'passport_expiry' => $d['expiry_date'] ?? '',
+            ],
+        ]);
+    } catch (\Throwable $e) {
+        error_log('[umrah] passport extract: ' . $e->getMessage());
+        umrah_v1_json(['success' => false, 'error_code' => 'AI_INTERNAL_ERROR', 'message' => 'Scan failed — please enter details manually.']);
+    }
+});
+
 // ---- POST /api/v1/umrah/checkout ----------------------------------------
 // FLIGHT-STYLE ONE-SHOT CHECKOUT. The dedicated checkout page collects the
 // selection (departure_tier_id), the pilgrim breakdown (adults/children/infants)
@@ -311,6 +405,7 @@ $router->post('/api/v1/umrah/checkout', function () use ($db) {
         $ubId = (int) ($ubRow['id'] ?? 0);
     }
     $savedTravellers = 0;
+    $travellerIds = []; // per-pilgrim traveller id (index-aligned) for passport upload
     if ($ubId > 0 && function_exists('umrah_traveller_add')) {
         foreach ($pilgrims as $i => $p) {
             $ptype = in_array(($p['pax_type'] ?? ''), ['adult', 'child', 'infant'], true) ? $p['pax_type'] : 'adult';
@@ -327,6 +422,7 @@ $router->post('/api/v1/umrah/checkout', function () use ($db) {
                 // pax_type (adult/child/infant) recorded for the Nusuk manifest.
                 'extra'           => json_encode(['pax_type' => $ptype]),
             ]);
+            $travellerIds[$i] = !empty($res['ok']) ? (int) $res['traveller_id'] : 0;
             if (!empty($res['ok'])) { $savedTravellers++; }
         }
     }
@@ -343,6 +439,7 @@ $router->post('/api/v1/umrah/checkout', function () use ($db) {
         'success'      => true,
         'booking'      => $b,
         'saved_travellers' => $savedTravellers,
+        'traveller_ids'    => array_values($travellerIds), // index-aligned to pilgrims, for passport upload
         'pay_url'      => root . 'invoice/umrah/' . rawurlencode((string) $b['invoice_id']),
     ]);
 });

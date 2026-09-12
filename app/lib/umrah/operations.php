@@ -104,8 +104,8 @@ if (!function_exists('umrah_document_upload')) {
         $finfo = finfo_open(FILEINFO_MIME_TYPE);
         $mime = finfo_file($finfo, $file['tmp_name']);
         finfo_close($finfo);
-        $allowed = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'application/pdf' => 'pdf'];
-        if (!isset($allowed[$mime])) { return ['ok' => false, 'message' => 'Only JPG, PNG or PDF allowed']; }
+        $allowed = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'application/pdf' => 'pdf'];
+        if (!isset($allowed[$mime])) { return ['ok' => false, 'message' => 'Only JPG, PNG, WEBP or PDF allowed']; }
         if ($file['size'] > $maxBytes) { return ['ok' => false, 'message' => 'File too large (max ' . ($maxBytes / 1048576) . 'MB)']; }
         // PHP-injection guard for image-typed uploads (audit low): catch the
         // full <?php opener, the <?= short-echo tag, a bare <? opener, and the

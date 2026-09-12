@@ -84,7 +84,30 @@ for ($i = 0; $i < $infants; $i++)  { $slotsJs[] = ['pax_type' => 'infant']; }
                 <span x-text="idx === 0 ? 'Lead pilgrim' : ('Pilgrim ' + (idx+1))"></span>
                 <span class="text-[11px] font-normal text-slate-400 ml-1" x-text="'(' + p.pax_type + ')'"></span>
               </h3>
+              <span class="badge" x-show="p.scanned" style="background:#dcfce7;color:#166534">Details read from passport</span>
             </div>
+
+            <!-- PASSPORT-FIRST: upload the passport, we read the details, you
+                 confirm. Manual fields below remain editable as a fallback. -->
+            <div class="rounded-xl border border-dashed border-primary/40 bg-primary/5 p-3 mb-3">
+              <div class="flex items-center justify-between flex-wrap gap-2">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="material-symbols-outlined text-primary">document_scanner</span>
+                  <div class="min-w-0">
+                    <div class="text-sm font-medium text-slate-800">Upload passport (photo page)</div>
+                    <div class="text-[11px] text-slate-500" x-text="p.passportName ? p.passportName : 'We read the name, DOB, passport no. & expiry so you just confirm. Stored for your visa.'"></div>
+                  </div>
+                </div>
+                <label class="btn btn-sm cursor-pointer shrink-0">
+                  <span class="material-symbols-outlined text-[18px]">upload</span>
+                  <span x-text="p.scanning ? 'Reading…' : (p.passportName ? 'Replace' : 'Upload passport')"></span>
+                  <input type="file" class="hidden" accept="image/jpeg,image/png,image/webp" @change="scanPassport(idx, $event)">
+                </label>
+              </div>
+              <p class="text-[11px] mt-1" :class="p.scanOk ? 'text-green-600' : 'text-rose-600'" x-text="p.scanMsg"></p>
+              <p class="text-[11px] text-slate-400 mt-1" x-show="!p.scanning && !p.passportName">Prefer to type it in? Just fill the fields below.</p>
+            </div>
+
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <select class="select" x-model="p.title">
                 <option value="">Title</option><option>Mr</option><option>Mrs</option><option>Ms</option><option>Miss</option><option>Mast</option><option>Dr</option>
@@ -172,7 +195,10 @@ function umrahCheckout(initialSlots, countries, plans, opts) {
   const mk = (s) => ({
     pax_type: s.pax_type || 'adult',
     title: '', first_name: '', last_name: '', gender: '',
-    dob: '', nationality: '', passport_number: '', passport_expiry: ''
+    dob: '', nationality: '', passport_number: '', passport_expiry: '',
+    // passport-first state
+    scanning: false, scanOk: false, scanMsg: '', scanned: false,
+    passportName: '', passportFile: null
   });
   return {
     unit: opts.unit || 0,
@@ -215,6 +241,43 @@ function umrahCheckout(initialSlots, countries, plans, opts) {
       take('infant', this.counts.infants);
       this.slots = out;
     },
+    async scanPassport(idx, ev) {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) { return; }
+      const p = this.slots[idx];
+      p.passportFile = file; p.passportName = file.name;   // keep for upload after booking
+      p.scanning = true; p.scanMsg = 'Reading passport…'; p.scanOk = true;
+      try {
+        const fd = new FormData();
+        fd.append('csrf_token', this.csrf);
+        fd.append('passport_image', file);
+        const r = await fetch(this.apiBase + '/passport/extract', {
+          method: 'POST', headers: { 'X-CSRF-TOKEN': this.csrf }, body: fd
+        });
+        const j = await r.json();
+        if (j.success && j.fields) {
+          const f = j.fields;
+          // Prefill; the pilgrim still sees + can correct every field below.
+          if (f.first_name) p.first_name = f.first_name;
+          if (f.last_name) p.last_name = f.last_name;
+          if (f.gender) p.gender = f.gender;
+          if (f.dob) p.dob = f.dob;
+          if (f.nationality) p.nationality = f.nationality;
+          if (f.passport_number) p.passport_number = f.passport_number;
+          if (f.passport_expiry) p.passport_expiry = f.passport_expiry;
+          p.scanned = true; p.scanOk = true;
+          p.scanMsg = 'Details read — please check they match your passport, then continue.';
+          if (j.warnings && j.warnings.length) { p.scanMsg += ' (' + j.warnings.join('; ') + ')'; }
+        } else {
+          // Graceful fallback — keep the file, ask them to fill/confirm manually.
+          p.scanOk = false;
+          p.scanMsg = (j.message || 'Could not read the passport.') + ' Please enter the details below.';
+        }
+      } catch (e) {
+        p.scanOk = false; p.scanMsg = 'Scan failed — please enter the details below.';
+      }
+      p.scanning = false; ev.target.value = '';
+    },
     validate() {
       const req = ['first_name','last_name','gender','dob','nationality','passport_number','passport_expiry'];
       for (let i = 0; i < this.slots.length; i++) {
@@ -250,7 +313,27 @@ function umrahCheckout(initialSlots, countries, plans, opts) {
           body: JSON.stringify(body)
         });
         const j = await r.json();
-        if (j.success && j.pay_url) { window.location.href = j.pay_url; return; }
+        if (j.success && j.pay_url) {
+          // Store each pilgrim's passport file against its traveller for the visa
+          // (best-effort; a failed upload never blocks payment — it can be
+          // re-uploaded from the booking page). traveller_ids is index-aligned.
+          const ids = j.traveller_ids || [];
+          this.msg = 'Saving passports…';
+          await Promise.all(this.slots.map(async (p, i) => {
+            const tid = ids[i];
+            if (!tid || !p.passportFile) return;
+            try {
+              const fd = new FormData();
+              fd.append('csrf_token', this.csrf);
+              fd.append('doc_type', 'passport');
+              fd.append('file', p.passportFile);
+              await fetch(this.apiBase + '/travellers/' + tid + '/documents', {
+                method: 'POST', headers: { 'X-CSRF-TOKEN': this.csrf }, body: fd
+              });
+            } catch (e) { /* non-blocking */ }
+          }));
+          window.location.href = j.pay_url; return;
+        }
         this.msg = j.message || 'Could not complete checkout. Please try again.';
         this.msgOk = false; this.busy = false;
       } catch (e) {
