@@ -87,25 +87,25 @@ for ($i = 0; $i < $infants; $i++)  { $slotsJs[] = ['pax_type' => 'infant']; }
               <span class="badge" x-show="p.scanned" style="background:#dcfce7;color:#166534">Details read from passport</span>
             </div>
 
-            <!-- PASSPORT-FIRST: upload the passport, we read the details, you
-                 confirm. Manual fields below remain editable as a fallback. -->
-            <div class="rounded-xl border border-dashed border-primary/40 bg-primary/5 p-3 mb-3">
+            <!-- PASSPORT-FIRST (REQUIRED): upload the passport, we read the
+                 details, you confirm. Manual fields below stay editable. -->
+            <div class="rounded-xl border border-dashed p-3 mb-3"
+                 :class="p.passportName ? 'border-primary/40 bg-primary/5' : 'border-rose-300 bg-rose-50'">
               <div class="flex items-center justify-between flex-wrap gap-2">
                 <div class="flex items-center gap-2 min-w-0">
-                  <span class="material-symbols-outlined text-primary">document_scanner</span>
+                  <span class="material-symbols-outlined" :class="p.passportName ? 'text-primary' : 'text-rose-500'">document_scanner</span>
                   <div class="min-w-0">
-                    <div class="text-sm font-medium text-slate-800">Upload passport (photo page)</div>
-                    <div class="text-[11px] text-slate-500" x-text="p.passportName ? p.passportName : 'We read the name, DOB, passport no. & expiry so you just confirm. Stored for your visa.'"></div>
+                    <div class="text-sm font-medium text-slate-800">Upload passport (photo page) <span class="text-rose-600">*</span></div>
+                    <div class="text-[11px] text-slate-500" x-text="p.passportName ? p.passportName : 'Required for your visa. We read the name, DOB, passport no. & expiry so you just confirm.'"></div>
                   </div>
                 </div>
-                <label class="btn btn-sm cursor-pointer shrink-0">
+                <label class="btn btn-sm cursor-pointer shrink-0" :class="p.passportName ? 'outline' : ''">
                   <span class="material-symbols-outlined text-[18px]">upload</span>
                   <span x-text="p.scanning ? 'Reading…' : (p.passportName ? 'Replace' : 'Upload passport')"></span>
                   <input type="file" class="hidden" accept="image/jpeg,image/png,image/webp" @change="scanPassport(idx, $event)">
                 </label>
               </div>
               <p class="text-[11px] mt-1" :class="p.scanOk ? 'text-green-600' : 'text-rose-600'" x-text="p.scanMsg"></p>
-              <p class="text-[11px] text-slate-400 mt-1" x-show="!p.scanning && !p.passportName">Prefer to type it in? Just fill the fields below.</p>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -282,6 +282,8 @@ function umrahCheckout(initialSlots, countries, plans, opts) {
       const req = ['first_name','last_name','gender','dob','nationality','passport_number','passport_expiry'];
       for (let i = 0; i < this.slots.length; i++) {
         const p = this.slots[i];
+        // Passport photo is REQUIRED for every pilgrim (needed for the visa).
+        if (!p.passportFile) return 'Pilgrim ' + (i+1) + ': please upload the passport photo';
         for (const f of req) {
           if (!String(p[f] || '').trim()) return 'Pilgrim ' + (i+1) + ': ' + f.replace(/_/g,' ') + ' is required';
         }
@@ -314,24 +316,33 @@ function umrahCheckout(initialSlots, countries, plans, opts) {
         });
         const j = await r.json();
         if (j.success && j.pay_url) {
-          // Store each pilgrim's passport file against its traveller for the visa
-          // (best-effort; a failed upload never blocks payment — it can be
-          // re-uploaded from the booking page). traveller_ids is index-aligned.
+          // Passport is REQUIRED: store each pilgrim's file against its traveller
+          // for the visa. traveller_ids is index-aligned. Track failures.
           const ids = j.traveller_ids || [];
           this.msg = 'Saving passports…';
+          const failed = [];
           await Promise.all(this.slots.map(async (p, i) => {
             const tid = ids[i];
-            if (!tid || !p.passportFile) return;
+            if (!tid || !p.passportFile) { failed.push(i + 1); return; }
             try {
               const fd = new FormData();
               fd.append('csrf_token', this.csrf);
               fd.append('doc_type', 'passport');
               fd.append('file', p.passportFile);
-              await fetch(this.apiBase + '/travellers/' + tid + '/documents', {
+              const rr = await fetch(this.apiBase + '/travellers/' + tid + '/documents', {
                 method: 'POST', headers: { 'X-CSRF-TOKEN': this.csrf }, body: fd
               });
-            } catch (e) { /* non-blocking */ }
+              const jj = await rr.json();
+              if (!jj || !jj.success) { failed.push(i + 1); }
+            } catch (e) { failed.push(i + 1); }
           }));
+          // The booking exists; go to pay. If any passport failed to store, send
+          // them to the booking page to re-upload (never silently lose it).
+          const bref = (j.booking && j.booking.booking_ref) ? j.booking.booking_ref : '';
+          if (failed.length && bref) {
+            window.location.href = '<?= root ?>umrah/booking/' + bref + '?passport_needed=' + failed.join(',');
+            return;
+          }
           window.location.href = j.pay_url; return;
         }
         this.msg = j.message || 'Could not complete checkout. Please try again.';
