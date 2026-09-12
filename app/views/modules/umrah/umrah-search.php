@@ -9,7 +9,7 @@ $uCities = [];
 $uMonths = [];
 try {
     $rows = $db->select('umrah_departures', ['origin_city', 'month_bucket', 'departure_date'], [
-        'status' => 'published', 'ORDER' => ['departure_date' => 'ASC'],
+        'status' => 'published', 'archived' => 0, 'ORDER' => ['departure_date' => 'ASC'],
     ]) ?: [];
     foreach ($rows as $r) {
         $c = trim((string) ($r['origin_city'] ?? '')) ?: 'Kano';
@@ -25,7 +25,7 @@ $uMonths = array_keys($uMonths);
 // Comfort tiers for the tier selector (Standard first by sort_order).
 $uTiers = [];
 try {
-    $uTiers = $db->select('umrah_tiers', ['code', 'public_label', 'name'], ['status' => 1, 'ORDER' => ['sort_order' => 'ASC']]) ?: [];
+    $uTiers = $db->select('umrah_tiers', ['code', 'public_label', 'name'], ['status' => 1, 'archived' => 0, 'ORDER' => ['sort_order' => 'ASC']]) ?: [];
 } catch (\Throwable $e) { /* optional */ }
 $uDefaultTier = '';
 foreach ($uTiers as $t) { if (($t['code'] ?? '') === 'standard') { $uDefaultTier = 'standard'; break; } }

@@ -4738,6 +4738,13 @@ if (!function_exists('ensureUmrahSchema')) {
                 ['umrah_departures', 'gallery',    "ADD COLUMN `gallery` longtext DEFAULT NULL AFTER `hero_image`"],
                 ['umrah_tiers', 'image',                 "ADD COLUMN `image` varchar(255) DEFAULT NULL AFTER `room_sharing`"],
                 ['umrah_tiers', 'min_group_same_gender', "ADD COLUMN `min_group_same_gender` smallint(6) NOT NULL DEFAULT 0 AFTER `image`"],
+                // Admin full-CRUD: reversible ARCHIVE flag on every Umrah entity
+                // (soft-delete). archived=1 hides it from the public site + normal
+                // admin lists but never removes data; restore sets it back to 0.
+                ['umrah_package_templates', 'archived', "ADD COLUMN `archived` tinyint(1) NOT NULL DEFAULT 0"],
+                ['umrah_tiers',             'archived', "ADD COLUMN `archived` tinyint(1) NOT NULL DEFAULT 0"],
+                ['umrah_payment_plans',     'archived', "ADD COLUMN `archived` tinyint(1) NOT NULL DEFAULT 0"],
+                ['umrah_departures',        'archived', "ADD COLUMN `archived` tinyint(1) NOT NULL DEFAULT 0"],
             ];
             foreach ($__umrahCols as [$__t, $__c, $__sql]) {
                 try {

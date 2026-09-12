@@ -43,7 +43,11 @@ if (!function_exists('umrahV2AdminDeleteLocalImage')) {
 $router->get(admin.'/umrah-manager', function () use ($SECURE, $db) {
     ADMIN_AUTH();
 
-    $departures = $db->select('umrah_departures', '*', ['ORDER' => ['departure_date' => 'ASC']]) ?: [];
+    // "Show archived" toggle (?archived=1). Default hides archived records.
+    $showArchived = (int) ($_GET['archived'] ?? 0) === 1;
+    $archWhere = $showArchived ? [] : ['archived' => 0];
+
+    $departures = $db->select('umrah_departures', '*', array_merge($archWhere, ['ORDER' => ['departure_date' => 'ASC']])) ?: [];
     // Enrich each departure with tier price + load factor.
     $rows = [];
     foreach ($departures as $d) {
@@ -61,8 +65,14 @@ $router->get(admin.'/umrah-manager', function () use ($SECURE, $db) {
             'collected' => $collected,
         ];
     }
-    $templates = $db->select('umrah_package_templates', ['id', 'code', 'name', 'slug'], ['status' => 1]) ?: [];
-    $tiers = $db->select('umrah_tiers', ['id', 'code', 'public_label'], ['status' => 1, 'ORDER' => ['sort_order' => 'ASC']]) ?: [];
+
+    // Full datasets for the CRUD tabs (archived filtered per the toggle).
+    $templates    = $db->select('umrah_package_templates', '*', array_merge($archWhere, ['ORDER' => ['name' => 'ASC']])) ?: [];
+    $tiers        = $db->select('umrah_tiers', '*', array_merge($archWhere, ['ORDER' => ['sort_order' => 'ASC']])) ?: [];
+    $plans        = $db->select('umrah_payment_plans', '*', array_merge($archWhere, ['ORDER' => ['deposit_percent' => 'DESC']])) ?: [];
+    // Non-archived, active templates for the "create departure" template picker.
+    $templatesActive = $db->select('umrah_package_templates', ['id', 'code', 'name', 'slug'], ['status' => 1, 'archived' => 0]) ?: [];
+    $tiersActive     = $db->select('umrah_tiers', ['id', 'code', 'public_label'], ['status' => 1, 'archived' => 0, 'ORDER' => ['sort_order' => 'ASC']]) ?: [];
 
     // Receivables: due in 7 days + overdue.
     $now = date('Y-m-d H:i:s');
@@ -156,6 +166,76 @@ $router->post(admin.'/umrah-manager/departures/images/delete', function () use (
         $db->update('umrah_departures', ['gallery' => json_encode($gallery), 'updated_at' => date('Y-m-d H:i:s')], ['id' => $depId]);
     }
     umrahV2AdminJson(['success' => true]);
+});
+
+// ========================================================================
+// FULL CRUD — Packages (templates) / Tiers / Payment plans. Soft-delete =
+// ARCHIVE (reversible). Backed by app/lib/umrah/admin_crud.php. Every route is
+// ADMIN_AUTH() + CSRF guarded and returns JSON.
+// ========================================================================
+
+// ---- PACKAGES (templates) ----------------------------------------------
+$router->post(admin.'/umrah-manager/templates/save', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    if (!function_exists('umrah_admin_template_save')) { umrahV2AdminJson(['success' => false, 'message' => 'CRUD unavailable'], 500); }
+    $r = umrah_admin_template_save($db, $_POST);
+    umrahV2AdminJson(['success' => !empty($r['ok']), 'message' => $r['message'] ?? '', 'id' => $r['id'] ?? null], !empty($r['ok']) ? 200 : 422);
+});
+$router->post(admin.'/umrah-manager/templates/archive', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $archive = (int) ($_POST['archive'] ?? 1) === 1;
+    $r = umrah_admin_set_archived($db, 'umrah_package_templates', (int) ($_POST['id'] ?? 0), $archive);
+    umrahV2AdminJson(['success' => !empty($r['ok']), 'message' => $r['message'] ?? ''], !empty($r['ok']) ? 200 : 422);
+});
+
+// ---- TIERS -------------------------------------------------------------
+$router->post(admin.'/umrah-manager/tiers/save', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    if (!function_exists('umrah_admin_tier_save')) { umrahV2AdminJson(['success' => false, 'message' => 'CRUD unavailable'], 500); }
+    $r = umrah_admin_tier_save($db, $_POST);
+    umrahV2AdminJson(['success' => !empty($r['ok']), 'message' => $r['message'] ?? '', 'id' => $r['id'] ?? null], !empty($r['ok']) ? 200 : 422);
+});
+$router->post(admin.'/umrah-manager/tiers/archive', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $archive = (int) ($_POST['archive'] ?? 1) === 1;
+    $r = umrah_admin_set_archived($db, 'umrah_tiers', (int) ($_POST['id'] ?? 0), $archive);
+    umrahV2AdminJson(['success' => !empty($r['ok']), 'message' => $r['message'] ?? ''], !empty($r['ok']) ? 200 : 422);
+});
+
+// ---- PAYMENT PLANS -----------------------------------------------------
+$router->post(admin.'/umrah-manager/plans/save', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    if (!function_exists('umrah_admin_plan_save')) { umrahV2AdminJson(['success' => false, 'message' => 'CRUD unavailable'], 500); }
+    $r = umrah_admin_plan_save($db, $_POST);
+    umrahV2AdminJson(['success' => !empty($r['ok']), 'message' => $r['message'] ?? '', 'id' => $r['id'] ?? null], !empty($r['ok']) ? 200 : 422);
+});
+$router->post(admin.'/umrah-manager/plans/archive', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $archive = (int) ($_POST['archive'] ?? 1) === 1;
+    $r = umrah_admin_set_archived($db, 'umrah_payment_plans', (int) ($_POST['id'] ?? 0), $archive);
+    umrahV2AdminJson(['success' => !empty($r['ok']), 'message' => $r['message'] ?? ''], !empty($r['ok']) ? 200 : 422);
+});
+
+// ---- DEPARTURE edit + archive/restore ----------------------------------
+$router->post(admin.'/umrah-manager/departures/update', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    if (!function_exists('umrah_admin_departure_update')) { umrahV2AdminJson(['success' => false, 'message' => 'CRUD unavailable'], 500); }
+    $r = umrah_admin_departure_update($db, $_POST);
+    umrahV2AdminJson(['success' => !empty($r['ok']), 'message' => $r['message'] ?? ''], !empty($r['ok']) ? 200 : 422);
+});
+$router->post(admin.'/umrah-manager/departures/archive', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $archive = (int) ($_POST['archive'] ?? 1) === 1;
+    $r = umrah_admin_set_archived($db, 'umrah_departures', (int) ($_POST['id'] ?? 0), $archive);
+    umrahV2AdminJson(['success' => !empty($r['ok']), 'message' => $r['message'] ?? ''], !empty($r['ok']) ? 200 : 422);
 });
 
 // ---- BULK CREATE 12th/28th: POST admin/umrah-manager/departures/bulk ----
