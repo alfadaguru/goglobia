@@ -729,7 +729,7 @@ $router->get(admin.'/umrah-manager/groups', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     $status = trim((string) ($_GET['status'] ?? ''));
     $where = ['ORDER' => ['id' => 'DESC'], 'LIMIT' => 300];
-    if (in_array($status, ['draft','pending','paid','submitted','processing','confirmed','cancelled'], true)) { $where['status'] = $status; }
+    if (in_array($status, ['draft','pending','submitted','queried','accepted','rejected','paid','processing','confirmed','approved','partially_approved','completed','cancelled'], true)) { $where['status'] = $status; }
     $groups = $db->select('umrah_groups', '*', $where) ?: [];
     // Attach agent name + departure label for the list.
     foreach ($groups as &$g) {
@@ -740,7 +740,7 @@ $router->get(admin.'/umrah-manager/groups', function () use ($SECURE, $db) {
     }
     unset($g);
     $counts = [];
-    foreach (['draft','pending','paid','submitted','processing','confirmed','cancelled'] as $s) { $counts[$s] = (int) $db->count('umrah_groups', ['status' => $s]); }
+    foreach (['draft','submitted','queried','accepted','processing','partially_approved','approved','completed','rejected','cancelled'] as $s) { $counts[$s] = (int) $db->count('umrah_groups', ['status' => $s]); }
     $title = 'Umrah Groups'; $description = ''; $header = true; $footer = true;
     require_once views . 'includes/header.php';
     require_once views . 'admin/umrah/v2/groups.php';
@@ -755,6 +755,77 @@ $router->post(admin.'/umrah-manager/groups/status', function () use ($SECURE, $d
     if ($gid <= 0 || !function_exists('umrah_group_set_status')) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid request']); }
     $r = umrah_group_set_status($db, $gid, trim((string) ($_POST['status'] ?? '')), $_POST['visa_status'] ?? null);
     umrahV2AdminJson($r['ok'] ? ['success' => true, 'message' => 'Group updated'] : ['success' => false, 'message' => $r['message'] ?? 'Failed'], $r['ok'] ? 200 : 422);
+});
+
+// Members of a group (JSON) — for the admin manage drawer visa/doc grid.
+$router->get(admin.'/umrah-manager/groups/([0-9]+)/members', function ($gid) use ($SECURE, $db) {
+    ADMIN_AUTH();
+    $rows = $db->select('umrah_group_members',
+        ['id', 'first_name', 'last_name', 'gender', 'visa_status', 'refund_amount', 'visa_doc', 'ticket_doc', 'hotel_doc'],
+        ['group_id' => (int) $gid, 'ORDER' => ['id' => 'ASC']]) ?: [];
+    umrahV2AdminJson(['success' => true, 'members' => $rows]);
+});
+
+// REVIEW a submitted group: accept | query | reject (with comment). No charge.
+$router->post(admin.'/umrah-manager/groups/review', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    if (!function_exists('umrah_group_review')) { umrahV2AdminJson(['success' => false, 'message' => 'Unavailable'], 500); }
+    $r = umrah_group_review($db, (int) ($_POST['group_id'] ?? 0), trim((string) ($_POST['decision'] ?? '')), (string) ($_POST['comment'] ?? ''));
+    umrahV2AdminJson($r['ok'] ? ['success' => true, 'status' => $r['status'] ?? ''] : ['success' => false, 'message' => $r['message'] ?? 'Failed'], $r['ok'] ? 200 : 422);
+});
+
+// Set per-pilgrim VISA outcomes + finalize (auto-refunds non-approved). No charge
+// (refunds only). $_POST['outcomes'] = JSON {member_id: 'approved'|'rejected'}.
+$router->post(admin.'/umrah-manager/groups/visa', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    if (!function_exists('umrah_group_set_visa')) { umrahV2AdminJson(['success' => false, 'message' => 'Unavailable'], 500); }
+    $outcomes = json_decode((string) ($_POST['outcomes'] ?? '[]'), true);
+    if (!is_array($outcomes)) { $outcomes = []; }
+    // keys may arrive as strings — normalise to int member ids.
+    $norm = [];
+    foreach ($outcomes as $mid => $v) { $norm[(int) $mid] = $v; }
+    $r = umrah_group_set_visa($db, (int) ($_POST['group_id'] ?? 0), $norm);
+    umrahV2AdminJson($r['ok'] ? ['success' => true, 'status' => $r['status'] ?? '', 'approved' => $r['approved'] ?? 0, 'rejected' => $r['rejected'] ?? 0, 'refunded' => $r['refunded'] ?? 0] : ['success' => false, 'message' => $r['message'] ?? 'Failed'], $r['ok'] ? 200 : 422);
+});
+
+// Upload a fulfilment doc (visa | ticket | hotel) for one group member. Stored
+// under uploads/umrah/groups/{gid}/, path recorded on the member, and also
+// mirrored to the traveller's umrah_documents so the customer/agent sees it.
+$router->post(admin.'/umrah-manager/groups/member-doc', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $gid = (int) ($_POST['group_id'] ?? 0);
+    $mid = (int) ($_POST['member_id'] ?? 0);
+    $kind = in_array($_POST['kind'] ?? '', ['visa', 'ticket', 'hotel'], true) ? $_POST['kind'] : '';
+    if ($gid <= 0 || $mid <= 0 || $kind === '') { umrahV2AdminJson(['success' => false, 'message' => 'group_id, member_id and kind required'], 422); }
+    $mem = $db->get('umrah_group_members', ['id', 'traveller_id'], ['id' => $mid, 'group_id' => $gid]);
+    if (!$mem) { umrahV2AdminJson(['success' => false, 'message' => 'Member not found in this group'], 404); }
+    if (!isset($_FILES['doc']) || ($_FILES['doc']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        umrahV2AdminJson(['success' => false, 'message' => 'No file uploaded'], 422);
+    }
+    $dir = rtrim(uploads, '/') . '/umrah/groups/' . $gid;
+    if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
+    $ht = rtrim(uploads, '/') . '/umrah/groups/.htaccess';
+    if (!file_exists($ht)) { @file_put_contents($ht, "Require all denied\nDeny from all\n"); }
+    $fname = $kind . '_' . $mid . '_' . bin2hex(random_bytes(5)) . '.png';
+    $res = handleFileUpload('doc', $dir . '/' . $fname, ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'application/pdf'], 8 * 1024 * 1024, false);
+    if (empty($res['success'])) { umrahV2AdminJson(['success' => false, 'message' => $res['error'] ?? 'Upload failed'], 422); }
+    $rel = 'uploads/umrah/groups/' . $gid . '/' . $fname;
+    $col = $kind . '_doc';
+    $db->update('umrah_group_members', [$col => $rel, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $mid]);
+    // Mirror to the traveller's document ledger for the visa/booking view.
+    if ((int) $mem['traveller_id']) {
+        $ub = $db->get('umrah_booking_travellers', 'umrah_booking_id', ['id' => (int) $mem['traveller_id']]);
+        $db->insert('umrah_documents', [
+            'traveller_id' => (int) $mem['traveller_id'], 'umrah_booking_id' => (int) $ub,
+            'doc_type' => $kind, 'file_path' => $rel, 'original_name' => basename($rel),
+            'mime' => 'image/png', 'verify_status' => 'verified', 'verified_by' => (string) ($_SESSION['user_id'] ?? ''),
+            'verified_at' => date('Y-m-d H:i:s'), 'created_at' => date('Y-m-d H:i:s'),
+        ]);
+    }
+    umrahV2AdminJson(['success' => true, 'url' => $rel, 'kind' => $kind]);
 });
 
 // Nusuk manifest export (CSV). Columns are admin-configurable via

@@ -676,13 +676,21 @@ $router->post('/api/v1/umrah/groups/([0-9]+)/members/([0-9]+)/drop', function ($
     umrah_v1_json($r['ok'] ? ['success' => true] : ['success' => false, 'message' => $r['message'] ?? 'Failed'], $r['ok'] ? 200 : 422);
 });
 
-// Submit the group (debits the agent wallet, materializes the booking).
+// SUBMIT the group for operator review — NO money moves (agent).
 $router->post('/api/v1/umrah/groups/([0-9]+)/submit', function ($gid) use ($db) {
     $in = umrah_v1_body(); umrah_v1_csrf_guard($in);
     $r = umrah_group_submit($db, (int) $gid, $in);
+    umrah_v1_json($r['ok'] ? ['success' => true, 'status' => $r['status'] ?? 'submitted', 'already' => !empty($r['already'])] : ['success' => false, 'message' => $r['message'] ?? 'Submit failed'], $r['ok'] ? 200 : 422);
+});
+
+// CONFIRM an accepted group — THIS debits the agent wallet + materializes (agent).
+$router->post('/api/v1/umrah/groups/([0-9]+)/confirm', function ($gid) use ($db) {
+    $in = umrah_v1_body(); umrah_v1_csrf_guard($in);
+    if (!function_exists('umrah_group_confirm')) { umrah_v1_json(['success' => false, 'message' => 'Unavailable'], 500); }
+    $r = umrah_group_confirm($db, (int) $gid, $in);
     if (!empty($r['ok'])) { umrah_v1_json(['success' => true, 'booking_ref' => $r['booking_ref'] ?? null, 'invoice_id' => $r['invoice_id'] ?? null, 'already' => !empty($r['already'])]); }
     $code = (($r['code'] ?? '') === 'insufficient_funds') ? 402 : 422;
-    umrah_v1_json(['success' => false, 'message' => $r['message'] ?? 'Submit failed', 'required' => $r['required'] ?? null, 'balance' => $r['balance'] ?? null], $code);
+    umrah_v1_json(['success' => false, 'message' => $r['message'] ?? 'Confirm failed', 'required' => $r['required'] ?? null, 'balance' => $r['balance'] ?? null], $code);
 });
 
 // Cancel (agent, pre-payment).

@@ -1,11 +1,14 @@
 <?php
 // ============================================================================
 // UMRAH AGENT GROUPS (Phase C, Nusuk-style). docs/UMRAH-REBUILD-PLAN.md §C.
-// An agent builds a group on a package: staged (declares counts first), the
-// wallet is debited only on SUBMIT, then add/drop members + upload documents
-// while pending/processing. All pricing is server-authoritative (agent B2B net
-// when set). Reuses the atomic+idempotent agent wallet (agent_api_charge_wallet)
-// and the verified booking engine (umrah_booking_create) to materialize.
+// Lifecycle: agent creates a DRAFT (no pilgrims needed), adds pilgrims + passports
+// anytime, then SUBMITS for operator review (NO money). Operator accept/query/
+// reject (each w/ comment); a queried group is editable + re-submittable. On
+// ACCEPT the agent CONFIRMS — that is the ONLY point the wallet is debited and
+// the booking is materialized (-> processing). Operator then sets per-pilgrim
+// visa outcomes; non-approved pilgrims are auto-refunded to the wallet (unit +
+// fee share) -> approved / partially_approved / rejected. All pricing is server-
+// authoritative (agent B2B net when set); charge is atomic + idempotent.
 // ============================================================================
 
 if (!function_exists('umrah_group_ref')) {
@@ -131,7 +134,7 @@ if (!function_exists('umrah_group_set_counts')) {
     {
         $g = umrah_group_owned($db, $groupId);
         if (!$g) { return ['ok' => false, 'message' => 'Group not found']; }
-        if (!in_array($g['status'], ['draft', 'pending'], true)) {
+        if (!in_array($g['status'], ['draft', 'pending', 'queried'], true)) {
             return ['ok' => false, 'message' => 'Counts can only change before submission'];
         }
         $db->update('umrah_groups', ['declared_male' => max(0, $male), 'declared_female' => max(0, $female), 'updated_at' => date('Y-m-d H:i:s')], ['id' => $groupId]);
@@ -154,7 +157,7 @@ if (!function_exists('umrah_group_add_member')) {
         // editing the roster here would re-run umrah_group_recount and rewrite
         // pax_count/total_price out from under the paid booking (audit H: total
         // desync). Staff adjust post-submit groups through the admin lifecycle.
-        if (!in_array($g['status'], ['draft', 'pending'], true)) {
+        if (!in_array($g['status'], ['draft', 'pending', 'queried'], true)) {
             return ['ok' => false, 'message' => 'This group is already submitted; roster changes need staff.'];
         }
 
@@ -208,7 +211,7 @@ if (!function_exists('umrah_group_member_passport_upload')) {
     {
         $g = umrah_group_owned($db, $groupId);
         if (!$g) { return ['ok' => false, 'message' => 'Group not found']; }
-        if (!in_array($g['status'], ['draft', 'pending'], true)) {
+        if (!in_array($g['status'], ['draft', 'pending', 'queried'], true)) {
             return ['ok' => false, 'message' => 'This group is already submitted; document changes need staff.'];
         }
         $mem = $db->get('umrah_group_members', ['id', 'passport_doc'], ['id' => $memberId, 'group_id' => $groupId]);
@@ -263,7 +266,7 @@ if (!function_exists('umrah_group_drop_member')) {
         if (!$g) { return ['ok' => false, 'message' => 'Group not found']; }
         // Same lock as add_member: do not mutate a submitted/paid group's roster
         // (would desync the paid total via recount — audit H).
-        if (!in_array($g['status'], ['draft', 'pending'], true)) {
+        if (!in_array($g['status'], ['draft', 'pending', 'queried'], true)) {
             return ['ok' => false, 'message' => 'This group is already submitted; roster changes need staff.'];
         }
         $db->delete('umrah_group_members', ['id' => $memberId, 'group_id' => $groupId]);
@@ -298,38 +301,17 @@ if (!function_exists('umrah_group_validate_rules')) {
     }
 }
 
-if (!function_exists('umrah_group_submit')) {
+if (!function_exists('umrah_group_members_ready')) {
     /**
-     * Submit a group: validate the tier rule, charge the agent WALLET for the
-     * whole group (the ONLY point money moves — staged before this), then
-     * materialize an agent-owned, PAID umrah booking with the members as
-     * travellers. Sets status draft/pending -> paid -> submitted.
-     * Idempotent: a group already paid/submitted is not charged again.
-     * @return array ['ok'=>true,'booking_ref'=>..,'invoice_id'=>..] | ['ok'=>false,'message'=>..,'code'=>..]
+     * Validate that a group has at least 1 pilgrim and EVERY member has full
+     * identity details + an uploaded passport. Shared by submit and confirm.
+     * @return array ['ok'=>bool,'message'=>?]
      */
-    function umrah_group_submit($db, int $groupId, array $lead = []): array
+    function umrah_group_members_ready($db, array $g): array
     {
-        $g = umrah_group_owned($db, $groupId);
-        if (!$g) { return ['ok' => false, 'message' => 'Group not found']; }
-        if (in_array($g['status'], ['paid', 'submitted', 'processing', 'confirmed'], true)) {
-            return ['ok' => true, 'already' => true, 'booking_ref' => null, 'invoice_id' => $g['invoice_id']];
-        }
-        if ($g['status'] === 'cancelled') { return ['ok' => false, 'message' => 'Group is cancelled']; }
-
-        // Re-price + validate the tier group rule.
-        umrah_group_recount($db, $groupId);
-        $g = $db->get('umrah_groups', '*', ['id' => $groupId]);
-        if ((int) $g['pax_count'] < 1) { return ['ok' => false, 'message' => 'Add pilgrims before submitting']; }
-        $rule = umrah_group_validate_rules($db, $g);
-        if (empty($rule['ok'])) { return ['ok' => false, 'message' => $rule['message']]; }
-
-        // EVERY pilgrim must have full identity details AND an uploaded passport
-        // before the agent can submit/pay — the visa needs them (declared-counts-
-        // only submission is no longer allowed). Enforced server-side.
+        $groupId = (int) $g['id'];
         $members = $db->select('umrah_group_members', ['id', 'first_name', 'last_name', 'gender', 'dob', 'nationality', 'passport_number', 'passport_expiry', 'passport_doc'], ['group_id' => $groupId]) ?: [];
-        if (count($members) < (int) $g['pax_count']) {
-            return ['ok' => false, 'message' => 'Add details for all ' . (int) $g['pax_count'] . ' pilgrim(s) — declared counts alone can no longer be submitted.'];
-        }
+        if (count($members) < 1) { return ['ok' => false, 'message' => 'Add at least one pilgrim before submitting']; }
         foreach ($members as $mi => $m) {
             $label = trim(($m['first_name'] ?? '') . ' ' . ($m['last_name'] ?? '')) ?: ('Pilgrim ' . ($mi + 1));
             foreach (['first_name', 'last_name', 'gender', 'dob', 'nationality', 'passport_number', 'passport_expiry'] as $req) {
@@ -338,16 +320,113 @@ if (!function_exists('umrah_group_submit')) {
                 }
             }
             if (trim((string) ($m['passport_doc'] ?? '')) === '') {
-                return ['ok' => false, 'message' => $label . ': passport upload is required before submitting'];
+                return ['ok' => false, 'message' => $label . ': passport upload is required'];
             }
         }
+        return ['ok' => true, 'count' => count($members)];
+    }
+}
+
+if (!function_exists('umrah_group_submit')) {
+    /**
+     * SUBMIT a group to the operator for review. NO MONEY MOVES HERE. The agent
+     * builds a draft (optionally requesting custom dates), adds pilgrims with
+     * passports, then submits. Requires >=1 pilgrim, the tier rule, and every
+     * pilgrim complete + passport uploaded. Sets status -> 'submitted'. The
+     * operator then accepts / queries / rejects; the wallet is debited only when
+     * the agent CONFIRMS an accepted group (umrah_group_confirm).
+     * @return array ['ok'=>true,'status'=>'submitted'] | ['ok'=>false,'message'=>..]
+     */
+    function umrah_group_submit($db, int $groupId, array $lead = []): array
+    {
+        $g = umrah_group_owned($db, $groupId);
+        if (!$g) { return ['ok' => false, 'message' => 'Group not found']; }
+        // Only a draft or a queried (sent-back) group may be submitted.
+        if (!in_array($g['status'], ['draft', 'queried'], true)) {
+            if (in_array($g['status'], ['submitted', 'accepted', 'processing', 'approved', 'partially_approved', 'completed'], true)) {
+                return ['ok' => true, 'already' => true, 'status' => $g['status']];
+            }
+            if ($g['status'] === 'rejected') { return ['ok' => false, 'message' => 'This group was rejected. Create a new group or contact us.']; }
+            if ($g['status'] === 'cancelled') { return ['ok' => false, 'message' => 'Group is cancelled']; }
+            return ['ok' => false, 'message' => 'This group cannot be submitted from its current state.'];
+        }
+
+        // Re-price + validate the tier group rule + full pilgrim/passport data.
+        umrah_group_recount($db, $groupId);
+        $g = $db->get('umrah_groups', '*', ['id' => $groupId]);
+        $rule = umrah_group_validate_rules($db, $g);
+        if (empty($rule['ok'])) { return ['ok' => false, 'message' => $rule['message']]; }
+        $ready = umrah_group_members_ready($db, $g);
+        if (empty($ready['ok'])) { return $ready; }
+
+        $db->update('umrah_groups', [
+            'status' => 'submitted', 'submitted_at' => date('Y-m-d H:i:s'),
+            'review_comment' => null, 'reviewed_by' => null, 'reviewed_at' => null,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ], ['id' => $groupId]);
+        if (function_exists('umrah_audit')) { umrah_audit($db, 'umrah_group', $g['group_ref'], 'submitted', null, ['pax' => (int) $g['pax_count']], (string) $g['agent_user_id'], 'agent'); }
+        return ['ok' => true, 'status' => 'submitted'];
+    }
+}
+
+if (!function_exists('umrah_group_review')) {
+    /**
+     * OPERATOR review of a submitted group: accept | query | reject, each with an
+     * optional comment. 'query' sends it back to the agent (editable again).
+     * Admin only. No money moves here.
+     */
+    function umrah_group_review($db, int $groupId, string $decision, string $comment = ''): array
+    {
+        if (($_SESSION['user_role'] ?? '') !== 'admin') { return ['ok' => false, 'message' => 'Staff only']; }
+        $g = $db->get('umrah_groups', '*', ['id' => $groupId]);
+        if (!$g) { return ['ok' => false, 'message' => 'Group not found']; }
+        if ($g['status'] !== 'submitted') { return ['ok' => false, 'message' => 'Only a submitted group can be reviewed (current: ' . $g['status'] . ')']; }
+        $map = ['accept' => 'accepted', 'query' => 'queried', 'reject' => 'rejected'];
+        if (!isset($map[$decision])) { return ['ok' => false, 'message' => 'Invalid decision']; }
+        $db->update('umrah_groups', [
+            'status' => $map[$decision],
+            'review_comment' => trim($comment) !== '' ? trim($comment) : null,
+            'reviewed_by' => (string) ($_SESSION['user_id'] ?? ''), 'reviewed_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ], ['id' => $groupId]);
+        if (function_exists('umrah_audit')) { umrah_audit($db, 'umrah_group', $g['group_ref'], 'review_' . $decision, null, ['comment' => $comment], (string) ($_SESSION['user_id'] ?? ''), 'admin'); }
+        return ['ok' => true, 'status' => $map[$decision]];
+    }
+}
+
+if (!function_exists('umrah_group_confirm')) {
+    /**
+     * AGENT confirms an ACCEPTED group. THIS is the only point money moves: the
+     * wallet is debited and the booking is materialized. Atomic CAS claim
+     * (accepted -> processing) prevents a double-charge; on any failure the
+     * charge is refunded and the group returns to 'accepted'.
+     * @return array ['ok'=>true,'booking_ref'=>..,'invoice_id'=>..] | ['ok'=>false,..]
+     */
+    function umrah_group_confirm($db, int $groupId, array $lead = []): array
+    {
+        $g = umrah_group_owned($db, $groupId);
+        if (!$g) { return ['ok' => false, 'message' => 'Group not found']; }
+        if (in_array($g['status'], ['processing', 'confirmed', 'approved', 'partially_approved', 'completed'], true)) {
+            return ['ok' => true, 'already' => true, 'invoice_id' => $g['invoice_id']];
+        }
+        if ($g['status'] !== 'accepted') {
+            return ['ok' => false, 'message' => 'This group must be accepted by our team before you can confirm & pay.'];
+        }
+
+        // Re-price + re-validate everything at confirm time.
+        umrah_group_recount($db, $groupId);
+        $g = $db->get('umrah_groups', '*', ['id' => $groupId]);
+        $rule = umrah_group_validate_rules($db, $g);
+        if (empty($rule['ok'])) { return ['ok' => false, 'message' => $rule['message']]; }
+        $ready = umrah_group_members_ready($db, $g);
+        if (empty($ready['ok'])) { return $ready; }
 
         $dt = $db->get('umrah_departure_tiers', '*', ['id' => (int) $g['departure_tier_id']]);
         if (!$dt || !umrah_departure_bookable($db, (int) $dt['departure_id'], $dt)) {
             return ['ok' => false, 'message' => 'This departure is no longer open for booking'];
         }
 
-        // ── CONCURRENCY GUARD (audit H: double-charge race) ──────────────────
+        // ── CONCURRENCY GUARD (double-charge race) ──────────────────
         // Atomically CLAIM this group for submission with a compare-and-swap:
         // flip draft/pending -> processing only if it is still draft/pending.
         // If 0 rows change, another request already claimed it (or it advanced)
@@ -361,10 +440,10 @@ if (!function_exists('umrah_group_submit')) {
         if (!$claim || $claim->rowCount() < 1) {
             // Lost the race or status moved under us — report the live state.
             $live = $db->get('umrah_groups', ['status', 'invoice_id'], ['id' => $groupId]);
-            if ($live && in_array($live['status'], ['paid', 'submitted', 'processing', 'confirmed'], true)) {
+            if ($live && in_array($live['status'], ['processing', 'confirmed', 'approved', 'partially_approved', 'completed'], true)) {
                 return ['ok' => true, 'already' => true, 'booking_ref' => null, 'invoice_id' => $live['invoice_id']];
             }
-            return ['ok' => false, 'message' => 'Group is being submitted — please wait a moment.'];
+            return ['ok' => false, 'message' => 'This group is already being confirmed — please wait a moment.'];
         }
         // From here, on ANY failure we MUST release the claim back to $prevStatus.
 
@@ -509,11 +588,11 @@ if (!function_exists('umrah_group_submit')) {
                     }
                 }
 
-                // Link + advance the group to submitted.
+                // Link + advance the group to PROCESSING (paid, materialized).
                 $db->update('umrah_groups', [
-                    'status' => 'submitted', 'paid' => 1, 'invoice_id' => $invoiceId,
+                    'status' => 'processing', 'paid' => 1, 'invoice_id' => $invoiceId,
                     'umrah_booking_id' => $ubId, 'wallet_txn' => $walletTxn,
-                    'submitted_at' => $now, 'updated_at' => $now,
+                    'confirmed_at' => $now, 'updated_at' => $now,
                 ], ['id' => $groupId]);
 
                 $result = ['ok' => true, 'booking_ref' => $bookingRef, 'invoice_id' => $invoiceId, 'umrah_booking_id' => $ubId, 'genericBookingId' => $genericId];
@@ -532,8 +611,90 @@ if (!function_exists('umrah_group_submit')) {
             return ['ok' => false, 'message' => 'Could not finalize the group; your wallet charge has been reversed. Please try again.'];
         }
 
-        if (function_exists('umrah_audit')) { umrah_audit($db, 'umrah_group', $g['group_ref'], 'submitted_paid', null, ['pax' => $pax, 'total' => $total], $agent, 'agent'); }
+        if (function_exists('umrah_audit')) { umrah_audit($db, 'umrah_group', $g['group_ref'], 'confirmed_paid', null, ['pax' => $pax, 'total' => $total], $agent, 'agent'); }
         return $result;
+    }
+}
+
+if (!function_exists('umrah_group_set_visa')) {
+    /**
+     * OPERATOR sets each member's visa outcome, then FINALIZES: non-approved
+     * pilgrims are auto-refunded to the agent wallet (their unit price + a
+     * proportional share of the group service fee), the group total is reduced,
+     * and the group status becomes approved / partially_approved / rejected(full
+     * refund). Admin only. Idempotent per member (a refunded member is not
+     * refunded twice). $outcomes = [member_id => 'approved'|'rejected'].
+     */
+    function umrah_group_set_visa($db, int $groupId, array $outcomes): array
+    {
+        if (($_SESSION['user_role'] ?? '') !== 'admin') { return ['ok' => false, 'message' => 'Staff only']; }
+        $g = $db->get('umrah_groups', '*', ['id' => $groupId]);
+        if (!$g) { return ['ok' => false, 'message' => 'Group not found']; }
+        if (!in_array($g['status'], ['processing', 'partially_approved', 'approved'], true)) {
+            return ['ok' => false, 'message' => 'Visa outcomes can only be set once the group is processing/paid.'];
+        }
+        $agent = (string) $g['agent_user_id'];
+        $currency = (string) $g['currency'];
+        $unit = (float) $g['unit_net'];
+
+        // Proportional fee share per pilgrim = total fee charged / pax.
+        $pax = max(1, (int) $g['pax_count']);
+        $feeCharged = 0.0;
+        try {
+            $feeRow = $db->get('credits', 'credits', ['user_id' => $agent, 'type' => 'debit', 'description[~]' => 'service fee ' . $g['invoice_id']]);
+            $feeCharged = (float) ($feeRow ?? 0);
+        } catch (\Throwable $e) { /* no fee */ }
+        $feePerPax = round($feeCharged / $pax, 2);
+        $refundPerPax = round($unit + $feePerPax, 2);
+
+        $members = $db->select('umrah_group_members', ['id', 'first_name', 'last_name', 'visa_status', 'traveller_id'], ['group_id' => $groupId]) ?: [];
+        $now = date('Y-m-d H:i:s');
+        $refundedNow = 0.0; $approved = 0; $rejected = 0;
+
+        foreach ($members as $m) {
+            $mid = (int) $m['id'];
+            $want = ($outcomes[$mid] ?? null);
+            if (!in_array($want, ['approved', 'rejected'], true)) {
+                // Not decided this round — keep whatever it is; count current state.
+                if ($m['visa_status'] === 'approved') { $approved++; }
+                if (in_array($m['visa_status'], ['rejected', 'refunded'], true)) { $rejected++; }
+                continue;
+            }
+            if ($want === 'approved') {
+                if ($m['visa_status'] !== 'approved') {
+                    $db->update('umrah_group_members', ['visa_status' => 'approved', 'updated_at' => $now], ['id' => $mid]);
+                    if ((int) $m['traveller_id']) { $db->update('umrah_booking_travellers', ['visa_status' => 'approved'], ['id' => (int) $m['traveller_id']]); }
+                }
+                $approved++;
+            } else { // rejected -> auto-refund once
+                $alreadyRefunded = in_array($m['visa_status'], ['refunded'], true);
+                if (!$alreadyRefunded) {
+                    $label = trim(($m['first_name'] ?? '') . ' ' . ($m['last_name'] ?? '')) ?: ('Pilgrim #' . $mid);
+                    try {
+                        $db->insert('credits', ['user_id' => $agent, 'type' => 'credit', 'credits' => $refundPerPax, 'currency' => $currency, 'description' => 'Umrah visa refund ' . $g['group_ref'] . ' — ' . $label . ' (' . $g['invoice_id'] . ')', 'created_at' => $now]);
+                        $db->update('umrah_group_members', ['visa_status' => 'refunded', 'refund_amount' => $refundPerPax, 'refunded_at' => $now, 'updated_at' => $now], ['id' => $mid]);
+                        if ((int) $m['traveller_id']) { $db->update('umrah_booking_travellers', ['visa_status' => 'rejected'], ['id' => (int) $m['traveller_id']]); }
+                        $refundedNow += $refundPerPax;
+                    } catch (\Throwable $e) { error_log('umrah_group_set_visa refund: ' . $e->getMessage()); }
+                }
+                $rejected++;
+            }
+        }
+
+        // Group status from the tally.
+        $newStatus = $g['status'];
+        if ($approved > 0 && $rejected === 0) { $newStatus = 'approved'; }
+        elseif ($approved > 0 && $rejected > 0) { $newStatus = 'partially_approved'; }
+        elseif ($approved === 0 && $rejected > 0) { $newStatus = 'rejected'; }
+        $newRefundTotal = round((float) $g['refunded_total'] + $refundedNow, 2);
+        $db->update('umrah_groups', [
+            'status' => $newStatus,
+            'refunded_total' => $newRefundTotal,
+            'visa_status' => $rejected === 0 ? 'all' : ($approved === 0 ? 'rejected' : 'partial'),
+            'updated_at' => $now,
+        ], ['id' => $groupId]);
+        if (function_exists('umrah_audit')) { umrah_audit($db, 'umrah_group', $g['group_ref'], 'visa_' . $newStatus, null, ['approved' => $approved, 'rejected' => $rejected, 'refunded' => $refundedNow], (string) ($_SESSION['user_id'] ?? ''), 'admin'); }
+        return ['ok' => true, 'status' => $newStatus, 'approved' => $approved, 'rejected' => $rejected, 'refunded' => $refundedNow];
     }
 }
 
@@ -556,8 +717,8 @@ if (!function_exists('umrah_group_set_status')) {
             // Agents (non-admin) may only cancel a not-yet-paid group or move
             // draft<->pending. Everything post-payment is admin-driven.
             if (!$isAdmin) {
-                if (!($status === 'cancelled' && in_array($g['status'], ['draft', 'pending'], true))
-                    && !(in_array($status, ['draft', 'pending'], true) && in_array($g['status'], ['draft', 'pending'], true))) {
+                if (!($status === 'cancelled' && in_array($g['status'], ['draft', 'pending', 'queried'], true))
+                    && !(in_array($status, ['draft', 'pending'], true) && in_array($g['status'], ['draft', 'pending', 'queried'], true))) {
                     return ['ok' => false, 'message' => 'This status change requires staff'];
                 }
             }
