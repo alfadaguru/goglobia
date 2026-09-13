@@ -3552,6 +3552,18 @@ if (!function_exists('MARKUP')) {
         $markupType = $isAgent ? ($moduleData['markup_type_b2b'] ?? 'percentage') : ($moduleData['markup_type_b2c'] ?? 'percentage');
     }
 
+    // AGENT MEMBER TIER discount (docs/MONEY-WALLET-AUDIT.md §C.4 step 4):
+    // a higher tier (reached by lifetime wallet top-ups) reduces the agent's
+    // percentage markup, i.e. the agent gets a better rate. Only applies to
+    // agents on a percentage markup; never pushes the markup below 0.
+    if ($isAgent && $markupType === 'percentage' && !empty($userId)
+        && function_exists('agent_tier_discount_percent')) {
+        $tierDiscount = agent_tier_discount_percent($db, (string) $userId);
+        if ($tierDiscount > 0) {
+            $markupValue = max(0.0, (float) $markupValue - (float) $tierDiscount);
+        }
+    }
+
     // STEP 1: Apply markup to ORIGINAL currency price first
     $markupAmount = 0;
     $markupPercentage = 0;
@@ -4234,6 +4246,88 @@ if (!function_exists('ensureAgentApiSchema')) {
                 PRIMARY KEY (`id`),
                 KEY `idx_txn` (`transaction_id`,`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            // ============================================================
+            // AGENT MEMBER TIERS (docs/MONEY-WALLET-AUDIT.md §C.4 step 4).
+            // A tier grants an extra agent discount % and is reached by lifetime
+            // wallet top-ups (deposit weight). Admin-editable. Seeded with
+            // researched metal-tier defaults; the higher the deposits, the better
+            // the rate — matching the owner's "deposit promotes you" intent.
+            // ============================================================
+            $db->query("CREATE TABLE IF NOT EXISTS `agent_tiers` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `code` varchar(32) NOT NULL,
+                `name` varchar(64) NOT NULL,
+                `sort_order` smallint(6) NOT NULL DEFAULT 0,
+                `min_lifetime_topup` decimal(14,2) NOT NULL DEFAULT 0.00,
+                `discount_percent` decimal(6,2) NOT NULL DEFAULT 0.00,
+                `active` tinyint(1) NOT NULL DEFAULT 1,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_code` (`code`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+            // Seed default tiers once (only if the table is empty).
+            $tierCount = (int) $db->count('agent_tiers', []);
+            if ($tierCount === 0) {
+                $seed = [
+                    ['bronze',   'Bronze',   1, 0,          0.00],
+                    ['silver',   'Silver',   2, 2000000,    1.00],
+                    ['gold',     'Gold',     3, 10000000,   2.50],
+                    ['platinum', 'Platinum', 4, 50000000,   4.00],
+                ];
+                foreach ($seed as [$c, $n, $o, $min, $disc]) {
+                    $db->insert('agent_tiers', ['code' => $c, 'name' => $n, 'sort_order' => $o, 'min_lifetime_topup' => $min, 'discount_percent' => $disc, 'active' => 1, 'created_at' => date('Y-m-d H:i:s')]);
+                }
+            }
+
+            // LOYALTY POINTS (§C.4 step 5). One ledger for both actors; the
+            // scheme (earn rate, redeem value) is admin-configurable per actor in
+            // settings. users.loyalty_points caches the spendable balance.
+            $db->query("CREATE TABLE IF NOT EXISTS `loyalty_ledger` (
+                `id` bigint(20) NOT NULL AUTO_INCREMENT,
+                `user_id` varchar(255) NOT NULL,
+                `actor_kind` enum('customer','agent') NOT NULL DEFAULT 'customer',
+                `direction` enum('earn','redeem','adjust','expire') NOT NULL,
+                `points` int(11) NOT NULL,
+                `balance_after` int(11) NOT NULL,
+                `reason` varchar(64) DEFAULT NULL,
+                `ref_type` varchar(32) DEFAULT NULL,
+                `ref_id` varchar(64) DEFAULT NULL,
+                `idempotency_key` varchar(150) DEFAULT NULL,
+                `note` varchar(255) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_idem` (`idempotency_key`),
+                KEY `idx_user` (`user_id`,`created_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            // Additive user columns: current tier + cached loyalty balance.
+            foreach ([
+                ['agent_tier_id',  "ADD COLUMN `agent_tier_id` int(11) DEFAULT NULL"],
+                ['loyalty_points', "ADD COLUMN `loyalty_points` int(11) NOT NULL DEFAULT 0"],
+            ] as [$c, $sql]) {
+                try {
+                    if (!$db->query("SHOW COLUMNS FROM `users` LIKE '{$c}'")->fetch()) {
+                        $db->query("ALTER TABLE `users` {$sql}");
+                    }
+                } catch (\Throwable $e) { error_log("ensureAgentApiSchema users.{$c}: " . $e->getMessage()); }
+            }
+
+            // Loyalty config in settings (admin-editable): earn rate = points per
+            // 1 currency unit spent; redeem value = currency per 1 point.
+            foreach ([
+                'loyalty_enabled'            => "ADD COLUMN `loyalty_enabled` tinyint(1) NOT NULL DEFAULT 0",
+                'loyalty_earn_customer'      => "ADD COLUMN `loyalty_earn_customer` decimal(8,4) NOT NULL DEFAULT 0.0100",
+                'loyalty_earn_agent'         => "ADD COLUMN `loyalty_earn_agent` decimal(8,4) NOT NULL DEFAULT 0.0050",
+                'loyalty_redeem_value'       => "ADD COLUMN `loyalty_redeem_value` decimal(8,4) NOT NULL DEFAULT 1.0000",
+            ] as $c => $sql) {
+                try {
+                    if (!$db->query("SHOW COLUMNS FROM `settings` LIKE '{$c}'")->fetch()) {
+                        $db->query("ALTER TABLE `settings` {$sql}");
+                    }
+                } catch (\Throwable $e) { error_log("ensureAgentApiSchema settings.{$c}: " . $e->getMessage()); }
+            }
         } catch (\Throwable $e) {
             // Match the codebase convention: swallow (e.g. a DB user without
             // CREATE rights) and log, rather than fatal the whole request.

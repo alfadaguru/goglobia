@@ -141,6 +141,7 @@ require_once 'app/routes/admin/databaseRoutes.php';
 require_once 'app/routes/admin/cmsRoutes.php';
 require_once 'app/routes/admin/creditsRoutes.php';
 require_once 'app/routes/admin/transactionsRoutes.php';
+require_once 'app/routes/admin/moneyRoutes.php'; // agent tiers + loyalty scheme (MONEY-WALLET-AUDIT §C.4 steps 4-5)
 require_once 'app/routes/admin/notificationTemplatesRoutes.php';
 require_once 'app/routes/admin/menusRoutes.php';
 require_once 'app/routes/admin/staysRoutes.php';

@@ -78,6 +78,19 @@ function process_payment($invoiceId)
             return ['success' => false, 'message' => 'Payment gateway not available'];
         }
 
+        // PAYMENT RULE server-side guard (docs/MONEY-WALLET-AUDIT.md §A.3): an
+        // AGENT may pay ONLY from their wallet (an internal_wallet gateway). A
+        // customer may use wallet or any gateway; a guest may use any non-wallet
+        // gateway. This cannot be bypassed by POSTing a card gateway_id because
+        // it is enforced here, not just in the chooser UI.
+        if (function_exists('payment_gateway_allowed_for_actor')
+            && !payment_gateway_allowed_for_actor($db, $gateway)) {
+            if (function_exists('payment_actor_is_agent') && payment_actor_is_agent($db)) {
+                return ['success' => false, 'message' => 'Agents can only pay from their wallet. Please top up your wallet and pay from it.'];
+            }
+            return ['success' => false, 'message' => 'This payment method is not available for your account.'];
+        }
+
         // Create payment token
         $token = create_payment_token($booking, $gateway);
 
@@ -1135,6 +1148,21 @@ function record_transaction($tokenData, $transactionId, $status, $gatewayData = 
     ]);
 
     $insertId = $db->id();
+
+    // LOYALTY EARN (docs/MONEY-WALLET-AUDIT.md §C.4 step 5): on a SUCCESSFUL
+    // payment, award points to the payer per the admin-set rate (customer vs
+    // agent). Idempotent per invoice (keyed inside loyalty_earn_for_payment), so
+    // a re-fired callback never double-earns. Never blocks the payment on error.
+    if ($status === 'success' && function_exists('loyalty_earn_for_payment')) {
+        $earnUser = (string) ($tokenData['user_id'] ?? ($_SESSION['user_id'] ?? ''));
+        $earnAmt  = (float) ($tokenData['amount'] ?? 0);
+        $earnInv  = (string) ($tokenData['invoice_id'] ?? '');
+        if ($earnUser !== '' && $earnAmt > 0 && $earnInv !== '') {
+            try { loyalty_earn_for_payment($db, $earnUser, $earnAmt, $earnInv); }
+            catch (\Throwable $e) { error_log('loyalty earn: ' . $e->getMessage()); }
+        }
+    }
+
     if ($insertId) {
         return $db->get('transactions', '*', ['id' => $insertId]);
     }

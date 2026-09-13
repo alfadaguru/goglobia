@@ -12,24 +12,42 @@
 @$SECURE or die('Access Denied!');
 
 if (!function_exists('busApiApplyMarkup')) {
-    // A NON-ZERO OPERATOR markup_b2c OVERRIDES THE MODULE-LEVEL markup_b2c —
-    // MIRRORS app/routes/api/bus/listingRoutes.php'S PRICING LOGIC
+    // MARKUP NORMALISATION (docs/MONEY-WALLET-AUDIT.md §C.4 step 6):
+    // Route the module-default markup through the central MARKUP() engine so the
+    // mobile Bus path honours the same rules as the web path and every other
+    // module — agents get the b2b rate (minus their member-tier discount),
+    // customers get b2c, and per-user custom markup applies. MARKUP() resolves
+    // the caller from the session OR the request JWT, so it works for mobile.
+    // A non-zero per-operator markup_b2c still overrides, but only for plain
+    // customers with no custom markup (the override column is b2c-only in the
+    // bus_operators schema — there is no b2b operator column).
     function busApiApplyMarkup($db, $price, $operatorId = 0) {
         $price = (float)$price;
-        $module = $db->get('modules', ['markup_b2c', 'markup_type_b2c'], ['type' => 'bus', 'name' => 'bus']);
-        $markup     = (float)($module['markup_b2c'] ?? 0);
-        $markupType = $module['markup_type_b2c'] ?? 'percentage';
+        if ($price <= 0) return 0.0;
 
-        if ($operatorId) {
+        $isAgent = false;
+        $customUserMarkup = false;
+        $uid = (string)($_SESSION['user_id'] ?? '');
+        if ($uid !== '') {
+            $payer = $db->get('users', ['role', 'apply_markup'], ['user_id' => $uid]);
+            $isAgent = is_array($payer) && strtolower((string)($payer['role'] ?? '')) === 'agent';
+            if (!$isAgent) {
+                $isAgent = strtolower((string)($_SESSION['user_role'] ?? '')) === 'agent';
+            }
+            $customUserMarkup = is_array($payer) && ($payer['apply_markup'] ?? 'global') === 'custom';
+        }
+
+        if ($operatorId && !$isAgent && !$customUserMarkup) {
             $op = $db->get('bus_operators', ['markup_b2c', 'markup_type_b2c'], ['id' => (int)$operatorId]);
             if ($op && (float)($op['markup_b2c'] ?? 0) > 0) {
                 $markup     = (float)$op['markup_b2c'];
                 $markupType = $op['markup_type_b2c'] ?? 'percentage';
+                return round($markupType === 'fixed' ? $price + $markup : $price * (1 + $markup / 100), 2);
             }
         }
 
-        if ($markup <= 0) return round($price, 2);
-        return round($markupType === 'fixed' ? $price + $markup : $price * (1 + $markup / 100), 2);
+        $m = MARKUP($price, 'bus', $db);
+        return round((float)($m['price'] ?? $price), 2);
     }
 }
 

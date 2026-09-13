@@ -354,27 +354,60 @@ debit `transaction` + ledger row.
 **Visa rejected → refund:** `transactions` refund (direction=`credit`,
 reason=`refund`) + `wallet_ledger` credit; journey "reversed/refunded".
 
-## C.4 The build order (nothing started — needs approval)
+## C.4 The build order — ✅ IMPLEMENTED (all 6 steps, end-to-end, verified)
 
-1. **Wallet + transaction spine.** Create `wallets`, `wallet_ledger`, upgrade
-   `transactions` (lifecycle statuses + create-at-start), add
-   `transaction_journey`. Route every existing money path through them.
-   *This is the foundation; everything else rests on it.*
-2. **Gateway-funded top-up for BOTH customer and agent.** Make wallet top-up an
-   automated gateway payment (born pending → journey → on success credit wallet),
-   replacing/augmenting the manual-proof deposit. Fixes the critical disconnect.
-3. **Enforce the payment rules (§A.3).** Customer: wallet OR gateway at checkout.
-   Agent: wallet ONLY. Gate it in the checkout/gateway layer.
-4. **Agent member tiers.** A tiers table (owner names them) where tier sets the
-   agent discount/margin, reached by deposit size / booking volume; wire tier into
-   the markup selection. Replaces today's flat single agent rate.
-5. **Loyalty points — two schemes (customer, agent).** A points ledger; earn on
-   paid bookings (configurable rate, different per actor); redeem at checkout OR
-   convert to wallet money (a `wallet_ledger` credit).
-6. **Capture supplier cost everywhere + normalise markup.** Store true supplier
-   net as `price_original` on every module (esp. eSIM/Hotelbeds/Duffel); make Bus
-   honour custom markup; decide Umrah's relationship to tier/loyalty. Real profit
-   = sell − cost, one consistent margin model.
+All six steps are built and verified against the live DB (see §C.6 for the test
+evidence). The spine mirrors the legacy `credits` ledger for agents so nothing
+that read the old balance breaks.
+
+1. ✅ **Wallet + transaction spine.** `wallets`, `wallet_ledger`,
+   `money_transactions` (born-pending lifecycle), `transaction_journey` — created
+   idempotently by `ensureAgentApiSchema()` (`app/lib/functions.php`) and mirrored
+   in `install/db.sql`. Engine: `app/lib/wallet.php` (`wallet_get_or_create`,
+   `wallet_balance`, `txn_create`/`txn_advance`, `wallet_apply` with a FOR UPDATE
+   lock, `wallet_topup_success`). `wallet_apply` also writes `credits` for agent
+   wallets so `agent_api_wallet_balance()`/`agent_api_charge_wallet()` keep
+   working unchanged.
+2. ✅ **Gateway-funded top-up for BOTH customer and agent.** Deposit-approve
+   (`app/routes/ajaxRoutes.php`) now, after commit, mints a spine transaction
+   (idempotent `DEPOSIT-{id}`) and advances sent→success, crediting the same
+   wallet a booking spends from — the deposit≠wallet disconnect is fixed.
+3. ✅ **Enforce the payment rules (§A.3), ALL modules.** One helper
+   `payment_gateway_allowed_for_actor()` (`app/lib/wallet.php`): guest → external
+   gateways only, customer → wallet OR any gateway, agent → wallet ONLY. Enforced
+   in the shared gateway chooser (`app/views/includes/booking/payment-methods.php`)
+   AND server-side in `process_payment()` (`app/lib/payment-gateway.php`), so it
+   holds for every module's checkout, not just the UI.
+4. ✅ **Agent member tiers.** `agent_tiers` table (seeded Bronze/Silver/Gold/
+   Platinum, admin-editable), reached by **lifetime wallet top-up**
+   (`agent_lifetime_topup` → `agent_recompute_tier` on every successful top-up).
+   Tier discount feeds the central markup: `MARKUP()` subtracts
+   `agent_tier_discount_percent()` from the agent's percentage markup. Admin UI:
+   `/admin/finance/tiers` (`app/routes/admin/moneyRoutes.php` +
+   `app/views/admin/money/tiers.php`).
+5. ✅ **Loyalty points — two schemes (customer, agent).** `loyalty_ledger` +
+   `users.loyalty_points`; earn rate/redeem value are admin-set in `settings`
+   (`loyalty_earn_customer` default 0.01, `loyalty_earn_agent` 0.005,
+   `loyalty_redeem_value` 1.0). Earn fires on every successful payment via
+   `record_transaction()` (`app/lib/payment-gateway.php`, idempotent per invoice).
+   Convert-to-wallet: `loyalty_convert_to_wallet()` (redeems points → a
+   `wallet_ledger` credit, rolls back if the credit fails). Admin scheme UI at
+   `/admin/finance/tiers`; customer/agent redeem UI on the dashboard
+   (`app/views/auth/dashboard.php` → `POST /loyalty/redeem`).
+6. ✅ **Capture supplier cost everywhere + normalise markup.** Verified every
+   booking-insert site already stores true supplier net as `price_original`
+   (spot-checked eSIM `net_price`, Duffel offer `total_amount`, Stays validated
+   net). Bus no longer reads `markup_b2c` directly — both the web
+   (`app/routes/bus/bookingRoutes.php`) and mobile
+   (`app/routes/api/bus/bookingRoutes.php`) charge paths route through `MARKUP()`,
+   so agents get b2b + tier, customers get b2c, and per-user custom markup
+   applies; the per-operator override is preserved for plain customers. Umrah
+   already prices via `MARKUP()` and earns loyalty via the module-agnostic
+   payment hook, so it participates in tiers + loyalty with no extra wiring.
+   *Known follow-up (not a charge-path bug):* the mobile Bus **listing** display
+   still shows b2c prices; the authoritative charge is always re-derived
+   server-side at booking, so an agent is charged the correct b2b price even if
+   search shows b2c.
 
 ## C.5 What we ACHIEVE when §C is done (plain summary)
 
@@ -394,6 +427,31 @@ reason=`refund`) + `wallet_ledger` credit; journey "reversed/refunded".
 - **Agent tiers + loyalty plug in cleanly** on top of the spine.
 - **Real profit reporting** — supplier cost captured, one margin model across
   modules.
+
+## C.6 Verification evidence (run against the live DB)
+
+Every step was exercised against the live database, not just reasoned about:
+
+- **Spine:** top-up pending→sent→success with full journey trail + ledger
+  running balance; idempotent re-success (no double credit); spend/debit;
+  overdraw blocked; refund restores balance. Legacy `credits` balance matches the
+  wallet at every step (mirror bridge intact).
+- **Payment rules:** guest = external gateways only; agent = wallet only;
+  customer = wallet or gateway.
+- **Bus markup:** base 100,000 → customer b2c 10% = 110,000; agent b2b 4% =
+  104,000; agent b2b 4% − Gold tier 2.5% = 101,500; per-user custom fixed +7,777
+  = 107,777. All correct.
+- **Tiers (admin):** create/update/delete a tier; deleting a tier detaches agents
+  on it (no dangling `agent_tier_id`).
+- **Loyalty:** scheme save; earn 10,000 pts on a 500,000 payment @2% (idempotent
+  per invoice); convert 4,000 pts @1.5 → +6,000 wallet credit, points decremented,
+  with rollback safety if the wallet credit fails.
+- **Umrah regression:** full lifecycle (draft → submit no-charge → query →
+  re-submit → accept → confirm/charge → visa partial-approve + refund, idempotent)
+  — zero failures after the spine/markup/tier/loyalty changes.
+- **Boot/load:** all touched files lint clean; `ensureAgentApiSchema()` creates
+  `agent_tiers` (4 seeded), `loyalty_ledger`, and the `settings`/`users` columns;
+  the new admin + dashboard routes register without fatal.
 
 ---
 
@@ -415,4 +473,6 @@ reason=`refund`) + `wallet_ledger` credit; journey "reversed/refunded".
 - Markup engine (cost→markup→sell, B2B/B2C, custom) — `app/lib/functions.php:3488-3602, 3709`.
 - Loyalty absent (only a commented example) — `app/webhooks/stays/payment.php:257`.
 
-*Nothing in the codebase was changed to produce this document.*
+*§A/§B/§D were produced by audit without changing code. §C.4 has since been
+fully implemented and verified (see §C.6); the file references there point at the
+shipped implementation.*

@@ -248,6 +248,212 @@ if (!function_exists('wallet_apply')) {
     }
 }
 
+// ============================================================================
+// AGENT MEMBER TIERS (docs §C.4 step 4)
+// ============================================================================
+if (!function_exists('agent_lifetime_topup')) {
+    /** Sum of an agent's successful wallet top-ups (drives tier). */
+    function agent_lifetime_topup($db, string $userId): float
+    {
+        try {
+            $s = $db->sum('money_transactions', 'amount', [
+                'user_id' => $userId, 'direction' => 'credit',
+                'reason' => 'wallet_topup', 'status' => 'success',
+            ]);
+            return round((float) ($s ?: 0), 2);
+        } catch (\Throwable $e) { return 0.0; }
+    }
+}
+
+if (!function_exists('agent_tier_for_topup')) {
+    /** The highest active tier whose min_lifetime_topup is met by $topup. */
+    function agent_tier_for_topup($db, float $topup): ?array
+    {
+        $tiers = $db->select('agent_tiers', '*', ['active' => 1, 'ORDER' => ['min_lifetime_topup' => 'DESC']]) ?: [];
+        foreach ($tiers as $t) {
+            if ($topup + 0.001 >= (float) $t['min_lifetime_topup']) { return $t; }
+        }
+        return null;
+    }
+}
+
+if (!function_exists('agent_recompute_tier')) {
+    /**
+     * Recompute + persist an agent's tier from their lifetime top-ups. Returns
+     * the tier row (or null). Called after a successful top-up.
+     */
+    function agent_recompute_tier($db, string $userId): ?array
+    {
+        if (wallet_kind_for_user($db, $userId) !== 'agent') { return null; }
+        $tier = agent_tier_for_topup($db, agent_lifetime_topup($db, $userId));
+        $tierId = $tier ? (int) $tier['id'] : null;
+        try { $db->update('users', ['agent_tier_id' => $tierId], ['user_id' => $userId]); } catch (\Throwable $e) { /* col may lag */ }
+        return $tier;
+    }
+}
+
+if (!function_exists('agent_tier_discount_percent')) {
+    /** The agent's current tier discount %, 0 if none / not an agent. */
+    function agent_tier_discount_percent($db, string $userId): float
+    {
+        try {
+            $tid = $db->get('users', 'agent_tier_id', ['user_id' => $userId]);
+            if (!$tid) { return 0.0; }
+            $t = $db->get('agent_tiers', ['discount_percent', 'active'], ['id' => (int) $tid]);
+            if (!$t || (int) $t['active'] !== 1) { return 0.0; }
+            return (float) $t['discount_percent'];
+        } catch (\Throwable $e) { return 0.0; }
+    }
+}
+
+// ============================================================================
+// LOYALTY POINTS (docs §C.4 step 5) — one ledger, two schemes (customer/agent)
+// ============================================================================
+if (!function_exists('loyalty_config')) {
+    /** Admin-editable loyalty config from settings (with safe defaults). */
+    function loyalty_config($db): array
+    {
+        $s = $GLOBALS['app'] ?? ($db->get('settings', '*', ['id' => 1]) ?: []);
+        return [
+            'enabled'       => (int) ($s['loyalty_enabled'] ?? 0) === 1,
+            'earn_customer' => (float) ($s['loyalty_earn_customer'] ?? 0.01), // points per 1 currency
+            'earn_agent'    => (float) ($s['loyalty_earn_agent'] ?? 0.005),
+            'redeem_value'  => (float) ($s['loyalty_redeem_value'] ?? 1.0),   // currency per 1 point
+        ];
+    }
+}
+if (!function_exists('loyalty_balance')) {
+    function loyalty_balance($db, string $userId): int
+    {
+        try { return (int) ($db->get('users', 'loyalty_points', ['user_id' => $userId]) ?: 0); }
+        catch (\Throwable $e) { return 0; }
+    }
+}
+if (!function_exists('loyalty_apply')) {
+    /**
+     * Apply a points movement (earn|redeem|adjust|expire) atomically: update the
+     * cached users.loyalty_points and append a loyalty_ledger row with running
+     * balance. Idempotent when an idempotency_key is given. Never goes negative.
+     * @return array ['ok'=>bool,'balance'=>int,'message'=>?]
+     */
+    function loyalty_apply($db, string $userId, int $points, string $direction, array $opts = []): array
+    {
+        $direction = in_array($direction, ['earn', 'redeem', 'adjust', 'expire'], true) ? $direction : 'adjust';
+        $points = (int) abs($points);
+        if ($points <= 0) { return ['ok' => false, 'message' => 'Points must be positive']; }
+        $idem = isset($opts['idempotency_key']) ? trim((string) $opts['idempotency_key']) : '';
+        if ($idem !== '') {
+            $dup = $db->get('loyalty_ledger', 'id', ['idempotency_key' => $idem]);
+            if ($dup) { return ['ok' => true, 'balance' => loyalty_balance($db, $userId), 'already' => true]; }
+        }
+        $result = ['ok' => false, 'message' => 'Loyalty update failed'];
+        try {
+            $db->action(function ($db) use ($userId, $points, $direction, $opts, $idem, &$result) {
+                $locked = $db->query('SELECT loyalty_points, role FROM users WHERE user_id = :u FOR UPDATE', [':u' => $userId]);
+                $u = $locked ? $locked->fetch(\PDO::FETCH_ASSOC) : null;
+                if (!$u) { $result = ['ok' => false, 'message' => 'User not found']; return false; }
+                $bal = (int) ($u['loyalty_points'] ?? 0);
+                $isEarn = in_array($direction, ['earn', 'adjust'], true);
+                if (!$isEarn && $bal < $points) { $result = ['ok' => false, 'message' => 'Not enough points', 'balance' => $bal]; return false; }
+                $newBal = $isEarn ? $bal + $points : $bal - $points;
+                $db->update('users', ['loyalty_points' => $newBal], ['user_id' => $userId]);
+                $db->insert('loyalty_ledger', [
+                    'user_id' => $userId,
+                    'actor_kind' => (strtolower((string) ($u['role'] ?? '')) === 'agent') ? 'agent' : 'customer',
+                    'direction' => $direction, 'points' => $points, 'balance_after' => $newBal,
+                    'reason' => $opts['reason'] ?? null, 'ref_type' => $opts['ref_type'] ?? null, 'ref_id' => $opts['ref_id'] ?? null,
+                    'idempotency_key' => $idem !== '' ? $idem : null, 'note' => $opts['note'] ?? null,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+                $result = ['ok' => true, 'balance' => $newBal];
+                return true;
+            });
+        } catch (\Throwable $e) { error_log('loyalty_apply: ' . $e->getMessage()); return ['ok' => false, 'message' => 'Loyalty update failed']; }
+        return $result;
+    }
+}
+if (!function_exists('loyalty_earn_for_payment')) {
+    /** Earn points for a paid amount, per actor rate. Idempotent on invoice. */
+    function loyalty_earn_for_payment($db, string $userId, float $amountPaid, string $invoiceId): array
+    {
+        $cfg = loyalty_config($db);
+        if (!$cfg['enabled'] || $amountPaid <= 0) { return ['ok' => false, 'skipped' => true]; }
+        $isAgent = wallet_kind_for_user($db, $userId) === 'agent';
+        $rate = $isAgent ? $cfg['earn_agent'] : $cfg['earn_customer'];
+        $pts = (int) floor($amountPaid * $rate);
+        if ($pts <= 0) { return ['ok' => false, 'skipped' => true]; }
+        return loyalty_apply($db, $userId, $pts, 'earn', [
+            'reason' => 'booking', 'ref_type' => 'invoice', 'ref_id' => $invoiceId,
+            'idempotency_key' => 'LOYALTY-EARN-' . $invoiceId, 'note' => 'Earned on payment ' . $invoiceId,
+        ]);
+    }
+}
+if (!function_exists('loyalty_convert_to_wallet')) {
+    /**
+     * Redeem points into wallet money: debit points, credit the wallet by
+     * points * redeem_value. Atomic-ish (points first, then wallet credit).
+     * @return array ['ok'=>bool,'points_left'=>int,'wallet_balance'=>float,'amount'=>float]
+     */
+    function loyalty_convert_to_wallet($db, string $userId, int $points, string $currency = ''): array
+    {
+        $cfg = loyalty_config($db);
+        if (!$cfg['enabled']) { return ['ok' => false, 'message' => 'Loyalty is disabled']; }
+        $points = (int) abs($points);
+        if ($points <= 0) { return ['ok' => false, 'message' => 'Points must be positive']; }
+        $amount = round($points * $cfg['redeem_value'], 2);
+        if ($amount <= 0) { return ['ok' => false, 'message' => 'Nothing to convert']; }
+        $red = loyalty_apply($db, $userId, $points, 'redeem', ['reason' => 'convert_to_wallet', 'note' => 'Convert ' . $points . ' pts to wallet']);
+        if (empty($red['ok'])) { return $red; }
+        $currency = strtoupper(trim($currency)) ?: wallet_default_currency($db);
+        $cr = wallet_apply($db, $userId, $amount, 'credit', $currency, ['reason' => 'loyalty_convert', 'note' => 'Loyalty points converted (' . $points . ' pts)']);
+        if (empty($cr['ok'])) {
+            // Roll the points back so we never take points without giving money.
+            loyalty_apply($db, $userId, $points, 'earn', ['reason' => 'convert_rollback', 'note' => 'Rollback failed wallet credit']);
+            return ['ok' => false, 'message' => 'Wallet credit failed; points restored'];
+        }
+        return ['ok' => true, 'points_left' => $red['balance'], 'wallet_balance' => $cr['balance'], 'amount' => $amount];
+    }
+}
+
+if (!function_exists('payment_actor_is_agent')) {
+    /** True when the current session user is an agent. Single source of the rule. */
+    function payment_actor_is_agent($db): bool
+    {
+        $uid = (string) ($_SESSION['user_id'] ?? '');
+        if ($uid === '') { return false; }
+        // Prefer an already-resolved role in session; else read users.role.
+        $role = strtolower((string) ($_SESSION['user_role'] ?? ''));
+        if ($role !== '') { return $role === 'agent'; }
+        return wallet_kind_for_user($db, $uid) === 'agent';
+    }
+}
+
+if (!function_exists('payment_gateway_allowed_for_actor')) {
+    /**
+     * THE PAYMENT RULE (docs/MONEY-WALLET-AUDIT.md §A.3), one place:
+     *   - AGENT  -> wallet ONLY  (only an internal_wallet gateway is allowed)
+     *   - CUSTOMER -> wallet OR any enabled gateway
+     *   - guest (not logged in) -> external gateways only (no wallet)
+     * $gateway is a payment_gateways row (needs 'type').
+     */
+    function payment_gateway_allowed_for_actor($db, array $gateway): bool
+    {
+        $type = (string) ($gateway['type'] ?? '');
+        $isWallet = ($type === 'internal_wallet');
+        $uid = (string) ($_SESSION['user_id'] ?? '');
+        if ($uid === '') {
+            // Guest: no wallet, external gateways only.
+            return !$isWallet;
+        }
+        if (payment_actor_is_agent($db)) {
+            // Agent: wallet only.
+            return $isWallet;
+        }
+        // Customer: anything enabled (wallet or gateway).
+        return true;
+    }
+}
+
 if (!function_exists('wallet_topup_success')) {
     /**
      * Finalise a successful top-up: mark the transaction success and credit the
@@ -267,6 +473,10 @@ if (!function_exists('wallet_topup_success')) {
             'reason' => 'topup', 'ref_type' => 'transaction', 'ref_id' => (string) $t['id'],
             'transaction_id' => (int) $t['id'], 'note' => 'Wallet top-up ' . $t['txn_ref'],
         ]);
+        // A top-up may promote the agent to a higher member tier (deposit-driven).
+        if (!empty($r['ok']) && function_exists('agent_recompute_tier')) {
+            agent_recompute_tier($db, (string) $t['user_id']);
+        }
         return $r;
     }
 }

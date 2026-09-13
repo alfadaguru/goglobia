@@ -61,6 +61,79 @@
             </div>
          </div>
 
+         <?php if (!empty($dashboardData['loyalty_enabled'])): ?>
+         <!-- ==================================================================
+              LOYALTY POINTS — balance, cash worth, and convert-to-wallet
+         ================================================================== -->
+         <div class="mb-6 px-4 lg:px-0"
+              x-data="{
+                 points: <?= (int)($dashboardData['loyalty_points'] ?? 0) ?>,
+                 redeemValue: <?= json_encode((float)($dashboardData['loyalty_redeem_value'] ?? 0)) ?>,
+                 currency: '<?= htmlspecialchars($dashboardData['currency'] ?? 'USD', ENT_QUOTES) ?>',
+                 amount: 0,
+                 busy: false,
+                 msg: '',
+                 msgType: '',
+                 get worth() { return (this.points * this.redeemValue); },
+                 fmt(n) { return Number(n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); },
+                 async redeem() {
+                    const pts = parseInt(this.amount, 10);
+                    if (!pts || pts <= 0) { this.msg = 'Enter a positive number of points'; this.msgType = 'error'; return; }
+                    if (pts > this.points) { this.msg = 'You do not have that many points'; this.msgType = 'error'; return; }
+                    this.busy = true; this.msg = '';
+                    try {
+                       const r = await fetch('<?= root ?>loyalty/redeem', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '<?= CSRF::getToken() ?>' },
+                          body: JSON.stringify({ points: pts, csrf_token: '<?= CSRF::getToken() ?>' })
+                       });
+                       const j = await r.json();
+                       if (j.success) {
+                          this.points = j.points_left;
+                          this.amount = 0;
+                          this.msg = 'Converted to ' + this.currency + ' ' + this.fmt(j.amount) + ' wallet credit.';
+                          this.msgType = 'success';
+                       } else {
+                          this.msg = j.message || 'Conversion failed'; this.msgType = 'error';
+                       }
+                    } catch (e) { this.msg = 'Network error'; this.msgType = 'error'; }
+                    this.busy = false;
+                 }
+              }">
+            <div class="rounded-xl border border-amber-100 bg-gradient-to-br from-amber-50 to-white p-5">
+               <div class="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                     <div class="text-xs font-medium text-amber-700 mb-1 flex items-center gap-1">
+                        <span class="material-symbols-outlined text-base">loyalty</span> <?= T::loyalty_points ?? 'Loyalty Points' ?>
+                     </div>
+                     <div class="text-2xl font-bold text-amber-800">
+                        <span x-text="points.toLocaleString()"></span> <span class="text-base font-medium"><?= T::points ?? 'pts' ?></span>
+                     </div>
+                     <p class="text-[11px] text-amber-600 mt-1">
+                        <?= T::worth ?? 'Worth' ?> <span x-text="currency + ' ' + fmt(worth)"></span>
+                        <template x-if="redeemValue > 0">
+                           <span> · <span x-text="redeemValue"></span> <span x-text="currency"></span> / pt</span>
+                        </template>
+                     </p>
+                  </div>
+                  <div class="flex items-end gap-2" x-show="points > 0">
+                     <div class="flex flex-col gap-1">
+                        <label class="text-[11px] font-medium text-amber-700"><?= T::redeem_points ?? 'Convert to wallet' ?></label>
+                        <input type="number" min="1" :max="points" x-model="amount" class="input py-1.5 px-3 text-sm w-36" placeholder="Points">
+                     </div>
+                     <button type="button" class="btn primary text-sm py-1.5 px-4" :disabled="busy" @click="redeem()">
+                        <span x-show="!busy"><?= T::redeem ?? 'Redeem' ?></span>
+                        <span x-show="busy">…</span>
+                     </button>
+                  </div>
+               </div>
+               <template x-if="msg">
+                  <div class="mt-3 text-sm" :class="msgType === 'success' ? 'text-emerald-700' : 'text-red-600'" x-text="msg"></div>
+               </template>
+            </div>
+         </div>
+         <?php endif; ?>
+
          <?php if (!empty($dashboardData['is_agent'])): ?>
          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 px-4 lg:px-0">
             <div class="rounded-xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-4">

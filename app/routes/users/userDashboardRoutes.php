@@ -43,6 +43,18 @@ $router->get('/dashboard', function () use ($SECURE,$db) {
         }
     }
 
+    // LOYALTY (docs/MONEY-WALLET-AUDIT.md §C.4 step 5): current spendable points
+    // + the scheme's redeem value, so the dashboard can offer "convert to wallet".
+    $loyaltyEnabled = false;
+    $loyaltyPoints = 0;
+    $loyaltyRedeemValue = 0.0;
+    if (function_exists('loyalty_config') && function_exists('loyalty_balance')) {
+        $lc = loyalty_config($db);
+        $loyaltyEnabled = !empty($lc['enabled']);
+        $loyaltyRedeemValue = (float)($lc['redeem_value'] ?? 0);
+        $loyaltyPoints = loyalty_balance($db, (string)$user_id);
+    }
+
     // Initialize dashboard data
     $dashboardData = [
         'total_bookings' => $totalBookings,
@@ -57,6 +69,10 @@ $router->get('/dashboard', function () use ($SECURE,$db) {
         'apply_markup' => $user['apply_markup'] ?? 'global',
         'markup_type' => $user['markup_type'] ?? 'percentage',
         'markup_value' => $user['markup_value'] ?? 0,
+        'loyalty_enabled' => $loyaltyEnabled,
+        'loyalty_points' => $loyaltyPoints,
+        'loyalty_redeem_value' => $loyaltyRedeemValue,
+        'loyalty_worth' => number_format($loyaltyPoints * $loyaltyRedeemValue, 2),
     ];
 
     // META DATA
@@ -67,4 +83,41 @@ $router->get('/dashboard', function () use ($SECURE,$db) {
     require_once views."includes/header.php";
     require_once views."auth/dashboard.php";
     require_once views."includes/footer.php";
+});
+
+// LOYALTY REDEEM → WALLET (docs/MONEY-WALLET-AUDIT.md §C.4 step 5)
+// Customer or agent converts their loyalty points into wallet credit at the
+// admin-configured redeem value. JSON endpoint, CSRF-guarded, login required.
+$router->post('/loyalty/redeem', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+
+    if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) {
+        echo json_encode(['success' => false, 'message' => 'Login required']); exit;
+    }
+    $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+    if (!CSRF::validateToken($input['csrf_token'] ?? '')) {
+        echo json_encode(['success' => false, 'message' => 'Invalid CSRF token']); exit;
+    }
+    if (!function_exists('loyalty_convert_to_wallet')) {
+        echo json_encode(['success' => false, 'message' => 'Loyalty unavailable']); exit;
+    }
+
+    $userId = (string)$_SESSION['user_id'];
+    $points = (int)($input['points'] ?? 0);
+    if ($points <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Enter a positive number of points']); exit;
+    }
+
+    $currency = (string)($db->get('users', 'currency', ['user_id' => $userId]) ?: '');
+    $res = loyalty_convert_to_wallet($db, $userId, $points, $currency);
+    if (empty($res['ok'])) {
+        echo json_encode(['success' => false, 'message' => $res['message'] ?? 'Conversion failed']); exit;
+    }
+    echo json_encode([
+        'success'        => true,
+        'points_left'    => $res['points_left'],
+        'wallet_balance' => $res['wallet_balance'],
+        'amount'         => $res['amount'],
+    ]);
+    exit;
 });

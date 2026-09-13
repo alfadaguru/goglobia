@@ -30182,6 +30182,51 @@ CREATE TABLE IF NOT EXISTS `transaction_journey` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
+-- Agent member tiers + loyalty points (docs/MONEY-WALLET-AUDIT.md §C.4 steps 4-5)
+-- Also created + seeded at runtime by ensureAgentApiSchema(); kept here so fresh
+-- installs get the tables. The additive columns settings.loyalty_* and
+-- users.agent_tier_id / users.loyalty_points are applied by that same ensure
+-- function at first boot (they ALTER the settings/users tables defined above).
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `agent_tiers` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `code` varchar(32) NOT NULL,
+  `name` varchar(64) NOT NULL,
+  `sort_order` smallint(6) NOT NULL DEFAULT 0,
+  `min_lifetime_topup` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `discount_percent` decimal(6,2) NOT NULL DEFAULT 0.00,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+INSERT INTO `agent_tiers` (`code`, `name`, `sort_order`, `min_lifetime_topup`, `discount_percent`, `active`) VALUES
+('bronze',   'Bronze',   1, 0.00,        0.00, 1),
+('silver',   'Silver',   2, 2000000.00,  1.00, 1),
+('gold',     'Gold',     3, 10000000.00, 2.50, 1),
+('platinum', 'Platinum', 4, 50000000.00, 4.00, 1);
+
+CREATE TABLE IF NOT EXISTS `loyalty_ledger` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `user_id` varchar(255) NOT NULL,
+  `actor_kind` enum('customer','agent') NOT NULL DEFAULT 'customer',
+  `direction` enum('earn','redeem','adjust','expire') NOT NULL,
+  `points` int(11) NOT NULL,
+  `balance_after` int(11) NOT NULL,
+  `reason` varchar(64) DEFAULT NULL,
+  `ref_type` varchar(32) DEFAULT NULL,
+  `ref_id` varchar(64) DEFAULT NULL,
+  `idempotency_key` varchar(150) DEFAULT NULL,
+  `note` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_idem` (`idempotency_key`),
+  KEY `idx_user` (`user_id`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
 -- Umrah redesign (docs/UMRAH-PHASE1-BUILD-PLAN.md) — departure/tier/quote/hold/
 -- installment domain. Also created + seeded at runtime by ensureUmrahSchema() /
 -- seedUmrahPhase1(); kept here so fresh installs get the tables. Seed data is
