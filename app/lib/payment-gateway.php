@@ -1154,9 +1154,17 @@ function record_transaction($tokenData, $transactionId, $status, $gatewayData = 
     // agent). Idempotent per invoice (keyed inside loyalty_earn_for_payment), so
     // a re-fired callback never double-earns. Never blocks the payment on error.
     if ($status === 'success' && function_exists('loyalty_earn_for_payment')) {
-        $earnUser = (string) ($tokenData['user_id'] ?? ($_SESSION['user_id'] ?? ''));
-        $earnAmt  = (float) ($tokenData['amount'] ?? 0);
         $earnInv  = (string) ($tokenData['invoice_id'] ?? '');
+        $earnAmt  = (float) ($tokenData['amount'] ?? 0);
+        // Resolve the payer robustly. The standard gateway token does NOT carry
+        // user_id (create_payment_token omits it), so fall back to the session,
+        // then — for async/webhook contexts with no session (e.g. a re-fired
+        // callback) — to the booking row itself via invoice_id. This guarantees
+        // the right user earns regardless of how the success arrives.
+        $earnUser = (string) ($tokenData['user_id'] ?? ($_SESSION['user_id'] ?? ''));
+        if ($earnUser === '' && $earnInv !== '') {
+            $earnUser = (string) ($db->get('bookings', 'user_id', ['invoice_id' => $earnInv]) ?: '');
+        }
         if ($earnUser !== '' && $earnAmt > 0 && $earnInv !== '') {
             try { loyalty_earn_for_payment($db, $earnUser, $earnAmt, $earnInv); }
             catch (\Throwable $e) { error_log('loyalty earn: ' . $e->getMessage()); }
