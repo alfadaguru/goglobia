@@ -441,13 +441,41 @@ verified against the live DB:
   `app/routes/api/ferries/bookingRoutes.php`).
 - **Featured flights** marked up inline. **Fix:** routed through `MARKUP()`
   (`app/routes/api/flights/featuredRoutes.php`).
-- **Visa** has no agent margin by design (govt fee + fixed service fee); **Insurance**
-  is free. Left as-is — decide separately if agents should earn on visa.
+- **Visa** — see §C.4c below (now has an agent commission model). **Insurance**
+  is free (no charge), so nothing to price.
 
 **Verified (live DB):** Gold-tier agent (2.5%) on a 6% b2b rate → effective 3.5%
 across functions.php MARKUP, helpers.php MARKUP (gateway), kikoto ferries, and the
 eSIM percentage path; customer b2c untouched; umrah lifecycle regression still
 zero failures; all touched files lint-clean and register without fatal.
+
+### C.4c Display parity + visa agent commission (final gap-closure)
+
+Two remaining honest gaps from §C.4b are now closed and live-DB verified:
+
+- **Browse price = charged price for agents.** The ferries and bus *listing*
+  surfaces previously showed b2c prices even to logged-in agents (the charge was
+  correct, but the browse price didn't match). Fixed:
+  - Ferries: `_kikoto_resolve_agent_context()` now also returns `tier_discount`,
+    and every kikoto caller (search, revalidate, per-accommodation quote, booking)
+    passes it into `_kikoto_apply_markup()` — so search, revalidate and checkout
+    all show/charge the agent's b2b + tier rate.
+  - Bus: `app/routes/api/bus/listingRoutes.php` now resolves the browsing agent and
+    prices through `MARKUP('bus')` (same call the booking path uses), with the
+    per-operator b2c override kept for plain customers.
+- **Visa now pays agents a commission.** Visa's customer price stays fixed
+  (govt fee + service fee). An **agent** now earns, recorded as
+  `bookings.agent_earning`: the visa module's b2b markup % (reduced by their
+  member-tier) applied to the selling total, **capped at the service-fee margin**;
+  or, if no b2b markup is configured, the full service fee. Customers earn 0.
+  Applied in both `app/routes/visa/bookingRoutes.php` and
+  `app/routes/api/visa/bookingRoutes.php`.
+
+**Verified (live DB):** bus listing agent Gold on 4% b2b → 101,500 (== charge),
+customer → 110,000; ferries context returns tier_discount=2.5 and a b2b 6%→3.5%
+search price; visa agent earns 2.5% of total when b2b=5% (capped at service fee),
+or the full service fee when b2b is unset; customers earn 0. Umrah regression
+still zero failures; all files lint-clean and load without fatal.
 
 ## C.5 What we ACHIEVE when §C is done (plain summary)
 

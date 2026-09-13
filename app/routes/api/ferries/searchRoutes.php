@@ -171,18 +171,19 @@ $router->post('/api/ferries/search', function () use ($SECURE, $db) {
         $channel      = $agentCtx['channel'] ?? 'b2c';
 
         // APPLY MARKUP
-        $outbound = _kikoto_add_markup_to_sailings($outbound, $cfg, $channel, $customMarkup);
-        $return   = _kikoto_add_markup_to_sailings($return,   $cfg, $channel, $customMarkup);
+        $tierDiscount = (float)($agentCtx['tier_discount'] ?? 0);
+        $outbound = _kikoto_add_markup_to_sailings($outbound, $cfg, $channel, $customMarkup, $tierDiscount);
+        $return   = _kikoto_add_markup_to_sailings($return,   $cfg, $channel, $customMarkup, $tierDiscount);
 
         // REAL PER-PASSENGER TOTALS — quote each accommodation via Kikoto /prices (in
         // parallel) using the actual adult/child/infant mix, selected bonus and vehicle/pet
         // type, so cards show the true discounted total, not just the base rate.
         _kikoto_quote_accommodation_totals(
-            $outbound, $cfg, $adults, $children, $infants, $bonusIds, $vehicleTypeHint, $petTypeHint, $channel, $customMarkup
+            $outbound, $cfg, $adults, $children, $infants, $bonusIds, $vehicleTypeHint, $petTypeHint, $channel, $customMarkup, $tierDiscount
         );
         if (!empty($return)) {
             _kikoto_quote_accommodation_totals(
-                $return, $cfg, $adults, $children, $infants, $bonusIds, $vehicleTypeHint, $petTypeHint, $channel, $customMarkup
+                $return, $cfg, $adults, $children, $infants, $bonusIds, $vehicleTypeHint, $petTypeHint, $channel, $customMarkup, $tierDiscount
             );
         }
 
@@ -312,7 +313,7 @@ $router->post('/api/ferries/revalidate', function () use ($SECURE, $db) {
         if (!empty($priceData['sailings'])) {
             foreach ($priceData['sailings'] as &$s) {
                 $orig  = (float)($s['price'] ?? 0);
-                $final = _kikoto_apply_markup($orig, $cfg, $channel, $customMarkup);
+                $final = _kikoto_apply_markup($orig, $cfg, $channel, $customMarkup, (float)($agentCtx['tier_discount'] ?? 0));
                 $s['original_price'] = $orig;
                 $s['price']          = $final;
                 $totalOrig          += $orig;

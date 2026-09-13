@@ -99,10 +99,25 @@ if (!function_exists('_kikoto_resolve_agent_context')) {
             }
         }
 
+        // AGENT MEMBER TIER discount (docs/MONEY-WALLET-AUDIT.md §C.4 step 4):
+        // resolve once here so EVERY kikoto caller (search, revalidate, booking)
+        // applies the same tier-reduced b2b rate — browse price matches charge.
+        $tierDiscount = 0.0;
+        if ($isAgent && $userId !== '') {
+            if (!function_exists('agent_tier_discount_percent')) {
+                $walletLib = dirname(__DIR__, 3) . '/app/lib/wallet.php';
+                if (file_exists($walletLib)) { require_once $walletLib; }
+            }
+            if (function_exists('agent_tier_discount_percent')) {
+                $tierDiscount = (float) agent_tier_discount_percent($db, $userId);
+            }
+        }
+
         return [
             'is_agent'      => $isAgent,
             'channel'       => $isAgent ? 'b2b' : 'b2c',
             'custom_markup' => $customMarkup,
+            'tier_discount' => $tierDiscount,
             'user_id'       => $userId !== '' ? $userId : null,
             'user_data'     => is_array($userData) ? $userData : null,
         ];
@@ -376,14 +391,14 @@ if (!function_exists('_kikoto_calc_duration')) {
 // MARKUP APPLIER FOR SAILING ARRAYS — mutates accommodation prices in-place
 // ----------------------------------------------------------------------------
 if (!function_exists('_kikoto_add_markup_to_sailings')) {
-    function _kikoto_add_markup_to_sailings(array $sailings, array $cfg, $channel = 'b2c', $customMarkup = null)
+    function _kikoto_add_markup_to_sailings(array $sailings, array $cfg, $channel = 'b2c', $customMarkup = null, $tierDiscount = 0.0)
     {
         foreach ($sailings as &$s) {
             if (isset($s['accommodations']) && is_array($s['accommodations'])) {
                 foreach ($s['accommodations'] as &$acc) {
                     if (isset($acc['price'])) {
                         $acc['original_price'] = $acc['price'];
-                        $acc['price']          = _kikoto_apply_markup((float)$acc['price'], $cfg, $channel, $customMarkup);
+                        $acc['price']          = _kikoto_apply_markup((float)$acc['price'], $cfg, $channel, $customMarkup, (float)$tierDiscount);
                     }
                 }
                 unset($acc);
@@ -1567,7 +1582,8 @@ if (!function_exists('_kikoto_quote_accommodation_totals')) {
         string $vehicleTypeHint,
         string $petTypeHint,
         string $channel,
-        $customMarkup
+        $customMarkup,
+        $tierDiscount = 0.0
     ): void {
         if (($adults + $children + $infants) <= 0 || empty($sailings)) {
             return;
@@ -1633,7 +1649,7 @@ if (!function_exists('_kikoto_quote_accommodation_totals')) {
             }
 
             $raw    = (float)($res['data']['data']['sailings'][0]['price'] ?? 0);
-            $priced = _kikoto_apply_markup($raw, $cfg, $channel, $customMarkup);
+            $priced = _kikoto_apply_markup($raw, $cfg, $channel, $customMarkup, (float)$tierDiscount);
 
             if ($job['kind'] === 'final') {
                 $sailings[$sIdx]['accommodations'][$aIdx]['total_price'] = $priced;

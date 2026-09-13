@@ -94,17 +94,44 @@ $router->post('/api/bus/listing', function () use ($SECURE, $db) {
             }
         }
 
-        $applyMarkup = function ($price, $operatorId) use ($moduleMarkup, $moduleMarkupType, $operatorMarkups) {
-            $price  = (float)$price;
-            $markup = $moduleMarkup;
-            $markupType = $moduleMarkupType;
-            $op = $operatorMarkups[(int)$operatorId] ?? null;
-            if ($op && $op['markup'] > 0) {
-                $markup     = $op['markup'];
-                $markupType = $op['type'];
+        // Resolve the browsing payer so the LISTING shows the same price the
+        // booking path will charge (docs/MONEY-WALLET-AUDIT.md §C.4b): agents see
+        // b2b + member-tier via MARKUP(); customers see b2c (module or per-operator
+        // override). MARKUP() reads the session/JWT itself. The per-operator
+        // override is b2c-only, so it applies only to plain customers.
+        $listUserId = (string)($_SESSION['user_id'] ?? '');
+        $listIsAgent = false;
+        $listCustomMarkup = false;
+        if ($listUserId !== '') {
+            $lp = $db->get('users', ['role', 'apply_markup'], ['user_id' => $listUserId]);
+            $listIsAgent = is_array($lp) && strtolower((string)($lp['role'] ?? '')) === 'agent';
+            if (!$listIsAgent) {
+                $listIsAgent = strtolower((string)($_SESSION['user_role'] ?? '')) === 'agent';
             }
-            if ($markup <= 0) return round($price, 2);
-            return round($markupType === 'fixed' ? $price + $markup : $price * (1 + $markup / 100), 2);
+            $listCustomMarkup = is_array($lp) && ($lp['apply_markup'] ?? 'global') === 'custom';
+        }
+        if (!function_exists('MARKUP')) {
+            require_once dirname(__DIR__, 3) . '/lib/functions.php';
+        }
+
+        $applyMarkup = function ($price, $operatorId) use ($db, $moduleMarkup, $moduleMarkupType, $operatorMarkups, $listIsAgent, $listCustomMarkup) {
+            $price = (float)$price;
+            if ($price <= 0) return 0.0;
+            // Per-operator b2c override wins only for plain customers.
+            if (!$listIsAgent && !$listCustomMarkup) {
+                $op = $operatorMarkups[(int)$operatorId] ?? null;
+                if ($op && $op['markup'] > 0) {
+                    return round($op['type'] === 'fixed' ? $price + $op['markup'] : $price * (1 + $op['markup'] / 100), 2);
+                }
+            }
+            // Central engine: agent b2b + tier, customer b2c, per-user custom.
+            if (function_exists('MARKUP')) {
+                $m = MARKUP($price, 'bus', $db);
+                return round((float)($m['price'] ?? $price), 2);
+            }
+            // Fallback to module b2c (should not happen).
+            if ($moduleMarkup <= 0) return round($price, 2);
+            return round($moduleMarkupType === 'fixed' ? $price + $moduleMarkup : $price * (1 + $moduleMarkup / 100), 2);
         };
 
         $trips = [];

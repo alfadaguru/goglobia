@@ -173,8 +173,8 @@ $router->post('ferries/kikoto/search', function () use ($db) {
         // APPLY MARKUP TO ACCOMMODATION PRICES
         $agentCtx = _kikoto_resolve_agent_context($db);
         $channel  = $agentCtx['channel'] ?? 'b2c';
-        $outboundSailings = _kikoto_add_markup_to_sailings($outboundSailings, $cfg, $channel, $agentCtx['custom_markup'] ?? null);
-        $returnSailings   = _kikoto_add_markup_to_sailings($returnSailings,   $cfg, $channel, $agentCtx['custom_markup'] ?? null);
+        $outboundSailings = _kikoto_add_markup_to_sailings($outboundSailings, $cfg, $channel, $agentCtx['custom_markup'] ?? null, (float)($agentCtx['tier_discount'] ?? 0));
+        $returnSailings   = _kikoto_add_markup_to_sailings($returnSailings,   $cfg, $channel, $agentCtx['custom_markup'] ?? null, (float)($agentCtx['tier_discount'] ?? 0));
 
         _kikoto_respond(true, 'OK', [
             'outbound'          => $outboundSailings,
@@ -262,14 +262,14 @@ if (!function_exists('_kikoto_calc_duration')) {
 // INTERNAL: apply markup to all accommodation prices within sailings
 // ----------------------------------------------------------------------------
 if (!function_exists('_kikoto_add_markup_to_sailings')) {
-    function _kikoto_add_markup_to_sailings(array $sailings, array $cfg, $channel = 'b2c')
+    function _kikoto_add_markup_to_sailings(array $sailings, array $cfg, $channel = 'b2c', $customMarkup = null, $tierDiscount = 0.0)
     {
         foreach ($sailings as &$s) {
             if (!empty($s['accommodations'])) {
                 foreach ($s['accommodations'] as &$acc) {
                     if (isset($acc['price'])) {
                         $acc['original_price'] = $acc['price'];
-                        $acc['price']          = _kikoto_apply_markup((float)$acc['price'], $cfg, $channel);
+                        $acc['price']          = _kikoto_apply_markup((float)$acc['price'], $cfg, $channel, $customMarkup, (float)$tierDiscount);
                     }
                 }
             }
