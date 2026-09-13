@@ -515,10 +515,11 @@ $router->post('/api/visas/booking/submit', function () use ($db) {
         $finalPriceMarkup = $totalPriceDefault * $travelersCount;
         $taxAmount = 0;
 
-        // AGENT COMMISSION (docs/MONEY-WALLET-AUDIT.md §C.4b) — mirrors the web
-        // visa path: customer price unchanged; an agent earns b2b markup % (minus
-        // member-tier) of the selling total, capped at the service-fee margin, or
-        // the full service fee if no b2b markup is set.
+        // AGENT COMMISSION (docs/MONEY-WALLET-AUDIT.md §C.4c) — mirrors the web
+        // visa path: customer price unchanged; an agent earns b2b markup % of the
+        // selling total (the member-tier adds a small BONUS, never a reduction —
+        // here b2b% is the agent's reward, not a cost), capped at the service-fee
+        // margin, or the full service fee if no b2b markup is set.
         $visaAgentEarning = 0.0;
         $visaIsAgent = is_array($userData) && strtolower((string)($userData['role'] ?? '')) === 'agent';
         if ($visaIsAgent && !empty($userId)) {
@@ -531,9 +532,9 @@ $router->post('/api/visas/booking/submit', function () use ($db) {
                         $walletLib = dirname(__DIR__, 4) . '/app/lib/wallet.php';
                         if (file_exists($walletLib)) { require_once $walletLib; }
                     }
-                    $tierDisc = function_exists('agent_tier_discount_percent')
+                    $tierBonus = function_exists('agent_tier_discount_percent')
                         ? (float) agent_tier_discount_percent($db, (string)$userId) : 0.0;
-                    $effPct = max(0.0, $b2bVal - $tierDisc);
+                    $effPct = $b2bVal + $tierBonus;
                     $visaAgentEarning = round($finalPriceMarkup * $effPct / 100, 2);
                 } else {
                     $visaAgentEarning = round($b2bVal * $travelersCount, 2);

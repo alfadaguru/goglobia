@@ -465,11 +465,16 @@ Two remaining honest gaps from §C.4b are now closed and live-DB verified:
     per-operator b2c override kept for plain customers.
 - **Visa now pays agents a commission.** Visa's customer price stays fixed
   (govt fee + service fee). An **agent** now earns, recorded as
-  `bookings.agent_earning`: the visa module's b2b markup % (reduced by their
-  member-tier) applied to the selling total, **capped at the service-fee margin**;
-  or, if no b2b markup is configured, the full service fee. Customers earn 0.
-  Applied in both `app/routes/visa/bookingRoutes.php` and
-  `app/routes/api/visa/bookingRoutes.php`.
+  `bookings.agent_earning`: the visa module's **b2b markup %** applied to the
+  selling total, **plus a member-tier bonus** (a higher tier earns MORE — the tier
+  % is *added*, not subtracted, because here b2b% is the agent's reward not a
+  cost), **capped at the service-fee margin**; or, if no b2b markup is configured,
+  the full service fee. Customers earn 0. Applied in both
+  `app/routes/visa/bookingRoutes.php` and `app/routes/api/visa/bookingRoutes.php`.
+  **Default b2b rate = 2%** (the modal peer rate across stays/cars/bus/rail/
+  ferries), set on the visa `modules` row and seeded in `install/db.sql`. With it,
+  a Bronze agent earns 2%, Gold 4.5%, Platinum 6% of the visa total (each capped
+  at the service fee). Admin-editable at any time.
 
 **Verified (live DB):** bus listing agent Gold on 4% b2b → 101,500 (== charge),
 customer → 110,000; ferries context returns tier_discount=2.5 and a b2b 6%→3.5%

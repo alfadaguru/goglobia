@@ -165,12 +165,16 @@ $router->post('/api/visa/booking/submit', function () use ($SECURE, $db) {
         // NO TAX OR MARKUP FOR VISA - USE DIRECT PRICING (Legacy comment updated)
         $taxAmount = 0;
 
-        // AGENT COMMISSION (docs/MONEY-WALLET-AUDIT.md §C.4b): visa has a fixed
+        // AGENT COMMISSION (docs/MONEY-WALLET-AUDIT.md §C.4c): visa has a fixed
         // customer price (govt + service fee), so we do NOT change what the
         // customer pays. Instead an AGENT earns a commission out of that margin:
-        //   - agent b2b markup % (reduced by their member-tier) applied to the
-        //     selling total, capped at the available service-fee margin; OR
-        //   - if no b2b markup is configured, the agent earns the full service fee.
+        //   - agent b2b markup % of the selling total; OR
+        //   - the full service fee if no b2b markup is configured.
+        // The commission is capped at the available service-fee margin.
+        // NOTE: unlike sell-price markup, the member-tier does NOT reduce this —
+        // here b2b% is the agent's REWARD, not a cost, so a tier discount would
+        // perversely shrink a higher-tier agent's earning (and could zero it when
+        // the tier % exceeds the b2b %). Higher tiers instead earn a small BONUS.
         // Customers earn nothing (agent_earning = 0).
         $visaAgentEarning = 0.0;
         $visaBookerId = (string)($_SESSION['user_id'] ?? '');
@@ -184,13 +188,14 @@ $router->post('/api/visa/booking/submit', function () use ($SECURE, $db) {
                 $b2bType = strtolower((string)($visaModuleRow['markup_type_b2b'] ?? 'percentage'));
                 if ($b2bVal > 0) {
                     if ($b2bType === 'percentage') {
+                        // Tier adds a small earning BONUS (not a reduction).
                         if (!function_exists('agent_tier_discount_percent')) {
                             $walletLib = dirname(__DIR__, 3) . '/lib/wallet.php';
                             if (file_exists($walletLib)) { require_once $walletLib; }
                         }
-                        $tierDisc = function_exists('agent_tier_discount_percent')
+                        $tierBonus = function_exists('agent_tier_discount_percent')
                             ? (float) agent_tier_discount_percent($db, $visaBookerId) : 0.0;
-                        $effPct = max(0.0, $b2bVal - $tierDisc);
+                        $effPct = $b2bVal + $tierBonus;
                         $visaAgentEarning = round($finalPriceMarkup * $effPct / 100, 2);
                     } else {
                         $visaAgentEarning = round($b2bVal * $travelersCount, 2);
