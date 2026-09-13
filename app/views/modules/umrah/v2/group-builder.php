@@ -10,6 +10,7 @@ $membersJs = array_map(fn($m) => [
     'last_name' => $m['last_name'] ?? '', 'gender' => $m['gender'] ?? '', 'dob' => $m['dob'] ?? '',
     'nationality' => $m['nationality'] ?? '', 'passport_number' => $m['passport_number'] ?? '',
     'passport_expiry' => $m['passport_expiry'] ?? '', 'doc_status' => $m['doc_status'] ?? 'not_started',
+    'passport' => !empty($m['passport_doc']),
 ], $members ?? []);
 $depLabel = $dep ? (($dep['origin_city'] ?? 'Kano') . ' · ' . date('d M', strtotime($dep['departure_date'])) . ' → ' . date('d M Y', strtotime($dep['return_date']))) : '';
 ?>
@@ -49,7 +50,7 @@ $depLabel = $dep ? (($dep['origin_city'] ?? 'Kano') . ' · ' . date('d M', strto
     <!-- Staged counts (editable pre-submit) -->
     <div class="card border mt-4" x-show="editable">
       <h2 class="font-semibold text-slate-900 mb-1">Group size</h2>
-      <p class="text-sm text-slate-500 mb-3">Declare how many males and females (you can add each pilgrim's details below now or before you send them for processing).</p>
+      <p class="text-sm text-slate-500 mb-3">Declare how many males and females to size the group. Before you can submit &amp; pay, add every pilgrim below with their details and passport upload.</p>
       <div class="grid grid-cols-2 gap-3 max-w-sm">
         <div><label class="block text-sm text-slate-700 mb-1">Males</label><input type="number" min="0" class="input w-full" x-model.number="group.declared_male" @change="saveCounts()"></div>
         <div><label class="block text-sm text-slate-700 mb-1">Females</label><input type="number" min="0" class="input w-full" x-model.number="group.declared_female" @change="saveCounts()"></div>
@@ -65,7 +66,7 @@ $depLabel = $dep ? (($dep['origin_city'] ?? 'Kano') . ' · ' . date('d M', strto
       </div>
 
       <template x-if="members.length === 0">
-        <p class="text-sm text-slate-500">No pilgrims added yet. You can submit with declared counts and add details later, or add them now.</p>
+        <p class="text-sm text-slate-500">No pilgrims added yet. Add each pilgrim, save, then upload their passport — all required before you can submit.</p>
       </template>
 
       <div class="space-y-3">
@@ -82,10 +83,16 @@ $depLabel = $dep ? (($dep['origin_city'] ?? 'Kano') . ' · ' . date('d M', strto
               <input class="input" placeholder="Passport number" x-model="m.passport_number">
               <input type="date" class="input" x-model="m.passport_expiry" title="Passport expiry">
             </div>
-            <div class="flex items-center gap-3 mt-2">
+            <div class="flex items-center gap-3 mt-2 flex-wrap">
               <button class="btn btn-sm" @click="saveMember(idx)" :disabled="m.saving" x-text="m.saving ? 'Saving…' : (m.id ? 'Update' : 'Save pilgrim')"></button>
+              <!-- Passport upload (REQUIRED). Save the pilgrim first so it has an id. -->
+              <label class="btn btn-sm outline cursor-pointer" :class="!m.id ? 'opacity-50 pointer-events-none' : (m.passport ? '' : 'text-rose-600 border-rose-300')">
+                <span class="material-symbols-outlined text-[18px]">document_scanner</span>
+                <span x-text="m.uploading ? 'Reading…' : (m.passport ? 'Replace passport' : 'Upload passport *')"></span>
+                <input type="file" class="hidden" accept="image/jpeg,image/png,image/webp,application/pdf" @change="uploadPassport(idx, $event)">
+              </label>
               <button class="text-xs text-rose-600 hover:underline" x-show="m.id || editable" @click="dropMember(idx)">Remove</button>
-              <span class="badge" :class="m.doc_status==='verified'?'badge-success':(m.doc_status==='action_required'?'badge-error':'badge-gray')" x-text="(m.doc_status||'not started').replace(/_/g,' ')"></span>
+              <span class="badge" :class="m.passport ? 'badge-success' : 'badge-gray'" x-text="m.passport ? 'passport ✓' : 'passport required'"></span>
               <span class="text-xs" :class="m.msgOk?'text-green-600':'text-rose-600'" x-text="m.msg"></span>
             </div>
           </div>
@@ -108,9 +115,11 @@ $depLabel = $dep ? (($dep['origin_city'] ?? 'Kano') . ' · ' . date('d M', strto
 
       <template x-if="!submitted">
         <div class="mt-4">
-          <button class="btn w-full justify-center" :disabled="busy || !ruleOk" @click="submit()"
+          <button class="btn w-full justify-center" :disabled="busy || !ruleOk || !allHavePassport" @click="submit()"
             x-text="busy ? 'Submitting…' : ('Submit & pay ' + money(group.total_price) + ' from wallet')"></button>
-          <p class="text-xs text-slate-500 mt-2">Your wallet is debited only now, on submit. After submitting you can still add/drop pilgrims and upload documents while it's processing.</p>
+          <p class="text-sm mt-2 text-rose-600" x-show="!allHavePassport"
+             x-text="members.length === 0 ? 'Add each pilgrim and upload their passport before you can submit.' : (missingPassportCount + ' pilgrim(s) still need a passport upload before you can submit.')"></p>
+          <p class="text-xs text-slate-500 mt-2">Every pilgrim needs their passport uploaded (required for the visa). Your wallet is debited only now, on submit.</p>
           <p class="text-sm mt-2" :class="msgOk?'text-green-600':'text-rose-600'" x-text="msg"></p>
         </div>
       </template>
@@ -139,7 +148,7 @@ function umrahGroup(gid, g, members, countries, wallet) {
   return {
     gid: gid,
     group: g,
-    members: (members||[]).map(m => ({ ...m, saving:false, msg:'', msgOk:false })),
+    members: (members||[]).map(m => ({ ...m, saving:false, uploading:false, passport: !!m.passport, msg:'', msgOk:false })),
     countries: countries || [],
     wallet: wallet || 0,
     csrf: '<?= htmlspecialchars($umrahCsrf ?? '', ENT_QUOTES) ?>',
@@ -176,7 +185,38 @@ function umrahGroup(gid, g, members, countries, wallet) {
       const j = await this.post(this.api + '/counts', { declared_male:this.group.declared_male, declared_female:this.group.declared_female });
       if (j.success && j.group){ this.group.pax_count=j.group.pax; this.group.unit_net=j.group.unit; this.group.total_price=j.group.total; }
     },
-    addBlank(){ this.members.push({ id:0, first_name:'', last_name:'', gender:'', dob:'', nationality:'', passport_number:'', passport_expiry:'', doc_status:'not_started', saving:false, msg:'', msgOk:false }); },
+    addBlank(){ this.members.push({ id:0, first_name:'', last_name:'', gender:'', dob:'', nationality:'', passport_number:'', passport_expiry:'', doc_status:'not_started', passport:false, saving:false, uploading:false, msg:'', msgOk:false }); },
+    // Every saved member must have a stored passport before submit is allowed.
+    get allHavePassport(){ return this.members.length > 0 && this.members.every(m => m.id && m.passport); },
+    get missingPassportCount(){ return this.members.filter(m => !m.passport).length; },
+    async uploadPassport(idx, ev){
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      const m = this.members[idx];
+      if (!m.id){ m.msg='Save the pilgrim first, then upload the passport'; m.msgOk=false; ev.target.value=''; return; }
+      m.uploading=true; m.msg='Reading passport…'; m.msgOk=true;
+      try {
+        const fd = new FormData();
+        fd.append('csrf_token', this.csrf);
+        fd.append('passport_image', file);
+        const r = await fetch(this.api + '/members/' + m.id + '/passport', { method:'POST', headers:{'X-CSRF-TOKEN':this.csrf}, body: fd });
+        const j = await r.json();
+        if (j.success){
+          m.passport=true;
+          if (j.fields){ // OCR prefilled — apply then save so the record matches
+            const f=j.fields;
+            if(f.first_name) m.first_name=f.first_name; if(f.last_name) m.last_name=f.last_name;
+            if(f.gender) m.gender=f.gender; if(f.dob) m.dob=f.dob; if(f.nationality) m.nationality=f.nationality;
+            if(f.passport_number) m.passport_number=f.passport_number; if(f.passport_expiry) m.passport_expiry=f.passport_expiry;
+            await this.saveMember(idx);
+            m.msg='Passport read & saved — please check the details match.'; m.msgOk=true;
+          } else {
+            m.msg='Passport uploaded. Please confirm the details below are correct.'; m.msgOk=true;
+          }
+        } else { m.msg=j.message||'Upload failed'; m.msgOk=false; }
+      } catch(e){ m.msg='Upload error'; m.msgOk=false; }
+      m.uploading=false; ev.target.value='';
+    },
     async saveMember(idx){
       const m = this.members[idx];
       m.saving=true; m.msg='';
