@@ -140,6 +140,23 @@ $router->post('/api/bus/booking/submit', function () use ($SECURE, $db) {
         $moduleMarkup = (float)($busModule['markup_b2c'] ?? 0);
         $moduleMarkupType = $busModule['markup_type_b2c'] ?? 'percentage';
         $moduleCurrency = $busModule['currency'] ?? 'USD';
+
+        // Resolve the payer BEFORE pricing so MARKUP() picks the right rate
+        // (b2b for agents, b2c for customers) and any per-user custom markup is
+        // detected. MARKUP() reads $_SESSION['user_id'] itself; we mirror the
+        // role/custom flags here to steer the per-operator override branch.
+        $userId = (string)($_SESSION['user_id'] ?? '');
+        $isAgent = false;
+        $customUserMarkup = false;
+        if ($userId !== '') {
+            $payer = $db->get('users', ['role', 'apply_markup'], ['user_id' => $userId]);
+            $isAgent = is_array($payer) && strtolower((string)($payer['role'] ?? '')) === 'agent';
+            if (!$isAgent) {
+                $isAgent = strtolower((string)($_SESSION['user_role'] ?? '')) === 'agent';
+            }
+            $customUserMarkup = is_array($payer) && ($payer['apply_markup'] ?? 'global') === 'custom';
+        }
+
         foreach ($journeys as $journey) {
             $routeId = (int)($journey['route_id'] ?? 0);
             $dateObj = DateTime::createFromFormat('d-m-Y', (string)($journey['date'] ?? ''));
@@ -159,20 +176,37 @@ $router->post('/api/bus/booking/submit', function () use ($SECURE, $db) {
                 throw new Exception('One of the selected buses no longer has enough seats');
             }
 
+            // MARKUP NORMALISATION (docs/MONEY-WALLET-AUDIT.md §C.4 step 6):
+            // Route the per-leg markup through the central MARKUP() engine so Bus
+            // honours the same rules as every other module — agents get the b2b
+            // rate (minus their member-tier discount), customers get b2c, and any
+            // per-user custom markup applies. Previously Bus read markup_b2c
+            // directly, so agents/custom users were mispriced. The per-operator
+            // markup override remains as a supplier-level b2c surcharge, applied
+            // only for customers with no custom markup (the override column is
+            // b2c-only in the schema — bus_operators has no b2b column).
             $operatorId = (int)($route['operator_id'] ?? 0);
-            $markup = $moduleMarkup;
-            $markupType = $moduleMarkupType;
-            if ($operatorId) {
+            $operatorMarkup = 0.0;
+            $operatorMarkupType = 'percentage';
+            if ($operatorId && !$isAgent && !$customUserMarkup) {
                 $op = $db->get('bus_operators', ['markup_b2c', 'markup_type_b2c'], ['id' => $operatorId]);
                 if ($op && (float)($op['markup_b2c'] ?? 0) > 0) {
-                    $markup = (float)$op['markup_b2c'];
-                    $markupType = $op['markup_type_b2c'] ?? 'percentage';
+                    $operatorMarkup = (float)$op['markup_b2c'];
+                    $operatorMarkupType = $op['markup_type_b2c'] ?? 'percentage';
                 }
             }
-            $applyLegMarkup = function ($price) use ($markup, $markupType) {
+            $applyLegMarkup = function ($price) use ($db, $operatorMarkup, $operatorMarkupType) {
                 $price = (float)$price;
-                if ($markup <= 0) return round($price, 2);
-                return round($markupType === 'fixed' ? $price + $markup : $price * (1 + $markup / 100), 2);
+                if ($price <= 0) return 0.0;
+                if ($operatorMarkup > 0) {
+                    // supplier-level override wins for plain customers
+                    return round($operatorMarkupType === 'fixed'
+                        ? $price + $operatorMarkup
+                        : $price * (1 + $operatorMarkup / 100), 2);
+                }
+                // central engine: agent b2b + tier, customer b2c, per-user custom
+                $m = MARKUP($price, 'bus', $db);
+                return round((float)($m['price'] ?? $price), 2);
             };
 
             $rawAdult = (float)($route['adult_price'] ?: ($cal['price'] ?? $route['base_price']));
@@ -203,15 +237,7 @@ $router->post('/api/bus/booking/submit', function () use ($SECURE, $db) {
 
         $invoiceId = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
 
-        $userId = (string)($_SESSION['user_id'] ?? '');
-        $isAgent = false;
-        if ($userId !== '') {
-            $userData = $db->get('users', ['role'], ['user_id' => $userId]);
-            $isAgent = is_array($userData) && strtolower((string)($userData['role'] ?? '')) === 'agent';
-            if (!$isAgent) {
-                $isAgent = strtolower((string)($_SESSION['user_role'] ?? '')) === 'agent';
-            }
-        }
+        // $userId / $isAgent already resolved before pricing (see above).
         $agentEarning = $isAgent ? $commission : 0;
 
         $db->insert('bookings', [

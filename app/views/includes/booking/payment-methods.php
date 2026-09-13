@@ -27,12 +27,22 @@ if (!isset($paymentGateways) || !is_array($paymentGateways)) {
     $paymentGateways = [];
 }
 
-// FILTER INTERNAL_WALLET FOR NON-LOGGED USERS
-$isUserLoggedIn = isset($_SESSION['user_id']) && !empty($_SESSION['user_id']);
-if (!$isUserLoggedIn) {
-    $paymentGateways = array_filter($paymentGateways, function($gateway) {
-        return !empty($gateway['type']) && $gateway['type'] !== 'internal_wallet';
-    });
+// PAYMENT RULE (docs/MONEY-WALLET-AUDIT.md §A.3) — one authoritative helper:
+//   guest    -> external gateways only (no wallet)
+//   customer -> wallet OR any enabled gateway
+//   agent    -> wallet ONLY (agents fund the wallet by top-up, then spend it)
+// Falls back to the old logged-out filter if the helper isn't loaded.
+if (function_exists('payment_gateway_allowed_for_actor')) {
+    $paymentGateways = array_values(array_filter($paymentGateways, function ($gateway) use ($db) {
+        return payment_gateway_allowed_for_actor($db, $gateway);
+    }));
+} else {
+    $isUserLoggedIn = isset($_SESSION['user_id']) && !empty($_SESSION['user_id']);
+    if (!$isUserLoggedIn) {
+        $paymentGateways = array_filter($paymentGateways, function ($gateway) {
+            return !empty($gateway['type']) && $gateway['type'] !== 'internal_wallet';
+        });
+    }
 }
 
 // FIND DEFAULT GATEWAY

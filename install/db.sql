@@ -30101,6 +30101,132 @@ CREATE TABLE IF NOT EXISTS `agent_api_usage` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
+-- MONEY SPINE (docs/MONEY-WALLET-AUDIT.md §C) — also created at runtime by
+-- ensureAgentApiSchema(). One wallet per (user,currency); wallet_ledger is the
+-- running money trail; money_transactions is the single credit/debit record;
+-- transaction_journey is the ordered state trail. Legacy `credits` is kept.
+CREATE TABLE IF NOT EXISTS `wallets` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `user_id` varchar(255) NOT NULL,
+  `kind` enum('customer','agent') NOT NULL DEFAULT 'customer',
+  `currency` varchar(10) NOT NULL,
+  `balance` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_user_currency` (`user_id`,`currency`),
+  KEY `idx_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `money_transactions` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `txn_ref` varchar(40) NOT NULL,
+  `user_id` varchar(255) NOT NULL,
+  `actor_kind` enum('customer','agent','admin','system') NOT NULL DEFAULT 'customer',
+  `direction` enum('credit','debit') NOT NULL,
+  `reason` enum('wallet_topup','booking_payment','wallet_spend','refund','reversal','fee','loyalty_convert','adjustment') NOT NULL,
+  `amount` decimal(14,2) NOT NULL,
+  `currency` varchar(10) NOT NULL,
+  `method` enum('gateway','wallet','manual') NOT NULL DEFAULT 'wallet',
+  `gateway_id` varchar(64) DEFAULT NULL,
+  `provider_trx_id` varchar(191) DEFAULT NULL,
+  `invoice_id` varchar(64) DEFAULT NULL,
+  `wallet_id` bigint(20) DEFAULT NULL,
+  `status` enum('pending','sent','success','failed','cancelled','reversed') NOT NULL DEFAULT 'pending',
+  `idempotency_key` varchar(150) DEFAULT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `error_message` varchar(255) DEFAULT NULL,
+  `gateway_response` text DEFAULT NULL,
+  `created_by` varchar(64) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_txn_ref` (`txn_ref`),
+  UNIQUE KEY `uq_idem` (`idempotency_key`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_invoice` (`invoice_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `wallet_ledger` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `wallet_id` bigint(20) NOT NULL,
+  `user_id` varchar(255) NOT NULL,
+  `transaction_id` bigint(20) DEFAULT NULL,
+  `direction` enum('credit','debit') NOT NULL,
+  `amount` decimal(14,2) NOT NULL,
+  `balance_after` decimal(14,2) NOT NULL,
+  `currency` varchar(10) NOT NULL,
+  `reason` enum('topup','booking','fee','refund','reversal','loyalty_convert','adjustment') NOT NULL,
+  `ref_type` varchar(32) DEFAULT NULL,
+  `ref_id` varchar(64) DEFAULT NULL,
+  `note` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_wallet` (`wallet_id`,`created_at`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_txn` (`transaction_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `transaction_journey` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `transaction_id` bigint(20) NOT NULL,
+  `from_status` varchar(20) DEFAULT NULL,
+  `to_status` varchar(20) NOT NULL,
+  `note` varchar(255) DEFAULT NULL,
+  `context` text DEFAULT NULL,
+  `actor` varchar(64) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_txn` (`transaction_id`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+-- Agent member tiers + loyalty points (docs/MONEY-WALLET-AUDIT.md §C.4 steps 4-5)
+-- Also created + seeded at runtime by ensureAgentApiSchema(); kept here so fresh
+-- installs get the tables. The additive columns settings.loyalty_* and
+-- users.agent_tier_id / users.loyalty_points are applied by that same ensure
+-- function at first boot (they ALTER the settings/users tables defined above).
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `agent_tiers` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `code` varchar(32) NOT NULL,
+  `name` varchar(64) NOT NULL,
+  `sort_order` smallint(6) NOT NULL DEFAULT 0,
+  `min_lifetime_topup` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `discount_percent` decimal(6,2) NOT NULL DEFAULT 0.00,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+INSERT INTO `agent_tiers` (`code`, `name`, `sort_order`, `min_lifetime_topup`, `discount_percent`, `active`) VALUES
+('bronze',   'Bronze',   1, 0.00,        0.00, 1),
+('silver',   'Silver',   2, 2000000.00,  1.00, 1),
+('gold',     'Gold',     3, 10000000.00, 2.50, 1),
+('platinum', 'Platinum', 4, 50000000.00, 4.00, 1);
+
+CREATE TABLE IF NOT EXISTS `loyalty_ledger` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `user_id` varchar(255) NOT NULL,
+  `actor_kind` enum('customer','agent') NOT NULL DEFAULT 'customer',
+  `direction` enum('earn','redeem','adjust','expire') NOT NULL,
+  `points` int(11) NOT NULL,
+  `balance_after` int(11) NOT NULL,
+  `reason` varchar(64) DEFAULT NULL,
+  `ref_type` varchar(32) DEFAULT NULL,
+  `ref_id` varchar(64) DEFAULT NULL,
+  `idempotency_key` varchar(150) DEFAULT NULL,
+  `note` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_idem` (`idempotency_key`),
+  KEY `idx_user` (`user_id`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
 -- Umrah redesign (docs/UMRAH-PHASE1-BUILD-PLAN.md) — departure/tier/quote/hold/
 -- installment domain. Also created + seeded at runtime by ensureUmrahSchema() /
 -- seedUmrahPhase1(); kept here so fresh installs get the tables. Seed data is
