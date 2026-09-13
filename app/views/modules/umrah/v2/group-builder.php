@@ -23,6 +23,8 @@ $depLabel = $dep ? (($dep['origin_city'] ?? 'Kano') . ' · ' . date('d M', strto
             'pax_count' => (int) $group['pax_count'], 'unit_net' => (float) $group['unit_net'],
             'total_price' => (float) $group['total_price'], 'visa_status' => $group['visa_status'],
             'booking_ref' => null, 'invoice_id' => $group['invoice_id'],
+            'review_comment' => $group['review_comment'] ?? null,
+            'refunded_total' => (float) ($group['refunded_total'] ?? 0),
         ]), ENT_QUOTES) ?>,
         <?= htmlspecialchars(json_encode($membersJs), ENT_QUOTES) ?>,
         <?= htmlspecialchars(json_encode($countryJs), ENT_QUOTES) ?>,
@@ -113,30 +115,64 @@ $depLabel = $dep ? (($dep['origin_city'] ?? 'Kano') . ' · ' . date('d M', strto
         </div>
       </div>
 
-      <template x-if="!submitted">
+      <!-- Operator's note (query/reject/accept comment). -->
+      <template x-if="group.review_comment">
+        <div class="mt-4 alert-warning">
+          <span class="material-icon material-symbols-outlined">chat</span>
+          <div><strong>Note from our team:</strong> <span x-text="group.review_comment"></span></div>
+        </div>
+      </template>
+
+      <!-- DRAFT / QUERIED: agent submits for review (NO payment yet). -->
+      <template x-if="['draft','queried'].includes(group.status)">
         <div class="mt-4">
-          <button class="btn w-full justify-center" :disabled="busy || !ruleOk || !allHavePassport" @click="submit()"
-            x-text="busy ? 'Submitting…' : ('Submit & pay ' + money(group.total_price) + ' from wallet')"></button>
+          <button class="btn w-full justify-center" :disabled="busy || !ruleOk || !allHavePassport" @click="submitForReview()"
+            x-text="busy ? 'Submitting…' : (group.status==='queried' ? 'Re-submit for review' : 'Submit for review')"></button>
           <p class="text-sm mt-2 text-rose-600" x-show="!allHavePassport"
              x-text="members.length === 0 ? 'Add each pilgrim and upload their passport before you can submit.' : (missingPassportCount + ' pilgrim(s) still need a passport upload before you can submit.')"></p>
-          <p class="text-xs text-slate-500 mt-2">Every pilgrim needs their passport uploaded (required for the visa). Your wallet is debited only now, on submit.</p>
+          <p class="text-xs text-slate-500 mt-2">No payment yet — our team reviews your group first. Your wallet is only debited when you confirm an accepted group.</p>
           <p class="text-sm mt-2" :class="msgOk?'text-green-600':'text-rose-600'" x-text="msg"></p>
         </div>
       </template>
 
-      <template x-if="submitted">
+      <!-- SUBMITTED: waiting for the operator. -->
+      <template x-if="group.status==='submitted'">
+        <div class="mt-4 alert-info"><span class="material-icon material-symbols-outlined">hourglass_top</span>
+          <p><strong>Submitted for review.</strong> Our team will accept, ask a question, or advise. You'll be able to confirm &amp; pay once it's accepted.</p></div>
+      </template>
+
+      <!-- ACCEPTED: agent confirms -> wallet debited -> processing. -->
+      <template x-if="group.status==='accepted'">
+        <div class="mt-4">
+          <div class="alert-success mb-3"><span class="material-icon material-symbols-outlined">verified</span>
+            <p><strong>Accepted.</strong> Confirm to pay <span x-text="money(group.total_price)"></span> from your wallet and start visa processing.</p></div>
+          <button class="btn w-full justify-center" :disabled="busy || wallet < group.total_price" @click="confirmAndPay()"
+            x-text="busy ? 'Processing…' : ('Confirm & pay ' + money(group.total_price) + ' from wallet')"></button>
+          <p class="text-sm mt-2 text-rose-600" x-show="wallet < group.total_price">Top up your wallet — balance is below the group total.</p>
+          <p class="text-sm mt-2" :class="msgOk?'text-green-600':'text-rose-600'" x-text="msg"></p>
+        </div>
+      </template>
+
+      <!-- REJECTED. -->
+      <template x-if="group.status==='rejected'">
+        <div class="mt-4 alert-error"><span class="material-icon material-symbols-outlined">block</span>
+          <p><strong>Not accepted.</strong> Please see the note above or contact us.</p></div>
+      </template>
+
+      <!-- PROCESSING / APPROVED / PARTIALLY_APPROVED / COMPLETED: paid, in progress. -->
+      <template x-if="['processing','approved','partially_approved','completed'].includes(group.status)">
         <div class="mt-4 alert-success">
           <span class="material-icon material-symbols-outlined">check_circle</span>
           <div>
-            <p><strong>Submitted &amp; paid.</strong> The group is now processing. You can keep adding/dropping pilgrims and uploading documents.</p>
-            <template x-if="group.booking_ref"><a class="text-primary" :href="'<?= root ?>umrah/booking/' + group.booking_ref">View booking</a></template>
+            <p><strong>Paid &amp; processing.</strong> We're handling the visas. As each pilgrim's visa, ticket and hotel are ready, the documents appear on their card above.</p>
+            <p class="text-sm mt-1" x-show="group.refunded_total > 0">Refunded to your wallet for pilgrims not approved: <strong x-text="money(group.refunded_total)"></strong>.</p>
           </div>
         </div>
       </template>
     </div>
 
-    <!-- Cancel (pre-payment only) -->
-    <div class="mt-3" x-show="editable">
+    <!-- Cancel (only before it's confirmed/paid). -->
+    <div class="mt-3" x-show="['draft','queried','submitted'].includes(group.status)">
       <button class="text-xs text-rose-600 hover:underline" @click="cancelGroup()">Cancel this group</button>
     </div>
 
@@ -157,8 +193,8 @@ function umrahGroup(gid, g, members, countries, wallet) {
     minSameGender: { standard:3, vip:2, vvip:2, vvvip:2, vvvvip:0 },
     money(n){ return '₦' + Number(n||0).toLocaleString('en-NG'); },
     badge(s){ return ({draft:'badge-gray',pending:'badge-warning',paid:'badge-success',submitted:'badge-success',processing:'badge-warning',confirmed:'badge-success',cancelled:'badge-error'})[s]||'badge-gray'; },
-    get editable(){ return ['draft','pending'].includes(this.group.status); },
-    get submitted(){ return ['paid','submitted','processing','confirmed'].includes(this.group.status); },
+    get editable(){ return ['draft','pending','queried'].includes(this.group.status); },
+    get submitted(){ return ['processing','confirmed','approved','partially_approved','completed'].includes(this.group.status); },
     get counts(){
       // Prefer actual member genders when members exist, else declared.
       if (this.members.length) {
@@ -236,11 +272,19 @@ function umrahGroup(gid, g, members, countries, wallet) {
     async refreshTotals(){
       try { const r = await fetch(this.api); const j = await r.json(); if (j.success && j.group){ this.group.pax_count=j.group.pax_count; this.group.unit_net=j.group.unit_net; this.group.total_price=j.group.total_price; } } catch(e){}
     },
-    async submit(){
+    async submitForReview(){
       this.busy=true; this.msg='';
       const j = await this.post(this.api + '/submit', {});
-      if (j.success){ this.group.status='submitted'; this.group.booking_ref=j.booking_ref; this.group.invoice_id=j.invoice_id; this.msg='Submitted & paid.'; this.msgOk=true; }
-      else { this.msg=(j.message||'Submit failed') + (j.required?(' (need '+this.money(j.required)+')'):''); this.msgOk=false; }
+      if (j.success){ this.group.status=j.status||'submitted'; this.group.review_comment=null; this.msg='Submitted for review.'; this.msgOk=true; setTimeout(()=>location.reload(),700); }
+      else { this.msg=j.message||'Submit failed'; this.msgOk=false; }
+      this.busy=false;
+    },
+    async confirmAndPay(){
+      if (!confirm('Confirm this group and pay '+this.money(this.group.total_price)+' from your wallet?')) return;
+      this.busy=true; this.msg='';
+      const j = await this.post(this.api + '/confirm', {});
+      if (j.success){ this.group.status='processing'; this.group.booking_ref=j.booking_ref; this.group.invoice_id=j.invoice_id; this.msg='Confirmed & paid.'; this.msgOk=true; setTimeout(()=>location.reload(),700); }
+      else { this.msg=(j.message||'Confirm failed') + (j.required?(' (need '+this.money(j.required)+')'):''); this.msgOk=false; }
       this.busy=false;
     },
     async cancelGroup(){

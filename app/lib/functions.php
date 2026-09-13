@@ -4759,7 +4759,38 @@ if (!function_exists('ensureUmrahSchema')) {
                 // Required before an agent can submit; copied to umrah_documents
                 // on the traveller at submit time (for the visa).
                 ['umrah_group_members', 'passport_doc', "ADD COLUMN `passport_doc` varchar(255) DEFAULT NULL AFTER `passport_expiry`"],
+                // Group lifecycle rebuild: draft -> submitted -> accept/query/
+                // reject (w/ comment) -> agent confirm (DEBIT) -> processing ->
+                // per-pilgrim visa approved/rejected(+auto-refund) -> completed.
+                ['umrah_groups', 'review_comment', "ADD COLUMN `review_comment` text DEFAULT NULL AFTER `notes`"],
+                ['umrah_groups', 'date_request',   "ADD COLUMN `date_request` text DEFAULT NULL AFTER `review_comment`"],
+                ['umrah_groups', 'reviewed_by',    "ADD COLUMN `reviewed_by` varchar(64) DEFAULT NULL AFTER `date_request`"],
+                ['umrah_groups', 'reviewed_at',    "ADD COLUMN `reviewed_at` datetime DEFAULT NULL AFTER `reviewed_by`"],
+                ['umrah_groups', 'confirmed_at',   "ADD COLUMN `confirmed_at` datetime DEFAULT NULL AFTER `submitted_at`"],
+                ['umrah_groups', 'refunded_total', "ADD COLUMN `refunded_total` decimal(14,2) NOT NULL DEFAULT 0.00 AFTER `total_price`"],
+                // Per-member visa outcome + refund + fulfilment documents.
+                ['umrah_group_members', 'refund_amount', "ADD COLUMN `refund_amount` decimal(14,2) NOT NULL DEFAULT 0.00 AFTER `passport_doc`"],
+                ['umrah_group_members', 'refunded_at',   "ADD COLUMN `refunded_at` datetime DEFAULT NULL AFTER `refund_amount`"],
+                ['umrah_group_members', 'visa_doc',      "ADD COLUMN `visa_doc` varchar(255) DEFAULT NULL AFTER `refunded_at`"],
+                ['umrah_group_members', 'ticket_doc',    "ADD COLUMN `ticket_doc` varchar(255) DEFAULT NULL AFTER `visa_doc`"],
+                ['umrah_group_members', 'hotel_doc',     "ADD COLUMN `hotel_doc` varchar(255) DEFAULT NULL AFTER `ticket_doc`"],
             ];
+            // ENUM widening (separate from ADD COLUMN — MODIFY the status enum to
+            // carry the new lifecycle states; idempotent, safe every boot).
+            try {
+                $col = $db->query("SHOW COLUMNS FROM `umrah_groups` LIKE 'status'")->fetch(\PDO::FETCH_ASSOC);
+                $needed = ['accepted', 'queried', 'rejected', 'approved', 'partially_approved', 'completed'];
+                $have = strtolower((string) ($col['Type'] ?? ''));
+                $missing = false; foreach ($needed as $n) { if (strpos($have, "'{$n}'") === false) { $missing = true; break; } }
+                if ($missing) {
+                    $db->query("ALTER TABLE `umrah_groups` MODIFY `status` enum('draft','pending','submitted','queried','accepted','rejected','paid','processing','confirmed','approved','partially_approved','completed','cancelled') NOT NULL DEFAULT 'draft'");
+                }
+                // Member visa_status: add approved(kept) / rejected(kept) + refunded.
+                $mcol = $db->query("SHOW COLUMNS FROM `umrah_group_members` LIKE 'visa_status'")->fetch(\PDO::FETCH_ASSOC);
+                if ($mcol && strpos(strtolower((string) $mcol['Type']), "'refunded'") === false) {
+                    $db->query("ALTER TABLE `umrah_group_members` MODIFY `visa_status` enum('not_started','submitted','approved','rejected','refunded') NOT NULL DEFAULT 'not_started'");
+                }
+            } catch (\Throwable $e) { error_log('ensureUmrahSchema group-lifecycle enum: ' . $e->getMessage()); }
             foreach ($__umrahCols as [$__t, $__c, $__sql]) {
                 try {
                     $has = $db->query("SHOW COLUMNS FROM `{$__t}` LIKE '{$__c}'")->fetch();

@@ -5,7 +5,7 @@
 $fmt = fn($n) => '₦' . number_format((float) $n, 0);
 $csrf = $_SESSION['csrf_token'] ?? (class_exists('CSRF') ? CSRF::getToken() : '');
 $cur = $_GET['status'] ?? '';
-$statusBadge = ['draft'=>'badge-gray','pending'=>'badge-warning','paid'=>'badge-success','submitted'=>'badge-success','processing'=>'badge-warning','confirmed'=>'badge-success','cancelled'=>'badge-error'];
+$statusBadge = ['draft'=>'badge-gray','pending'=>'badge-warning','submitted'=>'badge-warning','queried'=>'badge-warning','accepted'=>'badge-success','rejected'=>'badge-error','paid'=>'badge-success','processing'=>'badge-warning','confirmed'=>'badge-success','approved'=>'badge-success','partially_approved'=>'badge-warning','completed'=>'badge-success','cancelled'=>'badge-error'];
 ?>
 <div class="container py-6" x-data="umrahGroupsAdmin()">
   <div class="flex items-center justify-between mb-6">
@@ -18,7 +18,7 @@ $statusBadge = ['draft'=>'badge-gray','pending'=>'badge-warning','paid'=>'badge-
 
   <div class="flex flex-wrap gap-2 mb-4">
     <a href="?" class="badge <?= $cur==='' ? 'badge-primary' : 'badge-gray' ?>">All</a>
-    <?php foreach (['draft','pending','paid','submitted','processing','confirmed','cancelled'] as $s): ?>
+    <?php foreach (['draft','submitted','queried','accepted','processing','partially_approved','approved','completed','rejected','cancelled'] as $s): ?>
       <a href="?status=<?= $s ?>" class="badge <?= $cur===$s ? 'badge-primary' : 'badge-gray' ?>"><?= ucfirst($s) ?> (<?= (int)($counts[$s] ?? 0) ?>)</a>
     <?php endforeach; ?>
   </div>
@@ -66,23 +66,64 @@ $statusBadge = ['draft'=>'badge-gray','pending'=>'badge-warning','paid'=>'badge-
             <h2 class="text-lg font-bold text-slate-900">Group <span x-text="sel.ref"></span></h2>
             <button class="btn ghost btn-sm" @click="sel=null"><span class="material-symbols-outlined">close</span></button>
           </div>
-          <form @submit.prevent="save()">
-            <label class="block text-sm font-medium text-slate-700 mb-1">Status</label>
-            <select class="select w-full mb-3" x-model="form.status">
-              <option value="">— keep —</option>
-              <option>draft</option><option>pending</option><option>paid</option><option>submitted</option><option>processing</option><option>confirmed</option><option>cancelled</option>
-            </select>
-            <label class="block text-sm font-medium text-slate-700 mb-1">Visa status</label>
-            <select class="select w-full mb-3" x-model="form.visa_status">
-              <option value="">— keep —</option>
-              <option value="none">none</option><option value="partial">partial (some issued)</option><option value="all">all issued</option><option value="rejected">rejected</option>
-            </select>
-            <div class="flex gap-2 items-center">
-              <button type="submit" class="btn" :disabled="busy" x-text="busy?'Saving…':'Save'"></button>
-              <a class="btn outline" :href="'<?= root . admin ?>/umrah-manager/manifest?group=' + sel.id">Export manifest</a>
-              <span class="text-sm" :class="okMsg?'text-green-600':'text-rose-600'" x-text="okMsg || errMsg"></span>
+          <div class="mb-3 text-sm text-slate-600">Status: <span class="badge" x-text="sel.status"></span></div>
+
+          <!-- REVIEW: only when submitted (accept / query / reject + comment). -->
+          <template x-if="sel.status==='submitted'">
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-slate-700 mb-1">Comment to the agent (optional for accept, recommended for query/reject)</label>
+              <textarea class="input w-full mb-2" rows="3" x-model="reviewComment" placeholder="e.g. Please re-upload pilgrim 2's passport — the photo page is cut off."></textarea>
+              <div class="flex gap-2">
+                <button class="btn" :disabled="busy" @click="review('accept')">Accept</button>
+                <button class="btn outline" :disabled="busy" @click="review('query')">Query</button>
+                <button class="btn outline text-rose-600" :disabled="busy" @click="review('reject')">Reject</button>
+              </div>
+              <p class="text-xs text-slate-500 mt-1">Accepting lets the agent confirm &amp; pay from their wallet. No money moves here.</p>
             </div>
-          </form>
+          </template>
+
+          <template x-if="['accepted','queried','rejected'].includes(sel.status)">
+            <div class="alert-info mb-4"><span class="material-icon material-symbols-outlined">info</span>
+              <p x-text="sel.status==='accepted' ? 'Accepted — waiting for the agent to confirm & pay.' : (sel.status==='queried' ? 'Queried — sent back to the agent to amend.' : 'Rejected.')"></p></div>
+          </template>
+
+          <!-- VISA outcomes + per-member docs: once paid/processing. -->
+          <template x-if="['processing','partially_approved','approved','completed'].includes(sel.status)">
+            <div>
+              <h3 class="font-semibold text-slate-800 mb-2">Pilgrim visa outcomes</h3>
+              <p class="text-xs text-slate-500 mb-2">Mark each pilgrim approved or rejected, then finalise. Rejected pilgrims are auto-refunded (unit price + fee share) to the agent's wallet.</p>
+              <div class="space-y-2 mb-3">
+                <template x-for="m in members" :key="m.id">
+                  <div class="border rounded-lg p-2">
+                    <div class="flex items-center justify-between">
+                      <div class="text-sm font-medium" x-text="(m.first_name||'') + ' ' + (m.last_name||'')"></div>
+                      <span class="badge" :class="m.visa_status==='approved'?'badge-success':(m.visa_status==='refunded'?'badge-error':(m.visa_status==='rejected'?'badge-error':'badge-gray'))" x-text="m.visa_status"></span>
+                    </div>
+                    <div class="flex gap-3 mt-1 text-sm" x-show="m.visa_status!=='refunded'">
+                      <label class="inline-flex items-center gap-1"><input type="radio" :name="'v'+m.id" value="approved" x-model="visa[m.id]"> Approve</label>
+                      <label class="inline-flex items-center gap-1"><input type="radio" :name="'v'+m.id" value="rejected" x-model="visa[m.id]"> Reject (refund)</label>
+                    </div>
+                    <!-- per-pilgrim fulfilment uploads -->
+                    <div class="flex flex-wrap gap-2 mt-2" x-show="m.visa_status==='approved'">
+                      <template x-for="kind in ['visa','ticket','hotel']" :key="kind">
+                        <label class="btn btn-sm outline cursor-pointer">
+                          <span class="material-symbols-outlined text-[16px]">upload</span>
+                          <span x-text="(m[kind+'_doc']?'Replace ':'Upload ')+kind"></span>
+                          <input type="file" class="hidden" accept="image/*,application/pdf" @change="uploadDoc(m, kind, $event)">
+                        </label>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+              <button class="btn" :disabled="busy" @click="saveVisa()" x-text="busy?'Saving…':'Finalise visa outcomes'"></button>
+            </div>
+          </template>
+
+          <div class="mt-4 flex gap-2 items-center">
+            <a class="btn outline btn-sm" :href="'<?= root . admin ?>/umrah-manager/manifest?group=' + sel.id">Export manifest</a>
+            <span class="text-sm" :class="okMsg?'text-green-600':'text-rose-600'" x-text="okMsg || errMsg"></span>
+          </div>
         </div>
       </template>
     </div>
@@ -94,17 +135,43 @@ function umrahGroupsAdmin() {
   return {
     sel: null, busy: false, okMsg: '', errMsg: '',
     csrf: '<?= htmlspecialchars($csrf, ENT_QUOTES) ?>',
-    form: { status: '', visa_status: '' },
-    open(g) { this.sel = g; this.okMsg=''; this.errMsg=''; this.form = { status:'', visa_status:'' }; },
-    async save() {
-      this.busy = true; this.okMsg=''; this.errMsg='';
-      const body = new URLSearchParams({ csrf_token:this.csrf, group_id:this.sel.id, status:this.form.status, visa_status:this.form.visa_status });
+    base: '<?= root . admin ?>/umrah-manager/groups',
+    reviewComment: '', members: [], visa: {},
+    async open(g) {
+      this.sel = g; this.okMsg=''; this.errMsg=''; this.reviewComment=''; this.members=[]; this.visa={};
+      if (['processing','partially_approved','approved','completed'].includes(g.status)) {
+        try { const r = await fetch(this.base + '/' + g.id + '/members'); const j = await r.json(); if (j.success) this.members = j.members || []; } catch(e){}
+      }
+    },
+    form(o){ const b=new URLSearchParams(); b.append('csrf_token',this.csrf); for(const k in o) b.append(k,o[k]); return b; },
+    async review(decision) {
+      this.busy=true; this.okMsg=''; this.errMsg='';
       try {
-        const r = await fetch('<?= root . admin ?>/umrah-manager/groups/status', { method:'POST', body });
+        const r = await fetch(this.base + '/review', { method:'POST', body:this.form({ group_id:this.sel.id, decision, comment:this.reviewComment }) });
         const j = await r.json();
-        if (j.success) { this.okMsg='Saved'; setTimeout(()=>location.reload(), 600); } else { this.errMsg = j.message||'Failed'; }
+        if (j.success) { this.okMsg='Done'; setTimeout(()=>location.reload(), 500); } else { this.errMsg=j.message||'Failed'; }
       } catch(e){ this.errMsg='Network error'; }
-      this.busy = false;
+      this.busy=false;
+    },
+    async saveVisa() {
+      this.busy=true; this.okMsg=''; this.errMsg='';
+      try {
+        const r = await fetch(this.base + '/visa', { method:'POST', body:this.form({ group_id:this.sel.id, outcomes:JSON.stringify(this.visa) }) });
+        const j = await r.json();
+        if (j.success) { this.okMsg='Approved '+j.approved+', rejected '+j.rejected+(j.refunded?(' — refunded ₦'+Number(j.refunded).toLocaleString('en-NG')):''); setTimeout(()=>location.reload(), 900); } else { this.errMsg=j.message||'Failed'; }
+      } catch(e){ this.errMsg='Network error'; }
+      this.busy=false;
+    },
+    async uploadDoc(m, kind, ev) {
+      const file = ev.target.files && ev.target.files[0]; if(!file) return;
+      const fd = new FormData(); fd.append('csrf_token',this.csrf); fd.append('group_id',this.sel.id); fd.append('member_id',m.id); fd.append('kind',kind); fd.append('doc',file);
+      this.okMsg='Uploading '+kind+'…'; this.errMsg='';
+      try {
+        const r = await fetch(this.base + '/member-doc', { method:'POST', body:fd });
+        const j = await r.json();
+        if (j.success) { m[kind+'_doc']=j.url; this.okMsg=kind+' uploaded'; } else { this.errMsg=j.message||'Upload failed'; }
+      } catch(e){ this.errMsg='Upload error'; }
+      ev.target.value='';
     }
   };
 }
