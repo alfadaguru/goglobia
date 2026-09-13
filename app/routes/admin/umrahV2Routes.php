@@ -650,6 +650,8 @@ $router->post(admin.'/umrah-manager/operations/allocate', function () use ($SECU
     $kind = trim($_POST['kind'] ?? '');
     $depId = (int) ($_POST['departure_id'] ?? 0);
     if ($depId <= 0) { umrahV2AdminJson(['success' => false, 'message' => 'Departure required']); }
+    // Referential integrity (audit LOW): the departure must exist.
+    if (!$db->get('umrah_departures', 'id', ['id' => $depId])) { umrahV2AdminJson(['success' => false, 'message' => 'Departure not found']); }
     $now = date('Y-m-d H:i:s');
     if ($kind === 'hotel') {
         // Create hotel if a new name is given, else use hotel_id.
@@ -659,6 +661,8 @@ $router->post(admin.'/umrah-manager/operations/allocate', function () use ($SECU
             $hotelId = (int) $db->id();
         }
         if ($hotelId <= 0) { umrahV2AdminJson(['success' => false, 'message' => 'Hotel required']); }
+        // An existing hotel_id must reference a real hotel (audit LOW).
+        if (!$db->get('umrah_hotels', 'id', ['id' => $hotelId])) { umrahV2AdminJson(['success' => false, 'message' => 'Selected hotel not found']); }
         $db->insert('umrah_hotel_allocations', [
             'departure_id' => $depId, 'hotel_id' => $hotelId,
             'city' => in_array($_POST['city'] ?? '', ['makkah','madinah','other'], true) ? $_POST['city'] : 'makkah',
@@ -786,10 +790,14 @@ $router->get(admin.'/umrah-manager/manifest', function () use ($SECURE, $db) {
 
     // Column set (admin-configurable). Keys map to traveller/member fields.
     $default = ['passport_number', 'first_name', 'middle_name', 'last_name', 'gender', 'dob', 'nationality', 'passport_issue', 'passport_expiry', 'mobile', 'email'];
+    // WHITELIST (audit LOW): only these known-safe fields may ever be exported —
+    // a configured column list can never leak arbitrary DB fields (notes, tokens).
+    $allowedCols = ['passport_number', 'first_name', 'middle_name', 'last_name', 'gender', 'dob', 'nationality', 'passport_issue', 'passport_expiry', 'room_group', 'mobile', 'email'];
     $cfg = $db->get('settings', ['umrah_nusuk_columns']);
     $cols = $default;
     if ($cfg && !empty($cfg['umrah_nusuk_columns'])) {
         $parsed = array_values(array_filter(array_map('trim', explode(',', (string) $cfg['umrah_nusuk_columns']))));
+        $parsed = array_values(array_intersect($parsed, $allowedCols));
         if ($parsed) { $cols = $parsed; }
     }
     $headers = [
@@ -802,11 +810,19 @@ $router->get(admin.'/umrah-manager/manifest', function () use ($SECURE, $db) {
     while (ob_get_level()) { ob_end_clean(); }
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="nusuk-manifest-' . preg_replace('/[^A-Za-z0-9_-]/', '_', (string) $scopeName) . '.csv"');
+    // CSV formula-injection guard (audit LOW): a cell starting with = + - @ (or
+    // tab/CR) becomes a live formula in Excel/Sheets. Prefix such values with a
+    // single quote so they render as text. Applied to every data cell.
+    $csvSafe = static function ($v): string {
+        $v = (string) $v;
+        if ($v !== '' && preg_match('/^[=+\-@\t\r]/', $v)) { return "'" . $v; }
+        return $v;
+    };
     $out = fopen('php://output', 'w');
     fputcsv($out, array_map(fn($c) => $headers[$c] ?? ucwords(str_replace('_', ' ', $c)), $cols));
     foreach ($rows as $r) {
         $line = [];
-        foreach ($cols as $c) { $line[] = (string) ($r[$c] ?? ''); }
+        foreach ($cols as $c) { $line[] = $csvSafe($r[$c] ?? ''); }
         fputcsv($out, $line);
     }
     fclose($out);

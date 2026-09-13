@@ -24,6 +24,34 @@ $router->get('/invoice/umrah/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE
     // CHECK BOOKING EXPIRY TIME
     $isAdmin = (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin');
 
+    // PASSPORT GATE (audit MED): every traveller must have a passport document on
+    // file before an UNPAID umrah booking can proceed to payment — the visa needs
+    // it. Client checkout enforces upload, but a direct /checkout API call can
+    // skip the file; this is the server-side backstop. Never blocks a paid
+    // booking, agent groups (own upload flow) or admins. On a gap, bounce to the
+    // booking page to upload the missing passports.
+    if ($booking['payment_status'] !== 'paid' && !$isAdmin) {
+        $ubGate = $db->get('umrah_bookings', ['id', 'booking_ref', 'user_id'], ['invoice_id' => $invoiceId]);
+        // Skip agent-group bookings — their passports are enforced at group submit.
+        $isAgentGroup = false;
+        if ($ubGate) {
+            $snap = $db->get('umrah_bookings', 'snapshot', ['id' => $ubGate['id']]);
+            $isAgentGroup = $snap && strpos((string) $snap, '"agent_group":true') !== false;
+        }
+        if ($ubGate && !$isAgentGroup) {
+            $travs = $db->select('umrah_booking_travellers', 'id', ['umrah_booking_id' => $ubGate['id']]) ?: [];
+            $missing = 0;
+            foreach ($travs as $tid) {
+                if ((int) $db->count('umrah_documents', ['traveller_id' => (int) $tid, 'doc_type' => 'passport']) === 0) { $missing++; }
+            }
+            if (empty($travs) || $missing > 0) {
+                $_SESSION['message'] = ['type' => 'warning', 'text' => 'Please upload a passport for every pilgrim before payment — it is required for the visa.'];
+                header('Location: ' . root . 'umrah/booking/' . rawurlencode((string) $ubGate['booking_ref']) . '?passport_needed=1');
+                exit;
+            }
+        }
+    }
+
     if ($booking['payment_status'] !== 'paid' && !$isAdmin) {
         $expiryMinutes = $db->get('settings', 'booking_expiry_time');
         if ($expiryMinutes && is_numeric($expiryMinutes) && $expiryMinutes > 0) {

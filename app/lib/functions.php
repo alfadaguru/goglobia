@@ -4559,12 +4559,21 @@ if (!function_exists('agent_api_charge_wallet')) {
      *
      * NOTE: only intended to be called on an agent-API-authenticated request.
      */
-    function agent_api_charge_wallet($db, string $userId, string $service, float $bookingAmount, string $invoiceId): array
+    function agent_api_charge_wallet($db, string $userId, string $service, float $bookingAmount, string $invoiceId, string $currency = ''): array
     {
         $fee   = agent_api_service_fee($db, $userId, $service, $bookingAmount);
         $total = round($bookingAmount + $fee, 2);
         $now = date('Y-m-d H:i:s');
-        $currency = (string) ($GLOBALS['app']['default_currency'] ?? 'USD');
+        // Currency of the debit rows. Prefer the caller-supplied booking currency
+        // (audit HIGH: this used to hardcode default_currency ?? 'USD' — an app
+        // key that does NOT exist — so every NGN umrah charge was recorded as
+        // USD). Fall back to the site's DEFAULT currency (currencies.default = 1),
+        // never invent a currency that differs from the money actually moving.
+        $currency = strtoupper(trim($currency));
+        if ($currency === '') {
+            try { $currency = strtoupper(trim((string) ($db->get('currencies', 'name', ['default' => 1]) ?: ''))); } catch (\Throwable $e) { /* ignore */ }
+        }
+        if ($currency === '') { $currency = 'NGN'; }
         $bookingDesc = 'API booking ' . $invoiceId . ' (' . $service . ')';
         $feeDesc     = 'API service fee ' . $invoiceId . ' (' . $service . ')';
 

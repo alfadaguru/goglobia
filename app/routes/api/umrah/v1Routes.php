@@ -404,11 +404,20 @@ $router->post('/api/v1/umrah/checkout', function () use ($db) {
         $ubRow = $db->get('umrah_bookings', ['id'], ['booking_ref' => $b['booking_ref']]);
         $ubId = (int) ($ubRow['id'] ?? 0);
     }
+    // SERVER-AUTHORITATIVE pax_type sequence (audit MED): derive each pilgrim's
+    // type from the priced A/C/I breakdown (adults, then children, then infants)
+    // by position — do NOT trust the client's per-pilgrim pax_type, so the Nusuk
+    // manifest can never disagree with what was charged.
+    $paxTypeSeq = array_merge(
+        array_fill(0, $adults, 'adult'),
+        array_fill(0, $children, 'child'),
+        array_fill(0, $infants, 'infant')
+    );
     $savedTravellers = 0;
     $travellerIds = []; // per-pilgrim traveller id (index-aligned) for passport upload
     if ($ubId > 0 && function_exists('umrah_traveller_add')) {
         foreach ($pilgrims as $i => $p) {
-            $ptype = in_array(($p['pax_type'] ?? ''), ['adult', 'child', 'infant'], true) ? $p['pax_type'] : 'adult';
+            $ptype = $paxTypeSeq[$i] ?? 'adult';
             $res = umrah_traveller_add($db, $ubId, [
                 'is_lead'         => $i === 0 ? 1 : 0,
                 'title'           => $p['title'] ?? null,
