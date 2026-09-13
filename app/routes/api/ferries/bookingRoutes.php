@@ -847,7 +847,21 @@ $router->post('/api/ferries/booking/submit', function () use ($SECURE, $db) {
             ];
         }
 
-        $finalPrice   = _kikoto_apply_markup($basePrice, $cfg, $channel, $customMarkup);
+        // AGENT MEMBER TIER discount (docs/MONEY-WALLET-AUDIT.md §C.4 step 4):
+        // resolve the agent's tier discount and pass it into the kikoto markup so
+        // a b2b percentage rate is reduced by the tier, like every other module.
+        $ferryTierDiscount = 0.0;
+        if ($isAgent && !empty($userId)) {
+            if (!function_exists('agent_tier_discount_percent')) {
+                $walletLib = dirname(__DIR__, 4) . '/app/lib/wallet.php';
+                if (file_exists($walletLib)) { require_once $walletLib; }
+            }
+            if (function_exists('agent_tier_discount_percent')) {
+                $ferryTierDiscount = (float) agent_tier_discount_percent($db, (string) $userId);
+            }
+        }
+
+        $finalPrice   = _kikoto_apply_markup($basePrice, $cfg, $channel, $customMarkup, $ferryTierDiscount);
 
         // PROMO CODE HANDLING
         $promoCodeStr = trim((string)($input['promo_code'] ?? $draftData['coupon'] ?? ''));

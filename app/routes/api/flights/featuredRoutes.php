@@ -194,34 +194,36 @@ $router->get('/api/flights/featured', function () use ($SECURE, $db) {
             $actualPrice = $price;
 
             if ($finalPrice > 0) {
-                // 1. Initial Markup from Module
-                $isAgent = (strtolower((string)($userRole ?? 'guest')) === 'agent');
-                $markupValue = $isAgent ? floatval($flightsModule['markup_b2b'] ?? 0) : floatval($flightsModule['markup_b2c'] ?? 0);
-                $markupType  = $isAgent ? ($flightsModule['markup_type_b2b'] ?? 'percentage') : ($flightsModule['markup_type_b2c'] ?? 'percentage');
-
-                // 2. Override with Custom Agent Markup
-                if ($isAgent && $userId) {
-                    $agentProfile = $db->get('users', ['apply_markup', 'markup_type', 'markup_value'], ['user_id' => $userId]);
-                    if ($agentProfile && ($agentProfile['apply_markup'] ?? 'global') === 'custom') {
-                        $markupValue = floatval($agentProfile['markup_value'] ?? 0);
-                        $markupType  = $agentProfile['markup_type'] ?? 'percentage';
-                    }
+                // MARKUP NORMALISATION (docs/MONEY-WALLET-AUDIT.md §C.4 step 6):
+                // route through MARKUP() instead of inline arithmetic, so this
+                // featured surface applies the same b2b/b2c rate, custom user
+                // markup, AND agent member-tier discount + currency conversion as
+                // every other flight surface. MARKUP() resolves the caller from
+                // the session/JWT itself.
+                if (!function_exists('MARKUP')) {
+                    require_once dirname(__DIR__, 3) . '/lib/functions.php';
                 }
-
-                // 3. Apply the calculated markup
-                $markupAmount = ($markupType === 'percentage') ? ($finalPrice * ($markupValue / 100)) : $markupValue;
-                $finalPrice = $finalPrice + $markupAmount;
-
-                // 4. Currency Conversion
-                if ($flightCurrency !== $displayCurrency) {
-                    $fromRate = $db->get('currencies', 'rate', ['name' => $flightCurrency, 'status' => '1']);
-                    $toRate   = $db->get('currencies', 'rate', ['name' => $displayCurrency, 'status' => '1']);
-                    
-                    if ($fromRate && $toRate) {
-                        $finalPrice = ($finalPrice / floatval($fromRate)) * floatval($toRate);
-                        $actualPrice = ($price / floatval($fromRate)) * floatval($toRate);
-                    }
+                if (function_exists('MARKUP')) {
+                    $mk = MARKUP($price, $flightsModule ?: 'flights', $db, $flightCurrency, $displayCurrency);
+                    $finalPrice   = (float)($mk['price'] ?? $finalPrice);
+                    $actualPrice  = (float)($mk['converted_base_price'] ?? $actualPrice);
                     $finalCurrency = $displayCurrency;
+                } else {
+                    // Fallback: original inline behaviour (module b2b/b2c only).
+                    $isAgent = (strtolower((string)($userRole ?? 'guest')) === 'agent');
+                    $markupValue = $isAgent ? floatval($flightsModule['markup_b2b'] ?? 0) : floatval($flightsModule['markup_b2c'] ?? 0);
+                    $markupType  = $isAgent ? ($flightsModule['markup_type_b2b'] ?? 'percentage') : ($flightsModule['markup_type_b2c'] ?? 'percentage');
+                    $markupAmount = ($markupType === 'percentage') ? ($finalPrice * ($markupValue / 100)) : $markupValue;
+                    $finalPrice = $finalPrice + $markupAmount;
+                    if ($flightCurrency !== $displayCurrency) {
+                        $fromRate = $db->get('currencies', 'rate', ['name' => $flightCurrency, 'status' => '1']);
+                        $toRate   = $db->get('currencies', 'rate', ['name' => $displayCurrency, 'status' => '1']);
+                        if ($fromRate && $toRate) {
+                            $finalPrice = ($finalPrice / floatval($fromRate)) * floatval($toRate);
+                            $actualPrice = ($price / floatval($fromRate)) * floatval($toRate);
+                        }
+                        $finalCurrency = $displayCurrency;
+                    }
                 }
             }
 

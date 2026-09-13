@@ -409,6 +409,46 @@ that read the old balance breaks.
    server-side at booking, so an agent is charged the correct b2b price even if
    search shows b2c.
 
+### C.4b Post-audit correction — tier discount reach across ALL modules
+
+A later **line-by-line** audit (not grep) found the step-6 "all modules" claim
+was overstated: the agent member-tier discount lives inside `MARKUP()`, so it
+only reached a module if that module's **charged** price is computed by a real
+`MARKUP()` call. Reading every pricing path showed gaps. All are now fixed and
+verified against the live DB:
+
+- **Two `MARKUP()` definitions existed** — `app/lib/functions.php:3406` (tier-aware)
+  and `modules/helpers.php:45` (tier-less), each `if(!function_exists)` guarded so
+  the first loaded wins. The main app loads functions.php first (so all web +
+  `/api/*` checkout used the tier-aware one), but the standalone `/modules/*`
+  gateway loads only helpers.php. **Fix:** added the identical tier block to
+  `modules/helpers.php` (auto-loads `wallet.php` on demand). Both copies now agree.
+- **Web checkout for flights / stays / tours trusted the search-time total** and
+  never re-ran `MARKUP()` at submit, freezing out the tier for web bookings.
+  **Fix:** each web submit now re-derives the sell price via `MARKUP()` from the
+  trusted supplier net (mirroring the mobile paths) —
+  `app/routes/flights/bookingRoutes.php`, `stays/bookingRoutes.php`,
+  `tours/bookingRoutes.php`. Price-tamper floors preserved; ancillaries still pass
+  through at cost (flights).
+- **eSIM** keeps its own per-package (airalo) commission scheme (correct — it is
+  not the generic module markup), but ignored the tier. **Fix:** subtract the
+  agent tier discount from an agent **percentage** markup in
+  `app/routes/api/esim/packagesRoutes.php` (the authoritative agent-priced
+  endpoint the booking path faithfully preserves).
+- **Ferries (kikoto)** priced inline via `_kikoto_apply_markup()`. **Fix:** added a
+  `$tierDiscount` parameter applied to a b2b percentage markup; the booking path
+  resolves and passes it (`modules/ferries/kikoto/api.php`,
+  `app/routes/api/ferries/bookingRoutes.php`).
+- **Featured flights** marked up inline. **Fix:** routed through `MARKUP()`
+  (`app/routes/api/flights/featuredRoutes.php`).
+- **Visa** has no agent margin by design (govt fee + fixed service fee); **Insurance**
+  is free. Left as-is — decide separately if agents should earn on visa.
+
+**Verified (live DB):** Gold-tier agent (2.5%) on a 6% b2b rate → effective 3.5%
+across functions.php MARKUP, helpers.php MARKUP (gateway), kikoto ferries, and the
+eSIM percentage path; customer b2c untouched; umrah lifecycle regression still
+zero failures; all touched files lint-clean and register without fatal.
+
 ## C.5 What we ACHIEVE when §C is done (plain summary)
 
 - **Agents can fund and spend one real wallet** — a gateway top-up becomes

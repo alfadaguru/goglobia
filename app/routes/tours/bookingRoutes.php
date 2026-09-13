@@ -312,13 +312,28 @@ $router->post('/api/tour/booking/submit', function () use ($SECURE, $db) {
         $markupPrice = $bookingData['markup_total_tour_price'] ?? 0;
         $currency = $bookingData['currency'] ?? 'USD';
 
-        // USE PRICES FROM FRONTEND IF PROVIDED, OTHERWISE FROM BOOKING DATA
-        if ($subtotal == 0) {
-            $subtotal = $markupPrice;
+        // MARKUP NORMALISATION (docs/MONEY-WALLET-AUDIT.md §C.4 step 6): re-derive
+        // the sell price SERVER-SIDE via MARKUP() from the trusted supplier net
+        // ($actualPrice from the server draft) so the agent's b2b rate + member-
+        // tier discount + custom user markup are honoured at checkout, instead of
+        // trusting the search-time markup_total_tour_price. The module markup is a
+        // single rate, so applying it to the aggregate net equals the per-pax sum.
+        if ((float)$actualPrice > 0) {
+            if (!function_exists('MARKUP')) {
+                require_once dirname(__DIR__, 3) . '/modules/helpers.php';
+            }
+            if (function_exists('MARKUP')) {
+                $toursModuleRow = $db->get('modules', '*', ['type' => 'tours', 'status' => '1']);
+                $mk = MARKUP((float)$actualPrice, $toursModuleRow ?: 'tours', $db, $currency, $currency);
+                if (!empty($mk['price']) && (float)$mk['price'] > 0) {
+                    $markupPrice = round((float)$mk['price'], 2);
+                }
+            }
         }
-        if ($finalTotal == 0) {
-            $finalTotal = $markupPrice + $taxAmount;
-        }
+
+        // The server-recomputed markupPrice is authoritative.
+        $subtotal = $markupPrice;
+        $finalTotal = $markupPrice + $taxAmount;
 
         // GENERATE 8-CHARACTER UUID FOR INVOICE
         $invoiceId = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
