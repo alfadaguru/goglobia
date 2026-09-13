@@ -92,7 +92,7 @@ $router->post('ferries/kikoto/revalidate', function () use ($db) {
         if (!empty($priceData['sailings'])) {
             foreach ($priceData['sailings'] as &$s) {
                 $orig  = (float)($s['price'] ?? 0);
-                $final = _kikoto_apply_markup($orig, $cfg, $channel, $agentCtx['custom_markup'] ?? null);
+                $final = _kikoto_apply_markup($orig, $cfg, $channel, $agentCtx['custom_markup'] ?? null, (float)($agentCtx['tier_discount'] ?? 0));
                 $s['original_price'] = $orig;
                 $s['price']          = $final;
                 $totalOriginal      += $orig;

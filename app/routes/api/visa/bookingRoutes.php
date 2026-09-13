@@ -515,6 +515,35 @@ $router->post('/api/visas/booking/submit', function () use ($db) {
         $finalPriceMarkup = $totalPriceDefault * $travelersCount;
         $taxAmount = 0;
 
+        // AGENT COMMISSION (docs/MONEY-WALLET-AUDIT.md §C.4b) — mirrors the web
+        // visa path: customer price unchanged; an agent earns b2b markup % (minus
+        // member-tier) of the selling total, capped at the service-fee margin, or
+        // the full service fee if no b2b markup is set.
+        $visaAgentEarning = 0.0;
+        $visaIsAgent = is_array($userData) && strtolower((string)($userData['role'] ?? '')) === 'agent';
+        if ($visaIsAgent && !empty($userId)) {
+            $visaModuleRow = $db->get('modules', ['markup_b2b', 'markup_type_b2b'], ['type' => 'visa']);
+            $b2bVal  = (float)($visaModuleRow['markup_b2b'] ?? 0);
+            $b2bType = strtolower((string)($visaModuleRow['markup_type_b2b'] ?? 'percentage'));
+            if ($b2bVal > 0) {
+                if ($b2bType === 'percentage') {
+                    if (!function_exists('agent_tier_discount_percent')) {
+                        $walletLib = dirname(__DIR__, 4) . '/app/lib/wallet.php';
+                        if (file_exists($walletLib)) { require_once $walletLib; }
+                    }
+                    $tierDisc = function_exists('agent_tier_discount_percent')
+                        ? (float) agent_tier_discount_percent($db, (string)$userId) : 0.0;
+                    $effPct = max(0.0, $b2bVal - $tierDisc);
+                    $visaAgentEarning = round($finalPriceMarkup * $effPct / 100, 2);
+                } else {
+                    $visaAgentEarning = round($b2bVal * $travelersCount, 2);
+                }
+            } else {
+                $visaAgentEarning = round($finalCommission, 2);
+            }
+            $visaAgentEarning = max(0.0, min($visaAgentEarning, (float)$finalCommission));
+        }
+
         // --------------------------------------------------
         // GET COUNTRY / SETTING NAMES
         // --------------------------------------------------
@@ -614,6 +643,7 @@ $router->post('/api/visas/booking/submit', function () use ($db) {
             'price_original' => $finalPriceOriginal,
             'price_markup' => $finalPriceMarkup,
             'commission' => $finalCommission,
+            'agent_earning' => $visaAgentEarning,
             'tax' => $taxAmount,
             'tax_type' => 'fixed',
             'travellers' => json_encode($travelers),

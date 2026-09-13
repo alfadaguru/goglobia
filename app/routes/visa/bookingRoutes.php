@@ -161,9 +161,48 @@ $router->post('/api/visa/booking/submit', function () use ($SECURE, $db) {
         $finalPriceOriginal = $govtFeeDefault * $travelersCount;      // Total Cost (Visa Fees)
         $finalCommission = $serviceFeeDefault * $travelersCount;      // Total Commission
         $finalPriceMarkup = $totalPriceDefault * $travelersCount;     // Total Selling Price
-        
+
         // NO TAX OR MARKUP FOR VISA - USE DIRECT PRICING (Legacy comment updated)
         $taxAmount = 0;
+
+        // AGENT COMMISSION (docs/MONEY-WALLET-AUDIT.md §C.4b): visa has a fixed
+        // customer price (govt + service fee), so we do NOT change what the
+        // customer pays. Instead an AGENT earns a commission out of that margin:
+        //   - agent b2b markup % (reduced by their member-tier) applied to the
+        //     selling total, capped at the available service-fee margin; OR
+        //   - if no b2b markup is configured, the agent earns the full service fee.
+        // Customers earn nothing (agent_earning = 0).
+        $visaAgentEarning = 0.0;
+        $visaBookerId = (string)($_SESSION['user_id'] ?? '');
+        if ($visaBookerId !== '') {
+            $vb = $db->get('users', ['role'], ['user_id' => $visaBookerId]);
+            $visaIsAgent = (is_array($vb) && strtolower((string)($vb['role'] ?? '')) === 'agent')
+                || strtolower((string)($_SESSION['user_role'] ?? '')) === 'agent';
+            if ($visaIsAgent) {
+                $visaModuleRow = $db->get('modules', ['markup_b2b', 'markup_type_b2b'], ['type' => 'visa']);
+                $b2bVal  = (float)($visaModuleRow['markup_b2b'] ?? 0);
+                $b2bType = strtolower((string)($visaModuleRow['markup_type_b2b'] ?? 'percentage'));
+                if ($b2bVal > 0) {
+                    if ($b2bType === 'percentage') {
+                        if (!function_exists('agent_tier_discount_percent')) {
+                            $walletLib = dirname(__DIR__, 3) . '/lib/wallet.php';
+                            if (file_exists($walletLib)) { require_once $walletLib; }
+                        }
+                        $tierDisc = function_exists('agent_tier_discount_percent')
+                            ? (float) agent_tier_discount_percent($db, $visaBookerId) : 0.0;
+                        $effPct = max(0.0, $b2bVal - $tierDisc);
+                        $visaAgentEarning = round($finalPriceMarkup * $effPct / 100, 2);
+                    } else {
+                        $visaAgentEarning = round($b2bVal * $travelersCount, 2);
+                    }
+                } else {
+                    // No b2b markup set → agent earns the platform service fee.
+                    $visaAgentEarning = round($finalCommission, 2);
+                }
+                // Never pay out more than the platform's own margin (service fee).
+                $visaAgentEarning = max(0.0, min($visaAgentEarning, (float)$finalCommission));
+            }
+        }
 
         // GET COUNTRY NAMES
         $fromCountryData = $db->get('countries', 'nicename', ['iso' => $bookingData['from_country']]);
@@ -255,7 +294,10 @@ $router->post('/api/visa/booking/submit', function () use ($SECURE, $db) {
             
             // commission = The Profit (Service Fee)
             'commission' => $finalCommission,
-            
+
+            // agent_earning = the agent's share of that margin (0 for customers)
+            'agent_earning' => $visaAgentEarning,
+
             'tax' => $taxAmount,
             'tax_type' => $taxInfo['tax_type'] ?? 'fixed',
             'travellers' => json_encode($travelers),
