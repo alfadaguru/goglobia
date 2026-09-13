@@ -1088,6 +1088,43 @@ $router->post('/api/admin/deposit/update-status', function () {
             $db->pdo->commit();
 
             // ====================================
+            // MONEY SPINE — credit the approved deposit into the user's WALLET so
+            // it is actually spendable (docs/MONEY-WALLET-AUDIT.md §C.4 step 2).
+            // Done AFTER the commit above (wallet_apply opens its own DB
+            // transaction; PDO/MySQL does not nest). Idempotent on the deposit id
+            // so a re-approve can never double-credit. This is the fix for the
+            // critical "deposit != wallet" disconnect: previously an approved
+            // deposit only touched users.balance / transactions and never reached
+            // the credits/wallet balance that bookings spend from.
+            if ($newStatus === 'approved' && function_exists('wallet_topup_success') && function_exists('txn_create')) {
+                try {
+                    $amt = floatval($deposit['amount']);
+                    $cur = strtoupper(trim((string) ($deposit['currency'] ?? ''))) ?: wallet_default_currency($db);
+                    $idem = 'DEPOSIT-' . $depositId;
+                    $txn = txn_create($db, [
+                        'user_id'         => (string) $deposit['user_id'],
+                        'direction'       => 'credit',
+                        'reason'          => 'wallet_topup',
+                        'amount'          => $amt,
+                        'currency'        => $cur,
+                        'method'          => 'manual', // agent uploaded proof; admin approved
+                        'invoice_id'      => null,
+                        'idempotency_key' => $idem,
+                        'description'     => 'Wallet top-up from approved deposit #' . $depositId,
+                    ]);
+                    // Mark it sent->success and credit the wallet (idempotent: if the
+                    // txn was already success from a prior approve, this is a no-op).
+                    if (($txn['status'] ?? '') !== 'success') {
+                        txn_advance($db, (int) $txn['id'], 'sent', 'deposit approved by admin');
+                        wallet_topup_success($db, (int) $txn['id'], (string) ($deposit['transaction_id'] ?? ''));
+                    }
+                } catch (\Throwable $walletEx) {
+                    // Never fail the approval because of a wallet-credit hiccup; log it.
+                    error_log('deposit wallet credit: ' . $walletEx->getMessage());
+                }
+            }
+
+            // ====================================
             // SEND EMAIL NOTIFICATION
             // ====================================
             // Trigger deposit notification (Approved/Rejected)

@@ -4145,6 +4145,95 @@ if (!function_exists('ensureAgentApiSchema')) {
                 KEY `idx_key_id` (`key_id`),
                 KEY `idx_created_at` (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            // ============================================================
+            // MONEY SPINE (docs/MONEY-WALLET-AUDIT.md §C). Four tables:
+            //   wallets           — one spendable balance per (user, currency)
+            //   wallet_ledger     — every change to a wallet (running balance)
+            //   money_transactions— ONE record of every movement (credit/debit)
+            //   transaction_journey — ordered state trail per transaction
+            // Additive + idempotent. The legacy `credits` ledger is kept and
+            // mirrored (not dropped) so existing agent flows are untouched.
+            // NOTE: a NEW table `money_transactions` is used rather than
+            // upgrading the pre-existing `transactions` table, to avoid any
+            // risk to the current gateway-payment recorder; `transactions`
+            // stays as the raw gateway record and is linked by invoice_id/ref.
+            // ============================================================
+            $db->query("CREATE TABLE IF NOT EXISTS `wallets` (
+                `id` bigint(20) NOT NULL AUTO_INCREMENT,
+                `user_id` varchar(255) NOT NULL,
+                `kind` enum('customer','agent') NOT NULL DEFAULT 'customer',
+                `currency` varchar(10) NOT NULL,
+                `balance` decimal(14,2) NOT NULL DEFAULT 0.00,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_user_currency` (`user_id`,`currency`),
+                KEY `idx_user` (`user_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `money_transactions` (
+                `id` bigint(20) NOT NULL AUTO_INCREMENT,
+                `txn_ref` varchar(40) NOT NULL,
+                `user_id` varchar(255) NOT NULL,
+                `actor_kind` enum('customer','agent','admin','system') NOT NULL DEFAULT 'customer',
+                `direction` enum('credit','debit') NOT NULL,
+                `reason` enum('wallet_topup','booking_payment','wallet_spend','refund','reversal','fee','loyalty_convert','adjustment') NOT NULL,
+                `amount` decimal(14,2) NOT NULL,
+                `currency` varchar(10) NOT NULL,
+                `method` enum('gateway','wallet','manual') NOT NULL DEFAULT 'wallet',
+                `gateway_id` varchar(64) DEFAULT NULL,
+                `provider_trx_id` varchar(191) DEFAULT NULL,
+                `invoice_id` varchar(64) DEFAULT NULL,
+                `wallet_id` bigint(20) DEFAULT NULL,
+                `status` enum('pending','sent','success','failed','cancelled','reversed') NOT NULL DEFAULT 'pending',
+                `idempotency_key` varchar(150) DEFAULT NULL,
+                `description` varchar(255) DEFAULT NULL,
+                `error_message` varchar(255) DEFAULT NULL,
+                `gateway_response` text DEFAULT NULL,
+                `created_by` varchar(64) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_txn_ref` (`txn_ref`),
+                UNIQUE KEY `uq_idem` (`idempotency_key`),
+                KEY `idx_user` (`user_id`),
+                KEY `idx_invoice` (`invoice_id`),
+                KEY `idx_status` (`status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `wallet_ledger` (
+                `id` bigint(20) NOT NULL AUTO_INCREMENT,
+                `wallet_id` bigint(20) NOT NULL,
+                `user_id` varchar(255) NOT NULL,
+                `transaction_id` bigint(20) DEFAULT NULL,
+                `direction` enum('credit','debit') NOT NULL,
+                `amount` decimal(14,2) NOT NULL,
+                `balance_after` decimal(14,2) NOT NULL,
+                `currency` varchar(10) NOT NULL,
+                `reason` enum('topup','booking','fee','refund','reversal','loyalty_convert','adjustment') NOT NULL,
+                `ref_type` varchar(32) DEFAULT NULL,
+                `ref_id` varchar(64) DEFAULT NULL,
+                `note` varchar(255) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_wallet` (`wallet_id`,`created_at`),
+                KEY `idx_user` (`user_id`),
+                KEY `idx_txn` (`transaction_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            $db->query("CREATE TABLE IF NOT EXISTS `transaction_journey` (
+                `id` bigint(20) NOT NULL AUTO_INCREMENT,
+                `transaction_id` bigint(20) NOT NULL,
+                `from_status` varchar(20) DEFAULT NULL,
+                `to_status` varchar(20) NOT NULL,
+                `note` varchar(255) DEFAULT NULL,
+                `context` text DEFAULT NULL,
+                `actor` varchar(64) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_txn` (`transaction_id`,`created_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
         } catch (\Throwable $e) {
             // Match the codebase convention: swallow (e.g. a DB user without
             // CREATE rights) and log, rather than fatal the whole request.
