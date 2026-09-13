@@ -376,24 +376,29 @@ $router->post('/api/tour/booking/submit', function () use ($SECURE, $db) {
         $commissionBase = $commission;
         $finalTotalWithTaxBase = $finalTotalWithTax;
 
-        // PROMO CODE HANDLING
+        // PROMO CODE HANDLING (audit money-integrity): recompute the discount
+        // SERVER-SIDE from the promo row — never trust the client's promo_discount.
         $promoCodeStr = trim($input['promo_code'] ?? '');
-        $promoDiscount = (float)($input['promo_discount'] ?? 0);
+        $promoDiscount = 0.0;
         $promoCodeJson = null;
         $promoData = null;
-        if (!empty($promoCodeStr) && $promoDiscount > 0) {
-            $promoData = $db->get('promo_codes', '*', ['code' => $promoCodeStr]);
-            if ($promoData) {
-                $promoCodeJson = json_encode([
-                    'code' => $promoData['code'],
-                    'discount_type' => $promoData['discount_type'],
-                    'discount_value' => floatval($promoData['discount_value']),
-                    'discount_amount' => $promoDiscount,
-                    'max_discount_amount' => $promoData['max_discount_amount'] ? floatval($promoData['max_discount_amount']) : null,
-                    'description' => $promoData['description'],
-                    'module' => $promoData['module']
-                ]);
+        if ($promoCodeStr !== '' && function_exists('validatePromoCode')) {
+            $pv = validatePromoCode($db, $promoCodeStr, (float) $markupPriceBase, 'tours', (string) $baseCurrency);
+            if (!empty($pv['ok'])) {
+                $promoDiscount = (float) $pv['discount'];
+                $promoData = $pv['promo'] ?? null;
             }
+        }
+        if ($promoDiscount > 0 && $promoData) {
+            $promoCodeJson = json_encode([
+                'code' => $promoData['code'],
+                'discount_type' => $promoData['discount_type'],
+                'discount_value' => floatval($promoData['discount_value']),
+                'discount_amount' => $promoDiscount,
+                'max_discount_amount' => $promoData['max_discount_amount'] ? floatval($promoData['max_discount_amount']) : null,
+                'description' => $promoData['description'],
+                'module' => $promoData['module']
+            ]);
         }
 
         // APPLY PROMO DISCOUNT TO FINAL TOTAL

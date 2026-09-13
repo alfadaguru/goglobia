@@ -137,30 +137,40 @@ if ($userBalance < $paymentAmount) {
 }
 
 // ============================================================================
-// PROCESS PAYMENT - DEDUCT FROM WALLET BALANCE
+// PROCESS PAYMENT — DEBIT THE WALLET THROUGH THE SPINE (audit money-integrity)
 // ============================================================================
+// Previously this read users.balance unlocked, then wrote it directly — a TOCTOU
+// double-spend race, and it bypassed the money spine (no money_transactions, no
+// wallet_ledger, no journey, and users.balance drifted from wallets.balance).
+// wallet_spend() does it atomically: FOR UPDATE lock + balance check + ledger +
+// journey + legacy mirror (users.balance for customers), idempotent per invoice.
 try {
-    // START TRANSACTION
-    $db->pdo->beginTransaction();
-    
-    // DEDUCT AMOUNT FROM USER BALANCE
-    $newBalance = $userBalance - $paymentAmount;
-    $updateResult = $db->update('users', [
-        'balance' => $newBalance
-    ], [
-        'user_id' => $userId
-    ]);
-    
-    if (!$updateResult) {
-        throw new Exception('Failed to update wallet balance');
+    if (!function_exists('wallet_spend')) {
+        require_once dirname(__DIR__, 2) . '/lib/wallet.php';
     }
-    
-    // GENERATE TRANSACTION ID
-    $transactionId = 'WLT-' . strtoupper(uniqid()) . '-' . time();
-    
-    // COMMIT TRANSACTION FIRST
-    $db->pdo->commit();
-    
+
+    $spend = wallet_spend($db, $userId, $paymentAmount, $paymentCurrency, [
+        'reason'          => 'booking',
+        'invoice_id'      => $booking['invoice_id'],
+        'method'          => 'wallet',
+        'idempotency_key' => 'WLTPAY-' . $booking['invoice_id'],
+        'note'            => 'Wallet payment for invoice ' . $booking['invoice_id'],
+    ]);
+
+    if (empty($spend['ok'])) {
+        // Insufficient funds or a lost race — never mark the booking paid.
+        echo '<div style="max-width:420px;margin:0 auto;padding:20px;background:#fff;border-radius:12px;border:1px solid #fecaca;">';
+        echo '<h4 style="color:#dc2626;margin-top:0;">Payment Failed</h4>';
+        echo '<p style="color:#991b1b;margin-bottom:10px;">' . htmlspecialchars($spend['message'] ?? 'Your wallet could not be charged. Please try again.') . '</p>';
+        echo '<p style="margin-top:15px;"><a href="' . htmlspecialchars(root . 'invoice/' . $booking['invoice_id']) . '" style="color:#2563eb;">← Return to Invoice</a></p>';
+        echo '</div>';
+        return;
+    }
+
+    // Spine transaction reference for the booking record + receipt.
+    $transactionId = $spend['transaction']['txn_ref'] ?? ('WLT-' . strtoupper(uniqid()));
+    $newBalance = (float) $spend['balance'];
+
     // ============================================================================
     // UPDATE BOOKING STATUS AND TRIGGER AUTO-ISSUE (DIRECT PROCESSING)
     // ============================================================================

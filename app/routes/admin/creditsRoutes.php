@@ -22,6 +22,14 @@ $router->get(admin.'/finance/credits(.*)', function ($user_id) use ($SECURE,$db)
 
 // ================================ POST /finance/credits
 $router->post(admin.'/finance/credits', function () use ($SECURE,$db) {
+    ADMIN_AUTH();
+    // CSRF (audit money-integrity): this POST credits/debits an agent wallet, so
+    // it must carry a valid token. Was previously unguarded.
+    if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_POST['_token'] ?? ''))) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Invalid or expired form token. Please try again.'];
+        redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/finance/credits');
+        return;
+    }
 
     // FORM DATA VALIDATION
     $user_id = $_POST['user_id'] ?? 0;
@@ -77,23 +85,41 @@ $router->post(admin.'/finance/credits', function () use ($SECURE,$db) {
         return;
     }
 
-    $currency = $db->get('currencies', 'name', ['default' => '1']);
-
-    // PREPARE DATA FOR INSERTION IN CREDITS TABLE
-    $credit_data = [
-        'user_id' => $user_id,
-        'type' => $transaction_type,
-        'credits' => $credits,
-        'description' => $description,
-        'currency' => $_POST['currency'],
-        'created_at' => date('Y-m-d H:i:s'),
-    ];
+    $currency = $_POST['currency'] ?? $db->get('currencies', 'name', ['default' => '1']);
+    $adminRef = 'ADMINCR-' . time() . '-' . bin2hex(random_bytes(4));
 
     try {
-        // INSERT INTO CREDITS TABLE
-        $result = $db->insert('credits', $credit_data);
+        // MONEY MOVEMENT VIA THE SPINE (audit money-integrity): route the admin
+        // credit/debit through wallet_refund()/wallet_spend() so it is traceable
+        // (money_transactions + wallet_ledger + journey) AND — because the spine
+        // mirrors AGENT wallets to the legacy `credits` ledger — it writes exactly
+        // ONE `credits` row (no double count). This replaces the old direct
+        // $db->insert('credits', ...) which had no spine record and no journey.
+        if (!function_exists('wallet_refund')) {
+            require_once dirname(__DIR__, 2) . '/lib/wallet.php';
+        }
+        $spineOk = true;
+        if ($transaction_type === 'credit') {
+            $sr = wallet_refund($db, (string) $user_id, (float) $credits, (string) $currency, [
+                'reason' => 'adjustment', 'ref_type' => 'admin_credit', 'ref_id' => $adminRef,
+                'idempotency_key' => $adminRef,
+                'note' => 'Admin credit' . ($description !== '' ? ': ' . $description : ''),
+            ]);
+            $spineOk = !empty($sr['ok']);
+        } else { // debit
+            $sr = wallet_spend($db, (string) $user_id, (float) $credits, (string) $currency, [
+                'reason' => 'adjustment', 'method' => 'manual', 'allow_credit_line' => true,
+                'ref_type' => 'admin_credit', 'ref_id' => $adminRef,
+                'idempotency_key' => $adminRef,
+                'note' => 'Admin debit' . ($description !== '' ? ': ' . $description : ''),
+            ]);
+            $spineOk = !empty($sr['ok']);
+        }
+        $result = $spineOk;
 
         if ($result) {
+            // Keep the agent's member tier in step with the new lifetime balance.
+            if (function_exists('agent_recompute_tier')) { agent_recompute_tier($db, (string) $user_id); }
             // UPDATE USER'S CREDIT_LIMITS BASED ON TRANSACTION TYPE
             if ($transaction_type === 'credit') {
                 $new_credit_limits = $user['credit_limits'] + $credits;

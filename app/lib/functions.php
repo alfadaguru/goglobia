@@ -3681,6 +3681,82 @@ function calculateTax($totalAmount, $moduleName, $db, $fromCurrency = null, $toC
     ];
 }
 
+if (!function_exists('validatePromoCode')) {
+    /**
+     * Authoritative, server-side promo-code validation + discount calculation
+     * (audit money-integrity). Several checkout paths (flights/stays/tours) used
+     * to TRUST a client-sent promo_discount after only checking the code exists —
+     * so a client could POST any real code with promo_discount=999999 and get an
+     * arbitrary discount. This recomputes the discount from the promo row against
+     * the order subtotal, enforcing status, module, active window, usage limit,
+     * min-order, and the max-discount cap (with currency conversion). Callers MUST
+     * use the returned 'discount' and never the client's number.
+     *
+     * @param string $code        the submitted promo code
+     * @param float  $orderAmount the order subtotal in $currency (pre-discount)
+     * @param string $module      module name ('flights','stays',... ) for scoping
+     * @param string $currency    the order currency
+     * @return array ['ok'=>bool,'discount'=>float,'message'=>?string,'promo'=>?array]
+     */
+    function validatePromoCode($db, string $code, float $orderAmount, string $module, string $currency = ''): array
+    {
+        $code = trim($code);
+        if ($code === '') { return ['ok' => false, 'discount' => 0.0, 'message' => 'No promo code']; }
+        $currency = strtoupper(trim($currency)) ?: 'USD';
+
+        $promo = $db->get('promo_codes', '*', ['code' => $code]);
+        if (!$promo) { return ['ok' => false, 'discount' => 0.0, 'message' => 'Invalid promo code']; }
+        if ((int) ($promo['status'] ?? 0) !== 1) { return ['ok' => false, 'discount' => 0.0, 'message' => 'This promo code is no longer active']; }
+
+        $promoModule = (string) ($promo['module'] ?? 'all');
+        if ($promoModule !== 'all' && strtolower($promoModule) !== strtolower($module)) {
+            return ['ok' => false, 'discount' => 0.0, 'message' => 'This promo code is not valid for this booking'];
+        }
+        if (!empty($promo['start_date']) && strtotime((string) $promo['start_date']) > time()) {
+            return ['ok' => false, 'discount' => 0.0, 'message' => 'This promo code is not yet active'];
+        }
+        if (!empty($promo['end_date']) && strtotime((string) $promo['end_date']) < time()) {
+            return ['ok' => false, 'discount' => 0.0, 'message' => 'This promo code has expired'];
+        }
+        if (!empty($promo['usage_limit']) && (int) ($promo['used_count'] ?? 0) >= (int) $promo['usage_limit']) {
+            return ['ok' => false, 'discount' => 0.0, 'message' => 'This promo code usage limit has been reached'];
+        }
+
+        $promoCurrency = strtoupper((string) ($promo['currency'] ?? 'USD'));
+        $conv = function ($amt) use ($promoCurrency, $currency, $db) {
+            $amt = (float) $amt;
+            if ($promoCurrency !== $currency && $amt > 0 && function_exists('CURRENCY_CONVERT')) {
+                $c = CURRENCY_CONVERT($amt, $db, $promoCurrency, $currency);
+                return (float) ($c['price'] ?? $amt);
+            }
+            return $amt;
+        };
+
+        if (!empty($promo['min_order_amount'])) {
+            $minAmount = $conv($promo['min_order_amount']);
+            if ($orderAmount < $minAmount) {
+                return ['ok' => false, 'discount' => 0.0, 'message' => 'Minimum order amount of ' . $currency . ' ' . number_format($minAmount, 2) . ' is required to use this promo code'];
+            }
+        }
+
+        $discount = 0.0;
+        if (($promo['discount_type'] ?? 'percentage') === 'percentage') {
+            $discount = round($orderAmount * (floatval($promo['discount_value'] ?? 0) / 100), 2);
+            if (!empty($promo['max_discount_amount'])) {
+                $cap = $conv($promo['max_discount_amount']);
+                if ($cap > 0 && $discount > $cap) { $discount = $cap; }
+            }
+        } else {
+            $discount = round($conv($promo['discount_value'] ?? 0), 2);
+        }
+        // Never discount more than the order itself.
+        if ($discount > $orderAmount) { $discount = round($orderAmount, 2); }
+        if ($discount < 0) { $discount = 0.0; }
+
+        return ['ok' => true, 'discount' => $discount, 'message' => null, 'promo' => $promo];
+    }
+}
+
 /**
  * Get tax information for a module (for display purposes)
  * @param string $moduleName Module name (hotels, flights, cars, tours, visa)
@@ -4760,9 +4836,17 @@ if (!function_exists('agent_api_charge_wallet')) {
         $bookingDesc = 'API booking ' . $invoiceId . ' (' . $service . ')';
         $feeDesc     = 'API service fee ' . $invoiceId . ' (' . $service . ')';
 
-        // IDEMPOTENCY (audit H3): a retried/duplicate charge for the SAME invoice
-        // must not double-debit. If a booking debit for this invoice already
-        // exists, treat the charge as already applied (no-op success).
+        // SPINE-ROUTED (audit money-integrity): route the agent booking charge
+        // through wallet_spend() so it is a real money_transactions debit with a
+        // journey trail + wallet_ledger row, atomically FOR-UPDATE locked, and
+        // (for agent wallets) mirrored to the legacy `credits` ledger so
+        // agent_api_wallet_balance() stays correct. Idempotency is keyed per
+        // invoice+service so a retry never double-charges. The booking and the
+        // service fee are two spine transactions (distinct keys) but the balance
+        // check on the fee accounts for the just-applied booking debit.
+        //
+        // Backward-compat idempotency: if the OLD description-based debit already
+        // exists (a charge applied before this change), treat as already done.
         try {
             $already = $db->get('credits', 'id', [
                 'user_id' => $userId, 'type' => 'debit', 'description' => $bookingDesc,
@@ -4773,48 +4857,60 @@ if (!function_exists('agent_api_charge_wallet')) {
             }
         } catch (\Throwable $e) { /* fall through to charge */ }
 
-        // ATOMIC (audit H3): balance check + both debit rows run inside ONE
-        // transaction so a mid-charge failure can never post the booking debit
-        // while losing the fee debit (no orphaned debit). Rolls back on any error.
-        $result = ['ok' => false, 'message' => 'Wallet charge failed.'];
-        try {
-            $db->action(function ($db) use (
-                $userId, $service, $bookingAmount, $fee, $total, $currency, $now,
-                $bookingDesc, $feeDesc, &$result
-            ) {
-                // Re-read balance inside the transaction.
-                $balance = agent_api_wallet_balance($db, $userId);
-                $creditLimit = 0.0;
-                try {
-                    $u = $db->get('users', ['credit_limits'], ['user_id' => $userId]);
-                    $creditLimit = (float) ($u['credit_limits'] ?? 0);
-                } catch (\Throwable $e) { /* default 0 */ }
+        if (!function_exists('wallet_spend')) {
+            $walletLib = __DIR__ . '/wallet.php';
+            if (file_exists($walletLib)) { require_once $walletLib; }
+        }
 
-                if (($balance + $creditLimit) < $total) {
-                    $result = ['ok' => false, 'message' => 'Insufficient wallet balance.', 'balance' => $balance, 'fee' => $fee, 'required' => $total];
-                    return false; // rollback (nothing written yet)
-                }
+        // Pre-check combined affordability (balance + optional credit line) so we
+        // never post the booking debit and then fail the fee — mirrors the old
+        // all-or-nothing guarantee.
+        $balanceBefore = agent_api_wallet_balance($db, $userId);
+        $creditLimit = 0.0;
+        try { $creditLimit = (float) ($db->get('users', 'credit_limits', ['user_id' => $userId]) ?: 0); } catch (\Throwable $e) {}
+        if (($balanceBefore + $creditLimit) < $total) {
+            return ['ok' => false, 'message' => 'Insufficient wallet balance.', 'balance' => $balanceBefore, 'fee' => $fee, 'required' => $total];
+        }
 
-                $db->insert('credits', [
-                    'user_id' => $userId, 'type' => 'debit', 'credits' => round($bookingAmount, 2),
-                    'currency' => $currency, 'description' => $bookingDesc, 'created_at' => $now,
-                ]);
-                if ($fee > 0) {
-                    $db->insert('credits', [
-                        'user_id' => $userId, 'type' => 'debit', 'credits' => round($fee, 2),
-                        'currency' => $currency, 'description' => $feeDesc, 'created_at' => $now,
-                    ]);
-                }
-
-                $result = ['ok' => true, 'charged' => $total, 'fee' => $fee, 'new_balance' => round($balance - $total, 2)];
-                return true; // commit
-            });
-        } catch (\Throwable $e) {
-            error_log('agent_api_charge_wallet: ' . $e->getMessage());
+        if (!function_exists('wallet_spend')) {
+            // Engine unavailable — fail closed rather than silently mis-charging.
+            error_log('agent_api_charge_wallet: wallet_spend unavailable');
             return ['ok' => false, 'message' => 'Wallet charge failed.', 'fee' => $fee, 'required' => $total];
         }
 
-        return $result;
+        // 1) Booking debit through the spine.
+        $spendBooking = wallet_spend($db, $userId, round($bookingAmount, 2), $currency, [
+            'reason' => 'booking', 'invoice_id' => $invoiceId, 'method' => 'wallet',
+            'allow_credit_line' => true, 'ref_type' => 'invoice', 'ref_id' => $invoiceId,
+            'idempotency_key' => 'AGT-BOOK-' . $invoiceId . '-' . $service,
+            'note' => $bookingDesc,
+        ]);
+        if (empty($spendBooking['ok'])) {
+            return ['ok' => false, 'message' => $spendBooking['message'] ?? 'Insufficient wallet balance.', 'balance' => $balanceBefore, 'fee' => $fee, 'required' => $total];
+        }
+
+        // 2) Service fee debit through the spine (only when non-zero).
+        if ($fee > 0) {
+            $spendFee = wallet_spend($db, $userId, round($fee, 2), $currency, [
+                'reason' => 'fee', 'invoice_id' => $invoiceId, 'method' => 'wallet',
+                'allow_credit_line' => true, 'ref_type' => 'invoice', 'ref_id' => $invoiceId,
+                'idempotency_key' => 'AGT-FEE-' . $invoiceId . '-' . $service,
+                'note' => $feeDesc,
+            ]);
+            if (empty($spendFee['ok'])) {
+                // Fee failed after the booking debit succeeded — reverse the
+                // booking debit so we never leave a partial charge (idempotent).
+                wallet_refund($db, $userId, round($bookingAmount, 2), $currency, [
+                    'reason' => 'reversal', 'invoice_id' => $invoiceId, 'ref_type' => 'invoice', 'ref_id' => $invoiceId,
+                    'idempotency_key' => 'AGT-BOOK-REV-' . $invoiceId . '-' . $service,
+                    'note' => 'Reverse booking debit (fee charge failed) ' . $invoiceId,
+                ]);
+                return ['ok' => false, 'message' => $spendFee['message'] ?? 'Insufficient wallet balance for service fee.', 'balance' => $balanceBefore, 'fee' => $fee, 'required' => $total];
+            }
+        }
+
+        $newBalance = agent_api_wallet_balance($db, $userId);
+        return ['ok' => true, 'charged' => $total, 'fee' => $fee, 'new_balance' => $newBalance];
     }
 }
 

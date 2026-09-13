@@ -979,14 +979,20 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
         // B2B agents earn the markup as commission
         $agentEarning = $isAgent ? $commissionBase : 0;
 
-        // PROMO CODE HANDLING
+        // PROMO CODE HANDLING (audit money-integrity): recompute the discount
+        // SERVER-SIDE from the promo row — never trust the client's promo_discount.
         $promoCodeStr = trim($input['promo_code'] ?? '');
-        $promoDiscount = (float)($input['promo_discount'] ?? 0);
+        $promoDiscount = 0.0;
         $promoCodeJson = null;
         $promoData = null;
-        if (!empty($promoCodeStr) && $promoDiscount > 0) {
-            $promoData = $db->get('promo_codes', '*', ['code' => $promoCodeStr]);
-            if ($promoData) {
+        if ($promoCodeStr !== '' && function_exists('validatePromoCode')) {
+            $pv = validatePromoCode($db, $promoCodeStr, (float) $subtotal, 'flights', (string) $baseCurrency);
+            if (!empty($pv['ok'])) {
+                $promoDiscount = (float) $pv['discount'];
+                $promoData = $pv['promo'] ?? null;
+            }
+        }
+        if ($promoDiscount > 0 && $promoData) {
                 $promoCodeJson = json_encode([
                     'code' => $promoData['code'],
                     'discount_type' => $promoData['discount_type'],
@@ -996,7 +1002,6 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
                     'description' => $promoData['description'],
                     'module' => $promoData['module']
                 ]);
-            }
         }
 
         // APPLY PROMO DISCOUNT TO FINAL TOTAL

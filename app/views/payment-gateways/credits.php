@@ -152,41 +152,47 @@ if ($availableCredits < $paymentAmount) {
 }
 
 // ============================================================================
-// PROCESS PAYMENT - DEDUCT CREDITS
+// PROCESS PAYMENT — DEBIT CREDITS THROUGH THE SPINE (audit money-integrity)
 // ============================================================================
+// Previously this decremented users.credit_limits on every spend (drift — that
+// column is a pay-later credit LINE, not a spend ledger), relied on a callback
+// to insert the actual credits debit, took no row lock (TOCTOU overdraw), and
+// wrote no money_transactions/wallet_ledger/journey. wallet_spend() does the
+// debit atomically for the agent wallet (mirrors the `credits` ledger, leaves
+// credit_limits untouched) with a full journey trail, idempotent per invoice.
 try {
-    // START TRANSACTION
-    $db->pdo->beginTransaction();
-    
-    // GENERATE TRANSACTION ID
-    $transactionId = 'CRD-' . strtoupper(uniqid()) . '-' . time();
-    
-    // CHECK IF THIS IS FIRST CREDIT USAGE AND SET first_credit_usage_date
+    if (!function_exists('wallet_spend')) {
+        require_once dirname(__DIR__, 2) . '/lib/wallet.php';
+    }
+
+    // First credit usage stamp (unchanged behaviour, harmless).
     $currentUser = $db->get('users', ['first_credit_usage_date'], ['user_id' => $userId]);
     if (empty($currentUser['first_credit_usage_date'])) {
-        $db->update('users', [
-            'first_credit_usage_date' => date('Y-m-d H:i:s')
-        ], [
-            'user_id' => $userId
-        ]);
+        $db->update('users', ['first_credit_usage_date' => date('Y-m-d H:i:s')], ['user_id' => $userId]);
     }
-    
-    // INSERT DEBIT RECORD IN CREDITS TABLE (Handled by record_transaction)
-    
-    $newCreditsBalance = $availableCredits - $paymentAmount;
-    
-    // UPDATE USER'S CREDIT_LIMITS COLUMN
-    $currentUser = $db->get('users', ['credit_limits'], ['user_id' => $userId]);
-    $currentCreditLimits = floatval($currentUser['credit_limits'] ?? 0);
-    $newCreditLimits = $currentCreditLimits - $paymentAmount;
-    
-    $db->update('users', [
-        'credit_limits' => $newCreditLimits
-    ], [
-        'user_id' => $userId
+
+    $spend = wallet_spend($db, $userId, $paymentAmount, $paymentCurrency, [
+        'reason'          => 'booking',
+        'invoice_id'      => $booking['invoice_id'],
+        'method'          => 'wallet',
+        'allow_credit_line'=> true, // agents may draw on their credit line (users.credit_limits)
+        'idempotency_key' => 'CRDPAY-' . $booking['invoice_id'],
+        'note'            => 'Credits payment for invoice ' . $booking['invoice_id'],
     ]);
-    
-    // UPDATE BOOKING PAYMENT STATUS (transaction will be recorded by callback handler)
+
+    if (empty($spend['ok'])) {
+        echo '<div style="max-width:420px;margin:0 auto;padding:20px;background:#fff;border-radius:12px;border:1px solid #fecaca;">';
+        echo '<h4 style="color:#dc2626;margin-top:0;">Payment Failed</h4>';
+        echo '<p style="color:#991b1b;margin-bottom:10px;">' . htmlspecialchars($spend['message'] ?? 'Your credits could not be charged. Please try again.') . '</p>';
+        echo '<p style="margin-top:15px;"><a href="' . htmlspecialchars(root . 'invoice/' . $booking['invoice_id']) . '" style="color:#2563eb;">← Return to Invoice</a></p>';
+        echo '</div>';
+        return;
+    }
+
+    $transactionId = $spend['transaction']['txn_ref'] ?? ('CRD-' . strtoupper(uniqid()));
+    $newCreditsBalance = (float) $spend['balance'];
+
+    // UPDATE BOOKING PAYMENT STATUS
     $db->update('bookings', [
         'payment_status' => 'paid',
         'paid_at' => date('Y-m-d H:i:s'),
@@ -194,10 +200,7 @@ try {
     ], [
         'invoice_id' => $booking['invoice_id']
     ]);
-    
-    // COMMIT TRANSACTION
-    $db->pdo->commit();
-    
+
     // SUCCESS - SHOW CONFIRMATION AND REDIRECT
     ?>
     
