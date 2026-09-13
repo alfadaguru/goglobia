@@ -877,55 +877,64 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
         // EXTRACT PRICING DATA FROM REQUEST
         // ============================================================================
         // All amounts in BASE CURRENCY (for payment processing and database storage)
-        $actualPriceBase = (float)($input['base_price'] ?? 0);        // Original supplier price (BASE)
+        $actualPriceBase = (float)($input['base_price'] ?? 0);        // Original supplier price (BASE), fare only
         $markupAmount = (float)($input['markup_amount'] ?? 0);        // Commission/markup amount (BASE)
         $subtotal = (float)($input['subtotal'] ?? 0);                 // Markup price (BASE) - before tax
         $taxAmountBase = (float)($input['tax_amount'] ?? 0);          // Tax amount (BASE)
-        
-        // Add Ancillary total to the base price and subtotal
-        $ancillaryTotal = (float)($ancillaryData['total_base'] ?? 0);
-        $actualPriceBase += $ancillaryTotal;
-        $subtotal += $ancillaryTotal;
 
-        // Calculate ancillary total in display currency for reference
         $conversionRate = 1;
         if (isset($input['conversion_rate'])) {
             $conversionRate = (float)$input['conversion_rate'];
         }
-        $ancillaryTotalDisplay = $ancillaryTotal * $conversionRate;
-        
-        // Reconstruct pre-discount total from components
-        // (frontend sends already-discounted final_total, so we rebuild here to ensure logic consistency)
-        $finalTotalBase = $subtotal + $taxAmountBase;
-        
-        // Validate and recalculate final_total if missing or invalid
-        if ($finalTotalBase <= 0 && ($subtotal > 0 || $taxAmountBase > 0)) {
-            $finalTotalBase = $subtotal + $taxAmountBase;
-        }
 
         // ============================================================================
-        // SECURITY (H3): price-tampering floor. The amount charged (price_markup)
-        // is built from client-submitted subtotal/base_price. Validate it against
-        // the TRUSTED supplier price captured server-side in the search draft
-        // ($flightData from logs_bookings) — the platform must never charge below
-        // the supplier's own price. A client that lowers base_price/subtotal to
-        // pay a fraction of the fare is rejected. A 10% tolerance absorbs
-        // currency-rounding / legitimate revalidation variance.
+        // SECURITY (H3): price-tampering floor. The FARE cost (base_price, before
+        // ancillaries) must cover at least 90% of the TRUSTED supplier price
+        // captured server-side in the search draft ($flightData). Rejects a client
+        // that lowers base_price to pay a fraction of the fare. 10% tolerance
+        // absorbs currency-rounding / legitimate revalidation variance.
         $trustedBase = (float)($flightData['actual_price'] ?? $flightData['price'] ?? 0);
-        if ($trustedBase > 0) {
-            // The client's supplier-cost figure (base_price + ancillaries) must
-            // cover at least 90% of the trusted supplier price.
-            $clientSupplierCost = (float)$actualPriceBase; // already includes ancillaries
-            if ($clientSupplierCost + 0.01 < ($trustedBase * 0.90)) {
-                error_log(sprintf(
-                    'PRICE TAMPER BLOCKED | invoice=%s | client_base=%.2f trusted_base=%.2f',
-                    $invoiceId, $clientSupplierCost, $trustedBase
-                ));
-                throw new Exception('The fare price could not be verified. Please search again and retry your booking.');
-            }
+        if ($trustedBase > 0 && ($actualPriceBase + 0.01) < ($trustedBase * 0.90)) {
+            error_log(sprintf(
+                'PRICE TAMPER BLOCKED | invoice=%s | client_base=%.2f trusted_base=%.2f',
+                $invoiceId, $actualPriceBase, $trustedBase
+            ));
+            throw new Exception('The fare price could not be verified. Please search again and retry your booking.');
         }
 
         $baseCurrency = $input['base_currency'] ?? 'USD';
+
+        // ============================================================================
+        // MARKUP NORMALISATION (docs/MONEY-WALLET-AUDIT.md §C.4 step 6): re-derive
+        // the sell price SERVER-SIDE via MARKUP() from the trusted fare cost, so the
+        // agent's b2b rate + member-tier discount (and any custom user markup) are
+        // honoured at checkout — NOT the client-submitted subtotal computed at
+        // search time. Mirrors the mobile path (api/flights/bookingRoutes.php).
+        // Done on the pure fare BEFORE ancillaries (ancillaries are not marked up).
+        if (!function_exists('MARKUP')) {
+            require_once dirname(__DIR__, 3) . '/modules/helpers.php';
+        }
+        if ($actualPriceBase > 0 && function_exists('MARKUP')) {
+            $fltModule = $db->get('modules', '*', ['name' => $supplierName, 'type' => 'flights', 'status' => '1']);
+            if (!$fltModule) {
+                $fltModule = $db->get('modules', '*', ['name' => 'flights', 'type' => 'flights', 'status' => '1']);
+            }
+            $markedInfo = MARKUP($actualPriceBase, $fltModule ?: null, $db, $baseCurrency, $baseCurrency);
+            if (!empty($markedInfo['price']) && $markedInfo['price'] > 0) {
+                $subtotal     = round((float)$markedInfo['price'], 2);
+                $markupAmount = round((float)($markedInfo['price'] - $actualPriceBase), 2);
+            }
+        }
+
+        // Add Ancillary total to the fare cost and subtotal (ancillaries pass
+        // through at cost — never marked up).
+        $ancillaryTotal = (float)($ancillaryData['total_base'] ?? 0);
+        $actualPriceBase += $ancillaryTotal;
+        $subtotal += $ancillaryTotal;
+        $ancillaryTotalDisplay = $ancillaryTotal * $conversionRate;
+
+        // Final pre-tax + tax total.
+        $finalTotalBase = $subtotal + $taxAmountBase;
         $displayCurrency = $input['display_currency'] ?? 'USD';
         
         // Calculate commission (markup amount) - already in base currency

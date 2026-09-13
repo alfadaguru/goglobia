@@ -466,10 +466,29 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
         $markupPrice = $bookingData['total_amount'] ?? 0;
         $currency = $bookingData['currency'] ?? 'USD';
 
-        // USE PRICE FROM FRONTEND IF PROVIDED, OTHERWISE FROM BOOKING DATA
-        if ($subtotal == 0) {
-            $subtotal = $markupPrice;
+        // MARKUP NORMALISATION (docs/MONEY-WALLET-AUDIT.md §C.4 step 6): re-derive
+        // the sell price SERVER-SIDE via MARKUP() from the trusted supplier net
+        // ($actualPrice from the server draft), so the agent's b2b rate + member-
+        // tier discount + any custom user markup are honoured at checkout instead
+        // of trusting the search-time total_amount. Only when we have a real net.
+        if ((float)$actualPrice > 0) {
+            if (!function_exists('MARKUP')) {
+                require_once dirname(__DIR__, 3) . '/modules/helpers.php';
+            }
+            if (function_exists('MARKUP')) {
+                $staysSupplier = $bookingData['supplier'] ?? 'hotels';
+                $staysModuleRow = $db->get('modules', '*', ['name' => $staysSupplier, 'type' => 'stays', 'status' => '1'])
+                    ?: $db->get('modules', '*', ['type' => 'stays', 'status' => '1']);
+                $mk = MARKUP((float)$actualPrice, $staysModuleRow ?: null, $db, $currency, $currency);
+                if (!empty($mk['price']) && (float)$mk['price'] > 0) {
+                    $markupPrice = round((float)$mk['price'], 2);
+                }
+            }
         }
+
+        // USE PRICE FROM FRONTEND IF PROVIDED, OTHERWISE FROM BOOKING DATA
+        // (now the server-recomputed markupPrice is authoritative)
+        $subtotal = $markupPrice;
 
         // GENERATE 8-CHARACTER UUID FOR INVOICE
         $invoiceId = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));

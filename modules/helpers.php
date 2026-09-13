@@ -200,7 +200,25 @@ if (!function_exists('MARKUP')) {
             $finalMarkupValue = $isAgent ? floatval($moduleData['markup_b2b'] ?? 0) : floatval($moduleData['markup_b2c'] ?? 0);
             $finalMarkupType = $isAgent ? ($moduleData['markup_type_b2b'] ?? 'percentage') : ($moduleData['markup_type_b2c'] ?? 'percentage');
         }
-        
+
+        // AGENT MEMBER TIER discount (docs/MONEY-WALLET-AUDIT.md §C.4 step 4) —
+        // MUST mirror the app/lib/functions.php copy of MARKUP() so agents get the
+        // same tier-reduced rate whether they price via the main app or the
+        // /modules/* supplier gateway (this file's MARKUP wins in the gateway
+        // context, which does not load wallet.php — so load it on demand).
+        if ($isAgent && $finalMarkupType === 'percentage' && !empty($userId)) {
+            if (!function_exists('agent_tier_discount_percent')) {
+                $walletLib = dirname(__DIR__) . '/app/lib/wallet.php';
+                if (file_exists($walletLib)) { require_once $walletLib; }
+            }
+            if (function_exists('agent_tier_discount_percent')) {
+                $tierDiscount = agent_tier_discount_percent($db, (string) $userId);
+                if ($tierDiscount > 0) {
+                    $finalMarkupValue = max(0.0, (float) $finalMarkupValue - (float) $tierDiscount);
+                }
+            }
+        }
+
         // Apply the chosen markup
         // STEP 1: Apply markup to ORIGINAL currency price first
         $markupAmount = 0;

@@ -51,6 +51,7 @@ $router->get('/api/esim/packages/([a-zA-Z]{2})', function ($country) use ($SECUR
         $agentCustomMarkup = false;
         $agentMarkupType   = 'percentage';
         $agentMarkupValue  = 0.0;
+        $agentUserId       = '';
 
         if (!class_exists('JWT')) {
             require_once dirname(__DIR__, 3) . '/lib/jwt.php';
@@ -67,12 +68,29 @@ $router->get('/api/esim/packages/([a-zA-Z]{2})', function ($country) use ($SECUR
                 ]);
                 if ($jwtUser && strtolower((string) ($jwtUser['role'] ?? '')) === 'agent') {
                     $isAgent = true;
+                    $agentUserId = (string) ($jwtUser['user_id'] ?? '');
                     if (($jwtUser['apply_markup'] ?? 'global') === 'custom') {
                         $agentCustomMarkup = true;
                         $agentMarkupValue  = floatval($jwtUser['markup_value'] ?? 0);
                         $agentMarkupType   = strtolower((string) ($jwtUser['markup_type'] ?? 'percentage'));
                     }
                 }
+            }
+        }
+
+        // AGENT MEMBER TIER discount (docs/MONEY-WALLET-AUDIT.md §C.4 step 4):
+        // eSIM keeps its OWN per-package (airalo) B2C commission scheme and does
+        // not route through MARKUP(). But an agent on a PERCENTAGE markup should
+        // still receive their tier's rate reduction, like every other module.
+        // Resolve it once and subtract from the agent's percentage markup below.
+        $agentTierDiscount = 0.0;
+        if ($isAgent && $agentUserId !== '') {
+            if (!function_exists('agent_tier_discount_percent')) {
+                $walletLib = dirname(__DIR__, 3) . '/lib/wallet.php';
+                if (file_exists($walletLib)) { require_once $walletLib; }
+            }
+            if (function_exists('agent_tier_discount_percent')) {
+                $agentTierDiscount = (float) agent_tier_discount_percent($db, $agentUserId);
             }
         }
 
@@ -291,9 +309,16 @@ $router->get('/api/esim/packages/([a-zA-Z]{2})', function ($country) use ($SECUR
                 $value    = (float) ($rule['value'] ?? 1);
             }
 
+            // Apply the agent member-tier discount to a PERCENTAGE agent markup
+            // (never to a fixed markup, never to B2C). Mirrors MARKUP().
+            $effValue = $value;
+            if ($isAgent && $commType === 'percentage' && $agentTierDiscount > 0) {
+                $effValue = max(0.0, (float) $value - $agentTierDiscount);
+            }
+
             $markupAmount = $commType === 'percentage'
-                ? ($basePrice * $value / 100)
-                : (float) $value;
+                ? ($basePrice * $effValue / 100)
+                : (float) $effValue;
             $finalPrice = $basePrice + $markupAmount;
 
             // Currency conversion
@@ -703,6 +728,7 @@ $router->get('/api/esim/package/([a-zA-Z]{2})/([^/]+)', function ($country, $pac
         $agentCustomMarkup = false;
         $agentMarkupType   = 'percentage';
         $agentMarkupValue  = 0.0;
+        $agentUserId       = '';
 
         if (!class_exists('JWT')) {
             require_once dirname(__DIR__, 3) . '/lib/jwt.php';
@@ -719,12 +745,29 @@ $router->get('/api/esim/package/([a-zA-Z]{2})/([^/]+)', function ($country, $pac
                 ]);
                 if ($jwtUser && strtolower((string) ($jwtUser['role'] ?? '')) === 'agent') {
                     $isAgent = true;
+                    $agentUserId = (string) ($jwtUser['user_id'] ?? '');
                     if (($jwtUser['apply_markup'] ?? 'global') === 'custom') {
                         $agentCustomMarkup = true;
                         $agentMarkupValue  = floatval($jwtUser['markup_value'] ?? 0);
                         $agentMarkupType   = strtolower((string) ($jwtUser['markup_type'] ?? 'percentage'));
                     }
                 }
+            }
+        }
+
+        // AGENT MEMBER TIER discount (docs/MONEY-WALLET-AUDIT.md §C.4 step 4):
+        // eSIM keeps its OWN per-package (airalo) B2C commission scheme and does
+        // not route through MARKUP(). But an agent on a PERCENTAGE markup should
+        // still receive their tier's rate reduction, like every other module.
+        // Resolve it once and subtract from the agent's percentage markup below.
+        $agentTierDiscount = 0.0;
+        if ($isAgent && $agentUserId !== '') {
+            if (!function_exists('agent_tier_discount_percent')) {
+                $walletLib = dirname(__DIR__, 3) . '/lib/wallet.php';
+                if (file_exists($walletLib)) { require_once $walletLib; }
+            }
+            if (function_exists('agent_tier_discount_percent')) {
+                $agentTierDiscount = (float) agent_tier_discount_percent($db, $agentUserId);
             }
         }
 

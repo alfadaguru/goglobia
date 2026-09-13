@@ -404,7 +404,7 @@ if (!function_exists('_kikoto_apply_markup')) {
      * @param  array  $customMarkup Optional custom agent markup rule
      * @return float  Price after markup (rounded to 2dp)
      */
-    function _kikoto_apply_markup($price, array $cfg, $channel = 'b2c', $customMarkup = null)
+    function _kikoto_apply_markup($price, array $cfg, $channel = 'b2c', $customMarkup = null, $tierDiscount = 0.0)
     {
         if ($customMarkup !== null && is_array($customMarkup)) {
             $type   = $customMarkup['type'] ?? 'percentage';
@@ -412,6 +412,13 @@ if (!function_exists('_kikoto_apply_markup')) {
         } else {
             $type   = $channel === 'b2b' ? ($cfg['markup_type_b2b'] ?? 'percentage') : ($cfg['markup_type_b2c'] ?? 'percentage');
             $markup = (float)($channel === 'b2b' ? ($cfg['markup_b2b'] ?? 0) : ($cfg['markup_b2c'] ?? 0));
+        }
+
+        // AGENT MEMBER TIER discount (docs/MONEY-WALLET-AUDIT.md §C.4 step 4):
+        // subtract the agent's tier discount from a PERCENTAGE markup only (b2b or
+        // a custom percentage markup), never a fixed markup. Mirrors MARKUP().
+        if ($tierDiscount > 0 && $type === 'percentage' && $channel === 'b2b') {
+            $markup = max(0.0, $markup - (float)$tierDiscount);
         }
 
         if ($markup <= 0) {
