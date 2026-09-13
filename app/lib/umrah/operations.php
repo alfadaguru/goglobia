@@ -53,16 +53,30 @@ if (!function_exists('umrah_traveller_add')) {
             $db->update('umrah_booking_travellers', $fields, ['id' => $existingId]);
             $tid = $existingId;
         } else {
-            // Enforce pax cap.
-            $count = (int) $db->count('umrah_booking_travellers', ['umrah_booking_id' => $umrahBookingId]);
-            if ($count >= (int) $ub['pax']) {
-                return ['ok' => false, 'message' => 'All ' . (int) $ub['pax'] . ' traveller slots are already filled'];
-            }
+            // Enforce the pax cap ATOMICALLY (audit MED: a bare count-then-insert
+            // let two concurrent adds both pass and over-fill the booking). Lock
+            // the parent booking row, re-count inside the same transaction, then
+            // insert — so concurrent adds serialize and the cap holds.
             $fields['umrah_booking_id'] = $umrahBookingId;
             $fields['doc_status'] = umrah_traveller_doc_status_value($fields);
             $fields['created_at'] = date('Y-m-d H:i:s');
-            $db->insert('umrah_booking_travellers', $fields);
-            $tid = (int) $db->id();
+            $tid = 0; $capErr = null;
+            $db->action(function ($db) use ($umrahBookingId, $fields, &$tid, &$capErr) {
+                // Lock the booking row for the duration of the check+insert.
+                $locked = $db->query('SELECT pax FROM umrah_bookings WHERE id = :id FOR UPDATE', [':id' => $umrahBookingId]);
+                $row = $locked ? $locked->fetch(\PDO::FETCH_ASSOC) : null;
+                $cap = (int) ($row['pax'] ?? 0);
+                $count = (int) $db->count('umrah_booking_travellers', ['umrah_booking_id' => $umrahBookingId]);
+                if ($count >= $cap) {
+                    $capErr = 'All ' . $cap . ' traveller slots are already filled';
+                    return false; // rollback, nothing inserted
+                }
+                $db->insert('umrah_booking_travellers', $fields);
+                $tid = (int) $db->id();
+                return true;
+            });
+            if ($capErr !== null) { return ['ok' => false, 'message' => $capErr]; }
+            if ($tid <= 0) { return ['ok' => false, 'message' => 'Could not add traveller']; }
         }
         if (function_exists('umrah_audit')) {
             umrah_audit($db, 'umrah_traveller', (string) $tid, $existingId ? 'updated' : 'created', null, ['booking' => $umrahBookingId, 'name' => trim($fields['first_name'] . ' ' . $fields['last_name'])]);

@@ -404,7 +404,7 @@ if (!function_exists('umrah_group_submit')) {
             $db->update('umrah_groups', ['status' => $prevStatus, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $groupId]);
             return ['ok' => false, 'message' => 'Wallet unavailable'];
         }
-        $charge = agent_api_charge_wallet($db, $agent, 'umrah', $total, $invoiceId);
+        $charge = agent_api_charge_wallet($db, $agent, 'umrah', $total, $invoiceId, (string) $currency);
         if (empty($charge['ok'])) {
             // Release the claim so the agent can top up and retry.
             $db->update('umrah_groups', ['status' => $prevStatus, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $groupId]);

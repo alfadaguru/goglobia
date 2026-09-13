@@ -376,6 +376,13 @@ if (!function_exists('umrah_hold_create')) {
                     $result = ['ok' => false, 'message' => 'Departure-tier not found'];
                     return false; // rollback
                 }
+                // DEPARTURE-LEVEL LOCK (audit MED: cross-tier oversell race). Two
+                // holds on DIFFERENT tiers of the same departure lock different
+                // tier rows, so the shared-seat (departure-wide) check below is not
+                // serialized between them. Take an explicit lock on the parent
+                // departure row so all holds on one departure contend on the SAME
+                // lock before computing departure-wide remaining.
+                $db->query('SELECT id FROM umrah_departures WHERE id = :dep FOR UPDATE', [':dep' => (int) $row['departure_id']]);
                 // SECURITY: parent departure must be published; tier not draft/hidden/sold_out.
                 if (($row['dep_status'] ?? '') !== 'published') {
                     $result = ['ok' => false, 'message' => 'This departure is not open for booking'];
