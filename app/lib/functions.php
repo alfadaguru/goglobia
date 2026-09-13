@@ -4745,6 +4745,11 @@ if (!function_exists('ensureUmrahSchema')) {
                 ['umrah_tiers',             'archived', "ADD COLUMN `archived` tinyint(1) NOT NULL DEFAULT 0"],
                 ['umrah_payment_plans',     'archived', "ADD COLUMN `archived` tinyint(1) NOT NULL DEFAULT 0"],
                 ['umrah_departures',        'archived', "ADD COLUMN `archived` tinyint(1) NOT NULL DEFAULT 0"],
+                // Agent group members carry their own uploaded passport (path,
+                // relative to app root) BEFORE the booking/traveller exists.
+                // Required before an agent can submit; copied to umrah_documents
+                // on the traveller at submit time (for the visa).
+                ['umrah_group_members', 'passport_doc', "ADD COLUMN `passport_doc` varchar(255) DEFAULT NULL AFTER `passport_expiry`"],
             ];
             foreach ($__umrahCols as [$__t, $__c, $__sql]) {
                 try {

@@ -195,6 +195,67 @@ if (!function_exists('umrah_group_add_member')) {
     }
 }
 
+if (!function_exists('umrah_group_member_passport_upload')) {
+    /**
+     * Store an uploaded passport FILE for a group member (before the booking /
+     * traveller exists). Secure: MIME + size + php-injection checked; stored
+     * privately under uploads/umrah/groups/{groupId}/. Records the relative path
+     * on umrah_group_members.passport_doc and marks doc readiness. On submit the
+     * file is copied to the traveller's umrah_documents (for the visa).
+     * @return array ['ok'=>bool,'path'=>?,'message'=>?]
+     */
+    function umrah_group_member_passport_upload($db, int $groupId, int $memberId, string $fileKey, int $maxBytes = 8388608): array
+    {
+        $g = umrah_group_owned($db, $groupId);
+        if (!$g) { return ['ok' => false, 'message' => 'Group not found']; }
+        if (!in_array($g['status'], ['draft', 'pending'], true)) {
+            return ['ok' => false, 'message' => 'This group is already submitted; document changes need staff.'];
+        }
+        $mem = $db->get('umrah_group_members', ['id', 'passport_doc'], ['id' => $memberId, 'group_id' => $groupId]);
+        if (!$mem) { return ['ok' => false, 'message' => 'Member not found in this group']; }
+        if (!isset($_FILES[$fileKey]) || ($_FILES[$fileKey]['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return ['ok' => false, 'message' => 'No file uploaded'];
+        }
+        $file = $_FILES[$fileKey];
+        if (!function_exists('finfo_open')) { return ['ok' => false, 'message' => 'Server fileinfo missing']; }
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime = finfo_file($finfo, $file['tmp_name']);
+        finfo_close($finfo);
+        $allowed = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'application/pdf' => 'pdf'];
+        if (!isset($allowed[$mime])) { return ['ok' => false, 'message' => 'Only JPG, PNG, WEBP or PDF allowed']; }
+        if ((int) $file['size'] > $maxBytes) { return ['ok' => false, 'message' => 'File too large (max ' . (int) ($maxBytes / 1048576) . 'MB)']; }
+        if ($mime !== 'application/pdf') {
+            $head = (string) file_get_contents($file['tmp_name']);
+            if (preg_match('/<\?(php|=)?\s/i', $head) || preg_match('/<script[^>]*language\s*=\s*["\']?php/i', $head)) {
+                return ['ok' => false, 'message' => 'Invalid file content'];
+            }
+        }
+        $uploadsBase = defined('uploads') ? rtrim(uploads, '/') : dirname(__DIR__, 3) . '/uploads';
+        $dir = $uploadsBase . '/umrah/groups/' . $groupId;
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            return ['ok' => false, 'message' => 'Storage unavailable'];
+        }
+        $ht = $uploadsBase . '/umrah/groups/.htaccess';
+        if (!file_exists($ht)) { @file_put_contents($ht, "Require all denied\nDeny from all\n"); }
+        // Remove a previous file for this member if it lived in our folder.
+        $prev = (string) ($mem['passport_doc'] ?? '');
+        if ($prev !== '' && strpos($prev, 'uploads/umrah/groups/') !== false) {
+            $pp = $uploadsBase . '/' . preg_replace('#^.*uploads/#', 'uploads/', $prev);
+            $pp = $uploadsBase . '/umrah/groups/' . $groupId . '/' . basename($prev);
+            if (is_file($pp)) { @unlink($pp); }
+        }
+        $rand = bin2hex(random_bytes(6));
+        $fname = 'gm_' . $memberId . '_' . $rand . '.' . $allowed[$mime];
+        $dest = $dir . '/' . $fname;
+        if (!@move_uploaded_file($file['tmp_name'], $dest) && !@rename($file['tmp_name'], $dest)) {
+            return ['ok' => false, 'message' => 'Could not store the file'];
+        }
+        $rel = 'uploads/umrah/groups/' . $groupId . '/' . $fname;
+        $db->update('umrah_group_members', ['passport_doc' => $rel, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $memberId]);
+        return ['ok' => true, 'path' => $rel];
+    }
+}
+
 if (!function_exists('umrah_group_drop_member')) {
     function umrah_group_drop_member($db, int $groupId, int $memberId): array
     {
@@ -258,9 +319,28 @@ if (!function_exists('umrah_group_submit')) {
         // Re-price + validate the tier group rule.
         umrah_group_recount($db, $groupId);
         $g = $db->get('umrah_groups', '*', ['id' => $groupId]);
-        if ((int) $g['pax_count'] < 1) { return ['ok' => false, 'message' => 'Add pilgrims (or declare counts) before submitting']; }
+        if ((int) $g['pax_count'] < 1) { return ['ok' => false, 'message' => 'Add pilgrims before submitting']; }
         $rule = umrah_group_validate_rules($db, $g);
         if (empty($rule['ok'])) { return ['ok' => false, 'message' => $rule['message']]; }
+
+        // EVERY pilgrim must have full identity details AND an uploaded passport
+        // before the agent can submit/pay — the visa needs them (declared-counts-
+        // only submission is no longer allowed). Enforced server-side.
+        $members = $db->select('umrah_group_members', ['id', 'first_name', 'last_name', 'gender', 'dob', 'nationality', 'passport_number', 'passport_expiry', 'passport_doc'], ['group_id' => $groupId]) ?: [];
+        if (count($members) < (int) $g['pax_count']) {
+            return ['ok' => false, 'message' => 'Add details for all ' . (int) $g['pax_count'] . ' pilgrim(s) — declared counts alone can no longer be submitted.'];
+        }
+        foreach ($members as $mi => $m) {
+            $label = trim(($m['first_name'] ?? '') . ' ' . ($m['last_name'] ?? '')) ?: ('Pilgrim ' . ($mi + 1));
+            foreach (['first_name', 'last_name', 'gender', 'dob', 'nationality', 'passport_number', 'passport_expiry'] as $req) {
+                if (trim((string) ($m[$req] ?? '')) === '') {
+                    return ['ok' => false, 'message' => $label . ': ' . str_replace('_', ' ', $req) . ' is required'];
+                }
+            }
+            if (trim((string) ($m['passport_doc'] ?? '')) === '') {
+                return ['ok' => false, 'message' => $label . ': passport upload is required before submitting'];
+            }
+        }
 
         $dt = $db->get('umrah_departure_tiers', '*', ['id' => (int) $g['departure_tier_id']]);
         if (!$dt || !umrah_departure_bookable($db, (int) $dt['departure_id'], $dt)) {
@@ -407,6 +487,26 @@ if (!function_exists('umrah_group_submit')) {
                     ]);
                     $tid = (int) $db->id();
                     $db->update('umrah_group_members', ['traveller_id' => $tid, 'updated_at' => $now], ['id' => (int) $mem['id']]);
+
+                    // Carry the member's uploaded passport onto the traveller as a
+                    // umrah_documents row so the visa flow finds it exactly where
+                    // customer uploads land. The file already lives privately under
+                    // uploads/umrah/groups/{groupId}/ — reference it in place.
+                    $pdoc = trim((string) ($mem['passport_doc'] ?? ''));
+                    if ($pdoc !== '') {
+                        $ext = strtolower(pathinfo($pdoc, PATHINFO_EXTENSION));
+                        $mimeMap = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp', 'pdf' => 'application/pdf'];
+                        $db->insert('umrah_documents', [
+                            'traveller_id'     => $tid,
+                            'umrah_booking_id' => $ubId,
+                            'doc_type'         => 'passport',
+                            'file_path'        => $pdoc,
+                            'original_name'    => basename($pdoc),
+                            'mime'             => $mimeMap[$ext] ?? 'application/octet-stream',
+                            'verify_status'    => 'pending',
+                            'created_at'       => $now,
+                        ]);
+                    }
                 }
 
                 // Link + advance the group to submitted.

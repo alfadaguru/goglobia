@@ -608,6 +608,58 @@ $router->post('/api/v1/umrah/groups/([0-9]+)/members', function ($gid) use ($db)
     umrah_v1_json($r['ok'] ? ['success' => true, 'member_id' => $r['member_id']] : ['success' => false, 'message' => $r['message'] ?? 'Failed'], $r['ok'] ? 200 : 422);
 });
 
+// Upload + OCR a member's passport (multipart). Stores the file on the member
+// (required before submit) and returns extracted fields for confirm/correct.
+$router->post('/api/v1/umrah/groups/([0-9]+)/members/([0-9]+)/passport', function ($gid, $mid) use ($db) {
+    umrah_v1_csrf_guard($_POST); // multipart — token in POST field / X-CSRF-TOKEN
+    if (!function_exists('umrah_group_member_passport_upload')) { umrah_v1_json(['success' => false, 'message' => 'Unavailable'], 500); }
+    // 1) Store the file on the member (secure). This is what "required before
+    //    submit" checks — it must succeed even if OCR is off/fails.
+    $store = umrah_group_member_passport_upload($db, (int) $gid, (int) $mid, 'passport_image');
+    if (empty($store['ok'])) { umrah_v1_json(['success' => false, 'message' => $store['message'] ?? 'Upload failed'], 422); }
+
+    // 2) Best-effort OCR to prefill fields (graceful if AI off/unconfigured).
+    $fields = null; $confidence = null; $warnings = [];
+    if (function_exists('passportAiIsEnabled') && passportAiIsEnabled($db)) {
+        $config = function_exists('passportAiActiveProviderConfig') ? passportAiActiveProviderConfig($db) : null;
+        if ($config !== null && isset($_FILES['passport_image']['tmp_name'])) {
+            try {
+                $abs = getcwd() . '/' . ltrim($store['path'], '/');
+                $binary = is_file($abs) ? file_get_contents($abs) : false;
+                $finfo = function_exists('finfo_open') ? finfo_open(FILEINFO_MIME_TYPE) : false;
+                $mime = ($finfo && $binary !== false) ? (string) finfo_file($finfo, $abs) : '';
+                if ($finfo) { finfo_close($finfo); }
+                $providerKey = (string) ($config['key'] ?? '');
+                $provider = match ($providerKey) {
+                    'openai' => new \App\lib\ai\openAiProvider(),
+                    'claude' => new \App\lib\ai\claudeProvider(),
+                    'gemini' => new \App\lib\ai\geminiProvider(),
+                    default  => null,
+                };
+                if ($provider !== null && $binary !== false && str_starts_with($mime, 'image/')) {
+                    $res = $provider->extract($binary, $mime, $config);
+                    if (!empty($res['status'])) {
+                        $d = $res['data'] ?? [];
+                        $gg = strtoupper((string) ($d['gender'] ?? ''));
+                        $fields = [
+                            'first_name'      => $d['first_name'] ?? '',
+                            'last_name'       => $d['last_name'] ?? '',
+                            'gender'          => $gg === 'M' ? 'male' : ($gg === 'F' ? 'female' : ''),
+                            'dob'             => $d['date_of_birth'] ?? '',
+                            'nationality'     => $d['nationality'] ?? '',
+                            'passport_number' => $d['passport_number'] ?? '',
+                            'passport_expiry' => $d['expiry_date'] ?? '',
+                        ];
+                        $confidence = $res['confidence'] ?? null;
+                        $warnings = $res['warnings'] ?? [];
+                    }
+                }
+            } catch (\Throwable $e) { error_log('[umrah] group passport OCR: ' . $e->getMessage()); }
+        }
+    }
+    umrah_v1_json(['success' => true, 'stored' => true, 'fields' => $fields, 'confidence' => $confidence, 'warnings' => $warnings]);
+});
+
 // Drop a member.
 $router->post('/api/v1/umrah/groups/([0-9]+)/members/([0-9]+)/drop', function ($gid, $mid) use ($db) {
     $in = umrah_v1_body(); umrah_v1_csrf_guard($in);
