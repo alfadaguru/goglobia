@@ -264,6 +264,46 @@ $router->post('/cars/booking/submit', function () use ($SECURE, $db) {
             $markupAmount = max(0, round($finalTotal - $basePrice, 2));
         }
 
+        // ====================================================================
+        // AUTHORITATIVE SERVER-SIDE PRICING (audit money-integrity — price
+        // tampering). The block above could still trust a client-sent
+        // base_price / markup_amount / final_total, so a POST of
+        // base_price=1&final_total=1 would be charged $1. Re-derive the sell
+        // price from the TRUSTED draft cost via MARKUP() (agent b2b + tier +
+        // custom applied server-side) and floor base_price at 90% of the trusted
+        // supplier cost. Mirrors the flights/stays/tours charge paths.
+        // Extras (add-ons) pass through at cost — never marked up.
+        // ====================================================================
+        $trustedCost = 0.0;
+        $mkDetails = $carData['actual_price_details'] ?? ($carData['markup_details'] ?? null);
+        if (is_array($mkDetails)) {
+            $trustedCost = (float)($mkDetails['converted_base_price'] ?? $mkDetails['base_price'] ?? 0);
+        }
+        if ($trustedCost <= 0) {
+            $trustedCost = (float)($carData['actual_price'] ?? $carData['original_price'] ?? 0);
+        }
+        if ($trustedCost > 0) {
+            // Floor: the client cost figure must cover >=90% of the trusted cost.
+            if ($basePrice + 0.01 < ($trustedCost * 0.90)) {
+                error_log(sprintf('CARS PRICE TAMPER BLOCKED | invoice=%s | client_base=%.2f trusted=%.2f', $invoiceId, $basePrice, $trustedCost));
+                throw new Exception('The car price could not be verified. Please search again and retry your booking.');
+            }
+            if (function_exists('MARKUP')) {
+                $carModuleRow = $db->get('modules', '*', [
+                    'name' => strtolower((string)($carData['supplier'] ?? $carData['supplier_name'] ?? 'cars')),
+                    'type' => 'cars', 'status' => '1'
+                ]) ?: 'cars';
+                $fromCur = $carData['original_currency'] ?? ($carData['currency'] ?? $currency);
+                $mk = MARKUP($trustedCost, $carModuleRow, $db, $fromCur, $currency);
+                if (is_array($mk) && !empty($mk['price'])) {
+                    $basePrice    = round((float)($mk['converted_base_price'] ?? $trustedCost), 2);
+                    $markupAmount = round((float)($mk['markup'] ?? 0), 2);
+                    // Sell = marked base + tax + extras (extras at cost).
+                    $finalTotal   = round((float)$mk['price'] + $taxAmount + $extrasAmount, 2);
+                }
+            }
+        }
+
         // Agent identity + earning (same pattern as flights/stays)
         $userId = (string)($_SESSION['user_id'] ?? '');
         $userData = null;

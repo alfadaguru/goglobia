@@ -549,3 +549,90 @@ Every step was exercised against the live database, not just reasoned about:
 *§A/§B/§D were produced by audit without changing code. §C.4 has since been
 fully implemented and verified (see §C.6); the file references there point at the
 shipped implementation.*
+
+---
+
+## §E — Deep line-by-line money audit (spend/refund + admin + tampering)
+
+A second, exhaustive pass read every money file top-to-bottom (four parallel
+line-by-line audits, every finding re-verified against source before any change).
+It exposed that the spine was only **half-wired**: top-ups wrote the spine, but
+the actual **spend and refund** paths still hit the legacy stores directly and
+bypassed it. All confirmed gaps are now fixed and verified against the live DB.
+
+### E.1 Root gap — the spine was not authoritative for spend/refund
+
+New spine helpers (`app/lib/wallet.php`): **`wallet_spend()`** and
+**`wallet_refund()`** — the single entry points for every booking debit / refund.
+Each creates a `money_transactions` row (born pending → success/failed), applies
+the wallet change via `wallet_apply()` (FOR UPDATE lock, `wallet_ledger` row,
+journey trail), and is idempotent by key. `wallet_apply()` now **mirrors CUSTOMER
+wallets to `users.balance`** (it already mirrored AGENT wallets to `credits`), and
+`wallet_get_or_create()` **seeds** a new wallet from the legacy balance so no
+existing money is lost when a wallet row first materialises.
+
+### E.2 Fixes (each confirmed by reading the code, each live-DB tested)
+
+- **Customer wallet payment** (`app/views/payment-gateways/wallet_balance.php`):
+  read `users.balance` unlocked → wrote it directly → no lock (TOCTOU
+  double-spend), no spine, and `users.balance` drifted from `wallets`. Now calls
+  `wallet_spend()` (locked, journeyed, idempotent per invoice).
+- **Agent credits payment** (`app/views/payment-gateways/credits.php`): no lock,
+  bypassed the spine, and **decremented `users.credit_limits` on every spend**
+  (drift — that column is a credit *line*, not a spend ledger). Now calls
+  `wallet_spend()` (agent mirror to `credits`, credit_limits untouched).
+- **`agent_api_charge_wallet()`** (`app/lib/functions.php`): debited `credits`
+  only (spine-blind), description-string idempotency. Now routes booking + fee
+  through `wallet_spend()` with real per-invoice keys; if the fee debit fails
+  after the booking debit, the booking debit is reversed (no partial charge).
+- **`record_transaction()`** (`app/lib/payment-gateway.php`): removed its direct
+  `credits` debit for internal_wallet payments — the spine now owns that debit, so
+  keeping it would double-charge.
+- **`refund_gateway_payment()` wallet branch** (`app/lib/payment-gateway.php`):
+  credited the `credits` ledger for BOTH customers and agents — so a customer's
+  refund landed in a ledger they never spend from and they never got the money.
+  Now routes through `wallet_refund()`, which credits the correct store per user
+  kind, idempotent per invoice.
+- **Umrah refunds** (`app/lib/umrah/groups.php`): submit-rollback and per-member
+  visa refunds wrote `credits` directly with weak (status-column) idempotency.
+  Now route through `wallet_refund()` with per-invoice / per-member idempotency
+  keys (spine-traceable, cannot double-refund).
+- **Admin `dd()` debug-kill** (`app/routes/admin/transactionsRoutes.php:118`):
+  removed — it hard-killed the admin create-transaction handler.
+- **Missing CSRF** on `POST /admin/finance/credits` and
+  `/admin/finance/transactions`: added `ADMIN_AUTH()` + `CSRF::validateToken`.
+- **Admin credit/transaction not traceable / no tier recompute**: both now mirror
+  into the spine (exactly one `credits` row via the mirror — no double count) and
+  call `agent_recompute_tier()`.
+- **Cars price tampering** (`app/routes/cars/bookingRoutes.php`): the charge could
+  trust a client `base_price`/`final_total` (POST base_price=1 → charged ~1). Now
+  floors base_price at 90% of the trusted draft cost and re-derives the sell price
+  via `MARKUP()` server-side (like flights/stays/tours).
+- **Promo-code discount tampering** (flights/stays/tours): they trusted the
+  client's `promo_discount` after only checking the code exists — POST any real
+  code with `promo_discount=999999` → arbitrary discount. New central
+  `validatePromoCode()` (`app/lib/functions.php`) recomputes the discount
+  server-side (status, module, active window, usage limit, min-order, max cap,
+  never exceeds order); the three paths now use it and ignore the client number.
+
+### E.3 Verified as NOT defects (no change made — honesty over noise)
+
+- **Payment rule** IS enforced server-side (`process_payment()` blocks an agent
+  from any non-wallet gateway) — the "not enforced" finding was false.
+- **`MARKUP()` currency order**, **`wallet_topup_success()` idempotency**, and
+  **`loyalty_apply()` locking** were flagged then self-retracted — all correct.
+- **External gateway payments recording in `transactions` (not
+  `money_transactions`)**: left as-is on purpose. An external card payment moves
+  no wallet, so `transactions` + the booking is the correct record; forcing it
+  into the wallet spine would blur that table's meaning with no integrity gain
+  (no drift, no double-charge). A future unified reporting view can read both.
+
+### E.4 Evidence (live DB)
+
+Customer spend (lock + journey + `users.balance` mirror + idempotent + overdraw
+blocked + refund), agent charge (spine-traceable, wallet==credits, idempotent,
+credit_limits untouched), admin credit (one `credits` row, spine recorded,
+idempotent), customer refund (credits `users.balance`, not `credits`), promo
+validator (cap/tamper/invalid/min-order/never-exceeds-order), and the full **umrah
+lifecycle regression — zero failures**. All 12 touched files lint clean and load
+without fatal.

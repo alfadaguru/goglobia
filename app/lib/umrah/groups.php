@@ -605,7 +605,20 @@ if (!function_exists('umrah_group_confirm')) {
             // booking total (audit H: under-refund), and release the claim so the
             // group returns to its editable pre-submit state.
             try {
-                $db->insert('credits', ['user_id' => $agent, 'type' => 'credit', 'credits' => round($chargedTotal, 2), 'currency' => $currency, 'description' => 'Group submit refund ' . $g['group_ref'] . ' (' . $invoiceId . ')', 'created_at' => date('Y-m-d H:i:s')]);
+                if (!function_exists('wallet_refund')) {
+                    $walletLib = dirname(__DIR__) . '/wallet.php';
+                    if (file_exists($walletLib)) { require_once $walletLib; }
+                }
+                if (function_exists('wallet_refund')) {
+                    // Spine-traceable, idempotent reversal of the exact amount debited.
+                    wallet_refund($db, $agent, round($chargedTotal, 2), (string) $currency, [
+                        'reason' => 'reversal', 'invoice_id' => $invoiceId, 'ref_type' => 'invoice', 'ref_id' => $invoiceId,
+                        'idempotency_key' => 'UMRAH-SUBMIT-REV-' . $invoiceId,
+                        'note' => 'Group submit refund ' . $g['group_ref'] . ' (' . $invoiceId . ')',
+                    ]);
+                } else {
+                    $db->insert('credits', ['user_id' => $agent, 'type' => 'credit', 'credits' => round($chargedTotal, 2), 'currency' => $currency, 'description' => 'Group submit refund ' . $g['group_ref'] . ' (' . $invoiceId . ')', 'created_at' => date('Y-m-d H:i:s')]);
+                }
             } catch (\Throwable $e2) { error_log('umrah_group_submit refund failed: ' . $e2->getMessage()); }
             $db->update('umrah_groups', ['status' => $prevStatus, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $groupId]);
             return ['ok' => false, 'message' => 'Could not finalize the group; your wallet charge has been reversed. Please try again.'];
@@ -671,7 +684,22 @@ if (!function_exists('umrah_group_set_visa')) {
                 if (!$alreadyRefunded) {
                     $label = trim(($m['first_name'] ?? '') . ' ' . ($m['last_name'] ?? '')) ?: ('Pilgrim #' . $mid);
                     try {
-                        $db->insert('credits', ['user_id' => $agent, 'type' => 'credit', 'credits' => $refundPerPax, 'currency' => $currency, 'description' => 'Umrah visa refund ' . $g['group_ref'] . ' — ' . $label . ' (' . $g['invoice_id'] . ')', 'created_at' => $now]);
+                        if (!function_exists('wallet_refund')) {
+                            $walletLib = dirname(__DIR__) . '/wallet.php';
+                            if (file_exists($walletLib)) { require_once $walletLib; }
+                        }
+                        if (function_exists('wallet_refund')) {
+                            // Spine-traceable, idempotent PER MEMBER: even if the
+                            // visa_status update below races/fails, the same member
+                            // key can never refund twice.
+                            wallet_refund($db, $agent, $refundPerPax, (string) $currency, [
+                                'reason' => 'refund', 'invoice_id' => $g['invoice_id'], 'ref_type' => 'umrah_member', 'ref_id' => (string) $mid,
+                                'idempotency_key' => 'UMRAH-VISA-REFUND-' . $g['invoice_id'] . '-' . $mid,
+                                'note' => 'Umrah visa refund ' . $g['group_ref'] . ' — ' . $label . ' (' . $g['invoice_id'] . ')',
+                            ]);
+                        } else {
+                            $db->insert('credits', ['user_id' => $agent, 'type' => 'credit', 'credits' => $refundPerPax, 'currency' => $currency, 'description' => 'Umrah visa refund ' . $g['group_ref'] . ' — ' . $label . ' (' . $g['invoice_id'] . ')', 'created_at' => $now]);
+                        }
                         $db->update('umrah_group_members', ['visa_status' => 'refunded', 'refund_amount' => $refundPerPax, 'refunded_at' => $now, 'updated_at' => $now], ['id' => $mid]);
                         if ((int) $m['traveller_id']) { $db->update('umrah_booking_travellers', ['visa_status' => 'rejected'], ['id' => (int) $m['traveller_id']]); }
                         $refundedNow += $refundPerPax;

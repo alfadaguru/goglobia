@@ -1111,20 +1111,15 @@ function record_transaction($tokenData, $transactionId, $status, $gatewayData = 
         if ($gateway && $gateway['type'] === 'internal_wallet') {
             $transactionType = 'debit';
 
-            // Additional handling for credits: add debit record to credits table
-            if (stripos($gateway['name'], 'credit') !== false) {
-                $userId = $tokenData['user_id'] ?? ($_SESSION['user_id'] ?? null);
-                if ($userId) {
-                    $db->insert('credits', [
-                        'user_id' => $userId,
-                        'type' => 'debit',
-                        'credits' => $tokenData['amount'],
-                        'currency' => $tokenData['currency'],
-                        'description' => 'Payment for Invoice ' . $tokenData['invoice_id'] . ' via Credits',
-                        'created_at' => date('Y-m-d H:i:s')
-                    ]);
-                }
-            }
+            // NOTE (audit money-integrity): the actual wallet debit for an
+            // internal_wallet payment is now owned by the SPINE — the Credits /
+            // Wallet gateway views call wallet_spend(), which writes the
+            // money_transactions + wallet_ledger rows and mirrors the legacy
+            // `credits` ledger for agents. This function used to ALSO insert a
+            // `credits` debit here, which double-charged once the views were moved
+            // onto the spine. That direct insert is removed on purpose; do not
+            // re-add it. This function only records the legacy `transactions`
+            // audit row below.
         }
     }
 
@@ -1916,37 +1911,44 @@ if (!function_exists('refund_gateway_payment')) {
                     }
                     return ['status' => 'failed', 'message' => $j['error']['message'] ?? "Stripe refund HTTP {$code}", 'gateway' => 'stripe'];
 
-                // ---- Internal ledger gateways: reversal is an in-app ledger post ----
+                // ---- Internal ledger gateways: reversal is an in-app wallet credit ----
                 case 'wallet':
                 case 'wallet balance':
                 case 'wallet_balance':
                 case 'credits':
-                    // Internal wallet payment → reverse it by posting a
-                    // compensating CREDIT row to the credits ledger (the same
-                    // ledger agent_api_charge_wallet debits). Idempotent: skip if
-                    // a refund credit for this invoice already exists.
+                    // Internal wallet payment → reverse it through the SPINE
+                    // (audit money-integrity). wallet_refund() credits the CORRECT
+                    // store for the user's kind — a CUSTOMER's money lives in
+                    // users.balance (mirrored from wallets), an AGENT's in the
+                    // `credits` ledger — writes a money_transactions + journey +
+                    // wallet_ledger record, and is idempotent per invoice so a
+                    // re-fired refund never double-credits. The OLD code posted a
+                    // raw `credits` row for BOTH kinds, so a customer's refund went
+                    // to a ledger they never spend from — they never got the money.
                     $walletUserId = (string) ($booking['user_id'] ?? '');
                     $invoiceRef   = (string) ($booking['invoice_id'] ?? '');
                     if ($walletUserId === '') {
                         return ['status' => 'failed', 'message' => 'No wallet owner on booking', 'gateway' => $gatewayName];
                     }
-                    $already = $db->get('credits', 'id', [
-                        'user_id'        => $walletUserId,
-                        'type'           => 'credit',
-                        'description[~]' => 'API refund ' . $invoiceRef,
-                    ]);
-                    if ($already) {
-                        return ['status' => 'refunded', 'reference' => 'WALLET-REFUND-' . $invoiceRef, 'amount' => $refundAmt, 'gateway' => $gatewayName, 'message' => 'Already refunded to wallet'];
+                    if (!function_exists('wallet_refund')) {
+                        $walletLib = __DIR__ . '/wallet.php';
+                        if (file_exists($walletLib)) { require_once $walletLib; }
                     }
-                    $db->insert('credits', [
-                        'user_id'     => $walletUserId,
-                        'type'        => 'credit',
-                        'credits'     => $refundAmt,
-                        'currency'    => $currency,
-                        'description' => 'API refund ' . $invoiceRef . ' — ' . $reason,
-                        'created_at'  => date('Y-m-d H:i:s'),
+                    if (!function_exists('wallet_refund')) {
+                        return ['status' => 'failed', 'message' => 'Wallet engine unavailable', 'gateway' => $gatewayName];
+                    }
+                    $rf = wallet_refund($db, $walletUserId, (float) $refundAmt, (string) $currency, [
+                        'reason'          => 'refund',
+                        'invoice_id'      => $invoiceRef,
+                        'ref_type'        => 'invoice',
+                        'ref_id'          => $invoiceRef,
+                        'idempotency_key' => 'GWREFUND-' . $invoiceRef,
+                        'note'            => 'Refund ' . $invoiceRef . ' — ' . $reason,
                     ]);
-                    return ['status' => 'refunded', 'reference' => 'WALLET-REFUND-' . $invoiceRef, 'amount' => $refundAmt, 'gateway' => $gatewayName];
+                    if (empty($rf['ok'])) {
+                        return ['status' => 'failed', 'message' => $rf['message'] ?? 'Wallet refund failed', 'gateway' => $gatewayName];
+                    }
+                    return ['status' => 'refunded', 'reference' => 'WALLET-REFUND-' . $invoiceRef, 'amount' => $refundAmt, 'gateway' => $gatewayName, 'already' => !empty($rf['already'])];
 
                 // ---- No refund API implemented yet: be honest ----
                 default:

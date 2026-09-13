@@ -25,6 +25,14 @@ $router->get(admin.'/finance/transactions(.*)', function ($user_id) use ($SECURE
 
 // ================================ POST /finance/transactions
 $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
+    ADMIN_AUTH();
+    // CSRF (audit money-integrity): this POST moves money / adjusts a credit line,
+    // so it must carry a valid token. Was previously unguarded.
+    if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_POST['_token'] ?? ''))) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Invalid or expired form token. Please try again.'];
+        redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/finance/transactions');
+        return;
+    }
 
     // FORM DATA VALIDATION AND SANITIZATION
     $user_id = $_POST['user_id'] ?? 0;
@@ -115,7 +123,6 @@ $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
     // Generate transaction ID
     $trx_id = 'TRX_' . time() . '_' . uniqid();
 
-    dd($_SESSION['admin_id']);
     // PREPARE DATA FOR INSERTION IN transactions TABLE
     $transaction_data = [
         'user_id' => $user_id,
@@ -163,6 +170,33 @@ $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
             );
 
             $db->pdo->commit();
+
+            // SPINE MIRROR (audit money-integrity): record this admin adjustment in
+            // the unified money spine too, so it is traceable (money_transactions +
+            // wallet_ledger + journey) and the agent's wallet + member-tier reflect
+            // it. Runs AFTER commit (wallet_apply opens its own transaction — must
+            // not nest). Best-effort: never fail the admin action on a mirror error.
+            try {
+                if (!function_exists('wallet_refund')) {
+                    require_once dirname(__DIR__, 2) . '/lib/wallet.php';
+                }
+                $mirrorCur = $currency;
+                if (in_array($transaction_type, ['credit', 'refund'], true) && function_exists('wallet_refund')) {
+                    wallet_refund($db, (string) $user_id, (float) $amount, (string) $mirrorCur, [
+                        'reason' => 'adjustment', 'ref_type' => 'admin_txn', 'ref_id' => $trx_id,
+                        'idempotency_key' => 'ADMINTXN-' . $trx_id,
+                        'note' => 'Admin ' . $transaction_type . ($description !== '' ? ': ' . $description : ''),
+                    ]);
+                    if (function_exists('agent_recompute_tier')) { agent_recompute_tier($db, (string) $user_id); }
+                } elseif (in_array($transaction_type, ['debit', 'purchase'], true) && function_exists('wallet_spend')) {
+                    wallet_spend($db, (string) $user_id, (float) $amount, (string) $mirrorCur, [
+                        'reason' => 'adjustment', 'method' => 'manual', 'allow_credit_line' => true,
+                        'ref_type' => 'admin_txn', 'ref_id' => $trx_id,
+                        'idempotency_key' => 'ADMINTXN-' . $trx_id,
+                        'note' => 'Admin ' . $transaction_type . ($description !== '' ? ': ' . $description : ''),
+                    ]);
+                }
+            } catch (\Throwable $eMirror) { error_log('admin transaction spine mirror: ' . $eMirror->getMessage()); }
 
             $_SESSION['message'] = [
                 'type' => 'success',

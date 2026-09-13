@@ -55,11 +55,36 @@ if (!function_exists('wallet_get_or_create')) {
         $currency = strtoupper(trim($currency)) ?: wallet_default_currency($db);
         $w = $db->get('wallets', '*', ['user_id' => $userId, 'currency' => $currency]);
         if ($w) { return $w; }
+
+        $kind = wallet_kind_for_user($db, $userId);
+
+        // SEED the opening balance from the legacy store so existing money is
+        // never lost when a user's wallet row is first materialised (audit
+        // money-integrity): a CUSTOMER's money lives in users.balance today; an
+        // AGENT's lives in the `credits` ledger. Seed only when the new wallet's
+        // currency matches the user's own currency (no cross-currency guess).
+        $opening = 0.00;
+        try {
+            $u = $db->get('users', ['role', 'currency', 'balance'], ['user_id' => $userId]);
+            $userCur = strtoupper(trim((string) ($u['currency'] ?? '')));
+            if ($u && ($userCur === '' || $userCur === $currency)) {
+                if ($kind === 'customer') {
+                    $opening = round((float) ($u['balance'] ?? 0), 2);
+                } else {
+                    // agent: opening = current derived credits balance
+                    if (function_exists('agent_api_wallet_balance')) {
+                        $opening = round((float) agent_api_wallet_balance($db, $userId), 2);
+                    }
+                }
+                if ($opening < 0) { $opening = 0.00; }
+            }
+        } catch (\Throwable $e) { /* seed 0 on any error */ }
+
         $db->insert('wallets', [
             'user_id'    => $userId,
-            'kind'       => wallet_kind_for_user($db, $userId),
+            'kind'       => $kind,
             'currency'   => $currency,
-            'balance'    => 0.00,
+            'balance'    => $opening,
             'created_at' => date('Y-m-d H:i:s'),
         ]);
         return $db->get('wallets', '*', ['id' => (int) $db->id()]);
@@ -224,8 +249,11 @@ if (!function_exists('wallet_apply')) {
                     'created_at'     => date('Y-m-d H:i:s'),
                 ]);
 
-                // LEGACY MIRROR for agent wallets: keep the `credits` ledger in
-                // step so existing agent_api_* balance/charge code stays correct.
+                // LEGACY MIRROR (audit money-integrity): keep the pre-spine store
+                // in step so ALL existing readers stay correct and the two systems
+                // never drift.
+                //   * AGENT   -> the `credits` ledger (agent_api_* reads this)
+                //   * CUSTOMER -> users.balance (wallet_balance.php & dashboards read this)
                 if (($w['kind'] ?? '') === 'agent') {
                     $db->insert('credits', [
                         'user_id'     => $userId,
@@ -235,6 +263,16 @@ if (!function_exists('wallet_apply')) {
                         'description' => (string) ($opts['note'] ?? ('wallet ' . $direction)),
                         'created_at'  => date('Y-m-d H:i:s'),
                     ]);
+                } else {
+                    // Customer: users.balance is authoritative-mirrored to the
+                    // wallet's new balance (same currency only — the wallet row is
+                    // per-currency and was seeded from users.balance).
+                    try {
+                        $uCur = strtoupper(trim((string) ($db->get('users', 'currency', ['user_id' => $userId]) ?: '')));
+                        if ($uCur === '' || $uCur === $currency) {
+                            $db->update('users', ['balance' => $newBalance], ['user_id' => $userId]);
+                        }
+                    } catch (\Throwable $e) { error_log('wallet_apply customer mirror: ' . $e->getMessage()); }
                 }
 
                 $result = ['ok' => true, 'balance' => $newBalance];
@@ -478,5 +516,138 @@ if (!function_exists('wallet_topup_success')) {
             agent_recompute_tier($db, (string) $t['user_id']);
         }
         return $r;
+    }
+}
+
+if (!function_exists('wallet_spend')) {
+    /**
+     * Spend from a wallet through the SPINE — the single entry point every
+     * checkout/booking debit must use (docs/MONEY-WALLET-AUDIT.md §A/§C):
+     *   1. create a money_transactions debit (born 'pending', journey "created")
+     *   2. atomically debit the wallet via wallet_apply() (FOR UPDATE lock,
+     *      wallet_ledger row, legacy mirror to credits/users.balance)
+     *   3. advance the transaction to 'success' (or 'failed' on insufficient funds)
+     * Idempotent when opts['idempotency_key'] is given: a retried spend for the
+     * same key returns the original result and never double-debits.
+     *
+     * @param array $opts reason('booking'|'fee'|'wallet_spend'|...), invoice_id,
+     *                    gateway_id, method('wallet'), note, idempotency_key,
+     *                    ref_type, ref_id, allow_credit_line(bool)
+     * @return array ['ok'=>bool,'balance'=>float,'transaction'=>array,'message'=>?]
+     */
+    function wallet_spend($db, string $userId, float $amount, string $currency = '', array $opts = []): array
+    {
+        $amount = round((float) $amount, 2);
+        if ($amount <= 0) { return ['ok' => false, 'message' => 'Amount must be positive']; }
+        $currency = strtoupper(trim($currency)) ?: wallet_default_currency($db);
+
+        // Idempotency: if a transaction with this key already reached success,
+        // return it unchanged (no second debit).
+        $idem = isset($opts['idempotency_key']) ? trim((string) $opts['idempotency_key']) : '';
+        if ($idem !== '') {
+            $exist = $db->get('money_transactions', '*', ['idempotency_key' => $idem]);
+            if ($exist && $exist['status'] === 'success') {
+                return ['ok' => true, 'balance' => wallet_balance($db, $userId, $currency), 'transaction' => $exist, 'already' => true];
+            }
+        }
+
+        $reason = in_array(($opts['reason'] ?? ''), ['booking','fee','wallet_spend','adjustment','reversal'], true) ? $opts['reason'] : 'wallet_spend';
+        $txn = txn_create($db, [
+            'user_id'         => $userId,
+            'direction'       => 'debit',
+            'reason'          => $reason,
+            'amount'          => $amount,
+            'currency'        => $currency,
+            'method'          => in_array(($opts['method'] ?? ''), ['gateway','wallet','manual'], true) ? $opts['method'] : 'wallet',
+            'gateway_id'      => $opts['gateway_id'] ?? null,
+            'invoice_id'      => $opts['invoice_id'] ?? null,
+            'idempotency_key' => $idem !== '' ? $idem : null,
+            'description'     => $opts['note'] ?? ('Wallet spend' . (isset($opts['invoice_id']) ? ' ' . $opts['invoice_id'] : '')),
+        ]);
+        if (!$txn || empty($txn['id'])) { return ['ok' => false, 'message' => 'Could not create transaction']; }
+
+        // If this txn was already applied (idempotent create returned an existing
+        // success row), don't debit again.
+        if (($txn['status'] ?? 'pending') === 'success') {
+            return ['ok' => true, 'balance' => wallet_balance($db, $userId, $currency), 'transaction' => $txn, 'already' => true];
+        }
+
+        $apply = wallet_apply($db, $userId, $amount, 'debit', $currency, [
+            'reason'           => in_array($reason, ['booking','fee','reversal','adjustment'], true) ? $reason : 'booking',
+            'ref_type'         => $opts['ref_type'] ?? 'invoice',
+            'ref_id'           => (string) ($opts['ref_id'] ?? ($opts['invoice_id'] ?? '')),
+            'transaction_id'   => (int) $txn['id'],
+            'note'             => $opts['note'] ?? ('Wallet spend ' . $txn['txn_ref']),
+            'allow_credit_line'=> !empty($opts['allow_credit_line']),
+        ]);
+
+        if (empty($apply['ok'])) {
+            txn_advance($db, (int) $txn['id'], 'failed', (string) ($apply['message'] ?? 'wallet debit failed'));
+            return ['ok' => false, 'balance' => (float) ($apply['balance'] ?? wallet_balance($db, $userId, $currency)),
+                    'transaction' => $db->get('money_transactions', '*', ['id' => (int) $txn['id']]),
+                    'message' => $apply['message'] ?? 'Insufficient wallet balance'];
+        }
+
+        txn_advance($db, (int) $txn['id'], 'success', 'wallet debited', null,
+            isset($opts['provider_trx_id']) ? ['provider_trx_id' => $opts['provider_trx_id']] : []);
+        return ['ok' => true, 'balance' => (float) $apply['balance'],
+                'transaction' => $db->get('money_transactions', '*', ['id' => (int) $txn['id']])];
+    }
+}
+
+if (!function_exists('wallet_refund')) {
+    /**
+     * Refund money back to a wallet through the SPINE (idempotent). Mirrors
+     * wallet_spend on the credit side: creates a money_transactions credit
+     * (reason 'refund'/'reversal'), applies the wallet credit (ledger + legacy
+     * mirror), and marks the transaction success. A repeated call with the same
+     * idempotency_key never double-credits.
+     * @return array ['ok'=>bool,'balance'=>float,'transaction'=>array,'message'=>?]
+     */
+    function wallet_refund($db, string $userId, float $amount, string $currency = '', array $opts = []): array
+    {
+        $amount = round((float) $amount, 2);
+        if ($amount <= 0) { return ['ok' => false, 'message' => 'Amount must be positive']; }
+        $currency = strtoupper(trim($currency)) ?: wallet_default_currency($db);
+
+        $idem = isset($opts['idempotency_key']) ? trim((string) $opts['idempotency_key']) : '';
+        if ($idem !== '') {
+            $exist = $db->get('money_transactions', '*', ['idempotency_key' => $idem]);
+            if ($exist && $exist['status'] === 'success') {
+                return ['ok' => true, 'balance' => wallet_balance($db, $userId, $currency), 'transaction' => $exist, 'already' => true];
+            }
+        }
+
+        $reason = ($opts['reason'] ?? 'refund') === 'reversal' ? 'reversal' : 'refund';
+        $txn = txn_create($db, [
+            'user_id'         => $userId,
+            'direction'       => 'credit',
+            'reason'          => $reason,
+            'amount'          => $amount,
+            'currency'        => $currency,
+            'method'          => 'wallet',
+            'invoice_id'      => $opts['invoice_id'] ?? null,
+            'idempotency_key' => $idem !== '' ? $idem : null,
+            'description'     => $opts['note'] ?? ('Refund' . (isset($opts['invoice_id']) ? ' ' . $opts['invoice_id'] : '')),
+        ]);
+        if (!$txn || empty($txn['id'])) { return ['ok' => false, 'message' => 'Could not create transaction']; }
+        if (($txn['status'] ?? 'pending') === 'success') {
+            return ['ok' => true, 'balance' => wallet_balance($db, $userId, $currency), 'transaction' => $txn, 'already' => true];
+        }
+
+        $apply = wallet_apply($db, $userId, $amount, 'credit', $currency, [
+            'reason'         => $reason,
+            'ref_type'       => $opts['ref_type'] ?? 'invoice',
+            'ref_id'         => (string) ($opts['ref_id'] ?? ($opts['invoice_id'] ?? '')),
+            'transaction_id' => (int) $txn['id'],
+            'note'           => $opts['note'] ?? ('Refund ' . $txn['txn_ref']),
+        ]);
+        if (empty($apply['ok'])) {
+            txn_advance($db, (int) $txn['id'], 'failed', (string) ($apply['message'] ?? 'wallet credit failed'));
+            return ['ok' => false, 'message' => $apply['message'] ?? 'Refund failed'];
+        }
+        txn_advance($db, (int) $txn['id'], 'success', 'wallet refunded');
+        return ['ok' => true, 'balance' => (float) $apply['balance'],
+                'transaction' => $db->get('money_transactions', '*', ['id' => (int) $txn['id']])];
     }
 }
