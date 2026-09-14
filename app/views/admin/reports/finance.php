@@ -80,6 +80,121 @@ $marginPct = $tot['revenue'] > 0 ? round(($tot['net_profit'] / $tot['revenue']) 
         </div>
     </div>
 
+    <!-- Daily revenue trend -->
+    <?php $trend = $trend ?? []; $peakRevenue = (float)($peakRevenue ?? 0); ?>
+    <div class="card p-0 mb-6">
+        <div class="card-header">
+            <div><span class="card-header-icon text-[18px]">show_chart</span><h3>Daily revenue trend</h3></div>
+            <div class="flex items-center gap-4 text-xs text-slate-500">
+                <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-1.5 rounded-full" style="background:#3b82f6"></span>Revenue</span>
+                <span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-1.5 rounded-full" style="background:#10b981"></span>Net profit</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <?php if (empty($trend) || $peakRevenue <= 0): ?>
+                <p class="text-slate-500 text-sm py-8 text-center">No revenue in this period to chart.</p>
+            <?php else: ?>
+                <div class="relative w-full" style="height:240px">
+                    <canvas id="revTrend" class="w-full h-full block"></canvas>
+                    <div id="revTip" class="pointer-events-none absolute hidden bg-slate-800 text-white text-xs rounded-md px-2 py-1 shadow-lg" style="transform:translate(-50%,-115%);white-space:nowrap;z-index:10"></div>
+                </div>
+                <script type="application/json" id="revTrendData"><?= json_encode(['currency' => $defaultCurrency, 'points' => $trend], JSON_UNESCAPED_SLASHES) ?></script>
+                <script>
+                (function(){
+                    var el = document.getElementById('revTrend');
+                    var raw = document.getElementById('revTrendData');
+                    if (!el || !raw) return;
+                    var cfg = JSON.parse(raw.textContent);
+                    var pts = cfg.points || [];
+                    var tip = document.getElementById('revTip');
+                    var dpr = window.devicePixelRatio || 1;
+                    var padL = 8, padR = 8, padT = 12, padB = 22;
+
+                    function fmt(n){ return cfg.currency + ' ' + Number(n).toLocaleString(undefined,{maximumFractionDigits:0}); }
+
+                    function draw(){
+                        var cssW = el.clientWidth, cssH = el.clientHeight;
+                        el.width = cssW * dpr; el.height = cssH * dpr;
+                        var ctx = el.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+                        ctx.clearRect(0,0,cssW,cssH);
+                        var W = cssW - padL - padR, H = cssH - padT - padB;
+                        var n = pts.length;
+                        var maxV = 0;
+                        pts.forEach(function(p){ maxV = Math.max(maxV, +p.revenue, +p.net_profit); });
+                        if (maxV <= 0) maxV = 1;
+                        var niceMax = Math.pow(10, Math.floor(Math.log10(maxV)));
+                        niceMax = Math.ceil(maxV / niceMax) * niceMax;
+
+                        var x = function(i){ return padL + (n <= 1 ? W/2 : (i/(n-1))*W); };
+                        var y = function(v){ return padT + H - (v/niceMax)*H; };
+
+                        // faint horizontal grid + y labels (0, mid, max)
+                        ctx.strokeStyle = '#eef2f7'; ctx.fillStyle = '#94a3b8'; ctx.lineWidth = 1;
+                        ctx.font = '10px -apple-system,Segoe UI,Roboto,sans-serif'; ctx.textBaseline = 'middle';
+                        [0, 0.5, 1].forEach(function(f){
+                            var yy = padT + H - f*H;
+                            ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(padL+W, yy); ctx.stroke();
+                            ctx.fillText(fmt(niceMax*f), padL+2, yy-6);
+                        });
+
+                        // area under revenue
+                        function series(key, stroke, fill){
+                            ctx.beginPath();
+                            pts.forEach(function(p,i){ var xx=x(i), yy=y(+p[key]); i?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy); });
+                            if (fill){
+                                ctx.lineTo(x(n-1), padT+H); ctx.lineTo(x(0), padT+H); ctx.closePath();
+                                ctx.fillStyle = fill; ctx.fill();
+                                ctx.beginPath();
+                                pts.forEach(function(p,i){ var xx=x(i), yy=y(+p[key]); i?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy); });
+                            }
+                            ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.lineJoin='round'; ctx.stroke();
+                        }
+                        series('revenue', '#3b82f6', 'rgba(59,130,246,0.10)');
+                        series('net_profit', '#10b981', null);
+
+                        // emphasize the peak revenue point
+                        var peakI = 0, peakV = -1;
+                        pts.forEach(function(p,i){ if(+p.revenue > peakV){ peakV = +p.revenue; peakI = i; } });
+                        if (peakV > 0){
+                            ctx.fillStyle = '#3b82f6'; ctx.beginPath(); ctx.arc(x(peakI), y(peakV), 3.5, 0, Math.PI*2); ctx.fill();
+                            ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+                        }
+
+                        // x labels: first, middle, last
+                        ctx.fillStyle = '#94a3b8'; ctx.textBaseline='alphabetic';
+                        function shortDate(d){ var m=(d||'').slice(5); return m; }
+                        [0, Math.floor((n-1)/2), n-1].filter(function(v,i,a){return a.indexOf(v)===i;}).forEach(function(i){
+                            var lbl = shortDate(pts[i] && pts[i].date);
+                            var tw = ctx.measureText(lbl).width;
+                            var xx = Math.min(Math.max(x(i)-tw/2, padL), padL+W-tw);
+                            ctx.fillText(lbl, xx, cssH-6);
+                        });
+
+                        el._geom = { x:x, y:y, n:n, padT:padT, H:H };
+                    }
+
+                    function onMove(ev){
+                        var g = el._geom; if(!g) return;
+                        var rect = el.getBoundingClientRect();
+                        var mx = ev.clientX - rect.left;
+                        var best = 0, bestD = 1e9;
+                        for (var i=0;i<g.n;i++){ var d=Math.abs(g.x(i)-mx); if(d<bestD){bestD=d;best=i;} }
+                        var p = pts[best]; if(!p){ tip.classList.add('hidden'); return; }
+                        tip.innerHTML = '<strong>'+p.date+'</strong><br>Rev '+fmt(p.revenue)+' · Profit '+fmt(p.net_profit)+' · '+p.count+' bookings';
+                        tip.style.left = g.x(best) + 'px';
+                        tip.style.top = g.y(+p.revenue) + 'px';
+                        tip.classList.remove('hidden');
+                    }
+                    el.addEventListener('mousemove', onMove);
+                    el.addEventListener('mouseleave', function(){ tip.classList.add('hidden'); });
+                    draw();
+                    var rt; window.addEventListener('resize', function(){ clearTimeout(rt); rt=setTimeout(draw,150); });
+                })();
+                </script>
+            <?php endif; ?>
+        </div>
+    </div>
+
     <!-- Revenue by module -->
     <div class="card p-0 mb-6">
         <div class="card-header"><div><span class="card-header-icon text-[18px]">bar_chart</span><h3>By module</h3></div></div>

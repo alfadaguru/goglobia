@@ -169,9 +169,19 @@ $router->get(admin.'/reports/finance', function () use ($SECURE, $db) {
     if ($moduleFilter !== '') { $where['module_type'] = $moduleFilter; }
 
     $rows = $db->select('bookings',
-        ['module_type','currency_markup','price_original','price_markup','commission','agent_earning','tax'],
+        ['module_type','currency_markup','price_original','price_markup','commission','agent_earning','tax','paid_at','created_at'],
         $where
     ) ?: [];
+
+    // Daily trend buckets — gap-filled across the whole range so the chart has a
+    // point for every day (revenue + net profit per day).
+    $daily = [];
+    $cursor = strtotime($from);
+    $lastDay = strtotime($to);
+    while ($cursor <= $lastDay) {
+        $daily[date('Y-m-d', $cursor)] = ['date' => date('Y-m-d', $cursor), 'revenue' => 0.0, 'net_profit' => 0.0, 'count' => 0];
+        $cursor = strtotime('+1 day', $cursor);
+    }
 
     // Aggregate by module.
     $byModule = [];
@@ -199,9 +209,24 @@ $router->get(admin.'/reports/finance', function () use ($SECURE, $db) {
 
         $tot['count']++; $tot['revenue'] += $revenue; $tot['cost'] += $cost;
         $tot['commission'] += $comm; $tot['agent_earning'] += $agent; $tot['tax'] += $tax; $tot['net_profit'] += $net;
+
+        // Daily bucket — use the same date basis as the range filter (paid_at
+        // when present, else created_at). Guard against a row falling outside the
+        // pre-built buckets (shouldn't, but never index a missing key).
+        $day = substr((string)($r['paid_at'] ?: $r['created_at']), 0, 10);
+        if (isset($daily[$day])) {
+            $daily[$day]['revenue']    += $revenue;
+            $daily[$day]['net_profit'] += $net;
+            $daily[$day]['count']++;
+        }
     }
     // Sort modules by revenue desc.
     uasort($byModule, fn($a, $b) => $b['revenue'] <=> $a['revenue']);
+
+    // Trend series (chronological) for the chart + peak day.
+    $trend = array_values($daily);
+    $peakRevenue = 0.0;
+    foreach ($trend as $t) { if ($t['revenue'] > $peakRevenue) { $peakRevenue = $t['revenue']; } }
 
     // ---- CASH FLOW from the money spine (successful transactions in range) ----
     $spine = ['topups' => 0.0, 'wallet_payments' => 0.0, 'refunds' => 0.0, 'gateway_payments' => 0.0];
