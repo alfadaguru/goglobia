@@ -99,6 +99,20 @@ $router->post('/api/cars/booking/request-cancellation', function () use ($db) {
         exit;
     }
 
+    $booking = $db->get('bookings', '*', ['invoice_id' => $input['invoice_id']]);
+    if (!$booking) {
+        http_response_code(404);
+        echo json_encode(['success'=>false,'message'=>'Booking not found']);
+        exit;
+    }
+
+    // OWNERSHIP GUARD: only the invoice owner / creating session / admin may
+    // request cancellation. Was unauthenticated. enforceInvoiceAccess
+    // auto-responds 403 JSON on an /api/ route and exits for a non-owner.
+    if (function_exists('enforceInvoiceAccess')) {
+        enforceInvoiceAccess($db, $booking);
+    }
+
     $db->update('bookings', [
         'cancellation_request' => 1
     ], [

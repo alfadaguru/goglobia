@@ -88,8 +88,15 @@ $router->post('/api/bus/booking/request-cancellation', function () use ($SECURE,
         $input = json_decode(file_get_contents('php://input'), true);
         if (empty($input['invoice_id'])) throw new Exception('Invoice ID required');
 
-        $booking = $db->get('bookings', ['id'], ['invoice_id' => $input['invoice_id'], 'module_type' => 'bus']);
+        $booking = $db->get('bookings', '*', ['invoice_id' => $input['invoice_id'], 'module_type' => 'bus']);
         if (!$booking) throw new Exception('Booking not found');
+
+        // OWNERSHIP GUARD: only the invoice owner / creating session / admin may
+        // request cancellation. Was unauthenticated. enforceInvoiceAccess
+        // auto-responds 403 JSON on an /api/ route and exits for a non-owner.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
 
         $db->update('bookings', ['cancellation_request' => 1], ['invoice_id' => $input['invoice_id']]);
         echo json_encode(['success' => true, 'message' => 'Cancellation request submitted']);

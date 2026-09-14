@@ -2634,11 +2634,13 @@ $router->post('/api/ai/trip/request-cancellation', function () use ($SECURE, $db
             throw new Exception('Booking not found.');
         }
 
-        if (isset($_SESSION['user_id']) && !empty($booking['user_id'])) {
-            $isAdmin = isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin';
-            if (!$isAdmin && (string)$booking['user_id'] !== (string)$_SESSION['user_id']) {
-                throw new Exception('Unauthorized access.');
-            }
+        // OWNERSHIP GUARD. The previous inline check only fired when BOTH a
+        // session user_id AND a booking user_id existed — so a GUEST-created
+        // ai_trip / cart package (empty user_id) was cancellable by anyone.
+        // enforceInvoiceAccess honors the owner, admin, AND the guest's own
+        // session (owned_invoices / payment token), 403-JSON-and-exits otherwise.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
         }
 
         if (in_array(strtolower((string)($booking['booking_status'] ?? '')), ['cancelled', 'voided'], true)) {
