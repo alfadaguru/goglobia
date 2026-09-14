@@ -87,7 +87,34 @@ if (!function_exists('wallet_get_or_create')) {
             'balance'    => $opening,
             'created_at' => date('Y-m-d H:i:s'),
         ]);
-        return $db->get('wallets', '*', ['id' => (int) $db->id()]);
+        $walletId = (int) $db->id();
+
+        // OPENING LEDGER ENTRY (audit money-integrity): when we seed a non-zero
+        // opening balance from the legacy store, write a matching wallet_ledger
+        // row so the wallet's statement always ties out to its balance
+        // (sum(ledger) == balance) and the migrated money is itself traceable.
+        // NOT mirrored to credits/users.balance — the money already lives there;
+        // this only records the opening on the spine's own statement.
+        if ($opening > 0) {
+            try {
+                $db->insert('wallet_ledger', [
+                    'wallet_id'     => $walletId,
+                    'user_id'       => $userId,
+                    'transaction_id'=> null,
+                    'direction'     => 'credit',
+                    'amount'        => $opening,
+                    'balance_after' => $opening,
+                    'currency'      => $currency,
+                    'reason'        => 'adjustment',
+                    'ref_type'      => 'opening_balance',
+                    'ref_id'        => null,
+                    'note'          => 'Opening balance migrated from legacy store',
+                    'created_at'    => date('Y-m-d H:i:s'),
+                ]);
+            } catch (\Throwable $e) { error_log('wallet_get_or_create opening ledger: ' . $e->getMessage()); }
+        }
+
+        return $db->get('wallets', '*', ['id' => $walletId]);
     }
 }
 
