@@ -103,6 +103,12 @@ $router->get('/dashboard', function () use ($SECURE,$db) {
         'loyalty_worth' => number_format($loyaltyPoints * $loyaltyRedeemValue, 2),
         'loyalty_history' => $loyaltyHistory,
         'tier_info' => $tierInfo,
+        // Paystack virtual account (NGN-only, customers). The button/panel in the
+        // wallet card is gated on the DISPLAY currency being NGN.
+        'display_currency' => strtoupper(trim((string)($_SESSION['app_currency'] ?? ''))) ?: strtoupper(trim((string)($user['currency'] ?? ''))),
+        'dva_account_number' => (string)($user['dva_account_number'] ?? ''),
+        'dva_bank_name' => (string)($user['dva_bank_name'] ?? ''),
+        'dva_account_name' => (string)($user['dva_account_name'] ?? ''),
     ];
 
     // META DATA
@@ -268,5 +274,63 @@ $router->post('/wallet/topup', function () use ($SECURE, $db) {
         exit;
     }
     header('Location: ' . root . 'payment/' . $logResult['hash']);
+    exit;
+});
+
+// ============================================================================
+// CUSTOMER — activate a Paystack Dedicated Virtual Account (NUBAN) (step 5).
+// NGN-only, customer-only. Creates a permanent bank account number via Paystack;
+// money paid into it is credited to the wallet by the Paystack webhook.
+//   POST /wallet/virtual-account   { csrf_token }
+// ============================================================================
+$router->post('/wallet/virtual-account', function () use ($SECURE, $db) {
+    if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) {
+        $_SESSION['login_error'] = 'required';
+        header('Location: ' . root . 'login');
+        exit;
+    }
+    if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_POST['_token'] ?? ''))) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Invalid or expired form token. Please try again.'];
+        header('Location: ' . root . 'dashboard');
+        exit;
+    }
+
+    $userId = (string) $_SESSION['user_id'];
+    $user = $db->get('users', ['user_id','role','currency'], ['user_id' => $userId]);
+    if (!$user) { header('Location: ' . root . 'login'); exit; }
+
+    // Virtual accounts are a customer feature (agents fund via deposit).
+    if (strtolower((string) ($user['role'] ?? '')) === 'agent') {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Virtual accounts are for customer wallets.'];
+        header('Location: ' . root . 'dashboard');
+        exit;
+    }
+
+    // NGN-only: the display currency the customer is transacting in must be NGN
+    // (this is the same currency the button is gated on in the wallet card).
+    $displayCur = strtoupper(trim((string) ($_SESSION['app_currency'] ?? '')))
+        ?: strtoupper(trim((string) ($user['currency'] ?? '')));
+    if ($displayCur !== 'NGN') {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Virtual accounts are available on NGN only. Switch to Naira first.'];
+        header('Location: ' . root . 'dashboard');
+        exit;
+    }
+
+    require_once 'app/lib/wallet.php';
+    $res = paystack_dva_activate($db, $userId);
+
+    if (!empty($res['ok'])) {
+        $_SESSION['message'] = ['type' => 'success', 'text' => !empty($res['already'])
+            ? 'Your virtual account is ready.'
+            : 'Virtual account created. You can now fund your wallet by bank transfer.'];
+    } elseif (!empty($res['not_enabled'])) {
+        // DVA not approved on this Paystack account yet — tell the customer plainly.
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Virtual accounts are not available yet. Please contact support.'];
+    } elseif (!empty($res['needs_bvn'])) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Your bank requires BVN verification to create this account. Please contact support.'];
+    } else {
+        $_SESSION['message'] = ['type' => 'error', 'text' => (string) ($res['message'] ?? 'Could not create a virtual account right now.')];
+    }
+    header('Location: ' . root . 'dashboard');
     exit;
 });

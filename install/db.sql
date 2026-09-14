@@ -29123,7 +29123,13 @@ CREATE TABLE `users` (
   `refresh_token_expires` datetime DEFAULT NULL,
   `apply_markup` varchar(20) DEFAULT NULL,
   `markup_type` varchar(20) DEFAULT NULL,
-  `markup_value` decimal(10,2) DEFAULT NULL
+  `markup_value` decimal(10,2) DEFAULT NULL,
+  `paystack_customer_code` varchar(64) DEFAULT NULL,
+  `dva_account_number` varchar(20) DEFAULT NULL,
+  `dva_bank_name` varchar(120) DEFAULT NULL,
+  `dva_account_name` varchar(160) DEFAULT NULL,
+  `dva_status` varchar(20) DEFAULT NULL,
+  `dva_created_at` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --

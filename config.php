@@ -289,6 +289,10 @@ try {
     // doesn't have yet (no-op once they exist — see functions.php). Fixes
     // "No payment methods available" on sites updated without migrating.
     ensureCoreFixSchema($db);
+    // Paystack Dedicated Virtual Accounts (NGN wallet NUBAN) — idempotent.
+    if (function_exists('ensurePaystackDvaSchema')) {
+        ensurePaystackDvaSchema($db);
+    }
     // Agent API (docs/AGENT-API.md) — idempotent, no-op once tables exist.
     if (function_exists('ensureAgentApiSchema')) {
         ensureAgentApiSchema($db);
