@@ -986,7 +986,10 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
         $promoCodeJson = null;
         $promoData = null;
         if ($promoCodeStr !== '' && function_exists('validatePromoCode')) {
-            $pv = validatePromoCode($db, $promoCodeStr, (float) $subtotal, 'flights', (string) $baseCurrency);
+            $pv = validatePromoCode($db, $promoCodeStr, (float) $subtotal, 'flights', (string) $baseCurrency, [
+                'user_id'    => $userId ?: ($_SESSION['user_id'] ?? null),
+                'user_email' => $primaryGuest['email'] ?? null,
+            ]);
             if (!empty($pv['ok'])) {
                 $promoDiscount = (float) $pv['discount'];
                 $promoData = $pv['promo'] ?? null;
@@ -1098,9 +1101,10 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
         $bookingId = $db->id();
 
         if ($bookingId) {
-            // Record promo code usage
-            if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData) {
-                $db->update('promo_codes', ['used_count[+]' => 1, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $promoData['id']]);
+            // Record promo code usage (idempotent per invoice; bumps used_count +
+            // writes the per-user ledger row that enforces per_user_limit).
+            if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
+                recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?? null, $primaryGuest['email'] ?? null, (float) $promoDiscount, 'flights', (string) $baseCurrency);
             }
             // Trigger booking confirmed webhook
             triggerWebhook('flights/booking', 'flights.booking.confirmed', [

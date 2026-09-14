@@ -530,13 +530,23 @@ $router->post('/api/umrah/booking/submit', function () use ($SECURE, $db) {
         $commissionBase = $commission;
         $finalTotalWithTaxBase = $finalTotalWithTax;
 
-        // PROMO CODE HANDLING (C1): recompute the discount SERVER-SIDE from the
-        // promo_codes row; never trust the client-sent promo_discount amount.
+        // PROMO CODE HANDLING (C1): recompute the discount SERVER-SIDE via the
+        // canonical helper (enforces module/targeting/usage/min-order/per-user);
+        // never trust the client-sent promo_discount amount.
         $promoCodeStr = trim($input['promo_code'] ?? '');
-        $promo = umrahLegacyPromoDiscount($db, $promoCodeStr, $finalTotalWithTaxBase);
-        $promoDiscount = $promo['discount'];
-        $promoData = $promo['row'];
-        $promoCodeJson = $promo['json'];
+        $promoDiscount = 0.0;
+        $promoData = null;
+        $promoCodeJson = null;
+        if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
+            $pr = promoResolveForBooking($db, $promoCodeStr, (float) $finalTotalWithTaxBase, 'umrah', (string) $baseCurrency, [
+                'item_id'    => (int) ($input['umrah_id'] ?? 0),
+                'user_id'    => $_SESSION['user_id'] ?? null,
+                'user_email' => $primaryGuest['email'] ?? null,
+            ]);
+            $promoDiscount = (float) $pr['discount'];
+            $promoData     = $pr['promo'];
+            $promoCodeJson = $pr['json'];
+        }
 
         // APPLY the server-computed discount (already floored to >=0 and <= order).
         if ($promoDiscount > 0 && $promoData) {
@@ -648,9 +658,10 @@ $router->post('/api/umrah/booking/submit', function () use ($SECURE, $db) {
         $bookingResult = $db->id();
 
         if ($bookingResult) {
-            // Record promo code usage
-            if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData) {
-                $db->update('promo_codes', ['used_count[+]' => 1, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $promoData['id']]);
+            // Record promo code usage (idempotent per invoice; bumps used_count +
+            // writes the per-user ledger row that enforces per_user_limit).
+            if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
+                recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?? null, $primaryGuest['email'] ?? null, (float) $promoDiscount, 'umrah', (string) $baseCurrency);
             }
             // Trigger booking confirmed webhook
             triggerWebhook('umrah/booking', 'umrah.booking.confirmed', [

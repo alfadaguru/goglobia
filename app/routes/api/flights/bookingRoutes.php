@@ -607,25 +607,30 @@ $router->post('/api/flights/booking/submit', function () use ($db) {
         $finalTotalBase = round($subtotal + $taxAmountBase, 2);
 
         // --------------------------------------------------
-        // PROMO CODE HANDLING
+        // PROMO CODE HANDLING — recompute the discount SERVER-SIDE (never trust
+        // the client's promo_discount). Enforces module/targeting/usage/per-user.
         // --------------------------------------------------
         $promoCodeStr = trim($input['promo_code'] ?? '');
-        $promoDiscount = (float)($input['promo_discount'] ?? 0);
+        $promoDiscount = 0.0;
         $promoCodeJson = null;
         $promoData = null;
-        if (!empty($promoCodeStr) && $promoDiscount > 0) {
-            $promoData = $db->get('promo_codes', '*', ['code' => $promoCodeStr]);
-            if ($promoData) {
-                $promoCodeJson = json_encode([
-                    'code' => $promoData['code'],
-                    'discount_type' => $promoData['discount_type'],
-                    'discount_value' => floatval($promoData['discount_value']),
-                    'discount_amount' => $promoDiscount,
-                    'max_discount_amount' => $promoData['max_discount_amount'] ? floatval($promoData['max_discount_amount']) : null,
-                    'description' => $promoData['description'],
-                    'module' => $promoData['module']
-                ]);
-            }
+        if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
+            $promoBaseCurrency = strtoupper(trim((string)(
+                $input['base_currency']
+                ?? $draftData['base_currency']
+                ?? $draftData['currency']
+                ?? $flightData['base_currency']
+                ?? $flightData['currency']
+                ?? 'USD'
+            )));
+            $pr = promoResolveForBooking($db, $promoCodeStr, (float) $finalTotalBase, 'flights', (string) $promoBaseCurrency, [
+                'item_id'    => (int) ($input['flight_id'] ?? 0),
+                'user_id'    => $userId ?? ($_SESSION['user_id'] ?? null),
+                'user_email' => $primaryGuest['email'] ?? null,
+            ]);
+            $promoDiscount = (float) $pr['discount'];
+            $promoData     = $pr['promo'];
+            $promoCodeJson = $pr['json'];
         }
 
         // APPLY PROMO DISCOUNT TO FINAL TOTAL
@@ -965,9 +970,10 @@ $router->post('/api/flights/booking/submit', function () use ($db) {
         // wallet (booking + service fee), marks paid, or rolls back + 402.
         agent_api_settle_booking($db, 'flights', $bookingId, $invoiceId, (float) $finalTotalBase);
 
-        // Record promo code usage
-        if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData) {
-            $db->update('promo_codes', ['used_count[+]' => 1, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $promoData['id']]);
+        // Record promo code usage (idempotent per invoice; bumps used_count +
+        // writes the per-user ledger row that enforces per_user_limit).
+        if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
+            recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?? null, $primaryGuest['email'] ?? null, (float) $promoDiscount, 'flights', (string) $baseCurrency);
         }
 
         // --------------------------------------------------

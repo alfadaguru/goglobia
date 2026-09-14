@@ -604,22 +604,18 @@ $router->post('/api/cars/booking/submit', function () use ($SECURE, $db) {
         // PROMO CODE HANDLING
         // ============================================================================
         $promoCodeStr = trim($input['promo_code'] ?? '');
-        $promoDiscount = (float) ($input['promo_discount'] ?? 0);
+        $promoDiscount = 0.0;
         $promoCodeJson = null;
         $promoData = null;
-        if (!empty($promoCodeStr) && $promoDiscount > 0) {
-            $promoData = $db->get('promo_codes', '*', ['code' => $promoCodeStr]);
-            if ($promoData) {
-                $promoCodeJson = json_encode([
-                    'code' => $promoData['code'],
-                    'discount_type' => $promoData['discount_type'],
-                    'discount_value' => floatval($promoData['discount_value']),
-                    'discount_amount' => $promoDiscount,
-                    'max_discount_amount' => $promoData['max_discount_amount'] ? floatval($promoData['max_discount_amount']) : null,
-                    'description' => $promoData['description'],
-                    'module' => $promoData['module']
-                ]);
-            }
+        if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
+            $pr = promoResolveForBooking($db, $promoCodeStr, (float) $finalTotalBase, 'cars', (string) $baseCurrency, [
+                'item_id'    => (int) ($input['car_id'] ?? 0),
+                'user_id'    => $userId ?? ($_SESSION['user_id'] ?? null),
+                'user_email' => $email ?? null,
+            ]);
+            $promoDiscount = (float) $pr['discount'];
+            $promoData     = $pr['promo'];
+            $promoCodeJson = $pr['json'];
         }
 
         // APPLY PROMO DISCOUNT TO FINAL TOTAL
@@ -779,8 +775,8 @@ $router->post('/api/cars/booking/submit', function () use ($SECURE, $db) {
             agent_api_settle_booking($db, 'cars', $bookingId, $invoiceId, (float) $finalTotalBase);
 
             // Record promo code usage
-            if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData) {
-                $db->update('promo_codes', ['used_count[+]' => 1, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $promoData['id']]);
+            if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
+                recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?? null, $email ?? null, (float) $promoDiscount, 'cars', (string) $baseCurrency);
             }
 
             // ============================================================================

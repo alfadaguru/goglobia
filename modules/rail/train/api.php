@@ -279,24 +279,26 @@ if (!function_exists('_train_create_booking')) {
             throw new InvalidArgumentException('Contact name must contain letters only, no numbers');
         }
 
+        // PROMO CODE HANDLING — recompute the discount SERVER-SIDE (never trust
+        // the client's promo_discount). Enforces module/targeting/usage/per-user.
+        $promoCurrency = _train_target_currency($input);
         $promoCodeStr = trim((string)($input['promo_code'] ?? ''));
-        $promoDiscount = (float)($input['promo_discount'] ?? 0);
+        $promoDiscount = 0.0;
         $promoCodeJson = null;
         $promoData = null;
-        if ($promoCodeStr !== '' && $promoDiscount > 0) {
-            $promoData = $db->get('promo_codes', '*', ['code' => $promoCodeStr]);
-            if ($promoData) {
-                $promoCodeJson = json_encode([
-                    'code'                => $promoData['code'],
-                    'discount_type'       => $promoData['discount_type'],
-                    'discount_value'      => floatval($promoData['discount_value']),
-                    'discount_amount'     => $promoDiscount,
-                    'max_discount_amount' => $promoData['max_discount_amount'] ? floatval($promoData['max_discount_amount']) : null,
-                    'description'         => $promoData['description'],
-                    'module'              => $promoData['module'],
-                ]);
-                $finalPrice = round($finalPrice - $promoDiscount, 2);
-            }
+        if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
+            $pr = promoResolveForBooking($db, $promoCodeStr, (float) $finalPrice, 'rail', (string) $promoCurrency, [
+                'user_id'    => $userCtx['user_id'] ?? null,
+                'user_email' => $email ?? null,
+            ]);
+            $promoDiscount = (float) $pr['discount'];
+            $promoData     = $pr['promo'];
+            $promoCodeJson = $pr['json'];
+        }
+
+        // APPLY PROMO DISCOUNT TO FINAL TOTAL
+        if ($promoDiscount > 0 && $promoData) {
+            $finalPrice = round($finalPrice - $promoDiscount, 2);
         }
 
         $invoiceId = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
@@ -343,8 +345,10 @@ if (!function_exists('_train_create_booking')) {
         ]);
 
         $bookingId = (int)$db->id();
-        if ($bookingId && $promoCodeStr !== '' && $promoDiscount > 0 && $promoData) {
-            $db->update('promo_codes', ['used_count[+]' => 1, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $promoData['id']]);
+        // Record promo code usage — idempotent per invoice; bumps used_count +
+        // writes the per-user ledger row that enforces per_user_limit.
+        if ($bookingId && $promoCodeStr !== '' && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
+            recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?? null, $email ?? null, (float) $promoDiscount, 'rail', (string) $promoCurrency);
         }
 
         return [
