@@ -994,6 +994,113 @@ if (!function_exists('_train_supplier_order_price')) {
     }
 }
 
+if (!function_exists('_train_revalidate_journey_pricing')) {
+    /**
+     * Re-derive the authoritative supplier fare for a booking's journey legs
+     * SERVER-SIDE (price-trust workstream). The booking previously summed the
+     * client-echoed journey[].price_total_limit — so a POST with
+     * price_total_limit=1 charged the customer ~1 (and capped the supplier order
+     * at 1). Here we re-run /ticket/trainQuery for each leg, match the selected
+     * train (traffic_no) + seat class, take its authoritative supplier unit price,
+     * and recompute the ceiling as supplier_unit x billable_passengers — exactly
+     * how the search listing builds price_total_limit
+     * (app/routes/rail/listingRoutes.php).
+     *
+     * FAIL-CLOSED: if the supplier can't be reached or a leg/seat can't be
+     * matched, returns ['ok'=>false]; the caller MUST reject the booking rather
+     * than trust the client number.
+     *
+     * @return array ['ok'=>bool,'legs'=>[['price_total_limit'=>float,...]],
+     *                'supplier_total'=>float,'message'=>?string]
+     */
+    function _train_revalidate_journey_pricing($db, array $input): array
+    {
+        $legs = is_array($input['journey'] ?? null) ? $input['journey'] : [];
+        if (!$legs) { return ['ok' => false, 'message' => 'No journey legs to price']; }
+
+        $passengers = is_array($input['passengers'] ?? null) ? $input['passengers'] : [];
+        $counts = function_exists('_train_count_passengers') ? _train_count_passengers($passengers) : ['adults' => 1, 'children' => 0];
+        $adults = max(1, (int) ($counts['adults'] ?? 1));
+        $children = max(0, (int) ($counts['children'] ?? 0));
+        $infants = max(0, (int) ($input['infants'] ?? 0));
+
+        $outLegs = [];
+        $supplierTotal = 0.0;
+
+        foreach ($legs as $idx => $leg) {
+            if (!is_array($leg)) { return ['ok' => false, 'message' => 'Malformed journey leg']; }
+            $journeyType = (int) ($leg['journey_type'] ?? $input['journey_type'] ?? 1);
+            $trafficNo = trim((string) ($leg['traffic_no'] ?? ''));
+            $seatClass = strtoupper(trim((string) ($leg['seat_class'] ?? '')));
+            $fromCode = trim((string) ($leg['from_station_code'] ?? ''));
+            $toCode = trim((string) ($leg['to_station_code'] ?? ''));
+            if ($trafficNo === '' || $seatClass === '' || $fromCode === '' || $toCode === '') {
+                return ['ok' => false, 'message' => 'Incomplete leg identity for fare revalidation'];
+            }
+
+            // Re-query the supplier for this leg's trains (read-only, retryable).
+            $queryInput = [
+                'from_station_code' => $fromCode,
+                'to_station_code'   => $toCode,
+                'from_date_time'    => $leg['from_date_time'] ?? '',
+                'journey_type'      => $journeyType,
+                'adults'            => $adults,
+                'children'          => $children,
+                'infants'           => $infants,
+            ];
+            if (function_exists('_train_prepare_train_query_input')) {
+                $prep = _train_prepare_train_query_input($queryInput);
+                if (is_array($prep) && !empty($prep['valid']) && is_array($prep['payload'] ?? null)) {
+                    $queryInput = $prep['payload'];
+                }
+            }
+
+            $res = _train_request('/ticket/trainQuery', $queryInput, ['db' => $db, 'retries' => 2]);
+            if (empty($res['ok'])) {
+                return ['ok' => false, 'message' => 'Could not verify the current fare with the operator. Please retry.'];
+            }
+            $trainRows = function_exists('_train_extract_train_query_rows')
+                ? _train_extract_train_query_rows($res['data'] ?? [])
+                : (array) ($res['data']['data']['data'] ?? []);
+            if ($trainRows === []) {
+                return ['ok' => false, 'message' => 'This train is no longer available.'];
+            }
+
+            $billable = function_exists('_train_billable_passenger_count')
+                ? _train_billable_passenger_count($journeyType, $adults, $children, $infants)
+                : max(1, $adults + $children);
+
+            // Find the selected train (by traffic_no), then its selected seat class.
+            $supplierUnit = 0.0; $matched = false;
+            foreach ($trainRows as $train) {
+                if (!is_array($train)) { continue; }
+                if (trim((string) ($train['traffic_no'] ?? '')) !== $trafficNo) { continue; }
+                foreach ((array) ($train['seats'] ?? []) as $seat) {
+                    if (!is_array($seat)) { continue; }
+                    $sc = strtoupper(trim((string) ($seat['seat_class'] ?? $seat['seat_class_code'] ?? $seat['code'] ?? '')));
+                    if ($sc !== $seatClass) { continue; }
+                    $supplierUnit = _train_supplier_order_price($seat);
+                    $matched = true;
+                    break 2;
+                }
+            }
+            if (!$matched || $supplierUnit <= 0) {
+                return ['ok' => false, 'message' => 'The selected seat class is no longer available at the quoted fare.'];
+            }
+
+            $legLimit = round($supplierUnit * $billable, 2);
+            $supplierTotal += $legLimit;
+            $leg['price_total_limit'] = $legLimit; // overwrite the client value
+            $outLegs[$idx] = $leg;
+        }
+
+        if ($supplierTotal <= 0) {
+            return ['ok' => false, 'message' => 'Could not determine the fare. Please retry.'];
+        }
+        return ['ok' => true, 'legs' => $outLegs, 'supplier_total' => round($supplierTotal, 2)];
+    }
+}
+
 if (!function_exists('_train_apply_seat_price_markup')) {
     /** Apply display markup while keeping supplier_order_price for ticketing. */
     function _train_apply_seat_price_markup(array &$seat, $db, string $displayCurrency = 'USD'): void
