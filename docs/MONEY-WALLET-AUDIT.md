@@ -693,3 +693,24 @@ the read), loyalty "double-earn" (the harness reused an invoice that Act 5's
 gateway payment had already—correctly—earned on), and a stale row-count
 expectation (now 2 rows: opening + spend). Verified in isolation that each path
 behaves exactly as specified.
+
+---
+
+## §G — Admin UI: Transaction Journeys
+
+A read-only admin screen to open any transaction and trace its whole life,
+delivering the §A.2 requirement visually. Lives under **Finance → Transaction
+Journeys** (`/admin/finance/journeys`).
+
+- **List** (`GET /admin/finance/journeys`): every `money_transactions` row,
+  newest first, with summary tiles (matching / success / in-progress /
+  failed-cancelled), filters (status, direction, method, free-text search over
+  txn_ref / invoice / user / provider ref / description) and pagination.
+- **Detail** (`GET /admin/finance/journeys/{id}`): the transaction's facts
+  (amount, direction, reason, method, actor, user, invoice, provider ref,
+  description, error), a **journey timeline** rendered from `transaction_journey`
+  (born → each state change, with notes and any gateway payload), and the
+  **wallet impact** from `wallet_ledger` (running balance). External gateway
+  payments correctly show "no wallet movement".
+- Route: `app/routes/admin/moneyRoutes.php`; view: `app/views/admin/money/journeys.php`;
+  ADMIN_AUTH-gated, read-only. Verified rendering list + detail with live data.
