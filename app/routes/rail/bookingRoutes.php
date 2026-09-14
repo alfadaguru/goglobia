@@ -50,9 +50,27 @@ $orderHandler = function () use ($SECURE, $db) {
             return;
         }
 
-        // Extract pricing and contact details from the request payload to insert in DB
+        // PRICE INTEGRITY (price-trust workstream): re-derive the supplier fare
+        // SERVER-SIDE via a fresh /ticket/trainQuery; never trust the client's
+        // journey[].price_total_limit. Fail-closed: reject if it can't be verified.
         $totalPrice = 0.0;
-        if (!empty($input['journey']) && is_array($input['journey'])) {
+        if (function_exists('_train_revalidate_journey_pricing')) {
+            $reval = _train_revalidate_journey_pricing($db, $input);
+            if (empty($reval['ok'])) {
+                http_response_code(409);
+                echo json_encode([
+                    'success' => false,
+                    'message' => (string) ($reval['message'] ?? 'Could not verify the current fare. Please retry.'),
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                return;
+            }
+            foreach ((array) ($reval['legs'] ?? []) as $i => $legFixed) {
+                if (isset($input['journey'][$i])) {
+                    $input['journey'][$i]['price_total_limit'] = $legFixed['price_total_limit'];
+                }
+            }
+            $totalPrice = (float) $reval['supplier_total'];
+        } elseif (!empty($input['journey']) && is_array($input['journey'])) {
             foreach ($input['journey'] as $leg) {
                 $totalPrice += (float)($leg['price_total_limit'] ?? 0.0);
             }

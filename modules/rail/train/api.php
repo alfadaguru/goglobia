@@ -227,9 +227,28 @@ if (!function_exists('_train_create_booking')) {
             require_once dirname(__DIR__, 3) . '/app/lib/functions.php';
         }
 
-        $totalPrice = 0.0;
-        foreach ($input['journey'] as $leg) {
-            $totalPrice += (float)($leg['price_total_limit'] ?? 0.0);
+        // PRICE INTEGRITY (price-trust workstream): re-derive the supplier fare
+        // SERVER-SIDE from a fresh /ticket/trainQuery; never trust the client's
+        // journey[].price_total_limit (which sets both the customer charge and the
+        // supplier order ceiling). Fail-closed: reject if it can't be verified.
+        if (function_exists('_train_revalidate_journey_pricing')) {
+            $reval = _train_revalidate_journey_pricing($db, $input);
+            if (empty($reval['ok'])) {
+                throw new InvalidArgumentException((string) ($reval['message'] ?? 'Could not verify the current fare. Please retry.'));
+            }
+            // Overwrite each leg's price_total_limit with the authoritative value so
+            // the supplier order ceiling and the customer charge both use it.
+            foreach ((array) ($reval['legs'] ?? []) as $i => $legFixed) {
+                if (isset($input['journey'][$i])) {
+                    $input['journey'][$i]['price_total_limit'] = $legFixed['price_total_limit'];
+                }
+            }
+            $totalPrice = (float) $reval['supplier_total'];
+        } else {
+            $totalPrice = 0.0;
+            foreach ($input['journey'] as $leg) {
+                $totalPrice += (float)($leg['price_total_limit'] ?? 0.0);
+            }
         }
         if ($totalPrice <= 0) {
             throw new InvalidArgumentException('Invalid journey pricing');
