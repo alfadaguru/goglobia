@@ -1883,6 +1883,30 @@ $router->post('/api/ai/trip/submit', function () use ($SECURE, $db) {
                     }
                 }
 
+                // ELIGIBILITY GATE (final-review M1): this AI-package promo path
+                // historically hand-rolled validation and skipped per_user_limit
+                // and item/location targeting. Layer the canonical validator on
+                // top as a gate (per-user + targeting + all standard checks) while
+                // keeping the AI package-module-scoped discount computation below.
+                if ($promoData && $orderForDiscount > 0 && function_exists('validatePromoCode')) {
+                    $gate = validatePromoCode(
+                        $db,
+                        $promoCodeStr,
+                        (float)$orderForDiscount,
+                        ($promoModule !== 'all' ? $promoModule : (string)($pkgModules[0] ?? 'all')),
+                        (string)$baseCurrencyCode,
+                        [
+                            'user_id'    => $userId ?: ($_SESSION['user_id'] ?? null),
+                            'user_email' => $primaryGuest['email'] ?? null,
+                        ]
+                    );
+                    if (empty($gate['ok'])) {
+                        // Per-user limit hit, expired, targeting mismatch, etc.
+                        $promoData = null;
+                        $promoDiscountBase = 0.0;
+                    }
+                }
+
                 if ($promoData && $orderForDiscount > 0) {
                     $promoCurrency = (string)($promoData['currency'] ?? 'USD');
                     if (!empty($promoData['min_order_amount'])) {
