@@ -1165,6 +1165,13 @@ $router->post('/api/flights/booking/request-cancellation', function () use ($db)
         exit;
     }
 
+    // OWNERSHIP GUARD: only the invoice owner / creating session / admin may
+    // request cancellation. Was unauthenticated. enforceInvoiceAccess
+    // auto-responds 403 JSON on an /api/ route and exits for a non-owner.
+    if (function_exists('enforceInvoiceAccess')) {
+        enforceInvoiceAccess($db, $booking);
+    }
+
     if ($booking['cancellation_request']) {
         http_response_code(400);
         echo json_encode(['success'=>false,'message'=>'Cancellation already requested']);

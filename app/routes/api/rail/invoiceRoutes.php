@@ -131,6 +131,13 @@ $router->post('/api/rail/booking/request-cancellation', function () use ($SECURE
             throw new Exception('Booking not found');
         }
 
+        // OWNERSHIP GUARD: only the invoice owner / creating session / admin may
+        // request cancellation. Was unauthenticated. enforceInvoiceAccess
+        // auto-responds 403 JSON on an /api/ route and exits for a non-owner.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+
         if (($booking['booking_status'] ?? '') === 'cancelled') {
             throw new Exception('This booking is already cancelled');
         }

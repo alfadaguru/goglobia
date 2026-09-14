@@ -75,6 +75,13 @@ $router->post('/api/ferries/booking/request-cancellation', function () use ($SEC
         $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId, 'module_type' => 'ferries']);
         if (!$booking) throw new Exception('Booking not found');
 
+        // OWNERSHIP GUARD: only the invoice owner / creating session / admin may
+        // request cancellation. Was unauthenticated. enforceInvoiceAccess
+        // auto-responds 403 JSON on an /api/ route and exits for a non-owner.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+
         if ($booking['booking_status'] === 'cancelled') throw new Exception('Booking is already cancelled');
         if ($booking['cancellation_request'] == 1) throw new Exception('Cancellation request already submitted');
 
