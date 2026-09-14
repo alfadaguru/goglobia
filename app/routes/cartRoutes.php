@@ -500,10 +500,15 @@ $router->post('/cart/checkout', function () use ($SECURE, $db) {
     // the existing payment flow charges the single price_markup total.
     $_SESSION['cart'] = [];
     // Guest allow-list so they can view/pay this package without an account.
-    if (!$userId) {
-        $_SESSION['cart_guest_bookings'] = array_values(array_unique(array_merge(
-            (array) ($_SESSION['cart_guest_bookings'] ?? []), [$invoiceId]
-        )));
+    // Must use $_SESSION['owned_invoices'] — that is the key enforceInvoiceAccess()
+    // actually checks (app/lib/functions.php) and that create_payment_token() also
+    // populates. (A previous key, 'cart_guest_bookings', was read by nothing, so a
+    // guest was redirected to /login on their own cart invoice.)
+    if (!isset($_SESSION['owned_invoices']) || !is_array($_SESSION['owned_invoices'])) {
+        $_SESSION['owned_invoices'] = [];
+    }
+    if (!in_array($invoiceId, $_SESSION['owned_invoices'], true)) {
+        $_SESSION['owned_invoices'][] = $invoiceId;
     }
 
     cart_json([
