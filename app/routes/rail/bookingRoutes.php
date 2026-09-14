@@ -439,11 +439,22 @@ $refundResultDataHandler = function () use ($SECURE, $db) {
 
         if ($res['ok'] && !empty($res['data']['data'])) {
             $status = $res['data']['data']['refund_status'] ?? '';
-            if (($status === 'success' || $status === '1') && $booking) {
+            if (($status === 'success' || $status === '1') && $booking && ($booking['payment_status'] ?? '') !== 'refunded') {
+                // The supplier confirmed the refund — now RETURN the customer's
+                // money (credit a wallet payment back through the spine, or issue a
+                // card refund) before marking 'refunded'. Was a status-flip only,
+                // so a wallet-paid rail customer never got their money back. Mirrors
+                // modules/rail/train/index.php's refund-confirmation path.
+                require_once dirname(__DIR__, 2) . '/lib/payment-gateway.php';
+                $railGwRefund = function_exists('refund_gateway_payment')
+                    ? refund_gateway_payment($db, $booking, null, 'Rail ticket refund')
+                    : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
                 $db->update('bookings', [
-                    'payment_status' => 'refunded',
-                    'booking_status' => 'cancelled',
-                    'updated_at'     => date('Y-m-d H:i:s'),
+                    'payment_status'        => ($railGwRefund['status'] === 'refunded') ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
+                    'booking_status'        => 'cancelled',
+                    'cancellation_status'   => 1,
+                    'cancellation_response' => json_encode(['supplier_refund' => $res['data']['data'], 'gateway_refund' => $railGwRefund]),
+                    'updated_at'            => date('Y-m-d H:i:s'),
                 ], ['invoice_id' => $invoiceId]);
             }
         }
@@ -469,13 +480,26 @@ $offlinePushHandler = function () use ($SECURE, $db) {
         $uniqueId = trim((string)($input['unique_id'] ?? ''));
         if ($uniqueId !== '' && array_key_exists('return_amount', $input) && empty($input['journey']) && empty($input['data']['journey'])) {
             $refundFee = (float)($input['return_amount'] ?? 0.0);
-            $booking = $db->get('bookings', ['id', 'invoice_id'], ['pnr' => $uniqueId, 'module_type' => 'rail']);
+            $booking = $db->get('bookings', '*', ['pnr' => $uniqueId, 'module_type' => 'rail']);
             if ($booking) {
+                // Supplier push confirming a refund — RETURN the customer's money
+                // (credit a wallet payment back through the spine, or issue a card
+                // refund) before marking 'refunded'. Was a status-flip only, so a
+                // wallet-paid rail customer never got their money back on this async
+                // path. Idempotent: skip if already refunded.
+                $railGwRefund = ['status' => 'skipped'];
+                if (($booking['payment_status'] ?? '') !== 'refunded') {
+                    require_once dirname(__DIR__, 2) . '/lib/payment-gateway.php';
+                    $railGwRefund = function_exists('refund_gateway_payment')
+                        ? refund_gateway_payment($db, $booking, null, 'Rail ticket refund')
+                        : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+                }
+                $refunded = ($railGwRefund['status'] === 'refunded') || ($booking['payment_status'] ?? '') === 'refunded';
                 $db->update('bookings', [
-                    'payment_status'        => 'refunded',
+                    'payment_status'        => $refunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
                     'booking_status'        => 'cancelled',
                     'cancellation_status'   => 1,
-                    'cancellation_response' => json_encode(['refund_amount' => $refundFee]),
+                    'cancellation_response' => json_encode(['refund_amount' => $refundFee, 'gateway_refund' => $railGwRefund]),
                     'updated_at'            => date('Y-m-d H:i:s'),
                 ], ['id' => $booking['id']]);
 
