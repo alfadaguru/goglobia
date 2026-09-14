@@ -621,11 +621,13 @@ existing money is lost when a wallet row first materialises.
   from any non-wallet gateway) — the "not enforced" finding was false.
 - **`MARKUP()` currency order**, **`wallet_topup_success()` idempotency**, and
   **`loyalty_apply()` locking** were flagged then self-retracted — all correct.
-- **External gateway payments recording in `transactions` (not
-  `money_transactions`)**: left as-is on purpose. An external card payment moves
-  no wallet, so `transactions` + the booking is the correct record; forcing it
-  into the wallet spine would blur that table's meaning with no integrity gain
-  (no drift, no double-charge). A future unified reporting view can read both.
+- ~~External gateway payments recording in `transactions` (not
+  `money_transactions`)~~ — **CORRECTION: this WAS a real gap against §A.1/§A.2,
+  not a non-defect.** My first pass rationalised "a card payment moves no wallet
+  so `transactions` is enough" — but the spec is explicit: ONE money record and a
+  full journey for *every* movement, including gateway ones. External payments had
+  no `money_transactions` row and no journey, so a card payment could not be
+  traced pending → sent → success/failed. **Now fixed (§E.5).**
 
 ### E.4 Evidence (live DB)
 
@@ -636,3 +638,28 @@ idempotent), customer refund (credits `users.balance`, not `credits`), promo
 validator (cap/tamper/invalid/min-order/never-exceeds-order), and the full **umrah
 lifecycle regression — zero failures**. All 12 touched files lint clean and load
 without fatal.
+
+### E.5 Gateway payments now on the spine (the §E.3 correction, fixed)
+
+Every EXTERNAL gateway payment (Paystack/Stripe/Adyen/etc.) is now a first-class
+spine transaction with a full journey, satisfying §A.1 (one money record) and
+§A.2 (traceable pending → sent → success/failed) for gateway movements too — not
+just wallet ones.
+
+- `create_payment_token()` (`app/lib/payment-gateway.php`) borns a
+  `money_transactions` row (`direction=debit`, `method=gateway`,
+  `reason=booking_payment`, status `pending`), then advances it to `sent` at
+  gateway handoff. Idempotent per (invoice, gateway) — re-issuing a token reuses
+  the open transaction, never duplicates.
+- `record_transaction()` advances that same row to `success` (with the provider
+  reference) or `failed`/`cancelled` (with the gateway reason), writing the
+  journey step. Idempotent — a re-fired callback never re-advances.
+- No wallet movement is recorded for a gateway payment (correct — the card/bank
+  funds the booking directly), so there is no `wallet_ledger` row; the legacy
+  `transactions` audit row is still written alongside.
+
+**Verified (live DB):** born `pending` → `sent` at token creation; idempotent
+re-issue (one row); resolve to `success` with a 3-step journey (birth → sent →
+success) and provider ref; idempotent re-fire (journey unchanged); and the
+`failed` path. Umrah lifecycle + spend/refund + agent-charge suites still zero
+failures.
