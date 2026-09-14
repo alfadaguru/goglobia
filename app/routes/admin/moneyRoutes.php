@@ -322,3 +322,61 @@ $router->post(admin.'/finance/members/points', function () use ($SECURE, $db) {
     }
     redirect(root . admin . '/finance/members');
 });
+
+// ============================================================================
+// MEMBER DRILL-DOWN — one member's full money picture in one place.
+//   GET /admin/finance/members/{user_id}
+// Profile + tier, wallet balance(s), spine transactions, loyalty ledger.
+// (GET only; the POST /finance/members/points route is unaffected.)
+// ============================================================================
+$router->get(admin.'/finance/members/([A-Za-z0-9_\-]+)', function ($uid) use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (function_exists('ensureAgentApiSchema')) { ensureAgentApiSchema($db); }
+
+    $uid = (string) $uid;
+    $member = $db->get('users', [
+        'user_id','first_name','last_name','email','phone','role','status','currency',
+        'balance','credit_limits','agent_tier_id','loyalty_points','created_at','last_login'
+    ], ['user_id' => $uid]);
+
+    $tier = null; $lifetimeTopup = 0.0; $nextTier = null;
+    $wallets = []; $txns = []; $ledger = []; $spend = 0.0; $topups = 0.0; $refunds = 0.0;
+
+    if ($member) {
+        // Tier + lifetime top-up (agents).
+        if (!empty($member['agent_tier_id'])) {
+            $tier = $db->get('agent_tiers', ['code','name','discount_percent','min_lifetime_topup'], ['id' => (int) $member['agent_tier_id']]);
+        }
+        if (strtolower((string) $member['role']) === 'agent' && function_exists('agent_lifetime_topup')) {
+            $lifetimeTopup = (float) agent_lifetime_topup($db, $uid);
+            $nextTier = $db->get('agent_tiers', ['name','min_lifetime_topup','discount_percent'], [
+                'active' => 1, 'min_lifetime_topup[>]' => $lifetimeTopup, 'ORDER' => ['min_lifetime_topup' => 'ASC']
+            ]) ?: null;
+        }
+
+        // Wallet balance(s) — spine.
+        $wallets = $db->select('wallets', ['currency','balance','kind','updated_at'], ['user_id' => $uid]) ?: [];
+
+        // Spine transactions (latest 100) + running totals.
+        $txns = $db->select('money_transactions',
+            ['id','txn_ref','direction','reason','amount','currency','method','status','invoice_id','provider_trx_id','created_at'],
+            ['user_id' => $uid, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 100]
+        ) ?: [];
+        // Totals from successful movements only.
+        $topups  = (float) ($db->sum('money_transactions', 'amount', ['user_id' => $uid, 'status' => 'success', 'reason' => 'wallet_topup']) ?: 0);
+        $spend   = (float) ($db->sum('money_transactions', 'amount', ['user_id' => $uid, 'status' => 'success', 'direction' => 'debit', 'reason' => ['booking','booking_payment','wallet_spend','fee']]) ?: 0);
+        $refunds = (float) ($db->sum('money_transactions', 'amount', ['user_id' => $uid, 'status' => 'success', 'direction' => 'credit', 'reason' => ['refund','reversal']]) ?: 0);
+
+        // Loyalty ledger (latest 100).
+        $ledger = $db->select('loyalty_ledger',
+            ['direction','points','balance_after','reason','ref_type','ref_id','note','created_at'],
+            ['user_id' => $uid, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 100]
+        ) ?: [];
+    }
+
+    $defaultCurrency = $db->get('currencies', 'name', ['default' => '1']) ?: 'USD';
+
+    require_once views."includes/header.php";
+    require_once "app/views/admin/money/member-detail.php";
+    require_once views."includes/footer.php";
+});
