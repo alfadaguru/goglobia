@@ -274,15 +274,18 @@ if (!function_exists('aiTripRevalidateFlightItem')) {
 
         $revalidateFile = __DIR__ . '/../../../modules/flights/' . $supplier . '/revalidate.php';
         if ($supplier === '' || !file_exists($revalidateFile)) {
+            // PRICE INTEGRITY (price-trust workstream): the fare can't be
+            // re-verified with the supplier, so we must not trust the client's
+            // captured net. Fail-closed rather than charge a client-set price.
             return [
                 'module' => $module,
                 'supplier' => $supplier,
                 'skipped' => true,
-                'is_valid' => true,
+                'is_valid' => false,
                 'price_changed' => false,
                 'old_price' => $oldDisplay,
                 'new_price' => $oldDisplay,
-                'message' => $supplier === '' ? 'No flight supplier' : "Supplier '{$supplier}' has no revalidate endpoint",
+                'message' => $supplier === '' ? 'This flight can no longer be priced automatically. Please book it on its own page.' : "This flight can no longer be priced automatically (supplier '{$supplier}'). Please book it on its own page.",
             ];
         }
 
@@ -675,11 +678,11 @@ if (!function_exists('aiTripRevalidateStayHotelbeds')) {
                 'module' => 'stays',
                 'supplier' => 'hotelbeds',
                 'skipped' => true,
-                'is_valid' => true,
+                'is_valid' => false,
                 'price_changed' => false,
                 'old_price' => $oldDisplay,
                 'new_price' => $oldDisplay,
-                'message' => 'Hotelbeds module not configured — skipped.',
+                'message' => 'This stay can no longer be priced automatically. Please book it on its own page.',
             ];
         }
 
@@ -872,11 +875,11 @@ if (!function_exists('aiTripRevalidateStayRatehawk')) {
                 'module' => 'stays',
                 'supplier' => 'ratehawk',
                 'skipped' => true,
-                'is_valid' => true,
+                'is_valid' => false,
                 'price_changed' => false,
                 'old_price' => $oldDisplay,
                 'new_price' => $oldDisplay,
-                'message' => 'RateHawk module not configured — skipped.',
+                'message' => 'This stay can no longer be priced automatically. Please book it on its own page.',
             ];
         }
 
@@ -892,11 +895,11 @@ if (!function_exists('aiTripRevalidateStayRatehawk')) {
                 'module' => 'stays',
                 'supplier' => 'ratehawk',
                 'skipped' => true,
-                'is_valid' => true,
+                'is_valid' => false,
                 'price_changed' => false,
                 'old_price' => $oldDisplay,
                 'new_price' => $oldDisplay,
-                'message' => 'RateHawk credentials incomplete — skipped.',
+                'message' => 'This stay can no longer be priced automatically. Please book it on its own page.',
             ];
         }
 
@@ -1435,11 +1438,11 @@ if (!function_exists('aiTripRevalidateStayItem')) {
                 'module' => 'stays',
                 'supplier' => '',
                 'skipped' => true,
-                'is_valid' => true,
+                'is_valid' => false,
                 'price_changed' => false,
                 'old_price' => (float)($it['price'] ?? 0),
                 'new_price' => (float)($it['price'] ?? 0),
-                'message' => 'No stay supplier — skipped.',
+                'message' => 'This stay can no longer be priced automatically. Please book it on its own page.',
             ];
         }
         return aiTripRevalidateStayRoomsRefresh($db, $it, $supplier, $displayCurrency);
@@ -1456,29 +1459,34 @@ if (!function_exists('aiTripRevalidateTourItem')) {
         $tourId = (string)($payload['tour_id'] ?? $payload['id'] ?? '');
 
         if ($supplier === '' || $tourId === '') {
+            // Cannot identify the tour to re-derive its net — fail-closed.
             return [
                 'module' => 'tours',
                 'supplier' => $supplier,
                 'skipped' => true,
-                'is_valid' => true,
+                'is_valid' => false,
                 'price_changed' => false,
                 'old_price' => $oldDisplay,
                 'new_price' => $oldDisplay,
-                'message' => 'Tour supplier/id missing — skipped.',
+                'message' => 'This tour can no longer be priced automatically. Please book it on its own page.',
             ];
         }
 
         $detailsFile = __DIR__ . '/../../../modules/tours/' . $supplier . '/details.php';
         if (!file_exists($detailsFile)) {
+            // PRICE INTEGRITY (price-trust workstream): we cannot re-derive this
+            // supplier's authoritative net, so we must NOT trust the client's
+            // captured price. Fail the item so the package rejects it rather than
+            // charging a client-controlled amount.
             return [
                 'module' => 'tours',
                 'supplier' => $supplier,
                 'skipped' => true,
-                'is_valid' => true,
+                'is_valid' => false,
                 'price_changed' => false,
                 'old_price' => $oldDisplay,
                 'new_price' => $oldDisplay,
-                'message' => "Supplier '{$supplier}' has no details endpoint — skipped.",
+                'message' => "This tour can no longer be priced automatically. Please book it on its own page.",
             ];
         }
 
@@ -1612,15 +1620,17 @@ if (!function_exists('aiTripRevalidateCarItem')) {
 
         $searchFile = __DIR__ . '/../../../modules/cars/' . $supplier . '/search.php';
         if (!file_exists($searchFile)) {
+            // PRICE INTEGRITY (price-trust workstream): cannot re-derive this
+            // supplier's net — fail-closed rather than trust the client price.
             return [
                 'module' => 'cars',
                 'supplier' => $supplier,
                 'skipped' => true,
-                'is_valid' => true,
+                'is_valid' => false,
                 'price_changed' => false,
                 'old_price' => $oldDisplay,
                 'new_price' => $oldDisplay,
-                'message' => "Supplier '{$supplier}' has no search endpoint — skipped.",
+                'message' => "This car can no longer be priced automatically. Please book it on its own page.",
             ];
         }
 
