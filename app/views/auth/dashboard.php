@@ -97,6 +97,51 @@
                      <p class="text-[11px] text-slate-400 basis-full">You'll be taken to a secure payment page. NGN is processed by Paystack; other currencies by Stripe.</p>
                   </form>
                </div>
+
+               <?php
+                  // -----------------------------------------------------------
+                  // PAYSTACK VIRTUAL ACCOUNT (NUBAN) — NGN customers only.
+                  // If one already exists, show its details; otherwise offer to
+                  // activate it. Fund the wallet by bank transfer into this NUBAN.
+                  // -----------------------------------------------------------
+                  $dvaCur  = strtoupper((string)($dashboardData['display_currency'] ?? ''));
+                  $dvaAcct = (string)($dashboardData['dva_account_number'] ?? '');
+               ?>
+               <?php if ($dvaCur === 'NGN'): ?>
+                  <div class="mt-4 pt-4 border-t border-slate-200">
+                     <?php if ($dvaAcct !== ''): ?>
+                        <div class="text-xs font-medium text-slate-500 mb-2 flex items-center gap-1">
+                           <span class="material-symbols-outlined text-base">account_balance</span> Your virtual account (bank transfer)
+                        </div>
+                        <div class="rounded-lg bg-white border border-slate-200 p-3 flex flex-wrap items-center justify-between gap-3"
+                             x-data="{ copied: false }">
+                           <div>
+                              <div class="text-lg font-bold text-slate-800 tabular-nums tracking-wide"><?= htmlspecialchars($dvaAcct) ?></div>
+                              <div class="text-xs text-slate-500">
+                                 <?= htmlspecialchars((string)($dashboardData['dva_bank_name'] ?? '')) ?>
+                                 <?php if (!empty($dashboardData['dva_account_name'])): ?>
+                                    &middot; <?= htmlspecialchars((string)$dashboardData['dva_account_name']) ?>
+                                 <?php endif; ?>
+                              </div>
+                           </div>
+                           <button type="button" class="btn ghost text-xs inline-flex items-center gap-1"
+                                   @click="navigator.clipboard.writeText('<?= htmlspecialchars($dvaAcct) ?>'); copied = true; setTimeout(() => copied = false, 1500)">
+                              <span class="material-symbols-outlined text-base" x-text="copied ? 'check' : 'content_copy'"></span>
+                              <span x-text="copied ? 'Copied' : 'Copy'"></span>
+                           </button>
+                        </div>
+                        <p class="text-[11px] text-slate-400 mt-2">Transfer any amount to this account and your wallet is topped up automatically.</p>
+                     <?php else: ?>
+                        <form method="POST" action="<?= root ?>wallet/virtual-account" class="flex flex-wrap items-center gap-3">
+                           <input type="hidden" name="csrf_token" value="<?= CSRF::getToken() ?>">
+                           <button type="submit" class="btn ghost inline-flex items-center gap-2">
+                              <span class="material-symbols-outlined text-xl">account_balance</span> Activate virtual account
+                           </button>
+                           <p class="text-[11px] text-slate-400 basis-full">Get a dedicated Naira bank account (Paystack). Fund your wallet by bank transfer — no card needed.</p>
+                        </form>
+                     <?php endif; ?>
+                  </div>
+               <?php endif; ?>
             </div>
          </div>
          <?php endif; ?>

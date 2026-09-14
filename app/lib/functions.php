@@ -5769,6 +5769,58 @@ function ensureUserRestrictionSchema($db): void
 }
 
 /**
+ * Paystack Dedicated Virtual Account (DVA / NUBAN) columns on `users`.
+ *
+ * Step 5 of the payments rework: a Nigerian (NGN) customer can activate a
+ * permanent bank account number from Paystack in their wallet; money paid into
+ * it is credited to their wallet by the Paystack webhook. We persist the
+ * Paystack customer code and the assigned account details on the user row.
+ *
+ * Idempotent, self-healing, and non-fatal (mirrors the other ensure* funcs):
+ * a DB user without ALTER rights just logs and the feature stays dormant.
+ * Remember to keep install/db.sql in sync (these columns are added there too).
+ */
+function ensurePaystackDvaSchema($db): void
+{
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+    $checked = true;
+
+    // Column => full ADD COLUMN definition. All NULLable so existing rows are
+    // untouched and no default backfill is needed.
+    $columns = [
+        'paystack_customer_code' => "ADD COLUMN `paystack_customer_code` VARCHAR(64) NULL DEFAULT NULL",
+        'dva_account_number'     => "ADD COLUMN `dva_account_number` VARCHAR(20) NULL DEFAULT NULL",
+        'dva_bank_name'          => "ADD COLUMN `dva_bank_name` VARCHAR(120) NULL DEFAULT NULL",
+        'dva_account_name'       => "ADD COLUMN `dva_account_name` VARCHAR(160) NULL DEFAULT NULL",
+        'dva_status'             => "ADD COLUMN `dva_status` VARCHAR(20) NULL DEFAULT NULL",
+        'dva_created_at'         => "ADD COLUMN `dva_created_at` DATETIME NULL DEFAULT NULL",
+    ];
+
+    try {
+        $existing = [];
+        foreach ($db->query("SHOW COLUMNS FROM `users`")->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $existing[$row['Field']] = true;
+        }
+        $missing = [];
+        foreach ($columns as $name => $ddl) {
+            if (!isset($existing[$name])) {
+                $missing[] = $ddl;
+            }
+        }
+        if ($missing) {
+            // One ALTER for whatever is missing (fresh installs already have all).
+            $db->query("ALTER TABLE `users` " . implode(', ', $missing));
+        }
+    } catch (\Throwable $e) {
+        // Never break the page over a migration.
+        error_log('ensurePaystackDvaSchema: ' . $e->getMessage());
+    }
+}
+
+/**
  * Route path of the current request, relative to the app root ('' for home).
  * Same derivation the lazy route loader in app/routes/_routes.php uses.
  */

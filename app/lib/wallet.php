@@ -744,3 +744,211 @@ if (!function_exists('wallet_refund')) {
                 'transaction' => $db->get('money_transactions', '*', ['id' => (int) $txn['id']])];
     }
 }
+
+// ============================================================================
+// PAYSTACK DEDICATED VIRTUAL ACCOUNTS (DVA / NUBAN) — step 5
+// ----------------------------------------------------------------------------
+// A Nigerian (NGN) customer can activate a permanent bank account number from
+// Paystack in their wallet. Money paid into that account arrives asynchronously
+// via the Paystack webhook (app/routes/gateways/paystack.php) and is credited to
+// the wallet through the SPINE, exactly like a card top-up.
+//
+// Paystack credentials live on the enabled Paystack payment_gateways row:
+//   c1 = SECRET key (sk_...), c2 = public key. (See app/routes/gateways/paystack.php.)
+//
+// This module only CREATES the account (customer + dedicated account). No BVN is
+// collected: we send only the identity we already have (name/email/phone). If a
+// LIVE Paystack account requires BVN/validation, Paystack's exact message is
+// surfaced back to the caller (result['message']) so the wallet can show it and
+// we add a BVN field then — driven by the real API response, not a guess.
+// ============================================================================
+
+if (!function_exists('paystack_dva_gateway')) {
+    /**
+     * The enabled+active Paystack gateway row (the NGN external gateway), or null.
+     * Data-driven: prefers an exact name match, then any enabled NGN external gw.
+     */
+    function paystack_dva_gateway($db): ?array
+    {
+        // Exact-name match first (the canonical Paystack row).
+        $g = $db->get('payment_gateways', '*', [
+            'name'   => 'Paystack',
+            'status' => '1',
+            'active' => '1',
+        ]);
+        if ($g) { return $g; }
+        // Fallback: an enabled NGN external gateway (step-2 routing puts Paystack here).
+        $g = $db->get('payment_gateways', '*', [
+            'status'   => '1',
+            'active'   => '1',
+            'type[!]'  => 'internal_wallet',
+            'currency' => 'NGN',
+            'ORDER'    => ['default' => 'DESC', 'id' => 'ASC'],
+        ]);
+        return $g ?: null;
+    }
+}
+
+if (!function_exists('paystack_dva_secret')) {
+    /** Secret key for a Paystack gateway row: c1 (see paystack credential route). */
+    function paystack_dva_secret(array $gateway): string
+    {
+        return trim((string) ($gateway['c1'] ?? ''));
+    }
+}
+
+if (!function_exists('paystack_dva_http')) {
+    /**
+     * Minimal Paystack JSON call. Returns ['http'=>int,'json'=>array|null,'error'=>string].
+     * GET when $payload is null, POST (JSON body) otherwise.
+     */
+    function paystack_dva_http(string $method, string $url, string $secret, ?array $payload = null): array
+    {
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $secret,
+            'Content-Type: application/json',
+            'Cache-Control: no-cache',
+        ]);
+        if (strtoupper($method) === 'POST') {
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload ?? []));
+        }
+        $body  = curl_exec($ch);
+        $http  = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err   = curl_error($ch);
+        curl_close($ch);
+        $json = is_string($body) ? json_decode($body, true) : null;
+        return ['http' => $http, 'json' => is_array($json) ? $json : null, 'error' => $err];
+    }
+}
+
+if (!function_exists('paystack_dva_activate')) {
+    /**
+     * Activate (create) a Paystack dedicated virtual account for a customer.
+     * NGN-only, customer-only — the caller (route) enforces both before calling.
+     *
+     * Idempotent: if the user already has an account number, it is returned as-is.
+     *
+     * @return array {
+     *   ok:bool, already?:bool, not_enabled?:bool, needs_bvn?:bool,
+     *   account_number?:string, bank_name?:string, account_name?:string,
+     *   message?:string
+     * }
+     */
+    function paystack_dva_activate($db, string $userId): array
+    {
+        $user = $db->get('users', [
+            'user_id', 'email', 'first_name', 'last_name', 'phone', 'phone_country_code',
+            'currency', 'role', 'paystack_customer_code', 'dva_account_number',
+            'dva_bank_name', 'dva_account_name',
+        ], ['user_id' => $userId]);
+        if (!$user) {
+            return ['ok' => false, 'message' => 'Account not found.'];
+        }
+
+        // Already activated → return the stored NUBAN (idempotent).
+        if (!empty($user['dva_account_number'])) {
+            return [
+                'ok' => true, 'already' => true,
+                'account_number' => (string) $user['dva_account_number'],
+                'bank_name'      => (string) ($user['dva_bank_name'] ?? ''),
+                'account_name'   => (string) ($user['dva_account_name'] ?? ''),
+            ];
+        }
+
+        $gateway = paystack_dva_gateway($db);
+        if (!$gateway) {
+            return ['ok' => false, 'not_enabled' => true,
+                    'message' => 'Virtual accounts are not available right now.'];
+        }
+        $secret = paystack_dva_secret($gateway);
+        if ($secret === '') {
+            error_log('paystack_dva_activate: no secret (c1) on gateway ' . ($gateway['id'] ?? '?'));
+            return ['ok' => false, 'not_enabled' => true,
+                    'message' => 'Virtual accounts are not available right now.'];
+        }
+
+        $email = trim((string) ($user['email'] ?? ''));
+        if ($email === '') {
+            return ['ok' => false, 'message' => 'Your account has no email on file.'];
+        }
+
+        // ---- Step 1: ensure a Paystack customer exists for this user. ----------
+        $customerCode = trim((string) ($user['paystack_customer_code'] ?? ''));
+        if ($customerCode === '') {
+            $phone = trim((string) ($user['phone'] ?? ''));
+            $cc    = trim((string) ($user['phone_country_code'] ?? ''));
+            if ($phone !== '' && $cc !== '' && strpos($phone, '+') !== 0 && strpos($phone, $cc) !== 0) {
+                $phone = '+' . ltrim($cc, '+') . $phone;
+            }
+            $r = paystack_dva_http('POST', 'https://api.paystack.co/customer', $secret, [
+                'email'      => $email,
+                'first_name' => (string) ($user['first_name'] ?? ''),
+                'last_name'  => (string) ($user['last_name'] ?? ''),
+                'phone'      => $phone,
+            ]);
+            if ($r['http'] === 200 && !empty($r['json']['status']) && !empty($r['json']['data']['customer_code'])) {
+                $customerCode = (string) $r['json']['data']['customer_code'];
+            } else {
+                $msg = $r['json']['message'] ?? ($r['error'] ?: 'Could not create your Paystack customer profile.');
+                error_log('paystack_dva_activate customer: http=' . $r['http'] . ' msg=' . $msg);
+                return ['ok' => false, 'message' => $msg];
+            }
+            $db->update('users', ['paystack_customer_code' => $customerCode], ['user_id' => $userId]);
+        }
+
+        // ---- Step 2: create the dedicated account for that customer. -----------
+        // Optional preferred_bank from gateway config c5 (e.g. wema-bank / titan-paystack);
+        // on test mode Paystack accepts 'test-bank'. Only send it if configured or dev.
+        $preferredBank = trim((string) ($gateway['c5'] ?? ''));
+        $devMode = !empty($gateway['dev_mode']);
+        $payload = ['customer' => $customerCode];
+        if ($preferredBank !== '') {
+            $payload['preferred_bank'] = $preferredBank;
+        } elseif ($devMode) {
+            $payload['preferred_bank'] = 'test-bank';
+        }
+
+        $r = paystack_dva_http('POST', 'https://api.paystack.co/dedicated_account', $secret, $payload);
+
+        if ($r['http'] === 200 && !empty($r['json']['status']) && !empty($r['json']['data']['account_number'])) {
+            $d    = $r['json']['data'];
+            $acct = (string) $d['account_number'];
+            $bank = (string) ($d['bank']['name'] ?? '');
+            $name = (string) ($d['account_name'] ?? '');
+            $db->update('users', [
+                'dva_account_number' => $acct,
+                'dva_bank_name'      => $bank,
+                'dva_account_name'   => $name,
+                'dva_status'         => 'active',
+                'dva_created_at'     => date('Y-m-d H:i:s'),
+            ], ['user_id' => $userId]);
+            return ['ok' => true, 'account_number' => $acct, 'bank_name' => $bank, 'account_name' => $name];
+        }
+
+        // ---- Graceful failure classification. ----------------------------------
+        $msg = (string) ($r['json']['message'] ?? ($r['error'] ?: 'Could not create a virtual account right now.'));
+        $low = strtolower($msg);
+        // BVN / customer-validation required (a LIVE-account KYC requirement).
+        if (strpos($low, 'bvn') !== false || strpos($low, 'validate') !== false || strpos($low, 'identification') !== false) {
+            error_log('paystack_dva_activate: BVN/validation required — http=' . $r['http'] . ' msg=' . $msg);
+            return ['ok' => false, 'needs_bvn' => true, 'message' => $msg];
+        }
+        // DVA feature not enabled / not approved on this Paystack account.
+        if ($r['http'] === 400 || $r['http'] === 401 || $r['http'] === 403 || $r['http'] === 404
+            || strpos($low, 'not enabled') !== false
+            || strpos($low, 'not available') !== false
+            || (strpos($low, 'dedicated') !== false && strpos($low, 'enable') !== false)
+            || (strpos($low, 'contact') !== false && strpos($low, 'support') !== false)) {
+            error_log('paystack_dva_activate: DVA not enabled — http=' . $r['http'] . ' msg=' . $msg);
+            return ['ok' => false, 'not_enabled' => true, 'message' => $msg];
+        }
+
+        error_log('paystack_dva_activate: dedicated_account failed http=' . $r['http'] . ' msg=' . $msg);
+        return ['ok' => false, 'message' => $msg];
+    }
+}

@@ -296,6 +296,7 @@ require_once 'app/routes/demo-warning-route.php';
 
 // PAYMENT GATEWAY WEBHOOKS (public, unauthenticated, signature-verified)
 require_once 'app/routes/paymentAdyenRoutes.php';
+require_once 'app/routes/paymentPaystackRoutes.php'; // Paystack DVA (virtual account) deposits
 
 // CRON ROUTES
 require_once 'app/routes/crons/creditsRemindersRoutes.php';
