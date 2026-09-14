@@ -293,23 +293,34 @@ $router->post('flights/seeru/cancel', function () use ($db) {
         );
 
         if ($refund_result['http_code'] === 200 && ($refund_result['data']['status'] ?? '') === 'success') {
+            // The SUPPLIER refunded the ticket — now RETURN the customer's money
+            // (credit a wallet payment back through the spine, or issue a card
+            // refund) before marking payment_status='refunded'. Was a status-flip
+            // only, so a wallet-paid seeru customer never got their money back.
+            // Mirrors duffel/hotelbeds. Only mark 'refunded' when money moved.
+            require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
+            $seeruGwRefund = function_exists('refund_gateway_payment')
+                ? refund_gateway_payment($db, $booking, null, 'Seeru flight refund')
+                : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+            $seeruRefunded = (($seeruGwRefund['status'] ?? '') === 'refunded');
             $db->update('bookings', [
                 // booking_status ENUM = confirmed|pending|cancelled ('refunded'
                 // would truncate to ''); a refunded ticket is 'cancelled' and the
                 // money state lives in payment_status.
                 'booking_status'        => 'cancelled',
-                'payment_status'        => 'refunded',
+                'payment_status'        => $seeruRefunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
                 'cancellation_request'  => 1,
                 'cancellation_status'   => 1,
                 'cancellation_response' => json_encode([
-                    'type'        => 'refund',
-                    'refunded_at' => date('Y-m-d H:i:s'),
-                    'ticket_id'   => $ticket_id,
-                    'order_id'    => $order_id,
-                    'pnr'         => $airline_pnr,
-                    'total_fees'  => $calculated_fees,
-                    'api_message' => $refund_result['data']['message'] ?? 'Refunded successfully',
-                    'mode'        => $dev_mode === 1 ? 'sandbox' : 'production',
+                    'type'          => 'refund',
+                    'refunded_at'   => date('Y-m-d H:i:s'),
+                    'ticket_id'     => $ticket_id,
+                    'order_id'      => $order_id,
+                    'pnr'           => $airline_pnr,
+                    'total_fees'    => $calculated_fees,
+                    'api_message'   => $refund_result['data']['message'] ?? 'Refunded successfully',
+                    'gateway_refund'=> $seeruGwRefund,
+                    'mode'          => $dev_mode === 1 ? 'sandbox' : 'production',
                 ]),
                 'error_response' => null,
             ], ['id' => $booking_id]);
