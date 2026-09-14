@@ -124,6 +124,11 @@ $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
     $trx_id = 'TRX_' . time() . '_' . uniqid();
 
     // PREPARE DATA FOR INSERTION IN transactions TABLE
+    // NOTE: the column is `gateway_id` (varchar), not `payment_gateway` — inserting
+    // the wrong column name made EVERY admin credit/debit fail with SQLSTATE 42S22
+    // ("Unknown column 'payment_gateway'"), so no transaction was recorded and no
+    // wallet was credited. Existing rows store the gateway id (e.g. '21') or a
+    // label like 'manual' here.
     $transaction_data = [
         'user_id' => $user_id,
         'trx_id' => $trx_id,
@@ -131,7 +136,7 @@ $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
         'amount' => $amount,
         'description' => $description,
         'currency' => $currency,
-        'payment_gateway' => $payment_gateway,
+        'gateway_id' => $payment_gateway,
         'attachment' => $attachment_path,
         'status' => 'approved',
         'created_by' => $_SESSION['admin_id'] ?? 'Admin',
