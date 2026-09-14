@@ -48,13 +48,18 @@ $visaInfo = $db->get('visa', '*', [
 $pricePerPerson = 0;
 $currency = 'USD';
 $isInquiryOnly = true;
+// Numeric index of the matched price variant inside visa.prices JSON. The cart
+// (app/routes/cartRoutes.php) re-prices a visa line by matching this against the
+// array index of visa.prices, so we capture it here for "Add to cart".
+$selectedVariantKey = '';
 
 if ($visaInfo && !empty($visaInfo['prices'])) {
     $prices = json_decode($visaInfo['prices'], true);
     if (is_array($prices)) {
-        foreach ($prices as $variant) {
+        foreach ($prices as $variantKey => $variant) {
             // Find specific matching variant
             if ($variant['visa_type'] === $visaType && $variant['processing_speed'] === $processingSpeed) {
+                $selectedVariantKey = (string) $variantKey;
                 // Update visaInfo with variant data for consistent access
                 $visaInfo['total_price'] = $variant['total_price'];
                 $visaInfo['currency'] = $variant['currency'];
@@ -600,6 +605,16 @@ if ($isUserLoggedIn) {
                         <span><?= T::processing ?? 'Processing' ?>...</span>
                     </span>
                 </button>
+
+                <!-- ADD TO CART BUTTON -->
+                <button @click="addToCart()" :disabled="cartAdding"
+                        class="btn btn-outline w-full mt-3"
+                        :class="{ 'opacity-60 cursor-not-allowed': cartAdding }">
+                    <span class="flex items-center justify-center gap-2">
+                        <span class="material-symbols-outlined" x-text="cartAdded ? 'check' : 'add_shopping_cart'"></span>
+                        <span x-text="cartAdding ? 'Adding…' : (cartAdded ? 'Added to cart' : 'Add to cart')"></span>
+                    </span>
+                </button>
                 </div>
             </div> <!-- Close inner padding container -->
         </div> <!-- Close Left Column outer wrapper -->
@@ -731,6 +746,8 @@ function visaBookingForm() {
         termsAccepted: false,
         isSubmitting: false,
         isSubmitted: false,
+        cartAdding: false,
+        cartAdded: false,
         showBookingLoader: false,
         successMessage: '',
         bookingReference: '',
@@ -984,6 +1001,53 @@ function visaBookingForm() {
                 this.isSubmitting = false;
                 this.showBookingLoader = false;
             }
+        },
+
+        // Add this visa selection to the general cart (server re-prices from
+        // visa.prices by the variant index; see app/routes/cartRoutes.php).
+        async addToCart() {
+            if (this.cartAdding) return;
+            this.cartAdding = true;
+            try {
+                const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+                const travelers = <?= (int)$travelersCount ?>;
+                const draft = {
+                    visa_id: <?= (int)($visaInfo['id'] ?? 0) ?>,
+                    variant: '<?= htmlspecialchars($selectedVariantKey, ENT_QUOTES) ?>',
+                    travelers: travelers,
+                    from_country: '<?= htmlspecialchars($fromCountry, ENT_QUOTES) ?>',
+                    to_country: '<?= htmlspecialchars($toCountry, ENT_QUOTES) ?>',
+                    visa_type: '<?= htmlspecialchars($visaType, ENT_QUOTES) ?>',
+                    processing_speed: '<?= htmlspecialchars($processingSpeed, ENT_QUOTES) ?>',
+                    entry_date: '<?= htmlspecialchars($entryDate, ENT_QUOTES) ?>',
+                };
+                const res = await fetch('<?= root ?>cart/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf },
+                    body: JSON.stringify({
+                        csrf_token: csrf,
+                        module: 'visa',
+                        ref: <?= (int)($visaInfo['id'] ?? 0) ?>,
+                        variant: '<?= htmlspecialchars($selectedVariantKey, ENT_QUOTES) ?>',
+                        title: '<?= htmlspecialchars(($fromCountryName ?? '') . ' → ' . ($toCountryName ?? ''), ENT_QUOTES) ?>',
+                        image: '<?= htmlspecialchars(!empty($visaInfo['img']) ? (root . ltrim($visaInfo['img'], '/')) : '', ENT_QUOTES) ?>',
+                        pax: { travelers: travelers },
+                        draft: draft
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    this.cartAdded = true;
+                    window.dispatchEvent(new CustomEvent('cart:updated', { detail: data.cart }));
+                    setTimeout(() => { this.cartAdded = false; }, 2500);
+                } else {
+                    this.showError(data.message || 'Could not add to cart.');
+                }
+            } catch (err) {
+                console.error('Add to cart error:', err);
+                this.showError('Could not add to cart. Please try again.');
+            }
+            this.cartAdding = false;
         },
 
         showError(message) {

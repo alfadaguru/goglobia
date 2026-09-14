@@ -507,6 +507,14 @@ if ($duration && $duration !== 'any') {
                             </span>
                             </a>
 
+                            <!-- Add to Cart Button -->
+                            <a @click="addToCart()"
+                               :class="cartAdding ? 'cursor-not-allowed opacity-60' : 'hover:bg-white/10'"
+                               class="mt-2 sm:mt-3 flex w-full items-center justify-center gap-2 border border-white/30 text-white font-medium py-2 sm:py-2.5 rounded-lg transition text-center text-sm cursor-pointer">
+                                <span class="material-symbols-outlined !text-[18px]" x-text="cartAdded ? 'check' : 'add_shopping_cart'"></span>
+                                <span x-text="cartAdding ? 'Adding…' : (cartAdded ? 'Added to cart' : 'Add to cart')"></span>
+                            </a>
+
                             <!-- Reserve Now, Pay Later Information -->
                             <div class="mt-4 sm:mt-6 pt-3 sm:pt-4 border-t border-gray-700">
                                 <div class="flex items-start gap-2 sm:gap-3 mb-2">
@@ -557,6 +565,8 @@ function tourDetails() {
         // Component state variables
         loading: true,
         updatingTravelers: false,
+        cartAdding: false,
+        cartAdded: false,
         selectedAdults: <?= (int)$totalAdults ?>,
         selectedChildren: <?= (int)$totalChildren ?>,
         error: false,
@@ -818,6 +828,53 @@ function tourDetails() {
                 alert('Failed to proceed with booking. Please try again.');
                 this.loading = false;
             }
+        },
+
+        // Add this tour to the general cart (server re-prices from the source row).
+        async addToCart() {
+            if (this.cartAdding) return;
+            this.cartAdding = true;
+            try {
+                const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+                const adults = parseInt(this.selectedAdults || <?= (int)$totalAdults ?>);
+                const children = parseInt(this.selectedChildren || <?= (int)$totalChildren ?>);
+                const draft = {
+                    tour_id: '<?= $tourId ?>',
+                    tour_name: this.tourData?.name || this.tourData?.tour_name || '<?= htmlspecialchars($tourName) ?>',
+                    supplier: '<?= $supplier ?>',
+                    start_date: '<?= $departureDate ?>',
+                    total_adults: adults,
+                    total_children: children,
+                    adults: adults,
+                    children: children,
+                    currency: this.tourData?.original_currency || 'USD',
+                };
+                const res = await fetch('<?= root ?>cart/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf },
+                    body: JSON.stringify({
+                        csrf_token: csrf,
+                        module: 'tours',
+                        ref: '<?= $tourId ?>',
+                        title: this.tourData?.name || '<?= htmlspecialchars($tourName) ?>',
+                        image: this.tourData?.images?.[0]?.url || this.tourData?.images?.[0] || '',
+                        pax: { adults, children },
+                        draft: draft
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    this.cartAdded = true;
+                    window.dispatchEvent(new CustomEvent('cart:updated', { detail: data.cart }));
+                    setTimeout(() => { this.cartAdded = false; }, 2500);
+                } else {
+                    alert(data.message || 'Could not add to cart.');
+                }
+            } catch (err) {
+                console.error('Add to cart error:', err);
+                alert('Could not add to cart. Please try again.');
+            }
+            this.cartAdding = false;
         },
 
         // Calculate total amount

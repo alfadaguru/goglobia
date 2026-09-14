@@ -608,6 +608,15 @@ if (!empty($activeCurrencyRow)) {
             <span class="w-px h-5 bg-gray-200 mx-0.5"></span>
             <?php endif; ?>
 
+            <?php // CART ICON + COUNT BADGE (general cart: tours/visa/esim) — step 6b
+                  $__cartCount = (is_array($_SESSION['cart'] ?? null) ? count($_SESSION['cart']) : 0); ?>
+            <a href="<?= root ?>cart" class="relative flex items-center px-3 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-full transition-all duration-200" title="Your cart" aria-label="Your cart"
+               x-data="{ count: <?= $__cartCount ?> }"
+               @cart:updated.window="count = ($event.detail && typeof $event.detail.count !== 'undefined') ? $event.detail.count : count">
+              <span class="material-symbols-outlined !text-[20px]">shopping_cart</span>
+              <span x-show="count > 0" x-cloak class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-white text-[11px] font-bold leading-[18px] text-center" x-text="count"></span>
+            </a>
+
             <?php if (isset($_SESSION['user_id']) && !empty($_SESSION['user_id'])): ?>
             <!-- USER DROPDOWN - DESKTOP ONLY -->
             <div class="relative group">
