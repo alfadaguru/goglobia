@@ -330,6 +330,7 @@ $adminMenu = array_merge($adminMenu, [
             ['name' => T::credits, 'icon' => 'tune', 'url' => root.admin.'/finance/credits'],
             ['name' => T::deposits, 'icon' => 'account_balance_wallet', 'url' => root.admin.'/finance/deposit', 'badge' => $db->count('deposit', ['status' => 'pending'])],
             ['name' => T::transactions, 'icon' => 'receipt_long', 'url' => root.admin.'/finance/transactions'],
+            ['name' => T::transaction_journeys ?? 'Transaction Journeys', 'icon' => 'timeline', 'url' => root.admin.'/finance/journeys'],
             ['name' => T::agent_tiers_loyalty ?? 'Tiers & Loyalty', 'icon' => 'workspace_premium', 'url' => root.admin.'/finance/tiers'],
             ['name' => T::promo_codes, 'icon' => 'confirmation_number', 'url' => root.admin.'/promo-codes'],
 

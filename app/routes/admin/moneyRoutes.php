@@ -152,3 +152,95 @@ $router->post(admin.'/finance/loyalty/save', function () use ($SECURE, $db) {
 
     redirect(root . admin . '/finance/tiers');
 });
+
+// ============================================================================
+// TRANSACTION JOURNEYS (docs/MONEY-WALLET-AUDIT.md §A.2) — read-only admin view
+// of the money spine: every money_transactions row and its ordered journey
+// (born pending → sent → success/failed/reversed), plus the wallet_ledger
+// impact. This is the "open one transaction and trace its whole life" screen.
+//   GET /admin/finance/journeys            → filterable, paginated list
+//   GET /admin/finance/journeys/{id}       → one transaction's full timeline
+// ============================================================================
+$router->get(admin.'/finance/journeys/([0-9]+)', function ($id) use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (function_exists('ensureAgentApiSchema')) { ensureAgentApiSchema($db); }
+
+    $view = 'detail';
+    $txn = $db->get('money_transactions', '*', ['id' => (int) $id]);
+    $journey = [];
+    $ledger = [];
+    $ownerName = '';
+    if ($txn) {
+        $journey = $db->select('transaction_journey', '*', [
+            'transaction_id' => (int) $txn['id'], 'ORDER' => ['id' => 'ASC']
+        ]) ?: [];
+        $ledger = $db->select('wallet_ledger', '*', [
+            'transaction_id' => (int) $txn['id'], 'ORDER' => ['id' => 'ASC']
+        ]) ?: [];
+        if (!empty($txn['user_id'])) {
+            $u = $db->get('users', ['first_name', 'last_name', 'email'], ['user_id' => $txn['user_id']]);
+            if ($u) { $ownerName = trim(($u['first_name'] ?? '') . ' ' . ($u['last_name'] ?? '')) ?: ($u['email'] ?? ''); }
+        }
+    }
+
+    require_once views."includes/header.php";
+    require_once "app/views/admin/money/journeys.php";
+    require_once views."includes/footer.php";
+});
+
+$router->get(admin.'/finance/journeys', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (function_exists('ensureAgentApiSchema')) { ensureAgentApiSchema($db); }
+
+    $view = 'list';
+
+    // Filters (all optional, whitelisted against the enum columns).
+    $fStatus    = in_array(($_GET['status'] ?? ''),    ['pending','sent','success','failed','cancelled','reversed'], true) ? $_GET['status'] : '';
+    $fDirection = in_array(($_GET['direction'] ?? ''), ['credit','debit'], true) ? $_GET['direction'] : '';
+    $fReason    = in_array(($_GET['reason'] ?? ''),    ['wallet_topup','booking_payment','wallet_spend','refund','reversal','fee','loyalty_convert','adjustment'], true) ? $_GET['reason'] : '';
+    $fMethod    = in_array(($_GET['method'] ?? ''),    ['gateway','wallet','manual'], true) ? $_GET['method'] : '';
+    $q          = trim((string) ($_GET['q'] ?? ''));
+
+    $where = [];
+    if ($fStatus !== '')    { $where['status'] = $fStatus; }
+    if ($fDirection !== '') { $where['direction'] = $fDirection; }
+    if ($fReason !== '')    { $where['reason'] = $fReason; }
+    if ($fMethod !== '')    { $where['method'] = $fMethod; }
+    if ($q !== '') {
+        $where['OR'] = [
+            'txn_ref[~]'     => $q,
+            'invoice_id[~]'  => $q,
+            'user_id[~]'     => $q,
+            'provider_trx_id[~]' => $q,
+            'description[~]' => $q,
+        ];
+    }
+
+    // Pagination.
+    $perPage = 25;
+    $page = max(1, (int) ($_GET['page'] ?? 1));
+    $total = (int) $db->count('money_transactions', $where ?: ['id[>]' => 0]);
+    $pages = max(1, (int) ceil($total / $perPage));
+    if ($page > $pages) { $page = $pages; }
+    $offset = ($page - 1) * $perPage;
+
+    $listWhere = $where ?: [];
+    $listWhere['ORDER'] = ['id' => 'DESC'];
+    $listWhere['LIMIT'] = [$offset, $perPage];
+    $txns = $db->select('money_transactions',
+        ['id','txn_ref','user_id','actor_kind','direction','reason','amount','currency','method','status','invoice_id','provider_trx_id','created_at'],
+        $listWhere
+    ) ?: [];
+
+    // Summary tiles (respect active filters for the count of matching rows).
+    $summary = [
+        'total'   => $total,
+        'success' => (int) $db->count('money_transactions', array_merge($where, ['status' => 'success'])),
+        'pending' => (int) $db->count('money_transactions', array_merge($where, ['status' => ['pending','sent']])),
+        'failed'  => (int) $db->count('money_transactions', array_merge($where, ['status' => ['failed','cancelled']])),
+    ];
+
+    require_once views."includes/header.php";
+    require_once "app/views/admin/money/journeys.php";
+    require_once views."includes/footer.php";
+});
