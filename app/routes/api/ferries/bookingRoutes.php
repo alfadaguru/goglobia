@@ -1092,6 +1092,30 @@ $router->post('/api/ferries/cancel', function () use ($SECURE, $db) {
             return;
         }
 
+        // OWNERSHIP GUARD (IDOR): this performs a REAL, irreversible supplier
+        // cancellation. It was unauthenticated — anyone who knew/guessed a booking
+        // locator could cancel another customer's ferry booking at the supplier.
+        // Resolve the booking (by invoice id, else by the stored locator) and
+        // require the caller to be its owner / creating session / admin BEFORE
+        // calling kikoto. enforceInvoiceAccess() emits 403 JSON + exits on denial.
+        $ferryBooking = null;
+        if ($invId !== '') {
+            $ferryBooking = $db->get('bookings', '*', ['invoice_id' => $invId, 'module_type' => 'ferries']);
+        }
+        if (!$ferryBooking) {
+            $ferryBooking = $db->get('bookings', '*', ['booking_response[~]' => $locator, 'module_type' => 'ferries']);
+        }
+        if (!$ferryBooking) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Booking not found for this locator.']);
+            return;
+        }
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $ferryBooking);
+        }
+        // Pin the invoice id from the trusted booking row (do not trust client input).
+        $invId = (string) ($ferryBooking['invoice_id'] ?? $invId);
+
         $cfg = _kikoto_cfg($db);
         if (empty($cfg)) {
             http_response_code(503);

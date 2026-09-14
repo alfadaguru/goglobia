@@ -896,6 +896,15 @@ $router->post('/api/stays/booking/cancel', function () use ($db) {
             throw new Exception('Booking not found');
         }
 
+        // OWNERSHIP GUARD (IDOR): only the invoice owner / creating session /
+        // admin may flag a booking for cancellation. Was unauthenticated — anyone
+        // who knew an invoice id could flag another customer's booking and trigger
+        // a cancellation notification to them. enforceInvoiceAccess() auto-responds
+        // 403 JSON on an /api/ route and exits for a non-owner.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+
         $db->update('bookings', ['cancellation_request' => 1], [
             'invoice_id' => $invoiceId
         ]);
