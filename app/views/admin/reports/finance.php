@@ -43,6 +43,9 @@ $marginPct = $tot['revenue'] > 0 ? round(($tot['net_profit'] / $tot['revenue']) 
                 </select>
             </div>
             <button type="submit" class="btn primary">Run</button>
+            <a href="<?= root . admin ?>/reports/finance?<?= htmlspecialchars(http_build_query(['from' => $from, 'to' => $to, 'module' => $moduleFilter, 'format' => 'csv'])) ?>" class="btn secondary inline-flex items-center gap-1">
+                <span class="material-symbols-outlined text-[18px]">download</span> CSV
+            </a>
         </form>
     </div>
 
