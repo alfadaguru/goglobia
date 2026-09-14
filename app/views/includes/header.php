@@ -148,13 +148,28 @@ if (!empty($enabledModules)) {
     unset($svc); // BREAK REFERENCE
 }
 
-// SHARED CURRENCY LOGIC: USE SESSION CURRENCY WHEN VALID, ELSE DB DEFAULT.
+// SHARED CURRENCY LOGIC (step 3): priority is
+//   1. MANUAL choice (user switched currency; app_currency_changed=true) — always wins
+//   2. GEO currency (visitor's country -> enabled currency, detected once/session)
+//   3. DB default currency
+//   4. first currency
 $currencies = $GLOBALS['currencies'] ?? [];
 $sessionCurrencyCode = !empty($_SESSION['app_currency_changed'])
   ? strtoupper(trim((string)($_SESSION['app_currency'] ?? '')))
   : '';
 
+// Geo currency only matters when the user has NOT manually chosen one.
+// detectGeoCurrency() resolves its own DB handle from the global if needed and
+// fails safe (returns '') — so this never breaks the page even if $db is not in
+// this include's local scope.
+$geoCurrencyCode = '';
+if ($sessionCurrencyCode === '' && function_exists('detectGeoCurrency')) {
+    $geoDbHandle = ($db ?? null) instanceof \Medoo\Medoo ? $db : ($GLOBALS['db'] ?? null);
+    $geoCurrencyCode = strtoupper(trim((string) detectGeoCurrency($geoDbHandle)));
+}
+
 $sessionCurrencyRow = null;
+$geoCurrencyRow = null;
 $defaultCurrencyRow = null;
 
 foreach ($currencies as $curr) {
@@ -167,12 +182,16 @@ foreach ($currencies as $curr) {
         $sessionCurrencyRow = $curr;
     }
 
+    if ($geoCurrencyCode !== '' && $currencyCode === $geoCurrencyCode) {
+        $geoCurrencyRow = $curr;
+    }
+
     if ($defaultCurrencyRow === null && (string)($curr['default'] ?? '0') === '1') {
         $defaultCurrencyRow = $curr;
     }
 }
 
-$activeCurrencyRow = $sessionCurrencyRow ?? $defaultCurrencyRow ?? ($currencies[0] ?? null);
+$activeCurrencyRow = $sessionCurrencyRow ?? $geoCurrencyRow ?? $defaultCurrencyRow ?? ($currencies[0] ?? null);
 $activeCurrencyCode = strtoupper((string)($activeCurrencyRow['name'] ?? 'USD'));
 $activeCurrencyFlag = !empty($activeCurrencyRow['country']) ? strtolower($activeCurrencyRow['country']) : 'xx';
 
