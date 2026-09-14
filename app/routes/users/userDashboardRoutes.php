@@ -55,6 +55,34 @@ $router->get('/dashboard', function () use ($SECURE,$db) {
         $loyaltyPoints = loyalty_balance($db, (string)$user_id);
     }
 
+    // LOYALTY HISTORY (last 10 movements) so the user can see how they earned/spent.
+    $loyaltyHistory = [];
+    try {
+        $loyaltyHistory = $db->select('loyalty_ledger',
+            ['direction','points','balance_after','reason','ref_id','created_at'],
+            ['user_id' => (string)$user_id, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 10]) ?: [];
+    } catch (\Throwable $e) { $loyaltyHistory = []; }
+
+    // AGENT MEMBERSHIP TIER (docs §C.4 step 4): show the agent their current tier,
+    // its discount, lifetime top-up, and progress to the next tier.
+    $tierInfo = null;
+    if ($isAgent && function_exists('agent_lifetime_topup')) {
+        $lifetime = (float) agent_lifetime_topup($db, (string)$user_id);
+        $currentTier = null;
+        if (!empty($user['agent_tier_id'])) {
+            $currentTier = $db->get('agent_tiers', ['code','name','discount_percent','min_lifetime_topup'], ['id' => (int)$user['agent_tier_id']]);
+        }
+        // Next tier = the lowest active threshold strictly above lifetime.
+        $nextTier = $db->get('agent_tiers', ['name','min_lifetime_topup','discount_percent'], [
+            'active' => 1, 'min_lifetime_topup[>]' => $lifetime, 'ORDER' => ['min_lifetime_topup' => 'ASC']
+        ]) ?: null;
+        $tierInfo = [
+            'current'        => $currentTier,
+            'next'           => $nextTier,
+            'lifetime_topup' => $lifetime,
+        ];
+    }
+
     // Initialize dashboard data
     $dashboardData = [
         'total_bookings' => $totalBookings,
@@ -73,6 +101,8 @@ $router->get('/dashboard', function () use ($SECURE,$db) {
         'loyalty_points' => $loyaltyPoints,
         'loyalty_redeem_value' => $loyaltyRedeemValue,
         'loyalty_worth' => number_format($loyaltyPoints * $loyaltyRedeemValue, 2),
+        'loyalty_history' => $loyaltyHistory,
+        'tier_info' => $tierInfo,
     ];
 
     // META DATA
