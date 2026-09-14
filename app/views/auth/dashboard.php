@@ -61,6 +61,46 @@
             </div>
          </div>
 
+         <?php if (empty($dashboardData['is_agent'])):
+                  $walletCur = htmlspecialchars($dashboardData['currency'] ?? 'USD');
+         ?>
+         <!-- ==================================================================
+              WALLET — balance + self-service top-up (customers). NGN routes to
+              Paystack, other currencies to Stripe (server-side).
+         ================================================================== -->
+         <div class="mb-6 px-4 lg:px-0"
+              x-data="{ open: false, amount: '' }">
+            <div class="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-5">
+               <div class="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                     <div class="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                        <span class="material-symbols-outlined text-base">account_balance_wallet</span> Wallet Balance
+                     </div>
+                     <div class="text-2xl font-bold text-slate-800 tabular-nums">
+                        <?= $walletCur ?> <?= htmlspecialchars((string)($dashboardData['wallet_balance'] ?? '0.00')) ?>
+                     </div>
+                  </div>
+                  <button type="button" class="btn primary inline-flex items-center gap-2" @click="open = !open">
+                     <span class="material-symbols-outlined text-xl">add</span> Add Funds
+                  </button>
+               </div>
+               <div x-show="open" x-collapse style="display:none" class="mt-4 pt-4 border-t border-slate-200">
+                  <form method="POST" action="<?= root ?>wallet/topup" class="flex flex-wrap items-end gap-3">
+                     <input type="hidden" name="csrf_token" value="<?= CSRF::getToken() ?>">
+                     <div class="flex flex-col gap-1">
+                        <label class="text-xs font-medium text-slate-600">Amount (<?= $walletCur ?>)</label>
+                        <input type="number" name="amount" min="1" step="0.01" x-model="amount" class="input w-40" placeholder="0.00" required>
+                     </div>
+                     <button type="submit" class="btn primary inline-flex items-center gap-2" :disabled="!amount || amount <= 0">
+                        <span class="material-symbols-outlined text-xl">payments</span> Top up
+                     </button>
+                     <p class="text-[11px] text-slate-400 basis-full">You'll be taken to a secure payment page. NGN is processed by Paystack; other currencies by Stripe.</p>
+                  </form>
+               </div>
+            </div>
+         </div>
+         <?php endif; ?>
+
          <?php if (!empty($dashboardData['tier_info']) && !empty($dashboardData['tier_info']['current'])):
                   $ti = $dashboardData['tier_info'];
                   $curTier = $ti['current'];

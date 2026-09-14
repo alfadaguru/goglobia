@@ -309,6 +309,66 @@ function handle_payment_callback($token, $action, $data = [])
             }
 
             // ============================================================
+            // WALLET TOP-UP (step 4): a customer funded their wallet via a
+            // gateway. This synthetic "booking" (module=wallet_topup) is NOT a
+            // real booking — the payment is already verified above, so here we
+            // just credit the wallet through the SPINE and return. No auto-issue,
+            // no supplier call. Idempotent per invoice (wallet_topup_success keys
+            // on the transaction; a re-fired callback never double-credits).
+            // ============================================================
+            if (strtolower((string) ($booking['module'] ?? '')) === 'wallet_topup') {
+                $db->update('bookings', [
+                    'payment_status' => 'paid',
+                    'booking_status' => 'confirmed',
+                    'transaction_id' => $data['transaction_id'] ?? null,
+                    'paid_at'        => date('Y-m-d H:i:s'),
+                ], ['invoice_id' => $tokenData['invoice_id']]);
+
+                $creditOk = false; $creditMsg = '';
+                if (function_exists('wallet_topup_success') && function_exists('txn_create')) {
+                    try {
+                        $topupUser = (string) ($booking['user_id'] ?? '');
+                        $topupAmt  = (float) ($tokenData['amount'] ?? $booking['price_markup'] ?? 0);
+                        $topupCur  = strtoupper(trim((string) ($booking['currency_markup'] ?? ''))) ?: wallet_default_currency($db);
+                        if ($topupUser !== '' && $topupAmt > 0) {
+                            $idem = 'WLTTOPUP-' . $tokenData['invoice_id'];
+                            $txn = txn_create($db, [
+                                'user_id'         => $topupUser,
+                                'direction'       => 'credit',
+                                'reason'          => 'wallet_topup',
+                                'amount'          => $topupAmt,
+                                'currency'        => $topupCur,
+                                'method'          => 'gateway',
+                                'gateway_id'      => (string) ($booking['payment_gateway'] ?? ''),
+                                'invoice_id'      => (string) $tokenData['invoice_id'],
+                                'idempotency_key' => $idem,
+                                'description'     => 'Wallet top-up via ' . ($tokenData['gateway_name'] ?? 'gateway'),
+                            ]);
+                            if (($txn['status'] ?? '') !== 'success') {
+                                txn_advance($db, (int) $txn['id'], 'sent', 'gateway payment confirmed');
+                                $r = wallet_topup_success($db, (int) $txn['id'], (string) ($data['transaction_id'] ?? ''));
+                                $creditOk = !empty($r['ok']);
+                                $creditMsg = $r['message'] ?? '';
+                            } else {
+                                $creditOk = true; // already credited (idempotent)
+                            }
+                        }
+                    } catch (\Throwable $eTop) {
+                        error_log('wallet top-up credit: ' . $eTop->getMessage());
+                        $creditMsg = $eTop->getMessage();
+                    }
+                }
+
+                clear_payment_token($token);
+                return [
+                    'success' => true,
+                    'message' => $creditOk ? 'Wallet topped up successfully.' : ('Payment received; wallet credit pending. ' . $creditMsg),
+                    'booking' => $db->get('bookings', '*', ['invoice_id' => $tokenData['invoice_id']]),
+                    'wallet_topup' => true,
+                ];
+            }
+
+            // ============================================================
             // VERIFY DEV_MODE CONSISTENCY: MODULE vs PAYMENT GATEWAY
             // Both must be in the same mode (0=live, 1=test) before auto-issuing
             // NOTE: Even on mismatch, we still record payment as paid (money was collected)

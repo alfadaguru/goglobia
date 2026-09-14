@@ -151,3 +151,122 @@ $router->post('/loyalty/redeem', function () use ($SECURE, $db) {
     ]);
     exit;
 });
+
+// ============================================================================
+// CUSTOMER WALLET TOP-UP via gateway (step 4). Creates a synthetic
+// "wallet_topup" booking, routes it to the currency-correct gateway
+// (NGN->Paystack, else->Stripe), then hands off to the normal /payment/process
+// flow. On confirmed payment, handle_payment_callback() credits the wallet.
+//   POST /wallet/topup   { amount, csrf_token }
+// ============================================================================
+$router->post('/wallet/topup', function () use ($SECURE, $db) {
+    if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) {
+        $_SESSION['login_error'] = 'required';
+        header('Location: ' . root . 'login');
+        exit;
+    }
+    // CSRF
+    if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_POST['_token'] ?? ''))) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Invalid or expired form token. Please try again.'];
+        header('Location: ' . root . 'dashboard');
+        exit;
+    }
+
+    $userId = (string) $_SESSION['user_id'];
+    $user = $db->get('users', ['user_id','role','first_name','last_name','email','phone','phone_country_code','currency'], ['user_id' => $userId]);
+    if (!$user) { header('Location: ' . root . 'login'); exit; }
+
+    // Agents fund the wallet via the deposit flow; this self-service gateway
+    // top-up is for customers (the payment rule keeps agents wallet-only anyway).
+    if (strtolower((string) ($user['role'] ?? '')) === 'agent') {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Agents top up via the deposit page.'];
+        header('Location: ' . root . 'dashboard');
+        exit;
+    }
+
+    $amount = round((float) ($_POST['amount'] ?? 0), 2);
+    if ($amount <= 0) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Enter a valid top-up amount.'];
+        header('Location: ' . root . 'dashboard');
+        exit;
+    }
+
+    // Top-up currency = the session/display currency (falls back to user's, then default).
+    $currency = strtoupper(trim((string) ($_SESSION['app_currency'] ?? '')))
+        ?: strtoupper(trim((string) ($user['currency'] ?? '')));
+    if ($currency === '' && function_exists('wallet_default_currency')) { $currency = wallet_default_currency($db); }
+    if ($currency === '') { $currency = 'NGN'; }
+
+    // Pick the currency-correct EXTERNAL gateway (reuses step 2 routing):
+    // the enabled+active non-wallet gateway allowed for this currency.
+    $candidates = $db->select('payment_gateways', '*', [
+        'status' => '1', 'active' => '1', 'type[!]' => 'internal_wallet',
+        'ORDER' => ['default' => 'DESC', 'id' => 'ASC'],
+    ]) ?: [];
+    $gateway = null;
+    foreach ($candidates as $g) {
+        if (!function_exists('payment_gateway_allowed_for_currency')
+            || payment_gateway_allowed_for_currency($db, $g, $currency)) {
+            $gateway = $g; break;
+        }
+    }
+    if (!$gateway) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'No payment method is available for ' . $currency . ' top-ups right now.'];
+        header('Location: ' . root . 'dashboard');
+        exit;
+    }
+
+    // Create the synthetic top-up booking (module=wallet_topup). Fills every
+    // NOT-NULL bookings column. price_markup is the amount charged.
+    $invoiceId = 'TOP' . strtoupper(substr(bin2hex(random_bytes(5)), 0, 9));
+    $ok = $db->insert('bookings', [
+        'invoice_id'        => $invoiceId,
+        'user_id'           => $userId,
+        'module'            => 'wallet_topup',
+        'module_type'       => 'wallet_topup',
+        'booking_status'    => 'pending',
+        'payment_status'    => 'unpaid',
+        'price_original'    => $amount,
+        'price_markup'      => $amount,
+        'commission'        => 0,
+        'agent_earning'     => 0,
+        'tax'               => '0',
+        'currency_markup'   => $currency,
+        'payment_gateway'   => (string) $gateway['id'],
+        'first_name'        => (string) ($user['first_name'] ?: 'Wallet'),
+        'last_name'         => (string) ($user['last_name'] ?: 'Top-up'),
+        'email'             => (string) ($user['email'] ?: ''),
+        'phone'             => (string) ($user['phone'] ?: ''),
+        'phone_country_code'=> (string) ($user['phone_country_code'] ?: ''),
+        'country'           => '',
+        'address'           => '',
+        'child_ages'        => '[]',
+        'travellers'        => '[]',
+        'booking_date'      => date('Y-m-d'),
+        'created_at'        => date('Y-m-d H:i:s'),
+    ]);
+    if (!$ok) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not start the top-up. Please try again.'];
+        header('Location: ' . root . 'dashboard');
+        exit;
+    }
+
+    // Hand off to the normal payment flow (same 3 steps /payment/process uses):
+    // token -> log (returns a hash) -> redirect to the secure /payment/{hash}
+    // page which renders the gateway (Paystack/Stripe) UI.
+    require_once 'app/lib/payment-gateway.php';
+    $bookingRow = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
+    $token = create_payment_token($bookingRow, $gateway);
+    $logResult = function_exists('log_payment_transaction')
+        ? log_payment_transaction($bookingRow, $gateway, $token)
+        : ['success' => true, 'hash' => null];
+
+    if (empty($logResult['success']) || empty($logResult['hash'])) {
+        // Fall back to the invoice-style payment page by invoice id.
+        $_SESSION['message'] = ['type' => 'error', 'text' => $logResult['message'] ?? 'Could not start the top-up.'];
+        header('Location: ' . root . 'dashboard');
+        exit;
+    }
+    header('Location: ' . root . 'payment/' . $logResult['hash']);
+    exit;
+});
