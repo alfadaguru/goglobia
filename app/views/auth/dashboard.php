@@ -61,6 +61,66 @@
             </div>
          </div>
 
+         <?php if (!empty($dashboardData['tier_info']) && !empty($dashboardData['tier_info']['current'])):
+                  $ti = $dashboardData['tier_info'];
+                  $curTier = $ti['current'];
+                  $nextTier = $ti['next'] ?? null;
+                  $lifetime = (float)($ti['lifetime_topup'] ?? 0);
+                  $curMin = (float)($curTier['min_lifetime_topup'] ?? 0);
+                  $cur = htmlspecialchars($dashboardData['currency'] ?? 'USD');
+                  // progress from current tier threshold → next tier threshold
+                  $pct = 100; $toNext = 0;
+                  if ($nextTier) {
+                      $nextMin = (float)($nextTier['min_lifetime_topup'] ?? 0);
+                      $span = max(1, $nextMin - $curMin);
+                      $pct = max(0, min(100, round((($lifetime - $curMin) / $span) * 100)));
+                      $toNext = max(0, $nextMin - $lifetime);
+                  }
+         ?>
+         <!-- ==================================================================
+              MEMBERSHIP TIER (agents) — current tier, discount, progress to next
+         ================================================================== -->
+         <div class="mb-6 px-4 lg:px-0">
+            <div class="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white p-5">
+               <div class="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                     <div class="text-xs font-medium text-indigo-700 mb-1 flex items-center gap-1">
+                        <span class="material-symbols-outlined text-base">workspace_premium</span> <?= T::membership_tier ?? 'Membership Tier' ?>
+                     </div>
+                     <div class="text-2xl font-bold text-indigo-900"><?= htmlspecialchars($curTier['name'] ?? '') ?></div>
+                     <p class="text-[11px] text-indigo-600 mt-1">
+                        <?= rtrim(rtrim(number_format((float)($curTier['discount_percent'] ?? 0), 2), '0'), '.') ?>% <?= T::markup_discount ?? 'markup discount on every booking' ?>
+                     </p>
+                  </div>
+                  <div class="text-right">
+                     <div class="text-[11px] text-slate-500"><?= T::lifetime_topup ?? 'Lifetime wallet top-up' ?></div>
+                     <div class="text-lg font-bold text-slate-800 tabular-nums"><?= $cur ?> <?= number_format($lifetime, 2) ?></div>
+                  </div>
+               </div>
+               <?php if ($nextTier): ?>
+               <div class="mt-4">
+                  <div class="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+                     <span><?= htmlspecialchars($curTier['name'] ?? '') ?></span>
+                     <span>
+                        <?= T::next ?? 'Next' ?>: <strong class="text-indigo-700"><?= htmlspecialchars($nextTier['name'] ?? '') ?></strong>
+                        (<?= rtrim(rtrim(number_format((float)($nextTier['discount_percent'] ?? 0), 2), '0'), '.') ?>%)
+                     </span>
+                  </div>
+                  <div class="w-full h-2 bg-indigo-100 rounded-full overflow-hidden">
+                     <div class="h-full bg-indigo-500 rounded-full" style="width: <?= (int)$pct ?>%"></div>
+                  </div>
+                  <p class="text-[11px] text-slate-500 mt-1">
+                     <?= T::top_up ?? 'Top up' ?> <strong><?= $cur ?> <?= number_format($toNext, 2) ?></strong>
+                     <?= T::more_to_reach ?? 'more to reach' ?> <?= htmlspecialchars($nextTier['name'] ?? '') ?>.
+                  </p>
+               </div>
+               <?php else: ?>
+               <p class="text-[11px] text-indigo-600 mt-3"><?= T::top_tier_reached ?? 'You have reached the highest tier — enjoy the best rate.' ?></p>
+               <?php endif; ?>
+            </div>
+         </div>
+         <?php endif; ?>
+
          <?php if (!empty($dashboardData['loyalty_enabled'])): ?>
          <!-- ==================================================================
               LOYALTY POINTS — balance, cash worth, and convert-to-wallet
@@ -130,6 +190,37 @@
                <template x-if="msg">
                   <div class="mt-3 text-sm" :class="msgType === 'success' ? 'text-emerald-700' : 'text-red-600'" x-text="msg"></div>
                </template>
+
+               <?php if (!empty($dashboardData['loyalty_history'])): ?>
+               <details class="mt-4">
+                  <summary class="text-xs font-medium text-amber-700 cursor-pointer hover:text-amber-900"><?= T::points_history ?? 'Points history' ?></summary>
+                  <div class="mt-2 overflow-x-auto">
+                     <table class="w-full text-xs">
+                        <thead>
+                           <tr class="text-left text-slate-400 border-b border-amber-100">
+                              <th class="py-1.5 pr-3 font-medium"><?= T::date ?? 'Date' ?></th>
+                              <th class="py-1.5 pr-3 font-medium"><?= T::activity ?? 'Activity' ?></th>
+                              <th class="py-1.5 pr-3 font-medium text-right"><?= T::points ?? 'Points' ?></th>
+                              <th class="py-1.5 font-medium text-right"><?= T::balance ?? 'Balance' ?></th>
+                           </tr>
+                        </thead>
+                        <tbody>
+                           <?php foreach ($dashboardData['loyalty_history'] as $lh):
+                                    $isEarn = in_array(($lh['direction'] ?? ''), ['earn','adjust'], true); ?>
+                           <tr class="border-b border-amber-50">
+                              <td class="py-1.5 pr-3 text-slate-500 whitespace-nowrap"><?= htmlspecialchars(date('M d, Y', strtotime((string)$lh['created_at']))) ?></td>
+                              <td class="py-1.5 pr-3 text-slate-600"><?= htmlspecialchars(ucwords(str_replace('_',' ',(string)($lh['reason'] ?? $lh['direction'])))) ?></td>
+                              <td class="py-1.5 pr-3 text-right tabular-nums <?= $isEarn ? 'text-emerald-700' : 'text-slate-700' ?>">
+                                 <?= $isEarn ? '+' : '−' ?><?= number_format((int)$lh['points']) ?>
+                              </td>
+                              <td class="py-1.5 text-right tabular-nums font-medium"><?= number_format((int)$lh['balance_after']) ?></td>
+                           </tr>
+                           <?php endforeach; ?>
+                        </tbody>
+                     </table>
+                  </div>
+               </details>
+               <?php endif; ?>
             </div>
          </div>
          <?php endif; ?>

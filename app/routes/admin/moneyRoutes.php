@@ -244,3 +244,81 @@ $router->get(admin.'/finance/journeys', function () use ($SECURE, $db) {
     require_once "app/views/admin/money/journeys.php";
     require_once views."includes/footer.php";
 });
+
+// ============================================================================
+// MEMBERS — admin visibility into tier assignments + loyalty balances, and a
+// manual points award/deduct. Answers "who is on which tier / who has how many
+// points", which tier CRUD alone did not.
+//   GET  /admin/finance/members            → agents-by-tier + loyalty balances
+//   POST /admin/finance/members/points     → award/deduct points for a user
+// ============================================================================
+$router->get(admin.'/finance/members', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (function_exists('ensureAgentApiSchema')) { ensureAgentApiSchema($db); }
+
+    $tiers = $db->select('agent_tiers', '*', ['ORDER' => ['sort_order' => 'ASC', 'min_lifetime_topup' => 'ASC']]) ?: [];
+    foreach ($tiers as &$t) {
+        $t['agent_count'] = (int) $db->count('users', ['role' => 'agent', 'agent_tier_id' => (int) $t['id']]);
+    }
+    unset($t);
+
+    $agents = $db->select('users', ['user_id','first_name','last_name','email','agent_tier_id','loyalty_points'], [
+        'role' => 'agent', 'ORDER' => ['loyalty_points' => 'DESC'], 'LIMIT' => 200
+    ]) ?: [];
+    $tierName = [];
+    foreach ($tiers as $t) { $tierName[(int)$t['id']] = $t['name']; }
+    foreach ($agents as &$a) {
+        $a['tier_name'] = $tierName[(int)($a['agent_tier_id'] ?? 0)] ?? '—';
+        $a['lifetime_topup'] = function_exists('agent_lifetime_topup') ? (float) agent_lifetime_topup($db, (string)$a['user_id']) : 0.0;
+    }
+    unset($a);
+
+    $customers = $db->select('users', ['user_id','first_name','last_name','email','loyalty_points'], [
+        'role' => 'customer', 'loyalty_points[>]' => 0, 'ORDER' => ['loyalty_points' => 'DESC'], 'LIMIT' => 200
+    ]) ?: [];
+
+    $defaultCurrency = $db->get('currencies', 'name', ['default' => '1']) ?: 'USD';
+
+    require_once views."includes/header.php";
+    require_once "app/views/admin/money/members.php";
+    require_once views."includes/footer.php";
+});
+
+$router->post(admin.'/finance/members/points', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_POST['_token'] ?? ''))) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Invalid or expired form token.'];
+        redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/finance/members');
+        return;
+    }
+    if (function_exists('ensureAgentApiSchema')) { ensureAgentApiSchema($db); }
+
+    $uid    = (string) ($_POST['user_id'] ?? '');
+    $points = (int) ($_POST['points'] ?? 0);
+    $action = ($_POST['action'] ?? 'award') === 'deduct' ? 'redeem' : 'earn';
+    $note   = trim((string) ($_POST['note'] ?? ''));
+
+    if ($uid === '' || $points <= 0) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Pick a user and a positive number of points.'];
+        redirect(root . admin . '/finance/members');
+        return;
+    }
+    if (!$db->get('users', 'user_id', ['user_id' => $uid])) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'User not found.'];
+        redirect(root . admin . '/finance/members');
+        return;
+    }
+
+    if (!function_exists('loyalty_apply')) {
+        require_once dirname(__DIR__, 2) . '/lib/wallet.php';
+    }
+    $r = loyalty_apply($db, $uid, $points, $action, [
+        'reason' => 'adjust', 'ref_type' => 'admin', 'note' => $note !== '' ? $note : ('Admin ' . ($action === 'earn' ? 'award' : 'deduction')),
+    ]);
+    if (!empty($r['ok'])) {
+        $_SESSION['message'] = ['type' => 'success', 'text' => ($action === 'earn' ? 'Awarded ' : 'Deducted ') . number_format($points) . ' points. New balance: ' . number_format((int)($r['balance'] ?? 0)) . '.'];
+    } else {
+        $_SESSION['message'] = ['type' => 'error', 'text' => $r['message'] ?? 'Could not adjust points.'];
+    }
+    redirect(root . admin . '/finance/members');
+});
