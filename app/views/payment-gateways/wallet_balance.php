@@ -190,6 +190,26 @@ try {
         'invoice_id' => $booking['invoice_id']
     ]);
     
+    // SPINE RESOLUTION (audit money-integrity): close the gateway-attempt
+    // money_transactions row born 'pending'->'sent' in create_payment_token()
+    // at /payment/process. Card/bank gateways close it in handle_payment_callback,
+    // but the wallet path is SYNCHRONOUS and never calls that callback — so without
+    // this the GWPAY- attempt row lingers forever at 'sent' for every wallet
+    // payment (no money impact — the WLTPAY wallet_spend row is the source of
+    // truth — but it pollutes reconciliation as a "sent but never settled"
+    // payment that was in fact paid). Advance it to 'success'. Idempotent + best
+    // effort: skip if already resolved, never fail the (already-completed) payment.
+    if (function_exists('txn_advance')) {
+        try {
+            $gwPayIdem = 'GWPAY-' . $booking['invoice_id'] . '-' . ($gateway['id'] ?? 'gw');
+            $gwPayTxn = $db->get('money_transactions', ['id', 'status'], ['idempotency_key' => $gwPayIdem]);
+            if ($gwPayTxn && in_array($gwPayTxn['status'], ['pending', 'sent'], true)) {
+                txn_advance($db, (int) $gwPayTxn['id'], 'success', 'wallet payment confirmed (' . $transactionId . ')', null,
+                    ['provider_trx_id' => $transactionId]);
+            }
+        } catch (\Throwable $e) { error_log('wallet_balance GWPAY resolve: ' . $e->getMessage()); }
+    }
+
     // Get full booking data for auto-issue
     $bookingData = $db->get('bookings', '*', ['invoice_id' => $booking['invoice_id']]);
     
