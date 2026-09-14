@@ -865,6 +865,44 @@ function safePathInDir(string $userPath, string $baseDir): ?string
  * @param array       $booking     The fetched booking row (must be truthy).
  * @param string|null $redirectTo  Where to send a denied browser (defaults to site root).
  */
+/**
+ * Grant the CURRENT session ownership of a freshly-created invoice.
+ *
+ * Every module's booking-submit route redirects the buyer straight to
+ * `/invoice/<module>/<id>`, which calls enforceInvoiceAccess(). For a GUEST
+ * (no session user_id) none of the access grants apply yet at that instant:
+ *   - grant #2 (session user_id === booking.user_id) fails — the guest either
+ *     has a NULL booking.user_id (flights/bus/cars/rail/esim) or an
+ *     auto-created booking.user_id that is NOT in their session
+ *     (stays/tours/umrah/visa/ferries), because the submit routes never log the
+ *     guest in;
+ *   - grant #3 (owned_invoices) fails — nothing populated it;
+ *   - grant #4 (a live payment_token) fails — the token is only minted later at
+ *     POST /payment/process, which the guest cannot reach without first opening
+ *     the invoice they are now being bounced away from.
+ * Net effect: a guest who completes a booking is redirected to /login on their
+ * OWN brand-new invoice. Calling this right after a successful booking insert
+ * records the invoice in $_SESSION['owned_invoices'] (grant #3), which is the
+ * same key create_payment_token() uses, so the guest can view+pay their invoice.
+ * Idempotent and safe for logged-in users too (harmless extra entry).
+ */
+function grantInvoiceSessionOwnership($invoiceId): void
+{
+    $invoiceId = (string) $invoiceId;
+    if ($invoiceId === '') {
+        return;
+    }
+    if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+        session_start();
+    }
+    if (!isset($_SESSION['owned_invoices']) || !is_array($_SESSION['owned_invoices'])) {
+        $_SESSION['owned_invoices'] = [];
+    }
+    if (!in_array($invoiceId, $_SESSION['owned_invoices'], true)) {
+        $_SESSION['owned_invoices'][] = $invoiceId;
+    }
+}
+
 function enforceInvoiceAccess($db, $booking, $redirectTo = null): bool
 {
     if (empty($booking) || !is_array($booking)) {

@@ -789,6 +789,13 @@ $router->get('/api/stays/booking/download-invoice/([A-Z0-9]{8})', function ($inv
             die('Booking not found');
         }
 
+        // IDOR GUARD: the PDF contains customer PII + pricing. Restrict to
+        // admin / owner / creating session / valid payment token. Was
+        // previously unauthenticated. enforceInvoiceAccess() exits on denial.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+
         // --------------------------------------------------
         // GENERATE / REFRESH PDF
         // --------------------------------------------------

@@ -23,6 +23,14 @@ $router->get('/api/cars/invoice/([a-zA-Z0-9]+)', function ($invoiceId) use ($SEC
             return;
         }
 
+        // IDOR GUARD: this returns the full booking row (customer PII, pricing,
+        // travellers). Restrict to admin / owner / creating session / valid
+        // payment token. enforceInvoiceAccess() emits 403 JSON and exits on an
+        // /api/ route for a non-owner. Was previously unauthenticated.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+
         // Match the Bus invoice response: return the complete booking record
         // with stored JSON fields decoded into usable objects/arrays.
         $booking['booking_data'] = json_decode($booking['booking_data'] ?? '{}', true);
@@ -46,7 +54,7 @@ $router->get('/api/cars/invoice/([a-zA-Z0-9]+)', function ($invoiceId) use ($SEC
 */
 $router->get('/api/cars/booking/download-invoice/([A-Z0-9]{8})', function ($invoiceId) use ($db) {
     try {
-        $booking = $db->get('bookings', ['id'], [
+        $booking = $db->get('bookings', ['id', 'invoice_id', 'user_id'], [
             'invoice_id' => $invoiceId,
             'module_type' => 'cars'
         ]);
@@ -54,6 +62,13 @@ $router->get('/api/cars/booking/download-invoice/([A-Z0-9]{8})', function ($invo
         if (!$booking) {
             http_response_code(404);
             die('Booking not found');
+        }
+
+        // IDOR GUARD: the PDF contains customer PII + pricing. Restrict to
+        // admin / owner / creating session / valid payment token. Was
+        // previously unauthenticated. enforceInvoiceAccess() exits on denial.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
         }
 
         // Generate the latest invoice instead of requiring a pre-generated PDF.

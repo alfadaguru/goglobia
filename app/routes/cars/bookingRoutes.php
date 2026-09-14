@@ -418,9 +418,16 @@ $router->post('/cars/booking/submit', function () use ($SECURE, $db) {
                 NOTIFY::booking('cars', $customerData, $notifyData);
             }
 
+            // Let the (possibly guest) session that created this invoice view it —
+            // otherwise enforceInvoiceAccess() bounces them to /login on their own
+            // fresh invoice (see grantInvoiceSessionOwnership()).
+            if (function_exists('grantInvoiceSessionOwnership')) {
+                grantInvoiceSessionOwnership($invoiceId);
+            }
+
             echo json_encode([
-                'success' => true, 
-                'invoice_id' => $invoiceId, 
+                'success' => true,
+                'invoice_id' => $invoiceId,
                 'redirect_url' => urlOnCurrentHost('invoice/cars/' . $invoiceId)
             ]);
         } else {

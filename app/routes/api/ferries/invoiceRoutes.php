@@ -24,6 +24,14 @@ $router->get('/api/ferries/invoice/([a-zA-Z0-9]+)', function ($invoiceId) use ($
             return;
         }
 
+        // IDOR GUARD: this returns the full booking row (customer PII, pricing,
+        // travellers). Restrict to admin / owner / creating session / valid
+        // payment token. enforceInvoiceAccess() emits 403 JSON and exits on an
+        // /api/ route for a non-owner. Was previously unauthenticated.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+
         // DECODE STORED JSON FIELDS
         $booking['booking_data']   = json_decode($booking['booking_data']   ?? '{}', true);
         $booking['booking_response'] = json_decode($booking['booking_response'] ?? '{}', true);
@@ -44,6 +52,13 @@ $router->get('/api/ferries/booking/download-invoice/([a-zA-Z0-9]+)', function ($
     try {
         $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId, 'module_type' => 'ferries']);
         if (!$booking) { http_response_code(404); die('Booking not found'); }
+
+        // IDOR GUARD: the PDF contains customer PII + pricing. Restrict to
+        // admin / owner / creating session / valid payment token. Was
+        // previously unauthenticated. enforceInvoiceAccess() exits on denial.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
 
         $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
         if ($pdfPath && file_exists($pdfPath)) {

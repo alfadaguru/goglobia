@@ -84,6 +84,14 @@ $router->get('/api/invoice/flights/([a-zA-Z0-9]+)', function ($invoiceId) use ($
         exit;
     }
 
+    // IDOR GUARD: this returns customer PII + pricing. Restrict to admin /
+    // owner / creating session / valid payment token. enforceInvoiceAccess()
+    // emits 403 JSON and exits on an /api/ route for a non-owner. Was
+    // previously unauthenticated.
+    if (function_exists('enforceInvoiceAccess')) {
+        enforceInvoiceAccess($db, $booking);
+    }
+
     // =========================================================================
     // CHECK BOOKING EXPIRY
     // =========================================================================

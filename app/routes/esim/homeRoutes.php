@@ -370,6 +370,13 @@ $router->post('/esim/booking/submit', function () use ($SECURE, $db) {
             NOTIFY::booking('esim', $customerData, $notifyData);
         }
 
+        // Let the (possibly guest) session that created this invoice view it —
+        // otherwise enforceInvoiceAccess() bounces them to /login on their own
+        // fresh invoice (see grantInvoiceSessionOwnership()).
+        if (function_exists('grantInvoiceSessionOwnership')) {
+            grantInvoiceSessionOwnership($invoiceId);
+        }
+
         echo json_encode([
             'success' => true,
             'invoice_id' => $invoiceId,

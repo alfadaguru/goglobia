@@ -385,6 +385,13 @@ $router->get('/api/flight/booking/download-invoice/([A-Z0-9]{8})', function ($in
             die('Booking not found');
         }
 
+        // IDOR GUARD: the PDF contains customer PII + pricing. Restrict to
+        // admin / owner / creating session / valid payment token. Was
+        // previously unauthenticated. enforceInvoiceAccess() exits on denial.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+
         // Always generate/refresh PDF before download
         $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
 
@@ -1200,6 +1207,13 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
                 error_log("Failed to send flight owner notification: " . $e->getMessage());
             }
             
+            // Let the (possibly guest) session that created this invoice view it —
+            // otherwise enforceInvoiceAccess() bounces them to /login on their own
+            // fresh invoice (see grantInvoiceSessionOwnership()).
+            if (function_exists('grantInvoiceSessionOwnership')) {
+                grantInvoiceSessionOwnership($invoiceId);
+            }
+
             ob_clean();
             echo json_encode([
                 'success' => true,

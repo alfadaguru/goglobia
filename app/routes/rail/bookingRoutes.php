@@ -181,6 +181,13 @@ $orderHandler = function () use ($SECURE, $db) {
             if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
                 recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?? null, $input['contact_email'] ?? null, (float) $promoDiscount, 'rail', (string) $displayCurrency);
             }
+
+            // Let the (possibly guest) session that created this invoice view it —
+            // otherwise enforceInvoiceAccess() bounces them to /login on their own
+            // fresh invoice (see grantInvoiceSessionOwnership()).
+            if (function_exists('grantInvoiceSessionOwnership')) {
+                grantInvoiceSessionOwnership($invoiceId);
+            }
         }
 
         // Booking stored locally as pending/unpaid; the supplier order/ticketing
@@ -544,6 +551,13 @@ $router->get('/api/rail/booking/download-invoice/([a-zA-Z0-9]+)', function ($inv
         if (!$booking) {
             http_response_code(404);
             die('Booking not found');
+        }
+
+        // IDOR GUARD: the PDF contains customer PII + pricing. Restrict to
+        // admin / owner / creating session / valid payment token. Was
+        // previously unauthenticated. enforceInvoiceAccess() exits on denial.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
         }
 
         $pdfPath = GENERATE_BOOKING_PDF($invoiceId);

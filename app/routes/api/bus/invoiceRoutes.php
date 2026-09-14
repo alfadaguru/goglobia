@@ -25,6 +25,14 @@ $router->get('/api/bus/invoice/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECU
             return;
         }
 
+        // IDOR GUARD: this returns the full booking row (customer PII, pricing,
+        // travellers). Restrict to admin / owner / creating session / valid
+        // payment token. enforceInvoiceAccess() emits 403 JSON and exits on an
+        // /api/ route for a non-owner. Was previously unauthenticated.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+
         // DECODE STORED JSON FIELDS
         $booking['booking_data'] = json_decode($booking['booking_data'] ?? '{}', true);
         $booking['travellers']   = json_decode($booking['travellers']   ?? '[]', true);

@@ -686,6 +686,13 @@ $router->post('/api/umrah/booking/submit', function () use ($SECURE, $db) {
             // DELETE TEMPORARY BOOKING DATA
             $db->delete('logs_bookings', ['hash' => $bookingHash]);
 
+            // Let the (possibly guest) session that created this invoice view it —
+            // otherwise enforceInvoiceAccess() bounces them to /login on their own
+            // fresh invoice (see grantInvoiceSessionOwnership()).
+            if (function_exists('grantInvoiceSessionOwnership')) {
+                grantInvoiceSessionOwnership($invoiceId);
+            }
+
             ob_clean();
 
             echo json_encode([
