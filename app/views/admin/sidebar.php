@@ -346,6 +346,7 @@ $adminMenu = array_merge($adminMenu, [
             ['name' => T::search. ' '.T::logs, 'icon' => 'search', 'url' => root.admin.'/reports/search-logs'],
             ['name' => T::webhook.' '.T::logs, 'icon' => 'webhook', 'url' => root.admin.'/reports/webhook-logs'],
             ['name' => 'Finance '.T::reports, 'icon' => 'payments', 'url' => root.admin.'/reports/finance'],
+            ['name' => 'Agent Commissions', 'icon' => 'diversity_3', 'url' => root.admin.'/reports/agent-commissions'],
             ['name' => T::booking.' '.T::reports, 'icon' => 'assessment', 'url' => root.admin.'/reports/bookings'],
             ['name' => T::users.' '.T::reports, 'icon' => 'people_outline', 'url' => root.admin.'/reports/users'],
             ['name' => T::transactions.' '.T::reports, 'icon' => 'receipt_long', 'url' => root.admin.'/reports/transactions'],
