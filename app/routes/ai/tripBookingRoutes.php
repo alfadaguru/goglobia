@@ -2359,11 +2359,10 @@ $router->post('/api/ai/trip/submit', function () use ($SECURE, $db) {
                 throw new Exception('Failed to create booking.');
             }
 
-            if ($promoCodeJson && $promoData && !empty($promoData['id'])) {
-                $db->update('promo_codes', [
-                    'used_count[+]' => 1,
-                    'updated_at'    => date('Y-m-d H:i:s'),
-                ], ['id' => $promoData['id']]);
+            if ($promoCodeJson && $promoData && !empty($promoData['id']) && function_exists('recordPromoUsage')) {
+                // Idempotent per invoice: bumps used_count + writes the per-user
+                // ledger row that enforces per_user_limit (step 6a).
+                recordPromoUsage($db, $promoData, (string)$invoiceId, $userId ?: null, $primaryGuest['email'] ?? null, (float)$promoDiscountBase, (string)$moduleType, (string)$baseCurrencyCode);
             }
 
             $db->pdo->commit();
@@ -2465,11 +2464,10 @@ $router->post('/api/ai/trip/submit', function () use ($SECURE, $db) {
             throw new Exception('Failed to create AI trip package booking.');
         }
 
-        if ($promoCodeJson && $promoData && !empty($promoData['id'])) {
-            $db->update('promo_codes', [
-                'used_count[+]' => 1,
-                'updated_at'    => date('Y-m-d H:i:s'),
-            ], ['id' => $promoData['id']]);
+        if ($promoCodeJson && $promoData && !empty($promoData['id']) && function_exists('recordPromoUsage')) {
+            // Idempotent per invoice: bumps used_count + writes the per-user
+            // ledger row that enforces per_user_limit (step 6a).
+            recordPromoUsage($db, $promoData, (string)$invoiceId, $userId ?: null, $primaryGuest['email'] ?? null, (float)$promoDiscountBase, 'ai_trip', (string)$baseCurrencyCode);
         }
 
         $db->pdo->commit();
