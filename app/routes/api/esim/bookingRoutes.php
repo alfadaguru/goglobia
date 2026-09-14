@@ -178,56 +178,23 @@ $router->post('/api/esim/booking/submit', function () use ($SECURE, $db) {
             throw new Exception('Please accept terms and conditions');
         }
 
-        $price = (float) $selectedPackage['price'];
-        if ($price < 0) {
-            $price = 0;
+        // PRICE INTEGRITY (price-trust workstream): re-derive the authoritative
+        // sell price from Airalo's live catalog server-side; never trust the
+        // client's selected_package.price. Reject if it can't be priced.
+        require_once dirname(__DIR__, 4) . '/modules/esim/airalo/api.php';
+        $esimModuleRow = $db->get('modules', '*', ['id' => (int) ($input['module_id'] ?? 0)])
+            ?: $db->get('modules', '*', ['type' => 'esim', 'status' => '1']);
+        $packageId = (string) ($selectedPackage['id'] ?? $selectedPackage['package_id'] ?? '');
+        $authPrice = function_exists('airalo_authoritative_price')
+            ? airalo_authoritative_price($db, (array) $esimModuleRow, $countryIso, $packageId)
+            : null;
+        if (!$authPrice || ($authPrice['price'] ?? 0) <= 0) {
+            throw new Exception('This eSIM package is no longer available. Please reselect.');
         }
-
-        // Calculate Supplier Net price (before our markup)
-        $basePrice = isset($selectedPackage['base_price']) ? (float) $selectedPackage['base_price'] : null;
-
-        $pkgType = strtolower((string) ($selectedPackage['package_type'] ?? 'all'));
-        if (!in_array($pkgType, ['all', 'global', 'local'], true)) {
-            $pkgType = 'all';
-        }
-
-        // Fetch baseline/B2C rules from database
-        $rule = $db->get('airalo_packages', ['commission_type', 'value'], [
-            'country' => $countryIso,
-            'package_type' => $pkgType,
-            'status' => 1,
-        ]);
-        if (!$rule && $pkgType !== 'all') {
-            $rule = $db->get('airalo_packages', ['commission_type', 'value'], [
-                'country' => $countryIso,
-                'package_type' => 'all',
-                'status' => 1,
-            ]);
-        }
-
-        if ($basePrice === null) {
-            $commissionType = strtolower((string) ($selectedPackage['commission_type'] ?? ''));
-            $commissionValue = isset($selectedPackage['commission_value']) ? (float) $selectedPackage['commission_value'] : null;
-
-            if ($commissionType === '' || $commissionValue === null) {
-                $commissionType = strtolower((string) ($rule['commission_type'] ?? 'fixed'));
-                $commissionValue = (float) ($rule['value'] ?? 0);
-            }
-
-            if ($commissionType === 'percentage') {
-                $denominator = 1 + ($commissionValue / 100);
-                $basePrice = $denominator > 0 ? ($price / $denominator) : $price;
-            } else {
-                $basePrice = $price - $commissionValue;
-            }
-        }
-
-        if ($basePrice < 0) {
-            $basePrice = 0;
-        }
-        if ($basePrice > $price) {
-            $basePrice = $price;
-        }
+        $price = (float) $authPrice['price'];
+        $basePrice = (float) $authPrice['base_price'];
+        $selectedPackage['price'] = $price;
+        $selectedPackage['base_price'] = $basePrice;
 
         // Package list (/api/esim/packages) already applies markup + currency conversion.
         // Use the same price the user saw — do not recalculate markup on submit.

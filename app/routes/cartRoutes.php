@@ -145,25 +145,33 @@ if (!function_exists('cart_reprice_line')) {
             $meta = ['travelers' => $travelers];
 
         } elseif ($module === 'esim') {
-            // eSIM = Airalo catalog price. The catalog is fetched live at search;
-            // we cannot cheaply re-fetch here, so we trust the line's captured
-            // sell price but re-validate the country/package is still active.
+            // eSIM = Airalo catalog price. Re-derive the authoritative sell price
+            // SERVER-SIDE from Airalo by package id (price-trust workstream); never
+            // trust the line's captured selected_package.price. Drop the line if
+            // the country is inactive or the package can no longer be priced.
             $pkg = is_array($draft['selected_package'] ?? null) ? $draft['selected_package'] : [];
             $iso = strtoupper((string) ($draft['country'] ?? $line['ref'] ?? ''));
-            if ($iso !== '') {
-                $country = $db->get('airalo_countries', ['status'], ['iso' => $iso]);
-                if (!$country || (int) ($country['status'] ?? 0) !== 1) { return null; }
-            }
+            if ($iso === '') { return null; }
+            $country = $db->get('airalo_countries', ['status'], ['iso' => $iso]);
+            if (!$country || (int) ($country['status'] ?? 0) !== 1) { return null; }
             $qty = max(1, (int) ($line['qty'] ?? 1));
-            $unit = (float) ($pkg['price'] ?? 0);
-            if ($unit <= 0) { return null; }
-            $pkgCur = strtoupper((string) ($pkg['currency'] ?? $baseCurrency)) ?: $baseCurrency;
-            $unitBase = cart_convert($db, $unit, $pkgCur, $baseCurrency);
+            $packageId = (string) ($pkg['id'] ?? $pkg['package_id'] ?? '');
+            if (!function_exists('airalo_authoritative_price')) {
+                $airaloApi = dirname(__DIR__, 1) . '/../modules/esim/airalo/api.php';
+                if (is_file($airaloApi)) { require_once $airaloApi; }
+            }
+            $esimModuleRow = $db->get('modules', '*', ['type' => 'esim', 'status' => '1']);
+            $auth = (function_exists('airalo_authoritative_price') && $esimModuleRow)
+                ? airalo_authoritative_price($db, (array) $esimModuleRow, $iso, $packageId)
+                : null;
+            if (!$auth || ($auth['price'] ?? 0) <= 0) { return null; }
+            $pkgCur = strtoupper((string) ($auth['currency'] ?? $baseCurrency)) ?: $baseCurrency;
+            $unitBase = cart_convert($db, (float) $auth['price'], $pkgCur, $baseCurrency);
             $subtotalBase = round($unitBase * $qty, 2);
-            $netBase = (float) ($pkg['base_price'] ?? 0) > 0
-                ? round(cart_convert($db, (float) $pkg['base_price'], $pkgCur, $baseCurrency) * $qty, 2)
+            $netBase = (float) ($auth['base_price'] ?? 0) > 0
+                ? round(cart_convert($db, (float) $auth['base_price'], $pkgCur, $baseCurrency) * $qty, 2)
                 : $subtotalBase;
-            $title = (string) ($pkg['title'] ?? $title);
+            $title = (string) ($auth['title'] ?? $pkg['title'] ?? $title);
             $meta = ['qty' => $qty];
         } else {
             return null;
