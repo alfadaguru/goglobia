@@ -289,6 +289,16 @@ if (!empty($paymentGateways)) {
                                     <span x-show="!submitting">Confirm Booking</span>
                                     <span x-show="submitting">Processing...</span>
                                 </button>
+
+                                <!-- ADD TO CART BUTTON -->
+                                <button type="button" @click="addToCart()"
+                                    class="btn btn-outline w-full mt-3"
+                                    :disabled="cartAdding || !selectedPackage"
+                                    :class="{ 'opacity-50 cursor-not-allowed': cartAdding || !selectedPackage }">
+                                    <span class="material-symbols-outlined"
+                                        x-text="cartAdded ? 'check' : 'add_shopping_cart'"></span>
+                                    <span x-text="cartAdding ? 'Adding…' : (cartAdded ? 'Added to cart' : 'Add to cart')"></span>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -425,6 +435,8 @@ if (!empty($paymentGateways)) {
             alertType: 'error',
             alertMessage: '',
             submitting: false,
+            cartAdding: false,
+            cartAdded: false,
 
             couponCode: '',
             couponApplied: false,
@@ -617,6 +629,55 @@ if (!empty($paymentGateways)) {
                 } finally {
                     this.loadingPackages = false;
                 }
+            },
+
+            // Add the selected eSIM package to the general cart. The cart
+            // (app/routes/cartRoutes.php) trusts the package sell price but
+            // re-validates the country is active in airalo_countries.
+            async addToCart() {
+                if (this.cartAdding) return;
+                if (!this.selectedPackage) {
+                    this.showToast('Please select a package first.');
+                    return;
+                }
+                this.cartAdding = true;
+                try {
+                    const csrf = document.querySelector('meta[name="csrf-token"]')?.content
+                        || document.querySelector('input[name="csrf_token"]')?.value || '';
+                    const iso = '<?= htmlspecialchars($countryCode, ENT_QUOTES, 'UTF-8') ?>';
+                    const qty = Math.max(1, Number(this.formData.airalo_order.quantity || 1));
+                    const draft = {
+                        country: iso,
+                        selected_package: this.selectedPackage,
+                        qty: qty,
+                    };
+                    const res = await fetch('<?= root ?>cart/add', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf },
+                        body: JSON.stringify({
+                            csrf_token: csrf,
+                            module: 'esim',
+                            ref: iso,
+                            qty: qty,
+                            title: this.selectedPackage.title || ('eSIM - ' + iso),
+                            image: '',
+                            pax: { qty: qty },
+                            draft: draft
+                        })
+                    });
+                    const json = await res.json();
+                    if (json.success) {
+                        this.cartAdded = true;
+                        window.dispatchEvent(new CustomEvent('cart:updated', { detail: json.cart }));
+                        setTimeout(() => { this.cartAdded = false; }, 2500);
+                    } else {
+                        this.showToast(json.message || 'Could not add to cart.');
+                    }
+                } catch (e) {
+                    console.error('Add to cart error:', e);
+                    this.showToast('Could not add to cart. Please try again.');
+                }
+                this.cartAdding = false;
             },
 
             async submitBooking() {

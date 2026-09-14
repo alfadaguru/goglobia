@@ -327,6 +327,179 @@ $router->post('/cart/clear', function () use ($SECURE, $db) {
     cart_json(['success' => true, 'cart' => cart_reprice($db)]);
 });
 
+// ---------------------------------------------------------------------------
+// CHECKOUT — one payment for the whole cart.
+// Builds ONE ai_trip-style package booking (module_type='ai_trip') whose
+// booking_data.items[] are the cart lines, so the existing invoice + per-item
+// issue machinery (modules/ai_trip/ai_trip/issue.php) pays and confirms it
+// unchanged. The coupon applies to the whole-cart base total. Everything is
+// recomputed SERVER-SIDE here again — the session is never trusted.
+//   POST /cart/checkout { first_name, last_name, email, phone, promo_code, csrf_token }
+// ---------------------------------------------------------------------------
+$router->post('/cart/checkout', function () use ($SECURE, $db) {
+    $in = cart_body();
+    cart_csrf_guard($in);
+
+    $cart = cart_reprice($db);
+    if (empty($cart['items'])) {
+        cart_json(['success' => false, 'message' => 'Your cart is empty.'], 409);
+    }
+
+    $firstName = trim((string) ($in['first_name'] ?? ''));
+    $lastName  = trim((string) ($in['last_name'] ?? ''));
+    $email     = trim((string) ($in['email'] ?? ''));
+    $phone     = trim((string) ($in['phone'] ?? ''));
+    if ($firstName === '') { cart_json(['success' => false, 'message' => 'Please enter your name.'], 422); }
+    if ($email === '' && $phone === '') { cart_json(['success' => false, 'message' => 'Enter your email or phone.'], 422); }
+    if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) { cart_json(['success' => false, 'message' => 'Enter a valid email.'], 422); }
+
+    $baseCurrency = (string) $cart['base_currency'];
+    $userId = $_SESSION['user_id'] ?? null;
+
+    // Build the package items[] from the repriced lines. Each entry carries what
+    // ai_trip/issue.php needs: module, supplier, price_base, currency, pnr='',
+    // and the module draft as `detail`.
+    $packageItems = [];
+    $subtotalBase = 0.0; $taxBase = 0.0; $netBase = 0.0;
+    foreach ($cart['items'] as $it) {
+        $module = (string) $it['module'];
+        $draft  = is_array($it['draft'] ?? null) ? $it['draft'] : [];
+        $supplier = (string) ($draft['supplier'] ?? $module);
+        $packageItems[] = [
+            'module'      => $module,
+            'supplier'    => $supplier,
+            'title'       => (string) $it['title'],
+            'image'       => (string) ($it['image'] ?? ''),
+            'ref'         => (string) $it['ref'],
+            'meta'        => $it['meta'] ?? [],
+            'pnr'         => '',
+            'issue_status'=> 'pending',
+            'price_base'  => (float) $it['final_base'],
+            'price'       => (float) $it['final_base'],
+            'net_base'    => (float) $it['net_base'],
+            'tax_base'    => (float) $it['tax_base'],
+            'currency'    => $baseCurrency,
+            'detail'      => $draft,
+        ];
+        $subtotalBase += (float) $it['subtotal_base'];
+        $taxBase      += (float) $it['tax_base'];
+        $netBase      += (float) $it['net_base'];
+    }
+    $subtotalBase = round($subtotalBase, 2);
+    $taxBase = round($taxBase, 2);
+    $netBase = round($netBase, 2);
+    $grandBase = round($cart['grand_base'], 2); // subtotal + tax across lines
+
+    // Coupon — recompute server-side against the whole-cart base total (module 'cart').
+    $promoCodeStr = trim((string) ($in['promo_code'] ?? ''));
+    $promoDiscount = 0.0; $promoData = null; $promoCodeJson = null;
+    if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
+        $pr = promoResolveForBooking($db, $promoCodeStr, $grandBase, 'cart', $baseCurrency, [
+            'user_id'    => $userId,
+            'user_email' => $email ?: null,
+        ]);
+        $promoDiscount = (float) $pr['discount'];
+        $promoData     = $pr['promo'];
+        $promoCodeJson = $pr['json'];
+    }
+
+    $payableBase = round(max(0, $grandBase - $promoDiscount), 2);
+    if ($payableBase <= 0) { cart_json(['success' => false, 'message' => 'Cart total is invalid.'], 409); }
+    $commission = round(max(0, $payableBase - $netBase - $taxBase), 2);
+
+    // One package booking row. module_type='ai_trip' so the existing invoice +
+    // issue path handles it. AITP prefix matches the AI package convention.
+    $packageId = 'AITP' . strtoupper(bin2hex(random_bytes(5)));
+    $invoiceId = $packageId;
+
+    $primaryGuest = ['first_name' => $firstName, 'last_name' => $lastName, 'email' => $email, 'phone' => $phone];
+    $bookingData = [
+        'source'             => 'cart',
+        'package_id'         => $packageId,
+        'ai_trip_package_id' => $packageId,
+        'items'              => $packageItems,
+        'items_count'        => count($packageItems),
+        'subtotal'           => $subtotalBase,
+        'base_price'         => $netBase,
+        'tax_amount'         => $taxBase,
+        'promo_discount'     => $promoDiscount,
+        'final_total'        => $payableBase,
+        'final_total_base'   => $payableBase,
+        'display_total'      => round($cart['grand_total'], 2),
+        'base_currency'      => $baseCurrency,
+        'display_currency'   => (string) $cart['currency'],
+        'guest'              => $primaryGuest,
+    ];
+
+    $userData = null;
+    if ($userId) { $userData = $db->get('users', '*', ['user_id' => $userId]); }
+
+    $ok = $db->insert('bookings', [
+        'invoice_id'           => $invoiceId,
+        'language'             => function_exists('getCurrentLanguage') ? getCurrentLanguage() : 'en',
+        'booking_status'       => 'pending',
+        'payment_status'       => 'unpaid',
+        'price_original'       => $netBase,
+        'price_markup'         => $payableBase,
+        'agent_earning'        => '0',
+        'tax_type'             => '',
+        'tax'                  => (string) $taxBase,
+        'first_name'           => $firstName,
+        'last_name'            => $lastName,
+        'email'                => $email,
+        'phone_country_code'   => '',
+        'phone'                => $phone,
+        'country'              => '',
+        'address'              => '',
+        'adults'               => 1,
+        'infants'              => '0',
+        'childs'               => 0,
+        'child_ages'           => '[]',
+        'currency_markup'      => $baseCurrency,
+        'cancellation_request' => 0,
+        'cancellation_status'  => 0,
+        'booking_data'         => json_encode($bookingData),
+        'transaction_id'       => $packageId,
+        'user_id'              => (string) ($userId ?? ''),
+        'user_data'            => $userData ? json_encode($userData) : null,
+        'travellers'           => json_encode(['primary_guest' => $primaryGuest]),
+        'nationality'          => '',
+        'payment_gateway'      => '',
+        'module_type'          => 'ai_trip',
+        'pnr'                  => '',
+        'commission'           => (string) $commission,
+        'module'               => 'ai_trip',
+        'special_requests'     => '',
+        'promo_codes'          => $promoCodeJson,
+        'booking_date'         => date('Y-m-d H:i:s'),
+        'created_at'           => date('Y-m-d H:i:s'),
+    ]);
+    if (!$ok) {
+        cart_json(['success' => false, 'message' => 'Could not start checkout. Please try again.'], 500);
+    }
+
+    // Record coupon usage idempotently (per invoice) — bumps used_count + ledger.
+    if ($promoCodeStr !== '' && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
+        recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?: null, $email ?: null, (float) $promoDiscount, 'cart', $baseCurrency);
+    }
+
+    // Success: clear the cart and send the customer to the package invoice, where
+    // the existing payment flow charges the single price_markup total.
+    $_SESSION['cart'] = [];
+    // Guest allow-list so they can view/pay this package without an account.
+    if (!$userId) {
+        $_SESSION['cart_guest_bookings'] = array_values(array_unique(array_merge(
+            (array) ($_SESSION['cart_guest_bookings'] ?? []), [$invoiceId]
+        )));
+    }
+
+    cart_json([
+        'success'      => true,
+        'invoice_id'   => $invoiceId,
+        'redirect_url' => root . 'invoice/ai_trip/' . $invoiceId,
+    ]);
+});
+
 // The cart PAGE (HTML). Lists lines, applies a coupon, and checks out.
 $router->get('/cart', function () use ($SECURE, $db) {
     $cartCsrf = class_exists('CSRF') ? CSRF::getToken() : '';
