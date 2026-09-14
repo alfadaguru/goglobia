@@ -227,7 +227,7 @@ $router->post('/api/visa/booking/submit', function () use ($SECURE, $db) {
             'visa_type_name' => $visaTypeData ?? $bookingData['visa_type'],
             'processing_speed' => $bookingData['processing_speed'],
             'processing_speed_name' => $processingSpeedData ?? $bookingData['processing_speed'],
-            'entry_date' => $bookingData['entry_date'],
+            'entry_date' => $bookingData['entry_date'] ?? '',
             'travelers_count' => count($travelers),
             'travelers' => $travelers,
             'special_requests' => $specialRequests,
