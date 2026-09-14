@@ -14,7 +14,7 @@
  */
 
 // Bump this string to force clients onto a fresh cache (e.g. after asset changes).
-const CACHE_VERSION = 'goglobia-v1';
+const CACHE_VERSION = 'goglobia-v2';
 const OFFLINE_URL = 'offline.html';
 
 // Minimal precache: the offline fallback + core icons. Relative to SW scope.
@@ -74,6 +74,9 @@ self.addEventListener('fetch', (event) => {
   if (isNeverCache(url)) return; // network only, no SW involvement
 
   // Static assets: cache-first, then network (and populate cache on success).
+  // respondWith() MUST always resolve to a real Response — never undefined, or
+  // the browser raises "Failed to convert value to 'Response'" and the request
+  // errors. So every branch below ends in a Response.
   if (isStaticAsset(url)) {
     event.respondWith(
       caches.match(req).then((cached) => {
@@ -84,7 +87,7 @@ self.addEventListener('fetch', (event) => {
             caches.open(CACHE_VERSION).then((cache) => cache.put(req, copy));
           }
           return resp;
-        }).catch(() => cached); // if offline and not cached, undefined → browser error
+        }).catch(() => cached || Response.error()); // offline + uncached → a real (error) Response, never undefined
       })
     );
     return;
@@ -102,6 +105,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Default: try network, fall back to any cached copy.
-  event.respondWith(fetch(req).catch(() => caches.match(req)));
+  // Default: try network, fall back to any cached copy — and if that misses,
+  // still return a real Response (never undefined → never a synthetic error).
+  event.respondWith(
+    fetch(req).catch(() =>
+      caches.match(req).then((cached) => cached || Response.error())
+    )
+  );
 });
