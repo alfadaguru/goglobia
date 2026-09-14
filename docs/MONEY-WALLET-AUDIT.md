@@ -714,3 +714,26 @@ Journeys** (`/admin/finance/journeys`).
   payments correctly show "no wallet movement".
 - Route: `app/routes/admin/moneyRoutes.php`; view: `app/views/admin/money/journeys.php`;
   ADMIN_AUTH-gated, read-only. Verified rendering list + detail with live data.
+
+---
+
+## §H — Admin member drill-down + an enum bug it exposed
+
+Per-member money view: from **Finance → Members**, a member name links to
+`GET /admin/finance/members/{user_id}` showing, for that one user: profile +
+status, wallet balance, tier (+ lifetime top-up) or credit line, loyalty points,
+money-flow totals (top-ups / spend / refunds), the full spine **transactions**
+list (each row links to its journey), and the **loyalty ledger**. Route:
+`app/routes/admin/moneyRoutes.php`; view: `app/views/admin/money/member-detail.php`.
+
+**Bug the drill-down exposed and fixed:** `money_transactions.reason` is an ENUM
+(`wallet_topup, booking_payment, wallet_spend, refund, reversal, fee,
+loyalty_convert, adjustment`). `wallet_spend()` accepted `'booking'` as a reason
+and passed it straight through, but `'booking'` is **not** in that ENUM, so MySQL
+silently stored it as `''` — every wallet booking spend was uncategorised and
+invisible to reason-filtered totals (the drill-down showed spend = 0 despite a
+real charge). Fixed at the source: `txn_create()` now normalises the reason,
+maps aliases (`booking`→`booking_payment`, `topup`→`wallet_topup`, …) and stores
+only a valid enum value. Verified live: agent booking spend now records
+`booking_payment` and the drill-down spend total is correct. This also corrects
+the Journeys list and every reason-filtered report.

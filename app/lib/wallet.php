@@ -172,12 +172,24 @@ if (!function_exists('txn_create')) {
         $userId   = (string) ($in['user_id'] ?? '');
         $currency = strtoupper(trim((string) ($in['currency'] ?? ''))) ?: wallet_default_currency($db);
         $ref      = wallet_txn_ref();
+
+        // ENUM-SAFE reason (audit money-integrity): money_transactions.reason is an
+        // ENUM. An out-of-enum value (e.g. 'booking', which callers pass) is
+        // SILENTLY stored by MySQL as '' — making the movement uncategorised and
+        // invisible to reason-filtered totals/reports. Normalise + map aliases so
+        // a valid enum value is ALWAYS stored.
+        $reasonIn  = (string) ($in['reason'] ?? 'adjustment');
+        $reasonMap = ['booking' => 'booking_payment', 'topup' => 'wallet_topup', 'spend' => 'wallet_spend', 'convert' => 'loyalty_convert', '' => 'adjustment'];
+        $reasonIn  = $reasonMap[$reasonIn] ?? $reasonIn;
+        $reasonEnum = ['wallet_topup','booking_payment','wallet_spend','refund','reversal','fee','loyalty_convert','adjustment'];
+        $reason    = in_array($reasonIn, $reasonEnum, true) ? $reasonIn : 'adjustment';
+
         $db->insert('money_transactions', [
             'txn_ref'         => $ref,
             'user_id'         => $userId,
             'actor_kind'      => in_array(($in['actor_kind'] ?? ''), ['customer','agent','admin','system'], true) ? $in['actor_kind'] : wallet_kind_for_user($db, $userId),
             'direction'       => ($in['direction'] ?? 'debit') === 'credit' ? 'credit' : 'debit',
-            'reason'          => (string) ($in['reason'] ?? 'adjustment'),
+            'reason'          => $reason,
             'amount'          => round((float) ($in['amount'] ?? 0), 2),
             'currency'        => $currency,
             'method'          => in_array(($in['method'] ?? ''), ['gateway','wallet','manual'], true) ? $in['method'] : 'wallet',
@@ -190,7 +202,7 @@ if (!function_exists('txn_create')) {
             'created_at'      => date('Y-m-d H:i:s'),
         ]);
         $id = (int) $db->id();
-        txn_journey_add($db, $id, null, 'pending', 'created (' . ($in['reason'] ?? '') . ')');
+        txn_journey_add($db, $id, null, 'pending', 'created (' . $reason . ')');
         return $db->get('money_transactions', '*', ['id' => $id]);
     }
 }

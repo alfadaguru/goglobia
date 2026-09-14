@@ -103,7 +103,7 @@ $fmtName = function ($r) {
                         <?php else: foreach ($agents as $a): ?>
                             <tr class="border-b border-slate-100 hover:bg-slate-50">
                                 <td class="px-4 py-3">
-                                    <div class="font-medium text-slate-800"><?= htmlspecialchars($fmtName($a)) ?></div>
+                                    <a href="<?= root . admin ?>/finance/members/<?= htmlspecialchars(rawurlencode((string)$a['user_id'])) ?>" class="font-medium text-primary hover:underline"><?= htmlspecialchars($fmtName($a)) ?></a>
                                     <div class="text-[11px] text-slate-400"><?= htmlspecialchars((string)$a['user_id']) ?></div>
                                 </td>
                                 <td class="px-4 py-3">
@@ -137,7 +137,7 @@ $fmtName = function ($r) {
                         <?php else: foreach ($customers as $c): ?>
                             <tr class="border-b border-slate-100 hover:bg-slate-50">
                                 <td class="px-4 py-3">
-                                    <div class="font-medium text-slate-800"><?= htmlspecialchars($fmtName($c)) ?></div>
+                                    <a href="<?= root . admin ?>/finance/members/<?= htmlspecialchars(rawurlencode((string)$c['user_id'])) ?>" class="font-medium text-primary hover:underline"><?= htmlspecialchars($fmtName($c)) ?></a>
                                     <div class="text-[11px] text-slate-400"><?= htmlspecialchars((string)$c['user_id']) ?></div>
                                 </td>
                                 <td class="px-4 py-3 text-right tabular-nums font-medium"><?= number_format((int)$c['loyalty_points']) ?></td>
