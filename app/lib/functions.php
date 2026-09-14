@@ -3314,6 +3314,83 @@ if (!function_exists('applyInvoiceSessionCurrency')) {
     }
 }
 
+if (!function_exists('detectGeoCurrency')) {
+    /**
+     * GEO CURRENCY (step 3): best-effort map of the VISITOR's country to an
+     * enabled currency, so a first-time visitor sees prices in their local
+     * currency (e.g. a Nigerian visitor -> NGN) without picking anything.
+     *
+     * Rules that keep this safe on every page load:
+     *   - Runs the external lookup AT MOST ONCE per session (result cached in
+     *     $_SESSION['app_geo_currency']; the attempt is flagged so we never retry
+     *     within a session even on failure).
+     *   - Local/private IPs (dev) are skipped -> returns '' (caller falls back to
+     *     the DB default).
+     *   - The lookup (ipwhois.app, free, no key) has a 3s timeout and is fully
+     *     silenced; ANY failure returns '' — it never blocks or slows the page.
+     *   - Maps the ISO-2 country to an ENABLED currency via currencies.country.
+     *     No match -> '' (fall back to DB default).
+     *
+     * Returns an uppercased currency code, or '' when it can't determine one.
+     */
+    function detectGeoCurrency($db = null): string
+    {
+        // Cached for the whole session (one attempt max).
+        if (array_key_exists('app_geo_currency', $_SESSION)) {
+            return (string) $_SESSION['app_geo_currency'];
+        }
+
+        // Resolve a usable DB handle (be robust about scope): prefer the passed
+        // one, else the global. If neither is a Medoo instance, bail safely.
+        if (!($db instanceof \Medoo\Medoo)) {
+            $db = $GLOBALS['db'] ?? null;
+        }
+        if (!($db instanceof \Medoo\Medoo)) {
+            $_SESSION['app_geo_currency'] = '';
+            return '';
+        }
+
+        $result = ''; // default: unknown -> caller uses DB default
+
+        // Resolve the client IP (proxy/CDN aware).
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+            $ip = $_SERVER['HTTP_CF_CONNECTING_IP'];
+        } elseif (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+            $ip = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]);
+        }
+        $ip = trim((string) $ip);
+
+        // Skip local/private/reserved IPs — nothing to geolocate (dev, LAN).
+        $isPublic = $ip !== '' && filter_var(
+            $ip,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        );
+
+        if ($isPublic) {
+            try {
+                $ctx = stream_context_create(['http' => ['timeout' => 3, 'user_agent' => 'Goglobia/1.0']]);
+                $resp = @file_get_contents('https://ipwhois.app/json/' . urlencode($ip) . '?fields=success,country_code', false, $ctx);
+                if ($resp) {
+                    $data = json_decode($resp, true);
+                    $iso = strtoupper(trim((string) ($data['country_code'] ?? '')));
+                    if ($iso !== '') {
+                        // Map the country ISO-2 to an ENABLED currency.
+                        $cur = $db->get('currencies', 'name', ['country' => $iso, 'status' => '1']);
+                        if ($cur) { $result = strtoupper(trim((string) $cur)); }
+                    }
+                }
+            } catch (\Throwable $e) {
+                error_log('detectGeoCurrency: ' . $e->getMessage());
+            }
+        }
+
+        $_SESSION['app_geo_currency'] = $result; // cache (even '' — don't retry)
+        return $result;
+    }
+}
+
 if (!function_exists('countriesList')) {
     /**
      * Per-request cache of the active country list (iso + nicename, name-sorted).
