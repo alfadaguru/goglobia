@@ -423,6 +423,11 @@ $router->post('/cart/checkout', function () use ($SECURE, $db) {
         'base_price'         => $netBase,
         'tax_amount'         => $taxBase,
         'promo_discount'     => $promoDiscount,
+        // payable_total is the authoritative charged amount the ai_trip invoice
+        // reads FIRST (app/views/ai/invoice.php:251). Set it to the coupon-
+        // discounted total so the invoice never re-sums line items (which would
+        // drop the discount and mishandle visa lines). Must equal price_markup.
+        'payable_total'      => $payableBase,
         'final_total'        => $payableBase,
         'final_total_base'   => $payableBase,
         'display_total'      => round($cart['grand_total'], 2),
