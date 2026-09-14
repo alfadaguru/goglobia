@@ -531,6 +531,60 @@ if (!function_exists('payment_gateway_allowed_for_actor')) {
     }
 }
 
+if (!function_exists('payment_gateway_allowed_for_currency')) {
+    /**
+     * CURRENCY ROUTING (step 2): which EXTERNAL gateway may process a given
+     * payment currency. Owner's rule: NGN -> Paystack (the NGN gateway); every
+     * other currency -> Stripe (the designated foreign-currency gateway).
+     *
+     * Implemented data-driven, not by hardcoded name:
+     *   - internal_wallet gateways are currency-agnostic (the wallet is already
+     *     in the user's own currency) -> always allowed here.
+     *   - For an external gateway, it is allowed for $payCurrency when its own
+     *     configured `currency` equals $payCurrency (exact match). This makes
+     *     Paystack(NGN) handle NGN and Stripe(USD) handle USD.
+     *   - Fallback so "all other currencies -> Stripe" holds even for currencies
+     *     no gateway is explicitly tagged with (EUR, GBP, ...): if NO enabled
+     *     external gateway matches $payCurrency exactly, allow the non-NGN
+     *     external gateway(s) (i.e. Stripe) and block the NGN one (Paystack).
+     *
+     * @param array  $gateway     a payment_gateways row (needs type, currency)
+     * @param string $payCurrency the currency the payment will be made in
+     */
+    function payment_gateway_allowed_for_currency($db, array $gateway, string $payCurrency): bool
+    {
+        $type = (string) ($gateway['type'] ?? '');
+        if ($type === 'internal_wallet') { return true; } // wallet: currency-agnostic
+
+        $payCurrency = strtoupper(trim($payCurrency));
+        if ($payCurrency === '') { return true; } // no currency context: don't filter
+
+        $gwCurrency = strtoupper(trim((string) ($gateway['currency'] ?? '')));
+
+        // Exact match always wins (Paystack=NGN for NGN, Stripe=USD for USD).
+        if ($gwCurrency === $payCurrency) { return true; }
+
+        // No exact-match gateway for this currency? Route to the non-NGN gateway.
+        // (Paystack only supports NGN here; Stripe handles all other currencies.)
+        // Determine if ANY enabled+active external gateway matches exactly.
+        static $exactByCur = [];
+        if (!array_key_exists($payCurrency, $exactByCur)) {
+            $exactByCur[$payCurrency] = (int) $db->count('payment_gateways', [
+                'status'      => '1',
+                'active'      => '1',
+                'type[!]'     => 'internal_wallet',
+                'currency'    => $payCurrency,
+            ]) > 0;
+        }
+        if ($exactByCur[$payCurrency]) {
+            // Some gateway matches this currency exactly, and it isn't this one.
+            return false;
+        }
+        // Fallback: allow any NON-NGN external gateway (Stripe), block the NGN one.
+        return $gwCurrency !== 'NGN';
+    }
+}
+
 if (!function_exists('wallet_topup_success')) {
     /**
      * Finalise a successful top-up: mark the transaction success and credit the
