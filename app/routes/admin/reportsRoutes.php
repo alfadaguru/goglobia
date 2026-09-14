@@ -4,6 +4,34 @@
 // ============================================================================
 @$SECURE or die('Access Denied!');
 
+// Shared CSV streamer for report exports. Sets download headers, writes a header
+// row then each data row, with a formula-injection guard (a cell starting with
+// = + - @ or tab/CR becomes a live formula in Excel/Sheets — prefix it with a
+// quote so it renders as text). Ends the request.
+if (!function_exists('_report_stream_csv')) {
+    function _report_stream_csv(string $filename, array $header, array $rows): void {
+        while (ob_get_level()) { ob_end_clean(); }
+        $safeName = preg_replace('/[^A-Za-z0-9_\-.]/', '_', $filename);
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $safeName . '"');
+        header('Cache-Control: no-store');
+        $csvSafe = static function ($v): string {
+            $v = (string) $v;
+            if ($v !== '' && preg_match('/^[=+\-@\t\r]/', $v)) { return "'" . $v; }
+            return $v;
+        };
+        $out = fopen('php://output', 'w');
+        // Excel-friendly UTF-8 BOM.
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, array_map($csvSafe, $header));
+        foreach ($rows as $r) {
+            fputcsv($out, array_map($csvSafe, $r));
+        }
+        fclose($out);
+        exit;
+    }
+}
+
 // Booking Logs
 $router->get(admin.'/reports/booking-logs(.*)', function () use ($SECURE, $db) {
     if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== admin) {
@@ -195,6 +223,40 @@ $router->get(admin.'/reports/finance', function () use ($SECURE, $db) {
 
     $defaultCurrency = $db->get('currencies', 'name', ['default' => '1']) ?: 'USD';
 
+    // CSV export (same aggregation, no view). ?format=csv
+    if (($_GET['format'] ?? '') === 'csv') {
+        $csvRows = [];
+        foreach ($byModule as $row) {
+            $csvRows[] = [
+                ucfirst((string)$row['module']), (int)$row['count'],
+                number_format((float)$row['revenue'], 2, '.', ''),
+                number_format((float)$row['cost'], 2, '.', ''),
+                number_format((float)$row['agent_earning'], 2, '.', ''),
+                number_format((float)$row['tax'], 2, '.', ''),
+                number_format((float)$row['net_profit'], 2, '.', ''),
+            ];
+        }
+        $csvRows[] = ['TOTAL', (int)$tot['count'],
+            number_format((float)$tot['revenue'], 2, '.', ''),
+            number_format((float)$tot['cost'], 2, '.', ''),
+            number_format((float)$tot['agent_earning'], 2, '.', ''),
+            number_format((float)$tot['tax'], 2, '.', ''),
+            number_format((float)$tot['net_profit'], 2, '.', ''),
+        ];
+        // Blank line, then wallet cash-flow summary.
+        $csvRows[] = [];
+        $csvRows[] = ['Wallet cash flow (' . $defaultCurrency . ')'];
+        $csvRows[] = ['Wallet top-ups', number_format((float)$spine['topups'], 2, '.', '')];
+        $csvRows[] = ['Paid from wallet', number_format((float)$spine['wallet_payments'], 2, '.', '')];
+        $csvRows[] = ['Paid by gateway', number_format((float)$spine['gateway_payments'], 2, '.', '')];
+        $csvRows[] = ['Refunds', number_format((float)$spine['refunds'], 2, '.', '')];
+        _report_stream_csv(
+            'finance-report_' . $from . '_to_' . $to . '.csv',
+            ['Module', 'Bookings', 'Revenue (' . $defaultCurrency . ')', 'Cost', 'Agent earnings', 'Tax', 'Net profit'],
+            $csvRows
+        );
+    }
+
     $title = 'Finance Report - ' . ($GLOBALS['app']['home_title'] ?? 'Admin');
     $description = 'Revenue, cost, profit and cash flow';
 
@@ -273,6 +335,28 @@ $router->get(admin.'/reports/agent-commissions', function () use ($SECURE, $db) 
     $defaultCurrency = $db->get('currencies', 'name', ['default' => '1']) ?: 'USD';
     $view = 'summary';
 
+    // CSV export (per-agent). ?format=csv
+    if (($_GET['format'] ?? '') === 'csv') {
+        $csvRows = [];
+        foreach ($byAgent as $a) {
+            $csvRows[] = [
+                (string)$a['name'], (string)$a['email'], (string)$a['user_id'],
+                (int)$a['count'],
+                number_format((float)$a['sales'], 2, '.', ''),
+                number_format((float)$a['earning'], 2, '.', ''),
+            ];
+        }
+        $csvRows[] = ['TOTAL', '', '', (int)$tot['count'],
+            number_format((float)$tot['sales'], 2, '.', ''),
+            number_format((float)$tot['earning'], 2, '.', ''),
+        ];
+        _report_stream_csv(
+            'agent-commissions_' . $from . '_to_' . $to . '.csv',
+            ['Agent', 'Email', 'User ID', 'Paid bookings', 'Sales (' . $defaultCurrency . ')', 'Commission'],
+            $csvRows
+        );
+    }
+
     $title = 'Agent Commissions - ' . ($GLOBALS['app']['home_title'] ?? 'Admin');
     $description = 'Per-agent commission statements';
     require_once views."includes/header.php";
@@ -313,6 +397,30 @@ $router->get(admin.'/reports/agent-commissions/([A-Za-z0-9_\-]+)', function ($ui
 
     $defaultCurrency = $db->get('currencies', 'name', ['default' => '1']) ?: 'USD';
     $view = 'statement';
+
+    // CSV export (per-booking statement). ?format=csv
+    if (($_GET['format'] ?? '') === 'csv') {
+        $csvRows = [];
+        foreach ($lines as $l) {
+            $csvRows[] = [
+                (string)$l['invoice_id'], ucfirst((string)$l['module']), (string)$l['when'],
+                number_format((float)$l['sale'], 2, '.', ''),
+                number_format((float)$l['cost'], 2, '.', ''),
+                number_format((float)$l['earning'], 2, '.', ''),
+            ];
+        }
+        $csvRows[] = ['TOTAL', '', (int)$tot['count'] . ' bookings',
+            number_format((float)$tot['sales'], 2, '.', ''),
+            number_format((float)$tot['cost'], 2, '.', ''),
+            number_format((float)$tot['earning'], 2, '.', ''),
+        ];
+        $agentSlug = $agent ? preg_replace('/[^A-Za-z0-9_\-]/', '_', (string)$agent['user_id']) : 'agent';
+        _report_stream_csv(
+            'agent-statement_' . $agentSlug . '_' . $from . '_to_' . $to . '.csv',
+            ['Invoice', 'Module', 'Paid', 'Sale (' . $defaultCurrency . ')', 'Cost', 'Commission'],
+            $csvRows
+        );
+    }
 
     $title = 'Agent Statement - ' . ($GLOBALS['app']['home_title'] ?? 'Admin');
     $description = 'Agent commission statement';

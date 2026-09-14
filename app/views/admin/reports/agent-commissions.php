@@ -30,9 +30,14 @@ $rangeQs = http_build_query(['from' => $from, 'to' => $to]);
                 <p class="text-sm text-slate-500 mt-0.5"><?= htmlspecialchars($from) ?> to <?= htmlspecialchars($to) ?></p>
             </div>
         </div>
-        <button type="button" onclick="window.print()" class="btn secondary inline-flex items-center gap-2 no-print">
-            <span class="material-symbols-outlined text-[18px]">print</span> Print
-        </button>
+        <div class="flex items-center gap-2 no-print">
+            <a href="<?= root . admin ?>/reports/agent-commissions/<?= htmlspecialchars(rawurlencode((string)($agent['user_id'] ?? ''))) ?>?<?= htmlspecialchars($rangeQs) ?>&format=csv" class="btn secondary inline-flex items-center gap-2">
+                <span class="material-symbols-outlined text-[18px]">download</span> CSV
+            </a>
+            <button type="button" onclick="window.print()" class="btn secondary inline-flex items-center gap-2">
+                <span class="material-symbols-outlined text-[18px]">print</span> Print
+            </button>
+        </div>
     </div>
 
     <?php if (!$agent): ?>
@@ -125,6 +130,9 @@ $rangeQs = http_build_query(['from' => $from, 'to' => $to]);
                 <input type="date" name="to" value="<?= htmlspecialchars($to) ?>" class="input">
             </div>
             <button type="submit" class="btn primary">Run</button>
+            <a href="<?= root . admin ?>/reports/agent-commissions?<?= htmlspecialchars($rangeQs) ?>&format=csv" class="btn secondary inline-flex items-center gap-1">
+                <span class="material-symbols-outlined text-[18px]">download</span> CSV
+            </a>
         </form>
     </div>
 
