@@ -705,6 +705,13 @@ $router->post('/api/visas/booking/submit', function () use ($db) {
         // --------------------------------------------------
         // RESPONSE
         // --------------------------------------------------
+        // Let the (possibly guest) session that created this invoice view it —
+        // otherwise enforceInvoiceAccess() bounces them to /login on their own
+        // fresh invoice (see grantInvoiceSessionOwnership()).
+        if (function_exists('grantInvoiceSessionOwnership')) {
+            grantInvoiceSessionOwnership($invoiceId);
+        }
+
         echo json_encode([
             'success' => true,
             'message' => 'Visa inquiry submitted successfully! Our team will contact you shortly.',

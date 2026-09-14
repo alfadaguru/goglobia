@@ -142,6 +142,13 @@ $router->post('/api/rail/booking/submit', function () use ($db) {
         agent_api_settle_booking($db, 'rail', $created['booking_id'] ?? 0, (string) ($created['invoice_id'] ?? ''), (float) ($created['final_price'] ?? 0));
         $db->delete('logs_bookings', ['hash' => $hash]);
 
+        // Let the (possibly guest) session that created this invoice view it —
+        // otherwise enforceInvoiceAccess() bounces them to /login on their own
+        // fresh invoice (see grantInvoiceSessionOwnership()).
+        if (function_exists('grantInvoiceSessionOwnership')) {
+            grantInvoiceSessionOwnership($created['invoice_id'] ?? '');
+        }
+
         _train_respond(true, 'Booking created successfully. Complete payment to issue tickets.', [
             'invoice_id'   => $created['invoice_id'],
             'booking_id'   => $created['booking_id'],
@@ -177,6 +184,13 @@ $router->post('/api/rail/booking/order', function () use ($db) {
         $created = _train_create_booking($db, $input, $userCtx);
         // AGENT API — wallet settlement (no-op unless agent-API request).
         agent_api_settle_booking($db, 'rail', $created['booking_id'] ?? 0, (string) ($created['invoice_id'] ?? ''), (float) ($created['final_price'] ?? 0));
+
+        // Let the (possibly guest) session that created this invoice view it —
+        // otherwise enforceInvoiceAccess() bounces them to /login on their own
+        // fresh invoice (see grantInvoiceSessionOwnership()).
+        if (function_exists('grantInvoiceSessionOwnership')) {
+            grantInvoiceSessionOwnership($created['invoice_id'] ?? '');
+        }
 
         _train_respond(true, 'Booking created successfully. Complete payment to issue tickets.', [
             'invoice_id'   => $created['invoice_id'],

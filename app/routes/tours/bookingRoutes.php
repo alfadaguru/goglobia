@@ -103,11 +103,18 @@ $router->post('/api/tour/booking/save-draft', function () use ($SECURE, $db) {
 $router->get('/api/tour/booking/download-invoice/([A-Z0-9]{8})', function ($invoiceId) use ($SECURE, $db) {
     try {
         // Check if it's a tour booking
-        $booking = $db->get('bookings', ['invoice_id', 'module_type'], ['invoice_id' => $invoiceId]);
+        $booking = $db->get('bookings', ['invoice_id', 'module_type', 'user_id'], ['invoice_id' => $invoiceId]);
 
         if (!$booking) {
             http_response_code(404);
             die('Invoice not found');
+        }
+
+        // IDOR GUARD: the PDF contains customer PII + pricing. Restrict to
+        // admin / owner / creating session / valid payment token. Was
+        // previously unauthenticated. enforceInvoiceAccess() exits on denial.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
         }
 
         // Always generate/refresh PDF before download
@@ -616,6 +623,13 @@ $router->post('/api/tour/booking/submit', function () use ($SECURE, $db) {
             // } catch (Exception $e) {
             //     // Silently skip if notification fails - we don't want to break the booking flow
             // }
+
+            // Let the (possibly guest) session that created this invoice view it —
+            // otherwise enforceInvoiceAccess() bounces them to /login on their own
+            // fresh invoice (see grantInvoiceSessionOwnership()).
+            if (function_exists('grantInvoiceSessionOwnership')) {
+                grantInvoiceSessionOwnership($invoiceId);
+            }
 
             ob_clean();
 

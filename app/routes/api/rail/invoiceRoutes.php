@@ -33,6 +33,14 @@ $router->get('/api/rail/invoice/([a-zA-Z0-9]+)', function ($invoiceId) use ($db)
             _train_respond(false, 'Invoice not found.', null, 404);
         }
 
+        // IDOR GUARD: _train_invoice_view() returns customer PII + pricing.
+        // Restrict to admin / owner / creating session / valid payment token.
+        // enforceInvoiceAccess() emits 403 JSON and exits on an /api/ route for a
+        // non-owner. Was previously unauthenticated.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+
         _train_respond(true, 'OK', _train_invoice_view($booking));
     } catch (Throwable $e) {
         _train_respond(false, $e->getMessage(), null, 500);

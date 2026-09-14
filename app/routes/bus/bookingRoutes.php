@@ -62,6 +62,13 @@ $router->get('/api/bus/booking/download-invoice/([A-Z0-9]{8})', function ($invoi
         $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId, 'module_type' => 'bus']);
         if (!$booking) { http_response_code(404); die('Booking not found'); }
 
+        // IDOR GUARD: the PDF contains customer PII + pricing. Restrict to
+        // admin / owner / creating session / valid payment token. Was
+        // previously unauthenticated. enforceInvoiceAccess() exits on denial.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+
         $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
         if ($pdfPath && file_exists($pdfPath)) {
             while (ob_get_level()) { ob_end_clean(); } // DROP ANY BUFFERED OUTPUT (e.g. BOM) THAT WOULD CORRUPT THE PDF
@@ -308,6 +315,13 @@ $router->post('/api/bus/booking/submit', function () use ($SECURE, $db) {
         }
 
         $db->delete('logs_bookings', ['hash' => $hash]);
+
+        // Let the (possibly guest) session that created this invoice view it —
+        // otherwise enforceInvoiceAccess() bounces them to /login on their own
+        // fresh invoice (see grantInvoiceSessionOwnership()).
+        if (function_exists('grantInvoiceSessionOwnership')) {
+            grantInvoiceSessionOwnership($invoiceId);
+        }
 
         echo json_encode([
             'success'      => true,

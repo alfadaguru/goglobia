@@ -1034,6 +1034,13 @@ $router->post('/api/ferries/booking/submit', function () use ($SECURE, $db) {
             recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?? null, $contact['email'] ?? null, (float) $promoDiscount, 'ferries', (string) ($cfg['currency'] ?? 'EUR'));
         }
 
+        // Let the (possibly guest) session that created this invoice view it —
+        // otherwise enforceInvoiceAccess() bounces them to /login on their own
+        // fresh invoice (see grantInvoiceSessionOwnership()).
+        if (function_exists('grantInvoiceSessionOwnership')) {
+            grantInvoiceSessionOwnership($invoiceId);
+        }
+
         echo json_encode([
             'success'    => true,
             'message'    => 'Booking pending payment.',

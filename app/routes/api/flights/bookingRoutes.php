@@ -1052,6 +1052,13 @@ $router->post('/api/flights/booking/submit', function () use ($db) {
         }
 
         ob_clean();
+        // Let the (possibly guest) session that created this invoice view it —
+        // otherwise enforceInvoiceAccess() bounces them to /login on their own
+        // fresh invoice (see grantInvoiceSessionOwnership()).
+        if (function_exists('grantInvoiceSessionOwnership')) {
+            grantInvoiceSessionOwnership($invoiceId);
+        }
+
         echo json_encode([
             'success'          => true,
             'booking_id'       => $bookingId,
@@ -1081,7 +1088,19 @@ $router->post('/api/flights/booking/submit', function () use ($db) {
 // GET: Download invoice PDF
 // GET /api/flight/booking/download-invoice/{invoiceId}
 // ============================================================================
-$router->get('/api/flights/booking/download-invoice/([A-Z0-9]{8})', function ($invoiceId) {
+$router->get('/api/flights/booking/download-invoice/([A-Z0-9]{8})', function ($invoiceId) use ($db) {
+
+    // IDOR GUARD: the PDF contains customer PII + pricing. Load the booking and
+    // restrict to admin / owner / creating session / valid payment token. Was
+    // previously unauthenticated (streamed the PDF for any invoice id).
+    $booking = $db->get('bookings', ['id', 'invoice_id', 'user_id'], ['invoice_id' => $invoiceId]);
+    if (!$booking) {
+        http_response_code(404);
+        exit;
+    }
+    if (function_exists('enforceInvoiceAccess')) {
+        enforceInvoiceAccess($db, $booking);
+    }
 
     $pdf = GENERATE_BOOKING_PDF($invoiceId);
 
