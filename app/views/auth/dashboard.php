@@ -85,15 +85,15 @@
                <div class="flex flex-wrap items-start justify-between gap-4">
                   <div>
                      <div class="text-xs font-medium text-indigo-700 mb-1 flex items-center gap-1">
-                        <span class="material-symbols-outlined text-base">workspace_premium</span> <?= T::membership_tier ?? 'Membership Tier' ?>
+                        <span class="material-symbols-outlined text-base">workspace_premium</span> <?= 'Membership Tier' ?>
                      </div>
                      <div class="text-2xl font-bold text-indigo-900"><?= htmlspecialchars($curTier['name'] ?? '') ?></div>
                      <p class="text-[11px] text-indigo-600 mt-1">
-                        <?= rtrim(rtrim(number_format((float)($curTier['discount_percent'] ?? 0), 2), '0'), '.') ?>% <?= T::markup_discount ?? 'markup discount on every booking' ?>
+                        <?= rtrim(rtrim(number_format((float)($curTier['discount_percent'] ?? 0), 2), '0'), '.') ?>% <?= 'markup discount on every booking' ?>
                      </p>
                   </div>
                   <div class="text-right">
-                     <div class="text-[11px] text-slate-500"><?= T::lifetime_topup ?? 'Lifetime wallet top-up' ?></div>
+                     <div class="text-[11px] text-slate-500"><?= 'Lifetime wallet top-up' ?></div>
                      <div class="text-lg font-bold text-slate-800 tabular-nums"><?= $cur ?> <?= number_format($lifetime, 2) ?></div>
                   </div>
                </div>
@@ -110,12 +110,12 @@
                      <div class="h-full bg-indigo-500 rounded-full" style="width: <?= (int)$pct ?>%"></div>
                   </div>
                   <p class="text-[11px] text-slate-500 mt-1">
-                     <?= T::top_up ?? 'Top up' ?> <strong><?= $cur ?> <?= number_format($toNext, 2) ?></strong>
-                     <?= T::more_to_reach ?? 'more to reach' ?> <?= htmlspecialchars($nextTier['name'] ?? '') ?>.
+                     <?= 'Top up' ?> <strong><?= $cur ?> <?= number_format($toNext, 2) ?></strong>
+                     <?= 'more to reach' ?> <?= htmlspecialchars($nextTier['name'] ?? '') ?>.
                   </p>
                </div>
                <?php else: ?>
-               <p class="text-[11px] text-indigo-600 mt-3"><?= T::top_tier_reached ?? 'You have reached the highest tier — enjoy the best rate.' ?></p>
+               <p class="text-[11px] text-indigo-600 mt-3"><?= 'You have reached the highest tier — enjoy the best rate.' ?></p>
                <?php endif; ?>
             </div>
          </div>
@@ -167,10 +167,10 @@
                         <span class="material-symbols-outlined text-base">loyalty</span> <?= T::loyalty_points ?? 'Loyalty Points' ?>
                      </div>
                      <div class="text-2xl font-bold text-amber-800">
-                        <span x-text="points.toLocaleString()"></span> <span class="text-base font-medium"><?= T::points ?? 'pts' ?></span>
+                        <span x-text="points.toLocaleString()"></span> <span class="text-base font-medium"><?= 'pts' ?></span>
                      </div>
                      <p class="text-[11px] text-amber-600 mt-1">
-                        <?= T::worth ?? 'Worth' ?> <span x-text="currency + ' ' + fmt(worth)"></span>
+                        <?= 'Worth' ?> <span x-text="currency + ' ' + fmt(worth)"></span>
                         <template x-if="redeemValue > 0">
                            <span> · <span x-text="redeemValue"></span> <span x-text="currency"></span> / pt</span>
                         </template>
@@ -178,11 +178,11 @@
                   </div>
                   <div class="flex items-end gap-2" x-show="points > 0">
                      <div class="flex flex-col gap-1">
-                        <label class="text-[11px] font-medium text-amber-700"><?= T::redeem_points ?? 'Convert to wallet' ?></label>
+                        <label class="text-[11px] font-medium text-amber-700"><?= 'Convert to wallet' ?></label>
                         <input type="number" min="1" :max="points" x-model="amount" class="input py-1.5 px-3 text-sm w-36" placeholder="Points">
                      </div>
                      <button type="button" class="btn primary text-sm py-1.5 px-4" :disabled="busy" @click="redeem()">
-                        <span x-show="!busy"><?= T::redeem ?? 'Redeem' ?></span>
+                        <span x-show="!busy"><?= 'Redeem' ?></span>
                         <span x-show="busy">…</span>
                      </button>
                   </div>
@@ -193,14 +193,14 @@
 
                <?php if (!empty($dashboardData['loyalty_history'])): ?>
                <details class="mt-4">
-                  <summary class="text-xs font-medium text-amber-700 cursor-pointer hover:text-amber-900"><?= T::points_history ?? 'Points history' ?></summary>
+                  <summary class="text-xs font-medium text-amber-700 cursor-pointer hover:text-amber-900"><?= 'Points history' ?></summary>
                   <div class="mt-2 overflow-x-auto">
                      <table class="w-full text-xs">
                         <thead>
                            <tr class="text-left text-slate-400 border-b border-amber-100">
                               <th class="py-1.5 pr-3 font-medium"><?= T::date ?? 'Date' ?></th>
                               <th class="py-1.5 pr-3 font-medium"><?= T::activity ?? 'Activity' ?></th>
-                              <th class="py-1.5 pr-3 font-medium text-right"><?= T::points ?? 'Points' ?></th>
+                              <th class="py-1.5 pr-3 font-medium text-right"><?= 'Points' ?></th>
                               <th class="py-1.5 font-medium text-right"><?= T::balance ?? 'Balance' ?></th>
                            </tr>
                         </thead>
