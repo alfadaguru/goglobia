@@ -84,10 +84,25 @@ if (!$user) {
     return;
 }
 
-$userBalance = floatval($user['balance'] ?? 0);
 $userCurrency = $user['currency'] ?? 'USD';
 $paymentAmount = floatval($booking['price_markup']);
 $paymentCurrency = $booking['currency_markup'];
+
+// AUTHORITATIVE BALANCE (audit money-integrity): read the balance from the money
+// SPINE (wallets.balance via wallet_balance()), NOT the legacy users.balance
+// mirror. users.balance is only maintained for CUSTOMERS; for an AGENT it stays 0
+// (an agent's wallet movements mirror to the `credits` ledger instead), so the old
+// `floatval($user['balance'])` read 0 for every agent and this pre-check rejected
+// EVERY agent wallet payment with "Insufficient Balance" — even though agents are
+// wallet-ONLY and their wallet was funded. wallet_balance() reads wallets.balance
+// for the payment currency and is correct for customers and agents alike (it also
+// matches what wallet_spend() actually locks + debits below).
+if (!function_exists('wallet_balance')) {
+    require_once dirname(__DIR__, 2) . '/lib/wallet.php';
+}
+$userBalance = function_exists('wallet_balance')
+    ? (float) wallet_balance($db, (string) $userId, (string) $paymentCurrency)
+    : floatval($user['balance'] ?? 0);
 
 // ============================================================================
 // IDEMPOTENCY GUARD (audit P6): never deduct the wallet again for an invoice
