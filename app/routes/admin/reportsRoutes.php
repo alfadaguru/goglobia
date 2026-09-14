@@ -202,3 +202,121 @@ $router->get(admin.'/reports/finance', function () use ($SECURE, $db) {
     require_once views."admin/reports/finance.php";
     require_once views."includes/footer.php";
 });
+
+// ============================================================================
+// PER-AGENT COMMISSION STATEMENTS (docs/MONEY-WALLET-AUDIT.md)
+//   GET /admin/reports/agent-commissions?from=&to=            → all agents summary
+//   GET /admin/reports/agent-commissions/{user_id}?from=&to=  → one statement
+// What each agent earned (bookings.agent_earning) on their PAID bookings in the
+// period. Read-only, ADMIN_AUTH. Money columns are varchar/text -> cast per row.
+// ============================================================================
+
+// Shared: resolve the date range from the query (defaults to last 30 days).
+if (!function_exists('_agentcomm_range')) {
+    function _agentcomm_range(): array {
+        $to   = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($_GET['to'] ?? '')) ? $_GET['to'] : date('Y-m-d');
+        $from = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($_GET['from'] ?? '')) ? $_GET['from'] : date('Y-m-d', strtotime($to . ' -30 days'));
+        if ($from > $to) { [$from, $to] = [$to, $from]; }
+        return [$from, $to, $from . ' 00:00:00', $to . ' 23:59:59'];
+    }
+    // A paid booking's WHERE clause for a given agent (or all), within range.
+    function _agentcomm_where(string $start, string $end, ?array $agentIds = null): array {
+        $w = [
+            'payment_status' => 'paid',
+            'OR' => [
+                'AND #paid'    => ['paid_at[>=]' => $start, 'paid_at[<=]' => $end],
+                'AND #created' => ['paid_at' => null, 'created_at[>=]' => $start, 'created_at[<=]' => $end],
+            ],
+        ];
+        if ($agentIds !== null) { $w['user_id'] = $agentIds; }
+        return $w;
+    }
+}
+
+// ---- Summary: all agents ----
+$router->get(admin.'/reports/agent-commissions', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    [$from, $to, $start, $end] = _agentcomm_range();
+
+    // Agents keyed by user_id.
+    $agents = $db->select('users', ['user_id','first_name','last_name','email'], ['role' => 'agent']) ?: [];
+    $agentIds = array_map(fn($a) => (string)$a['user_id'], $agents);
+    $byAgent = [];
+    foreach ($agents as $a) {
+        $byAgent[(string)$a['user_id']] = [
+            'user_id' => (string)$a['user_id'],
+            'name' => trim(($a['first_name'] ?? '') . ' ' . ($a['last_name'] ?? '')) ?: ($a['email'] ?? $a['user_id']),
+            'email' => $a['email'] ?? '',
+            'count' => 0, 'sales' => 0.0, 'earning' => 0.0,
+        ];
+    }
+
+    $tot = ['count' => 0, 'sales' => 0.0, 'earning' => 0.0, 'agents' => 0];
+    if (!empty($agentIds)) {
+        $rows = $db->select('bookings',
+            ['user_id','currency_markup','price_markup','agent_earning'],
+            _agentcomm_where($start, $end, $agentIds)
+        ) ?: [];
+        foreach ($rows as $r) {
+            $uid = (string)$r['user_id'];
+            if (!isset($byAgent[$uid])) { continue; }
+            $byAgent[$uid]['count']++;
+            $byAgent[$uid]['sales']   += (float)$r['price_markup'];
+            $byAgent[$uid]['earning'] += (float)$r['agent_earning'];
+            $tot['count']++; $tot['sales'] += (float)$r['price_markup']; $tot['earning'] += (float)$r['agent_earning'];
+        }
+    }
+    // Only show agents with activity first, ranked by earning; keep zero-activity agents below.
+    uasort($byAgent, fn($x, $y) => ($y['earning'] <=> $x['earning']) ?: ($y['count'] <=> $x['count']));
+    $tot['agents'] = count(array_filter($byAgent, fn($a) => $a['count'] > 0));
+
+    $defaultCurrency = $db->get('currencies', 'name', ['default' => '1']) ?: 'USD';
+    $view = 'summary';
+
+    $title = 'Agent Commissions - ' . ($GLOBALS['app']['home_title'] ?? 'Admin');
+    $description = 'Per-agent commission statements';
+    require_once views."includes/header.php";
+    require_once views."admin/reports/agent-commissions.php";
+    require_once views."includes/footer.php";
+});
+
+// ---- Statement: one agent ----
+$router->get(admin.'/reports/agent-commissions/([A-Za-z0-9_\-]+)', function ($uid) use ($SECURE, $db) {
+    ADMIN_AUTH();
+    [$from, $to, $start, $end] = _agentcomm_range();
+    $uid = (string) $uid;
+
+    $agent = $db->get('users', ['user_id','first_name','last_name','email','phone'], ['user_id' => $uid, 'role' => 'agent']);
+    $lines = []; $tot = ['count' => 0, 'sales' => 0.0, 'cost' => 0.0, 'earning' => 0.0];
+
+    if ($agent) {
+        $rows = $db->select('bookings',
+            ['invoice_id','module_type','currency_markup','price_original','price_markup','agent_earning','commission','paid_at','created_at'],
+            array_merge(_agentcomm_where($start, $end, [$uid]), ['ORDER' => ['id' => 'DESC']])
+        ) ?: [];
+        foreach ($rows as $r) {
+            $lines[] = [
+                'invoice_id' => $r['invoice_id'],
+                'module'     => $r['module_type'],
+                'currency'   => $r['currency_markup'],
+                'sale'       => (float)$r['price_markup'],
+                'cost'       => (float)$r['price_original'],
+                'earning'    => (float)$r['agent_earning'],
+                'when'       => $r['paid_at'] ?: $r['created_at'],
+            ];
+            $tot['count']++;
+            $tot['sales']   += (float)$r['price_markup'];
+            $tot['cost']    += (float)$r['price_original'];
+            $tot['earning'] += (float)$r['agent_earning'];
+        }
+    }
+
+    $defaultCurrency = $db->get('currencies', 'name', ['default' => '1']) ?: 'USD';
+    $view = 'statement';
+
+    $title = 'Agent Statement - ' . ($GLOBALS['app']['home_title'] ?? 'Admin');
+    $description = 'Agent commission statement';
+    require_once views."includes/header.php";
+    require_once views."admin/reports/agent-commissions.php";
+    require_once views."includes/footer.php";
+});
