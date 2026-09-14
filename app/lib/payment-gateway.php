@@ -1064,6 +1064,36 @@ function create_payment_token($booking, $gateway)
         }
     }
 
+    // SPINE — born a money_transactions row for this GATEWAY payment (audit
+    // §A.1/§A.2: ONE money record + a journey for EVERY movement, not only wallet
+    // ones). Born 'pending' here, advanced to 'sent' at gateway handoff and to
+    // 'success'/'failed' in record_transaction(). Idempotent per (invoice,gateway)
+    // so re-issuing a token reuses the open transaction. No wallet is touched — an
+    // external card/bank payment funds the booking directly, it does not move a
+    // wallet balance, so there is no wallet_ledger row (correct by design).
+    if (!empty($booking['invoice_id']) && function_exists('txn_create')) {
+        try {
+            $idem = 'GWPAY-' . $booking['invoice_id'] . '-' . ($gateway['id'] ?? 'gw');
+            txn_create($db, [
+                'user_id'         => (string) ($booking['user_id'] ?? ''),
+                'direction'       => 'debit',
+                'reason'          => 'booking_payment',
+                'amount'          => $chargeNow,
+                'currency'        => $booking['currency_markup'],
+                'method'          => 'gateway',
+                'gateway_id'      => (string) ($gateway['id'] ?? ''),
+                'invoice_id'      => $booking['invoice_id'],
+                'idempotency_key' => $idem,
+                'description'     => 'Gateway payment for invoice ' . $booking['invoice_id'] . ' via ' . ($gateway['name'] ?? 'gateway'),
+            ]);
+            // Record the handoff step in the journey (best-effort).
+            $mt = $db->get('money_transactions', ['id','status'], ['idempotency_key' => $idem]);
+            if ($mt && $mt['status'] === 'pending' && function_exists('txn_advance')) {
+                txn_advance($db, (int) $mt['id'], 'sent', 'sent to ' . ($gateway['name'] ?? 'gateway'));
+            }
+        } catch (\Throwable $e) { error_log('create_payment_token spine: ' . $e->getMessage()); }
+    }
+
     return $token;
 }
 
@@ -1143,6 +1173,27 @@ function record_transaction($tokenData, $transactionId, $status, $gatewayData = 
     ]);
 
     $insertId = $db->id();
+
+    // SPINE RESOLUTION (audit §A.2): advance the gateway money_transactions row
+    // born in create_payment_token() to its final state so every card/bank payment
+    // has a full journey (pending -> sent -> success|failed), not just the legacy
+    // `transactions` row. No wallet movement (external payment). Idempotent: skip
+    // if already resolved, so a re-fired callback never re-advances or duplicates.
+    if (function_exists('txn_advance') && !empty($tokenData['invoice_id'])) {
+        try {
+            $gwId = (string) ($tokenData['gateway_id'] ?? 'gw');
+            $idem = 'GWPAY-' . $tokenData['invoice_id'] . '-' . ($gwId !== '' ? $gwId : 'gw');
+            $mt = $db->get('money_transactions', ['id', 'status'], ['idempotency_key' => $idem]);
+            if ($mt && in_array($mt['status'], ['pending', 'sent'], true)) {
+                $toStatus = $status === 'success' ? 'success' : ($status === 'cancel' ? 'cancelled' : 'failed');
+                $note = $status === 'success'
+                    ? 'gateway confirmed (' . ($transactionId ?: 'n/a') . ')'
+                    : ('gateway ' . $status . ($errorMessage ? ': ' . mb_substr((string) $errorMessage, 0, 180) : ''));
+                txn_advance($db, (int) $mt['id'], $toStatus, $note, $gatewayData,
+                    $transactionId ? ['provider_trx_id' => $transactionId] : []);
+            }
+        } catch (\Throwable $e) { error_log('record_transaction spine resolve: ' . $e->getMessage()); }
+    }
 
     // LOYALTY EARN (docs/MONEY-WALLET-AUDIT.md §C.4 step 5): on a SUCCESSFUL
     // payment, award points to the payer per the admin-set rate (customer vs
