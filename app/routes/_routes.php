@@ -291,6 +291,7 @@ require_once 'app/routes/ai/visaListingRoutes.php'; // AI-only visa confirm card
 // GLOBAL ROUTES
 require_once 'app/routes/blogsRoutes.php';
 require_once 'app/routes/globalRoutes.php';
+require_once 'app/routes/cartRoutes.php'; // general cart (tours/visa/esim) — step 6b
 require_once 'app/routes/ajaxRoutes.php';
 require_once 'app/routes/demo-warning-route.php';
 
