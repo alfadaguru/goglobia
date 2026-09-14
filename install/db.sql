@@ -27736,6 +27736,37 @@ INSERT INTO `promo_codes` (`id`, `code`, `description`, `discount_type`, `discou
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `promo_code_usage`
+-- Per-user promo redemption ledger — enforces promo_codes.per_user_limit.
+-- One row per successful redemption; invoice_id UNIQUE makes recording
+-- idempotent (payment-callback retries never double-count).
+--
+
+CREATE TABLE `promo_code_usage` (
+  `id` int(11) NOT NULL,
+  `promo_id` int(11) NOT NULL,
+  `code` varchar(50) NOT NULL,
+  `user_ref` varchar(191) NOT NULL,
+  `user_id` varchar(255) DEFAULT NULL,
+  `invoice_id` varchar(191) NOT NULL,
+  `module` varchar(50) DEFAULT NULL,
+  `discount_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` varchar(3) DEFAULT NULL,
+  `used_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `promo_code_usage`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_promo_invoice` (`invoice_id`),
+  ADD KEY `idx_promo_user` (`promo_id`, `user_ref`),
+  ADD KEY `idx_code_user` (`code`, `user_ref`);
+
+ALTER TABLE `promo_code_usage`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `rail_seat_classes`
 --
 

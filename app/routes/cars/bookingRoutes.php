@@ -317,6 +317,27 @@ $router->post('/cars/booking/submit', function () use ($SECURE, $db) {
         }
         $agentEarning = $isAgent ? max(0, $markupAmount) : 0;
 
+        // PROMO CODE HANDLING — recompute the discount SERVER-SIDE (never trust a
+        // client number). Enforces module/targeting/usage/min-order/per-user.
+        $promoCodeStr = trim($input['promo_code'] ?? '');
+        $promoDiscount = 0.0;
+        $promoData = null;
+        $promoCodeJson = null;
+        if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
+            $pr = promoResolveForBooking($db, $promoCodeStr, (float) $finalTotal, 'cars', (string) $currency, [
+                'item_id'    => (int) ($input['car_id'] ?? 0),
+                'user_id'    => $userId ?: ($_SESSION['user_id'] ?? null),
+                'user_email' => $primaryContact['email'] ?? null,
+            ]);
+            $promoDiscount = (float) $pr['discount'];
+            $promoData     = $pr['promo'];
+            $promoCodeJson = $pr['json'];
+        }
+        if ($promoDiscount > 0 && $promoData) {
+            $finalTotal = round($finalTotal - $promoDiscount, 2);
+            if ($finalTotal < 0) { $finalTotal = 0.0; }
+        }
+
         // Prepare booking data JSON
         $bookingDataArr = [
             'car_data' => $carData,
@@ -359,6 +380,7 @@ $router->post('/cars/booking/submit', function () use ($SECURE, $db) {
             'commission' => $markupAmount,
             'user_id' => $userId !== '' ? $userId : null,
             'user_data' => $userData ? json_encode($userData) : null,
+            'promo_codes' => $promoCodeJson,
             'created_at' => date('Y-m-d H:i:s'),
             'booking_date' => date('Y-m-d')
         ]);
@@ -366,6 +388,11 @@ $router->post('/cars/booking/submit', function () use ($SECURE, $db) {
         $bookingId = $db->id();
 
         if ($bookingId) {
+            // Record promo code usage (idempotent per invoice; bumps used_count +
+            // writes the per-user ledger row that enforces per_user_limit).
+            if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
+                recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?: null, $primaryContact['email'] ?? null, (float) $promoDiscount, 'cars', (string) $currency);
+            }
             // Send Notification (Email/SMS) using NOTIFY library
             if (class_exists('NOTIFY')) {
                 $customerData = [

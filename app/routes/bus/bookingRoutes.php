@@ -240,6 +240,26 @@ $router->post('/api/bus/booking/submit', function () use ($SECURE, $db) {
         // $userId / $isAgent already resolved before pricing (see above).
         $agentEarning = $isAgent ? $commission : 0;
 
+        // PROMO CODE HANDLING — recompute the discount SERVER-SIDE (never trust a
+        // client number). Enforces module/targeting/usage/min-order/per-user.
+        $promoCodeStr = trim($input['promo_code'] ?? '');
+        $promoDiscount = 0.0;
+        $promoData = null;
+        $promoCodeJson = null;
+        if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
+            $pr = promoResolveForBooking($db, $promoCodeStr, (float) $finalTotal, 'bus', (string) $currency, [
+                'user_id'    => $userId ?: ($_SESSION['user_id'] ?? null),
+                'user_email' => $guest['email'] ?? null,
+            ]);
+            $promoDiscount = (float) $pr['discount'];
+            $promoData     = $pr['promo'];
+            $promoCodeJson = $pr['json'];
+        }
+        if ($promoDiscount > 0 && $promoData) {
+            $finalTotal = round($finalTotal - $promoDiscount, 2);
+            if ($finalTotal < 0) { $finalTotal = 0.0; }
+        }
+
         $db->insert('bookings', [
             'invoice_id'      => $invoiceId,
             'language'        => getCurrentLanguage(),
@@ -267,9 +287,18 @@ $router->post('/api/bus/booking/submit', function () use ($SECURE, $db) {
             'travellers'      => json_encode($input['travellers'] ?? []),
             'special_requests'=> $guest['special_requests'] ?? '',
             'user_id'         => $_SESSION['user_id'] ?? null,
+            'promo_codes'     => $promoCodeJson,
             'cancellation_request' => 0,
             'cancellation_status'  => 0,
         ]);
+
+        $bookingId = $db->id();
+
+        // Record promo code usage (idempotent per invoice; bumps used_count +
+        // writes the per-user ledger row that enforces per_user_limit).
+        if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
+            recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?: null, $guest['email'] ?? null, (float) $promoDiscount, 'bus', (string) $currency);
+        }
 
         $db->delete('logs_bookings', ['hash' => $hash]);
 

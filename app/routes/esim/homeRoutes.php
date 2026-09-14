@@ -157,6 +157,25 @@ $router->post('/esim/booking/submit', function () use ($SECURE, $db) {
                     throw new Exception('Invalid coupon code');
                 }
 
+                // Enforce eligibility (targeting + per_user_limit + all standard
+                // checks) via the shared validator before trusting $promoData. The
+                // bespoke discount math below is left intact and only runs when the
+                // coupon is eligible; an ineligible coupon yields ZERO discount.
+                $pv = validatePromoCode(
+                    $db,
+                    $couponCodeStr,
+                    (float) $price,
+                    'esim',
+                    (string) $currency,
+                    [
+                        'user_id'    => $_SESSION['user_id'] ?? null,
+                        'user_email' => (string) ($primaryGuest['email'] ?? ''),
+                    ]
+                );
+                if (empty($pv['ok'])) {
+                    throw new Exception((string) ($pv['message'] ?? 'This coupon code is not valid'));
+                }
+
                 if ((int)($promoData['status'] ?? 0) !== 1) {
                     throw new Exception('This coupon code is no longer active');
                 }
@@ -349,14 +368,21 @@ $router->post('/esim/booking/submit', function () use ($SECURE, $db) {
             throw new Exception('Failed to create booking');
         }
 
-        // Record promo code usage if applicable
+        // Record promo code usage if applicable (idempotent per invoice; bumps
+        // used_count + writes the per-user ledger for per_user_limit enforcement).
         if ($promoData && $couponDiscount > 0) {
-            $db->update('promo_codes', [
-                'used_count[+]' => 1,
-                'updated_at' => date('Y-m-d H:i:s')
-            ], [
-                'id' => $promoData['id']
-            ]);
+            if (function_exists('recordPromoUsage')) {
+                recordPromoUsage(
+                    $db,
+                    $promoData,
+                    (string) $invoiceId,
+                    ($_SESSION['user_id'] ?? null) !== null ? (string) $_SESSION['user_id'] : null,
+                    (string) ($primaryGuest['email'] ?? ''),
+                    (float) $couponDiscount,
+                    'esim',
+                    (string) $currency
+                );
+            }
         }
 
         if (class_exists('NOTIFY')) {

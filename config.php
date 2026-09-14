@@ -293,6 +293,10 @@ try {
     if (function_exists('ensurePaystackDvaSchema')) {
         ensurePaystackDvaSchema($db);
     }
+    // Per-user promo redemption ledger (enforces per_user_limit) — idempotent.
+    if (function_exists('ensurePromoUsageSchema')) {
+        ensurePromoUsageSchema($db);
+    }
     // Agent API (docs/AGENT-API.md) — idempotent, no-op once tables exist.
     if (function_exists('ensureAgentApiSchema')) {
         ensureAgentApiSchema($db);

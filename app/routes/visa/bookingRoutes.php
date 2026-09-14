@@ -273,6 +273,26 @@ $router->post('/api/visa/booking/submit', function () use ($SECURE, $db) {
             $userId = $_SESSION['user_id'] ?? null;
         }
 
+        // PROMO CODE HANDLING — recompute the discount SERVER-SIDE (never trust a
+        // client number). Enforces module/targeting/usage/min-order/per-user.
+        $promoCodeStr = trim($input['promo_code'] ?? '');
+        $promoDiscount = 0.0;
+        $promoData = null;
+        $promoCodeJson = null;
+        if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
+            $pr = promoResolveForBooking($db, $promoCodeStr, (float) $finalPriceMarkup, 'visa', (string) $defaultCurrency, [
+                'user_id'    => $userId ?: ($_SESSION['user_id'] ?? null),
+                'user_email' => $primaryGuest['email'] ?? null,
+            ]);
+            $promoDiscount = (float) $pr['discount'];
+            $promoData     = $pr['promo'];
+            $promoCodeJson = $pr['json'];
+        }
+        if ($promoDiscount > 0 && $promoData) {
+            $finalPriceMarkup = round($finalPriceMarkup - $promoDiscount, 2);
+            if ($finalPriceMarkup < 0) { $finalPriceMarkup = 0.0; }
+        }
+
         // INSERT BOOKING INTO DATABASE
         $bookingInsert = $db->insert('bookings', [
             'invoice_id' => $invoiceId,
@@ -311,6 +331,7 @@ $router->post('/api/visa/booking/submit', function () use ($SECURE, $db) {
             'address' => '',
             'booking_data' => json_encode($completeBookingData),
             'special_requests' => $specialRequests,
+            'promo_codes' => $promoCodeJson,
             'created_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
             'booking_date' => date('Y-m-d')
@@ -318,6 +339,12 @@ $router->post('/api/visa/booking/submit', function () use ($SECURE, $db) {
 
         if (!$bookingInsert) {
             throw new Exception('Failed to create booking. Please try again.');
+        }
+
+        // Record promo code usage (idempotent per invoice; bumps used_count +
+        // writes the per-user ledger row that enforces per_user_limit).
+        if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
+            recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?: null, $primaryGuest['email'] ?? null, (float) $promoDiscount, 'visa', (string) $defaultCurrency);
         }
 
         // DELETE TEMPORARY BOOKING

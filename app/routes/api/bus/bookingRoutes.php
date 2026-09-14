@@ -448,27 +448,6 @@ $router->post('/api/bus/booking/app-submit', function () use ($SECURE, $db) {
         $finalTotal = round($markupTotal + $taxAmount, 2);
         $commission = max(0, round($markupTotal - $baseTotal, 2));
 
-        // PROMO CODE (OPTIONAL — INERT UNLESS THE CLIENT SENDS ONE)
-        $promoCodeStr  = trim((string)($input['promo_code'] ?? ''));
-        $promoDiscount = (float)($input['promo_discount'] ?? 0);
-        $promoCodeJson = null;
-        $promoData     = null;
-        if ($promoCodeStr !== '' && $promoDiscount > 0) {
-            $promoData = $db->get('promo_codes', '*', ['code' => $promoCodeStr]);
-            if ($promoData) {
-                $promoCodeJson = json_encode([
-                    'code'                => $promoData['code'],
-                    'discount_type'       => $promoData['discount_type'],
-                    'discount_value'      => (float)$promoData['discount_value'],
-                    'discount_amount'     => $promoDiscount,
-                    'max_discount_amount' => $promoData['max_discount_amount'] ? (float)$promoData['max_discount_amount'] : null,
-                    'description'         => $promoData['description'],
-                    'module'              => $promoData['module'],
-                ]);
-                $finalTotal = round($finalTotal - $promoDiscount, 2);
-            }
-        }
-
         $busModule = $db->get('modules', ['currency'], ['type' => 'bus', 'name' => 'bus']);
         $moduleCurrency = $busModule['currency'] ?? 'USD';
         $baseCurrency = resolveBaseCurrency($db,
@@ -477,6 +456,26 @@ $router->post('/api/bus/booking/app-submit', function () use ($SECURE, $db) {
             $trip['base_currency'] ?? null,
             $moduleCurrency
         );
+
+        // PROMO CODE (OPTIONAL) — recompute the discount SERVER-SIDE (never trust the
+        // client's promo_discount). Enforces module/targeting/usage/per-user.
+        $promoCodeStr  = trim((string)($input['promo_code'] ?? ''));
+        $promoDiscount = 0.0;
+        $promoCodeJson = null;
+        $promoData     = null;
+        if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
+            $pr = promoResolveForBooking($db, $promoCodeStr, (float) $finalTotal, 'bus', (string) $baseCurrency, [
+                'item_id'    => (int) ($input['route_id'] ?? $draft['route_id'] ?? 0),
+                'user_id'    => $userId ?? ($_SESSION['user_id'] ?? null),
+                'user_email' => $email ?? null,
+            ]);
+            $promoDiscount = (float) $pr['discount'];
+            $promoData     = $pr['promo'];
+            $promoCodeJson = $pr['json'];
+        }
+        if ($promoDiscount > 0 && $promoData) {
+            $finalTotal = round($finalTotal - $promoDiscount, 2);
+        }
         $displayCurrency = requireAppDisplayCurrency($db, $input);
         $conversionRate = getCurrencyConversionRate($db, $baseCurrency, $displayCurrency);
         $displayFinalTotal = convertCurrencyAmount($db, $finalTotal, $baseCurrency, $displayCurrency);
@@ -579,8 +578,8 @@ $router->post('/api/bus/booking/app-submit', function () use ($SECURE, $db) {
         $busBookingId = $db->id();
         agent_api_settle_booking($db, 'bus', $busBookingId, $invoiceId, (float) $finalTotal);
 
-        if ($promoCodeStr !== '' && $promoDiscount > 0 && $promoData) {
-            $db->update('promo_codes', ['used_count[+]' => 1, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $promoData['id']]);
+        if ($promoCodeStr !== '' && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
+            recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?? null, $email ?? null, (float) $promoDiscount, 'bus', (string) $baseCurrency);
         }
 
         $db->delete('logs_bookings', ['hash' => $hash]);

@@ -3758,6 +3758,158 @@ function calculateTax($totalAmount, $moduleName, $db, $fromCurrency = null, $toC
     ];
 }
 
+/**
+ * Per-user promo redemption ledger (step 6a).
+ *
+ * `promo_codes.per_user_limit` shipped as a column and the admin form collects
+ * it, but nothing ever enforced it — there was no record of WHICH user redeemed
+ * WHICH code, so a "one per customer" coupon could be used unlimited times. This
+ * table is that missing record. Idempotent + non-fatal (mirrors the other
+ * ensure* funcs); install/db.sql carries the same definition.
+ *
+ * One row per successful redemption. `invoice_id` is UNIQUE so recording a
+ * redemption is idempotent — a payment-callback retry for the same booking can
+ * never double-count. `user_ref` is the user_id when logged in, else a
+ * lowercased email, so guest checkouts are still capped per email.
+ */
+function ensurePromoUsageSchema($db): void
+{
+    static $checked = false;
+    if ($checked) { return; }
+    $checked = true;
+
+    try {
+        if (!dbTableExists($db, 'promo_code_usage')) {
+            $db->query("CREATE TABLE IF NOT EXISTS `promo_code_usage` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `promo_id` int(11) NOT NULL,
+                `code` varchar(50) NOT NULL,
+                `user_ref` varchar(191) NOT NULL,
+                `user_id` varchar(255) DEFAULT NULL,
+                `invoice_id` varchar(191) NOT NULL,
+                `module` varchar(50) DEFAULT NULL,
+                `discount_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+                `currency` varchar(3) DEFAULT NULL,
+                `used_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_promo_invoice` (`invoice_id`),
+                KEY `idx_promo_user` (`promo_id`, `user_ref`),
+                KEY `idx_code_user` (`code`, `user_ref`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        }
+    } catch (\Throwable $e) {
+        error_log('ensurePromoUsageSchema: ' . $e->getMessage());
+    }
+}
+
+if (!function_exists('promoUserRef')) {
+    /**
+     * Stable per-user key for promo redemption limits: the user_id when logged
+     * in, else a lowercased email. Returns '' when neither is available (in which
+     * case per-user limits cannot be enforced and are skipped by the caller).
+     */
+    function promoUserRef(?string $userId, ?string $email): string
+    {
+        $userId = trim((string) $userId);
+        if ($userId !== '') { return $userId; }
+        $email = strtolower(trim((string) $email));
+        return $email;
+    }
+}
+
+if (!function_exists('recordPromoUsage')) {
+    /**
+     * Record ONE promo redemption + bump promo_codes.used_count, idempotently.
+     *
+     * Idempotent on invoice_id (UNIQUE): a payment-callback retry, or any second
+     * call for the same booking, inserts nothing and does NOT bump used_count
+     * again. This is the single entry point booking routes should use instead of
+     * a bare `used_count[+] => 1` update.
+     *
+     * @return bool true if this call actually recorded a NEW redemption.
+     */
+    function recordPromoUsage($db, array $promo, string $invoiceId, ?string $userId, ?string $email, float $discount, string $module = '', string $currency = ''): bool
+    {
+        $invoiceId = trim($invoiceId);
+        $promoId   = (int) ($promo['id'] ?? 0);
+        if ($invoiceId === '' || $promoId <= 0) { return false; }
+        ensurePromoUsageSchema($db);
+
+        // Already recorded for this invoice? (idempotent — no double count)
+        if ($db->get('promo_code_usage', 'id', ['invoice_id' => $invoiceId])) {
+            return false;
+        }
+
+        $userRef = promoUserRef($userId, $email);
+        try {
+            $db->insert('promo_code_usage', [
+                'promo_id'        => $promoId,
+                'code'            => (string) ($promo['code'] ?? ''),
+                'user_ref'        => $userRef !== '' ? $userRef : ('guest:' . $invoiceId),
+                'user_id'         => $userId ?: null,
+                'invoice_id'      => $invoiceId,
+                'module'          => $module ?: ((string) ($promo['module'] ?? '')),
+                'discount_amount' => round($discount, 2),
+                'currency'        => $currency ?: null,
+                'used_at'         => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) {
+            // UNIQUE race → someone else recorded it first; treat as not-new.
+            error_log('recordPromoUsage insert: ' . $e->getMessage());
+            return false;
+        }
+        // Bump the global counter in the same logical step.
+        $db->update('promo_codes', ['used_count[+]' => 1, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $promoId]);
+        return true;
+    }
+}
+
+if (!function_exists('promoResolveForBooking')) {
+    /**
+     * ONE canonical promo entry point for every booking route (web + mobile API).
+     *
+     * Booking routes historically each hand-rolled promo handling, and most of
+     * the mobile API + rail simply TRUSTED the client-sent promo_discount — so a
+     * client could send any real code with promo_discount=999999 and pay an
+     * arbitrary amount. This helper removes that: it always recomputes the
+     * discount server-side via validatePromoCode() (targeting + per-user limits
+     * enforced), and returns the discount plus the exact JSON blob to store in
+     * bookings.promo_codes. Routes must apply the returned discount to the
+     * charged total and never use the client's number.
+     *
+     * @param string $code        submitted code (from client)
+     * @param float  $orderAmount pre-discount subtotal in $currency
+     * @param string $module      module name for scoping
+     * @param string $currency    order currency
+     * @param array  $context     item_id, location_id, user_id, user_email
+     * @return array ['discount'=>float, 'promo'=>?array, 'json'=>?string, 'ok'=>bool, 'message'=>?string]
+     */
+    function promoResolveForBooking($db, string $code, float $orderAmount, string $module, string $currency = '', array $context = []): array
+    {
+        $code = trim($code);
+        if ($code === '' || !function_exists('validatePromoCode')) {
+            return ['discount' => 0.0, 'promo' => null, 'json' => null, 'ok' => false, 'message' => null];
+        }
+        $pv = validatePromoCode($db, $code, $orderAmount, $module, $currency, $context);
+        if (empty($pv['ok']) || empty($pv['promo']) || (float) $pv['discount'] <= 0) {
+            return ['discount' => 0.0, 'promo' => null, 'json' => null,
+                    'ok' => false, 'message' => $pv['message'] ?? null];
+        }
+        $promo = $pv['promo'];
+        $discount = (float) $pv['discount'];
+        $json = json_encode([
+            'code'                => $promo['code'],
+            'discount_type'       => $promo['discount_type'],
+            'discount_value'      => floatval($promo['discount_value']),
+            'discount_amount'     => $discount,
+            'max_discount_amount' => $promo['max_discount_amount'] ? floatval($promo['max_discount_amount']) : null,
+            'description'         => $promo['description'],
+            'module'              => $promo['module'],
+        ]);
+        return ['discount' => $discount, 'promo' => $promo, 'json' => $json, 'ok' => true, 'message' => null];
+    }
+}
+
 if (!function_exists('validatePromoCode')) {
     /**
      * Authoritative, server-side promo-code validation + discount calculation
@@ -3773,9 +3925,14 @@ if (!function_exists('validatePromoCode')) {
      * @param float  $orderAmount the order subtotal in $currency (pre-discount)
      * @param string $module      module name ('flights','stays',... ) for scoping
      * @param string $currency    the order currency
+     * @param array  $context     optional: item_id, location_id, user_id,
+     *                             user_email — enables item/location targeting
+     *                             and per-user-limit enforcement (step 6a). When
+     *                             a key is absent that specific check is skipped,
+     *                             so existing callers keep working unchanged.
      * @return array ['ok'=>bool,'discount'=>float,'message'=>?string,'promo'=>?array]
      */
-    function validatePromoCode($db, string $code, float $orderAmount, string $module, string $currency = ''): array
+    function validatePromoCode($db, string $code, float $orderAmount, string $module, string $currency = '', array $context = []): array
     {
         $code = trim($code);
         if ($code === '') { return ['ok' => false, 'discount' => 0.0, 'message' => 'No promo code']; }
@@ -3789,6 +3946,36 @@ if (!function_exists('validatePromoCode')) {
         if ($promoModule !== 'all' && strtolower($promoModule) !== strtolower($module)) {
             return ['ok' => false, 'discount' => 0.0, 'message' => 'This promo code is not valid for this booking'];
         }
+
+        // TARGETING (step 6a — parity with /api/promo/validate): a "specific"
+        // promo may be restricted to certain item IDs and/or location IDs. The
+        // server-side path previously ignored this, so a hotel-A-only code still
+        // applied to hotel B at booking time. Enforce it here too, but only when
+        // the caller passes the relevant context (absent context = can't check =
+        // don't block, preserving behaviour for callers that don't target).
+        if (($promo['target_type'] ?? 'all') === 'specific') {
+            // Specific item IDs (only meaningful for a single-module promo).
+            if (!empty($promo['target_ids']) && $promoModule !== 'all' && array_key_exists('item_id', $context)) {
+                $targetIds = json_decode((string) $promo['target_ids'], true);
+                if (is_array($targetIds) && count($targetIds) > 0) {
+                    $itemId = (int) $context['item_id'];
+                    if ($itemId <= 0 || !in_array($itemId, array_map('intval', $targetIds), true)) {
+                        return ['ok' => false, 'discount' => 0.0, 'message' => 'This promo code is not valid for the selected item'];
+                    }
+                }
+            }
+            // Specific locations.
+            if (!empty($promo['target_locations']) && array_key_exists('location_id', $context)) {
+                $targetLocations = json_decode((string) $promo['target_locations'], true);
+                if (is_array($targetLocations) && count($targetLocations) > 0) {
+                    $locationId = (int) $context['location_id'];
+                    if ($locationId <= 0 || !in_array($locationId, array_map('intval', $targetLocations), true)) {
+                        return ['ok' => false, 'discount' => 0.0, 'message' => 'This promo code is not valid for the selected location'];
+                    }
+                }
+            }
+        }
+
         if (!empty($promo['start_date']) && strtotime((string) $promo['start_date']) > time()) {
             return ['ok' => false, 'discount' => 0.0, 'message' => 'This promo code is not yet active'];
         }
@@ -3797,6 +3984,26 @@ if (!function_exists('validatePromoCode')) {
         }
         if (!empty($promo['usage_limit']) && (int) ($promo['used_count'] ?? 0) >= (int) $promo['usage_limit']) {
             return ['ok' => false, 'discount' => 0.0, 'message' => 'This promo code usage limit has been reached'];
+        }
+
+        // PER-USER LIMIT (step 6a): enforce promo_codes.per_user_limit using the
+        // promo_code_usage ledger. Skipped when we have no user context (can't
+        // attribute usage) or the limit is 0/blank (unlimited).
+        $perUser = (int) ($promo['per_user_limit'] ?? 0);
+        if ($perUser > 0) {
+            $userRef = function_exists('promoUserRef')
+                ? promoUserRef($context['user_id'] ?? null, $context['user_email'] ?? null)
+                : '';
+            if ($userRef !== '' && function_exists('ensurePromoUsageSchema')) {
+                ensurePromoUsageSchema($db);
+                $priorUses = (int) $db->count('promo_code_usage', [
+                    'promo_id' => (int) $promo['id'],
+                    'user_ref' => $userRef,
+                ]);
+                if ($priorUses >= $perUser) {
+                    return ['ok' => false, 'discount' => 0.0, 'message' => 'You have already used this promo code the maximum number of times'];
+                }
+            }
         }
 
         $promoCurrency = strtoupper((string) ($promo['currency'] ?? 'USD'));

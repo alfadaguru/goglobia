@@ -863,26 +863,23 @@ $router->post('/api/ferries/booking/submit', function () use ($SECURE, $db) {
 
         $finalPrice   = _kikoto_apply_markup($basePrice, $cfg, $channel, $customMarkup, $ferryTierDiscount);
 
-        // PROMO CODE HANDLING
+        // PROMO CODE HANDLING — recompute the discount SERVER-SIDE (never trust the
+        // client's promo_discount). Enforces module/targeting/usage/per-user.
         $promoCodeStr = trim((string)($input['promo_code'] ?? $draftData['coupon'] ?? ''));
-        $promoDiscount = (float)($input['promo_discount'] ?? 0);
+        $promoDiscount = 0.0;
         $promoCodeJson = null;
         $promoData = null;
-        if (!empty($promoCodeStr) && $promoDiscount > 0) {
-            $promoData = $db->get('promo_codes', '*', ['code' => $promoCodeStr]);
-            if ($promoData) {
-                $promoCodeJson = json_encode([
-                    'code' => $promoData['code'],
-                    'discount_type' => $promoData['discount_type'],
-                    'discount_value' => floatval($promoData['discount_value']),
-                    'discount_amount' => $promoDiscount,
-                    'max_discount_amount' => $promoData['max_discount_amount'] ? floatval($promoData['max_discount_amount']) : null,
-                    'description' => $promoData['description'],
-                    'module' => $promoData['module']
-                ]);
-                $finalPrice = max(0, round($finalPrice - $promoDiscount, 2));
-                $db->update('promo_codes', ['used_count[+]' => 1, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $promoData['id']]);
-            }
+        if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
+            $pr = promoResolveForBooking($db, $promoCodeStr, (float) $finalPrice, 'ferries', (string) ($cfg['currency'] ?? 'EUR'), [
+                'user_id'    => $userId ?? ($_SESSION['user_id'] ?? null),
+                'user_email' => $contact['email'] ?? null,
+            ]);
+            $promoDiscount = (float) $pr['discount'];
+            $promoData     = $pr['promo'];
+            $promoCodeJson = $pr['json'];
+        }
+        if ($promoDiscount > 0 && $promoData) {
+            $finalPrice = max(0, round($finalPrice - $promoDiscount, 2));
         }
 
         $commission   = round(max(0, $finalPrice - $basePrice), 2);
@@ -1030,6 +1027,12 @@ $router->post('/api/ferries/booking/submit', function () use ($SECURE, $db) {
 
         // AGENT API — wallet settlement (no-op unless agent-API request).
         agent_api_settle_booking($db, 'ferries', $bookingId, $invoiceId, (float) $finalPrice);
+
+        // Record promo code usage (idempotent per invoice; bumps used_count +
+        // writes the per-user ledger row that enforces per_user_limit).
+        if ($promoCodeStr !== '' && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
+            recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?? null, $contact['email'] ?? null, (float) $promoDiscount, 'ferries', (string) ($cfg['currency'] ?? 'EUR'));
+        }
 
         echo json_encode([
             'success'    => true,
