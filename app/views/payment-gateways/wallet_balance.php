@@ -210,6 +210,19 @@ try {
         } catch (\Throwable $e) { error_log('wallet_balance GWPAY resolve: ' . $e->getMessage()); }
     }
 
+    // LOYALTY EARN (docs/MONEY-WALLET-AUDIT.md §C.4 step 5): award loyalty points
+    // for this payment, exactly as the card/bank path does in record_transaction().
+    // The wallet path is synchronous and never calls handle_payment_callback, so
+    // without this a WALLET-paid booking earned NOTHING while the same booking paid
+    // by card earned points — an inconsistent, silent penalty for wallet users.
+    // Idempotent per invoice (LOYALTY-EARN-{invoice} inside the helper), so a
+    // browser back / replay of /payment/gateway/{hash} never double-earns. Best
+    // effort: never block the (already-completed) payment on a loyalty error.
+    if (function_exists('loyalty_earn_for_payment') && $userId !== '' && $paymentAmount > 0) {
+        try { loyalty_earn_for_payment($db, (string) $userId, (float) $paymentAmount, (string) $booking['invoice_id']); }
+        catch (\Throwable $e) { error_log('wallet_balance loyalty earn: ' . $e->getMessage()); }
+    }
+
     // Get full booking data for auto-issue
     $bookingData = $db->get('bookings', '*', ['invoice_id' => $booking['invoice_id']]);
     
