@@ -326,3 +326,15 @@ $router->post('/cart/clear', function () use ($SECURE, $db) {
     $_SESSION['cart'] = [];
     cart_json(['success' => true, 'cart' => cart_reprice($db)]);
 });
+
+// The cart PAGE (HTML). Lists lines, applies a coupon, and checks out.
+$router->get('/cart', function () use ($SECURE, $db) {
+    $cartCsrf = class_exists('CSRF') ? CSRF::getToken() : '';
+    $title = 'Your Cart';
+    $description = '';
+    $header = true;
+    $footer = true;
+    require_once views . 'includes/header.php';
+    require_once views . 'cart/index.php';
+    require_once views . 'includes/footer.php';
+});
