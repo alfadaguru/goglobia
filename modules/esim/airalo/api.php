@@ -277,3 +277,106 @@ if (!function_exists('_airalo_request_with_token')) {
         return $res;
     }
 }
+
+if (!function_exists('airalo_authoritative_price')) {
+    /**
+     * Server-side authoritative sell price for one eSIM package (price-trust fix).
+     *
+     * The eSIM checkout historically trusted the client's selected_package.price,
+     * so a POST with price=0.01 could buy any eSIM for ~0 while Airalo still
+     * billed the platform the real cost. There is NO local price store
+     * (airalo_packages holds only commission rules), so we re-derive the price
+     * the same way search does: fetch Airalo's live /v2/packages for the country,
+     * find the package by id, take its authoritative base price, then apply the
+     * DB commission rule — exactly the computation in app/routes/esim/homeRoutes.php.
+     *
+     * @param array $module  the esim modules row (for currency + dev_mode/env)
+     * @param string $country ISO2
+     * @param string $packageId the Airalo package id the client selected
+     * @return array|null ['base_price','commission','price','currency','title'] or
+     *                    null when the package can't be found / priced (caller must
+     *                    then REJECT the booking — never fall back to client price).
+     */
+    function airalo_authoritative_price($db, array $module, string $country, string $packageId): ?array
+    {
+        $packageId = trim($packageId);
+        $country = strtoupper(trim($country));
+        if ($packageId === '' || $country === '') { return null; }
+
+        // Per-request memo: the cart re-prices on every view and a page may price
+        // the same package more than once. Cache within the request so we make at
+        // most one Airalo call per (country,package) per request.
+        static $memo = [];
+        $memoKey = $country . '|' . $packageId;
+        if (array_key_exists($memoKey, $memo)) { return $memo[$memoKey]; }
+
+        $environment = (!empty($module['dev_mode']) && (string) $module['dev_mode'] === '1') ? 'sandbox' : 'production';
+
+        // Flatten Airalo's data[].operators[].packages[] into a flat package list.
+        $flatten = static function ($responseData): array {
+            $flat = [];
+            foreach ((array) ($responseData['data'] ?? []) as $countryItem) {
+                foreach ((array) ($countryItem['operators'] ?? []) as $operator) {
+                    $opType = strtolower((string) ($operator['type'] ?? 'local'));
+                    foreach ((array) ($operator['packages'] ?? []) as $pkg) {
+                        $pkg['_op_type'] = $opType;
+                        $flat[] = $pkg;
+                    }
+                }
+            }
+            return $flat;
+        };
+        $extractPrice = static function ($pkg): float {
+            foreach (['price', 'net_price', 'retail_price', 'sale_price', 'amount'] as $k) {
+                if (isset($pkg[$k]) && is_numeric($pkg[$k]) && (float) $pkg[$k] > 0) {
+                    return (float) $pkg[$k];
+                }
+            }
+            return 0.0;
+        };
+
+        // Try local packages first, then global (a package id may be either type).
+        $match = null;
+        foreach ([['filter[type]' => 'local'], ['filter[type]' => 'global'], []] as $extra) {
+            $query = array_merge(['limit' => 200, 'page' => 1, 'filter[country]' => $country], $extra);
+            // global packages aren't country-filtered the same way — drop the country filter for the global sweep
+            if (($extra['filter[type]'] ?? '') === 'global') { unset($query['filter[country]']); }
+            $res = _airalo_request_with_token($db, 'GET', '/v2/packages', [
+                'env' => $environment, 'query' => $query, 'timeout' => 60,
+            ]);
+            if (empty($res['ok']) || empty($res['data']['data'])) { continue; }
+            foreach ($flatten($res['data']) as $pkg) {
+                if ((string) ($pkg['id'] ?? '') === $packageId) { $match = $pkg; break 2; }
+            }
+        }
+        if (!$match) { return ($memo[$memoKey] = null); }
+
+        $basePrice = $extractPrice($match);
+        if ($basePrice <= 0) { return ($memo[$memoKey] = null); }
+
+        // Apply the DB commission rule for this package type (same as homeRoutes).
+        $pkgType = (string) ($match['_op_type'] ?? 'local');
+        $localRules = $db->select('airalo_packages', '*', ['country' => $country, 'status' => 1]);
+        $rulesByType = [];
+        foreach ((array) $localRules as $rule) {
+            $rt = strtolower((string) ($rule['package_type'] ?? 'all'));
+            if (in_array($rt, ['all', 'global', 'local'], true) && !isset($rulesByType[$rt])) {
+                $rulesByType[$rt] = $rule;
+            }
+        }
+        $rule = $rulesByType[$pkgType] ?? $rulesByType['all'] ?? ['commission_type' => 'fixed', 'value' => 1];
+        $value = (float) ($rule['value'] ?? 1);
+        $commType = strtolower((string) ($rule['commission_type'] ?? 'fixed'));
+        $markupAmount = $commType === 'percentage' ? ($basePrice * $value / 100) : $value;
+        $finalPrice = round(max(0, $basePrice + $markupAmount), 2);
+        if ($finalPrice <= 0) { return ($memo[$memoKey] = null); }
+
+        return ($memo[$memoKey] = [
+            'base_price' => round($basePrice, 2),
+            'commission' => round(max(0, $markupAmount), 2),
+            'price'      => $finalPrice,
+            'currency'   => (string) ($module['currency'] ?? 'USD'),
+            'title'      => (string) ($match['title'] ?? 'eSIM Package'),
+        ]);
+    }
+}

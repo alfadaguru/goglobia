@@ -86,59 +86,22 @@ $router->post('/esim/booking/submit', function () use ($SECURE, $db) {
             throw new Exception('Please accept terms and conditions');
         }
 
-        $price = (float) $selectedPackage['price'];
-        if ($price < 0) {
-            $price = 0;
+        // PRICE INTEGRITY (price-trust workstream): NEVER trust the client's
+        // selected_package.price. Re-derive the authoritative sell price from
+        // Airalo's live catalog by package id + country, applying the DB
+        // commission rule server-side. Reject the booking if it can't be priced.
+        $packageId = (string) ($selectedPackage['id'] ?? $selectedPackage['package_id'] ?? '');
+        $authPrice = function_exists('airalo_authoritative_price')
+            ? airalo_authoritative_price($db, $module, $countryIso, $packageId)
+            : null;
+        if (!$authPrice || ($authPrice['price'] ?? 0) <= 0) {
+            throw new Exception('This eSIM package is no longer available. Please reselect.');
         }
-
-        // Supplier net price (before our markup).
-        // Priority:
-        // 1) explicit base_price from package payload
-        // 2) reverse-calculate from commission settings
-        // 3) fallback to marked-up price
-        $basePrice = isset($selectedPackage['base_price']) ? (float) $selectedPackage['base_price'] : null;
-
-        if ($basePrice === null) {
-            $commissionType = strtolower((string) ($selectedPackage['commission_type'] ?? ''));
-            $commissionValue = isset($selectedPackage['commission_value']) ? (float) $selectedPackage['commission_value'] : null;
-
-            if ($commissionType === '' || $commissionValue === null) {
-                $pkgType = strtolower((string) ($selectedPackage['package_type'] ?? ($input['package_type'] ?? 'all')));
-                if (!in_array($pkgType, ['all', 'global', 'local'], true)) {
-                    $pkgType = 'all';
-                }
-
-                $rule = $db->get('airalo_packages', ['commission_type', 'value'], [
-                    'country' => $countryIso,
-                    'package_type' => $pkgType,
-                    'status' => 1,
-                ]);
-                if (!$rule && $pkgType !== 'all') {
-                    $rule = $db->get('airalo_packages', ['commission_type', 'value'], [
-                        'country' => $countryIso,
-                        'package_type' => 'all',
-                        'status' => 1,
-                    ]);
-                }
-
-                $commissionType = strtolower((string) ($rule['commission_type'] ?? 'fixed'));
-                $commissionValue = (float) ($rule['value'] ?? 0);
-            }
-
-            if ($commissionType === 'percentage') {
-                $denominator = 1 + ($commissionValue / 100);
-                $basePrice = $denominator > 0 ? ($price / $denominator) : $price;
-            } else {
-                $basePrice = $price - $commissionValue;
-            }
-        }
-
-        if ($basePrice < 0) {
-            $basePrice = 0;
-        }
-        if ($basePrice > $price) {
-            $basePrice = $price;
-        }
+        $price = (float) $authPrice['price'];
+        $basePrice = (float) $authPrice['base_price'];
+        // Keep the client-facing package fields consistent with the server price.
+        $selectedPackage['price'] = $price;
+        $selectedPackage['base_price'] = $basePrice;
 
         // Secure Promo Code / Coupon Validation
         $couponCodeStr = strtoupper(trim((string) ($input['coupon_code'] ?? $input['promo_code'] ?? '')));
