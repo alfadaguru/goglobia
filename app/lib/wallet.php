@@ -482,11 +482,45 @@ if (!function_exists('loyalty_convert_to_wallet')) {
         $red = loyalty_apply($db, $userId, $points, 'redeem', ['reason' => 'convert_to_wallet', 'note' => 'Convert ' . $points . ' pts to wallet']);
         if (empty($red['ok'])) { return $red; }
         $currency = strtoupper(trim($currency)) ?: wallet_default_currency($db);
-        $cr = wallet_apply($db, $userId, $amount, 'credit', $currency, ['reason' => 'loyalty_convert', 'note' => 'Loyalty points converted (' . $points . ' pts)']);
+
+        // SPINE COMPLETENESS (audit money-integrity): record the wallet credit in
+        // money_transactions too (reason=loyalty_convert), linked to the ledger
+        // row via transaction_id — the same shape as wallet_refund/topup. Without
+        // this the conversion moved money in wallet_ledger + wallets but left NO
+        // money_transactions row, so loyalty redemptions were invisible in the
+        // unified money ledger used for audit/reporting (every other wallet move
+        // — topup, spend, refund, admin adjust — has one). Best-effort: if the
+        // txn row can't be created we still credit the wallet (never take points
+        // without giving money), we just miss the audit row.
+        $convTxnId = null;
+        if (function_exists('txn_create')) {
+            try {
+                $convTxn = txn_create($db, [
+                    'user_id'     => $userId,
+                    'direction'   => 'credit',
+                    'reason'      => 'loyalty_convert',
+                    'amount'      => $amount,
+                    'currency'    => $currency,
+                    'method'      => 'wallet',
+                    'description' => 'Loyalty points converted (' . $points . ' pts)',
+                ]);
+                if ($convTxn && !empty($convTxn['id'])) { $convTxnId = (int) $convTxn['id']; }
+            } catch (\Throwable $e) { error_log('loyalty_convert txn_create: ' . $e->getMessage()); }
+        }
+
+        $applyOpts = ['reason' => 'loyalty_convert', 'note' => 'Loyalty points converted (' . $points . ' pts)'];
+        if ($convTxnId !== null) { $applyOpts['transaction_id'] = $convTxnId; }
+        $cr = wallet_apply($db, $userId, $amount, 'credit', $currency, $applyOpts);
         if (empty($cr['ok'])) {
+            if ($convTxnId !== null && function_exists('txn_advance')) {
+                try { txn_advance($db, $convTxnId, 'failed', (string) ($cr['message'] ?? 'wallet credit failed')); } catch (\Throwable $e) {}
+            }
             // Roll the points back so we never take points without giving money.
             loyalty_apply($db, $userId, $points, 'earn', ['reason' => 'convert_rollback', 'note' => 'Rollback failed wallet credit']);
             return ['ok' => false, 'message' => 'Wallet credit failed; points restored'];
+        }
+        if ($convTxnId !== null && function_exists('txn_advance')) {
+            try { txn_advance($db, $convTxnId, 'success', 'loyalty points converted to wallet'); } catch (\Throwable $e) {}
         }
         return ['ok' => true, 'points_left' => $red['balance'], 'wallet_balance' => $cr['balance'], 'amount' => $amount];
     }
