@@ -45,6 +45,19 @@ if (function_exists('payment_gateway_allowed_for_actor')) {
     }
 }
 
+// CURRENCY ROUTING (step 2): only show external gateways valid for the payment
+// currency — NGN -> Paystack, every other currency -> Stripe. Wallet gateways
+// are currency-agnostic and always pass. The payment currency is the currency
+// the user is transacting in (the session display currency).
+if (function_exists('payment_gateway_allowed_for_currency')) {
+    $payCurrency = strtoupper(trim((string) ($_SESSION['app_currency'] ?? '')));
+    if ($payCurrency !== '') {
+        $paymentGateways = array_values(array_filter($paymentGateways, function ($gateway) use ($db, $payCurrency) {
+            return payment_gateway_allowed_for_currency($db, $gateway, $payCurrency);
+        }));
+    }
+}
+
 // FIND DEFAULT GATEWAY
 $defaultGatewayId = '';
 foreach ($paymentGateways as $gateway) {

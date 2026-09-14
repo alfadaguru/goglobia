@@ -91,6 +91,19 @@ function process_payment($invoiceId)
             return ['success' => false, 'message' => 'This payment method is not available for your account.'];
         }
 
+        // CURRENCY ROUTING server-side guard (step 2): the external gateway must be
+        // valid for the booking's currency — NGN -> Paystack, else -> Stripe. This
+        // cannot be bypassed by POSTing a mismatched gateway_id because it is
+        // enforced here, not just in the chooser UI. Wallet gateways pass (they
+        // are currency-agnostic). Uses the BOOKING currency (the amount actually
+        // charged), not the session, so it is correct even in async contexts.
+        if (function_exists('payment_gateway_allowed_for_currency')) {
+            $payCurrency = strtoupper(trim((string) ($booking['currency_markup'] ?? '')));
+            if ($payCurrency !== '' && !payment_gateway_allowed_for_currency($db, $gateway, $payCurrency)) {
+                return ['success' => false, 'message' => 'This payment method does not support ' . $payCurrency . ' payments. Please choose the payment method for your currency.'];
+            }
+        }
+
         // Create payment token
         $token = create_payment_token($booking, $gateway);
 
