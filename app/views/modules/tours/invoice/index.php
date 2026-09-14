@@ -140,31 +140,31 @@ foreach ($session_keys as $key) {
                             <div class="w-20 h-20 flex-shrink-0">
                                 <img src="<?= !empty($bookingData['tour_image']) ? $bookingData['tour_image'] : root . 'uploads/no_img.jpg' ?>"
                                      class="w-full h-full object-cover rounded-xl border border-gray-200 dark:border-gray-700"
-                                     alt="<?= $bookingData['tour_name'] ?>"
+                                     alt="<?= htmlspecialchars((string)($bookingData['tour_name'] ?? '')) ?>"
                                      onerror="this.src='<?= root ?>uploads/no_img.jpg'">
                             </div>
 
                             <div class="flex-1">
                                 <h4 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">
-                                    <?= $bookingData['tour_name'] ?>
+                                    <?= htmlspecialchars((string)($bookingData['tour_name'] ?? '')) ?>
                                 </h4>
 
                                 <div class="space-y-2 text-sm">
                                     <div class="flex items-center gap-4">
                                         <div class="flex items-center gap-1 text-gray-600 dark:text-gray-400">
                                             <span class="material-symbols-outlined text-sm">calendar_today</span>
-                                            <span><?= T::start_date ?>: <?= date('d M Y', strtotime($bookingData['start_date'])) ?></span>
+                                            <span><?= T::start_date ?>: <?= !empty($bookingData['start_date']) ? date('d M Y', strtotime((string)$bookingData['start_date'])) : '—' ?></span>
                                         </div>
                                         <div class="flex items-center gap-1 text-gray-600 dark:text-gray-400">
                                             <span class="material-symbols-outlined text-sm">schedule</span>
-                                            <span><?= T::duration ?>: <?= $bookingData['duration'] ?></span>
+                                            <span><?= T::duration ?>: <?= htmlspecialchars((string)($bookingData['duration'] ?? '—')) ?></span>
                                         </div>
                                     </div>
 
                                     <div class="flex items-center gap-4">
                                         <div class="flex items-center gap-1 text-gray-600 dark:text-gray-400">
                                             <span class="material-symbols-outlined text-sm">location_on</span>
-                                            <span><?= $bookingData['tour_location'] ?></span>
+                                            <span><?= htmlspecialchars((string)($bookingData['tour_location'] ?? '')) ?></span>
                                         </div>
                                         <div class="flex items-center gap-1 text-gray-600 dark:text-gray-400">
                                             <span class="material-symbols-outlined text-sm">group</span>
@@ -182,23 +182,24 @@ foreach ($session_keys as $key) {
                                     <?= T::pricing_details ?>
                                 </h4>
                                 <div class="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                                    <?php $__cur = htmlspecialchars((string)($bookingData['currency'] ?? ($booking['currency_markup'] ?? ''))); ?>
                                     <div class="flex justify-between">
                                         <span><?= T::tour_price ?>:</span>
-                                        <span><?= $bookingData['currency'] ?> <?= number_format($bookingData['markup_total_tour_price'], 2) ?></span>
+                                        <span><?= $__cur ?> <?= number_format((float)($bookingData['markup_total_tour_price'] ?? $booking['price_markup'] ?? 0), 2) ?></span>
                                     </div>
                                     <div class="flex justify-between">
                                         <span><?= T::adult_price ?> (x<?= $booking['adults'] ?>):</span>
-                                        <span><?= $bookingData['currency'] ?> <?= number_format($bookingData['markup_total_price_persons'], 2) ?></span>
+                                        <span><?= $__cur ?> <?= number_format((float)($bookingData['markup_total_price_persons'] ?? 0), 2) ?></span>
                                     </div>
                                     <?php if ($booking['childs'] > 0): ?>
                                     <div class="flex justify-between">
                                         <span><?= T::child_price ?> (x<?= $booking['childs'] ?>):</span>
-                                        <span><?= $bookingData['currency'] ?> <?= number_format($bookingData['markup_total_price_childrens'], 2) ?></span>
+                                        <span><?= $__cur ?> <?= number_format((float)($bookingData['markup_total_price_childrens'] ?? 0), 2) ?></span>
                                     </div>
                                     <?php endif; ?>
                                     <div class="flex justify-between font-semibold mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
                                         <span><?= T::subtotal ?>:</span>
-                                        <span><?= $bookingData['currency'] ?> <?= number_format($bookingData['markup_total_tour_price'], 2) ?></span>
+                                        <span><?= $__cur ?> <?= number_format((float)($bookingData['markup_total_tour_price'] ?? $booking['price_markup'] ?? 0), 2) ?></span>
                                     </div>
                                 </div>
                             </div>
