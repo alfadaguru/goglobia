@@ -118,12 +118,35 @@ if (!function_exists('busModuleAction')) {
                     $pay = strtolower((string) $booking['payment_status']);
                     if ($pay === 'refunded') throw new Exception('Payment is already refunded');
                     if ($pay !== 'paid') throw new Exception('Only a paid booking can be refunded');
-                    $db->update('bookings', [
+
+                    // REVERSE THE CHARGE, then set state from the ACTUAL result.
+                    // Previously this flipped payment_status to 'refunded' with NO
+                    // money movement and told the admin to "process the refund on
+                    // your gateway" — useless for a WALLET payment (the money is in
+                    // the internal wallet, there is no external gateway to refund
+                    // on), leaving the customer's wallet un-credited while the
+                    // booking claimed 'refunded'. refund_gateway_payment() credits a
+                    // wallet payment back through the spine (idempotent per invoice)
+                    // or issues a Paystack/Stripe card refund; only mark 'refunded'
+                    // when the money actually moved. Mirrors the stays refund actions.
+                    require_once dirname(__DIR__, 3) . '/app/lib/payment-gateway.php';
+                    $busRefund = function_exists('refund_gateway_payment')
+                        ? refund_gateway_payment($db, $booking, null, 'Bus booking refund')
+                        : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+                    $busRefunded = (($busRefund['status'] ?? '') === 'refunded');
+                    $db->update('bookings', $busRefunded ? [
                         'payment_status' => 'refunded', 'cancellation_status' => 1,
+                        'cancellation_response' => 'Gateway refund ' . ($busRefund['reference'] ?? '') . ' on ' . date('Y-m-d H:i:s'),
+                    ] : [
+                        'cancellation_status' => 1,
+                        'cancellation_response' => 'Gateway refund NOT automated (' . ($busRefund['message'] ?? 'unsupported') . '). Refund the customer manually.',
                     ], ['invoice_id' => $invoiceId]);
                     echo json_encode([
                         'status' => true, 'success' => true,
-                        'message' => 'Payment marked as refunded. Process the actual refund on your payment gateway.',
+                        'gateway_refund' => $busRefunded,
+                        'message' => $busRefunded
+                            ? ('Refund completed via ' . ($busRefund['gateway'] ?? 'gateway') . ' (ref ' . ($busRefund['reference'] ?? '') . ').')
+                            : ('Booking processed, but the automated refund was not possible (' . ($busRefund['message'] ?? 'unsupported') . '). Please refund the customer manually.'),
                     ]);
                     exit;
 
