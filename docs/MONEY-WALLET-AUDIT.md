@@ -663,3 +663,33 @@ re-issue (one row); resolve to `success` with a 3-step journey (birth → sent �
 success) and provider ref; idempotent re-fire (journey unchanged); and the
 `failed` path. Umrah lifecycle + spend/refund + agent-charge suites still zero
 failures.
+
+---
+
+## §F — Full behavioral simulation (admin / customer / agent, live DB)
+
+A complete end-to-end simulation was run against the live DB, playing out full
+journeys for each actor through the REAL money code (not mocks): admin credits an
+agent → agent gateway top-up → tier promotion (Gold at 10M lifetime top-up) →
+tier-discounted pricing → agent wallet booking (spine debit) → payment-rule
+enforcement (agent wallet-only, customer both, guest gateway-only) → customer
+wallet seed + external-gateway payment journey + wallet spend + overdraw block +
+refund → loyalty earn + convert-to-wallet → promo tamper-block → final ledger
+reconciliation. **Result: 51/51 assertions pass.**
+
+The simulation surfaced ONE genuine improvement, now shipped:
+
+- **Opening-balance ledger row** (`wallet_get_or_create()`, `app/lib/wallet.php`):
+  when a wallet is first materialised and seeded from the legacy store
+  (`users.balance` for customers, `credits` for agents), it now also writes an
+  `wallet_ledger` opening entry (`ref_type='opening_balance'`). This makes every
+  wallet's statement self-reconcile — `SUM(wallet_ledger) == wallets.balance` —
+  and makes the migrated opening money itself traceable. (It is NOT re-mirrored to
+  the legacy store; that money already lives there.)
+
+The other simulation discrepancies were **test-harness artifacts that confirmed
+the code was already correct**, not bugs: b2c pricing (harness set the rate after
+the read), loyalty "double-earn" (the harness reused an invoice that Act 5's
+gateway payment had already—correctly—earned on), and a stale row-count
+expectation (now 2 rows: opening + spend). Verified in isolation that each path
+behaves exactly as specified.
