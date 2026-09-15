@@ -230,8 +230,21 @@ function cleanInput($data)
 
 function verifyFormToken($token)
 {
-    // Implement your form token verification logic
-    return true; // Temporary
+    // SECURITY: this used to `return true` unconditionally — a stub that gave any
+    // caller ZERO CSRF protection while looking like a real check (a latent trap:
+    // a future dev wiring it into a POST handler would get silent no-op auth).
+    // It is currently called nowhere, but make it FAIL-CLOSED by delegating to the
+    // real CSRF validator (the single session token, hash_equals, 1h expiry) so it
+    // can never rubber-stamp a request. Prefer using CSRF::validateToken() /
+    // CSRF::verifyRequest() directly in new code.
+    if (!class_exists('CSRF')) {
+        $csrfLib = __DIR__ . '/csrf.php';
+        if (is_file($csrfLib)) { require_once $csrfLib; }
+    }
+    if (!class_exists('CSRF')) {
+        return false; // no validator available → deny, never default-allow
+    }
+    return CSRF::validateToken((string) $token);
 }
 
 function uploadFile($file, $uploadDir, $allowedTypes)
