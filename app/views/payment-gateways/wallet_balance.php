@@ -193,17 +193,57 @@ try {
     // to avoid token validation issues since payment is already completed
     // ============================================================================
     
-    // Update booking to paid status
-    $db->update('bookings', [
-        'payment_status' => 'paid',
-        'booking_status' => 'confirmed',
-        'paid_at' => date('Y-m-d H:i:s'),
-        'transaction_id' => $transactionId,
-        'payment_gateway' => 'Wallet Balance',
-        'error_response' => '' // Clear any previous errors
-    ], [
-        'invoice_id' => $booking['invoice_id']
-    ]);
+    // UMRAH INSTALLMENTS: an umrah booking may be on a deposit/installment plan,
+    // where the amount just charged is only the NEXT installment (payment_amount_due
+    // returns the installment, and this gateway charges that). It must be SETTLED
+    // through umrah_settle_payment — which marks the covered installment(s) paid,
+    // recomputes amount_paid/balance, sets payment_status (deposit_paid /
+    // partially_paid / fully_paid), and (on a qualifying deposit) confirms +
+    // price-locks + consumes the seat hold, mirroring 'paid' onto the generic row
+    // ONLY when the balance reaches zero. The card/bank path already does this in
+    // record_transaction(); the synchronous wallet path did NOT, so a wallet-paid
+    // deposit charged the right amount but then blindly marked the WHOLE booking
+    // 'paid' while the umrah ledger stayed unpaid (balance still full, not
+    // confirmed, hold not consumed) — a money desync that also stopped the balance
+    // ever being collected. Delegate to the settlement engine for umrah.
+    $mtForSettle = strtolower((string) ($db->get('bookings', 'module_type', ['invoice_id' => $booking['invoice_id']]) ?: ''));
+    $umrahSettled = false;
+    if ($mtForSettle === 'umrah' && function_exists('umrah_settle_payment')) {
+        try {
+            umrah_settle_payment(
+                $db,
+                (string) $booking['invoice_id'],
+                (float) $paymentAmount,          // the installment amount just charged
+                (string) $paymentCurrency,
+                (string) $transactionId
+            );
+            // Record the gateway + txn on the generic row without overriding the
+            // payment_status/booking_status that umrah_settle_payment just set
+            // (it marks the generic row 'paid' only when the balance hits zero).
+            $db->update('bookings', [
+                'transaction_id'  => $transactionId,
+                'payment_gateway' => 'Wallet Balance',
+                'error_response'  => '',
+            ], ['invoice_id' => $booking['invoice_id']]);
+            $umrahSettled = true;
+        } catch (\Throwable $e) {
+            error_log('wallet_balance umrah settle: ' . $e->getMessage());
+        }
+    }
+
+    // Non-umrah (or a settlement failure): the full amount clears the booking.
+    if (!$umrahSettled) {
+        $db->update('bookings', [
+            'payment_status' => 'paid',
+            'booking_status' => 'confirmed',
+            'paid_at' => date('Y-m-d H:i:s'),
+            'transaction_id' => $transactionId,
+            'payment_gateway' => 'Wallet Balance',
+            'error_response' => '' // Clear any previous errors
+        ], [
+            'invoice_id' => $booking['invoice_id']
+        ]);
+    }
     
     // SPINE RESOLUTION (audit money-integrity): close the gateway-attempt
     // money_transactions row born 'pending'->'sent' in create_payment_token()
