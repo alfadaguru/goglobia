@@ -1533,6 +1533,12 @@ $router->post(admin.'/stays/rooms/delete', function () use ($SECURE,$db) {
 
 // SAVE ROOM OPTION
 $router->post('/admin/stays/rooms/options/save', function() use ($db) {
+    // ADMIN AUTH CHECK — this writes hotel room-option/pricing data. It was
+    // guarded ONLY by an X-Requested-With header check (trivially forgeable, not
+    // authentication), so an unauthenticated request could modify any hotel's
+    // room options. Every sibling handler in this file calls ADMIN_AUTH(); this
+    // one (and its /delete pair) were missed.
+    ADMIN_AUTH();
     // Check if it's AJAX request
     if (!isset($_SERVER['HTTP_X_REQUESTED_WITH']) || strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) !== 'xmlhttprequest') {
         die(json_encode(['success' => false, 'message' => 'Invalid request']));
@@ -1615,6 +1621,9 @@ $router->post('/admin/stays/rooms/options/save', function() use ($db) {
 // DELETE ROOM OPTION
 $router->post('/admin/stays/rooms/options/delete', function() use ($db) {
 
+    // ADMIN AUTH CHECK — deletes a hotel room option. Was guarded only by a
+    // forgeable X-Requested-With header (not authentication). See the /save pair.
+    ADMIN_AUTH();
     // Check if it's AJAX request
     if (!isset($_SERVER['HTTP_X_REQUESTED_WITH']) || strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) !== 'xmlhttprequest') {
         die(json_encode(['success' => false, 'message' => 'Invalid request']));

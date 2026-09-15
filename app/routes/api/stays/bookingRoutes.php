@@ -845,6 +845,13 @@ $router->post('/api/stays/invoice/resend', function () use ($db) {
             throw new Exception('Booking not found');
         }
 
+        // SECURITY: resend is owner/admin only (was unauthenticated). Sends to the
+        // booking's own email. enforceInvoiceAccess() emits 403 JSON + exit for a
+        // non-owner on an /api/ route.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+
         $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
 
         NOTIFY::resend('stays', [

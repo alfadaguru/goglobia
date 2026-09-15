@@ -1140,6 +1140,13 @@ $router->post('/api/flights/booking/resend-invoice', function () use ($db) {
         exit;
     }
 
+    // SECURITY: resend is owner/admin only (was unauthenticated — an attacker
+    // could resend/generate any customer's invoice by id). Sends to the booking's
+    // own email. enforceInvoiceAccess() emits 403 JSON + exit for a non-owner.
+    if (function_exists('enforceInvoiceAccess')) {
+        enforceInvoiceAccess($db, $booking);
+    }
+
     $pdf = GENERATE_BOOKING_PDF($invoiceId);
 
     NOTIFY::resend('flights', [
