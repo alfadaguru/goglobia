@@ -39,7 +39,18 @@ class EmailService {
             }
 
             $this->expect($conn, '220', 'greeting');
-            $domain = 'trainingplatform.com';
+            // Derive the EHLO hostname from the sender address (else the server
+            // host) instead of the hardcoded copy-paste leftover 'trainingplatform
+            // .com', which advertised a wrong/foreign identity to the SMTP server
+            // (hurts deliverability/SPF alignment and leaks a stale brand name).
+            $domain = '';
+            if (!empty($this->from_email) && strpos($this->from_email, '@') !== false) {
+                $domain = trim(substr(strrchr($this->from_email, '@'), 1));
+            }
+            if ($domain === '') {
+                $domain = $_SERVER['SERVER_NAME'] ?? ($_SERVER['HTTP_HOST'] ?? php_uname('n'));
+            }
+            if ($domain === '' || $domain === null) { $domain = 'localhost'; }
             $this->cmd($conn, "EHLO $domain", '250', 'EHLO');
 
             $this->cmd($conn, "AUTH LOGIN", '334', 'AUTH LOGIN begin');
