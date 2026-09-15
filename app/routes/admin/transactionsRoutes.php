@@ -234,6 +234,10 @@ $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
 
 // ================================ USER SEARCH SUGGESTION - AJAX
 $router->post(admin.'/user-search-suggestion', function () use ($SECURE,$db) {
+    // ADMIN AUTH CHECK — returns user PII for a search query. Had no auth guard;
+    // admin-only. (Duplicate registration of the same path also exists in
+    // creditsRoutes.php — both guarded so whichever the router binds is safe.)
+    ADMIN_AUTH();
     // CLEAN ALL OUTPUT BUFFERS
     while (ob_get_level()) {
         ob_end_clean();
