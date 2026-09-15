@@ -440,7 +440,6 @@ $router->post('/api/booking/resend-invoice', function () use ($SECURE, $db) {
     try {
         $input = json_decode(file_get_contents('php://input'), true);
         $invoiceId = trim($input['invoice_id'] ?? '');
-        $emailOverride = trim($input['customer_email'] ?? '');
 
         if (empty($invoiceId)) {
             throw new Exception('Invoice ID is required');
@@ -451,6 +450,19 @@ $router->post('/api/booking/resend-invoice', function () use ($SECURE, $db) {
         if (!$booking) {
             throw new Exception('Booking not found');
         }
+
+        // SECURITY (invoice exfiltration IDOR): this endpoint was unauthenticated
+        // AND honoured a client-supplied `customer_email` override — so anyone who
+        // knew/guessed an invoice id could have another customer's invoice PDF
+        // (name, contact, PNR, itinerary, amount) emailed to an attacker-controlled
+        // address. Restrict to admin / owner / creating session / valid payment
+        // token, and IGNORE the override entirely: a resend always goes to the
+        // booking's OWN email on file. enforceInvoiceAccess() emits 403 JSON + exit
+        // on an /api/ route for a non-owner.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+        $emailOverride = ''; // never trust a client-supplied recipient
 
         // 2. Identify Module
         $module = strtolower($booking['module_type'] ?? $booking['module'] ?? 'stays');
