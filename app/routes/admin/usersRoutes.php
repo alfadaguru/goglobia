@@ -620,6 +620,12 @@ $router->post(admin.'/users/process-manage-funds', function () use ($SECURE,$db)
 // Credit days update route
 $router->post(admin.'/users/update-credit-days', function () use ($SECURE,$db) {
 
+    // ADMIN AUTH CHECK — this mutates a user's credit terms (credit_payment_days /
+    // reminder settings). It had NO auth guard, so an unauthenticated request
+    // could change any agent's credit terms (proven: anon set credit_payment_days
+    // to 999). The 'Invalid request'/action gate is NOT authentication.
+    ADMIN_AUTH();
+
     // Handle AJAX request
     if ($_POST && isset($_POST['action']) && $_POST['action'] === 'update_credit_days') {
 

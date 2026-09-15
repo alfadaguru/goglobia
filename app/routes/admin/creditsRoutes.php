@@ -174,6 +174,11 @@ $router->post(admin.'/finance/credits', function () use ($SECURE,$db) {
 
 // ================================ USER SEARCH SUGGESTION - AJAX
 $router->post(admin.'/user-search-suggestion', function () use ($SECURE,$db) {
+    // ADMIN AUTH CHECK — returns user PII (name, email, credit_limits,
+    // credit_payment_days) for a search query. It had NO auth guard, so an
+    // unauthenticated request could enumerate/exfiltrate user data (proven over
+    // HTTP). Admin-only.
+    ADMIN_AUTH();
     // CLEAN ALL OUTPUT BUFFERS
     while (ob_get_level()) {
         ob_end_clean();
