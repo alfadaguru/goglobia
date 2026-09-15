@@ -94,8 +94,57 @@ class Captcha {
      * @return string Hash
      */
     private static function createHash($answer, $timestamp) {
-        $secret = 'phptravels_captcha_secret_v10_2025'; // Change this to your own secret
-        return hash_hmac('sha256', $answer . '|' . $timestamp, $secret);
+        return hash_hmac('sha256', $answer . '|' . $timestamp, self::secret());
+    }
+
+    /**
+     * Resolve the captcha HMAC secret.
+     *
+     * The old hardcoded 'phptravels_captcha_secret_v10_2025' shipped in source,
+     * so anyone could forge a valid captcha token (answer+timestamp HMAC) and
+     * bypass the anti-bot check on signup/deposit entirely. Resolve a real secret
+     * instead, mirroring the JWT approach:
+     *   1. CAPTCHA_SECRET from .env (preferred — operator sets a long random value)
+     *   2. per-install derived secret from private .env material (DB creds +
+     *      license + path) — unique per deployment, never in source, stable across
+     *      requests (so tokens verify within the same install).
+     *   3. fail-safe per-process value if .env is unreadable.
+     */
+    private static function secret() {
+        static $cache = null;
+        if ($cache !== null) { return $cache; }
+
+        $secret = '';
+        $env = getenv('CAPTCHA_SECRET');
+        if ($env !== false && trim((string) $env) !== '') {
+            $secret = trim((string) $env);
+        }
+
+        $envFile = __DIR__ . '/../../.env';
+        if ($secret === '' && is_file($envFile)) {
+            $vars = @parse_ini_file($envFile);
+            if (is_array($vars)) {
+                if (!empty($vars['CAPTCHA_SECRET']) && trim((string) $vars['CAPTCHA_SECRET']) !== '') {
+                    $secret = trim((string) $vars['CAPTCHA_SECRET']);
+                } else {
+                    $material = ($vars['DB_PASSWORD'] ?? '')
+                        . '|' . ($vars['DB_DATABASE'] ?? '')
+                        . '|' . ($vars['DB_USERNAME'] ?? '')
+                        . '|' . ($vars['LICENSE_KEY'] ?? '')
+                        . '|' . __DIR__;
+                    if (trim($material, '|') !== '') {
+                        $secret = hash('sha256', 'captcha-v10|' . $material);
+                    }
+                }
+            }
+        }
+
+        if ($secret === '') {
+            $secret = hash('sha256', 'captcha-v10|' . __DIR__ . '|' . (getenv('HOSTNAME') ?: php_uname('n')));
+        }
+
+        $cache = $secret;
+        return $cache;
     }
     
     /**
