@@ -66,6 +66,7 @@ $router->get(admin.'/stays/settings/edit/(.*)', function ($id) use ($SECURE,$db)
 $router->post(admin.'/stays/settings/save', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     $setting_id = intval($_POST['id'] ?? 0);
     $isEdit = $setting_id > 0;
@@ -168,6 +169,7 @@ $router->post(admin.'/stays/settings/save', function () use ($SECURE,$db) {
 $router->post(admin.'/stays/settings/delete', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     $setting_id = intval($_POST['id'] ?? 0);
 

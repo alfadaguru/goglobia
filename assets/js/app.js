@@ -134,3 +134,89 @@ window.flPanel = window.flPanel || function (triggerId, panelId, focusId) {
         }
     };
 };
+
+// ============================================================================
+// GLOBAL CSRF TOKEN PROPAGATION
+// Server-side, every state-changing POST handler now enforces a CSRF token
+// (CSRF::validateToken / verifyRequest). This interceptor guarantees the token
+// (published in <meta name="csrf-token">) is sent on EVERY same-origin request
+// so that enforcement never breaks a form or AJAX call:
+//   - fetch() / XMLHttpRequest: attach an `X-CSRF-TOKEN` request header
+//   - <form method=post>: inject a hidden `csrf_token` field if one is missing
+// GET/HEAD and cross-origin requests are left untouched.
+// ============================================================================
+(function () {
+    function csrfToken() {
+        const m = document.querySelector('meta[name="csrf-token"]');
+        return m ? m.getAttribute('content') : '';
+    }
+    function sameOrigin(url) {
+        try {
+            // Relative URLs (no scheme//host) are same-origin by definition.
+            const u = new URL(url, location.href);
+            return u.origin === location.origin;
+        } catch (e) { return true; }
+    }
+    function needsToken(method) {
+        method = (method || 'GET').toUpperCase();
+        return method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && method !== 'TRACE';
+    }
+
+    // --- fetch() ---
+    if (window.fetch) {
+        const _fetch = window.fetch;
+        window.fetch = function (input, init) {
+            try {
+                init = init || {};
+                const url = (typeof input === 'string') ? input : (input && input.url) || '';
+                const method = init.method || (typeof input === 'object' && input && input.method) || 'GET';
+                if (needsToken(method) && sameOrigin(url)) {
+                    const tok = csrfToken();
+                    if (tok) {
+                        const h = new Headers(init.headers || (typeof input === 'object' && input && input.headers) || {});
+                        if (!h.has('X-CSRF-TOKEN')) h.set('X-CSRF-TOKEN', tok);
+                        init.headers = h;
+                    }
+                }
+            } catch (e) { /* never break the request */ }
+            return _fetch.call(this, input, init);
+        };
+    }
+
+    // --- XMLHttpRequest ---
+    if (window.XMLHttpRequest) {
+        const _open = XMLHttpRequest.prototype.open;
+        const _send = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.open = function (method, url) {
+            this.__csrfNeeds = needsToken(method) && sameOrigin(url);
+            return _open.apply(this, arguments);
+        };
+        XMLHttpRequest.prototype.send = function (body) {
+            try {
+                if (this.__csrfNeeds) {
+                    const tok = csrfToken();
+                    if (tok) this.setRequestHeader('X-CSRF-TOKEN', tok);
+                }
+            } catch (e) { /* header may already be set / request in progress */ }
+            return _send.apply(this, arguments);
+        };
+    }
+
+    // --- classic <form method=post> submissions ---
+    document.addEventListener('submit', function (e) {
+        const form = e.target;
+        if (!form || form.tagName !== 'FORM') return;
+        const method = (form.getAttribute('method') || 'GET').toUpperCase();
+        if (method !== 'POST') return;
+        const action = form.getAttribute('action') || location.href;
+        if (!sameOrigin(action)) return;
+        if (form.querySelector('input[name="csrf_token"]')) return; // already present
+        const tok = csrfToken();
+        if (!tok) return;
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'csrf_token';
+        input.value = tok;
+        form.appendChild(input);
+    }, true);
+})();

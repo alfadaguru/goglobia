@@ -338,6 +338,7 @@ $router->post(admin.'/users/notes', function () use ($SECURE,$db) {
 
 //     // ADMIN AUTH CHECK
 //     ADMIN_AUTH();
+CSRF::guard();
 
 //     // META DATA
 //     $title = 'Add Role';
@@ -357,6 +358,7 @@ $router->post(admin.'/users/notes', function () use ($SECURE,$db) {
 
 //     // ADMIN AUTH CHECK
 //     ADMIN_AUTH();
+CSRF::guard();
 
 //     // META DATA
 //     $title = 'Edit Role';
@@ -625,6 +627,7 @@ $router->post(admin.'/users/update-credit-days', function () use ($SECURE,$db) {
     // could change any agent's credit terms (proven: anon set credit_payment_days
     // to 999). The 'Invalid request'/action gate is NOT authentication.
     ADMIN_AUTH();
+    CSRF::guard();
 
     // Handle AJAX request
     if ($_POST && isset($_POST['action']) && $_POST['action'] === 'update_credit_days') {
@@ -709,6 +712,7 @@ $router->post(admin.'/users/update-markup', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     // Handle AJAX request
     if ($_POST && isset($_POST['action']) && $_POST['action'] === 'update_markup') {

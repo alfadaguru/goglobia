@@ -126,6 +126,7 @@ $router->get(admin.'/visa/add', function () use ($SECURE,$db) {
 // ================================ POST /visa/add - ADD NEW VISA
 $router->post(admin.'/visa/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
 
     // Form data validation
     $from_country_id = intval($_POST['from_country_id'] ?? 0);
@@ -280,6 +281,7 @@ $router->get(admin.'/visa/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /visa/edit/{id} - UPDATE VISA
 $router->post(admin.'/visa/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
 
     $visa_id = intval($id);
 
@@ -492,6 +494,7 @@ $router->post(admin.'/visa/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /visa/delete - DELETE VISA
 $router->post(admin.'/visa/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
 
     $visa_id = intval($_POST['id'] ?? 0);
 
@@ -652,6 +655,7 @@ $router->get(admin.'/visa/settings/edit/(\d+)', function ($id) use ($SECURE,$db)
 // ================================ POST /visa/settings/save - ADD/UPDATE VISA SETTING
 $router->post(admin.'/visa/settings/save', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
 
     $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
     $setting_type = trim($_POST['setting_type'] ?? '');
@@ -748,6 +752,7 @@ $router->post(admin.'/visa/settings/save', function () use ($SECURE,$db) {
 // ================================ POST /visa/settings/delete - DELETE VISA SETTING
 $router->post(admin.'/visa/settings/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
 
     $id = intval($_POST['id'] ?? 0);
 
@@ -844,6 +849,7 @@ $router->get(admin.'/visa-bookings/view/(\d+)', function ($id) use ($SECURE,$db)
 // ================================ POST /visa-bookings/update-status - UPDATE BOOKING STATUS
 $router->post(admin.'/visa-bookings/update-status', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
 
     $id = intval($_POST['id'] ?? 0);
     $booking_status = trim($_POST['booking_status'] ?? '');
@@ -936,6 +942,7 @@ $router->post(admin.'/visa-bookings/update-status', function () use ($SECURE,$db
 // ================================ POST /visa-bookings/delete - DELETE VISA BOOKING
 $router->post(admin.'/visa-bookings/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
 
     $id = intval($_POST['id'] ?? 0);
 
@@ -1024,6 +1031,7 @@ $router->get(admin.'/visa/prices/edit/(\d+)', function ($id) use ($SECURE,$db) {
 // ================================ POST /visa/prices/save - SAVE PRICE (ADD/UPDATE)
 $router->post(admin.'/visa/prices/save', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
 
     $id = intval($_POST['id'] ?? 0);
     $from_country = strtoupper(trim($_POST['from_country'] ?? ''));
@@ -1131,6 +1139,7 @@ $router->post(admin.'/visa/prices/save', function () use ($SECURE,$db) {
 // ================================ POST /visa/prices/delete - DELETE PRICE
 $router->post(admin.'/visa/prices/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
 
     $id = intval($_POST['id'] ?? 0);
 

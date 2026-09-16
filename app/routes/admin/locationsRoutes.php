@@ -21,6 +21,7 @@ $router->get(admin.'/settings/(locations)', function ($route) use ($SECURE,$db) 
 // ================================ LOCATIONS MANAGE (ADD/EDIT) - UNIFIED ROUTE
 $locationsManageHandler = function ($action, $id = null) use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
 
     $locationId = $id ? (int)$id : 0;
     $isEdit = $locationId > 0;

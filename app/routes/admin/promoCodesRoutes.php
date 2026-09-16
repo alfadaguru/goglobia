@@ -35,6 +35,7 @@ $router->get(admin.'/promo-codes/add', function () use ($SECURE,$db) {
 // ================================ POST /promo-codes/add - ADD NEW PROMO CODE
 $router->post(admin.'/promo-codes/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
     
     $code = strtoupper(trim($_POST['code'] ?? ''));
     $description = trim($_POST['description'] ?? '');
@@ -245,6 +246,7 @@ $router->post(admin.'/promo-codes/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /promo-codes/delete - DELETE PROMO CODE
 $router->post(admin.'/promo-codes/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
     $promo_id = intval($_POST['id'] ?? 0);
     
     if ($promo_id <= 0) {
@@ -277,6 +279,7 @@ $router->post(admin.'/promo-codes/delete', function () use ($SECURE,$db) {
 // ================================ POST /promo-codes/generate - GENERATE RANDOM CODE (AJAX)
 $router->post(admin.'/promo-codes/generate', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
     header('Content-Type: application/json');
     
     $prefix = strtoupper(trim($_POST['prefix'] ?? ''));

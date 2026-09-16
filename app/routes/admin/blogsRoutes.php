@@ -38,7 +38,8 @@ $router->get(admin.'/blogs/add', function () use ($SECURE,$db) {
 // ================================ POST /blogs/add - ADD NEW BLOG
 $router->post(admin.'/blogs/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
-    
+    CSRF::guard();
+
     $post_title = trim($_POST['post_title'] ?? '');
     $post_desc = trim($_POST['post_desc'] ?? '');
     $post_category = intval($_POST['post_category'] ?? 0);
@@ -173,6 +174,7 @@ $router->get(admin.'/blogs/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /blogs/edit/{id} - UPDATE BLOG
 $router->post(admin.'/blogs/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
     $blog_id = intval($id);
     
     $blog = $db->get('blogs', '*', ['id' => $blog_id]);
@@ -297,6 +299,7 @@ $router->post(admin.'/blogs/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /blogs/delete - DELETE BLOG
 $router->post(admin.'/blogs/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
     $blog_id = intval($_POST['id'] ?? 0);
     
     if ($blog_id <= 0) {
@@ -370,7 +373,8 @@ $router->get(admin.'/blogs/categories/get/(\d+)', function ($id) use ($SECURE,$d
 // ================================ POST /blogs/categories/add - ADD CATEGORY (AJAX)
 $router->post(admin.'/blogs/categories/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
-    
+    CSRF::guard();
+
     $cat_name = trim($_POST['cat_name'] ?? '');
     $cat_slug = trim($_POST['cat_slug'] ?? '');
     $status = isset($_POST['status']) ? 1 : 0;
@@ -405,6 +409,7 @@ $router->post(admin.'/blogs/categories/add', function () use ($SECURE,$db) {
 // ================================ POST /blogs/categories/update/{id} - UPDATE CATEGORY (AJAX)
 $router->post(admin.'/blogs/categories/update/(\d+)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
     $cat_id = intval($id);
     
     $cat_name = trim($_POST['cat_name'] ?? '');
@@ -440,6 +445,7 @@ $router->post(admin.'/blogs/categories/update/(\d+)', function ($id) use ($SECUR
 // ================================ POST /blogs/categories/delete/{id} - DELETE CATEGORY (AJAX)
 $router->post(admin.'/blogs/categories/delete/(\d+)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
     $cat_id = intval($id);
     
     if ($cat_id <= 0) {
