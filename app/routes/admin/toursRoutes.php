@@ -214,7 +214,11 @@ $router->post(admin.'/tours/add', function () use ($SECURE,$db) {
         'cancellation_policy' => !empty($cancellation_policy) ? $cancellation_policy : null,
         'terms_conditions' => !empty($terms_conditions) ? $terms_conditions : null,
         'img' => !empty($images) ? json_encode($images) : null,
-        'user_id' => !empty($_POST['user_id']) ? $_POST['user_id'] : null,
+        // tours.user_id is NOT NULL (unlike stays/cars). The admin owner field is
+        // optional in the form (it posts an empty string when unset), so falling back
+        // to null threw "Column 'user_id' cannot be null" and silently killed the
+        // insert. Default to the current admin so a tour always has a valid owner.
+        'user_id' => !empty($_POST['user_id']) ? $_POST['user_id'] : ($_SESSION['user_id'] ?? null),
         'status' => 1,
         'created_at' => date('Y-m-d H:i:s'),
         'translations' => !empty($translations) ? json_encode($translations) : null
@@ -580,7 +584,11 @@ $router->post(admin.'/tours/edit/(.*)', function ($id) use ($SECURE,$db) {
         'cancellation_policy' => !empty($cancellation_policy) ? $cancellation_policy : null,
         'terms_conditions' => !empty($terms_conditions) ? $terms_conditions : null,
         'img' => !empty($images) ? json_encode($images) : null,
-        'user_id' => !empty($_POST['user_id']) ? $_POST['user_id'] : null,
+        // tours.user_id is NOT NULL and the owner field is optional in the form
+        // (posts empty when unset). On edit, preserve the existing owner rather than
+        // nulling it (which threw and blocked the update) or reassigning it to the
+        // editing admin. Fall back to the current admin only if the row somehow has none.
+        'user_id' => !empty($_POST['user_id']) ? $_POST['user_id'] : (!empty($tour['user_id']) ? $tour['user_id'] : ($_SESSION['user_id'] ?? null)),
         'updated_at' => date('Y-m-d H:i:s'),
         'translations' => !empty($translations) ? json_encode($translations) : null
     ];
