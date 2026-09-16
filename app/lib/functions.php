@@ -927,21 +927,53 @@ function enforceInvoiceAccess($db, $booking, $redirectTo = null): bool
         session_start();
     }
 
-    // 1) Admin — full access.
+    // The mobile/REST API authenticates with a JWT Bearer token, NOT a PHP
+    // session cookie. Resolve that token's user here so an app client can reach
+    // its OWN invoice — otherwise every /api/*/invoice route (which shares this
+    // guard) would 403 a legitimate token-authenticated user. Falls through
+    // silently for web (session) callers, who have no Authorization header.
+    $tokenUserId = null;
+    $tokenRole   = '';
+    $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+    if ($authHeader !== '' && preg_match('/Bearer\s+(\S+)/i', $authHeader, $bearerMatch)) {
+        if (!class_exists('JWT')) {
+            $jwtLib = __DIR__ . '/jwt.php';
+            if (is_file($jwtLib)) { require_once $jwtLib; }
+        }
+        if (class_exists('JWT')) {
+            try {
+                $tokenData = JWT::verify($bearerMatch[1]);
+                if (is_array($tokenData) && !empty($tokenData['user_id'])) {
+                    $tokenUserId = (string) $tokenData['user_id'];
+                    $tokenRole   = strtolower((string) ($tokenData['role'] ?? ''));
+                }
+            } catch (Throwable $e) {
+                // Invalid/expired token → treated as unauthenticated (no bypass).
+            }
+        }
+    }
+
+    // 1) Admin — full access (session admin OR an admin-role Bearer token).
     $isAdmin = (
         (($_SESSION['user_role'] ?? '') === 'admin')
         || (!empty($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true)
+        || in_array($tokenRole, ['admin', 'superadmin'], true)
     );
     if ($isAdmin) {
         return true;
     }
 
-    // 2) Owning logged-in user (match on either user_id shape the app uses).
+    // 2) Owning user — the session user OR the Bearer-token user must match the
+    //    booking owner (match on either user_id shape the app uses).
     $sessUserId = $_SESSION['user_id'] ?? ($_SESSION['user_data']['id'] ?? null);
     $bookingUserId = $booking['user_id'] ?? null;
-    if ($sessUserId !== null && $bookingUserId !== null
-        && (string) $sessUserId === (string) $bookingUserId) {
-        return true;
+    if ($bookingUserId !== null) {
+        if ($sessUserId !== null && (string) $sessUserId === (string) $bookingUserId) {
+            return true;
+        }
+        if ($tokenUserId !== null && $tokenUserId === (string) $bookingUserId) {
+            return true;
+        }
     }
 
     // 3) Guest/session that created this invoice.
