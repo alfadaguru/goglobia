@@ -113,19 +113,19 @@ foreach ($session_keys as $key) {
                                 <div class="space-y-2 text-sm">
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400"><?= T::name ?>:</span>
-                                        <span class="font-medium"><?= $booking['first_name'] . ' ' . $booking['last_name'] ?></span>
+                                        <span class="font-medium"><?= htmlspecialchars((string)$booking['first_name'].' '.(string)$booking['last_name'], ENT_QUOTES, 'UTF-8') ?></span>
                                     </div>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400"><?= T::email ?>:</span>
-                                        <span class="font-medium"><?= $booking['email'] ?></span>
+                                        <span class="font-medium"><?= htmlspecialchars((string)$booking['email'], ENT_QUOTES, 'UTF-8') ?></span>
                                     </div>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400"><?= T::phone ?>:</span>
-                                        <span class="font-medium">+<?= $booking['phone_country_code'] ?> <?= $booking['phone'] ?></span>
+                                        <span class="font-medium">+<?= htmlspecialchars((string)$booking['phone_country_code'], ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string)$booking['phone'], ENT_QUOTES, 'UTF-8') ?></span>
                                     </div>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400"><?= T::nationality ?>:</span>
-                                        <span class="font-medium"><?= $booking['nationality'] ?></span>
+                                        <span class="font-medium"><?= htmlspecialchars((string)$booking['nationality'], ENT_QUOTES, 'UTF-8') ?></span>
                                     </div>
                                 </div>
                             </div>
@@ -649,9 +649,9 @@ foreach ($session_keys as $key) {
                                         <p class="text-gray-600"><?= $travellersData['primary_guest']['email'] ?? '' ?></p>
                                         <p class="text-gray-600">+<?= $travellersData['primary_guest']['country_code'] ?? '' ?> <?= $travellersData['primary_guest']['phone'] ?? '' ?></p>
                                     <?php else: ?>
-                                        <p><strong><?= $booking['first_name'] ?> <?= $booking['last_name'] ?></strong></p>
-                                        <p class="text-gray-600"><?= $booking['email'] ?></p>
-                                        <p class="text-gray-600">+<?= $booking['phone_country_code'] ?> <?= $booking['phone'] ?></p>
+                                        <p><strong><?= htmlspecialchars((string)$booking['first_name'], ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string)$booking['last_name'], ENT_QUOTES, 'UTF-8') ?></strong></p>
+                                        <p class="text-gray-600"><?= htmlspecialchars((string)$booking['email'], ENT_QUOTES, 'UTF-8') ?></p>
+                                        <p class="text-gray-600">+<?= htmlspecialchars((string)$booking['phone_country_code'], ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string)$booking['phone'], ENT_QUOTES, 'UTF-8') ?></p>
                                     <?php endif; ?>
                                 </div>
                             </div>

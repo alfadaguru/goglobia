@@ -190,7 +190,7 @@ $mozioStripeUrl = $mozioMeta['stripe_redirect_url'] ?? '';
                                     </div>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400"><?= T::phone ?>:</span>
-                                        <span class="font-medium">+<?= $booking['phone_country_code'] ?> <?= $phone ?></span>
+                                        <span class="font-medium">+<?= htmlspecialchars((string)$booking['phone_country_code'], ENT_QUOTES, 'UTF-8') ?> <?= $phone ?></span>
                                     </div>
                                 </div>
                             </div>

@@ -522,11 +522,12 @@ function bookingAuth() {
 document.addEventListener('alpine:init', () => {
     setTimeout(() => {
         if (typeof window.bookingFormData !== 'undefined') {
-            window.bookingFormData.primary_guest.first_name = '<?= addslashes($loggedInUser['first_name']) ?>';
-            window.bookingFormData.primary_guest.last_name = '<?= addslashes($loggedInUser['last_name']) ?>';
-            window.bookingFormData.primary_guest.email = '<?= addslashes($loggedInUser['email']) ?>';
-            window.bookingFormData.primary_guest.phone = '<?= addslashes($loggedInUser['phone'] ?? '') ?>';
-            window.bookingFormData.primary_guest.country_code = '<?= addslashes($loggedInUser['phone_country_code'] ?? '') ?>';
+            <?php $__jsflags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE; ?>
+            window.bookingFormData.primary_guest.first_name = <?= json_encode((string) $loggedInUser['first_name'], $__jsflags) ?>;
+            window.bookingFormData.primary_guest.last_name = <?= json_encode((string) $loggedInUser['last_name'], $__jsflags) ?>;
+            window.bookingFormData.primary_guest.email = <?= json_encode((string) $loggedInUser['email'], $__jsflags) ?>;
+            window.bookingFormData.primary_guest.phone = <?= json_encode((string) ($loggedInUser['phone'] ?? ''), $__jsflags) ?>;
+            window.bookingFormData.primary_guest.country_code = <?= json_encode((string) ($loggedInUser['phone_country_code'] ?? ''), $__jsflags) ?>;
         }
     }, 100);
 });
