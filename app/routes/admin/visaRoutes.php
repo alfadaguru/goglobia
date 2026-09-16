@@ -2,6 +2,82 @@
 // app/routes/admin/visaRoutes.php
 @$SECURE or die('Access Denied!');
 
+/**
+ * Flatten a real `bookings` row (module='visa') into the field shape that
+ * app/views/admin/visa/booking-details.php expects. Visa bookings are stored in
+ * the generic bookings table + a `booking_data` JSON blob — there is no separate
+ * `visa_bookings` table. Money columns: price_original = govt/visa fee,
+ * commission = service fee, price_markup = total, currency_markup = currency.
+ */
+if (!function_exists('visaBookingView')) {
+    function visaBookingView(array $row): array
+    {
+        $bd = json_decode((string)($row['booking_data'] ?? ''), true);
+        if (!is_array($bd)) { $bd = []; }
+
+        // Travelers: bookings stores them in booking_data['travelers'] (and mirrored
+        // in the `travellers` column). Map to the {full_name,passport_number,
+        // date_of_birth} shape the details view renders.
+        $rawTravelers = $bd['travelers'] ?? [];
+        if (!is_array($rawTravelers) || empty($rawTravelers)) {
+            $mirror = json_decode((string)($row['travellers'] ?? ''), true);
+            if (is_array($mirror) && isset($mirror['travelers']) && is_array($mirror['travelers'])) {
+                $rawTravelers = $mirror['travelers'];
+            } elseif (is_array($mirror)) {
+                $rawTravelers = $mirror;
+            }
+        }
+        $travelers = [];
+        foreach ((array) $rawTravelers as $t) {
+            if (!is_array($t)) { continue; }
+            $full = trim(($t['first_name'] ?? '') . ' ' . ($t['last_name'] ?? ''));
+            if ($full === '') { $full = $t['full_name'] ?? ''; }
+            $travelers[] = [
+                'full_name'      => $full !== '' ? $full : 'N/A',
+                'passport_number' => $t['passport_number'] ?? ($t['passport'] ?? 'N/A'),
+                'date_of_birth'  => $t['date_of_birth'] ?? ($t['dob'] ?? 'N/A'),
+            ];
+        }
+
+        $currency = $bd['currency'] ?? ($row['currency_markup'] ?? 'USD');
+        $travelDate = $bd['entry_date'] ?? '';
+        if (empty($travelDate)) { $travelDate = $row['booking_date'] ?? ($row['created_at'] ?? date('Y-m-d')); }
+
+        return [
+            'id'                => $row['id'] ?? 0,
+            'booking_reference' => $row['invoice_id'] ?? '',
+            'created_at'        => $row['created_at'] ?? '',
+            'customer_name'     => trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? '')),
+            'customer_email'    => $row['email'] ?? '',
+            'customer_phone'    => trim(($row['phone_country_code'] ?? '') . ' ' . ($row['phone'] ?? '')),
+            'from_country'      => $bd['from_country_name'] ?? ($bd['from_country'] ?? ''),
+            'to_country'        => $bd['to_country_name'] ?? ($bd['to_country'] ?? ''),
+            'visa_type'         => $bd['visa_type_name'] ?? ($bd['visa_type'] ?? ''),
+            'processing_speed'  => $bd['processing_speed_name'] ?? ($bd['processing_speed'] ?? ''),
+            'travel_date'       => $travelDate,
+            'travelers_count'   => (int)($bd['travelers_count'] ?? count($travelers)),
+            'travelers_data'    => json_encode($travelers),
+            'documents'         => json_encode($bd['documents'] ?? []),
+            'special_requests'  => $row['special_requests'] ?? ($bd['special_requests'] ?? ''),
+            'currency'          => $currency,
+            // Fee breakdown: fall back to booking_data if the money columns are empty.
+            'govt_fee'          => $row['price_original'] ?? ($bd['govt_fee'] ?? 0),
+            'service_fee'       => $row['commission'] ?? ($bd['service_fee'] ?? 0),
+            'processing_fee'    => $bd['processing_fee'] ?? 0,
+            'urgent_fee'        => $bd['urgent_fee'] ?? 0,
+            'total_price'       => $row['price_markup'] ?? ($bd['total_amount'] ?? 0),
+            'payment_status'    => $row['payment_status'] ?? 'unpaid',
+            'payment_method'    => $row['payment_gateway'] ?? '',
+            'payment_reference' => $row['payment_intent'] ?? ($row['transaction_id'] ?? ''),
+            // Prefer the granular visa status stored in booking_data; the enum column
+            // only holds pending/confirmed/cancelled.
+            'booking_status'    => $bd['visa_status'] ?? ($row['booking_status'] ?? 'pending'),
+            'rejection_reason'  => $bd['rejection_reason'] ?? '',
+            'admin_notes'       => $bd['admin_notes'] ?? '',
+        ];
+    }
+}
+
 /*===================================================================
 VISAS ROUTES START
 ===================================================================*/
@@ -739,9 +815,12 @@ $router->get(admin.'/visa-bookings/view/(\d+)', function ($id) use ($SECURE,$db)
     ADMIN_AUTH();
 
     $id = intval($id);
-    $booking = $db->get('visa_bookings', '*', ['id' => $id]);
+    // Visa bookings live in the generic `bookings` table (module='visa'), NOT a
+    // separate `visa_bookings` table (that table never existed). Load the real row
+    // and flatten it into the shape booking-details.php expects via visaBookingView().
+    $row = $db->get('bookings', '*', ['AND' => ['id' => $id, 'module' => 'visa']]);
 
-    if (!$booking) {
+    if (!$row) {
         $_SESSION['message'] = [
             'type' => 'error',
             'text' => T::booking_not_found ?? 'Booking not found'
@@ -749,6 +828,8 @@ $router->get(admin.'/visa-bookings/view/(\d+)', function ($id) use ($SECURE,$db)
         redirect(root . admin . '/visa-bookings');
         return;
     }
+
+    $booking = visaBookingView($row);
 
     $title = T::booking_details ?? 'Booking Details';
     $description = '';
@@ -778,26 +859,56 @@ $router->post(admin.'/visa-bookings/update-status', function () use ($SECURE,$db
         return;
     }
 
+    // Load the real visa booking from the generic bookings table.
+    $existing = $db->get('bookings', ['id', 'booking_data'], ['AND' => ['id' => $id, 'module' => 'visa']]);
+    if (!$existing) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => T::booking_not_found ?? 'Booking not found'];
+        redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/visa-bookings');
+        return;
+    }
+
+    // The visa admin workflow uses a richer status set (pending/processing/approved/
+    // rejected/completed/cancelled), but bookings.booking_status is an
+    // ENUM('confirmed','pending','cancelled') — any other value is silently coerced
+    // to '' by MySQL. So: validate the requested visa status, keep it verbatim in
+    // booking_data['visa_status'] for display, and store a VALID enum value in the
+    // real column. bookings has no admin_notes/rejection_reason/processed_at/
+    // completed_at columns either, so those fold into booking_data too.
+    $allowedVisaStatuses = ['pending', 'processing', 'approved', 'rejected', 'completed', 'cancelled'];
+    if (!in_array($booking_status, $allowedVisaStatuses, true)) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => T::invalid_status ?? 'Invalid status'];
+        redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/visa-bookings/view/' . $id);
+        return;
+    }
+    // Map the granular visa status onto the bookings ENUM.
+    $enumMap = [
+        'pending'    => 'pending',
+        'processing' => 'confirmed',
+        'approved'   => 'confirmed',
+        'completed'  => 'confirmed',
+        'rejected'   => 'cancelled',
+        'cancelled'  => 'cancelled',
+    ];
+    $enumStatus = $enumMap[$booking_status];
+
+    $bd = json_decode((string)($existing['booking_data'] ?? ''), true);
+    if (!is_array($bd)) { $bd = []; }
+    $bd['visa_status'] = $booking_status; // the real, granular status for display
+    $bd['admin_notes'] = !empty($admin_notes) ? $admin_notes : ($bd['admin_notes'] ?? null);
+    if ($booking_status === 'rejected' && !empty($rejection_reason)) {
+        $bd['rejection_reason'] = $rejection_reason;
+    }
+    if ($booking_status === 'processing') { $bd['processed_at'] = date('Y-m-d H:i:s'); }
+    if ($booking_status === 'completed') { $bd['completed_at'] = date('Y-m-d H:i:s'); }
+
     $update_data = [
-        'booking_status' => $booking_status,
-        'admin_notes' => !empty($admin_notes) ? $admin_notes : null,
-        'updated_at' => date('Y-m-d H:i:s')
+        'booking_status' => $enumStatus,
+        'booking_data'   => json_encode($bd),
+        'updated_at'     => date('Y-m-d H:i:s')
     ];
 
-    if ($booking_status === 'rejected' && !empty($rejection_reason)) {
-        $update_data['rejection_reason'] = $rejection_reason;
-    }
-
-    if ($booking_status === 'processing') {
-        $update_data['processed_at'] = date('Y-m-d H:i:s');
-    }
-
-    if ($booking_status === 'completed') {
-        $update_data['completed_at'] = date('Y-m-d H:i:s');
-    }
-
     try {
-        $result = $db->update('visa_bookings', $update_data, ['id' => $id]);
+        $result = $db->update('bookings', $update_data, ['AND' => ['id' => $id, 'module' => 'visa']]);
 
         if ($result !== false) {
             $_SESSION['message'] = [
@@ -838,9 +949,11 @@ $router->post(admin.'/visa-bookings/delete', function () use ($SECURE,$db) {
     }
 
     try {
-        $result = $db->delete('visa_bookings', ['id' => $id]);
+        // Scope the delete to module='visa' so this endpoint can never remove a
+        // non-visa booking even if handed an arbitrary bookings.id.
+        $result = $db->delete('bookings', ['AND' => ['id' => $id, 'module' => 'visa']]);
 
-        if ($result) {
+        if ($result && $result->rowCount() > 0) {
             $_SESSION['message'] = [
                 'type' => 'success',
                 'text' => T::deleted_successfully ?? 'Booking deleted successfully'
