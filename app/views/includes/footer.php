@@ -74,7 +74,7 @@ $footer_menus = array_values(array_filter(array_map(
                         <!-- Right: contact icon buttons (matches Get in Touch style) -->
                         <div class="flex items-center gap-2">
                             <?php if (isset($GLOBALS['app']['contact_email'])): ?>
-                                <a href="mailto:<?= $GLOBALS['app']['contact_email'] ?>"
+                                <a href="mailto:<?= htmlspecialchars((string) $GLOBALS['app']['contact_email'], ENT_QUOTES, 'UTF-8') ?>"
                                    class="w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200"
                                    style="background-color: color-mix(in srgb, var(--footer-background) 94%, var(--footer-text-color) 6%); border: 1px solid var(--footer-border-color); color: var(--footer-text-color);"
                                    onmouseover="this.style.backgroundColor='var(--color-primary, #2563eb)'; this.style.borderColor='var(--color-primary, #2563eb)'; this.style.color='#ffffff';"

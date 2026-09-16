@@ -279,13 +279,13 @@ if (!empty($activeCurrencyRow)) {
     <meta name="description" content="<?= htmlspecialchars($seoDescription) ?>">
     <meta name="keywords" content="<?= htmlspecialchars($seoKeywords) ?>">
     <link rel="canonical" href="<?= htmlspecialchars($canonical ?? ((isset($_SERVER['REQUEST_SCHEME']) ? $_SERVER['REQUEST_SCHEME'] : 'https') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'])) ?>">
-    <meta name="author" content="<?=$GLOBALS['app']['business_name']?>">
+    <meta name="author" content="<?= htmlspecialchars((string) ($GLOBALS['app']['business_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
     <meta name="robots" content="<?= htmlspecialchars($robots ?? 'index, follow') ?>">
     <meta property="og:title" content="<?= htmlspecialchars($seoTitle) ?>">
     <meta property="og:description" content="<?= htmlspecialchars($seoDescription) ?>">
     <meta property="og:url" content="<?= htmlspecialchars($canonical ?? ((isset($_SERVER['REQUEST_SCHEME']) ? $_SERVER['REQUEST_SCHEME'] : 'https') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'])) ?>">
     <meta property="og:image" content="<?= htmlspecialchars($ogImage ?? versionedAssetUrl('uploads/global/cover.png')) ?>">
-    <meta property="og:site_name" content="<?=$GLOBALS['app']['business_name']?>">
+    <meta property="og:site_name" content="<?= htmlspecialchars((string) ($GLOBALS['app']['business_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
     <meta property="og:type" content="<?= htmlspecialchars($ogType ?? 'website') ?>">
     <meta property="og:locale" content="<?= htmlspecialchars($_SESSION['app_language'] ?? 'en') ?>">
     <meta name="twitter:card" content="summary_large_image">
