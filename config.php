@@ -256,6 +256,28 @@ $dbCacheFlag = strtolower(trim((string)($env['APP_DB_CACHE_ENABLED'] ?? '0')));
 $GLOBALS['APP_DB_CACHE_ENABLED'] = in_array($dbCacheFlag, ['1', 'true', 'yes', 'on'], true);
 
 // ==================================================
+// TIMEZONE ALIGNMENT (PHP <-> MySQL)
+// --------------------------------------------------
+// PHP defaults to UTC (php.ini date.timezone) but MySQL's session time_zone is
+// usually 'SYSTEM' = the OS local zone, so NOW()/CURDATE()/CURRENT_TIMESTAMP can
+// differ from PHP date()/time() by the host's UTC offset. That skew silently
+// corrupts every DB-time-vs-PHP-time comparison (lockouts, OTP/token expiry,
+// "created in the last N minutes", cron windows). Fix it at the source:
+//   1. Honour the .env TIMEZONE for PHP (it was previously never applied).
+//   2. Pin the MySQL SESSION time_zone to the SAME numeric offset at connect,
+//      via Medoo's 'command' option, so both sides agree. A numeric offset
+//      (e.g. +00:00) always works even when named zones aren't loaded in MySQL.
+$appTimezone = trim((string)($env['TIMEZONE'] ?? '')) ?: 'UTC';
+if (in_array($appTimezone, timezone_identifiers_list(), true)) {
+    date_default_timezone_set($appTimezone);
+}
+// Current offset of the app timezone as +HH:MM / -HH:MM for MySQL SET time_zone.
+$__tzOffsetSecs = (new DateTimeZone(date_default_timezone_get()))->getOffset(new DateTime('now'));
+$__tzSign = $__tzOffsetSecs < 0 ? '-' : '+';
+$__tzAbs  = abs($__tzOffsetSecs);
+$dbTimezoneOffset = sprintf('%s%02d:%02d', $__tzSign, intdiv($__tzAbs, 3600), intdiv($__tzAbs % 3600, 60));
+
+// ==================================================
 // DATABASE CONNECTION
 // ==================================================
 
@@ -269,7 +291,9 @@ try {
         'username' => $env['DB_USERNAME'],
         'password' => $env['DB_PASSWORD'],
         'charset'   => 'utf8mb4',
-        'collation' => 'utf8mb4_unicode_ci'
+        'collation' => 'utf8mb4_unicode_ci',
+        // Align the MySQL session clock with PHP (see TIMEZONE ALIGNMENT above).
+        'command'   => ["SET time_zone = '{$dbTimezoneOffset}'"],
     ]);
     
     // Test connection by checking if settings table exists
