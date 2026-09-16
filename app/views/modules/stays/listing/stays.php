@@ -387,19 +387,20 @@
                 }
                 ?>
                 this.roomsData = <?php echo json_encode($roomsData); ?>;
+                <?php $__jsf = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE; ?>
                 this.searchParams = {
-                    destination: '<?= $_SESSION['hotel_destination'] ?? '' ?>',
-                    destination_code: '<?= $_SESSION['hotel_destination_code'] ?? '' ?>',
-                    destination_country: '<?= $_SESSION['hotel_destination_country'] ?? '' ?>',
-                    checkin: '<?= $_SESSION['hotels_checkin_date'] ?? date('d-m-Y') ?>',
-                    checkout: '<?= $_SESSION['hotels_checkout_date'] ?? date('d-m-Y', strtotime('+1 day')) ?>',
-                    nationality: '<?= $_SESSION['hotel_nationality'] ?? '' ?>',
-                    rooms: <?= $_SESSION['hotel_rooms'] ?? 1 ?>,
-                    adults: <?= $totalAdults ?>,
-                    children: <?= $totalChildren ?>,
+                    destination: <?= json_encode((string) ($_SESSION['hotel_destination'] ?? ''), $__jsf) ?>,
+                    destination_code: <?= json_encode((string) ($_SESSION['hotel_destination_code'] ?? ''), $__jsf) ?>,
+                    destination_country: <?= json_encode((string) ($_SESSION['hotel_destination_country'] ?? ''), $__jsf) ?>,
+                    checkin: <?= json_encode((string) ($_SESSION['hotels_checkin_date'] ?? date('d-m-Y')), $__jsf) ?>,
+                    checkout: <?= json_encode((string) ($_SESSION['hotels_checkout_date'] ?? date('d-m-Y', strtotime('+1 day'))), $__jsf) ?>,
+                    nationality: <?= json_encode((string) ($_SESSION['hotel_nationality'] ?? ''), $__jsf) ?>,
+                    rooms: <?= (int) ($_SESSION['hotel_rooms'] ?? 1) ?>,
+                    adults: <?= (int) $totalAdults ?>,
+                    children: <?= (int) $totalChildren ?>,
                     rooms_data: JSON.stringify(this.roomsData),
-                    currency: '<?= $_SESSION['app_currency'] ?? 'USD' ?>',
-                    language: '<?= $_SESSION['app_language'] ?? 'en' ?>'
+                    currency: <?= json_encode((string) ($_SESSION['app_currency'] ?? 'USD'), $__jsf) ?>,
+                    language: <?= json_encode((string) ($_SESSION['app_language'] ?? 'en'), $__jsf) ?>
                 };
                 // console.log('🏨 Search params:', this.searchParams);
             },

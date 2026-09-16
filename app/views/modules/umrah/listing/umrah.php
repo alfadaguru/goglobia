@@ -311,17 +311,18 @@
             },
 
             loadSearchParams() {
+                <?php $__jsf = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE; ?>
                 this.searchParams = {
-                    destination: '<?= addslashes($_SESSION['umrah_destination'] ?? ($_SESSION['umrah_origin'] ?? '')) ?>',
-                    start_date: '<?= addslashes($_SESSION['umrah_start_date'] ?? date('d-m-Y', strtotime('+3 days'))) ?>',
-                    duration: '<?= addslashes($_SESSION['umrah_duration'] ?? '') ?>',
-                    adults: '<?= addslashes($_SESSION['umrah_adults'] ?? 1) ?>',
-                    children: '<?= addslashes($_SESSION['umrah_children'] ?? 0) ?>',
-                    travelers: '<?= addslashes($_SESSION['umrah_travelers'] ?? 1) ?>',
-                    umrah_type: '<?= addslashes($_SESSION['umrah_type'] ?? 'any') ?>',
-                    services: '<?= addslashes($_SESSION['umrah_services'] ?? 'any') ?>',
-                    currency: '<?= addslashes($_SESSION['app_currency'] ?? 'USD') ?>',
-                    language: '<?= addslashes($_SESSION['app_language'] ?? 'en') ?>'
+                    destination: <?= json_encode((string) ($_SESSION['umrah_destination'] ?? ($_SESSION['umrah_origin'] ?? '')), $__jsf) ?>,
+                    start_date: <?= json_encode((string) ($_SESSION['umrah_start_date'] ?? date('d-m-Y', strtotime('+3 days'))), $__jsf) ?>,
+                    duration: <?= json_encode((string) ($_SESSION['umrah_duration'] ?? ''), $__jsf) ?>,
+                    adults: <?= json_encode((string) ($_SESSION['umrah_adults'] ?? 1), $__jsf) ?>,
+                    children: <?= json_encode((string) ($_SESSION['umrah_children'] ?? 0), $__jsf) ?>,
+                    travelers: <?= json_encode((string) ($_SESSION['umrah_travelers'] ?? 1), $__jsf) ?>,
+                    umrah_type: <?= json_encode((string) ($_SESSION['umrah_type'] ?? 'any'), $__jsf) ?>,
+                    services: <?= json_encode((string) ($_SESSION['umrah_services'] ?? 'any'), $__jsf) ?>,
+                    currency: <?= json_encode((string) ($_SESSION['app_currency'] ?? 'USD'), $__jsf) ?>,
+                    language: <?= json_encode((string) ($_SESSION['app_language'] ?? 'en'), $__jsf) ?>
                 };
             },
 

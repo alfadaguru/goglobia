@@ -43,16 +43,17 @@ function carSearchData() {
         dropoffOpen: false, dropoffQuery: '',
 
         // Pickup
-        pickupSearch: '<?=isset($_SESSION["car_pickup_location"]) ? addslashes($_SESSION["car_pickup_location"]) : ""; ?>',
+        <?php $__jsf = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE; ?>
+        pickupSearch: <?= json_encode((string) ($_SESSION["car_pickup_location"] ?? ''), $__jsf) ?>,
         pickupResults: [],
-        pickupSelected: <?=isset($_SESSION["car_pickup_location"]) && $_SESSION["car_pickup_location"] ? "{ name: '" . addslashes($_SESSION['car_pickup_location']) . "' }" : 'null'; ?>,
+        pickupSelected: <?= (isset($_SESSION["car_pickup_location"]) && $_SESSION["car_pickup_location"]) ? '{ name: ' . json_encode((string) $_SESSION['car_pickup_location'], $__jsf) . ' }' : 'null' ?>,
         pickupLoading: false,
         pickupHasSearched: false,
 
         // Dropoff
-        dropoffSearch: '<?=isset($_SESSION["car_dropoff_location"]) ? addslashes($_SESSION["car_dropoff_location"]) : ""; ?>',
+        dropoffSearch: <?= json_encode((string) ($_SESSION["car_dropoff_location"] ?? ''), $__jsf) ?>,
         dropoffResults: [],
-        dropoffSelected: <?=isset($_SESSION["car_dropoff_location"]) && $_SESSION["car_dropoff_location"] ? "{ name: '" . addslashes($_SESSION['car_dropoff_location']) . "' }" : 'null'; ?>,
+        dropoffSelected: <?= (isset($_SESSION["car_dropoff_location"]) && $_SESSION["car_dropoff_location"]) ? '{ name: ' . json_encode((string) $_SESSION['car_dropoff_location'], $__jsf) . ' }' : 'null' ?>,
         dropoffLoading: false,
         dropoffHasSearched: false,
 
