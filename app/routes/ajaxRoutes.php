@@ -995,6 +995,15 @@ $router->post('/api/admin/deposit/update-status', function () {
             exit;
         }
 
+        // CSRF: approving a deposit credits an agent's wallet (moves money), so
+        // this state-changing admin endpoint must not be triggerable cross-site.
+        // The admin UI calls it via fetch(), which app.js tags with X-CSRF-TOKEN,
+        // so this is transparent to the UI. (Missed by the bulk CSRF pass because
+        // it lives in ajaxRoutes.php under an /api/admin/ path, not app/routes/admin/.)
+        if (class_exists('CSRF')) {
+            CSRF::guard();
+        }
+
         // ====================================
         // VALIDATE INPUT
         // ====================================
@@ -1082,13 +1091,11 @@ $router->post('/api/admin/deposit/update-status', function () {
             // ====================================
             if ($newStatus === 'approved') {
                 $amount = floatval($deposit['amount']);
-                $currentBalance = floatval($user['balance'] ?? 0);
-                $newBalance = $currentBalance + $amount;
 
                 // Generate unique transaction ID
                 $transactionId = 'DEP-' . strtoupper(uniqid());
 
-                // Insert into transactions table
+                // Insert into transactions table (audit record of the approval)
                 $db->insert('transactions', [
                     'user_id' => $deposit['user_id'],
                     'trx_id' => $transactionId,
@@ -1103,13 +1110,13 @@ $router->post('/api/admin/deposit/update-status', function () {
                     'client_email' => $user['email']
                 ]);
 
-                // Update user balance
-                $userIntId = intval($user['id']);
-                $db->update('users', [
-                    'balance' => $newBalance
-                ], [
-                    'id' => $userIntId
-                ]);
+                // NOTE: do NOT write users.balance directly here. Deposits are
+                // agent-only, and an agent's balance lives in the `credits` ledger
+                // (users.balance MUST stay 0 for agents) — a raw users.balance +=
+                // amount left agents with wrong dead data that violates that
+                // invariant. The authoritative credit happens via the money spine
+                // (wallet_topup_success below, after commit), which routes to the
+                // credits ledger for agents / users.balance mirror for customers.
             }
 
             // ====================================
