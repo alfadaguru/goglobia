@@ -82,6 +82,19 @@ if (!defined('SUPPLIER_REQUEST_TIMEOUT')) {
 }
 
 // ============================================================================
+// TIMEZONE ALIGNMENT (PHP <-> MySQL) — this gateway bootstraps independently of
+// config.php, so mirror its fix: honour .env TIMEZONE for PHP and pin the MySQL
+// session time_zone to the same numeric offset so NOW()/expiry checks agree with
+// PHP date()/time(). See config.php for the rationale.
+// ============================================================================
+$mgTimezone = trim((string)($env['TIMEZONE'] ?? '')) ?: 'UTC';
+if (in_array($mgTimezone, timezone_identifiers_list(), true)) {
+    date_default_timezone_set($mgTimezone);
+}
+$__mgOff = (new DateTimeZone(date_default_timezone_get()))->getOffset(new DateTime('now'));
+$mgTzOffset = sprintf('%s%02d:%02d', $__mgOff < 0 ? '-' : '+', intdiv(abs($__mgOff), 3600), intdiv(abs($__mgOff) % 3600, 60));
+
+// ============================================================================
 // DATABASE CONNECTION - Medoo ORM Initialization (Initialized early for API key checking)
 // ============================================================================
 $db = new Medoo([
@@ -92,6 +105,7 @@ $db = new Medoo([
     'password' => $env['DB_PASSWORD'],
     'charset'  => 'utf8mb4',                        // Full Unicode support (emojis, symbols)
     'collation' => 'utf8mb4_unicode_ci',            // Case-insensitive sorting
+    'command'  => ["SET time_zone = '{$mgTzOffset}'"], // align DB session clock with PHP
     'option' => [
         \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,  // Throw exceptions on errors
         \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC, // Return associative arrays

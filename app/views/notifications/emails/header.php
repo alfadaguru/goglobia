@@ -2,7 +2,13 @@
 /**
  * EMAIL HEADER - Modern, professional, responsive
  */
-date_default_timezone_set('Asia/Karachi');
+// NOTE: previously this hardcoded date_default_timezone_set('Asia/Karachi'), a
+// copy-paste leftover. Because this header is included when rendering emails from
+// notify.php, the support routes, and the credits-reminder CRON, that call
+// globally switched PHP's timezone to Karachi for the REST of the request — so
+// any timestamp written after an email send silently used the wrong zone. Removed:
+// emails now render in the app's configured timezone (config.php / .env TIMEZONE),
+// consistent with the PHP<->MySQL alignment.
 $rootUrl = defined('root') ? root : 'http://localhost/v10/';
 $logoUrl = $rootUrl . 'uploads/global/logo.png';
 $displayBrand = $companyName ?? getBrandName($settings ?? null);
