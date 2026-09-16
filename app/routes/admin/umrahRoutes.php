@@ -238,7 +238,16 @@ $router->post(admin.'/umrah/add', function () use ($SECURE,$db) {
                 
                 for ($i = 0; $i < count($name_array); $i++) {
                     if ($error_array[$i] === UPLOAD_ERR_OK && !empty($name_array[$i])) {
-                        $ext = pathinfo($name_array[$i], PATHINFO_EXTENSION);
+                        // SECURITY: validate real MIME + derive a SAFE extension
+                        // (never the user filename). Was $ext=pathinfo(name), so an
+                        // admin could upload shell.php into a web-served /uploads/
+                        // umrah/ dir (RCE where PHP exec isn't blocked; stored-XSS
+                        // regardless). Skip anything that isn't a real image.
+                        $umImgChk = function_exists('secureImageFileCheck')
+                            ? secureImageFileCheck($tmp_array[$i], (int) @filesize($tmp_array[$i]))
+                            : ['ok' => false];
+                        if (empty($umImgChk['ok'])) { continue; }
+                        $ext = $umImgChk['ext'];
                         $new_filename = 'transfer_' . time() . '_' . uniqid() . '_' . $i . '.' . $ext;
                         $upload_dir = $project_root . '/uploads/umrah/transfer/';
                         if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
@@ -300,7 +309,16 @@ $router->post(admin.'/umrah/add', function () use ($SECURE,$db) {
                 
                 for ($i = 0; $i < count($name_array); $i++) {
                     if ($error_array[$i] === UPLOAD_ERR_OK && !empty($name_array[$i])) {
-                        $ext = pathinfo($name_array[$i], PATHINFO_EXTENSION);
+                        // SECURITY: validate real MIME + derive a SAFE extension
+                        // (never the user filename). Was $ext=pathinfo(name), so an
+                        // admin could upload shell.php into a web-served /uploads/
+                        // umrah/ dir (RCE where PHP exec isn't blocked; stored-XSS
+                        // regardless). Skip anything that isn't a real image.
+                        $umImgChk = function_exists('secureImageFileCheck')
+                            ? secureImageFileCheck($tmp_array[$i], (int) @filesize($tmp_array[$i]))
+                            : ['ok' => false];
+                        if (empty($umImgChk['ok'])) { continue; }
+                        $ext = $umImgChk['ext'];
                         $new_filename = 'stay_' . time() . '_' . uniqid() . '_' . $i . '.' . $ext;
                         $upload_dir = $project_root . '/uploads/umrah/stays/';
                         if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
@@ -353,7 +371,16 @@ $router->post(admin.'/umrah/add', function () use ($SECURE,$db) {
 
                         for ($i = 0; $i < count($name_array); $i++) {
                             if ($error_array[$i] === UPLOAD_ERR_OK && !empty($name_array[$i])) {
-                                $ext = pathinfo($name_array[$i], PATHINFO_EXTENSION);
+                                // SECURITY: validate real MIME + derive a SAFE extension
+                        // (never the user filename). Was $ext=pathinfo(name), so an
+                        // admin could upload shell.php into a web-served /uploads/
+                        // umrah/ dir (RCE where PHP exec isn't blocked; stored-XSS
+                        // regardless). Skip anything that isn't a real image.
+                        $umImgChk = function_exists('secureImageFileCheck')
+                            ? secureImageFileCheck($tmp_array[$i], (int) @filesize($tmp_array[$i]))
+                            : ['ok' => false];
+                        if (empty($umImgChk['ok'])) { continue; }
+                        $ext = $umImgChk['ext'];
                                 $new_filename = 'room_' . time() . '_' . uniqid() . '_' . $i . '.' . $ext;
                                 $upload_dir = $project_root . '/uploads/umrah/rooms/';
                                 if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
@@ -689,11 +716,19 @@ $router->post(admin.'/umrah/edit/(.*)', function ($id) use ($SECURE,$db) {
         $file_count = count($files['name']);
         for ($i = 0; $i < $file_count; $i++) {
             if ($files['error'][$i] === UPLOAD_ERR_OK) {
-                $ext = pathinfo($files['name'][$i], PATHINFO_EXTENSION);
-                $new_filename = 'umrah_' . time() . '_' . uniqid() . '_' . $i . '.' . $ext;
+                // SECURITY: validate real MIME + derive a SAFE extension (never the
+                // user filename) before writing to the web-served
+                // /uploads/umrah/gallery/ dir.
+                $chk = secureUploadCheck(
+                    ['name' => $files['name'][$i], 'tmp_name' => $files['tmp_name'][$i], 'size' => $files['size'][$i], 'error' => UPLOAD_ERR_OK],
+                    ['jpg', 'jpeg', 'png', 'gif', 'webp'], 5 * 1024 * 1024
+                );
+                if (!$chk['ok']) { continue; }
+                $new_filename = 'umrah_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $chk['ext'];
                 $upload_path = $upload_dir . $new_filename;
                 $image_url = '/uploads/umrah/gallery/' . $new_filename;
                 if (move_uploaded_file($files['tmp_name'][$i], $upload_path)) {
+                    @chmod($upload_path, 0644);
                     $images[] = ['url' => $image_url, 'default' => ($i === 0 && !$has_default)];
                 }
             }
@@ -765,7 +800,16 @@ $router->post(admin.'/umrah/edit/(.*)', function ($id) use ($SECURE,$db) {
                 
                 for ($i = 0; $i < count($name_array); $i++) {
                     if ($error_array[$i] === UPLOAD_ERR_OK && !empty($name_array[$i])) {
-                        $ext = pathinfo($name_array[$i], PATHINFO_EXTENSION);
+                        // SECURITY: validate real MIME + derive a SAFE extension
+                        // (never the user filename). Was $ext=pathinfo(name), so an
+                        // admin could upload shell.php into a web-served /uploads/
+                        // umrah/ dir (RCE where PHP exec isn't blocked; stored-XSS
+                        // regardless). Skip anything that isn't a real image.
+                        $umImgChk = function_exists('secureImageFileCheck')
+                            ? secureImageFileCheck($tmp_array[$i], (int) @filesize($tmp_array[$i]))
+                            : ['ok' => false];
+                        if (empty($umImgChk['ok'])) { continue; }
+                        $ext = $umImgChk['ext'];
                         $new_filename = 'transfer_' . time() . '_' . uniqid() . '_' . $i . '.' . $ext;
                         $upload_dir = $project_root . '/uploads/umrah/transfer/';
                         if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
@@ -821,7 +865,16 @@ $router->post(admin.'/umrah/edit/(.*)', function ($id) use ($SECURE,$db) {
                 
                 for ($i = 0; $i < count($name_array); $i++) {
                     if ($error_array[$i] === UPLOAD_ERR_OK && !empty($name_array[$i])) {
-                        $ext = pathinfo($name_array[$i], PATHINFO_EXTENSION);
+                        // SECURITY: validate real MIME + derive a SAFE extension
+                        // (never the user filename). Was $ext=pathinfo(name), so an
+                        // admin could upload shell.php into a web-served /uploads/
+                        // umrah/ dir (RCE where PHP exec isn't blocked; stored-XSS
+                        // regardless). Skip anything that isn't a real image.
+                        $umImgChk = function_exists('secureImageFileCheck')
+                            ? secureImageFileCheck($tmp_array[$i], (int) @filesize($tmp_array[$i]))
+                            : ['ok' => false];
+                        if (empty($umImgChk['ok'])) { continue; }
+                        $ext = $umImgChk['ext'];
                         $new_filename = 'stay_' . time() . '_' . uniqid() . '_' . $i . '.' . $ext;
                         $upload_dir = $project_root . '/uploads/umrah/stays/';
                         if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
@@ -874,7 +927,16 @@ $router->post(admin.'/umrah/edit/(.*)', function ($id) use ($SECURE,$db) {
 
                         for ($i = 0; $i < count($name_array); $i++) {
                             if ($error_array[$i] === UPLOAD_ERR_OK && !empty($name_array[$i])) {
-                                $ext = pathinfo($name_array[$i], PATHINFO_EXTENSION);
+                                // SECURITY: validate real MIME + derive a SAFE extension
+                        // (never the user filename). Was $ext=pathinfo(name), so an
+                        // admin could upload shell.php into a web-served /uploads/
+                        // umrah/ dir (RCE where PHP exec isn't blocked; stored-XSS
+                        // regardless). Skip anything that isn't a real image.
+                        $umImgChk = function_exists('secureImageFileCheck')
+                            ? secureImageFileCheck($tmp_array[$i], (int) @filesize($tmp_array[$i]))
+                            : ['ok' => false];
+                        if (empty($umImgChk['ok'])) { continue; }
+                        $ext = $umImgChk['ext'];
                                 $new_filename = 'room_' . time() . '_' . uniqid() . '_' . $i . '.' . $ext;
                                 $upload_dir = $project_root . '/uploads/umrah/rooms/';
                                 if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);

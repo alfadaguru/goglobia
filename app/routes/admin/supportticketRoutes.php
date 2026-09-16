@@ -256,16 +256,30 @@ $router->post(admin.'/support/tickets/reply', function () use ($SECURE,$db) {
         // Handle attachment upload
         $attachment = null;
         if (isset($_FILES['attachment']) && $_FILES['attachment']['error'] === UPLOAD_ERR_OK) {
+            // SECURITY: validate REAL MIME (finfo) + derive a SAFE extension from
+            // it — this reply-attachment upload had NO type check and used the user
+            // filename's extension, so shell.php could land in the web-served
+            // uploads/tickets/ dir.
+            $chk = secureUploadCheck(
+                $_FILES['attachment'],
+                ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf'],
+                5 * 1024 * 1024
+            );
+            if (!$chk['ok']) {
+                echo json_encode(['success' => false, 'message' => $chk['error'] ?? 'Invalid file type']);
+                exit;
+            }
+
             $upload_dir = 'uploads/tickets/';
             if (!is_dir($upload_dir)) {
                 mkdir($upload_dir, 0755, true);
             }
 
-            $file_extension = pathinfo($_FILES['attachment']['name'], PATHINFO_EXTENSION);
-            $file_name = uniqid('reply_') . '.' . $file_extension;
+            $file_name = uniqid('reply_') . '_' . bin2hex(random_bytes(4)) . '.' . $chk['ext'];
             $upload_path = $upload_dir . $file_name;
 
             if (move_uploaded_file($_FILES['attachment']['tmp_name'], $upload_path)) {
+                @chmod($upload_path, 0644);
                 $attachment = json_encode([$upload_path]);
             }
         }
