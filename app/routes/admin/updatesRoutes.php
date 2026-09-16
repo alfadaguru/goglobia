@@ -37,6 +37,13 @@ $router->get(admin.'/updates/database', function () use ($SECURE,$db) {
 $router->post(admin.'/updates/database/apply', function () use ($SECURE,$db) {
 
     ADMIN_AUTH(); // Admin authentication check
+    // CSRF: this applies real CREATE TABLE / ALTER TABLE migrations, so it is a
+    // state-changing admin action and must not be triggerable cross-site. The SQL
+    // itself comes only from install/db.sql (never the client), but a CSRF could
+    // still make a logged-in admin run pending migrations at an attacker-chosen
+    // moment. The admin UI calls this via fetch(), which app.js auto-attaches the
+    // X-CSRF-TOKEN header to, so enforcement here is transparent to the UI.
+    CSRF::guard(); // JSON 403 for this AJAX endpoint on a bad/absent token
 
     while (ob_get_level()) { ob_end_clean(); }
     header('Content-Type: application/json');
