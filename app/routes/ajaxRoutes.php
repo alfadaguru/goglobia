@@ -377,6 +377,15 @@ $router->post('/api/booking/update-payment-gateway', function () use ($SECURE, $
         // ── Input validation ─────────────────────────────────────────────────
         $input = json_decode(file_get_contents('php://input'), true);
 
+        // CSRF: cookie-session mutation (changes a booking's payment gateway).
+        // Was authenticated but had no CSRF token.
+        $updGwCsrf = ($input['csrf_token'] ?? null) ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+        if (!CSRF::validateToken((string) $updGwCsrf)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Invalid security token']);
+            exit;
+        }
+
         $invoiceId      = trim((string) ($input['invoice_id']      ?? ''));
         $paymentGateway = trim((string) ($input['payment_gateway'] ?? ''));
 
@@ -636,6 +645,15 @@ $router->post('/api/deposit/add', function () use ($SECURE, $db) {
                 'status' => 'error',
                 'message' => T::access_denied ?? 'Access Denied - Agents Only'
             ]);
+            exit;
+        }
+
+        // CSRF: cookie-session mutation (agent submits a deposit request with an
+        // attachment). Was authenticated but had no CSRF token.
+        $depCsrf = $_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+        if (!CSRF::validateToken((string) $depCsrf)) {
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => 'Invalid security token']);
             exit;
         }
 
@@ -1172,6 +1190,15 @@ $router->post('/api/agency/update', function() use ($db) {
     if (!isset($_SESSION['user_id'])) {
         http_response_code(401);
         echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+        exit;
+    }
+
+    // CSRF: cookie-session mutation of the user's agency profile. Was
+    // authenticated but had no CSRF token. Validate the token the form sends.
+    $agencyCsrf = $_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+    if (!CSRF::validateToken((string) $agencyCsrf)) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Invalid security token']);
         exit;
     }
 
