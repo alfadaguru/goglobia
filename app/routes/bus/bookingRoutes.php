@@ -121,6 +121,18 @@ $router->post('/api/bus/booking/submit', function () use ($SECURE, $db) {
     header('Content-Type: application/json; charset=utf-8');
     try {
         $input = json_decode(file_get_contents('php://input'), true);
+
+        // CSRF: this submit creates a booking attributed to $_SESSION['user_id']
+        // (and prices via the session's b2b/b2c context), so a logged-in
+        // customer/agent could be forced to book by a cross-site request. Validate
+        // the token the site's own JS already sends (body csrf_token or
+        // X-CSRF-TOKEN header) — same guard tours/stays/umrah submits already use;
+        // flights/bus/cars/esim were missing it.
+        $csrfToken = $input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+        if (!CSRF::validateToken($csrfToken)) {
+            throw new Exception('Invalid security token');
+        }
+
         $hash  = $input['hash'] ?? '';
         $guest = $input['guest'] ?? [];
         if (!$hash) throw new Exception('Missing booking reference');

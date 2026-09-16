@@ -758,6 +758,14 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
     try {
         $input = json_decode(file_get_contents('php://input'), true);
 
+        // CSRF: this submit creates a booking attributed to the session user (and
+        // prices via their b2b/b2c context). Validate the token the site's own JS
+        // sends — same guard tours/stays/umrah already use; flights was missing it.
+        $csrfToken = $input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+        if (!CSRF::validateToken($csrfToken)) {
+            throw new Exception('Invalid security token');
+        }
+
         // Validate required fields
         if (!$input || empty($input['booking_hash'])) {
             throw new Exception('Invalid booking data');
