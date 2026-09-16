@@ -27,32 +27,16 @@ $router->post('/api/visa/upload-document', function () use ($SECURE) {
             throw new Exception('Invalid field type');
         }
 
-        // Validate file size (5MB max)
-        $maxSize = 5 * 1024 * 1024; // 5MB
-        if ($file['size'] > $maxSize) {
-            throw new Exception('File size should not exceed 5MB');
+        // SECURITY: validate via the canonical secureUploadCheck() — verifies
+        // is_uploaded_file, size, that the real MIME matches the extension, and
+        // rejects PHP polyglots. Crucially it does NOT allow SVG: an SVG can carry
+        // <script> and, served inline from /uploads, becomes stored XSS in our
+        // origin. This is a customer-facing endpoint, so SVG must never be accepted.
+        $chk = secureUploadCheck($file, ['pdf', 'png', 'jpg', 'jpeg', 'webp'], 5 * 1024 * 1024);
+        if (!$chk['ok']) {
+            throw new Exception($chk['error'] ?? 'Invalid file.');
         }
-
-        // Validate file type - only allow pdf, png, jpg, jpeg, svg, webp
-        $allowedMimes = [
-            'image/jpeg',
-            'image/jpg', 
-            'image/png',
-            'image/svg+xml',
-            'image/webp',
-            'application/pdf'
-        ];
-        $allowedExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'svg', 'webp'];
-        
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mimeType = finfo_file($finfo, $file['tmp_name']);
-        finfo_close($finfo);
-        
-        $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-
-        if (!in_array($mimeType, $allowedMimes) || !in_array($extension, $allowedExtensions)) {
-            throw new Exception('Invalid file type. Only PDF, PNG, JPG, JPEG, SVG, and WebP files are allowed');
-        }
+        $extension = $chk['ext'];
 
         // Create upload directory if it doesn't exist
         $uploadDir = uploads . 'visa/';
@@ -60,14 +44,16 @@ $router->post('/api/visa/upload-document', function () use ($SECURE) {
             mkdir($uploadDir, 0755, true);
         }
 
-        // Generate unique filename
-        $filename = uniqid('visa_' . $fieldType . '_') . '.' . $extension;
+        // Generate unique filename (extension comes from the verified real MIME,
+        // never from the client-supplied name).
+        $filename = 'visa_' . $fieldType . '_' . bin2hex(random_bytes(8)) . '.' . $extension;
         $uploadPath = $uploadDir . $filename;
 
         // Move uploaded file
         if (!move_uploaded_file($file['tmp_name'], $uploadPath)) {
             throw new Exception('Failed to save file');
         }
+        @chmod($uploadPath, 0644);
 
         echo json_encode([
             'success' => true,
