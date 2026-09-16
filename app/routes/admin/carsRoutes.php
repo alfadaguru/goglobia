@@ -39,6 +39,7 @@ $router->get(admin.'/cars/add', function () use ($SECURE,$db) {
 // ================================ POST /cars/add - ADD NEW CAR
 $router->post(admin.'/cars/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
 
     $name = trim($_POST['car_name'] ?? '');
     $brand = trim($_POST['brand'] ?? '');
@@ -317,6 +318,7 @@ $router->post(admin.'/cars/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /cars/delete - DELETE CAR
 $router->post(admin.'/cars/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
     $car_id = intval($_POST['id'] ?? 0);
 
     $car = $db->get('cars', ['id', 'img'], ['id' => $car_id]);
@@ -352,6 +354,7 @@ $router->get(admin.'/cars/settings', function () use ($SECURE,$db) {
 // ================================ POST /cars/settings/save - SAVE SETTING
 $router->post(admin.'/cars/settings/save', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
     $id = intval($_POST['id'] ?? 0);
 
     // FORM DATA VALIDATION
@@ -421,6 +424,7 @@ $router->get(admin.'/cars/settings/edit/(.*)', function ($id) use ($SECURE,$db) 
 // ================================ POST /cars/settings/delete - DELETE SETTING
 $router->post(admin.'/cars/settings/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
     $id = intval($_POST['id'] ?? 0);
     if ($id > 0) {
         $db->delete('cars_settings', ['id' => $id]);

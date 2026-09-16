@@ -237,6 +237,7 @@ $router->post(admin.'/settings/gateway/ajax-update', function () use ($db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     // Disable profiler/debug for AJAX requests
     if (defined('PROFILER_ENABLED')) {

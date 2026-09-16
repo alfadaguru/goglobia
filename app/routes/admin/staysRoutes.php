@@ -54,6 +54,7 @@ $router->get(admin.'/stays/add', function () use ($SECURE,$db) {
 $router->post(admin.'/stays/add', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     // FORM DATA VALIDATION
     $name = trim($_POST['hotel_name'] ?? '');
@@ -703,6 +704,7 @@ $router->post(admin.'/stays/edit/(.*)', function ($id) use ($SECURE,$db) {
 $router->post(admin.'/stays/delete', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     $hotel_id = intval($_POST['id'] ?? 0);
 
@@ -938,6 +940,7 @@ $router->get(admin.'/stays/calendar/(.*)/rates', function ($id) use ($SECURE, $d
 // ================================ POST /stays/calendar/{id}/save - SAVE RATES TO DB
 $router->post(admin.'/stays/calendar/(.*)/save', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    CSRF::guard();
     header('Content-Type: application/json');
 
     $hotel_id = intval($id);
@@ -1137,6 +1140,7 @@ $router->post(admin.'/stays/rooms/save', function () use ($SECURE,$db) {
     if (ob_get_level()) ob_clean();
 
     ADMIN_AUTH();
+    CSRF::guard();
 
     $room_id = intval($_POST['room_id'] ?? 0);
     $hotel_id = intval($_POST['hotel_id'] ?? 0);
@@ -1363,6 +1367,7 @@ $router->post(admin.'/stays/rooms/save', function () use ($SECURE,$db) {
 // GET ROOM DATA (AJAX only - for editing)
 $router->post(admin.'/stays/rooms/get-room-data', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
     header('Content-Type: application/json');
 
     $room_id = intval($_POST['room_id'] ?? 0);
@@ -1431,6 +1436,7 @@ $router->post(admin.'/stays/rooms/delete', function () use ($SECURE,$db) {
     if (ob_get_level()) ob_clean();
 
     ADMIN_AUTH();
+    CSRF::guard();
 
     $room_id = intval($_POST['room_id'] ?? 0);
     $hotel_id = intval($_POST['hotel_id'] ?? 0);

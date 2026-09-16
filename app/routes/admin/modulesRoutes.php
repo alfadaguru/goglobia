@@ -304,6 +304,7 @@ $router->post(admin.'/settings/modules/toggle', function () use ($db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     $redirectHash = '';
 
@@ -906,6 +907,7 @@ $router->post(admin.'/settings/modules/ajax-update', function () use ($db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     // Disable profiler/debug for AJAX requests
     if (defined('PROFILER_ENABLED')) {
@@ -1358,6 +1360,7 @@ $router->post(admin.'/settings/modules/hotelbeds/update-setting', function () us
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     header('Content-Type: application/json');
     header('Cache-Control: no-cache, must-revalidate');
@@ -1442,6 +1445,7 @@ $router->get(admin.'/settings/modules/airalo-countries', function () use ($SECUR
 // Bulk enable/disable for airalo_countries.
 $router->post(admin.'/settings/modules/airalo-countries/bulk-status', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    CSRF::guard();
     header('Content-Type: application/json');
 
     $raw = file_get_contents('php://input');

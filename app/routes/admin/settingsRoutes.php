@@ -1752,6 +1752,7 @@ $router->post(admin.'/settings/currencies/update-rates', function () use ($SECUR
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     @set_time_limit(0);
     while (ob_get_level()) { ob_end_clean(); }
@@ -1775,6 +1776,7 @@ $router->post(admin.'/settings/currencies/update-rates', function () use ($SECUR
 $router->post(admin.'/settings/currencies/save-api-key', function () use ($SECURE,$db) {
 
     ADMIN_AUTH();
+    CSRF::guard();
     while (ob_get_level()) { ob_end_clean(); }
     header('Content-Type: application/json');
 
@@ -2357,6 +2359,7 @@ $router->post(admin.'/settings/modules/toggle-logging', function () use ($SECURE
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     // Set JSON header
     header('Content-Type: application/json');
@@ -2997,6 +3000,7 @@ $router->post(admin.'/settings/modules/hotelbeds/update-setting', function () us
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     // Set JSON header
     header('Content-Type: application/json');

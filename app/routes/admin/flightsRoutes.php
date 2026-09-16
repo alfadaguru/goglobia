@@ -60,6 +60,7 @@ $router->get(admin.'/flights/add', function () use ($SECURE,$db) {
 $router->post(admin.'/flights/add', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     $user_id = trim($_POST['user_id'] ?? 0);
     $flight_type = trim($_POST['flight_type'] ?? 'fixed');
@@ -665,6 +666,7 @@ $router->post(admin.'/flights/edit/(.*)', function ($id) use ($SECURE,$db) {
 $router->post(admin.'/flights/delete', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     $flight_id = intval($_POST['id'] ?? 0);
     

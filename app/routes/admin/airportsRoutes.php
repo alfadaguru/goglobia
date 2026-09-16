@@ -46,6 +46,7 @@ $router->get(admin.'/flights-airports/add', function () use ($SECURE,$db) {
 $router->post(admin.'/flights-airports/add', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     // FORM DATA VALIDATION
     $airport = trim($_POST['airport'] ?? '');
@@ -276,6 +277,7 @@ $router->post(admin.'/flights-airports/edit/(.*)', function ($id) use ($SECURE,$
 $router->post(admin.'/flights-airports/delete', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     $airport_id = intval($_POST['id'] ?? 0);
     
