@@ -566,6 +566,7 @@ $router->post(admin.'/users/process-manage-funds', function () use ($SECURE,$db)
 
         // Insert transaction
         $transaction_result = $db->insert('transactions', $transaction_data);
+        $transaction_id_row = $transaction_result ? (int) $db->id() : 0;
 
         if (!$transaction_result) {
             // Delete uploaded files if transaction failed
@@ -580,24 +581,48 @@ $router->post(admin.'/users/process-manage-funds', function () use ($SECURE,$db)
             exit;
         }
 
-        // Update user balance
-        $update_result = $db->update('users',
-            ['balance' => $new_balance],
-            ['user_id' => $user_id]
-        );
+        // Credit/debit the MONEY SPINE (wallets + wallet_ledger), NOT just the
+        // legacy users.balance column. Previously this did
+        //   $db->update('users', ['balance' => $new_balance], ...)
+        // which wrote a number nobody spends: wallet_balance() / wallet_spend()
+        // (checkout) read the wallet spine, and an AGENT's balance lives in the
+        // `credits` ledger with users.balance staying 0 — so admin-added funds
+        // were INVISIBLE and UNSPENDABLE for both customers and agents. wallet_apply()
+        // updates the correct per-currency wallet under a row lock and mirrors to
+        // credits (agent) / users.balance (customer), so the funds are real.
+        require_once __DIR__ . '/../../lib/wallet.php';
+        // The manage-funds amounts are normalised to USD (see $final_amount); the
+        // wallet operates in that same unit here for parity with the old behaviour.
+        $walletCurrency = 'USD';
+        if (function_exists('wallet_get_or_create')) {
+            wallet_get_or_create($db, $user_id, $walletCurrency);
+        }
+        $spineResult = function_exists('wallet_apply')
+            ? wallet_apply($db, (string) $user_id, (float) $final_amount, ($transaction_type === 'credit' ? 'credit' : 'debit'), $walletCurrency, [
+                'reason'         => 'adjustment',
+                'note'           => $description,
+                'idempotency_key'=> 'ADMINFUND-' . ($transaction_id_row ?: bin2hex(random_bytes(6))),
+                'allow_credit_line' => false,
+              ])
+            : ['ok' => false, 'message' => 'Wallet engine unavailable'];
 
-        if (!$update_result) {
-            // Delete uploaded files if balance update failed
+        if (empty($spineResult['ok'])) {
+            // Roll back the transaction log + uploaded files so we don't leave a
+            // record of funds that never actually landed in the wallet.
+            if ($transaction_id_row) { $db->delete('transactions', ['id' => $transaction_id_row]); }
             foreach ($uploaded_files as $filename) {
                 $file_path = $upload_dir . $filename;
                 if (file_exists($file_path)) {
                     unlink($file_path);
                 }
             }
-            $_SESSION['error'] = 'Failed to update user balance';
+            $_SESSION['error'] = 'Failed to update wallet balance: ' . ($spineResult['message'] ?? 'unknown error');
             header('Location: ' . $_SERVER['HTTP_REFERER']);
             exit;
         }
+        // Keep the legacy column in sync for any old read path (wallet_apply already
+        // mirrors it for customers; this is a harmless belt-and-braces for the row).
+        $new_balance = isset($spineResult['balance']) ? (float) $spineResult['balance'] : $new_balance;
 
         // Success message
         $success_msg = $transaction_type === 'credit'
