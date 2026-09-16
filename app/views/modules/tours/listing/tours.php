@@ -311,17 +311,18 @@
                     'total' => $_SESSION['tour_travelers'] ?? 1
                 ];
                 ?>
+                <?php $__jsf = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE; ?>
                 this.searchParams = {
-                    destination: '<?= addslashes($_SESSION['tour_destination'] ?? '') ?>',
-                    destination_code: '<?= addslashes($_SESSION['tour_destination_code'] ?? $_SESSION['tour_destination'] ?? '') ?>',
-                    start_date: '<?= addslashes($_SESSION['tour_start_date'] ?? date('d-m-Y', strtotime('+3 days'))) ?>',
-                    duration: '<?= addslashes($_SESSION['tour_duration'] ?? '') ?>',
-                    adults: '<?= addslashes($_SESSION['tour_adults'] ?? 1) ?>',
-                    children: '<?= addslashes($_SESSION['tour_children'] ?? 0) ?>',
-                    travelers: '<?= addslashes($_SESSION['tour_travelers'] ?? 1) ?>',
+                    destination: <?= json_encode((string) ($_SESSION['tour_destination'] ?? ''), $__jsf) ?>,
+                    destination_code: <?= json_encode((string) ($_SESSION['tour_destination_code'] ?? $_SESSION['tour_destination'] ?? ''), $__jsf) ?>,
+                    start_date: <?= json_encode((string) ($_SESSION['tour_start_date'] ?? date('d-m-Y', strtotime('+3 days'))), $__jsf) ?>,
+                    duration: <?= json_encode((string) ($_SESSION['tour_duration'] ?? ''), $__jsf) ?>,
+                    adults: <?= json_encode((string) ($_SESSION['tour_adults'] ?? 1), $__jsf) ?>,
+                    children: <?= json_encode((string) ($_SESSION['tour_children'] ?? 0), $__jsf) ?>,
+                    travelers: <?= json_encode((string) ($_SESSION['tour_travelers'] ?? 1), $__jsf) ?>,
                     travelers_data: JSON.stringify(<?php echo json_encode($travelersData); ?>),
-                    currency: '<?= addslashes($_SESSION['app_currency'] ?? 'USD') ?>',
-                    language: '<?= addslashes($_SESSION['app_language'] ?? 'en') ?>'
+                    currency: <?= json_encode((string) ($_SESSION['app_currency'] ?? 'USD'), $__jsf) ?>,
+                    language: <?= json_encode((string) ($_SESSION['app_language'] ?? 'en'), $__jsf) ?>
                 };
             },
 

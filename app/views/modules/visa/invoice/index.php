@@ -99,15 +99,15 @@ $getVisaDocumentItems = function ($traveler) {
                                 <div class="space-y-2 text-sm">
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400">Name:</span>
-                                        <span class="font-medium"><?= $booking['first_name'] . ' ' . $booking['last_name'] ?></span>
+                                        <span class="font-medium"><?= htmlspecialchars((string)$booking['first_name'].' '.(string)$booking['last_name'], ENT_QUOTES, 'UTF-8') ?></span>
                                     </div>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400">Email:</span>
-                                        <span class="font-medium"><?= $booking['email'] ?></span>
+                                        <span class="font-medium"><?= htmlspecialchars((string)$booking['email'], ENT_QUOTES, 'UTF-8') ?></span>
                                     </div>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400">Phone:</span>
-                                        <span class="font-medium">+<?= $booking['phone_country_code'] ?> <?= $booking['phone'] ?></span>
+                                        <span class="font-medium">+<?= htmlspecialchars((string)$booking['phone_country_code'], ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string)$booking['phone'], ENT_QUOTES, 'UTF-8') ?></span>
                                     </div>
                                 </div>
                             </div>
@@ -330,7 +330,7 @@ $getVisaDocumentItems = function ($traveler) {
                                         <span class="material-symbols-outlined text-blue-500">support_agent</span>
                                         <div>
                                             <p class="text-xs font-semibold text-blue-700">Assistance Required?</p>
-                                            <p class="text-xs text-blue-600">Our team will call you at +<?= $booking['phone_country_code'] ?> <?= $booking['phone'] ?></p>
+                                            <p class="text-xs text-blue-600">Our team will call you at +<?= htmlspecialchars((string)$booking['phone_country_code'], ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string)$booking['phone'], ENT_QUOTES, 'UTF-8') ?></p>
                                         </div>
                                     </div>
                                 </div>
@@ -371,7 +371,7 @@ $getVisaDocumentItems = function ($traveler) {
             </p>
             <div class="form-control">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Recipient Email Address</label>
-                <input type="email" id="resend_customer_email" class="input w-full" value="<?= $booking['email'] ?>" placeholder="Enter email address">
+                <input type="email" id="resend_customer_email" class="input w-full" value="<?= htmlspecialchars((string)$booking['email'], ENT_QUOTES, 'UTF-8') ?>" placeholder="Enter email address">
             </div>
         </div>
         <div class="modal-footer p-4 bg-gray-50 dark:bg-gray-800/50 border-t dark:border-gray-700 flex justify-end gap-3">

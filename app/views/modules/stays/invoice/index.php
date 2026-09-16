@@ -113,19 +113,19 @@ foreach ($hotel_session_keys as $key) {
                                 <div class="space-y-2 text-sm">
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400">Name:</span>
-                                        <span class="font-medium"><?= $booking['first_name'] . ' ' . $booking['last_name'] ?></span>
+                                        <span class="font-medium"><?= htmlspecialchars((string)$booking['first_name'].' '.(string)$booking['last_name'], ENT_QUOTES, 'UTF-8') ?></span>
                                     </div>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400">Email:</span>
-                                        <span class="font-medium"><?= $booking['email'] ?></span>
+                                        <span class="font-medium"><?= htmlspecialchars((string)$booking['email'], ENT_QUOTES, 'UTF-8') ?></span>
                                     </div>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400">Phone:</span>
-                                        <span class="font-medium">+<?= $booking['phone_country_code'] ?> <?= $booking['phone'] ?></span>
+                                        <span class="font-medium">+<?= htmlspecialchars((string)$booking['phone_country_code'], ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars((string)$booking['phone'], ENT_QUOTES, 'UTF-8') ?></span>
                                     </div>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400">Nationality:</span>
-                                        <span class="font-medium"><?= $booking['nationality'] ?></span>
+                                        <span class="font-medium"><?= htmlspecialchars((string)$booking['nationality'], ENT_QUOTES, 'UTF-8') ?></span>
                                     </div>
                                 </div>
                             </div>

@@ -629,7 +629,7 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
             </p>
             <div class="form-control">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Recipient Email Address</label>
-                <input type="email" id="resend_customer_email" class="input w-full" value="<?= $booking['email'] ?>" placeholder="Enter email address">
+                <input type="email" id="resend_customer_email" class="input w-full" value="<?= htmlspecialchars((string)$booking['email'], ENT_QUOTES, 'UTF-8') ?>" placeholder="Enter email address">
             </div>
         </div>
         <div class="modal-footer p-4 bg-gray-50 dark:bg-gray-800/50 border-t dark:border-gray-700 flex justify-end gap-3">
