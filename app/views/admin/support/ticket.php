@@ -71,7 +71,7 @@ if ($is_admin_or_support) {
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 max-w-5xl mx-auto">
             <div class="flex-1 min-w-0">
                 <h1 class="text-2xl font-bold text-slate-900 truncate"><?=T::ticket?> #<?= $ticket['ticket_id'] ?></h1>
-                <p class="text-sm text-slate-500 mt-1 truncate"><?= $ticket['subject'] ?></p>
+                <p class="text-sm text-slate-500 mt-1 truncate"><?= htmlspecialchars((string) $ticket['subject'], ENT_QUOTES, 'UTF-8') ?></p>
             </div>
             <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
                 <?php if ($is_admin_or_support): ?>
@@ -281,7 +281,7 @@ if ($is_admin_or_support) {
                 </div>
                 <div class="p-6">
                     <div class="prose max-w-none">
-                        <?= $ticket['desc'] ?>
+                        <?= nl2br(htmlspecialchars((string) $ticket['desc'], ENT_QUOTES, 'UTF-8')) ?>
                     </div>
 
                     <?php if (!empty($ticket['attachments'])):
@@ -354,7 +354,7 @@ if ($is_admin_or_support) {
                 </div>
                 <div class="p-6">
                     <div class="prose max-w-none">
-                        <?= $reply['desc'] ?>
+                        <?= nl2br(htmlspecialchars((string) $reply['desc'], ENT_QUOTES, 'UTF-8')) ?>
                     </div>
 
                     <?php if (!empty($reply['attachments'])):

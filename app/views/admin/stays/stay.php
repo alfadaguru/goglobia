@@ -1819,7 +1819,7 @@ function hotelFormData() {
                     <?php if (!empty($hotel['email'])): ?>
                     <div class="flex items-start gap-3">
                         <span class="text-sm font-medium text-gray-500 min-w-[160px]"><?= T::email ?>:</span>
-                        <a href="mailto:<?= $hotel['email'] ?>" class="text-sm text-blue-600 hover:underline">
+                        <a href="mailto:<?= htmlspecialchars(rawurlencode((string) $hotel['email']), ENT_QUOTES, 'UTF-8') ?>" class="text-sm text-blue-600 hover:underline">
                             <?= htmlspecialchars($hotel['email']) ?>
                         </a>
                     </div>
@@ -1828,7 +1828,7 @@ function hotelFormData() {
                     <?php if (!empty($hotel['phone'])): ?>
                     <div class="flex items-start gap-3">
                         <span class="text-sm font-medium text-gray-500 min-w-[160px]"><?= T::phone ?>:</span>
-                        <a href="tel:<?= $hotel['phone'] ?>" class="text-sm text-blue-600 hover:underline">
+                        <a href="tel:<?= htmlspecialchars(rawurlencode((string) $hotel['phone']), ENT_QUOTES, 'UTF-8') ?>" class="text-sm text-blue-600 hover:underline">
                             <?= htmlspecialchars($hotel['phone']) ?>
                         </a>
                     </div>
