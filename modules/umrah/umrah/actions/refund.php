@@ -32,9 +32,21 @@ $router->post('umrah/umrah/refund', function() use ($db) {
             echo json_encode(['status' => true, 'message' => 'Umrah booking already refunded', 'invoice_id' => $invoice_id]);
             exit;
         }
-        // Only a paid booking can be refunded — umrah is paid on-platform, so a
-        // refund MUST return the customer's money, not just flip a status.
-        if (($booking['payment_status'] ?? '') !== 'paid') {
+
+        // How much money did the customer ACTUALLY pay? Umrah supports installment
+        // plans (PP-50-25-25), so a booking can be genuinely part-paid: the
+        // umrah_bookings row tracks amount_paid, while the generic bookings row
+        // only reads 'paid' once the balance hits zero (deposit-only = 'unpaid').
+        // Refund the REAL amount_paid — gating on generic 'paid' left a customer
+        // who paid a deposit unable to get it back ("No payment found to refund").
+        $umrahRow  = $db->get('umrah_bookings', ['amount_paid', 'balance'], ['invoice_id' => $invoice_id]);
+        $amountPaid = $umrahRow ? round((float) ($umrahRow['amount_paid'] ?? 0), 2) : 0.0;
+        // Fall back to the generic total when the umrah row has no amount (older
+        // rows / full-payment path already reflected on the generic 'paid' row).
+        if ($amountPaid <= 0 && ($booking['payment_status'] ?? '') === 'paid') {
+            $amountPaid = round((float) ($booking['price_markup'] ?? 0), 2);
+        }
+        if ($amountPaid <= 0) {
             throw new Exception('No payment found to refund');
         }
 
@@ -43,10 +55,11 @@ $router->post('umrah/umrah/refund', function() use ($db) {
         // money movement, so a customer who had paid was told they were refunded
         // while their money was never returned. refund_gateway_payment() credits a
         // wallet payment back through the spine (idempotent per invoice) or issues
-        // a Paystack/Stripe card refund. Mirrors hotelbeds/hotels refund actions.
+        // a Paystack/Stripe card refund. Pass the ACTUAL amount paid so a
+        // deposit-only booking refunds the deposit, never the full total.
         require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
         $refund = function_exists('refund_gateway_payment')
-            ? refund_gateway_payment($db, $booking, null, 'Umrah booking refund')
+            ? refund_gateway_payment($db, $booking, $amountPaid, 'Umrah booking refund')
             : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
         $gatewayRefunded = (($refund['status'] ?? '') === 'refunded');
 
@@ -57,6 +70,13 @@ $router->post('umrah/umrah/refund', function() use ($db) {
                 'cancellation_status'   => 1,
                 'cancellation_response' => 'Gateway refund ' . ($refund['reference'] ?? '') . ' on ' . date('Y-m-d H:i:s'),
                 'error_response'        => null,
+            ], ['invoice_id' => $invoice_id]);
+            // Keep the umrah_bookings row consistent + release its seat back to
+            // inventory (a refunded/cancelled booking no longer holds capacity).
+            $db->update('umrah_bookings', [
+                'payment_status' => 'refunded',
+                'booking_status' => 'cancelled',
+                'updated_at'     => date('Y-m-d H:i:s'),
             ], ['invoice_id' => $invoice_id]);
         } else {
             // Money did NOT move — do NOT mark 'refunded'. Cancel + flag manual.
