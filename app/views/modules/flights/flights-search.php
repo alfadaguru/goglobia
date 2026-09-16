@@ -65,18 +65,19 @@ function flightSearchData() {
         },
 
         // DEPARTURE AIRPORT DATA (FERRIES-STYLE TRIGGER + PANEL)
-        fromSearch: '<?=isset($_SESSION['from_airport']) ? $_SESSION['from_airport'] : ''; ?>',
+        <?php $__jsf = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE; ?>
+        fromSearch: <?= json_encode((string) ($_SESSION['from_airport'] ?? ''), $__jsf) ?>,
         fromResults: [],
-        fromSelected: <?=isset($_SESSION['from_airport']) && $_SESSION['from_airport'] ? "{ id: '{$_SESSION['from_airport']}' }" : 'null'; ?>,
+        fromSelected: <?= (isset($_SESSION['from_airport']) && $_SESSION['from_airport']) ? '{ id: ' . json_encode((string) $_SESSION['from_airport'], $__jsf) . ' }' : 'null' ?>,
         fromLoading: false,
         fromHasSearched: false,
         fromOpen: false,      // PANEL OPEN STATE
         fromQuery: '',        // PANEL SEARCH BOX (SEPARATE FROM COMMITTED SELECTION)
 
         // ARRIVAL AIRPORT DATA (FERRIES-STYLE TRIGGER + PANEL)
-        toSearch: '<?=isset($_SESSION['to_airport']) ? $_SESSION['to_airport'] : ''; ?>',
+        toSearch: <?= json_encode((string) ($_SESSION['to_airport'] ?? ''), $__jsf) ?>,
         toResults: [],
-        toSelected: <?=isset($_SESSION['to_airport']) && $_SESSION['to_airport'] ? "{ id: '{$_SESSION['to_airport']}' }" : 'null'; ?>,
+        toSelected: <?= (isset($_SESSION['to_airport']) && $_SESSION['to_airport']) ? '{ id: ' . json_encode((string) $_SESSION['to_airport'], $__jsf) . ' }' : 'null' ?>,
         toLoading: false,
         toHasSearched: false,
         toOpen: false,        // PANEL OPEN STATE
