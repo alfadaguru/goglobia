@@ -94,8 +94,11 @@ $router->post(admin.'/users/save', function () use ($SECURE,$db) {
     // Handle form submission
     if ($_POST && isset($_POST['action']) && $_POST['action'] === 'save_user') {
 
-        // CSRF token check
-        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        // CSRF token check — CSRF::validateToken() does a constant-time hash_equals
+        // compare AND enforces the 1-hour token expiry, unlike the raw !== this
+        // replaced (timing-leaky, never-expiring). Accept the token from the POST
+        // field or the X-CSRF-TOKEN header (fetch/XHR path).
+        if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
             $_SESSION['error'] = 'Invalid CSRF token';
             header('Location: ' . root . 'admin/users');
             exit;
@@ -219,8 +222,11 @@ $router->post(admin.'/users/notes', function () use ($SECURE,$db) {
 
     if ($_POST && isset($_POST['action'])) {
 
-        // CSRF token check
-        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        // CSRF token check — CSRF::validateToken() does a constant-time hash_equals
+        // compare AND enforces the 1-hour token expiry, unlike the raw !== this
+        // replaced (timing-leaky, never-expiring). Accept the token from the POST
+        // field or the X-CSRF-TOKEN header (fetch/XHR path).
+        if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
             $_SESSION['error'] = 'Invalid CSRF token';
             header('Location: ' . $_SERVER['HTTP_REFERER']);
             exit;
@@ -338,7 +344,6 @@ $router->post(admin.'/users/notes', function () use ($SECURE,$db) {
 
 //     // ADMIN AUTH CHECK
 //     ADMIN_AUTH();
-CSRF::guard();
 
 //     // META DATA
 //     $title = 'Add Role';
@@ -358,7 +363,6 @@ CSRF::guard();
 
 //     // ADMIN AUTH CHECK
 //     ADMIN_AUTH();
-CSRF::guard();
 
 //     // META DATA
 //     $title = 'Edit Role';
@@ -401,8 +405,11 @@ $router->post(admin.'/users/process-manage-funds', function () use ($SECURE,$db)
     // Handle form submission
     if ($_POST && isset($_POST['action']) && $_POST['action'] === 'add_funds') {
 
-        // CSRF token check
-        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        // CSRF token check — CSRF::validateToken() does a constant-time hash_equals
+        // compare AND enforces the 1-hour token expiry, unlike the raw !== this
+        // replaced (timing-leaky, never-expiring). Accept the token from the POST
+        // field or the X-CSRF-TOKEN header (fetch/XHR path).
+        if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
             $_SESSION['error'] = 'Invalid CSRF token';
             header('Location: ' . root . 'admin/users');
             exit;
