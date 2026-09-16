@@ -541,15 +541,25 @@ $router->get('/payment/(.+)', function ($invoiceId) use ($SECURE, $db) {
         exit;
     }
 
+    // SECURITY (IDOR): this legacy fallback page echoed the invoice amount and a
+    // payment form for ANY invoice_id, leaking pricing/existence of other
+    // customers' bookings. Restrict to admin / owner / creating session / valid
+    // payment token (the real flow uses /payment/process -> /payment/{hash}).
+    if (function_exists('enforceInvoiceAccess')) {
+        enforceInvoiceAccess($db, $booking);
+    }
+    // Reflected-XSS: $invoiceId was echoed raw into HTML/attribute below.
+    $safeInvoiceId = htmlspecialchars((string) $invoiceId, ENT_QUOTES, 'UTF-8');
+
     $gateways = $db->select('payment_gateways', ['id', 'name', 'display_name'], ['status' => 1]);
 
-    echo "<h3>Payment for Invoice: {$invoiceId}</h3>";
-    echo "<p>Amount: " . $booking['currency_markup'] . " " . number_format($booking['price_markup'], 2) . "</p>";
+    echo "<h3>Payment for Invoice: {$safeInvoiceId}</h3>";
+    echo "<p>Amount: " . htmlspecialchars((string) $booking['currency_markup'], ENT_QUOTES, 'UTF-8') . " " . number_format((float) $booking['price_markup'], 2) . "</p>";
     echo "<form method='POST' action='" . root . "payment/process'>";
-    echo "<input type='hidden' name='invoice_id' value='{$invoiceId}'>";
+    echo "<input type='hidden' name='invoice_id' value='{$safeInvoiceId}'>";
     echo "<select name='gateway_id' required>";
     foreach ($gateways as $gateway) {
-        echo "<option value='{$gateway['id']}'>" . htmlspecialchars(getGatewayDisplayName($gateway)) . "</option>";
+        echo "<option value='" . htmlspecialchars((string) $gateway['id'], ENT_QUOTES, 'UTF-8') . "'>" . htmlspecialchars(getGatewayDisplayName($gateway)) . "</option>";
     }
     echo "</select>";
     echo "<button type='submit'>Continue to Payment</button>";

@@ -159,6 +159,15 @@ $router->get('/ai-trip/confirmation/([A-Za-z0-9]+)', function ($packageId) use (
         exit;
     }
 
+    // SECURITY (IDOR): the confirmation page renders the booking's customer data
+    // (name/contact/pricing/itinerary). It was fetched by package id with NO
+    // ownership check, so anyone who knew/guessed an ai_trip package id could view
+    // another customer's confirmation. Restrict to admin / owner / creating
+    // session / valid payment token — same gate as the ai_trip invoice route.
+    if (function_exists('enforceInvoiceAccess')) {
+        enforceInvoiceAccess($db, $bookings[0], root . 'ai-trip');
+    }
+
     $title = 'AI Trip Confirmation';
     require_once views . 'includes/header.php';
     require_once views . 'ai/confirmation.php';
