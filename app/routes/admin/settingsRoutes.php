@@ -558,6 +558,15 @@ $router->post('/admin/save-notification-toggle', function() use ($db) {
 
         $input = json_decode(file_get_contents('php://input'), true);
 
+        // CSRF: cookie-session admin action (toggles notification providers).
+        // Was authenticated but had no CSRF token — a logged-in admin could be
+        // forced to flip these cross-site. Validate the token the admin UI sends.
+        $csrfTok = $input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+        if (!CSRF::validateToken((string) $csrfTok)) {
+            echo json_encode(['success' => false, 'message' => 'Invalid security token']);
+            exit;
+        }
+
         $type = $input['type'] ?? ''; // whatsapp, email, sms
         $enabled = $input['enabled'] ?? false;
 
