@@ -1,4 +1,11 @@
 <?php
+// SECURITY (reflected XSS): the ?tab param is echoed into a hidden input's value
+// below. It was output raw, so ?tab="><script>… broke out of the attribute and
+// executed in the admin's session (session/CSRF-token theft). Constrain it to the
+// known tab vocabulary and default anything else to 'profile'.
+$__allowedTabs = ['profile', 'account', 'notes', 'wallet', 'credit', 'agency', 'security', 'documents'];
+$currentTab = in_array(($_GET['tab'] ?? ''), $__allowedTabs, true) ? $_GET['tab'] : 'profile';
+
 // Fetch user roles for dropdown
 $roles = $db->select('users_roles', ['id', 'type_name'], ['ORDER' => ['id' => 'ASC']]);
 
@@ -102,7 +109,7 @@ if (isset($_SESSION['error'])) {
         <?php if ($isEdit): ?>
         <input type="hidden" name="user_id" value="<?= $user['user_id'] ?>">
         <?php endif; ?>
-        <input type="hidden" name="current_tab" id="current_tab" value="<?= $_GET['tab'] ?? 'profile' ?>">
+        <input type="hidden" name="current_tab" id="current_tab" value="<?= htmlspecialchars($currentTab, ENT_QUOTES, 'UTF-8') ?>">
 
         <!-- Header -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -123,7 +130,7 @@ if (isset($_SESSION['error'])) {
                         <span>•</span>
                         <span class="flex items-center gap-1">
                             <span class="material-symbols-outlined text-base">mail</span>
-                            <?= $user['email'] ?>
+                            <?= htmlspecialchars((string) $user['email'], ENT_QUOTES, 'UTF-8') ?>
                         </span>
                     </div>
                     <?php endif; ?>
@@ -1026,7 +1033,7 @@ if (isset($_SESSION['error'])) {
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="text-xs text-slate-500 font-medium"><?=T::email?></div>
-                            <a href="mailto:<?= $user['email'] ?>" class="text-sm text-blue-600 hover:text-blue-700 hover:underline break-all"><?= $user['email'] ?></a>
+                            <a href="mailto:<?= htmlspecialchars(rawurlencode((string) $user['email']), ENT_QUOTES, 'UTF-8') ?>" class="text-sm text-blue-600 hover:text-blue-700 hover:underline break-all"><?= htmlspecialchars((string) $user['email'], ENT_QUOTES, 'UTF-8') ?></a>
                         </div>
                     </div>
                     <?php if ($user['phone']): ?>
@@ -1036,7 +1043,7 @@ if (isset($_SESSION['error'])) {
                         </div>
                         <div class="flex-1">
                             <div class="text-xs text-slate-500 font-medium"><?=T::phone?></div>
-                            <a href="tel:<?= $user['phone'] ?>" class="text-xs text-green-600 hover:text-green-700 hover:underline"><?= $user['phone'] ?></a>
+                            <a href="tel:<?= htmlspecialchars(rawurlencode((string) $user['phone']), ENT_QUOTES, 'UTF-8') ?>" class="text-xs text-green-600 hover:text-green-700 hover:underline"><?= htmlspecialchars((string) $user['phone'], ENT_QUOTES, 'UTF-8') ?></a>
                         </div>
                     </div>
                     <?php endif; ?>
@@ -1048,9 +1055,9 @@ if (isset($_SESSION['error'])) {
                         <div class="flex-1">
                             <div class="text-xs text-slate-500 font-medium"><?=T::location?></div>
                             <div class="text-xs text-slate-700">
-                                <?php if ($user['address']): ?><?= $user['address'] ?><br><?php endif; ?>
-                                <?php if ($user['city']): ?><?= $user['city'] ?><?php if ($user['state']): ?>, <?= $user['state'] ?><?php endif; ?><br><?php endif; ?>
-                                <?php if ($user['country']): ?><?= $user['country'] ?><?php endif; ?>
+                                <?php if ($user['address']): ?><?= htmlspecialchars((string) $user['address'], ENT_QUOTES, 'UTF-8') ?><br><?php endif; ?>
+                                <?php if ($user['city']): ?><?= htmlspecialchars((string) $user['city'], ENT_QUOTES, 'UTF-8') ?><?php if ($user['state']): ?>, <?= htmlspecialchars((string) $user['state'], ENT_QUOTES, 'UTF-8') ?><?php endif; ?><br><?php endif; ?>
+                                <?php if ($user['country']): ?><?= htmlspecialchars((string) $user['country'], ENT_QUOTES, 'UTF-8') ?><?php endif; ?>
                             </div>
                         </div>
                     </div>
