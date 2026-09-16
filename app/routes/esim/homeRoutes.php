@@ -10,6 +10,15 @@ $router->post('/esim/booking/submit', function () use ($SECURE, $db) {
 
     try {
         $input = json_decode(file_get_contents('php://input'), true);
+
+        // CSRF: this submit creates a booking attributed to the session user.
+        // Validate the token the site's own JS sends — same guard tours/stays/
+        // umrah already use; esim was missing it.
+        $csrfToken = ($input['csrf_token'] ?? null) ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+        if (!CSRF::validateToken((string) $csrfToken)) {
+            throw new Exception('Invalid security token');
+        }
+
         if (!$input || empty($input['module_id']) || empty($input['country']) || empty($input['selected_package'])) {
             throw new Exception('Invalid booking data');
         }
