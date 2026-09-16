@@ -1246,12 +1246,22 @@ $router->post(admin.'/stays/rooms/save', function () use ($SECURE,$db) {
 
         for ($i = 0; $i < $file_count; $i++) {
             if ($files['error'][$i] === UPLOAD_ERR_OK) {
-                $ext = pathinfo($files['name'][$i], PATHINFO_EXTENSION);
-                $new_filename = 'room_' . time() . '_' . uniqid() . '_' . $i . '.' . $ext;
+                // SECURITY: validate real MIME + derive a SAFE extension (never the
+                // user filename) — the extension was taken from $_FILES['name'], so
+                // an admin could upload shell.php into the web-served
+                // /uploads/hotels/rooms/ dir (RCE where PHP exec isn't blocked;
+                // stored-XSS regardless).
+                $chk = secureUploadCheck(
+                    ['name' => $files['name'][$i], 'tmp_name' => $files['tmp_name'][$i], 'size' => $files['size'][$i], 'error' => UPLOAD_ERR_OK],
+                    ['jpg', 'jpeg', 'png', 'gif', 'webp'], 5 * 1024 * 1024
+                );
+                if (!$chk['ok']) { continue; }
+                $new_filename = 'room_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $chk['ext'];
                 $upload_path = $upload_dir . $new_filename;
                 $image_url = '/uploads/hotels/rooms/' . $new_filename;
 
                 if (move_uploaded_file($files['tmp_name'][$i], $upload_path)) {
+                    @chmod($upload_path, 0644);
                     $room_images[] = ['url' => $image_url, 'default' => ($i === 0 && !$has_default)];
                 }
             } else {
