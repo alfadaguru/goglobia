@@ -42,7 +42,7 @@
                             <div class="flex items-center gap-2 mb-3">
                                 <?php if (!empty($blog['post_category'])): ?>
                                     <span class="px-2.5 py-1 bg-blue-50 text-blue-600 text-xs font-semibold rounded-full tracking-wide uppercase">
-                                        <?= $db->get('blog_categories', 'cat_name', ['id' => $blog['post_category']]) ?>
+                                        <?= htmlspecialchars((string) $db->get('blog_categories', 'cat_name', ['id' => $blog['post_category']]), ENT_QUOTES, 'UTF-8') ?>
                                     </span>
                                 <?php endif; ?>
                                 <span class="text-xs text-gray-400">
@@ -51,7 +51,7 @@
                             </div>
 
                             <h2 class="text-xl font-bold text-gray-900 mb-3 line-clamp-2">
-                                <a href="<?= root ?>blog/<?= $blog['post_slug'] ?>" class="hover:text-blue-600 transition-colors">
+                                <a href="<?= root ?>blog/<?= htmlspecialchars((string) $blog['post_slug'], ENT_QUOTES, 'UTF-8') ?>" class="hover:text-blue-600 transition-colors">
                                     <?= htmlspecialchars($post_title) ?>
                                 </a>
                             </h2>
@@ -60,7 +60,7 @@
                                 <?= strip_tags($post_desc) ?>
                             </p>
 
-                            <a href="<?= root ?>blog/<?= $blog['post_slug'] ?>" 
+                            <a href="<?= root ?>blog/<?= htmlspecialchars((string) $blog['post_slug'], ENT_QUOTES, 'UTF-8') ?>" 
                                class="inline-flex items-center gap-2 text-blue-600 text-sm font-bold hover:gap-3 transition-all">
                                 <?= T::read_more ?? 'Read More' ?>
                                 <span class="material-symbols-outlined text-sm">arrow_forward</span>

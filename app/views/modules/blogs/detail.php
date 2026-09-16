@@ -130,7 +130,7 @@ $published_date = date('F j, Y', strtotime($blog['published_at'] ?? $blog['creat
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <?php foreach ($related_posts as $rp): ?>
-                <a href="<?= root ?>blog/<?= $rp['post_slug'] ?>" class="group bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300">
+                <a href="<?= root ?>blog/<?= htmlspecialchars((string) $rp['post_slug'], ENT_QUOTES, 'UTF-8') ?>" class="group bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300">
                     <div class="aspect-[3/2] overflow-hidden">
                         <img src="<?= !empty($rp['post_img']) ? root . $rp['post_img'] : root . 'uploads/no_img.jpg' ?>"
                              alt="<?= htmlspecialchars($rp['post_title']) ?>"
