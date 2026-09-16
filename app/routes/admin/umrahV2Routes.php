@@ -959,7 +959,45 @@ if (!function_exists('umrahV2CreateDeparture')) {
             'display_inventory_count' => 0, 'status' => 'draft', 'created_at' => $now,
         ]);
         $depId = (int) $db->id();
-        if ($tierId > 0) {
+
+        // Seed a departure_tier row for EVERY active comfort tier — not just the
+        // one the admin picked. Previously only the selected tier was inserted, so
+        // a departure created via the manager exposed just 1 of the 5 tiers
+        // (VIP/VVIP/… were permanently unbookable and there was no admin path to
+        // add them), unlike the seeded departures which carry all 5. The admin's
+        // base price applies to the SELECTED tier; the others get a placeholder
+        // derived from the standard tier-price multipliers (Standard 1× / VIP 1.3×
+        // / VVIP 1.6× / VVVIP 2× / VVVVIP 2.6×, ordered by sort_order) — all fully
+        // editable afterwards via the per-tier pricing screen.
+        $tiers = $db->select('umrah_tiers', ['id', 'sort_order'], ['AND' => ['bookable' => 1, 'status' => 1, 'archived' => 0], 'ORDER' => ['sort_order' => 'ASC']]) ?: [];
+        $multipliers = [1.0, 1.3, 1.6, 2.0, 2.6]; // by ascending sort_order position
+        // Base = the admin-supplied Standard price (fall back to the selected
+        // tier's posted price when the picked tier isn't Standard).
+        $baseRegular = $regular > 0 ? $regular : 0.0;
+        $basePromo   = $promo > 0 ? $promo : 0.0;
+        $pos = 0;
+        foreach ($tiers as $t) {
+            $isSelected = ((int) $t['id'] === $tierId);
+            $mult = $multipliers[$pos] ?? 1.0;
+            if ($isSelected) {
+                $tRegular = $regular ?: null;
+                $tPromo   = $promo ?: null;
+            } else {
+                $tRegular = $baseRegular > 0 ? round($baseRegular * $mult, 2) : null;
+                $tPromo   = $basePromo   > 0 ? round($basePromo   * $mult, 2) : null;
+            }
+            $db->insert('umrah_departure_tiers', [
+                'departure_id' => $depId, 'tier_id' => (int) $t['id'],
+                'regular_price' => $tRegular, 'promo_price' => $tPromo,
+                'promo_active' => ($tPromo !== null && $tPromo > 0) ? 1 : 0, 'currency' => 'NGN',
+                'tier_capacity' => $capacity, 'booking_mode' => 'instant', 'status' => 'draft',
+                'created_at' => $now,
+            ]);
+            $pos++;
+        }
+        // Safety net: if for some reason no active tiers were found, still seed the
+        // selected one so the departure is not left with zero bookable tiers.
+        if (empty($tiers) && $tierId > 0) {
             $db->insert('umrah_departure_tiers', [
                 'departure_id' => $depId, 'tier_id' => $tierId,
                 'regular_price' => $regular ?: null, 'promo_price' => $promo ?: null,
