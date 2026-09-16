@@ -58,14 +58,37 @@ $router->post('/api/login', function () use ($db) {
 
     if (!password_verify($password, $user['password'])) {
 
-        $attempts = ($user['login_attempts'] ?? 0) + 1;
-        $db->update('users', ['login_attempts' => $attempts], ['id' => $userId]);
+        // BRUTE-FORCE LOCKOUT — mirror the web /login policy (5 attempts → 30-min
+        // lock). Previously the API only INCREMENTED login_attempts and never set
+        // locked_until, so an attacker brute-forcing exclusively via /api/login was
+        // never locked out (the counter just climbed past 5 with no effect).
+        $attempts     = ($user['login_attempts'] ?? 0) + 1;
+        $maxAttempts  = 5;
+        $lockDuration = 30 * 60;
+        $updateData   = ['login_attempts' => $attempts];
 
+        if ($attempts >= $maxAttempts) {
+            $lockUntil = date('Y-m-d H:i:s', time() + $lockDuration);
+            $updateData['locked_until'] = $lockUntil;
+            $db->update('users', $updateData, ['id' => $userId]);
+            if (function_exists('logUserActivity')) {
+                logUserActivity($db, $userId, 'login_failed', 'Account locked due to too many failed attempts (API)');
+            }
+            echo json_encode([
+                'status'       => 'error',
+                'code'         => 'ACCOUNT_LOCKED',
+                'message'      => 'Account is temporarily locked',
+                'locked_until' => $lockUntil
+            ]);
+            exit;
+        }
+
+        $db->update('users', $updateData, ['id' => $userId]);
         echo json_encode([
             'status' => 'error',
             'code' => 'INVALID_CREDENTIALS',
             'message' => 'Invalid email or password',
-            'attempts_remaining' => max(0, 5 - $attempts)
+            'attempts_remaining' => max(0, $maxAttempts - $attempts)
         ]);
         exit;
     }

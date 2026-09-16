@@ -364,6 +364,17 @@ $router->post('/api/booking/quick-login', function () use ($SECURE, $db) {
         exit;
     }
 
+    // BRUTE-FORCE LOCKOUT — quick-login previously did NO attempt tracking, so an
+    // attacker could brute-force here while the main /login locked them out. Honour
+    // and apply the same 5-attempt / 30-min lock as the web /login.
+    $qlUserId = (int) $user['id'];
+    if (!empty($user['locked_until']) && strtotime($user['locked_until']) > time()) {
+        $_SESSION['login_error'] = 'locked';
+        $_SESSION['lock_until'] = $user['locked_until'];
+        header('Location: ' . $redirectTo);
+        exit;
+    }
+
     if (password_verify($password, $user['password'])) {
         if (!$user['email_verified']) {
             $_SESSION['login_error'] = 'email_not_verified';
@@ -377,7 +388,8 @@ $router->post('/api/booking/quick-login', function () use ($SECURE, $db) {
             exit;
         }
 
-        // Success - Set session
+        // Success - clear the failed-attempt counter + Set session
+        $db->update('users', ['login_attempts' => 0, 'locked_until' => null], ['id' => $qlUserId]);
         $_SESSION['user_id'] = $user['user_id'];
         $_SESSION['user_email'] = $user['email'];
         $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];
@@ -391,7 +403,17 @@ $router->post('/api/booking/quick-login', function () use ($SECURE, $db) {
         header('Location: ' . $redirectTo);
         exit;
     } else {
-        $_SESSION['login_error'] = 'invalid';
+        // Count the failed attempt; lock at the threshold (same policy as /login).
+        $qlAttempts = (int) ($user['login_attempts'] ?? 0) + 1;
+        $qlUpdate = ['login_attempts' => $qlAttempts];
+        if ($qlAttempts >= 5) {
+            $qlUpdate['locked_until'] = date('Y-m-d H:i:s', time() + 30 * 60);
+            $_SESSION['login_error'] = 'locked';
+            $_SESSION['lock_until'] = $qlUpdate['locked_until'];
+        } else {
+            $_SESSION['login_error'] = 'invalid';
+        }
+        $db->update('users', $qlUpdate, ['id' => $qlUserId]);
         header('Location: ' . $redirectTo);
         exit;
     }

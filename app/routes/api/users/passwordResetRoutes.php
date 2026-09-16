@@ -31,7 +31,7 @@ $router->post('/api/forgot-password', function () use ($SECURE, $db) {
     }
 
     try {
-        $user = $db->get('users', ['id', 'first_name', 'last_name', 'email', 'phone', 'phone_country_code'], [
+        $user = $db->get('users', ['id', 'first_name', 'last_name', 'email', 'phone', 'phone_country_code', 'otp_expires'], [
             'email' => $email,
             'status' => 'active'
         ]);
@@ -44,11 +44,25 @@ $router->post('/api/forgot-password', function () use ($SECURE, $db) {
             exit;
         }
 
+        // RESEND COOLDOWN: without a throttle, this can bomb a victim's inbox/SMS
+        // (and run up SMS costs) and defeat the OTP-guess limit by refreshing the
+        // code. OTPs live 300s, so a live OTP issued less than 60s ago still has
+        // expiry > now+240 → refuse until the 60s cooldown elapses.
+        if (!empty($user['otp_expires']) && strtotime($user['otp_expires']) > (time() + 300 - 60)) {
+            echo json_encode([
+                'status' => 'error',
+                'code' => 'RESEND_TOO_SOON',
+                'message' => 'Please wait a moment before requesting another code.'
+            ]);
+            exit;
+        }
+
         $otpToken = sprintf("%06d", mt_rand(100000, 999999));
         $expiresAt = date('Y-m-d H:i:s', time() + 300); // 5 minute expiry
         $db->update('users', [
             'otp' => $otpToken,
-            'otp_expires' => $expiresAt
+            'otp_expires' => $expiresAt,
+            'login_attempts' => 0
         ], ['id' => $user['id']]);
 
         $notificationResults = sendNotification($user['id'], 'forgot_password_api', []);
@@ -118,7 +132,7 @@ $router->post('/api/resend-password-otp', function () use ($SECURE, $db) {
     }
 
     try {
-        $user = $db->get('users', ['id', 'first_name', 'last_name', 'email', 'phone', 'phone_country_code'], [
+        $user = $db->get('users', ['id', 'first_name', 'last_name', 'email', 'phone', 'phone_country_code', 'otp_expires'], [
             'email' => $email,
             'status' => 'active'
         ]);
@@ -131,11 +145,25 @@ $router->post('/api/resend-password-otp', function () use ($SECURE, $db) {
             exit;
         }
 
+        // RESEND COOLDOWN: without a throttle, this can bomb a victim's inbox/SMS
+        // (and run up SMS costs) and defeat the OTP-guess limit by refreshing the
+        // code. OTPs live 300s, so a live OTP issued less than 60s ago still has
+        // expiry > now+240 → refuse until the 60s cooldown elapses.
+        if (!empty($user['otp_expires']) && strtotime($user['otp_expires']) > (time() + 300 - 60)) {
+            echo json_encode([
+                'status' => 'error',
+                'code' => 'RESEND_TOO_SOON',
+                'message' => 'Please wait a moment before requesting another code.'
+            ]);
+            exit;
+        }
+
         $otpToken = sprintf("%06d", mt_rand(100000, 999999));
         $expiresAt = date('Y-m-d H:i:s', time() + 300); // 5 minute expiry
         $db->update('users', [
             'otp' => $otpToken,
-            'otp_expires' => $expiresAt
+            'otp_expires' => $expiresAt,
+            'login_attempts' => 0
         ], ['id' => $user['id']]);
 
         $notificationResults = sendNotification($user['id'], 'forgot_password_api', []);
@@ -205,11 +233,37 @@ $router->post('/api/verify-otp', function () use ($SECURE, $db) {
         ]);
 
         if (!$user) {
+            // BRUTE-FORCE GUARD: a 6-digit OTP (900k space) with a 5-min window is
+            // guessable if guesses are unlimited. On a wrong OTP, count the failed
+            // attempt against the account; after 5 misses, INVALIDATE the OTP (force
+            // a fresh resend) so an attacker can never spray the same live code.
+            $acct = $db->get('users', ['id', 'login_attempts'], ['email' => $email]);
+            if ($acct) {
+                $otpAttempts = (int) ($acct['login_attempts'] ?? 0) + 1;
+                if ($otpAttempts >= 5) {
+                    // Burn the current OTP; the user must request a new one.
+                    $db->update('users', [
+                        'otp' => null,
+                        'otp_expires' => null,
+                        'login_attempts' => 0,
+                    ], ['id' => $acct['id']]);
+                    if (function_exists('logUserActivity')) {
+                        logUserActivity($db, $acct['id'], 'otp_failed', 'OTP invalidated after too many wrong attempts (API)');
+                    }
+                } else {
+                    $db->update('users', ['login_attempts' => $otpAttempts], ['id' => $acct['id']]);
+                }
+            }
             echo json_encode([
                 'status' => 'error',
                 'message' => T::error_token_invalid
             ]);
             exit;
+        }
+
+        // Correct OTP — clear the failed-attempt counter.
+        if ((int) ($user['login_attempts'] ?? 0) > 0) {
+            $db->update('users', ['login_attempts' => 0], ['id' => $user['id']]);
         }
 
         if ($action === 'signup') {
