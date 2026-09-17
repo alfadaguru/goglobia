@@ -50,6 +50,11 @@ $description = 'Show all countries, filter them, and manage multiple package rul
                 <p class="text-sm text-slate-500">Use the CRUD table below to enable/disable countries and open package mapping for each active country.</p>
             </div>
         </div>
+        <button type="button" id="airaloSyncBtn"
+            class="btn primary inline-flex items-center gap-2 px-4 h-10 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+            <span class="material-symbols-outlined text-lg" id="airaloSyncIcon">sync</span>
+            <span id="airaloSyncLabel">Sync from Airalo</span>
+        </button>
     </div>
 
     <?php if (isset($_SESSION['message'])): ?>
@@ -98,3 +103,49 @@ $description = 'Show all countries, filter them, and manage multiple package rul
         ->render();
     ?>
 </div>
+
+<script>
+(function () {
+    var btn = document.getElementById('airaloSyncBtn');
+    if (!btn) return;
+    var icon = document.getElementById('airaloSyncIcon');
+    var label = document.getElementById('airaloSyncLabel');
+
+    btn.addEventListener('click', function () {
+        if (btn.disabled) return;
+        if (!window.confirm('Fetch the latest sellable countries from Airalo?\n\nNew countries are added disabled — your enabled/disabled choices are preserved.')) {
+            return;
+        }
+        btn.disabled = true;
+        icon.classList.add('animate-spin');
+        var original = label.textContent;
+        label.textContent = 'Syncing…';
+
+        // app.js global interceptor attaches the X-CSRF-TOKEN header for same-origin
+        // non-GET fetches, so the CSRF::guard() on the endpoint is satisfied.
+        fetch('<?= root . admin ?>/settings/modules/airalo-countries/sync', {
+            method: 'POST',
+            headers: { 'Accept': 'application/json' },
+            credentials: 'same-origin'
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data && data.status === 'success') {
+                window.alert(data.message || 'Countries synced.');
+                window.location.reload();
+            } else {
+                window.alert((data && data.message) ? data.message : 'Sync failed. Please try again.');
+                btn.disabled = false;
+                icon.classList.remove('animate-spin');
+                label.textContent = original;
+            }
+        })
+        .catch(function () {
+            window.alert('Sync failed: network error.');
+            btn.disabled = false;
+            icon.classList.remove('animate-spin');
+            label.textContent = original;
+        });
+    });
+})();
+</script>

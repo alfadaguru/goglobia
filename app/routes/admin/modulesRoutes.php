@@ -1470,6 +1470,45 @@ $router->post(admin.'/settings/modules/airalo-countries/bulk-status', function (
     exit;
 });
 
+// Sync the airalo_countries catalog from Airalo's live package feed.
+// Airalo has no /v2/countries endpoint, so the list is derived by paging the
+// LOCAL /v2/packages feed (see airalo_sync_countries). New countries land
+// DISABLED; existing rows keep their status. Admin-authed + CSRF-guarded.
+$router->post(admin.'/settings/modules/airalo-countries/sync', function () use ($SECURE,$db) {
+    ADMIN_AUTH();
+    CSRF::guard();
+    header('Content-Type: application/json');
+
+    require_once dirname(__DIR__, 3) . '/modules/esim/airalo/api.php';
+    if (!function_exists('airalo_sync_countries')) {
+        echo json_encode(['status' => 'error', 'message' => 'eSIM sync unavailable']);
+        exit;
+    }
+
+    $result = airalo_sync_countries($db);
+    if (empty($result['ok'])) {
+        echo json_encode([
+            'status'  => 'error',
+            'message' => 'Sync failed: ' . (string) ($result['error'] ?? 'Airalo API unreachable. Check the eSIM module credentials.'),
+        ]);
+        exit;
+    }
+
+    echo json_encode([
+        'status'    => 'success',
+        'message'   => sprintf(
+            'Synced %d countries from Airalo (%d new, %d updated). New countries are disabled — enable the ones you sell.',
+            (int) $result['fetched'], (int) $result['inserted'], (int) $result['updated']
+        ),
+        'pages'     => (int) $result['pages'],
+        'fetched'   => (int) $result['fetched'],
+        'inserted'  => (int) $result['inserted'],
+        'updated'   => (int) $result['updated'],
+        'total_now' => (int) $result['total_now'],
+    ]);
+    exit;
+});
+
 $router->get(admin.'/settings/modules/airalo-packages', function () use ($SECURE,$db) {
     ADMIN_AUTH();
     global $airaloSettingsUrl;
