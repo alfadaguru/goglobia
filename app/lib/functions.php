@@ -5383,6 +5383,9 @@ if (!function_exists('ensureUmrahSchema')) {
             // EXISTS will not alter a pre-existing table). Safe every boot.
             // [table, column, "ADD COLUMN ... " SQL fragment]
             $__umrahCols = [
+                // Installment reminder cron: stamp when a "payment due soon" email was
+                // last sent for a pending installment so the daily sweep never re-mails.
+                ['umrah_installments', 'reminder_sent_at', "ADD COLUMN `reminder_sent_at` datetime DEFAULT NULL AFTER `transaction_id`"],
                 ['umrah_departure_tiers', 'b2b_net_price',    "ADD COLUMN `b2b_net_price` decimal(14,2) DEFAULT NULL AFTER `promo_price`"],
                 ['umrah_departure_tiers', 'b2b_promo_price',  "ADD COLUMN `b2b_promo_price` decimal(14,2) DEFAULT NULL AFTER `b2b_net_price`"],
                 ['umrah_departure_tiers', 'inclusions',       "ADD COLUMN `inclusions` longtext DEFAULT NULL AFTER `b2b_promo_price`"],
@@ -5552,6 +5555,7 @@ if (!function_exists('ensureUmrahSchema')) {
                 `status` enum('pending','paid','overdue','waived') NOT NULL DEFAULT 'pending',
                 `paid_at` datetime DEFAULT NULL,
                 `transaction_id` varchar(255) DEFAULT NULL,
+                `reminder_sent_at` datetime DEFAULT NULL,
                 `created_at` datetime NOT NULL DEFAULT current_timestamp(),
                 PRIMARY KEY (`id`),
                 KEY `idx_booking` (`umrah_booking_id`),
