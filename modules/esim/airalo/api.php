@@ -380,3 +380,135 @@ if (!function_exists('airalo_authoritative_price')) {
         ]);
     }
 }
+
+if (!function_exists('airalo_sync_countries')) {
+    /**
+     * Sync the `airalo_countries` catalog from Airalo's live package feed.
+     *
+     * Airalo has NO /v2/countries endpoint (returns 404). The authoritative list
+     * of sellable countries is derived from /v2/packages: each data[] entry is a
+     * country with `country_code`, `title`, `slug`. We page through the LOCAL
+     * package feed (meta.last_page / per_page 25, ~204 packages / 9 pages) to
+     * collect every unique country, then upsert into `airalo_countries`.
+     *
+     * Enrichment: iso3 / numcode / phonecode are copied from the canonical
+     * `countries` table when a matching ISO2 exists, so rows satisfy the schema
+     * and match the rest of the app's country data.
+     *
+     * IMPORTANT: this NEVER changes `status` on an existing row and never deletes
+     * rows — an admin's per-country enable/disable choices survive a re-sync.
+     * NEW countries are inserted DISABLED (status=0) so nothing goes on sale
+     * without an explicit admin action (matches the "enable countries you sell"
+     * model of the admin CRUD page).
+     *
+     * @return array{ok:bool,pages:int,fetched:int,inserted:int,updated:int,
+     *               total_now:int,error?:string}
+     */
+    function airalo_sync_countries($db, array $opts = []): array
+    {
+        $module = $db->get('modules', '*', ['name' => 'airalo', 'type' => 'esim', 'ORDER' => ['id' => 'ASC']]);
+        $environment = (!empty($module['dev_mode']) && (string) ($module['dev_mode'] ?? '') === '1') ? 'sandbox' : 'production';
+
+        // Hard page cap so a feed change can never loop forever; 40 pages @25 = 1000
+        // countries, far above Airalo's ~200 — meta.last_page normally stops us at 9.
+        $maxPages = (int) ($opts['max_pages'] ?? 40);
+
+        // Collect unique country_code => title across every page of LOCAL packages.
+        $countries = [];
+        $pagesFetched = 0;
+        $page = 1;
+        while ($page <= $maxPages) {
+            $res = _airalo_request_with_token($db, 'GET', '/v2/packages', [
+                'env'   => $environment,
+                'query' => ['filter[type]' => 'local', 'page' => $page, 'limit' => 25],
+                'timeout' => 60,
+            ]);
+            if (empty($res['ok'])) {
+                // Fail closed on the FIRST page (no auth / API down) so we never
+                // report a bogus "0 synced" success; a mid-run failure keeps what
+                // we already gathered.
+                if ($page === 1) {
+                    return [
+                        'ok' => false, 'pages' => 0, 'fetched' => 0, 'inserted' => 0,
+                        'updated' => 0, 'total_now' => (int) $db->count('airalo_countries'),
+                        'error' => (string) ($res['error'] ?? ('Airalo request failed (HTTP ' . ($res['status'] ?? 0) . ')')),
+                    ];
+                }
+                break;
+            }
+            $body = $res['data'] ?? [];
+            $rows = (array) ($body['data'] ?? []);
+            foreach ($rows as $c) {
+                $iso = strtoupper(trim((string) ($c['country_code'] ?? '')));
+                if ($iso === '' || !preg_match('/^[A-Z]{2}$/', $iso)) { continue; }
+                if (!isset($countries[$iso])) {
+                    $countries[$iso] = (string) ($c['title'] ?? $iso);
+                }
+            }
+            $pagesFetched++;
+
+            $lastPage = (int) ($body['meta']['last_page'] ?? $page);
+            if ($page >= $lastPage) { break; }
+            $page++;
+        }
+
+        if (empty($countries)) {
+            return [
+                'ok' => true, 'pages' => $pagesFetched, 'fetched' => 0, 'inserted' => 0,
+                'updated' => 0, 'total_now' => (int) $db->count('airalo_countries'),
+            ];
+        }
+
+        // Existing airalo_countries keyed by ISO2 (preserve their status on update).
+        $existing = [];
+        foreach ((array) $db->select('airalo_countries', ['iso']) as $r) {
+            $existing[strtoupper((string) ($r['iso'] ?? ''))] = true;
+        }
+
+        // Canonical country details for enrichment (iso3/numcode/phonecode/name).
+        $isoList = array_keys($countries);
+        $canon = [];
+        foreach ((array) $db->select('countries', ['iso', 'name', 'nicename', 'iso3', 'numcode', 'phonecode', 'min_length', 'max_length'], ['iso' => $isoList]) as $r) {
+            $canon[strtoupper((string) ($r['iso'] ?? ''))] = $r;
+        }
+
+        $inserted = 0;
+        $updated = 0;
+        foreach ($countries as $iso => $title) {
+            $meta = $canon[$iso] ?? [];
+            $nicename = (string) ($meta['nicename'] ?? $title ?: $iso);
+            $name = (string) ($meta['name'] ?? strtoupper($nicename));
+
+            if (isset($existing[$iso])) {
+                // Refresh display fields only — NEVER touch status (admin's choice).
+                $db->update('airalo_countries', [
+                    'name'     => $name,
+                    'nicename' => $nicename,
+                ], ['iso' => $iso]);
+                $updated++;
+            } else {
+                $db->insert('airalo_countries', [
+                    'iso'        => $iso,
+                    'name'       => $name,
+                    'nicename'   => $nicename,
+                    'iso3'       => (string) ($meta['iso3'] ?? ''),
+                    'numcode'    => (int) ($meta['numcode'] ?? 0),
+                    'phonecode'  => (int) ($meta['phonecode'] ?? 0),
+                    'min_length' => (int) ($meta['min_length'] ?? 0),
+                    'max_length' => (int) ($meta['max_length'] ?? 0),
+                    'status'     => 0, // new countries land DISABLED — admin enables to sell.
+                ]);
+                $inserted++;
+            }
+        }
+
+        return [
+            'ok'        => true,
+            'pages'     => $pagesFetched,
+            'fetched'   => count($countries),
+            'inserted'  => $inserted,
+            'updated'   => $updated,
+            'total_now' => (int) $db->count('airalo_countries'),
+        ];
+    }
+}
