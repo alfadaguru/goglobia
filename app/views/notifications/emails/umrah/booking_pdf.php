@@ -431,7 +431,7 @@ if (!empty($travelersSource) && is_array($travelersSource)) {
             <table>
                 <tr>
                     <td class="price-label">Taxes & Fees</td>
-                    <td class="price-value"><?= $currency ?> <?= number_format($booking['tax'], 2) ?></td>
+                    <td class="price-value"><?= $currency ?> <?= number_format((float) ($booking['tax'] ?? 0), 2) ?></td>
                 </tr>
             </table>
         </div>

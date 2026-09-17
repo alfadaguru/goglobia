@@ -89,7 +89,11 @@ $router->get('/invoice/umrah/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE
         'user_id' => $booking['user_id'],
         'payment_status' => $booking['payment_status'],
         'booking_status' => $booking['booking_status'],
-        'total_amount' => ($booking['price_original'] ?? 0) + ($booking['price_markup'] ?? 0) + ($booking['tax'] ?? 0),
+        // Cast each component to float: these decimal columns come back as strings
+        // and `tax` is often an empty string '' (not NULL, so ?? 0 doesn't catch
+        // it) on umrah bookings — `float + ''` is a fatal TypeError in PHP 8, which
+        // was 500-ing the invoice view for the OWNER (anon callers redirect earlier).
+        'total_amount' => (float) ($booking['price_original'] ?? 0) + (float) ($booking['price_markup'] ?? 0) + (float) ($booking['tax'] ?? 0),
         'timestamp' => date('Y-m-d H:i:s'),
         'ip_address' => $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0',
         'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown'
