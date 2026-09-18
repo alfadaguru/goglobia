@@ -27669,7 +27669,7 @@ CREATE TABLE `payment_gateways` (
   `order` int(11) NOT NULL,
   `active` enum('1','0') NOT NULL DEFAULT '1',
   `note` varchar(500) NOT NULL,
-  `type` enum('credit_card','debit_card','digital_wallet','bank_transfer','cash','crypto_currency','pay_later','internal_wallet','invoice','manual_payment','voucher','module_gateway') NOT NULL DEFAULT 'credit_card',
+  `type` enum('credit_card','debit_card','digital_wallet','bank_transfer','cash','crypto_currency','pay_later','pay_small_small','internal_wallet','invoice','manual_payment','voucher','module_gateway') NOT NULL DEFAULT 'credit_card',
   `module` varchar(255) DEFAULT NULL,
   `default` enum('1','0') NOT NULL,
   `display_name` varchar(255) DEFAULT NULL
@@ -27724,6 +27724,34 @@ CREATE TABLE `pay_later_rules` (
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_paylater_scope` (`scope_type`,`module_type`,`supplier`),
+  KEY `idx_scope` (`scope_type`,`module_type`,`supplier`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Table structure for table `pay_small_small_rules`
+-- PaySmallSmall (installment method): first slice now + scheduled remainder,
+-- scoped service->module->global like pay_later. See ensurePaymentScopingSchema().
+--
+
+CREATE TABLE `pay_small_small_rules` (
+  `id` int(11) NOT NULL,
+  `scope_type` enum('global','module','service') NOT NULL DEFAULT 'global',
+  `module_type` varchar(64) NOT NULL DEFAULT '',
+  `supplier` varchar(64) NOT NULL DEFAULT '',
+  `enabled` tinyint(1) NOT NULL DEFAULT 0,
+  `first_percent` decimal(5,2) NOT NULL DEFAULT 50.00,
+  `installments` int(11) NOT NULL DEFAULT 2,
+  `interval_days` int(11) NOT NULL DEFAULT 30,
+  `reminder_offsets_hours` varchar(191) NOT NULL DEFAULT '48,12',
+  `deadline_policy` enum('auto_cancel','flag') NOT NULL DEFAULT 'flag',
+  `release_inventory` tinyint(1) NOT NULL DEFAULT 1,
+  `min_amount` decimal(14,2) DEFAULT NULL,
+  `agents_only` tinyint(1) NOT NULL DEFAULT 0,
+  `umrah_plan_code` varchar(32) NOT NULL DEFAULT 'PP-50-25-25',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_pss_scope` (`scope_type`,`module_type`,`supplier`),
   KEY `idx_scope` (`scope_type`,`module_type`,`supplier`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
