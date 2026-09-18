@@ -11,5 +11,9 @@ $router->get('/umrah_expire_holds', function () use ($SECURE, $db) {
     // Audit H5: also cancel abandoned unpaid 'held' bookings whose hold lapsed,
     // so they stop permanently consuming departure capacity.
     $cancelled = function_exists('umrah_booking_expire_sweep') ? umrah_booking_expire_sweep($db) : 0;
-    echo json_encode(['status' => true, 'expired' => $expired, 'cancelled_bookings' => $cancelled, 'ran_at' => date('Y-m-d H:i:s')]);
+    // Email customers whose next installment is due soon (once per installment),
+    // and flip genuinely past-due installments to 'overdue'. Umrah customers had
+    // no payment reminder before this — installments lapsed silently.
+    $reminded = function_exists('umrah_installment_reminder_sweep') ? umrah_installment_reminder_sweep($db) : 0;
+    echo json_encode(['status' => true, 'expired' => $expired, 'cancelled_bookings' => $cancelled, 'installment_reminders' => $reminded, 'ran_at' => date('Y-m-d H:i:s')]);
 });

@@ -543,6 +543,94 @@ if (!function_exists('umrah_booking_expire_sweep')) {
     }
 }
 
+if (!function_exists('umrah_installment_reminder_sweep')) {
+    /**
+     * Email customers whose next umrah installment falls due soon.
+     *
+     * Umrah supports installment plans (e.g. PP-50-25-25) but nothing ever told a
+     * customer their next payment was coming up — agents had a reminder cron, umrah
+     * customers had none, so installments silently lapsed to 'overdue'. This sweep
+     * (driven by the /umrah_expire_holds cron) finds pending installments with a
+     * due date within $withinDays, emails a heads-up ONCE (stamping
+     * reminder_sent_at so a daily run never re-mails the same installment), and
+     * flips genuinely past-due pending rows to 'overdue'.
+     *
+     * Only installments with a real due_at are considered — single 100%-collapse
+     * schedules (daysToDep <= final_due_days_before) carry a NULL due_at and are
+     * skipped, which is correct (they're due immediately, handled at checkout).
+     *
+     * @return array{reminded:int,overdue:int}
+     */
+    function umrah_installment_reminder_sweep($db, int $withinDays = 3): int
+    {
+        $reminded = 0;
+        try {
+            $now = date('Y-m-d H:i:s');
+            $soon = date('Y-m-d H:i:s', time() + max(1, $withinDays) * 86400);
+
+            // Mark clearly past-due pending installments as overdue (housekeeping).
+            try {
+                $db->update('umrah_installments', ['status' => 'overdue'], [
+                    'status'   => 'pending',
+                    'due_at[<]' => $now,
+                    'due_at[!]' => null,
+                ]);
+            } catch (\Throwable $e) { /* non-fatal */ }
+
+            // Pending/overdue installments due within the window that we have NOT
+            // yet reminded on. Join to the booking so we skip cancelled/fully-paid
+            // bookings and can address the email.
+            $rows = $db->select('umrah_installments', [
+                '[>]umrah_bookings' => ['umrah_booking_id' => 'id'],
+            ], [
+                'umrah_installments.id',
+                'umrah_installments.seq',
+                'umrah_installments.amount',
+                'umrah_installments.due_at',
+                'umrah_bookings.id(ub_id)',
+                'umrah_bookings.booking_ref',
+                'umrah_bookings.invoice_id',
+                'umrah_bookings.currency',
+                'umrah_bookings.balance',
+                'umrah_bookings.booking_status',
+            ], [
+                'umrah_installments.status'          => ['pending', 'overdue'],
+                'umrah_installments.reminder_sent_at' => null,
+                'umrah_installments.due_at[!]'        => null,
+                'umrah_installments.due_at[<=]'       => $soon,
+                'umrah_bookings.booking_status[!]'    => ['cancelled'],
+            ]) ?: [];
+
+            foreach ($rows as $r) {
+                $ubId = (int) ($r['ub_id'] ?? 0);
+                if ($ubId <= 0) { continue; }
+                if ((float) ($r['balance'] ?? 0) < 0.01) {
+                    // Booking already settled — nothing to chase; stamp so we skip it.
+                    $db->update('umrah_installments', ['reminder_sent_at' => $now], ['id' => (int) $r['id']]);
+                    continue;
+                }
+                $gen = $db->get('bookings', ['first_name', 'last_name', 'email'], ['invoice_id' => $r['invoice_id']]);
+                if (function_exists('umrah_notify')) {
+                    $ccy = (string) $r['currency'];
+                    $amt = number_format((float) $r['amount'], 2) . ' ' . $ccy;
+                    $due = date('D, d M Y', strtotime((string) $r['due_at']));
+                    $ref = (string) $r['booking_ref'];
+                    $body = "Assalamu Alaikum,\n\nThis is a friendly reminder that installment #{$r['seq']} for your GoGlobia Umrah booking {$ref} is due on {$due}.\n\n"
+                        . "Amount due: {$amt}\nOutstanding balance: " . number_format((float) $r['balance'], 2) . " {$ccy}\n\n"
+                        . "Please pay from your booking page to keep your seats and locked price.\n";
+                    umrah_notify($db, $ubId, 'installment_reminder', 'Umrah payment due soon — ' . $ref, $body, 'email',
+                        $gen ? ['email' => $gen['email'] ?? '', 'name' => trim(($gen['first_name'] ?? '') . ' ' . ($gen['last_name'] ?? ''))] : null);
+                }
+                $db->update('umrah_installments', ['reminder_sent_at' => $now], ['id' => (int) $r['id']]);
+                $reminded++;
+            }
+        } catch (\Throwable $e) {
+            error_log('umrah_installment_reminder_sweep: ' . $e->getMessage());
+        }
+        return $reminded;
+    }
+}
+
 if (!function_exists('umrah_payment_schedule')) {
     /**
      * Compute the installment schedule for a booking total, given the plan and
@@ -968,15 +1056,49 @@ if (!function_exists('umrah_settle_payment')) {
             umrah_audit($db, 'umrah_booking', $ub['booking_ref'], 'payment_settled', null,
                 ['amount' => $amount, 'txn' => $txnId, 'paid' => $result['amount_paid'] ?? null, 'confirmed' => $result['confirmed'] ?? null], $ub['user_id']);
         }
-        // Queue a payment-confirmed notification when the booking just confirmed.
-        if (!empty($result['ok']) && !empty($result['confirmed']) && $ub['booking_status'] === 'held' && function_exists('umrah_notify')) {
+        // Queue a customer email for EVERY real settlement — not just the first.
+        // Previously this fired only on the held→confirmed transition (the deposit),
+        // so on an installment plan the middle payment(s) AND the final payoff sent
+        // NOTHING: a customer who cleared their balance got silence. Notify on:
+        //   - deposit/first qualifying payment  → "booking confirmed, price locked"
+        //   - a later installment (balance > 0)  → "payment received, balance remaining"
+        //   - the final payoff (balance < 0.01)  → "fully paid, booking complete"
+        // 'already' (idempotent re-fire of the same txn) returns before here, so a
+        // duplicate gateway callback never double-emails.
+        if (!empty($result['ok']) && ($result['status'] ?? '') === 'settled' && function_exists('umrah_notify')) {
             $gen = $db->get('bookings', ['first_name', 'last_name', 'email'], ['invoice_id' => $invoiceId]);
-            $body = "Assalamu Alaikum,\n\nYour GoGlobia Umrah booking {$ub['booking_ref']} is confirmed and your package price is locked.\n"
-                . 'Paid: ' . number_format((float) ($result['amount_paid'] ?? 0), 2) . ' ' . $ub['currency'] . "\n"
-                . 'Balance: ' . number_format((float) ($result['balance'] ?? 0), 2) . " {$ub['currency']}\n\n"
-                . "Next: complete each pilgrim's details in your dashboard.\n";
-            umrah_notify($db, (int) $ub['id'], 'payment_confirmed', 'Umrah booking confirmed — ' . $ub['booking_ref'], $body, 'email',
-                $gen ? ['email' => $gen['email'] ?? '', 'name' => trim(($gen['first_name'] ?? '') . ' ' . ($gen['last_name'] ?? ''))] : null);
+            $recipient = $gen ? ['email' => $gen['email'] ?? '', 'name' => trim(($gen['first_name'] ?? '') . ' ' . ($gen['last_name'] ?? ''))] : null;
+            $ref      = $ub['booking_ref'];
+            $ccy      = $ub['currency'];
+            $paidStr  = number_format((float) ($result['amount_paid'] ?? 0), 2) . ' ' . $ccy;
+            $balNum   = (float) ($result['balance'] ?? 0);
+            $balStr   = number_format($balNum, 2) . ' ' . $ccy;
+            $justConfirmed = !empty($result['confirmed']) && $ub['booking_status'] === 'held';
+
+            if ($balNum < 0.01) {
+                // Final payoff — balance cleared.
+                $subject  = 'Umrah booking fully paid — ' . $ref;
+                $template = 'payment_completed';
+                $body = "Assalamu Alaikum,\n\nWe've received your final payment for GoGlobia Umrah booking {$ref}. "
+                    . "Your booking is now FULLY PAID.\n\n"
+                    . "Total paid: {$paidStr}\nBalance: 0.00 {$ccy}\n\n"
+                    . "Next: make sure every pilgrim's details and documents are complete in your dashboard.\n";
+            } elseif ($justConfirmed) {
+                // Deposit / first qualifying payment — booking just confirmed.
+                $subject  = 'Umrah booking confirmed — ' . $ref;
+                $template = 'payment_confirmed';
+                $body = "Assalamu Alaikum,\n\nYour GoGlobia Umrah booking {$ref} is confirmed and your package price is locked.\n"
+                    . "Paid: {$paidStr}\nBalance: {$balStr}\n\n"
+                    . "Next: complete each pilgrim's details in your dashboard, then pay the remaining installments before they fall due.\n";
+            } else {
+                // A later installment — money received, balance still outstanding.
+                $subject  = 'Umrah installment received — ' . $ref;
+                $template = 'payment_installment';
+                $body = "Assalamu Alaikum,\n\nWe've received your installment for GoGlobia Umrah booking {$ref}.\n\n"
+                    . "Total paid so far: {$paidStr}\nBalance remaining: {$balStr}\n\n"
+                    . "Please pay the remaining balance before your next installment falls due.\n";
+            }
+            umrah_notify($db, (int) $ub['id'], $template, $subject, $body, 'email', $recipient);
         }
         return $result;
     }

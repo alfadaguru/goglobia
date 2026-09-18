@@ -30466,6 +30466,7 @@ CREATE TABLE IF NOT EXISTS `umrah_installments` (
   `status` enum('pending','paid','overdue','waived') NOT NULL DEFAULT 'pending',
   `paid_at` datetime DEFAULT NULL,
   `transaction_id` varchar(255) DEFAULT NULL,
+  `reminder_sent_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `idx_booking` (`umrah_booking_id`),
