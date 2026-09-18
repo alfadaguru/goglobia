@@ -1262,7 +1262,10 @@ CREATE TABLE `bookings` (
   `refund_status` varchar(50) DEFAULT NULL,
   `refund_reason` varchar(255) DEFAULT NULL,
   `refund_requested_at` datetime DEFAULT NULL,
-  `cancelled_at` datetime DEFAULT NULL
+  `cancelled_at` datetime DEFAULT NULL,
+  `payment_due_at` datetime DEFAULT NULL,
+  `pay_later_status` varchar(24) DEFAULT NULL,
+  `pay_later_reminder_at` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 
 -- --------------------------------------------------------
@@ -27670,6 +27673,53 @@ CREATE TABLE `payment_gateways` (
   `module` varchar(255) DEFAULT NULL,
   `default` enum('1','0') NOT NULL,
   `display_name` varchar(255) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Table structure for table `payment_gateway_scopes`
+-- Per-module / per-service gateway allow-list. Resolves service -> module ->
+-- global; a scope with no rows inherits the broader level (so an empty table =
+-- today's global behaviour). See ensurePaymentScopingSchema().
+--
+
+CREATE TABLE `payment_gateway_scopes` (
+  `id` int(11) NOT NULL,
+  `gateway_id` int(11) NOT NULL,
+  `scope_type` enum('module','service') NOT NULL,
+  `module_type` varchar(64) NOT NULL,
+  `supplier` varchar(64) NOT NULL DEFAULT '',
+  `enabled` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_scope_gateway` (`scope_type`,`module_type`,`supplier`,`gateway_id`),
+  KEY `idx_scope` (`scope_type`,`module_type`,`supplier`),
+  KEY `idx_gateway` (`gateway_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Table structure for table `pay_later_rules`
+-- Per-scope Pay-Later config (reminder schedule, deadline, deadline policy).
+-- module_type='' scope_type='global' = the global default. See ensurePaymentScopingSchema().
+--
+
+CREATE TABLE `pay_later_rules` (
+  `id` int(11) NOT NULL,
+  `scope_type` enum('global','module','service') NOT NULL DEFAULT 'global',
+  `module_type` varchar(64) NOT NULL DEFAULT '',
+  `supplier` varchar(64) NOT NULL DEFAULT '',
+  `enabled` tinyint(1) NOT NULL DEFAULT 0,
+  `deadline_hours` int(11) NOT NULL DEFAULT 72,
+  `reminder_offsets_hours` varchar(191) NOT NULL DEFAULT '48,12',
+  `deadline_policy` enum('auto_cancel','flag') NOT NULL DEFAULT 'flag',
+  `release_inventory` tinyint(1) NOT NULL DEFAULT 1,
+  `min_amount` decimal(14,2) DEFAULT NULL,
+  `agents_only` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_paylater_scope` (`scope_type`,`module_type`,`supplier`),
+  KEY `idx_scope` (`scope_type`,`module_type`,`supplier`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --

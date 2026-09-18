@@ -58,6 +58,32 @@ if (function_exists('payment_gateway_allowed_for_currency')) {
     }
 }
 
+// PER-MODULE / PER-SERVICE SCOPING (step 3): if an admin has restricted which
+// gateways apply to this module (e.g. flights) or supplier (e.g. flights/duffel),
+// honour it. Resolution is service -> module -> global; with no scope rows the
+// helper returns "inherit" and nothing is filtered (so existing installs are
+// unaffected). The including page may set $paymentScopeModuleType /
+// $paymentScopeSupplier; otherwise we derive them from booking context in scope.
+if (function_exists('payment_gateway_allowed_for_scope')) {
+    $scopeModuleType = '';
+    $scopeSupplier   = '';
+    if (isset($paymentScopeModuleType) && $paymentScopeModuleType !== '') {
+        $scopeModuleType = (string) $paymentScopeModuleType;
+        $scopeSupplier   = (string) ($paymentScopeSupplier ?? '');
+    } elseif (isset($booking) && is_array($booking)) {
+        $scopeModuleType = (string) ($booking['module_type'] ?? '');
+        $scopeSupplier   = (string) ($booking['module'] ?? '');
+    } elseif (isset($bookingData) && is_array($bookingData)) {
+        $scopeModuleType = (string) ($bookingData['module_type'] ?? ($bookingData['type'] ?? ''));
+        $scopeSupplier   = (string) ($bookingData['supplier'] ?? '');
+    }
+    if ($scopeModuleType !== '') {
+        $paymentGateways = array_values(array_filter($paymentGateways, function ($gateway) use ($db, $scopeModuleType, $scopeSupplier) {
+            return payment_gateway_allowed_for_scope($db, $gateway, $scopeModuleType, $scopeSupplier);
+        }));
+    }
+}
+
 // FIND DEFAULT GATEWAY
 $defaultGatewayId = '';
 foreach ($paymentGateways as $gateway) {

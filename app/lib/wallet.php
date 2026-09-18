@@ -619,6 +619,100 @@ if (!function_exists('payment_gateway_allowed_for_currency')) {
     }
 }
 
+if (!function_exists('payment_gateway_resolve_supplier')) {
+    /**
+     * Resolve a raw booking `module` value into a REAL registered supplier name,
+     * or '' when it isn't one. bookings.module is client-sourced (from the saved
+     * draft) and only soft-validated at booking time, so a per-service rule must
+     * never trust it blindly — it is confirmed here against the modules registry
+     * (matched by name+type). A generic value (e.g. 'flights' == the module name)
+     * or an unknown string resolves to '' → the caller then falls back to
+     * module-level / global scope. Verified against the real insert paths:
+     * flights/stays/tours/cars/umrah/esim write the supplier; visa/rail/bus write
+     * a generic literal (which correctly resolves to '' here).
+     */
+    function payment_gateway_resolve_supplier($db, string $moduleType, string $rawModule): string
+    {
+        $moduleType = strtolower(trim($moduleType));
+        $rawModule  = strtolower(trim($rawModule));
+        if ($moduleType === '' || $rawModule === '' || $rawModule === $moduleType) { return ''; }
+        try {
+            $hit = $db->get('modules', ['name'], ['name' => $rawModule, 'type' => $moduleType]);
+            return $hit ? (string) $hit['name'] : '';
+        } catch (\Throwable $e) { return ''; }
+    }
+}
+
+if (!function_exists('payment_gateway_scope_allowlist')) {
+    /**
+     * The set of gateway ids allowed for a scope, resolving SERVICE → MODULE →
+     * GLOBAL. Returns:
+     *   - an array of allowed gateway ids  → an explicit allow-list is in force
+     *   - null                             → NO scope rows at any level → INHERIT
+     *                                        (i.e. fall back to the plain global
+     *                                        status/active list; nothing filtered)
+     *
+     * Precedence: if the SERVICE level (module_type+supplier) has ANY rows, it
+     * wins outright. Else if the MODULE level (module_type, supplier='') has any
+     * rows, it wins. Else null (inherit global). This makes the feature additive:
+     * an install with an empty payment_gateway_scopes table filters nothing.
+     *
+     * Per-request memoised — the chooser calls it once per gateway.
+     */
+    function payment_gateway_scope_allowlist($db, string $moduleType, string $supplier): ?array
+    {
+        static $memo = [];
+        $moduleType = strtolower(trim($moduleType));
+        $supplier   = strtolower(trim($supplier));
+        $key = $moduleType . '|' . $supplier;
+        if (array_key_exists($key, $memo)) { return $memo[$key]; }
+
+        $resolve = static function ($scopeType, $mt, $sup) use ($db): ?array {
+            try {
+                $rows = $db->select('payment_gateway_scopes', ['gateway_id', 'enabled'], [
+                    'scope_type'  => $scopeType,
+                    'module_type' => $mt,
+                    'supplier'    => $sup,
+                ]);
+            } catch (\Throwable $e) { return null; }
+            if (!$rows) { return null; } // no rows at this level → inherit
+            $allow = [];
+            foreach ($rows as $r) {
+                if ((int) ($r['enabled'] ?? 0) === 1) { $allow[(int) $r['gateway_id']] = true; }
+            }
+            return array_keys($allow); // may be [] → "explicitly none allowed here"
+        };
+
+        // SERVICE level first (only when we have a real supplier), then MODULE.
+        $out = null;
+        if ($moduleType !== '' && $supplier !== '') {
+            $out = $resolve('service', $moduleType, $supplier);
+        }
+        if ($out === null && $moduleType !== '') {
+            $out = $resolve('module', $moduleType, '');
+        }
+        return $memo[$key] = $out; // null = inherit global
+    }
+}
+
+if (!function_exists('payment_gateway_allowed_for_scope')) {
+    /**
+     * Per-gateway predicate for the checkout chooser: is this gateway allowed for
+     * the current module/supplier scope? True when there is no scope in force
+     * (inherit) OR the gateway id is on the resolved allow-list. Pass the raw
+     * booking module as $supplierRaw — it is resolved to a real supplier here.
+     */
+    function payment_gateway_allowed_for_scope($db, array $gateway, string $moduleType, string $supplierRaw): bool
+    {
+        $moduleType = strtolower(trim($moduleType));
+        if ($moduleType === '') { return true; } // no module context → don't filter
+        $supplier = payment_gateway_resolve_supplier($db, $moduleType, $supplierRaw);
+        $allow = payment_gateway_scope_allowlist($db, $moduleType, $supplier);
+        if ($allow === null) { return true; } // inherit → allow (global list governs)
+        return in_array((int) ($gateway['id'] ?? 0), $allow, true);
+    }
+}
+
 if (!function_exists('wallet_topup_success')) {
     /**
      * Finalise a successful top-up: mark the transaction success and credit the
