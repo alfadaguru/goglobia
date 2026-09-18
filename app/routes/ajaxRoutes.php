@@ -428,7 +428,20 @@ $router->post('/api/booking/update-payment-gateway', function () use ($SECURE, $
         ]);
 
         if ($result) {
-            echo json_encode(['success' => true, 'message' => 'Payment gateway updated successfully']);
+            // PAY-LATER: if the chosen gateway is a pay_later type, stamp the
+            // payment deadline from the scope's rule (service->module->global) so
+            // the reminder/auto-cancel cron can act on it. No-op for other gateways.
+            $payLaterDue = null;
+            if (function_exists('pay_later_apply_to_booking')) {
+                $gwRow = ctype_digit($paymentGateway)
+                    ? $db->get('payment_gateways', ['type'], ['id' => (int) $paymentGateway])
+                    : $db->get('payment_gateways', ['type'], ['name' => $paymentGateway]);
+                if ($gwRow && ($gwRow['type'] ?? '') === 'pay_later') {
+                    $fullBooking = $db->get('bookings', ['invoice_id', 'module_type', 'module', 'payment_status', 'payment_due_at'], ['invoice_id' => $invoiceId]);
+                    if ($fullBooking) { $payLaterDue = pay_later_apply_to_booking($db, $fullBooking); }
+                }
+            }
+            echo json_encode(['success' => true, 'message' => 'Payment gateway updated successfully', 'payment_due_at' => $payLaterDue]);
         } else {
             throw new Exception('Failed to update payment gateway');
         }

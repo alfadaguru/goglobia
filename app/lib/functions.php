@@ -348,6 +348,106 @@ function ensureCoreFixSchema($db): void
     // stub) so the admin panel can badge it. Runs inside the same self-healing
     // pass; idempotent and seeds once. See ensureModulesBookingClass() below.
     ensureModulesBookingClass($db);
+
+    // Per-module / per-service payment-gateway scoping + a real Pay-Later engine.
+    // Idempotent self-heal; see ensurePaymentScopingSchema() below.
+    if (function_exists('ensurePaymentScopingSchema')) {
+        ensurePaymentScopingSchema($db);
+    }
+}
+
+/**
+ * Schema for per-module / per-service payment-gateway scoping and the Pay-Later
+ * engine. Idempotent — safe to run every boot.
+ *
+ * Design (agreed with owner):
+ *  - Gateway availability resolves SERVICE → MODULE → GLOBAL. A scope row opts a
+ *    gateway IN or OUT for a scope; if a (scope_type, module_type, supplier) has
+ *    NO rows at all, that scope INHERITS the broader level (ultimately the global
+ *    status=1/active=1 list). This makes the feature purely additive: existing
+ *    installs with zero scope rows behave exactly as today.
+ *  - Pay-Later rules are also scoped SERVICE → MODULE → GLOBAL, each carrying its
+ *    own reminder schedule, payment deadline, and deadline policy (auto-cancel vs
+ *    flag-only) — because each service has its own real-world rules.
+ *
+ * `supplier` = the modules.name (e.g. 'duffel'); NULL/'' = module-level (all
+ * suppliers of that module_type). `module_type` = the modules.type (e.g.
+ * 'flights'); NULL/'' on a pay_later_rules row = the GLOBAL default.
+ */
+function ensurePaymentScopingSchema($db): void
+{
+    try {
+        // Which gateways are allowed for a given scope. One row per
+        // (gateway, scope). Presence of ANY row for a scope switches that scope
+        // to "explicit allow-list" mode for that level.
+        $db->query("CREATE TABLE IF NOT EXISTS `payment_gateway_scopes` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `gateway_id` int(11) NOT NULL,
+            `scope_type` enum('module','service') NOT NULL,
+            `module_type` varchar(64) NOT NULL,
+            `supplier` varchar(64) NOT NULL DEFAULT '',
+            `enabled` tinyint(1) NOT NULL DEFAULT 1,
+            `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+            `updated_at` datetime DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_scope_gateway` (`scope_type`,`module_type`,`supplier`,`gateway_id`),
+            KEY `idx_scope` (`scope_type`,`module_type`,`supplier`),
+            KEY `idx_gateway` (`gateway_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+        // Pay-Later rules per scope. A scope with no row inherits the broader
+        // level; the row whose module_type='' is the GLOBAL default.
+        $db->query("CREATE TABLE IF NOT EXISTS `pay_later_rules` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `scope_type` enum('global','module','service') NOT NULL DEFAULT 'global',
+            `module_type` varchar(64) NOT NULL DEFAULT '',
+            `supplier` varchar(64) NOT NULL DEFAULT '',
+            `enabled` tinyint(1) NOT NULL DEFAULT 0,
+            `deadline_hours` int(11) NOT NULL DEFAULT 72,
+            `reminder_offsets_hours` varchar(191) NOT NULL DEFAULT '48,12',
+            `deadline_policy` enum('auto_cancel','flag') NOT NULL DEFAULT 'flag',
+            `release_inventory` tinyint(1) NOT NULL DEFAULT 1,
+            `min_amount` decimal(14,2) DEFAULT NULL,
+            `agents_only` tinyint(1) NOT NULL DEFAULT 0,
+            `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+            `updated_at` datetime DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_paylater_scope` (`scope_type`,`module_type`,`supplier`),
+            KEY `idx_scope` (`scope_type`,`module_type`,`supplier`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+    } catch (\Throwable $e) {
+        error_log('ensurePaymentScopingSchema tables: ' . $e->getMessage());
+    }
+
+    // Bookings columns that drive the Pay-Later lifecycle. Idempotent adds.
+    $cols = [
+        ['bookings', 'payment_due_at',        "ALTER TABLE `bookings` ADD COLUMN `payment_due_at` DATETIME NULL DEFAULT NULL"],
+        ['bookings', 'pay_later_status',      "ALTER TABLE `bookings` ADD COLUMN `pay_later_status` VARCHAR(24) NULL DEFAULT NULL"],
+        ['bookings', 'pay_later_reminder_at', "ALTER TABLE `bookings` ADD COLUMN `pay_later_reminder_at` DATETIME NULL DEFAULT NULL"],
+    ];
+    foreach ($cols as [$table, $column, $alterSql]) {
+        try {
+            $exists = $db->query("SHOW COLUMNS FROM `$table` LIKE " . $db->pdo->quote($column))->fetchAll();
+            if (count($exists) === 0) { $db->pdo->exec($alterSql); }
+        } catch (\Throwable $e) {
+            error_log("ensurePaymentScopingSchema: could not add {$table}.{$column}: " . $e->getMessage());
+        }
+    }
+
+    // Seed the GLOBAL pay-later default once, mirroring today's behaviour
+    // (disabled) so nothing changes until an admin turns it on. Never overwrites.
+    try {
+        $hasGlobal = $db->get('pay_later_rules', 'id', ['scope_type' => 'global', 'module_type' => '', 'supplier' => '']);
+        if (!$hasGlobal) {
+            $db->insert('pay_later_rules', [
+                'scope_type' => 'global', 'module_type' => '', 'supplier' => '',
+                'enabled' => 0, 'deadline_hours' => 72, 'reminder_offsets_hours' => '48,12',
+                'deadline_policy' => 'flag', 'release_inventory' => 1,
+            ]);
+        }
+    } catch (\Throwable $e) {
+        error_log('ensurePaymentScopingSchema seed-global: ' . $e->getMessage());
+    }
 }
 
 /**

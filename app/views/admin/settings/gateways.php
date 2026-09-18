@@ -9,6 +9,15 @@
         <?php unset($_SESSION['message']); ?>
     <?php endif; ?>
 
+    <!-- Per-module / per-service scoping + Pay-Later -->
+    <div class="flex items-center justify-between mb-4" style="padding:12px 16px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;">
+        <div>
+            <strong class="text-slate-800">Per-module &amp; per-service payment rules</strong>
+            <p class="text-sm text-slate-500 mt-1">Choose which methods apply to each module/service and configure Pay-Later (deadline, reminders, auto-cancel).</p>
+        </div>
+        <a href="<?= root . admin ?>/settings/payment-scoping" class="btn primary"><span class="material-symbols-outlined">rule_settings</span><span>Configure scoping &amp; Pay-Later</span></a>
+    </div>
+
     <!-- SECURITY NOTICE -->
     <div class="alert alert-info mb-4">
         <span class="material-symbols-outlined">info</span>

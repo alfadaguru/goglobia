@@ -63,6 +63,7 @@ require_once 'app/lib/crud.php';
 require_once 'app/lib/notify.php';
 require_once 'app/lib/functions.php';
 require_once 'app/lib/wallet.php';
+require_once 'app/lib/paylater.php';
 require_once 'app/lib/i18n.php';
 require_once 'app/lib/mailer.php';
 require_once 'app/lib/captcha.php';
