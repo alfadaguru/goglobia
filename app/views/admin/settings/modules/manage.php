@@ -827,6 +827,8 @@ $moduleTypes = ['flights','stays','tours','cars','bus','rail','cruises','visa','
         }
         $pmHasScope = !empty($pmScopeRows);
         $pmPlRule = $db->get('pay_later_rules', '*', ['scope_type' => $pmScopeType, 'module_type' => $pmType, 'supplier' => $pmSupplier]);
+        $pmPssRule = $db->get('pay_small_small_rules', '*', ['scope_type' => $pmScopeType, 'module_type' => $pmType, 'supplier' => $pmSupplier]);
+        $pmUmrahPlans = ($pmType === 'umrah') ? ($db->select('umrah_payment_plans', ['code', 'name'], ['active' => 1, 'ORDER' => ['deposit_percent' => 'ASC']]) ?: []) : [];
         $pmE = fn($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
     ?>
     <div class="mt-6" style="max-width:1100px;margin-left:auto;margin-right:auto;">
@@ -895,11 +897,47 @@ $moduleTypes = ['flights','stays','tours','cars','bus','rail','cruises','visa','
           <button type="button" class="btn primary" onclick="pmSavePayLater()"><span class="material-symbols-outlined">save</span><span>Save Pay-Later rule</span></button>
           <span id="pmPlMsg" class="text-sm ml-2"></span>
         </div>
+
+        <hr style="margin:16px 0;border:none;border-top:1px solid #e2e8f0;">
+
+        <!-- PaySmallSmall (installments) -->
+        <h3 class="font-semibold text-slate-800 mb-1">PaySmallSmall (pay in installments) — <?= $pmE($pmScopeLabel) ?></h3>
+        <p class="text-xs text-slate-500 mb-2">Let the customer pay a first slice now and the rest in scheduled parts.
+          <?php if ($pmType !== 'umrah'): ?><span class="text-amber-600">Note: only <strong>umrah</strong> can be fulfilled today; other services are Phase 2.</span><?php endif; ?>
+        </p>
+        <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;">
+          <label class="flex items-center gap-2"><input type="checkbox" id="pmPssEnabled" <?= !empty($pmPssRule['enabled']) ? 'checked' : '' ?>><span class="text-sm font-medium">Enable PaySmallSmall here</span></label>
+          <?php if ($pmType === 'umrah'): ?>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">Umrah installment plan</label>
+            <select id="pmPssPlan" class="select">
+              <?php foreach ($pmUmrahPlans as $pl): ?>
+                <option value="<?= $pmE($pl['code']) ?>" <?= (($pmPssRule['umrah_plan_code'] ?? 'PP-50-25-25') === $pl['code']) ? 'selected' : '' ?>><?= $pmE($pl['name'] . ' (' . $pl['code'] . ')') ?></option>
+              <?php endforeach; ?>
+            </select>
+            <p class="text-[11px] text-slate-400 mt-1">Which umrah plan PaySmallSmall uses (drives the deposit + schedule).</p>
+          </div>
+          <?php else: ?>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">First payment %</label><input type="number" id="pmPssFirst" class="input" min="1" max="100" value="<?= (float) ($pmPssRule['first_percent'] ?? 50) ?>"></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1"># of further installments</label><input type="number" id="pmPssInsts" class="input" min="1" max="24" value="<?= (int) ($pmPssRule['installments'] ?? 2) ?>"></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">Days between installments</label><input type="number" id="pmPssInterval" class="input" min="1" max="365" value="<?= (int) ($pmPssRule['interval_days'] ?? 30) ?>"></div>
+          <?php endif; ?>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">Reminder offsets (hrs before, CSV)</label><input type="text" id="pmPssOffsets" class="input" value="<?= $pmE($pmPssRule['reminder_offsets_hours'] ?? '48,12') ?>"></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">If an installment lapses</label>
+            <select id="pmPssPolicy" class="select">
+              <option value="flag" <?= ($pmPssRule['deadline_policy'] ?? 'flag') === 'flag' ? 'selected' : '' ?>>Flag for admin</option>
+              <option value="auto_cancel" <?= ($pmPssRule['deadline_policy'] ?? '') === 'auto_cancel' ? 'selected' : '' ?>>Auto-cancel &amp; release</option>
+            </select>
+          </div>
+        </div>
+        <div class="mt-3">
+          <button type="button" class="btn primary" onclick="pmSavePss()"><span class="material-symbols-outlined">save</span><span>Save PaySmallSmall rule</span></button>
+          <span id="pmPssMsg" class="text-sm ml-2"></span>
+        </div>
       </div>
     </div>
 
     <script>
-    const PM = { module: <?= json_encode($pmType) ?>, supplier: <?= json_encode($pmSupplier) ?> };
+    const PM = { module: <?= json_encode($pmType) ?>, supplier: <?= json_encode($pmSupplier) ?>, isUmrah: <?= $pmType === 'umrah' ? 'true' : 'false' ?> };
     function pmToggleInherit(){ const inh=document.getElementById('pmInherit').checked; const l=document.getElementById('pmGwList'); l.style.opacity=inh?'.45':'1'; l.style.pointerEvents=inh?'none':'auto'; }
     function pmPost(url,data,msgEl){
       const body=new URLSearchParams();
@@ -927,6 +965,19 @@ $moduleTypes = ['flights','stays','tours','cars','bus','rail','cruises','visa','
         release_inventory:document.getElementById('pmPlRelease').checked?'1':'',
         agents_only:document.getElementById('pmPlAgents').checked?'1':'',
       },document.getElementById('pmPlMsg'));
+    }
+    function pmSavePss(){
+      const data={ module_type:PM.module, supplier:PM.supplier,
+        enabled:document.getElementById('pmPssEnabled').checked?'1':'',
+        reminder_offsets_hours:document.getElementById('pmPssOffsets').value,
+        deadline_policy:document.getElementById('pmPssPolicy').value };
+      if(PM.isUmrah){ data.umrah_plan_code=document.getElementById('pmPssPlan').value; }
+      else {
+        data.first_percent=document.getElementById('pmPssFirst').value;
+        data.installments=document.getElementById('pmPssInsts').value;
+        data.interval_days=document.getElementById('pmPssInterval').value;
+      }
+      pmPost('<?= root . admin ?>/settings/payment-scoping/pay-small-small',data,document.getElementById('pmPssMsg'));
     }
     </script>
     <?php endif; ?>
