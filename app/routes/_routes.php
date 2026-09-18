@@ -303,3 +303,4 @@ require_once 'app/routes/paymentPaystackRoutes.php'; // Paystack DVA (virtual ac
 require_once 'app/routes/crons/creditsRemindersRoutes.php';
 require_once 'app/routes/crons/currencyRatesRoutes.php';
 require_once 'app/routes/crons/umrahHoldsRoutes.php';
+require_once 'app/routes/crons/payLaterRoutes.php';

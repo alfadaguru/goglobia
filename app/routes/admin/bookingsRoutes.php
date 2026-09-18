@@ -244,6 +244,12 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
             'paid_at' => date('Y-m-d H:i:s')
         ], ['invoice_id' => $invoice_id]);
 
+        // PAY-LATER: a settled Pay-Later booking must stop being chased by the
+        // reminder/auto-cancel cron — mark its pay_later_status 'paid'.
+        if (function_exists('pay_later_clear_on_payment')) {
+            pay_later_clear_on_payment($db, (string) $invoice_id);
+        }
+
         if ($updated) {
             // Trigger Notification
             $pdfPath = GENERATE_BOOKING_PDF($invoice_id);
