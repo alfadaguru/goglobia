@@ -9,7 +9,10 @@ $fmt = fn($n) => '₦' . number_format((float) $n, 0);
       <h1 class="text-2xl font-semibold text-slate-900">Umrah Bookings</h1>
       <p class="text-sm text-slate-600 mt-1">Most recent 200 bookings.</p>
     </div>
-    <a href="<?= root ?>admin/umrah-manager" class="btn outline"><span class="material-symbols-outlined">arrow_back</span><span>Manager</span></a>
+    <div class="flex items-center gap-2">
+      <a href="<?= root ?>admin/umrah-manager/bookings/export" class="btn primary"><span class="material-symbols-outlined">download</span><span>Export CSV</span></a>
+      <a href="<?= root ?>admin/umrah-manager" class="btn outline"><span class="material-symbols-outlined">arrow_back</span><span>Manager</span></a>
+    </div>
   </div>
 
   <div class="section">

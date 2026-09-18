@@ -579,6 +579,135 @@ $router->get(admin.'/umrah-manager/bookings', function () use ($SECURE, $db) {
     require_once views . 'includes/footer.php';
 });
 
+// ---- BOOKINGS CSV EXPORT: GET admin/umrah-manager/bookings/export -------
+// Revenue / receivables export for umrah bookings. Read-only (GET), ADMIN_AUTH.
+// Honours the same optional filters the list can use so an admin can export
+// exactly what they're looking at: ?status= (booking_status), ?payment_status=,
+// ?departure=ID, ?from=YYYY-MM-DD, ?to=YYYY-MM-DD.
+$router->get(admin.'/umrah-manager/bookings/export', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+
+    // Build a whitelisted WHERE from query params (never trust raw input into SQL
+    // shapes beyond these known keys/values).
+    $where = ['AND' => []];
+    $bStatuses = ['held', 'confirmed', 'cancelled', 'completed'];
+    $pStatuses = ['unpaid', 'partially_paid', 'deposit_paid', 'fully_paid', 'refunded'];
+    $status  = (string) ($_GET['status'] ?? '');
+    $pstatus = (string) ($_GET['payment_status'] ?? '');
+    $depId   = (int) ($_GET['departure'] ?? 0);
+    if (in_array($status, $bStatuses, true))  { $where['AND']['booking_status'] = $status; }
+    if (in_array($pstatus, $pStatuses, true)) { $where['AND']['payment_status'] = $pstatus; }
+    if ($depId > 0)                           { $where['AND']['departure_id'] = $depId; }
+    // Date range on created_at (inclusive). Validate the YYYY-MM-DD shape.
+    $from = (string) ($_GET['from'] ?? '');
+    $to   = (string) ($_GET['to'] ?? '');
+    $dateOk = static fn($d) => $d !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $d);
+    if ($dateOk($from) && $dateOk($to)) {
+        $where['AND']['created_at[<>]'] = [$from . ' 00:00:00', $to . ' 23:59:59'];
+    } elseif ($dateOk($from)) {
+        $where['AND']['created_at[>=]'] = $from . ' 00:00:00';
+    } elseif ($dateOk($to)) {
+        $where['AND']['created_at[<=]'] = $to . ' 23:59:59';
+    }
+    if (empty($where['AND'])) { $where = []; }
+    $where['ORDER'] = ['id' => 'DESC'];
+
+    $rows = $db->select('umrah_bookings', '*', $where) ?: [];
+
+    // Enrich: departure code/date + tier label + customer name/email (from the
+    // generic bookings row, which holds the contact). Batch-fetch to avoid N+1.
+    $depIds  = array_values(array_unique(array_filter(array_map(fn($r) => (int) $r['departure_id'], $rows))));
+    $tierIds = array_values(array_unique(array_filter(array_map(fn($r) => (int) $r['departure_tier_id'], $rows))));
+    $invoices = array_values(array_unique(array_filter(array_map(fn($r) => (string) $r['invoice_id'], $rows))));
+
+    $depById = [];
+    if ($depIds) {
+        foreach ($db->select('umrah_departures', ['id', 'code', 'departure_date'], ['id' => $depIds]) ?: [] as $d) {
+            $depById[(int) $d['id']] = $d;
+        }
+    }
+    $tierById = [];
+    if ($tierIds) {
+        // departure_tier -> tier_id -> tier label
+        $dts = $db->select('umrah_departure_tiers', ['id', 'tier_id'], ['id' => $tierIds]) ?: [];
+        $realTierIds = array_values(array_unique(array_filter(array_map(fn($x) => (int) $x['tier_id'], $dts))));
+        $tierLabelById = [];
+        if ($realTierIds) {
+            foreach ($db->select('umrah_tiers', ['id', 'name', 'code'], ['id' => $realTierIds]) ?: [] as $t) {
+                $tierLabelById[(int) $t['id']] = $t['name'] ?: $t['code'];
+            }
+        }
+        foreach ($dts as $x) { $tierById[(int) $x['id']] = $tierLabelById[(int) $x['tier_id']] ?? ''; }
+    }
+    $contactByInvoice = [];
+    if ($invoices) {
+        foreach ($db->select('bookings', ['invoice_id', 'first_name', 'last_name', 'email', 'phone'], ['invoice_id' => $invoices]) ?: [] as $c) {
+            $contactByInvoice[(string) $c['invoice_id']] = $c;
+        }
+    }
+
+    // Stream CSV. CSV formula-injection guard (audit LOW): a cell starting with
+    // = + - @ (or tab/CR) becomes a live formula in Excel/Sheets — prefix with a
+    // single quote so it renders as text.
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: text/csv; charset=utf-8');
+    $stamp = date('Ymd-His');
+    header('Content-Disposition: attachment; filename="umrah-bookings-' . $stamp . '.csv"');
+    $csvSafe = static function ($v): string {
+        $v = (string) $v;
+        if ($v !== '' && preg_match('/^[=+\-@\t\r]/', $v)) { return "'" . $v; }
+        return $v;
+    };
+    $out = fopen('php://output', 'w');
+    fputcsv($out, [
+        'Booking Ref', 'Invoice', 'Customer', 'Email', 'Phone',
+        'Departure Code', 'Departure Date', 'Tier', 'Pax',
+        'Currency', 'Total', 'Paid', 'Balance', 'Payment Plan',
+        'Booking Status', 'Payment Status', 'Price Locked', 'Created',
+    ]);
+    $totTotal = 0.0; $totPaid = 0.0; $totBal = 0.0; $count = 0;
+    foreach ($rows as $b) {
+        $dep = $depById[(int) $b['departure_id']] ?? [];
+        $c   = $contactByInvoice[(string) $b['invoice_id']] ?? [];
+        $name = trim(((string) ($c['first_name'] ?? '')) . ' ' . ((string) ($c['last_name'] ?? '')));
+        $totTotal += (float) $b['total_price'];
+        $totPaid  += (float) $b['amount_paid'];
+        $totBal   += (float) $b['balance'];
+        $count++;
+        fputcsv($out, array_map($csvSafe, [
+            $b['booking_ref'],
+            $b['invoice_id'],
+            $name,
+            $c['email'] ?? '',
+            $c['phone'] ?? '',
+            $dep['code'] ?? '',
+            $dep['departure_date'] ?? '',
+            $tierById[(int) $b['departure_tier_id']] ?? '',
+            (int) $b['pax'],
+            $b['currency'],
+            number_format((float) $b['total_price'], 2, '.', ''),
+            number_format((float) $b['amount_paid'], 2, '.', ''),
+            number_format((float) $b['balance'], 2, '.', ''),
+            $b['payment_plan_code'],
+            $b['booking_status'],
+            $b['payment_status'],
+            $b['price_locked_at'] ? 'yes' : 'no',
+            $b['created_at'],
+        ]));
+    }
+    // Totals row for receivables at a glance.
+    fputcsv($out, []);
+    fputcsv($out, array_map($csvSafe, [
+        'TOTALS (' . $count . ' bookings)', '', '', '', '', '', '', '', '', '',
+        number_format($totTotal, 2, '.', ''),
+        number_format($totPaid, 2, '.', ''),
+        number_format($totBal, 2, '.', ''),
+        '', '', '', '', '',
+    ]));
+    fclose($out);
+    exit;
+});
+
 // ---- OPERATIONS PAGE: GET admin/umrah-manager/operations/{departureId} --
 // Visa / ticket / rooming batch view for a departure's travellers.
 $router->get(admin.'/umrah-manager/operations/([0-9]+)', function ($departureId) use ($SECURE, $db) {
