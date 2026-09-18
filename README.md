@@ -304,7 +304,30 @@ Before redirecting, the intended URL is stored in `$_SESSION['login_redirect']` 
 | Admin | `admin` (enforces its own `ADMIN_AUTH()`) |
 | Payment callbacks | `payment` (token guarded) |
 | Login-page plumbing | `partials`, `lang`, `currency`, `ajax` |
-| Crawler / cron | `sitemap.xml`, `robots.txt`, `send_credits_reminders`, `update_currency_rates` |
+| Crawler / cron | `sitemap.xml`, `robots.txt`, `send_credits_reminders`, `update_currency_rates`, `umrah_expire_holds`, `pay_later_sweep` |
+
+---
+
+#### **Scheduled jobs (system crontab)**
+
+The app has no built-in scheduler — each cron is a plain public `GET` route meant
+to be triggered by the **server's system crontab** (`crontab -e`). Add these on
+the production host (adjust the domain), then confirm each returns JSON `{"status":true,...}`:
+
+```cron
+# Currency rates — hourly
+0 * * * *      curl -fsS https://goglobia.com/update_currency_rates      > /dev/null 2>&1
+# Agent credit reminders — daily 08:00
+0 8 * * *      curl -fsS https://goglobia.com/send_credits_reminders     > /dev/null 2>&1
+# Umrah: expire holds, cancel abandoned bookings, installment reminders — every 5 min
+*/5 * * * *    curl -fsS https://goglobia.com/umrah_expire_holds         > /dev/null 2>&1
+# Pay-Later: reminders + deadline enforcement (auto-cancel / flag) — every 5 min
+*/5 * * * *    curl -fsS https://goglobia.com/pay_later_sweep            > /dev/null 2>&1
+```
+
+`pay_later_sweep` is required for the per-scope Pay-Later engine — without it,
+Pay-Later rules are configurable in the admin panel but reminders and deadline
+auto-cancel/flag will never fire. It is idempotent and safe to run frequently.
 
 ---
 
