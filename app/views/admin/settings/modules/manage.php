@@ -803,4 +803,131 @@ $moduleTypes = ['flights','stays','tours','cars','bus','rail','cruises','visa','
         </div>
     </div>
     </form>
+
+    <?php
+    // ===================================================================
+    // PAYMENT METHODS, PER-SERVICE KEYS & PAY-LATER (edit only)
+    // Surfaced HERE so payment config lives with the module/service you edit.
+    // A generic row (name == type, e.g. flights/flights) configures the MODULE
+    // scope; a supplier row (name != type, e.g. flights/duffel) configures the
+    // SERVICE scope. Reuses the payment-scoping save endpoints.
+    // ===================================================================
+    if ($isEdit && !empty($module['type'])):
+        $pmType     = strtolower((string) $module['type']);
+        $pmNameRaw  = strtolower((string) ($module['name'] ?? ''));
+        $pmIsService = ($pmNameRaw !== '' && $pmNameRaw !== $pmType);
+        $pmSupplier = $pmIsService ? $pmNameRaw : '';
+        $pmScopeType = $pmIsService ? 'service' : 'module';
+        $pmScopeLabel = $pmIsService ? ($pmType . ' / ' . $pmSupplier) : $pmType;
+
+        $pmGateways = $db->select('payment_gateways', ['id', 'name', 'display_name', 'type', 'status'], ['ORDER' => ['order' => 'ASC', 'name' => 'ASC']]) ?: [];
+        $pmScopeRows = [];
+        foreach ($db->select('payment_gateway_scopes', ['gateway_id', 'enabled', 'c1', 'c2', 'c3', 'c4', 'c5'], ['scope_type' => $pmScopeType, 'module_type' => $pmType, 'supplier' => $pmSupplier]) ?: [] as $r) {
+            $pmScopeRows[(int) $r['gateway_id']] = $r;
+        }
+        $pmHasScope = !empty($pmScopeRows);
+        $pmPlRule = $db->get('pay_later_rules', '*', ['scope_type' => $pmScopeType, 'module_type' => $pmType, 'supplier' => $pmSupplier]);
+        $pmE = fn($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+    ?>
+    <div class="mt-6" style="max-width:1100px;margin-left:auto;margin-right:auto;">
+      <div class="section" style="padding:16px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="material-symbols-outlined text-blue-600">payments</span>
+          <h2 class="font-semibold text-slate-800">Payment methods &amp; Pay-Later — <?= $pmE($pmScopeLabel) ?></h2>
+        </div>
+        <p class="text-xs text-slate-500 mb-4">Configure which payment methods apply to this <?= $pmIsService ? 'service' : 'module' ?>, optionally give it its own gateway keys, and set its Pay-Later behaviour. Resolves service → module → global; leave “inherit” on to use the broader setting.</p>
+
+        <!-- Allowed methods + per-service keys -->
+        <label class="flex items-center gap-2 mb-3">
+          <input type="checkbox" id="pmInherit" <?= $pmHasScope ? '' : 'checked' ?> onchange="pmToggleInherit()">
+          <span class="text-sm">Inherit payment methods from broader scope</span>
+        </label>
+        <div id="pmGwList" style="<?= $pmHasScope ? '' : 'opacity:.45;pointer-events:none;' ?>">
+          <?php foreach ($pmGateways as $g):
+            $gid = (int) $g['id'];
+            $row = $pmScopeRows[$gid] ?? null;
+            $on  = $pmHasScope ? !empty($row['enabled']) : true;
+            $needsKeys = !in_array($g['type'], ['internal_wallet', 'pay_later', 'bank_transfer', 'cash', 'manual_payment', 'voucher'], true);
+          ?>
+          <div style="border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;margin-bottom:6px;">
+            <label class="flex items-center gap-2">
+              <input type="checkbox" class="pmGw" data-gid="<?= $gid ?>" <?= $on ? 'checked' : '' ?>>
+              <span class="text-sm font-medium"><?= $pmE($g['display_name'] ?: $g['name']) ?>
+                <span class="text-xs text-slate-400">(<?= $pmE($g['type']) ?><?= (string) $g['status'] !== '1' ? ', globally off' : '' ?>)</span>
+              </span>
+            </label>
+            <?php if ($needsKeys): ?>
+            <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px;margin-top:6px;">
+              <?php foreach (['c1' => 'Key 1 (e.g. secret)', 'c2' => 'Key 2 (e.g. public)', 'c3' => 'Key 3', 'c4' => 'Key 4'] as $ck => $cl): ?>
+                <input type="text" class="input pmKey" data-gid="<?= $gid ?>" data-ck="<?= $ck ?>"
+                       placeholder="<?= $pmE($cl) ?> (blank = use global)"
+                       value="<?= $pmE($row[$ck] ?? '') ?>" style="font-size:12px;">
+              <?php endforeach; ?>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1">Leave keys blank to use this gateway's global credentials. Fill them to give <?= $pmE($pmScopeLabel) ?> its own account.</p>
+            <?php endif; ?>
+          </div>
+          <?php endforeach; ?>
+        </div>
+        <div class="mt-2">
+          <button type="button" class="btn primary" onclick="pmSaveGateways()"><span class="material-symbols-outlined">save</span><span>Save payment methods &amp; keys</span></button>
+          <span id="pmGwMsg" class="text-sm ml-2"></span>
+        </div>
+
+        <hr style="margin:16px 0;border:none;border-top:1px solid #e2e8f0;">
+
+        <!-- Pay-Later rule -->
+        <h3 class="font-semibold text-slate-800 mb-2">Pay-Later for <?= $pmE($pmScopeLabel) ?></h3>
+        <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;">
+          <label class="flex items-center gap-2"><input type="checkbox" id="pmPlEnabled" <?= !empty($pmPlRule['enabled']) ? 'checked' : '' ?>><span class="text-sm font-medium">Enable Pay-Later here</span></label>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">Deadline (hours)</label><input type="number" id="pmPlDeadline" class="input" min="1" max="8760" value="<?= (int) ($pmPlRule['deadline_hours'] ?? 72) ?>"></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">Reminder offsets (hrs before, CSV)</label><input type="text" id="pmPlOffsets" class="input" value="<?= $pmE($pmPlRule['reminder_offsets_hours'] ?? '48,12') ?>"></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">At deadline</label>
+            <select id="pmPlPolicy" class="select">
+              <option value="flag" <?= ($pmPlRule['deadline_policy'] ?? 'flag') === 'flag' ? 'selected' : '' ?>>Flag for admin</option>
+              <option value="auto_cancel" <?= ($pmPlRule['deadline_policy'] ?? '') === 'auto_cancel' ? 'selected' : '' ?>>Auto-cancel &amp; release</option>
+            </select>
+          </div>
+          <label class="flex items-center gap-2"><input type="checkbox" id="pmPlRelease" <?= (int) ($pmPlRule['release_inventory'] ?? 1) === 1 ? 'checked' : '' ?>><span class="text-sm">Release inventory on auto-cancel</span></label>
+          <label class="flex items-center gap-2"><input type="checkbox" id="pmPlAgents" <?= !empty($pmPlRule['agents_only']) ? 'checked' : '' ?>><span class="text-sm">Agents only</span></label>
+        </div>
+        <div class="mt-3">
+          <button type="button" class="btn primary" onclick="pmSavePayLater()"><span class="material-symbols-outlined">save</span><span>Save Pay-Later rule</span></button>
+          <span id="pmPlMsg" class="text-sm ml-2"></span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    const PM = { module: <?= json_encode($pmType) ?>, supplier: <?= json_encode($pmSupplier) ?> };
+    function pmToggleInherit(){ const inh=document.getElementById('pmInherit').checked; const l=document.getElementById('pmGwList'); l.style.opacity=inh?'.45':'1'; l.style.pointerEvents=inh?'none':'auto'; }
+    function pmPost(url,data,msgEl){
+      const body=new URLSearchParams();
+      Object.entries(data).forEach(([k,v])=>{ if(Array.isArray(v)) v.forEach(x=>body.append(k+'[]',x)); else body.append(k,v); });
+      msgEl.textContent='Saving…'; msgEl.style.color='#64748b';
+      return fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},credentials:'same-origin',body})
+        .then(r=>r.json()).then(d=>{ const ok=d&&d.status==='success'; msgEl.textContent=(d&&d.message)||(ok?'Saved.':'Failed.'); msgEl.style.color=ok?'#16a34a':'#dc2626'; })
+        .catch(()=>{ msgEl.textContent='Network error.'; msgEl.style.color='#dc2626'; });
+    }
+    function pmSaveGateways(){
+      const inherit=document.getElementById('pmInherit').checked;
+      const enabled=[...document.querySelectorAll('.pmGw:checked')].map(c=>c.dataset.gid);
+      const data={ module_type:PM.module, supplier:PM.supplier, inherit:inherit?'1':'', enabled_gateways:enabled };
+      // per-service keys: creds[gid][ck]=value (only when not inheriting)
+      if(!inherit){ document.querySelectorAll('.pmKey').forEach(inp=>{ const v=inp.value.trim(); if(v!=='') data['creds['+inp.dataset.gid+']['+inp.dataset.ck+']']=v; }); }
+      pmPost('<?= root . admin ?>/settings/payment-scoping/gateways',data,document.getElementById('pmGwMsg'));
+    }
+    function pmSavePayLater(){
+      pmPost('<?= root . admin ?>/settings/payment-scoping/pay-later',{
+        module_type:PM.module, supplier:PM.supplier,
+        enabled:document.getElementById('pmPlEnabled').checked?'1':'',
+        deadline_hours:document.getElementById('pmPlDeadline').value,
+        reminder_offsets_hours:document.getElementById('pmPlOffsets').value,
+        deadline_policy:document.getElementById('pmPlPolicy').value,
+        release_inventory:document.getElementById('pmPlRelease').checked?'1':'',
+        agents_only:document.getElementById('pmPlAgents').checked?'1':'',
+      },document.getElementById('pmPlMsg'));
+    }
+    </script>
+    <?php endif; ?>
 </div>

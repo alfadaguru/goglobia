@@ -78,6 +78,15 @@ function process_payment($invoiceId)
             return ['success' => false, 'message' => 'Payment gateway not available'];
         }
 
+        // PER-SERVICE CREDENTIALS: overlay this booking's module/service credential
+        // overrides onto the gateway row so the charge uses the right account (e.g.
+        // flights/duffel's own Stripe keys). No-op when no override is configured —
+        // the gateway's global keys are used. Applied here (and in verify) so every
+        // downstream $gateway['c1'..'c5'] reader is transparent.
+        if (function_exists('payment_gateway_apply_service_creds')) {
+            payment_gateway_apply_service_creds($db, $gateway, $booking);
+        }
+
         // PAYMENT RULE server-side guard (docs/MONEY-WALLET-AUDIT.md §A.3): an
         // AGENT may pay ONLY from their wallet (an internal_wallet gateway). A
         // customer may use wallet or any gateway; a guest may use any non-wallet
@@ -1449,6 +1458,20 @@ function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
     // attacker-supplied $_GET value — required for correct refunds/reconciliation.
     $gatewayData = $data['gateway_data'] ?? $data ?? [];
 
+    // PER-SERVICE CREDENTIALS: the verify call must use the SAME account the charge
+    // used. Resolve the booking (by invoice) once, and overlay its module/service
+    // credential overrides onto whatever gateway row each case loads below. No-op
+    // when no override is configured. Closure so every case can apply it uniformly.
+    $__verifyBooking = null;
+    if (!empty($tokenData['invoice_id'])) {
+        $__verifyBooking = $db->get('bookings', ['module_type', 'module'], ['invoice_id' => $tokenData['invoice_id']]);
+    }
+    $applyServiceCreds = static function (&$gw) use ($db, $__verifyBooking) {
+        if (is_array($gw) && $__verifyBooking && function_exists('payment_gateway_apply_service_creds')) {
+            payment_gateway_apply_service_creds($db, $gw, $__verifyBooking);
+        }
+    };
+
     try {
         switch ($gatewayName) {
 
@@ -1467,6 +1490,7 @@ function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
                 if (!$gatewayId) return 'failure';
 
                 $gateway = $db->get('payment_gateways', '*', ['id' => $gatewayId]);
+                $applyServiceCreds($gateway);
                 if (!$gateway) return 'failure';
 
                 $secretKey = $gateway['c1'] ?? '';
@@ -1537,6 +1561,7 @@ function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
                 if (!$gatewayId) return 'failure';
 
                 $gateway = $db->get('payment_gateways', '*', ['id' => $gatewayId]);
+                $applyServiceCreds($gateway);
                 if (!$gateway) return 'failure';
 
                 $appId = $gateway['c1'] ?? '';
@@ -1617,6 +1642,7 @@ function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
                 if (!$gatewayId) return 'pending';
 
                 $gateway = $db->get('payment_gateways', '*', ['id' => $gatewayId]);
+                $applyServiceCreds($gateway);
                 if (!$gateway) return 'pending';
 
                 $secretKey = $gateway['c2'] ?? '';
@@ -1679,6 +1705,7 @@ function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
                 }
 
                 $gateway = $db->get('payment_gateways', '*', ['id' => $gatewayId]);
+                $applyServiceCreds($gateway);
                 if (!$gateway) {
                     return 'pending';
                 }
@@ -1724,6 +1751,7 @@ function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
                 $gatewayId = $tokenData['gateway_id'] ?? null;
                 if (empty($orderId) || !$gatewayId) { return 'pending'; }
                 $gateway = $db->get('payment_gateways', '*', ['id' => $gatewayId]);
+                $applyServiceCreds($gateway);
                 if (!$gateway) { return 'pending'; }
                 $clientId = $gateway['c1'] ?? '';
                 $secret   = $gateway['c2'] ?? '';
@@ -1782,6 +1810,7 @@ function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
                 $gatewayId = $tokenData['gateway_id'] ?? null;
                 if (empty($txId) || !$gatewayId) { return 'pending'; }
                 $gateway = $db->get('payment_gateways', '*', ['id' => $gatewayId]);
+                $applyServiceCreds($gateway);
                 if (!$gateway) { return 'pending'; }
                 $secret = $gateway['c2'] ?? $gateway['c1'] ?? '';
                 if ($secret === '') { return 'pending'; }
@@ -1944,6 +1973,11 @@ if (!function_exists('refund_gateway_payment')) {
         $gateway = $db->get('payment_gateways', '*', ['name[~]' => $gatewayName]);
         if (!$gateway) {
             return ['status' => 'unsupported', 'message' => "Gateway '{$gatewayName}' not found/configured", 'gateway' => $gatewayName];
+        }
+        // PER-SERVICE CREDENTIALS: a refund must hit the SAME account the charge
+        // used — overlay this booking's module/service credential overrides.
+        if (is_array($booking) && function_exists('payment_gateway_apply_service_creds')) {
+            payment_gateway_apply_service_creds($db, $gateway, (array) $booking);
         }
         if ($refundAmt <= 0) {
             return ['status' => 'failed', 'message' => 'Refund amount is zero', 'gateway' => $gatewayName];

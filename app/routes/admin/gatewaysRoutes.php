@@ -120,13 +120,22 @@ $router->post(admin.'/settings/payment-scoping/gateways', function () use ($SECU
         // enabled_gateways[] = ids the admin ticked. Everything else is implicitly
         // excluded for this scope (explicit allow-list).
         $enabledIds = array_values(array_unique(array_map('intval', (array) ($_POST['enabled_gateways'] ?? []))));
+        // Per-service credential overrides: creds[gid][c1..c5] = value. Only
+        // non-empty values are stored; blanks mean "use the gateway's global keys".
+        $credsIn = (array) ($_POST['creds'] ?? []);
         $allIds = array_map(fn($g) => (int) $g['id'], $db->select('payment_gateways', ['id']) ?: []);
         foreach ($allIds as $gid) {
-            $db->insert('payment_gateway_scopes', [
+            $row = [
                 'gateway_id' => $gid, 'scope_type' => $scopeType, 'module_type' => $moduleType,
                 'supplier' => $supplier, 'enabled' => in_array($gid, $enabledIds, true) ? 1 : 0,
                 'updated_at' => date('Y-m-d H:i:s'),
-            ]);
+            ];
+            $gc = (array) ($credsIn[$gid] ?? $credsIn[(string) $gid] ?? []);
+            foreach (['c1', 'c2', 'c3', 'c4', 'c5'] as $ck) {
+                $v = trim((string) ($gc[$ck] ?? ''));
+                $row[$ck] = $v !== '' ? $v : null;
+            }
+            $db->insert('payment_gateway_scopes', $row);
             $saved++;
         }
     }
