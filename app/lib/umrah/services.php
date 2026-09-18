@@ -631,6 +631,85 @@ if (!function_exists('umrah_installment_reminder_sweep')) {
     }
 }
 
+if (!function_exists('umrah_waitlist_notify_sweep')) {
+    /**
+     * Notify waitlisted customers when seats free up on their departure.
+     *
+     * Customers can join a departure's waitlist (POST /api/v1/umrah/waitlist) but
+     * nothing ever told them when a seat opened — the join side worked, the
+     * "notify when available" side didn't exist. This sweep (driven by the
+     * /umrah_expire_holds cron, which itself releases expired holds and cancels
+     * abandoned bookings — the two events that free capacity) walks each departure
+     * that has WAITING rows, and if it now has spare capacity, emails the waiting
+     * customers whose party fits (pax <= remaining), oldest-first, and flips them
+     * to 'notified'. Capacity is decremented in-loop so we never over-notify past
+     * the seats actually available in this run; the rest stay 'waiting' for the
+     * next opening. A row is only ever processed while 'waiting', so a customer is
+     * never emailed twice for the same seat.
+     *
+     * @return int number of waitlist rows notified
+     */
+    function umrah_waitlist_notify_sweep($db): int
+    {
+        $notified = 0;
+        try {
+            $now = date('Y-m-d H:i:s');
+            // Departures that currently have someone waiting.
+            $depRows = $db->select('umrah_waitlist', ['departure_id'], [
+                'status'          => 'waiting',
+                'departure_id[!]' => null,
+                'GROUP'           => 'departure_id',
+            ]) ?: [];
+
+            foreach ($depRows as $dr) {
+                $depId = (int) ($dr['departure_id'] ?? 0);
+                if ($depId <= 0) { continue; }
+
+                // Only notify for a departure still open for booking.
+                $dep = $db->get('umrah_departures', ['id', 'code', 'status', 'departure_date'], ['id' => $depId]);
+                if (!$dep || ($dep['status'] ?? '') !== 'published') { continue; }
+
+                $remaining = umrah_departure_remaining($db, $depId, $now);
+                if ($remaining <= 0) { continue; }
+
+                // Oldest-first fairness; pull only what could plausibly fit.
+                $waiters = $db->select('umrah_waitlist', ['id', 'name', 'email', 'phone', 'pax'], [
+                    'departure_id' => $depId,
+                    'status'       => 'waiting',
+                    'ORDER'        => ['created_at' => 'ASC', 'id' => 'ASC'],
+                ]) ?: [];
+
+                foreach ($waiters as $w) {
+                    $pax = max(1, (int) ($w['pax'] ?? 1));
+                    if ($pax > $remaining) { continue; } // party can't fit yet — leave waiting
+                    // Flip to 'notified' FIRST (idempotency guard): if the email path
+                    // throws, we've still consumed the row and won't spam on re-run.
+                    $db->update('umrah_waitlist', ['status' => 'notified'], ['id' => (int) $w['id']]);
+                    $remaining -= $pax;
+
+                    if (function_exists('umrah_notify') && !empty($w['email'])) {
+                        $depLabel = $dep['code'] ?: ('departure #' . $depId);
+                        $depDate  = !empty($dep['departure_date']) ? date('D, d M Y', strtotime((string) $dep['departure_date'])) : '';
+                        $body = "Assalamu Alaikum " . trim((string) ($w['name'] ?? '')) . ",\n\n"
+                            . "Good news — seats have opened up on the GoGlobia Umrah departure you were waiting for"
+                            . ($depDate !== '' ? " ({$depLabel}, {$depDate})" : " ({$depLabel})") . ".\n\n"
+                            . "Places are limited and offered first-come — please book as soon as you can from the Umrah page before they're taken again.\n";
+                        // umrah_notify's first arg is a umrah_booking_id (none here) — pass null;
+                        // it still queues + sends to the given customer contact.
+                        umrah_notify($db, null, 'waitlist_available', 'Umrah seats available — ' . $depLabel, $body, 'email',
+                            ['email' => (string) $w['email'], 'name' => (string) ($w['name'] ?? '')]);
+                    }
+                    $notified++;
+                    if ($remaining <= 0) { break; } // seats for this run are spoken for
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('umrah_waitlist_notify_sweep: ' . $e->getMessage());
+        }
+        return $notified;
+    }
+}
+
 if (!function_exists('umrah_payment_schedule')) {
     /**
      * Compute the installment schedule for a booking total, given the plan and
