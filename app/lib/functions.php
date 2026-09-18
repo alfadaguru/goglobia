@@ -387,6 +387,11 @@ function ensurePaymentScopingSchema($db): void
             `module_type` varchar(64) NOT NULL,
             `supplier` varchar(64) NOT NULL DEFAULT '',
             `enabled` tinyint(1) NOT NULL DEFAULT 1,
+            `c1` text DEFAULT NULL,
+            `c2` text DEFAULT NULL,
+            `c3` text DEFAULT NULL,
+            `c4` text DEFAULT NULL,
+            `c5` text DEFAULT NULL,
             `created_at` datetime NOT NULL DEFAULT current_timestamp(),
             `updated_at` datetime DEFAULT NULL,
             PRIMARY KEY (`id`),
@@ -419,11 +424,17 @@ function ensurePaymentScopingSchema($db): void
         error_log('ensurePaymentScopingSchema tables: ' . $e->getMessage());
     }
 
-    // Bookings columns that drive the Pay-Later lifecycle. Idempotent adds.
+    // Bookings columns that drive the Pay-Later lifecycle + per-service credential
+    // override columns on the scope table (existing installs). Idempotent adds.
     $cols = [
         ['bookings', 'payment_due_at',        "ALTER TABLE `bookings` ADD COLUMN `payment_due_at` DATETIME NULL DEFAULT NULL"],
         ['bookings', 'pay_later_status',      "ALTER TABLE `bookings` ADD COLUMN `pay_later_status` VARCHAR(24) NULL DEFAULT NULL"],
         ['bookings', 'pay_later_reminder_at', "ALTER TABLE `bookings` ADD COLUMN `pay_later_reminder_at` DATETIME NULL DEFAULT NULL"],
+        ['payment_gateway_scopes', 'c1', "ALTER TABLE `payment_gateway_scopes` ADD COLUMN `c1` TEXT NULL DEFAULT NULL"],
+        ['payment_gateway_scopes', 'c2', "ALTER TABLE `payment_gateway_scopes` ADD COLUMN `c2` TEXT NULL DEFAULT NULL"],
+        ['payment_gateway_scopes', 'c3', "ALTER TABLE `payment_gateway_scopes` ADD COLUMN `c3` TEXT NULL DEFAULT NULL"],
+        ['payment_gateway_scopes', 'c4', "ALTER TABLE `payment_gateway_scopes` ADD COLUMN `c4` TEXT NULL DEFAULT NULL"],
+        ['payment_gateway_scopes', 'c5', "ALTER TABLE `payment_gateway_scopes` ADD COLUMN `c5` TEXT NULL DEFAULT NULL"],
     ];
     foreach ($cols as [$table, $column, $alterSql]) {
         try {

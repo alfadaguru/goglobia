@@ -588,7 +588,15 @@ if (!function_exists('payment_gateway_allowed_for_currency')) {
     function payment_gateway_allowed_for_currency($db, array $gateway, string $payCurrency): bool
     {
         $type = (string) ($gateway['type'] ?? '');
-        if ($type === 'internal_wallet') { return true; } // wallet: currency-agnostic
+        // Currency routing only constrains gateways that actually MOVE money in a
+        // specific currency (card/bank/crypto processors). Internal + deferred
+        // methods carry no currency constraint and must never be filtered by the
+        // NGN->Paystack / else->Stripe routing: internal_wallet (spends the
+        // wallet), pay_later (no money moves), bank_transfer/cash/manual/voucher
+        // (settled off-platform). Their `currency` column is just a label.
+        if (in_array($type, ['internal_wallet', 'pay_later', 'bank_transfer', 'cash', 'manual_payment', 'voucher', 'invoice'], true)) {
+            return true; // currency-agnostic
+        }
 
         $payCurrency = strtoupper(trim($payCurrency));
         if ($payCurrency === '') { return true; } // no currency context: don't filter
@@ -710,6 +718,71 @@ if (!function_exists('payment_gateway_allowed_for_scope')) {
         $allow = payment_gateway_scope_allowlist($db, $moduleType, $supplier);
         if ($allow === null) { return true; } // inherit → allow (global list governs)
         return in_array((int) ($gateway['id'] ?? 0), $allow, true);
+    }
+}
+
+if (!function_exists('payment_gateway_service_creds')) {
+    /**
+     * Per-service credential OVERRIDES for one gateway, resolving SERVICE → MODULE.
+     * Returns an assoc of only the c1..c5 values that are non-empty for the most
+     * specific scope that has any, or [] when none — so a service can use its own
+     * Stripe/Paystack account while everything else falls back to the gateway's
+     * global keys. Supplier is resolved against the modules registry (never trusts
+     * the raw booking value). Per-request memoised.
+     */
+    function payment_gateway_service_creds($db, int $gatewayId, string $moduleType, string $supplierRaw): array
+    {
+        static $memo = [];
+        $moduleType = strtolower(trim($moduleType));
+        if ($gatewayId <= 0 || $moduleType === '') { return []; }
+        $supplier = payment_gateway_resolve_supplier($db, $moduleType, $supplierRaw);
+        $key = $gatewayId . '|' . $moduleType . '|' . $supplier;
+        if (array_key_exists($key, $memo)) { return $memo[$key]; }
+
+        $pick = static function ($row): array {
+            if (!$row) { return []; }
+            $out = [];
+            foreach (['c1', 'c2', 'c3', 'c4', 'c5'] as $c) {
+                if (isset($row[$c]) && trim((string) $row[$c]) !== '') { $out[$c] = (string) $row[$c]; }
+            }
+            return $out;
+        };
+
+        try {
+            // SERVICE level wins if it carries any credential; else MODULE level.
+            if ($supplier !== '') {
+                $svc = $pick($db->get('payment_gateway_scopes', ['c1', 'c2', 'c3', 'c4', 'c5'], [
+                    'scope_type' => 'service', 'module_type' => $moduleType, 'supplier' => $supplier, 'gateway_id' => $gatewayId,
+                ]));
+                if ($svc) { return $memo[$key] = $svc; }
+            }
+            $mod = $pick($db->get('payment_gateway_scopes', ['c1', 'c2', 'c3', 'c4', 'c5'], [
+                'scope_type' => 'module', 'module_type' => $moduleType, 'supplier' => '', 'gateway_id' => $gatewayId,
+            ]));
+            return $memo[$key] = $mod;
+        } catch (\Throwable $e) {
+            return $memo[$key] = [];
+        }
+    }
+}
+
+if (!function_exists('payment_gateway_apply_service_creds')) {
+    /**
+     * Overlay a booking's per-service credential overrides onto a loaded gateway
+     * row IN PLACE (by the booking's module_type + module). Every downstream
+     * reader of $gateway['c1'..'c5'] (all gateway handlers, verify, refund) then
+     * transparently uses the right account — no per-handler change needed. Only
+     * NON-EMPTY overrides replace the gateway's own keys; unset ones fall back to
+     * the global gateway keys. No-op when there is no override for this scope.
+     */
+    function payment_gateway_apply_service_creds($db, array &$gateway, array $booking): void
+    {
+        $gid = (int) ($gateway['id'] ?? 0);
+        if ($gid <= 0) { return; }
+        $moduleType = (string) ($booking['module_type'] ?? '');
+        $supplier   = (string) ($booking['module'] ?? '');
+        $over = payment_gateway_service_creds($db, $gid, $moduleType, $supplier);
+        foreach ($over as $c => $v) { $gateway[$c] = $v; }
     }
 }
 
