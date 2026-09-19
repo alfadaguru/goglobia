@@ -1,6 +1,6 @@
 <?php
 // ============================================================================
-// GENERIC INSTALLMENT ENGINE (PaySmallSmall Phase 2)
+// GENERIC INSTALLMENT ENGINE (PaySmallSmall, non-umrah services)
 // ----------------------------------------------------------------------------
 // A module-agnostic installment ledger for NON-umrah services (umrah keeps its
 // own richer engine: umrah_payment_plans / umrah_installments / umrah_settle_payment
