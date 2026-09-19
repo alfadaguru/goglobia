@@ -231,8 +231,28 @@ try {
         }
     }
 
-    // Non-umrah (or a settlement failure): the full amount clears the booking.
-    if (!$umrahSettled) {
+    // GENERIC INSTALLMENTS (PaySmallSmall Phase 2): a non-umrah booking may be on
+    // a generic installment schedule where the amount just charged is only the
+    // next part. Settle it the same way — mark installments paid, set
+    // partially_paid until the balance clears, then paid+confirmed. Same idempotent
+    // guarantees as umrah.
+    $genInstallmentSettled = false;
+    if (!$umrahSettled && function_exists('installments_active_for') && installments_active_for($db, (string) $booking['invoice_id'])) {
+        try {
+            $sres = installments_settle_payment($db, (string) $booking['invoice_id'], (float) $paymentAmount, (string) $paymentCurrency, (string) $transactionId);
+            if (!empty($sres['ok'])) {
+                $db->update('bookings', [
+                    'transaction_id'  => $transactionId,
+                    'payment_gateway' => 'Wallet Balance',
+                    'error_response'  => '',
+                ], ['invoice_id' => $booking['invoice_id']]);
+                $genInstallmentSettled = true;
+            }
+        } catch (\Throwable $e) { error_log('wallet_balance generic installment settle: ' . $e->getMessage()); }
+    }
+
+    // Non-umrah, non-installment (or a settlement failure): the full amount clears.
+    if (!$umrahSettled && !$genInstallmentSettled) {
         $db->update('bookings', [
             'payment_status' => 'paid',
             'booking_status' => 'confirmed',

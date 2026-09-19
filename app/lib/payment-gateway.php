@@ -829,32 +829,61 @@ function handle_payment_callback($token, $action, $data = [])
             // ============================================================
             // UPDATE PAYMENT STATUS
             // ============================================================
-            $paidUpdate = [
-                'payment_status' => 'paid',
-                'transaction_id' => $data['transaction_id'] ?? null,
-                'paid_at' => date('Y-m-d H:i:s'),
-            ];
+            // INSTALLMENT-AWARE: if this booking is on an installment schedule
+            // (umrah's own ledger, or a generic PaySmallSmall schedule), the
+            // amount charged is only the next part — the schedule engine owns the
+            // payment_status (partially_paid until the balance clears). Do NOT
+            // blanket-mark it 'paid' here, which would desync a part-paid booking.
+            $isUmrahInst   = ($booking['module_type'] ?? '') === 'umrah';
+            $isGenericInst = !$isUmrahInst && function_exists('installments_active_for')
+                && installments_active_for($db, (string) $tokenData['invoice_id']);
 
-            $postIssueBooking = $db->get('bookings', ['booking_status', 'module_type', 'pnr'], [
-                'invoice_id' => $tokenData['invoice_id']
-            ]);
-            // Rail: PNR issued = confirmed booking; seat assignment is polled separately on invoice.
-            $keepExistingConfirmed = ($postIssueBooking['module_type'] ?? '') === 'rail'
-                && !empty($postIssueBooking['pnr'])
-                && ($postIssueBooking['booking_status'] ?? '') === 'confirmed';
-            $tboIssueFailed = strtolower((string) ($booking['module'] ?? '')) === 'tbo-holidays'
-                && !$bookingApiSuccess;
+            if ($isGenericInst) {
+                // Settle the generic installment (marks parts paid, sets
+                // partially_paid/paid + confirms on full). Idempotent per txn.
+                if (function_exists('installments_settle_payment')) {
+                    installments_settle_payment(
+                        $db,
+                        (string) $tokenData['invoice_id'],
+                        (float) ($tokenData['amount'] ?? ($booking['price_markup'] ?? 0)),
+                        (string) ($tokenData['currency'] ?? ($booking['currency_markup'] ?? 'USD')),
+                        (string) ($data['transaction_id'] ?? '')
+                    );
+                }
+                // Record only the txn/paid_at without overriding the status the
+                // installment engine just set.
+                $db->update('bookings', [
+                    'transaction_id' => $data['transaction_id'] ?? null,
+                    'paid_at'        => date('Y-m-d H:i:s'),
+                ], ['invoice_id' => $tokenData['invoice_id']]);
+            } else {
+                $paidUpdate = [
+                    'payment_status' => 'paid',
+                    'transaction_id' => $data['transaction_id'] ?? null,
+                    'paid_at' => date('Y-m-d H:i:s'),
+                ];
 
-            if ($tboIssueFailed) {
-                // Payment succeeded, but no supplier confirmation exists yet.
-                $paidUpdate['booking_status'] = 'pending';
-            } elseif (!$keepExistingConfirmed) {
-                $paidUpdate['booking_status'] = 'confirmed';
+                $postIssueBooking = $db->get('bookings', ['booking_status', 'module_type', 'pnr'], [
+                    'invoice_id' => $tokenData['invoice_id']
+                ]);
+                // Rail: PNR issued = confirmed booking; seat assignment is polled separately on invoice.
+                $keepExistingConfirmed = ($postIssueBooking['module_type'] ?? '') === 'rail'
+                    && !empty($postIssueBooking['pnr'])
+                    && ($postIssueBooking['booking_status'] ?? '') === 'confirmed';
+                $tboIssueFailed = strtolower((string) ($booking['module'] ?? '')) === 'tbo-holidays'
+                    && !$bookingApiSuccess;
+
+                if ($tboIssueFailed) {
+                    // Payment succeeded, but no supplier confirmation exists yet.
+                    $paidUpdate['booking_status'] = 'pending';
+                } elseif (!$keepExistingConfirmed) {
+                    $paidUpdate['booking_status'] = 'confirmed';
+                }
+
+                $db->update('bookings', $paidUpdate, [
+                    'invoice_id' => $tokenData['invoice_id']
+                ]);
             }
-
-            $db->update('bookings', $paidUpdate, [
-                'invoice_id' => $tokenData['invoice_id']
-            ]);
 
             // ============================================================
             // UMRAH: settle the installment + price-lock on cleared payment.
@@ -1084,18 +1113,26 @@ function get_booking_gateway_id($booking)
 function payment_amount_due($booking, $db)
 {
     $full = (float) ($booking['price_markup'] ?? 0);
-    $module = strtolower((string) ($booking['module'] ?? $booking['module_type'] ?? ''));
-    if ($module !== 'umrah') { return $full; }
+    $moduleType = strtolower((string) ($booking['module_type'] ?? ''));
+    $invoiceId = (string) ($booking['invoice_id'] ?? '');
     try {
-        $ub = $db->get('umrah_bookings', ['id'], ['invoice_id' => $booking['invoice_id']]);
-        if (!$ub) { return $full; }
-        $next = $db->get('umrah_installments', ['amount'], [
-            'umrah_booking_id' => (int) $ub['id'],
-            'status' => ['pending', 'overdue'],
-            'ORDER' => ['seq' => 'ASC'],
-        ]);
-        if ($next && (float) $next['amount'] > 0) {
-            return round((float) $next['amount'], 2);
+        // UMRAH — its own installment ledger (with price-lock).
+        if ($moduleType === 'umrah') {
+            $ub = $db->get('umrah_bookings', ['id'], ['invoice_id' => $invoiceId]);
+            if ($ub) {
+                $next = $db->get('umrah_installments', ['amount'], [
+                    'umrah_booking_id' => (int) $ub['id'],
+                    'status' => ['pending', 'overdue'],
+                    'ORDER' => ['seq' => 'ASC'],
+                ]);
+                if ($next && (float) $next['amount'] > 0) { return round((float) $next['amount'], 2); }
+            }
+            return $full;
+        }
+        // NON-UMRAH — generic PaySmallSmall installment schedule (Phase 2).
+        if (function_exists('installments_active_for') && installments_active_for($db, $invoiceId)) {
+            $due = installments_amount_due($db, $invoiceId);
+            if ($due > 0) { return $due; }
         }
     } catch (\Throwable $e) {
         error_log('payment_amount_due: ' . $e->getMessage());

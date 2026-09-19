@@ -60,8 +60,8 @@ if (!function_exists('pay_small_small_is_enabled_for')) {
     {
         $rule = pay_small_small_rule_for($db, $moduleType, $supplierRaw);
         if (!$rule || (int) ($rule['enabled'] ?? 0) !== 1) { return false; }
-        // Phase 1 fulfilment gate: umrah only.
-        if (strtolower(trim($moduleType)) !== 'umrah') { return false; }
+        // Phase 2: both umrah (its own engine) and any other service (the generic
+        // installment engine, app/lib/installments.php) are fulfillable now.
         return true;
     }
 }

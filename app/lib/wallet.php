@@ -594,7 +594,7 @@ if (!function_exists('payment_gateway_allowed_for_currency')) {
         // NGN->Paystack / else->Stripe routing: internal_wallet (spends the
         // wallet), pay_later (no money moves), bank_transfer/cash/manual/voucher
         // (settled off-platform). Their `currency` column is just a label.
-        if (in_array($type, ['internal_wallet', 'pay_later', 'bank_transfer', 'cash', 'manual_payment', 'voucher', 'invoice'], true)) {
+        if (in_array($type, ['internal_wallet', 'pay_later', 'pay_small_small', 'bank_transfer', 'cash', 'manual_payment', 'voucher', 'invoice'], true)) {
             return true; // currency-agnostic
         }
 

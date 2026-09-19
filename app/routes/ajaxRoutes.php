@@ -428,20 +428,42 @@ $router->post('/api/booking/update-payment-gateway', function () use ($SECURE, $
         ]);
 
         if ($result) {
-            // PAY-LATER: if the chosen gateway is a pay_later type, stamp the
-            // payment deadline from the scope's rule (service->module->global) so
-            // the reminder/auto-cancel cron can act on it. No-op for other gateways.
+            // Resolve the chosen gateway's TYPE once for the method-specific hooks.
+            $gwRow = ctype_digit($paymentGateway)
+                ? $db->get('payment_gateways', ['type'], ['id' => (int) $paymentGateway])
+                : $db->get('payment_gateways', ['type'], ['name' => $paymentGateway]);
+            $gwType = (string) ($gwRow['type'] ?? '');
+
+            // PAY-LATER: stamp the payment deadline from the scope's rule so the
+            // reminder/auto-cancel cron can act on it. No-op for other gateways.
             $payLaterDue = null;
-            if (function_exists('pay_later_apply_to_booking')) {
-                $gwRow = ctype_digit($paymentGateway)
-                    ? $db->get('payment_gateways', ['type'], ['id' => (int) $paymentGateway])
-                    : $db->get('payment_gateways', ['type'], ['name' => $paymentGateway]);
-                if ($gwRow && ($gwRow['type'] ?? '') === 'pay_later') {
-                    $fullBooking = $db->get('bookings', ['invoice_id', 'module_type', 'module', 'payment_status', 'payment_due_at'], ['invoice_id' => $invoiceId]);
-                    if ($fullBooking) { $payLaterDue = pay_later_apply_to_booking($db, $fullBooking); }
+            if ($gwType === 'pay_later' && function_exists('pay_later_apply_to_booking')) {
+                $fullBooking = $db->get('bookings', ['invoice_id', 'module_type', 'module', 'payment_status', 'payment_due_at'], ['invoice_id' => $invoiceId]);
+                if ($fullBooking) { $payLaterDue = pay_later_apply_to_booking($db, $fullBooking); }
+            }
+
+            // PAYSMALLSMALL: for a NON-umrah booking, build the generic installment
+            // schedule from the scope's rule so payment charges the first slice and
+            // the rest is tracked. (Umrah uses its own umrah_payment_plans schedule
+            // created at checkout — skip it here.) Idempotent: no-op if a schedule
+            // already exists or the method isn't enabled for the scope.
+            $paySmallSmall = null;
+            if ($gwType === 'pay_small_small') {
+                $fb = $db->get('bookings', ['invoice_id', 'module_type', 'module', 'price_markup', 'currency_markup', 'payment_status'], ['invoice_id' => $invoiceId]);
+                $mt = strtolower((string) ($fb['module_type'] ?? ''));
+                if ($fb && $mt !== 'umrah' && ($fb['payment_status'] ?? '') !== 'paid'
+                    && function_exists('pay_small_small_is_enabled_for') && pay_small_small_is_enabled_for($db, $mt, (string) ($fb['module'] ?? ''))
+                    && function_exists('installments_create_schedule') && !installments_active_for($db, $invoiceId)) {
+                    $rule = pay_small_small_rule_for($db, $mt, (string) ($fb['module'] ?? ''));
+                    if ($rule) {
+                        $sched = installments_create_schedule($db, $invoiceId, (float) ($fb['price_markup'] ?? 0), (string) ($fb['currency_markup'] ?? 'USD'), $rule);
+                        if (!empty($sched['ok'])) {
+                            $paySmallSmall = ['first_amount' => installments_amount_due($db, $invoiceId), 'parts' => count($sched['installments'] ?? [])];
+                        }
+                    }
                 }
             }
-            echo json_encode(['success' => true, 'message' => 'Payment gateway updated successfully', 'payment_due_at' => $payLaterDue]);
+            echo json_encode(['success' => true, 'message' => 'Payment gateway updated successfully', 'payment_due_at' => $payLaterDue, 'pay_small_small' => $paySmallSmall]);
         } else {
             throw new Exception('Failed to update payment gateway');
         }
