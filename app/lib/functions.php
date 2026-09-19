@@ -489,6 +489,38 @@ function ensurePaymentScopingSchema($db): void
         }
     } catch (\Throwable $e) { error_log('ensurePaymentScopingSchema seed pss global: ' . $e->getMessage()); }
 
+    // PHASE 2 — generic (module-agnostic) installment ledger for PaySmallSmall on
+    // non-umrah services. Mirrors umrah_installments so the settle logic is the
+    // same shape. One row per scheduled part of a booking.
+    try {
+        $db->query("CREATE TABLE IF NOT EXISTS `booking_installments` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `invoice_id` varchar(64) NOT NULL,
+            `seq` smallint(6) NOT NULL DEFAULT 1,
+            `amount` decimal(14,2) NOT NULL DEFAULT 0,
+            `currency` varchar(10) NOT NULL DEFAULT 'USD',
+            `due_at` datetime DEFAULT NULL,
+            `status` enum('pending','paid','overdue','waived') NOT NULL DEFAULT 'pending',
+            `paid_at` datetime DEFAULT NULL,
+            `transaction_id` varchar(255) DEFAULT NULL,
+            `reminder_sent_at` datetime DEFAULT NULL,
+            `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+            PRIMARY KEY (`id`),
+            KEY `idx_invoice` (`invoice_id`),
+            KEY `idx_status_due` (`status`,`due_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+    } catch (\Throwable $e) { error_log('ensurePaymentScopingSchema booking_installments: ' . $e->getMessage()); }
+
+    // Widen bookings.payment_status to carry the partial state for installments
+    // (idempotent — only when 'partially_paid' is missing). Existing values are a
+    // subset so widening is safe.
+    try {
+        $pcol = $db->query("SHOW COLUMNS FROM `bookings` LIKE 'payment_status'")->fetch(\PDO::FETCH_ASSOC);
+        if ($pcol && strpos((string) ($pcol['Type'] ?? ''), 'partially_paid') === false) {
+            $db->pdo->exec("ALTER TABLE `bookings` MODIFY `payment_status` enum('paid','unpaid','refunded','partially_paid') NOT NULL DEFAULT 'unpaid'");
+        }
+    } catch (\Throwable $e) { error_log('ensurePaymentScopingSchema payment_status enum: ' . $e->getMessage()); }
+
     // Bookings columns that drive the Pay-Later lifecycle + per-service credential
     // override columns on the scope table (existing installs). Idempotent adds.
     $cols = [

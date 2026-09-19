@@ -65,6 +65,7 @@ require_once 'app/lib/functions.php';
 require_once 'app/lib/wallet.php';
 require_once 'app/lib/paylater.php';
 require_once 'app/lib/paysmallsmall.php';
+require_once 'app/lib/installments.php';
 require_once 'app/lib/i18n.php';
 require_once 'app/lib/mailer.php';
 require_once 'app/lib/captcha.php';
