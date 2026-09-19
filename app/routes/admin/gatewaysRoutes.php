@@ -221,8 +221,7 @@ $router->post(admin.'/settings/payment-scoping/pay-small-small', function () use
     } else {
         $db->insert('pay_small_small_rules', array_merge($payload, ['scope_type' => $scopeType, 'module_type' => ($moduleType ?: ''), 'supplier' => $supplier]));
     }
-    $note = ($moduleType !== '' && $moduleType !== 'umrah') ? ' (note: only umrah is fulfillable in Phase 1)' : '';
-    echo json_encode(['status' => 'success', 'message' => 'PaySmallSmall rule saved for ' . ($moduleType === '' ? 'global default' : $moduleType . ($supplier !== '' ? "/{$supplier}" : '')) . $note]);
+    echo json_encode(['status' => 'success', 'message' => 'PaySmallSmall rule saved for ' . ($moduleType === '' ? 'global default' : $moduleType . ($supplier !== '' ? "/{$supplier}" : ''))]);
     exit;
 });
 
