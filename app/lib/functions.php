@@ -420,9 +420,74 @@ function ensurePaymentScopingSchema($db): void
             UNIQUE KEY `uq_paylater_scope` (`scope_type`,`module_type`,`supplier`),
             KEY `idx_scope` (`scope_type`,`module_type`,`supplier`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+        // PaySmallSmall rules per scope — an installment method (pay a first slice
+        // now, then the rest in scheduled parts). Same scoping model as pay_later.
+        // For umrah this maps onto the existing umrah_payment_plans engine; for a
+        // generic service (Phase 2) it drives a generic installment schedule.
+        //   first_percent      — % charged up-front at checkout
+        //   installments       — number of FURTHER parts after the first slice
+        //   interval_days      — days between the remaining parts
+        //   umrah_plan_code    — for umrah, the umrah_payment_plans code to use
+        $db->query("CREATE TABLE IF NOT EXISTS `pay_small_small_rules` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `scope_type` enum('global','module','service') NOT NULL DEFAULT 'global',
+            `module_type` varchar(64) NOT NULL DEFAULT '',
+            `supplier` varchar(64) NOT NULL DEFAULT '',
+            `enabled` tinyint(1) NOT NULL DEFAULT 0,
+            `first_percent` decimal(5,2) NOT NULL DEFAULT 50.00,
+            `installments` int(11) NOT NULL DEFAULT 2,
+            `interval_days` int(11) NOT NULL DEFAULT 30,
+            `reminder_offsets_hours` varchar(191) NOT NULL DEFAULT '48,12',
+            `deadline_policy` enum('auto_cancel','flag') NOT NULL DEFAULT 'flag',
+            `release_inventory` tinyint(1) NOT NULL DEFAULT 1,
+            `min_amount` decimal(14,2) DEFAULT NULL,
+            `agents_only` tinyint(1) NOT NULL DEFAULT 0,
+            `umrah_plan_code` varchar(32) NOT NULL DEFAULT 'PP-50-25-25',
+            `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+            `updated_at` datetime DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_pss_scope` (`scope_type`,`module_type`,`supplier`),
+            KEY `idx_scope` (`scope_type`,`module_type`,`supplier`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
     } catch (\Throwable $e) {
         error_log('ensurePaymentScopingSchema tables: ' . $e->getMessage());
     }
+
+    // Widen the payment_gateways.type enum to include pay_small_small (idempotent).
+    try {
+        $tcol = $db->query("SHOW COLUMNS FROM `payment_gateways` LIKE 'type'")->fetch(\PDO::FETCH_ASSOC);
+        if ($tcol && strpos((string) ($tcol['Type'] ?? ''), 'pay_small_small') === false) {
+            $db->pdo->exec("ALTER TABLE `payment_gateways` MODIFY `type` enum('credit_card','debit_card','digital_wallet','bank_transfer','cash','crypto_currency','pay_later','pay_small_small','internal_wallet','invoice','manual_payment','voucher','module_gateway') NOT NULL DEFAULT 'credit_card'");
+        }
+    } catch (\Throwable $e) { error_log('ensurePaymentScopingSchema pss enum: ' . $e->getMessage()); }
+
+    // Seed the PaySmallSmall gateway row once (disabled globally; enabled per-scope
+    // via pay_small_small_rules — like Pay Later). Never overwrites an existing row.
+    try {
+        if (!$db->get('payment_gateways', 'id', ['type' => 'pay_small_small'])) {
+            $db->insert('payment_gateways', [
+                'status' => '0', 'name' => 'PaySmallSmall', 'display_name' => 'Pay Small Small',
+                'c1' => '', 'c2' => '', 'c3' => '', 'c4' => '', 'c5' => '',
+                'dev_mode' => '0', 'currency' => '', 'order' => 3, 'active' => '1',
+                'note' => 'Pay a first part now, the rest in scheduled installments.',
+                'type' => 'pay_small_small', 'module' => null, 'default' => '0',
+            ]);
+        }
+    } catch (\Throwable $e) { error_log('ensurePaymentScopingSchema seed pss gateway: ' . $e->getMessage()); }
+
+    // Seed the GLOBAL PaySmallSmall rule once (disabled) so nothing changes until
+    // enabled per scope. Never overwrites.
+    try {
+        if (!$db->get('pay_small_small_rules', 'id', ['scope_type' => 'global', 'module_type' => '', 'supplier' => ''])) {
+            $db->insert('pay_small_small_rules', [
+                'scope_type' => 'global', 'module_type' => '', 'supplier' => '',
+                'enabled' => 0, 'first_percent' => 50.00, 'installments' => 2, 'interval_days' => 30,
+                'reminder_offsets_hours' => '48,12', 'deadline_policy' => 'flag', 'release_inventory' => 1,
+                'umrah_plan_code' => 'PP-50-25-25',
+            ]);
+        }
+    } catch (\Throwable $e) { error_log('ensurePaymentScopingSchema seed pss global: ' . $e->getMessage()); }
 
     // Bookings columns that drive the Pay-Later lifecycle + per-service credential
     // override columns on the scope table (existing installs). Idempotent adds.

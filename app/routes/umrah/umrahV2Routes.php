@@ -278,6 +278,18 @@ $router->get('/umrah/checkout', function () use ($SECURE, $db) {
     $soldOut = ((int) ($cap['remaining'] ?? 0)) <= 0;
 
     $plans     = $db->select('umrah_payment_plans', '*', ['active' => 1, 'archived' => 0, 'ORDER' => ['deposit_percent' => 'DESC']]) ?: [];
+    // PaySmallSmall: when enabled for umrah, brand the mapped installment plan as
+    // "Pay Small Small" so the customer sees the friendly option. It drives the
+    // SAME umrah installment engine — this only relabels the plan it maps to.
+    if (function_exists('pay_small_small_is_enabled_for') && pay_small_small_is_enabled_for($db, 'umrah', '')) {
+        $pssPlanCode = function_exists('pay_small_small_umrah_plan_for') ? pay_small_small_umrah_plan_for($db, '') : 'PP-50-25-25';
+        foreach ($plans as &$__pl) {
+            if (($__pl['code'] ?? '') === $pssPlanCode) {
+                $__pl['name'] = 'Pay Small Small — ' . ($__pl['name'] ?? 'Installments');
+            }
+        }
+        unset($__pl);
+    }
     $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicename' => 'ASC']]) ?: [];
     $umrahCsrf = class_exists('CSRF') ? CSRF::getToken() : ($_SESSION['csrf_token'] ?? '');
 

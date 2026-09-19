@@ -182,6 +182,50 @@ $router->post(admin.'/settings/payment-scoping/pay-later', function () use ($SEC
     exit;
 });
 
+// Save the PaySmallSmall (installment) rule for a scope.
+$router->post(admin.'/settings/payment-scoping/pay-small-small', function () use ($SECURE,$db) {
+    ADMIN_AUTH();
+    CSRF::guard();
+    header('Content-Type: application/json');
+
+    $moduleType = strtolower(trim((string) ($_POST['module_type'] ?? '')));
+    $supplier   = strtolower(trim((string) ($_POST['supplier'] ?? '')));
+    $scopeType  = $moduleType === '' ? 'global' : ($supplier !== '' ? 'service' : 'module');
+
+    $enabled  = !empty($_POST['enabled']) ? 1 : 0;
+    $firstPct = max(1, min(100, (float) ($_POST['first_percent'] ?? 50)));
+    $insts    = max(1, min(24, (int) ($_POST['installments'] ?? 2)));
+    $interval = max(1, min(365, (int) ($_POST['interval_days'] ?? 30)));
+    $policy   = in_array(($_POST['deadline_policy'] ?? ''), ['auto_cancel', 'flag'], true) ? $_POST['deadline_policy'] : 'flag';
+    $release  = !empty($_POST['release_inventory']) ? 1 : 0;
+    $agents   = !empty($_POST['agents_only']) ? 1 : 0;
+    $offsets  = array_values(array_unique(array_filter(array_map(
+        fn($x) => (int) trim($x), explode(',', (string) ($_POST['reminder_offsets_hours'] ?? ''))
+    ), fn($h) => $h > 0 && $h <= 8760)));
+    rsort($offsets);
+    $offsetsCsv = implode(',', $offsets);
+    $minAmount = ($_POST['min_amount'] ?? '') !== '' ? round((float) $_POST['min_amount'], 2) : null;
+    // umrah plan code — validated against a real active plan, else PP-50-25-25.
+    $planCode = trim((string) ($_POST['umrah_plan_code'] ?? 'PP-50-25-25'));
+    if ($planCode === '' || !$db->get('umrah_payment_plans', 'id', ['code' => $planCode])) { $planCode = 'PP-50-25-25'; }
+
+    $payload = [
+        'enabled' => $enabled, 'first_percent' => round($firstPct, 2), 'installments' => $insts,
+        'interval_days' => $interval, 'reminder_offsets_hours' => $offsetsCsv, 'deadline_policy' => $policy,
+        'release_inventory' => $release, 'agents_only' => $agents, 'min_amount' => $minAmount,
+        'umrah_plan_code' => $planCode, 'updated_at' => date('Y-m-d H:i:s'),
+    ];
+    $existing = $db->get('pay_small_small_rules', 'id', ['scope_type' => $scopeType, 'module_type' => ($moduleType ?: ''), 'supplier' => $supplier]);
+    if ($existing) {
+        $db->update('pay_small_small_rules', $payload, ['id' => (int) $existing]);
+    } else {
+        $db->insert('pay_small_small_rules', array_merge($payload, ['scope_type' => $scopeType, 'module_type' => ($moduleType ?: ''), 'supplier' => $supplier]));
+    }
+    $note = ($moduleType !== '' && $moduleType !== 'umrah') ? ' (note: only umrah is fulfillable in Phase 1)' : '';
+    echo json_encode(['status' => 'success', 'message' => 'PaySmallSmall rule saved for ' . ($moduleType === '' ? 'global default' : $moduleType . ($supplier !== '' ? "/{$supplier}" : '')) . $note]);
+    exit;
+});
+
 // ---------------------------------------------------------------------------
 // GATEWAY CREDENTIAL TESTS
 // Shared, minimal plumbing used by each gateway's own test route. Every gateway
