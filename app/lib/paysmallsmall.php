@@ -6,16 +6,16 @@
 // slice now and the rest in scheduled parts. Configured per scope
 // (service -> module -> global) exactly like Pay-Later, via pay_small_small_rules.
 //
-// UMRAH: umrah already has a full installment engine (umrah_payment_plans +
+// UMRAH: umrah has its own full installment engine (umrah_payment_plans +
 // umrah_installments + umrah_settle_payment with deposit_paid/partially_paid/
-// fully_paid + price-lock). For umrah, PaySmallSmall simply routes the customer
-// into that engine by mapping its rule to the umrah_plan_code — the checkout
-// already renders those plans. So on umrah this reuses proven, tested machinery.
+// fully_paid + price-lock). For umrah, PaySmallSmall routes the customer into
+// that engine by mapping its rule to the umrah_plan_code — the checkout already
+// renders those plans. So on umrah this reuses proven, tested machinery.
 //
-// OTHER SERVICES: they have NO installment engine today (generic bookings are
-// paid|unpaid|refunded only). A generic installment engine is Phase 2; until
-// then pay_small_small_is_enabled_for() returns true only for scopes that can
-// honour it (umrah), so it is never offered where it can't yet be fulfilled.
+// OTHER SERVICES: use the generic installment engine (app/lib/installments.php +
+// the booking_installments table): a schedule of first_percent now + N further
+// parts every interval_days, settled the same way (unpaid -> partially_paid ->
+// paid). PaySmallSmall is enabled per scope for ANY service.
 // ============================================================================
 
 if (!function_exists('pay_small_small_rule_for')) {
@@ -50,18 +50,14 @@ if (!function_exists('pay_small_small_rule_for')) {
 
 if (!function_exists('pay_small_small_is_enabled_for')) {
     /**
-     * True when PaySmallSmall is enabled for this scope AND can actually be
-     * fulfilled. Phase 1: only umrah has an installment engine, so a non-umrah
-     * scope is never enabled even if a rule row says so — this prevents offering
-     * the method where the money flow can't yet complete. (Remove the umrah gate
-     * in Phase 2 once the generic installment engine exists.)
+     * True when PaySmallSmall is enabled for this scope. Fulfillable for ANY
+     * service: umrah via its own engine, everything else via the generic
+     * installment engine (app/lib/installments.php).
      */
     function pay_small_small_is_enabled_for($db, string $moduleType, string $supplierRaw = ''): bool
     {
         $rule = pay_small_small_rule_for($db, $moduleType, $supplierRaw);
         if (!$rule || (int) ($rule['enabled'] ?? 0) !== 1) { return false; }
-        // Phase 2: both umrah (its own engine) and any other service (the generic
-        // installment engine, app/lib/installments.php) are fulfillable now.
         return true;
     }
 }
@@ -92,7 +88,7 @@ if (!function_exists('pay_small_small_summary_for')) {
     /**
      * Customer-facing summary of what PaySmallSmall means for a scope + amount:
      * the first slice and the scheduled remainder. For umrah, derives it from the
-     * mapped umrah plan's deposit %; for others (Phase 2) from the rule's
+     * mapped umrah plan's deposit %; for other services from the rule's
      * first_percent + installments + interval_days. Returns null when not enabled.
      *
      * @return array{first_amount:float,remaining:float,parts:int,label:string}|null
@@ -121,7 +117,7 @@ if (!function_exists('pay_small_small_summary_for')) {
             ];
         }
 
-        // Generic (Phase 2 fulfilment not built): describe from the rule.
+        // Generic service: describe from the rule (fulfilled by installments.php).
         $rule = pay_small_small_rule_for($db, $moduleType, $supplierRaw);
         $firstPct = $rule ? (float) ($rule['first_percent'] ?? 50) : 50.0;
         $insts = $rule ? max(1, (int) ($rule['installments'] ?? 2)) : 2;
