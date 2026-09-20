@@ -64,25 +64,48 @@ if (function_exists('payment_gateway_allowed_for_currency')) {
 // helper returns "inherit" and nothing is filtered (so existing installs are
 // unaffected). The including page may set $paymentScopeModuleType /
 // $paymentScopeSupplier; otherwise we derive them from booking context in scope.
-if (function_exists('payment_gateway_allowed_for_scope')) {
-    $scopeModuleType = '';
-    $scopeSupplier   = '';
-    if (isset($paymentScopeModuleType) && $paymentScopeModuleType !== '') {
-        $scopeModuleType = (string) $paymentScopeModuleType;
-        $scopeSupplier   = (string) ($paymentScopeSupplier ?? '');
-    } elseif (isset($booking) && is_array($booking)) {
-        $scopeModuleType = (string) ($booking['module_type'] ?? '');
-        $scopeSupplier   = (string) ($booking['module'] ?? '');
-    } elseif (isset($bookingData) && is_array($bookingData)) {
-        $scopeModuleType = (string) ($bookingData['module_type'] ?? ($bookingData['type'] ?? ''));
-        $scopeSupplier   = (string) ($bookingData['supplier'] ?? '');
-    }
-    if ($scopeModuleType !== '') {
-        $paymentGateways = array_values(array_filter($paymentGateways, function ($gateway) use ($db, $scopeModuleType, $scopeSupplier) {
-            return payment_gateway_allowed_for_scope($db, $gateway, $scopeModuleType, $scopeSupplier);
-        }));
-    }
+// Resolve the current scope (module + supplier) once — used by the scope-allow
+// filter AND the installment-method rule filter below.
+$scopeModuleType = '';
+$scopeSupplier   = '';
+if (isset($paymentScopeModuleType) && $paymentScopeModuleType !== '') {
+    $scopeModuleType = (string) $paymentScopeModuleType;
+    $scopeSupplier   = (string) ($paymentScopeSupplier ?? '');
+} elseif (isset($booking) && is_array($booking)) {
+    $scopeModuleType = (string) ($booking['module_type'] ?? '');
+    $scopeSupplier   = (string) ($booking['module'] ?? '');
+} elseif (isset($bookingData) && is_array($bookingData)) {
+    $scopeModuleType = (string) ($bookingData['module_type'] ?? ($bookingData['type'] ?? ''));
+    $scopeSupplier   = (string) ($bookingData['supplier'] ?? '');
 }
+
+if (function_exists('payment_gateway_allowed_for_scope') && $scopeModuleType !== '') {
+    $paymentGateways = array_values(array_filter($paymentGateways, function ($gateway) use ($db, $scopeModuleType, $scopeSupplier) {
+        return payment_gateway_allowed_for_scope($db, $gateway, $scopeModuleType, $scopeSupplier);
+    }));
+}
+
+// INSTALLMENT-METHOD RULE FILTER (step 4): pay_later and pay_small_small are
+// gateways with their OWN per-scope enablement rules. The scope-allow filter above
+// only governs the gateway allow-list, not these rules — so without this a
+// globally-enabled Pay-Later / PaySmallSmall gateway would show on EVERY scope even
+// where its rule is disabled. Hide each unless its rule is enabled for this scope.
+$paymentGateways = array_values(array_filter($paymentGateways, function ($gateway) use ($db, $scopeModuleType, $scopeSupplier) {
+    $type = (string) ($gateway['type'] ?? '');
+    if ($type === 'pay_small_small') {
+        return $scopeModuleType !== '' && function_exists('pay_small_small_is_enabled_for')
+            && pay_small_small_is_enabled_for($db, $scopeModuleType, $scopeSupplier);
+    }
+    if ($type === 'pay_later') {
+        // Pay-Later has a rule too; hide it when disabled for the scope. If the
+        // helper is unavailable, fall back to showing (legacy behaviour).
+        if ($scopeModuleType !== '' && function_exists('pay_later_is_enabled_for')) {
+            return pay_later_is_enabled_for($db, $scopeModuleType, $scopeSupplier);
+        }
+        return true;
+    }
+    return true; // all other gateways unaffected
+}));
 
 // FIND DEFAULT GATEWAY
 $defaultGatewayId = '';
