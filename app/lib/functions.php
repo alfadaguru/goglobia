@@ -4910,8 +4910,27 @@ if (!function_exists('ensureAgentApiSchema')) {
                 PRIMARY KEY (`id`),
                 KEY `idx_wallet` (`wallet_id`,`created_at`),
                 KEY `idx_user` (`user_id`),
-                KEY `idx_txn` (`transaction_id`)
+                UNIQUE KEY `uq_txn` (`transaction_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            // audit #1/#3 backstop: wallet_apply must never write two ledger rows for
+            // one money_transactions txn. Existing installs already have wallet_ledger
+            // with the plain idx_txn KEY, so upgrade it to UNIQUE idempotently. MySQL
+            // permits multiple NULL transaction_ids under a UNIQUE index, so the rare
+            // NULL-txn opening-balance rows are unaffected. Guarded by a dup check so a
+            // legacy install with a genuine duplicate doesn't hard-fail the migration.
+            try {
+                $hasUniq = $db->query("SHOW INDEX FROM `wallet_ledger` WHERE Key_name = 'uq_txn'")->fetch();
+                if (!$hasUniq) {
+                    $dups = $db->query("SELECT COUNT(*) c FROM (SELECT transaction_id FROM `wallet_ledger` WHERE transaction_id IS NOT NULL GROUP BY transaction_id HAVING COUNT(*) > 1) d")->fetch();
+                    if ((int) ($dups['c'] ?? 0) === 0) {
+                        try { $db->query("ALTER TABLE `wallet_ledger` DROP INDEX `idx_txn`"); } catch (\Throwable $e) {}
+                        $db->query("ALTER TABLE `wallet_ledger` ADD UNIQUE KEY `uq_txn` (`transaction_id`)");
+                    } else {
+                        error_log('ensureAgentApiSchema: wallet_ledger has duplicate transaction_id rows; skipping uq_txn migration — reconcile manually');
+                    }
+                }
+            } catch (\Throwable $e) { error_log('ensureAgentApiSchema uq_txn: ' . $e->getMessage()); }
 
             $db->query("CREATE TABLE IF NOT EXISTS `transaction_journey` (
                 `id` bigint(20) NOT NULL AUTO_INCREMENT,

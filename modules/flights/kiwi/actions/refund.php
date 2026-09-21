@@ -85,15 +85,19 @@ $router->post('flights/kiwi/refund', function() use ($db) {
             throw new Exception('Booking must be cancelled before processing refund. Current status: ' . $booking['booking_status']);
         }
 
-        // Check if already refunded
-        if ($booking['booking_status'] === 'refunded') {
+        // Check if already refunded (audit #4). The refunded state is recorded in
+        // payment_status='refunded' (booking_status stays 'cancelled'/'voided' — the
+        // enum cannot even hold 'refunded'), so the previous guard on booking_status
+        // was structurally dead and a repeat POST issued a SECOND real gateway refund.
+        if (($booking['payment_status'] ?? '') === 'refunded') {
 
             ob_clean();
             echo json_encode([
                 'status' => true,
                 'message' => 'Booking already marked as refunded',
                 'invoice_id' => $invoice_id,
-                'booking_status' => $booking['booking_status']
+                'booking_status' => $booking['booking_status'],
+                'payment_status' => $booking['payment_status']
             ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             exit;
         }

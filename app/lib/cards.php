@@ -354,15 +354,21 @@ if (!function_exists('cards_charge')) {
         $secret = $gw ? cards_secret_key($gw) : '';
         if ($secret === '') { return ['ok' => false, 'message' => 'Payment gateway not configured']; }
 
-        // 1) Create the pending top-up transaction on the spine (idempotency added
-        //    once we have a provider reference — but we need a txn first to charge
-        //    against, so we use a deterministic pre-key on the card+amount+minute
-        //    to guard rapid double-clicks, then reconcile on the provider ref).
         $wallet_lib = __DIR__ . '/wallet.php';
         if (!function_exists('txn_create')) { require_once $wallet_lib; }
 
+        // IDEMPOTENCY (audit #2): a double-click / client retry must NOT charge the
+        // card twice. Previously the spine idem key was derived from the provider id
+        // returned AFTER the charge, so two calls minted two distinct ids and both
+        // credited. We now derive a deterministic key from (user, card, amount, 60s
+        // window) and hand it to the PROVIDER — Stripe as the Idempotency-Key header,
+        // Paystack as the charge reference. The provider then collapses the duplicate
+        // to the SAME charge/reference, so cards_settle_topup sees the same provider
+        // ref → same CARD-* spine key → the second settle is a no-op. No double charge.
+        $minor    = (int) round($amount * 100);
+        $idemKey  = 'CARDCHG-' . $userId . '-' . $cardId . '-' . $minor . '-' . (int) floor(time() / 60);
+
         if ($provider === 'stripe') {
-            $minor = (int) round($amount * 100); // Stripe wants minor units
             $r = cards_http('POST', 'https://api.stripe.com/v1/payment_intents', $secret, [
                 'amount'         => $minor,
                 'currency'       => strtolower($currency),
@@ -372,7 +378,7 @@ if (!function_exists('cards_charge')) {
                 'confirm'        => 'true',
                 'metadata[user_id]' => $userId,
                 'metadata[reason]'  => 'wallet_topup',
-            ], 'stripe');
+            ], 'stripe', ['Idempotency-Key: ' . $idemKey]);
             $j = $r['json'] ?? [];
             $status = (string) ($j['status'] ?? '');
             $piId   = (string) ($j['id'] ?? '');
@@ -395,12 +401,15 @@ if (!function_exists('cards_charge')) {
 
         if ($provider === 'paystack') {
             $email = (string) ($db->get('users', 'email', ['user_id' => $userId]) ?: '');
-            $minor = (int) round($amount * 100); // kobo
+            // Supply our deterministic reference: Paystack treats charge_authorization
+            // as idempotent per reference, so a double-click reuses the same charge
+            // (and echoes the same data.reference) instead of charging twice.
             $r = cards_http('POST', 'https://api.paystack.co/transaction/charge_authorization', $secret, [
                 'authorization_code' => (string) $card['token'],
-                'email'    => $email,
-                'amount'   => $minor,
-                'currency' => $currency,
+                'email'     => $email,
+                'amount'    => $minor,
+                'currency'  => $currency,
+                'reference' => $idemKey,
             ], 'paystack');
             $j = $r['json'] ?? [];
             $ok  = !empty($j['status']) && strtolower((string) ($j['data']['status'] ?? '')) === 'success';
@@ -454,10 +463,11 @@ if (!function_exists('cards_http')) {
      * Minimal HTTPS client for provider APIs. Stripe uses form-encoded + Bearer;
      * Paystack uses JSON + Bearer. Returns ['http'=>int,'json'=>array|null,'raw'=>string].
      */
-    function cards_http(string $method, string $url, string $secret, array $body, string $style): array
+    function cards_http(string $method, string $url, string $secret, array $body, string $style, array $extraHeaders = []): array
     {
         $ch = curl_init($url);
         $headers = ['Authorization: Bearer ' . $secret];
+        foreach ($extraHeaders as $h) { $headers[] = (string) $h; }
         $opts = [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CUSTOMREQUEST  => strtoupper($method),
