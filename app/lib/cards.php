@@ -11,7 +11,11 @@
 //
 // Charging a saved card feeds the EXISTING money spine (txn_create +
 // wallet_topup_success), so wallet crediting, the ledger and idempotency are
-// unchanged from a normal top-up. Idempotency key: CARD-{provider_ref}.
+// unchanged from a normal top-up. Two idempotency layers: a deterministic
+// PRE-charge key CARDCHG-{user}-{card}-{minor}-{minute} handed to the provider
+// (Stripe Idempotency-Key / Paystack reference) collapses a double-click into
+// one charge; the resulting provider ref then keys the spine settle as
+// CARD-STRIPE-{pi} / CARD-PSK-{ref}.
 // ============================================================================
 
 if (!function_exists('cards_gateway_for_currency')) {
@@ -333,8 +337,11 @@ if (!function_exists('cards_charge')) {
     /**
      * Off-session charge of a saved card, settling the proceeds into the wallet
      * through the EXISTING spine (txn_create -> provider charge -> wallet_topup_success).
-     * Idempotent per (card, amount) via CARD-{provider_ref} — a retried charge never
-     * double-credits. Owner-checked. For Stripe, an SCA step-up returns
+     * Idempotent against double-clicks: a deterministic pre-charge key
+     * CARDCHG-{user}-{card}-{minor}-{minute} is sent to the provider (Stripe
+     * Idempotency-Key header / Paystack reference), so a repeat within the 60s
+     * window reuses the same charge; the spine settle then dedupes on the returned
+     * provider ref (CARD-STRIPE-{pi}/CARD-PSK-{ref}). Owner-checked. For Stripe, an SCA step-up returns
      * requires_action + a client_secret for the browser to complete, then re-settle.
      *
      * @return array{ok:bool,balance?:float,requires_action?:bool,client_secret?:string,message?:string}

@@ -142,6 +142,7 @@ $router->post('/api/bookings', function () use ($db) {
         "payment_status" => [
             "all" => count($allUserBookings),
             "paid" => count(array_filter($allUserBookings, fn($b) => ($b['payment_status'] ?? '') === 'paid')),
+            "partially_paid" => count(array_filter($allUserBookings, fn($b) => ($b['payment_status'] ?? '') === 'partially_paid')),
             "unpaid" => count(array_filter($allUserBookings, fn($b) => ($b['payment_status'] ?? '') === 'unpaid')),
             "refunded" => count(array_filter($allUserBookings, fn($b) => ($b['payment_status'] ?? '') === 'refunded'))
         ],
