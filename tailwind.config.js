@@ -18,14 +18,19 @@ module.exports = {
     './app/**/*.php',
   ],
 
-  // Classes built by concatenation (e.g. "bg-' . $x) that the content scanner
-  // cannot see as literals. Keep this MINIMAL — over-safelisting bloats output.
-  // Found in the Phase-3 sweep: app/views/admin/promo-codes/promo-codes.php:77.
-  // (Spike seed; the full visual-regression pass may add a few more.)
+  // Classes built by string CONCATENATION — the content scanner matches
+  // plain-text substrings, so it cannot see a class whose color is assembled
+  // from a variable. A full Phase-3 sweep of app/ + modules/ found exactly ONE
+  // such site: app/views/admin/promo-codes/promo-codes.php:77 builds
+  // `bg-{$color}-500` where $color ∈ {red, yellow, green} (a usage-meter bar).
+  // Everything else — including the ticket/status/priority colour MAPS — stores
+  // FULL literal class strings ('bg-blue-100 text-blue-800'), which the scanner
+  // already picks up, so they are deliberately NOT listed here. Keep this exact:
+  // over-safelisting ships unused CSS.
   safelist: [
-    'bg-green-500', 'bg-red-500', 'bg-blue-500', 'bg-amber-500',
-    'bg-purple-500', 'bg-orange-500',
-    { pattern: /^(bg|text|border)-(blue|green|red|amber|slate|gray)-(50|100|500|600|700|800)$/ },
+    'bg-red-500',
+    'bg-yellow-500',
+    'bg-green-500',
   ],
 
   theme: {
