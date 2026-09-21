@@ -27756,6 +27756,35 @@ CREATE TABLE `pay_small_small_rules` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
+-- Table structure for table `saved_cards`
+-- Card-on-file vault. Stores ONLY provider tokens (Stripe pm_... PaymentMethod /
+-- Paystack authorization_code) + non-secret display fields — never a PAN/CVV.
+-- See app/lib/cards.php.
+--
+
+CREATE TABLE `saved_cards` (
+  `id` int(11) NOT NULL,
+  `user_id` varchar(191) NOT NULL,
+  `provider` enum('stripe','paystack') NOT NULL,
+  `gateway_id` int(11) DEFAULT NULL,
+  `currency` varchar(3) NOT NULL DEFAULT 'USD',
+  `provider_customer` varchar(191) DEFAULT NULL,
+  `token` varchar(255) NOT NULL,
+  `brand` varchar(32) DEFAULT NULL,
+  `last4` char(4) DEFAULT NULL,
+  `exp_month` smallint(6) DEFAULT NULL,
+  `exp_year` smallint(6) DEFAULT NULL,
+  `is_default` tinyint(1) NOT NULL DEFAULT 0,
+  `status` enum('active','removed') NOT NULL DEFAULT 'active',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_user_token` (`user_id`,`token`),
+  KEY `idx_user_status` (`user_id`,`status`),
+  KEY `idx_provider` (`provider`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
 -- Dumping data for table `payment_gateways`
 --
 

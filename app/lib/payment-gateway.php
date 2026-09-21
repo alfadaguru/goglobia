@@ -368,6 +368,36 @@ function handle_payment_callback($token, $action, $data = [])
                     }
                 }
 
+                // SAVE-ON-FIRST-TOP-UP (Paystack cards): a Paystack card charge
+                // returns a REUSABLE authorization on success. Vault it as a saved
+                // card so the customer can top up again without re-entering it — no
+                // throwaway charge, the card is saved as a side effect of this real
+                // top-up. Only when the verified authorization is reusable + a card.
+                if ($creditOk && function_exists('cards_save')) {
+                    try {
+                        $auth = $data['gateway_data']['authorization'] ?? $data['authorization'] ?? [];
+                        $gwName = strtolower((string) ($tokenData['gateway_name'] ?? ''));
+                        if (strpos($gwName, 'paystack') !== false
+                            && is_array($auth)
+                            && !empty($auth['reusable'])
+                            && (string) ($auth['channel'] ?? 'card') === 'card'
+                            && !empty($auth['authorization_code'])) {
+                            $custCode = (string) ($db->get('users', 'paystack_customer_code', ['user_id' => $topupUser]) ?: '');
+                            cards_save($db, (string) $topupUser, [
+                                'provider'          => 'paystack',
+                                'gateway_id'        => (int) ($booking['payment_gateway'] ?? 0) ?: null,
+                                'currency'          => $topupCur,
+                                'provider_customer' => $custCode ?: null,
+                                'token'             => (string) $auth['authorization_code'],
+                                'brand'             => (string) ($auth['brand'] ?? $auth['card_type'] ?? ''),
+                                'last4'             => (string) ($auth['last4'] ?? ''),
+                                'exp_month'         => (int) ($auth['exp_month'] ?? 0) ?: null,
+                                'exp_year'          => (int) ($auth['exp_year'] ?? 0) ?: null,
+                            ]);
+                        }
+                    } catch (\Throwable $eCard) { error_log('save-on-topup: ' . $eCard->getMessage()); }
+                }
+
                 clear_payment_token($token);
                 return [
                     'success' => true,
@@ -1575,6 +1605,13 @@ function verify_gateway_payment($gatewayName, &$data, $tokenData, $db)
                     }
                     // Persist the gateway-verified reference (P5, by-ref).
                     $data['transaction_id'] = $refInv;
+                    // Surface the REUSABLE authorization (by-ref) so save-on-first-
+                    // top-up can vault the card. This is Paystack's own verified
+                    // response — non-secret display fields + an authorization_code
+                    // bound to our account. Never the PAN.
+                    if (!empty($result['data']['authorization']) && is_array($result['data']['authorization'])) {
+                        $data['authorization'] = $result['data']['authorization'];
+                    }
                     return 'success';
                 } elseif ($status === 'abandoned' || $status === 'cancelled') {
                     return 'cancel';

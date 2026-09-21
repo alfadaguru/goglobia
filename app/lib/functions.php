@@ -450,6 +450,32 @@ function ensurePaymentScopingSchema($db): void
             UNIQUE KEY `uq_pss_scope` (`scope_type`,`module_type`,`supplier`),
             KEY `idx_scope` (`scope_type`,`module_type`,`supplier`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+        // SAVED CARDS (card-on-file vault). Stores ONLY provider tokens + non-secret
+        // display data — never a PAN/CVV/expiry secret. `token` is a Stripe
+        // PaymentMethod (pm_...) or a Paystack authorization_code, both useless
+        // without our provider secret keys. See app/lib/cards.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `saved_cards` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `user_id` varchar(191) NOT NULL,
+            `provider` enum('stripe','paystack') NOT NULL,
+            `gateway_id` int(11) DEFAULT NULL,
+            `currency` varchar(3) NOT NULL DEFAULT 'USD',
+            `provider_customer` varchar(191) DEFAULT NULL,
+            `token` varchar(255) NOT NULL,
+            `brand` varchar(32) DEFAULT NULL,
+            `last4` char(4) DEFAULT NULL,
+            `exp_month` smallint(6) DEFAULT NULL,
+            `exp_year` smallint(6) DEFAULT NULL,
+            `is_default` tinyint(1) NOT NULL DEFAULT 0,
+            `status` enum('active','removed') NOT NULL DEFAULT 'active',
+            `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+            `updated_at` datetime DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_user_token` (`user_id`,`token`),
+            KEY `idx_user_status` (`user_id`,`status`),
+            KEY `idx_provider` (`provider`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
     } catch (\Throwable $e) {
         error_log('ensurePaymentScopingSchema tables: ' . $e->getMessage());
     }
@@ -532,6 +558,8 @@ function ensurePaymentScopingSchema($db): void
         ['payment_gateway_scopes', 'c3', "ALTER TABLE `payment_gateway_scopes` ADD COLUMN `c3` TEXT NULL DEFAULT NULL"],
         ['payment_gateway_scopes', 'c4', "ALTER TABLE `payment_gateway_scopes` ADD COLUMN `c4` TEXT NULL DEFAULT NULL"],
         ['payment_gateway_scopes', 'c5', "ALTER TABLE `payment_gateway_scopes` ADD COLUMN `c5` TEXT NULL DEFAULT NULL"],
+        // Saved-cards: Stripe customer id per user (Paystack customer already exists as paystack_customer_code).
+        ['users', 'stripe_customer_code', "ALTER TABLE `users` ADD COLUMN `stripe_customer_code` VARCHAR(191) NULL DEFAULT NULL"],
     ];
     foreach ($cols as [$table, $column, $alterSql]) {
         try {

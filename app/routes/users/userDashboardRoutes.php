@@ -109,6 +109,8 @@ $router->get('/dashboard', function () use ($SECURE,$db) {
         'dva_account_number' => (string)($user['dva_account_number'] ?? ''),
         'dva_bank_name' => (string)($user['dva_bank_name'] ?? ''),
         'dva_account_name' => (string)($user['dva_account_name'] ?? ''),
+        // Saved cards (card-on-file) — display data only, never a token.
+        'saved_cards' => function_exists('cards_list') ? cards_list($db, (string)($_SESSION['user_id'] ?? '')) : [],
     ];
 
     // META DATA

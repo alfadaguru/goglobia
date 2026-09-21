@@ -146,6 +146,102 @@
          </div>
          <?php endif; ?>
 
+         <?php
+            // -----------------------------------------------------------------
+            // SAVED CARDS (card-on-file). List + add (Stripe.js) + remove. The
+            // card number is entered in Stripe's own field — it never touches us.
+            // -----------------------------------------------------------------
+            $savedCards = $dashboardData['saved_cards'] ?? [];
+         ?>
+         <div class="card p-4 mb-5" x-data="savedCards(<?= htmlspecialchars(json_encode($savedCards), ENT_QUOTES) ?>)">
+            <div class="flex items-center justify-between mb-3">
+               <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-1">
+                  <span class="material-symbols-outlined text-base">credit_card</span> Saved cards
+               </h3>
+               <button type="button" class="btn ghost text-xs inline-flex items-center gap-1" @click="startAdd()" :disabled="adding">
+                  <span class="material-symbols-outlined text-base">add</span> Add card
+               </button>
+            </div>
+
+            <template x-if="cards.length === 0 && !adding">
+               <p class="text-xs text-slate-400">No saved cards yet. Add one to pay faster next time.</p>
+            </template>
+
+            <ul class="flex flex-col gap-2" x-show="cards.length">
+               <template x-for="c in cards" :key="c.id">
+                  <li class="rounded-lg bg-white border border-slate-200 p-3 flex items-center justify-between gap-3">
+                     <div class="flex items-center gap-3 min-w-0">
+                        <span class="material-symbols-outlined text-slate-400">credit_card</span>
+                        <div class="min-w-0">
+                           <div class="text-sm font-medium text-slate-800 tabular-nums">
+                              <span x-text="(c.brand||'card').toUpperCase()"></span> ···· <span x-text="c.last4"></span>
+                              <span class="text-[11px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 ml-1" x-show="c.is_default">Default</span>
+                              <span class="text-[11px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 ml-1" x-show="c.expired">Expired</span>
+                           </div>
+                           <div class="text-xs text-slate-400">
+                              <span x-text="c.currency"></span> · expires <span x-text="c.exp || '—'"></span>
+                           </div>
+                        </div>
+                     </div>
+                     <div class="flex items-center gap-2 shrink-0">
+                        <button type="button" class="text-xs text-blue-600 hover:underline" x-show="!c.is_default" @click="setDefault(c.id)">Make default</button>
+                        <button type="button" class="text-xs text-red-500 hover:underline" @click="removeCard(c.id)">Remove</button>
+                     </div>
+                  </li>
+               </template>
+            </ul>
+
+            <!-- Add-card panel (Stripe.js mounts here) -->
+            <div x-show="adding" x-cloak class="mt-3 rounded-lg border border-slate-200 p-3">
+               <div id="card-element" class="p-2 border border-slate-200 rounded bg-white"></div>
+               <p class="text-xs text-red-500 mt-1" x-text="err" x-show="err"></p>
+               <div class="flex items-center gap-2 mt-3">
+                  <button type="button" class="btn primary text-xs" @click="saveCard()" :disabled="busy">
+                     <span x-text="busy ? 'Saving…' : 'Save card'"></span>
+                  </button>
+                  <button type="button" class="btn ghost text-xs" @click="cancelAdd()" :disabled="busy">Cancel</button>
+               </div>
+               <p class="text-[11px] text-slate-400 mt-2">Your card details are handled securely by Stripe — they never touch our servers.</p>
+            </div>
+         </div>
+
+         <script src="https://js.stripe.com/v3/"></script>
+         <script>
+         function savedCards(initial){
+            const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+            const ROOT = '<?= root ?>';
+            return {
+               cards: initial || [], adding:false, busy:false, err:'',
+               _stripe:null, _elements:null, _card:null, _clientSecret:'', _setupId:'',
+               _post(url, body){
+                  return fetch(ROOT+url,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF},credentials:'same-origin',body:JSON.stringify(body||{})}).then(r=>r.json());
+               },
+               async startAdd(){
+                  this.err=''; this.adding=true; this.busy=true;
+                  try{
+                     const d = await this._post('api/cards/setup');
+                     if(!d.success){ this.err=d.message||'Could not start.'; this.adding=false; this.busy=false; return; }
+                     this._clientSecret=d.client_secret; this._setupId=d.setup_intent_id;
+                     this._stripe = Stripe(d.publishable_key);
+                     this._elements = this._stripe.elements();
+                     this._card = this._elements.create('card');
+                     this.$nextTick(()=>{ this._card.mount('#card-element'); this.busy=false; });
+                  }catch(e){ this.err='Network error.'; this.adding=false; this.busy=false; }
+               },
+               async saveCard(){
+                  if(!this._card) return; this.busy=true; this.err='';
+                  const {error,setupIntent} = await this._stripe.confirmCardSetup(this._clientSecret,{payment_method:{card:this._card}});
+                  if(error){ this.err=error.message||'Card was declined.'; this.busy=false; return; }
+                  const d = await this._post('api/cards/save',{setup_intent_id:setupIntent.id});
+                  if(d.success){ this.cards=d.cards; this.cancelAdd(); } else { this.err=d.message||'Could not save.'; this.busy=false; }
+               },
+               cancelAdd(){ try{this._card&&this._card.unmount();}catch(e){}; this.adding=false; this.busy=false; this.err=''; this._card=null; },
+               async setDefault(id){ const d=await this._post('api/cards/'+id+'/default'); if(d.success) this.cards=d.cards; },
+               async removeCard(id){ if(!confirm('Remove this card?'))return; const d=await this._post('api/cards/'+id+'/delete'); if(d.success) this.cards=d.cards; },
+            };
+         }
+         </script>
+
          <?php if (!empty($dashboardData['tier_info']) && !empty($dashboardData['tier_info']['current'])):
                   $ti = $dashboardData['tier_info'];
                   $curTier = $ti['current'];
