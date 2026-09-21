@@ -30314,7 +30314,7 @@ CREATE TABLE IF NOT EXISTS `wallet_ledger` (
   PRIMARY KEY (`id`),
   KEY `idx_wallet` (`wallet_id`,`created_at`),
   KEY `idx_user` (`user_id`),
-  KEY `idx_txn` (`transaction_id`)
+  UNIQUE KEY `uq_txn` (`transaction_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE IF NOT EXISTS `transaction_journey` (

@@ -259,6 +259,19 @@ if (!function_exists('wallet_apply')) {
                 $balance = (float) $w['balance'];
                 $walletId = (int) $w['id'];
 
+                // Per-transaction idempotency (audit #1/#3): a money_transactions row
+                // may reach a spine caller more than once (webhook retry, mid-request
+                // death + retry, double-submit). If a ledger row already exists for
+                // this transaction_id, the money has ALREADY moved — no-op and return
+                // the current balance so we never debit/credit the same txn twice.
+                // (wallet_ledger also carries a UNIQUE key on transaction_id as a
+                // structural backstop; this check gives the clean "already" result.)
+                $txnId = isset($opts['transaction_id']) ? (int) $opts['transaction_id'] : 0;
+                if ($txnId > 0 && $db->has('wallet_ledger', ['transaction_id' => $txnId])) {
+                    $result = ['ok' => true, 'balance' => round($balance, 2), 'already' => true];
+                    return true; // commit (no-op) — money already applied for this txn
+                }
+
                 if ($direction === 'debit') {
                     // Optional agent credit-line headroom (users.credit_limits).
                     $headroom = 0.0;
@@ -799,14 +812,28 @@ if (!function_exists('wallet_topup_success')) {
         if ($t['status'] === 'success') { return ['ok' => true, 'balance' => wallet_balance($db, $t['user_id'], $t['currency']), 'already' => true]; }
         if ($t['direction'] !== 'credit') { return ['ok' => false, 'message' => 'Not a credit transaction']; }
 
-        txn_advance($db, $transactionId, 'success', 'gateway confirmed top-up', $gatewayContext,
-            $providerTrxId !== '' ? ['provider_trx_id' => $providerTrxId] : []);
+        // CREDIT FIRST, then mark success (audit #1). Marking the txn 'success'
+        // before the wallet is actually credited means a failed wallet_apply
+        // leaves a permanently-'success' txn with zero money credited, which the
+        // status guard above then blocks from ever healing. So we credit first
+        // (idempotent per transaction_id inside wallet_apply) and only advance to
+        // 'success' once the money has landed. On credit failure the txn stays
+        // 'pending' so a retry (webhook re-fire / manual re-run) can complete it.
         $r = wallet_apply($db, (string) $t['user_id'], (float) $t['amount'], 'credit', (string) $t['currency'], [
             'reason' => 'topup', 'ref_type' => 'transaction', 'ref_id' => (string) $t['id'],
             'transaction_id' => (int) $t['id'], 'note' => 'Wallet top-up ' . $t['txn_ref'],
         ]);
+        if (empty($r['ok'])) {
+            error_log('wallet_topup_success: credit failed for txn ' . $transactionId
+                . ' (' . ($r['message'] ?? 'unknown') . ') — left pending for retry');
+            return ['ok' => false, 'message' => $r['message'] ?? 'Wallet credit failed', 'retryable' => true];
+        }
+
+        txn_advance($db, $transactionId, 'success', 'gateway confirmed top-up', $gatewayContext,
+            $providerTrxId !== '' ? ['provider_trx_id' => $providerTrxId] : []);
+
         // A top-up may promote the agent to a higher member tier (deposit-driven).
-        if (!empty($r['ok']) && function_exists('agent_recompute_tier')) {
+        if (function_exists('agent_recompute_tier')) {
             agent_recompute_tier($db, (string) $t['user_id']);
         }
         return $r;
