@@ -131,6 +131,14 @@ body{overflow-x:hidden;font-size:16px;line-height:28px;color:#000000;-webkit-fon
 .btn.outline { color: #374151; background-color: #ffffff; }
 .btn.ghost { color: #374151; background-color: transparent; }
 
+/* SOLID badges (saturated bg + white text) are defined only in the CDN JIT
+   layer, so they share the same race as .btn — pin their text color statically.
+   The TINTED badges (badge-success/warning/error/info/etc.) are light-bg +
+   dark-text by default and stay readable without the JIT, so they need no
+   fallback here. */
+.badge-primary { color: #ffffff; background-color: #2563eb; }
+.badge-secondary { color: #ffffff; background-color: #4b5563; }
+
 .material-symbols-outlined {
     font-family: 'Material Symbols Outlined', sans-serif;
     font-weight: normal;
