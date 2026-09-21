@@ -205,10 +205,16 @@ $router->post('/wallet/topup', function () use ($SECURE, $db) {
     if ($currency === '' && function_exists('wallet_default_currency')) { $currency = wallet_default_currency($db); }
     if ($currency === '') { $currency = 'NGN'; }
 
-    // Pick the currency-correct EXTERNAL gateway (reuses step 2 routing):
-    // the enabled+active non-wallet gateway allowed for this currency.
+    // Pick the currency-correct CHARGING gateway (reuses step 2 routing): a
+    // top-up must actually move money now, so only real charge processors qualify
+    // — NOT the wallet itself, and NOT deferred/plan methods (pay_later,
+    // pay_small_small) or offline rails (bank_transfer/cash/manual/voucher/invoice)
+    // which either take no money or aren't a top-up rail. Without this filter a
+    // globally-enabled Pay-Later gateway (status=1) would be picked and a top-up
+    // would nonsensically "reserve" instead of charging.
+    $chargeTypes = ['credit_card', 'debit_card', 'digital_wallet', 'crypto_currency'];
     $candidates = $db->select('payment_gateways', '*', [
-        'status' => '1', 'active' => '1', 'type[!]' => 'internal_wallet',
+        'status' => '1', 'active' => '1', 'type' => $chargeTypes,
         'ORDER' => ['default' => 'DESC', 'id' => 'ASC'],
     ]) ?: [];
     $gateway = null;
