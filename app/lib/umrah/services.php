@@ -1104,9 +1104,13 @@ if (!function_exists('umrah_settle_payment')) {
                 }
                 $db->update('umrah_bookings', $ubUpdate, ['id' => $ubId]);
 
-                // Reflect on the generic bookings row (payment of record).
+                // Reflect on the generic bookings row (payment of record). Map the
+                // umrah tri-state onto the bookings enum (paid|partially_paid|unpaid):
+                // a deposit/partial payment must show as 'partially_paid', not 'unpaid'
+                // (audit #5 — previously the callback's blanket 'paid' write masked
+                // this; now that umrah owns the status, it must report partial correctly).
                 $genUpdate = [
-                    'payment_status' => ($balance < 0.01) ? 'paid' : 'unpaid',
+                    'payment_status' => ($balance < 0.01) ? 'paid' : (($paid > 0) ? 'partially_paid' : 'unpaid'),
                 ];
                 if ($confirm) {
                     $genUpdate['booking_status'] = 'confirmed';

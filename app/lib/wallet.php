@@ -316,12 +316,32 @@ if (!function_exists('wallet_apply')) {
                         'created_at'  => date('Y-m-d H:i:s'),
                     ]);
                 } else {
-                    // Customer: users.balance is authoritative-mirrored to the
-                    // wallet's new balance (same currency only — the wallet row is
-                    // per-currency and was seeded from users.balance).
+                    // Customer: users.balance is a LEGACY single-currency mirror of
+                    // the wallet (dashboards/sidebar/admin read it). The wallet row is
+                    // per-currency, so this only stays coherent for one currency.
+                    //
+                    // audit #6: previously we also mirrored when users.currency was
+                    // empty (uCur===''). For a multi-currency customer with no set
+                    // currency that meant BOTH a USD and an NGN top-up overwrote
+                    // users.balance with their own absolute per-currency figure —
+                    // last-write-wins — so the legacy readers showed/converted a
+                    // wrong-currency amount. We now mirror only when it's unambiguous:
+                    //   * users.currency is set AND matches this wallet's currency, OR
+                    //   * users.currency is empty AND this is the customer's ONLY wallet
+                    //     (so there is no other currency for it to clobber).
+                    // A multi-currency customer with empty users.currency no longer
+                    // desyncs the mirror; per-currency `wallets` rows remain the source
+                    // of truth for all actual spend (which never reads users.balance).
                     try {
                         $uCur = strtoupper(trim((string) ($db->get('users', 'currency', ['user_id' => $userId]) ?: '')));
-                        if ($uCur === '' || $uCur === $currency) {
+                        $mirror = false;
+                        if ($uCur !== '') {
+                            $mirror = ($uCur === $currency);
+                        } else {
+                            $otherWallets = (int) $db->count('wallets', ['user_id' => $userId, 'currency[!]' => $currency]);
+                            $mirror = ($otherWallets === 0);
+                        }
+                        if ($mirror) {
                             $db->update('users', ['balance' => $newBalance], ['user_id' => $userId]);
                         }
                     } catch (\Throwable $e) { error_log('wallet_apply customer mirror: ' . $e->getMessage()); }

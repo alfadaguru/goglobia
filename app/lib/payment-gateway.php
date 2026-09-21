@@ -886,6 +886,17 @@ function handle_payment_callback($token, $action, $data = [])
                     'transaction_id' => $data['transaction_id'] ?? null,
                     'paid_at'        => date('Y-m-d H:i:s'),
                 ], ['invoice_id' => $tokenData['invoice_id']]);
+            } elseif ($isUmrahInst) {
+                // UMRAH is ALSO an installment booking (audit #5): a deposit-only
+                // payment charges just the first slice, so we must NOT blanket-mark
+                // it 'paid'/'confirmed' here. umrah_settle_payment (below) owns the
+                // status — it sets partially_paid on a deposit and only paid+confirmed
+                // once the balance clears. Record just the txn/paid_at so that if
+                // settlement throws, the booking is NOT left falsely fully-paid.
+                $db->update('bookings', [
+                    'transaction_id' => $data['transaction_id'] ?? null,
+                    'paid_at'        => date('Y-m-d H:i:s'),
+                ], ['invoice_id' => $tokenData['invoice_id']]);
             } else {
                 $paidUpdate = [
                     'payment_status' => 'paid',
