@@ -94,6 +94,43 @@
 
 body{overflow-x:hidden;font-size:16px;line-height:28px;color:#000000;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 
+/* ---------------------------------------------------------------------------
+   BUTTON COLOR FALLBACK (always-present, static)
+   The .btn component styles are defined in app/views/tailwind.php inside a
+   `@layer components` block that the CDN Tailwind JIT compiles in the browser
+   AFTER load. During that window (and if the CDN is slow/blocked) a solid .btn
+   inherited body{color:#000}, rendering a blue button with BLACK text. These
+   rules live in the real stylesheet (loaded every request) so button contrast
+   is correct regardless of when — or whether — the JIT layer arrives. They use
+   the same --btn-* theme variables as tailwind.php, so a themed button stays in
+   sync; only the guaranteed base color pairing is duplicated here.
+   NOTE: `.btn.primary` was never defined anywhere (only white/light/ghost/etc.
+   existed), yet dashboard/wallet markup uses `class="btn primary"` — it now
+   resolves to the correct solid-blue + white-text pairing.
+   --------------------------------------------------------------------------- */
+.btn {
+    color: var(--btn-text-color, #ffffff);
+    background-color: var(--btn-background, #3b82f6);
+    border-color: var(--btn-border-color, #3b82f6);
+}
+.btn:hover:not(:disabled) {
+    background-color: var(--btn-background-hover, #2563eb);
+}
+/* Solid variants — force readable text so they never inherit body{color:#000} */
+.btn.primary { color: var(--btn-text-color, #ffffff); background-color: var(--btn-background, #3b82f6); }
+.btn.secondary { color: #ffffff; background-color: #4b5563; }
+.btn.emerald { color: #ffffff; }
+.btn.rose { color: #ffffff; }
+.btn.slate { color: #ffffff; }
+.btn.violet { color: #ffffff; }
+.btn.cyan { color: #ffffff; }
+.btn.amber { color: #0f172a; }
+/* Low-emphasis variants keep DARK text on a light surface (do not whiten) */
+.btn.white { color: #111827; background-color: #ffffff; }
+.btn.light { color: #374151; background-color: #f9fafb; }
+.btn.outline { color: #374151; background-color: #ffffff; }
+.btn.ghost { color: #374151; background-color: transparent; }
+
 .material-symbols-outlined {
     font-family: 'Material Symbols Outlined', sans-serif;
     font-weight: normal;
