@@ -142,6 +142,19 @@ body{overflow-x:hidden;font-size:16px;line-height:28px;color:#000000;-webkit-fon
 .btn.ghost { color: #374151; background-color: transparent; }
 .btn.ghost:hover:not(:disabled) { background-color: #f3f4f6; color: #111827; }
 
+/* Visible KEYBOARD focus ring. The .btn @apply had `focus-visible:outline-none`
+   with no replacement ring, so keyboard users got no focus indicator (an a11y
+   gap; sibling components like .btn-dropdown/.tabs-trigger already ring). We use
+   :focus-visible so it appears ONLY on keyboard nav, never on mouse clicks. The
+   ring colour follows the theme's primary/brand so it matches the site accent.
+   A 2px offset lifts the ring off solid buttons; box-shadow avoids disturbing
+   layout (no outline reflow) and works on any variant/background. */
+.btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-background, #ffffff),
+                0 0 0 4px var(--color-primary, #2563eb);
+}
+
 /* SOLID badges (saturated bg + white text) are defined only in the CDN JIT
    layer, so they share the same race as .btn — pin their text color statically.
    The TINTED badges (badge-success/warning/error/info/etc.) are light-bg +
