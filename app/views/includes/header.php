@@ -252,12 +252,14 @@ if (!empty($activeCurrencyRow)) {
 
     <?php require_once "app/views/tailwind.php"; ?>
 
-    <script src="https://cdn.tailwindcss.com" data-cfasync="false"></script>
-    <script>
-      try { if (window.__APP_TAILWIND_CONFIG__) tailwind.config = window.__APP_TAILWIND_CONFIG__; } catch(e) {}
-    </script>
+    <!-- Tailwind is now PRECOMPILED at build time (npm run build:css →
+         assets/css/tailwind.build.css) instead of compiled in the browser via
+         cdn.tailwindcss.com. This eliminates the runtime-compile flash (the
+         blue-button/black-text race behind PRs #100/#101) and stops shipping the
+         ~120KB compiler to every visitor. The theme-driven :root CSS variables
+         still come from tailwind.php above. See docs/TAILWIND-BUILD.md. -->
+    <link rel="stylesheet" href="<?=versionedAssetUrl('assets/css/tailwind.build.css')?>">
 
-    <script defer src="<?=root?>assets/js/tailwind.js?v=<?=$assetVersion?>"></script>
     <script defer src="<?=versionedAssetUrl('assets/js/app.js')?>"></script>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
