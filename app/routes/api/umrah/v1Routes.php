@@ -4,6 +4,11 @@
 // Thin HTTP layer over the verified umrah service functions (app/lib/umrah/
 // services.php). Server is the only price authority; the browser references a
 // quote_ref and the server recomputes/validates at hold, booking and payment.
+//
+// SEARCH/LISTING is served here by GET /api/v1/umrah/departures (v2 umrah_departures
+// model). The legacy POST /api/umrah/search (app/routes/api/umrah/listingRoutes.php)
+// was RETIRED — it queried the deprecated `umrah` table and was never wired into
+// _routes.php. Use /api/v1/umrah/departures for departure search/listing.
 @$SECURE or die('Access Denied!');
 
 // ---- small local helpers -------------------------------------------------
