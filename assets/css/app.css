@@ -113,7 +113,11 @@ body{overflow-x:hidden;font-size:16px;line-height:28px;color:#000000;-webkit-fon
     background-color: var(--btn-background, #3b82f6);
     border-color: var(--btn-border-color, #3b82f6);
 }
-.btn:hover:not(:disabled) {
+/* Base hover = the themed hover blue. Scoped so it applies ONLY to solid buttons
+   (base .btn + solid variants), NOT the low-emphasis ones — a ghost/light/outline
+   button must not turn blue on hover. The :not() list keeps the low-emphasis
+   variants out; each gets its own subtle hover below. */
+.btn:hover:not(:disabled):not(.ghost):not(.light):not(.outline):not(.white) {
     background-color: var(--btn-background-hover, #2563eb);
 }
 /* Solid variants — force readable text so they never inherit body{color:#000} */
@@ -125,11 +129,18 @@ body{overflow-x:hidden;font-size:16px;line-height:28px;color:#000000;-webkit-fon
 .btn.violet { color: #ffffff; }
 .btn.cyan { color: #ffffff; }
 .btn.amber { color: #0f172a; }
-/* Low-emphasis variants keep DARK text on a light surface (do not whiten) */
+/* Low-emphasis variants keep DARK text on a light surface (do not whiten),
+   AND get a subtle gray hover — NEVER the blue base hover. These hover rules
+   must beat the base .btn:hover on specificity + source order, so they carry the
+   variant class explicitly. */
 .btn.white { color: #111827; background-color: #ffffff; }
+.btn.white:hover:not(:disabled) { background-color: #f9fafb; color: #111827; }
 .btn.light { color: #374151; background-color: #f9fafb; }
+.btn.light:hover:not(:disabled) { background-color: #f3f4f6; color: #111827; }
 .btn.outline { color: #374151; background-color: #ffffff; }
+.btn.outline:hover:not(:disabled) { background-color: #f9fafb; color: #111827; }
 .btn.ghost { color: #374151; background-color: transparent; }
+.btn.ghost:hover:not(:disabled) { background-color: #f3f4f6; color: #111827; }
 
 /* SOLID badges (saturated bg + white text) are defined only in the CDN JIT
    layer, so they share the same race as .btn — pin their text color statically.
