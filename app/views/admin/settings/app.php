@@ -198,7 +198,7 @@ $appName = $appSettings['app_name'] ?? ($settingsData['business_name'] ?? 'Mobil
                                 <span class="material-symbols-outlined text-lg">dark_mode</span>
                             </div>
                             <div>
-                                <h3 class="text-md font-semibold text-gray-900">App Theme & Appearance</h3>
+                                <h3 class="text-base font-semibold text-gray-900">App Theme & Appearance</h3>
                                 <p class="text-xs text-gray-500">Configure default mode and overall visual style of your mobile application</p>
                             </div>
                         </div>
@@ -226,7 +226,7 @@ $appName = $appSettings['app_name'] ?? ($settingsData['business_name'] ?? 'Mobil
                                 <span class="material-symbols-outlined text-lg">vpn_key</span>
                             </div>
                             <div>
-                                <h3 class="text-md font-semibold text-gray-900">API Key & Security</h3>
+                                <h3 class="text-base font-semibold text-gray-900">API Key & Security</h3>
                                 <p class="text-xs text-gray-500">Secure mobile app API endpoints from unauthorized client requests</p>
                             </div>
                         </div>
@@ -255,7 +255,7 @@ $appName = $appSettings['app_name'] ?? ($settingsData['business_name'] ?? 'Mobil
                                 <span class="material-symbols-outlined text-lg">smart_button</span>
                             </div>
                             <div>
-                                <h3 class="text-md font-semibold text-gray-900">Button Styling & Colors</h3>
+                                <h3 class="text-base font-semibold text-gray-900">Button Styling & Colors</h3>
                                 <p class="text-xs text-gray-500">Customize button background, text colors, hover states, and corner radiuses</p>
                             </div>
                         </div>
@@ -310,7 +310,7 @@ $appName = $appSettings['app_name'] ?? ($settingsData['business_name'] ?? 'Mobil
                                 <span class="material-symbols-outlined text-lg">light_mode</span>
                             </div>
                             <div>
-                                <h3 class="text-md font-semibold text-gray-900">☀️ Light Mode Layout & Colors</h3>
+                                <h3 class="text-base font-semibold text-gray-900">☀️ Light Mode Layout & Colors</h3>
                                 <p class="text-xs text-gray-500">Configure visual colors and styles applied when the app is in Light Mode</p>
                             </div>
                         </div>
@@ -441,7 +441,7 @@ $appName = $appSettings['app_name'] ?? ($settingsData['business_name'] ?? 'Mobil
 
                         <!-- All Tabs Styling Section (e.g. Flights, Stays scrollable tabs) -->
                         <div class="mt-4 pt-4 border-t-2 border-dashed border-gray-150">
-                            <h4 class="text-xs font-bold text-gray-805 uppercase tracking-wider mb-3">All Tabs Styling (e.g. global category tabs switcher)</h4>
+                            <h4 class="text-xs font-bold text-gray-800 uppercase tracking-wider mb-3">All Tabs Styling (e.g. global category tabs switcher)</h4>
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 <div class="form-control">
                                     <label class="text-xs text-gray-600 block mb-1">All Tab BG</label>
@@ -489,7 +489,7 @@ $appName = $appSettings['app_name'] ?? ($settingsData['business_name'] ?? 'Mobil
 
                         <!-- Snackbar Styling Section -->
                         <div class="mt-4 pt-4 border-t-2 border-dashed border-gray-150">
-                            <h4 class="text-xs font-bold text-gray-805 uppercase tracking-wider mb-3">Snackbar / Toast Styling</h4>
+                            <h4 class="text-xs font-bold text-gray-800 uppercase tracking-wider mb-3">Snackbar / Toast Styling</h4>
                             <?php foreach ($snackbarThemeConfig as $type => $config): ?>
                                 <?php $colors = $appSnackbarColors[$type]; ?>
                                 <div class="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-100">
@@ -534,7 +534,7 @@ $appName = $appSettings['app_name'] ?? ($settingsData['business_name'] ?? 'Mobil
                                 <span class="material-symbols-outlined text-lg">dark_mode</span>
                             </div>
                             <div>
-                                <h3 class="text-md font-semibold text-gray-900">🌙 Dark Mode Layout & Colors</h3>
+                                <h3 class="text-base font-semibold text-gray-900">🌙 Dark Mode Layout & Colors</h3>
                                 <p class="text-xs text-gray-500">Configure visual colors and styles applied when the app is in Dark Mode</p>
                             </div>
                         </div>
@@ -665,7 +665,7 @@ $appName = $appSettings['app_name'] ?? ($settingsData['business_name'] ?? 'Mobil
 
                         <!-- All Tabs Styling Section (e.g. Flights, Stays scrollable tabs) -->
                         <div class="mt-4 pt-4 border-t-2 border-dashed border-gray-150">
-                            <h4 class="text-xs font-bold text-gray-805 uppercase tracking-wider mb-3">All Tabs Styling (e.g. global category tabs switcher)</h4>
+                            <h4 class="text-xs font-bold text-gray-800 uppercase tracking-wider mb-3">All Tabs Styling (e.g. global category tabs switcher)</h4>
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 <div class="form-control">
                                     <label class="text-xs text-gray-600 block mb-1">All Tab BG</label>
@@ -713,7 +713,7 @@ $appName = $appSettings['app_name'] ?? ($settingsData['business_name'] ?? 'Mobil
 
                         <!-- Snackbar Styling Section -->
                         <div class="mt-4 pt-4 border-t-2 border-dashed border-gray-150">
-                            <h4 class="text-xs font-bold text-gray-805 uppercase tracking-wider mb-3">Snackbar / Toast Styling</h4>
+                            <h4 class="text-xs font-bold text-gray-800 uppercase tracking-wider mb-3">Snackbar / Toast Styling</h4>
                             <?php foreach ($snackbarThemeConfig as $type => $config): ?>
                                 <?php $colors = $appSnackbarColors[$type]; ?>
                                 <div class="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-100">

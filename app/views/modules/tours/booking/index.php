@@ -212,7 +212,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                             </a>
                         </div>
                         <div>
-                            <h1 class="text-1xl font-bold text-slate-800">
+                            <h1 class="text-xl font-bold text-slate-800">
                                 <?= T::booking ?>
                             </h1>
                             <p class="text-sm text-slate-600 mt-1">
@@ -229,7 +229,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                 <span class="material-symbols-outlined text-xl">arrow_back</span>
                             </a>
                             <div>
-                                <h1 class="text-1xl font-bold text-slate-800">
+                                <h1 class="text-xl font-bold text-slate-800">
                                     <?= T::booking ?>
                                 </h1>
                                 <p class="text-sm text-slate-600 mt-1">

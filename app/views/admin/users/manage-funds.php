@@ -69,7 +69,7 @@ if (isset($_SESSION['error'])) {
                     <span class="material-symbols-outlined text-xl">arrow_back</span>
                 </a>
                 <div>
-                    <h1 class="text-1xl font-bold text-slate-800">
+                    <h1 class="text-xl font-bold text-slate-800">
                         <?= T::manage_funds ?>
                     </h1>
                     <div class="flex flex-wrap items-center gap-2 mt-1 text-sm text-slate-600">
@@ -184,7 +184,7 @@ if (isset($_SESSION['error'])) {
 
                                         <span class="material-symbols-outlined text-base">attach_file</span>
 
-                                    <h3 class="text-md font-medium text-gray-900"><?= T::attachments ?></h3>
+                                    <h3 class="text-base font-medium text-gray-900"><?= T::attachments ?></h3>
                                 </div>
 
                                 <div class="text-center">

@@ -231,7 +231,7 @@ Exclusive deal
 <!-- Bottom Section - Price -->
 <div class="flex gap-1">
 <p class="text-[10px] text-gray-500 mt-2">4 nights from</p>
-<p class="text-md font-semibold text-gray-800">US$ 1,524.12</p>
+<p class="text-base font-semibold text-gray-800">US$ 1,524.12</p>
 </div>
 </div>
 </div>
@@ -296,7 +296,7 @@ Exclusive deal
 <!-- Bottom Section - Price -->
 <div class="flex gap-1">
 <p class="text-[10px] text-gray-500 mt-2">4 nights from</p>
-<p class="text-md font-semibold text-gray-800">US$ 1,524.12</p>
+<p class="text-base font-semibold text-gray-800">US$ 1,524.12</p>
 </div>
 </div>
 </div>

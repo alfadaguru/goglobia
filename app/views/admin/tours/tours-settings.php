@@ -31,7 +31,7 @@ $isAdd = !$isEdit && $isManageMode;
                     <span class="material-symbols-outlined text-xl">arrow_back</span>
                 </a>
                 <div>
-                    <h1 class="text-1xl font-bold text-slate-800 flex items-center gap-2">
+                    <h1 class="text-xl font-bold text-slate-800 flex items-center gap-2">
                         <span class="material-symbols-outlined">settings</span>
                         <?= $isEdit ? (T::edit_tours_setting ?? 'Edit Tours Setting') : (T::add_new_tours_setting ?? 'Add New Tours Setting') ?>
                     </h1>

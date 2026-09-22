@@ -49,7 +49,7 @@ $moduleTypes = ['flights','stays','tours','cars','bus','rail','cruises','visa','
                 <span class="material-symbols-outlined text-xl">arrow_back</span>
             </a>
             <div>
-                <h1 class="text-1xl font-bold text-slate-800">
+                <h1 class="text-xl font-bold text-slate-800">
                     <?= $isEdit ? htmlspecialchars($module['name'] ?? 'Edit Module') : 'Add Module' ?>
                 </h1>
                 <?php if ($isEdit): ?>

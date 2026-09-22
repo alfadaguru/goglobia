@@ -685,7 +685,7 @@ document.addEventListener("DOMContentLoaded", () => {
                   </svg>
                 </div>
                 <div  class="w-6 h-6 rounded-full bg-blue-100 border-2 border-green-300">
-                  <span class="mt-1 ml-[1.5px] text-voilet-300 text-xs">+2</span>
+                  <span class="mt-1 ml-[1.5px] text-violet-300 text-xs">+2</span>
                 </div>
             </div>
           </div>
@@ -770,7 +770,7 @@ document.addEventListener("DOMContentLoaded", () => {
                   </svg>
                 </div>
                 <div  class="w-6 h-6 rounded-full bg-blue-100 border-2 border-green-300">
-                   <span class="mt-1 ml-[1.5px] text-voilet-300 text-xs">+2</span>
+                   <span class="mt-1 ml-[1.5px] text-violet-300 text-xs">+2</span>
                 </div>
               </div>
             </div>
@@ -1151,7 +1151,7 @@ document.addEventListener("DOMContentLoaded", () => {
      <img src="https://pics.avs.io/300/300/SV@2x.png" alt="" class="" />
     </div>
     <div class="flex flex-col gap-2">
-      <h1 class="text-md font-medium text-black/80">Customer Support Ticket: 371</h1>
+      <h1 class="text-base font-medium text-black/80">Customer Support Ticket: 371</h1>
       <div class="flex justify-between">
         <span class="py-1 px-2 inline-block text-[#936f27] bg-[#fff3dc] text-[10px] font-medium rounded-sm">Ref: LX564</span>
         <span class="bg-[#E9EBEF] h-2 px-9 mt-3 rounded-full"></span>
@@ -1179,7 +1179,7 @@ document.addEventListener("DOMContentLoaded", () => {
       <img src="https://pics.avs.io/300/300/SV@2x.png" alt="" class="" />
     </div>
     <div class="flex flex-col gap-2">
-      <h1 class="text-md font-medium text-black/80">Customer Support Ticket: 371</h1>
+      <h1 class="text-base font-medium text-black/80">Customer Support Ticket: 371</h1>
       <div class="flex justify-between">
         <span class="py-1 px-2 inline-block text-[#936f27] bg-[#fff3dc] text-[10px] font-medium rounded-sm">Ref: LX564</span>
         <span class="bg-[#E9EBEF] h-2 px-9 mt-3 rounded-full"></span>
@@ -1195,7 +1195,7 @@ document.addEventListener("DOMContentLoaded", () => {
    <div class="max-w-2xl px-4 py-2 bg-white shadow-md rounded-2xl h-32 sm:h-auto my-6">
   <div class="flex flex-col sm:flex-row gap-2 sm:justify-between ">
   <!-- Exclusive Deal Badge -->
-  <div class="flex gap-2 w-62 h-10 bg-[#f2ebff] text-[#7358ab] px-4 py-2 rounded-md text-md font-semibold">
+  <div class="flex gap-2 w-62 h-10 bg-[#f2ebff] text-[#7358ab] px-4 py-2 rounded-md text-base font-semibold">
     <span class=" "> 
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
       <path fill="currentColor" d="m7.325 18.923l1.24-5.313l-4.123-3.572l5.431-.47L12 4.557l2.127 5.01l5.43.47l-4.123 3.572l1.241 5.313L12 16.102z"/>
@@ -1229,7 +1229,7 @@ document.addEventListener("DOMContentLoaded", () => {
   <pre class="line-numbers language-markup"><code class="language-html"><div class="max-w-2xl px-4 py-4 bg-white shadow-md rounded-2xl h-38 sm:h-auto" >
 <div class="flex flex-col sm:flex-row gap-2 sm:justify-between ">
   <!-- Exclusive Deal Badge -->
-  <div class="flex gap-2 w-62 bg-[#f2ebff] text-[#7358ab] px-4 py-2 rounded-md text-md font-semibold">
+  <div class="flex gap-2 w-62 bg-[#f2ebff] text-[#7358ab] px-4 py-2 rounded-md text-base font-semibold">
     <span class=" "> 
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
       <path fill="currentColor" d="m7.325 18.923l1.24-5.313l-4.123-3.572l5.431-.47L12 4.557l2.127 5.01l5.43.47l-4.123 3.572l1.241 5.313L12 16.102z"/>
@@ -1313,7 +1313,7 @@ document.addEventListener("DOMContentLoaded", () => {
     <div class="bg-white rounded-lg shadow-md px-4 py-2">
       <div class="flex items-center justify-between gap-4">
         <!-- left label -->
-        <div class="text-md text-gray-500 font-medium">
+        <div class="text-base text-gray-500 font-medium">
           Booking reference
         </div>
 
@@ -1394,7 +1394,7 @@ document.addEventListener("DOMContentLoaded", () => {
     <div class="bg-white rounded-lg shadow-md p-4">
       <div class="flex items-center justify-between gap-4">
         <!-- left label -->
-        <div class="text-md text-gray-500 font-medium">
+        <div class="text-base text-gray-500 font-medium">
           Booking reference
         </div>
 
@@ -2130,7 +2130,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 <!-- Payment card -->
 <div class="bg-white rounded-xl shadow py-4 px-6">
-  <h3 class="text-md font-medium mb-2">Payment</h3>
+  <h3 class="text-base font-medium mb-2">Payment</h3>
   <div class="divide-y px-2">
     <div class="flex items-center justify-between py-2">
       <span class="text-gray-700 font-medium text-xs">Description</span>
@@ -2311,7 +2311,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   <!-- Payment card -->
   <div class="bg-white rounded-xl shadow py-4 px-6">
-    <h3 class="text-md font-medium mb-2">Payment</h3>
+    <h3 class="text-base font-medium mb-2">Payment</h3>
     <div class="divide-y px-2">
       <div class="flex items-center justify-between py-2">
         <span class="text-gray-700 font-medium text-xs">Description</span>
@@ -3840,7 +3840,7 @@ function destinationSlider() {
           <img src="https://pics.avs.io/200/200/EK@2x.png" class="w-full h-full object-cover" alt="">
         </div>
         <div>
-          <p class="text-md font-semibold">Fly to Dubai with Emirates</p>
+          <p class="text-base font-semibold">Fly to Dubai with Emirates</p>
           <p class="text-xs text-red-100 mt-0.5">
             Better comfort and better dining with Emirates
           </p>
@@ -3954,7 +3954,7 @@ function destinationSlider() {
           <img src="https://pics.avs.io/200/200/EK@2x.png" class="w-full h-full object-cover" alt="">
         </div>
         <div>
-          <p class="text-md font-semibold">Fly to Dubai with Emirates</p>
+          <p class="text-base font-semibold">Fly to Dubai with Emirates</p>
           <p class="text-xs text-red-100 mt-0.5">
             Better comfort and better dining with Emirates
           </p>

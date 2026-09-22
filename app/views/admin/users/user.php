@@ -118,7 +118,7 @@ if (isset($_SESSION['error'])) {
                     <span class="material-symbols-outlined text-xl">arrow_back</span>
                 </a>
                 <div>
-                    <h1 class="text-1xl font-bold text-slate-800">
+                    <h1 class="text-xl font-bold text-slate-800">
                         <?= $isEdit ? ($user['first_name'] . ' ' . $user['last_name']) : T::add_new_user ?>
                     </h1>
                     <?php if ($isEdit): ?>

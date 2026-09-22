@@ -239,7 +239,7 @@ $aiModelsList = [
                         <span class="material-symbols-outlined text-blue-600 text-sm">hub</span>
                     </div>
                     <div class="min-w-0">
-                        <h3 class="text-md font-medium text-gray-900">Provider</h3>
+                        <h3 class="text-base font-medium text-gray-900">Provider</h3>
                         <p class="text-xs text-gray-500">Shared by Passport Scanner and Trip Planner. Select a tab and save to activate it.</p>
                     </div>
                 </div>

@@ -319,7 +319,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-blue-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-blue-600 text-sm">settings_applications</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900"><?=T::application?></h3>
+                            <h3 class="text-base font-medium text-gray-900"><?=T::application?></h3>
                         </div>
                         <div class="space-y-3">
                             <div>
@@ -353,7 +353,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-orange-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-orange-600 text-sm">computer</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900"><?=T::system?></h3>
+                            <h3 class="text-base font-medium text-gray-900"><?=T::system?></h3>
                         </div>
                         <div class="space-y-3">
                             <div>
@@ -400,7 +400,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-green-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-green-600 text-sm">search</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900"><?=T::seo_settings?></h3>
+                            <h3 class="text-base font-medium text-gray-900"><?=T::seo_settings?></h3>
                         </div>
                         <div class="space-y-3">
                             <div>
@@ -432,7 +432,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-blue-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-blue-600 text-sm">link</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900"><?=T::sitemap?></h3>
+                            <h3 class="text-base font-medium text-gray-900"><?=T::sitemap?></h3>
                         </div>
                         <div class="space-y-3">
                             <p class="text-xs text-gray-600"><?=T::sitemap_help_text?></p>
@@ -468,7 +468,7 @@ $messageSuccess = false;
                     <div class="w-6 h-6 bg-indigo-50 rounded flex items-center justify-center mr-2">
                         <span class="material-symbols-outlined text-indigo-600 text-sm">image</span>
                     </div>
-                    <h3 class="text-md font-medium text-gray-900"><?=T::logo?></h3>
+                    <h3 class="text-base font-medium text-gray-900"><?=T::logo?></h3>
                 </div>
                 <div class="text-center">
                     <!-- Live header preview: shows how the logo looks in the site navbar -->
@@ -508,7 +508,7 @@ $messageSuccess = false;
                     <div class="w-6 h-6 bg-pink-50 rounded flex items-center justify-center mr-2">
                         <span class="material-symbols-outlined text-pink-600 text-sm">web</span>
                     </div>
-                    <h3 class="text-md font-medium text-gray-900"><?=T::favicon?></h3>
+                    <h3 class="text-base font-medium text-gray-900"><?=T::favicon?></h3>
                 </div>
                 <div class="text-center">
                     <!-- Live browser preview: shows how the favicon looks in a browser tab + address bar -->
@@ -554,7 +554,7 @@ $messageSuccess = false;
                     <div class="w-6 h-6 bg-green-50 rounded flex items-center justify-center mr-2">
                         <span class="material-symbols-outlined text-green-600 text-sm">landscape</span>
                     </div>
-                    <h3 class="text-md font-medium text-gray-900"><?=T::hero_image?></h3>
+                    <h3 class="text-base font-medium text-gray-900"><?=T::hero_image?></h3>
                 </div>
                 <div class="text-center">
                     <div class="mb-3 p-3 border-2 border-dashed <?= needswarnStyle('', 'cover') ? 'border-yellow-500 bg-yellow-50' : 'border-gray-200' ?> rounded-lg bg-gray-50">
@@ -596,7 +596,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-blue-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-blue-600 text-sm">people</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900"><?=T::registration_settings?></h3>
+                            <h3 class="text-base font-medium text-gray-900"><?=T::registration_settings?></h3>
                         </div>
                         <div class="space-y-3">
                             <div class="flex items-center justify-between">
@@ -683,7 +683,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-purple-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-purple-600 text-sm">language</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900"><?=T::localization?></h3>
+                            <h3 class="text-base font-medium text-gray-900"><?=T::localization?></h3>
                         </div>
                         <div class="space-y-3">
                             <div class="flex items-center justify-between">
@@ -731,7 +731,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-green-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-green-600 text-sm">contact_mail</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900"><?=T::contact_information?></h3>
+                            <h3 class="text-base font-medium text-gray-900"><?=T::contact_information?></h3>
                         </div>
                         <div class="space-y-3">
                             <div>
@@ -771,7 +771,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-red-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-red-600 text-sm">location_on</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900"><?=T::map_integration?></h3>
+                            <h3 class="text-base font-medium text-gray-900"><?=T::map_integration?></h3>
                         </div>
                         <div class="space-y-3">
                             <div>
@@ -1573,7 +1573,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-blue-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-blue-600 text-sm">share</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900"><?=T::social_media_links?></h3>
+                            <h3 class="text-base font-medium text-gray-900"><?=T::social_media_links?></h3>
                         </div>
                         <div class="space-y-3">
                             <?php
@@ -1637,7 +1637,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-pink-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-pink-600 text-sm">photo_camera</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900"><?=T::visual_platforms?></h3>
+                            <h3 class="text-base font-medium text-gray-900"><?=T::visual_platforms?></h3>
                         </div>
                         <div class="space-y-3">
                             <div>
@@ -1705,7 +1705,7 @@ $messageSuccess = false;
                         <div class="w-6 h-6 bg-blue-50 rounded flex items-center justify-center mr-2">
                             <span class="material-symbols-outlined text-blue-600 text-sm">smartphone</span>
                         </div>
-                        <h3 class="text-md font-medium text-gray-900"><?=T::mobile_apps?></h3>
+                        <h3 class="text-base font-medium text-gray-900"><?=T::mobile_apps?></h3>
                     </div>
                     <div class="grid grid-cols-1 gap-3">
                         <div>
@@ -1753,7 +1753,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-orange-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-orange-600 text-sm">analytics</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900"><?=T::google_analytics?></h3>
+                            <h3 class="text-base font-medium text-gray-900"><?=T::google_analytics?></h3>
                         </div>
                         <div>
                             <div class="form-control">
@@ -1780,7 +1780,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-blue-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-blue-600 text-sm">ads_click</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900"><?=T::facebook_pixel?></h3>
+                            <h3 class="text-base font-medium text-gray-900"><?=T::facebook_pixel?></h3>
                         </div>
                         <div>
                             <div class="form-control">
@@ -1816,7 +1816,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-green-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-green-600 text-sm">label</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900"><?=T::google_tag_manager?></h3>
+                            <h3 class="text-base font-medium text-gray-900"><?=T::google_tag_manager?></h3>
                         </div>
                         <div>
                             <div class="form-control">
@@ -1853,7 +1853,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-purple-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-purple-600 text-sm">code</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900"><?=T::custom_tracking_scripts?></h3>
+                            <h3 class="text-base font-medium text-gray-900"><?=T::custom_tracking_scripts?></h3>
                         </div>
                         <div>
                             <div class="form-control">
@@ -1886,7 +1886,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-blue-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-blue-600 text-sm">schedule</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900"><?=T::booking?> <?=T::expiry?> <?=T::time?></h3>
+                            <h3 class="text-base font-medium text-gray-900"><?=T::booking?> <?=T::expiry?> <?=T::time?></h3>
                         </div>
                         <div class="space-y-3">
                             <div class="form-control">
@@ -1921,7 +1921,7 @@ $messageSuccess = false;
                             <div class="w-6 h-6 bg-purple-50 rounded flex items-center justify-center mr-2">
                                 <span class="material-symbols-outlined text-purple-600 text-sm">payment</span>
                             </div>
-                            <h3 class="text-md font-medium text-gray-900">Booking Payment Issue</h3>
+                            <h3 class="text-base font-medium text-gray-900">Booking Payment Issue</h3>
                         </div>
                         <div class="space-y-3">
                             <div class="form-control">
