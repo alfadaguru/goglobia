@@ -20,8 +20,13 @@ if (!function_exists('umrah_departure_bookable')) {
      */
     function umrah_departure_bookable($db, int $departureId, ?array $dt = null): bool
     {
-        $dep = $db->get('umrah_departures', ['status'], ['id' => $departureId]);
-        if (!$dep || ($dep['status'] ?? '') !== 'published') { return false; }
+        // A departure must be BOTH published AND not archived to be bookable.
+        // (e2e BUG-1) An archived departure is correctly hidden from discovery/listing
+        // (those filter archived=0), but this is the single choke-point gate reused by
+        // umrah_price_quote / umrah_booking_create / cart add+reprice — so if it doesn't
+        // also reject archived here, retired inventory stays SELLABLE through checkout.
+        $dep = $db->get('umrah_departures', ['status', 'archived'], ['id' => $departureId]);
+        if (!$dep || ($dep['status'] ?? '') !== 'published' || (int) ($dep['archived'] ?? 0) === 1) { return false; }
         if ($dt !== null) {
             $ts = $dt['status'] ?? '';
             if (in_array($ts, ['draft', 'hidden', 'sold_out'], true)) { return false; }
