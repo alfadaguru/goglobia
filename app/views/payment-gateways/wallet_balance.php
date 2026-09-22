@@ -164,11 +164,54 @@ try {
         require_once dirname(__DIR__, 2) . '/lib/wallet.php';
     }
 
+    // IDEMPOTENCY KEY (e2e BUG-2): an installment-plan booking pays the SAME invoice
+    // multiple times (deposit, then each installment). An invoice-scoped key
+    // 'WLTPAY-{invoice}' made wallet_spend() treat the 2nd/3rd installment as a
+    // duplicate of the deposit — returning the deposit's txn with ZERO debit while
+    // the UI reported success, so the tail was uncollectable and the booking stuck at
+    // deposit_paid. So we scope the key to the specific installment being paid.
+    //
+    // But the gateway is reached via a GET route (/payment/gateway/{hash}), so a
+    // browser REFRESH re-runs this spend. Keying purely on next-pending-seq would let
+    // a refresh — after the first charge already advanced the schedule — recompute to
+    // the NEXT installment and silently pay ahead. So we combine the seq with a coarse
+    // ~2-min time bucket: a rapid refresh reuses the identical key (wallet_spend
+    // returns the existing txn, no second debit), while a genuine later installment
+    // payment naturally falls in a new bucket and gets its own distinct charge.
+    $idemKey = 'WLTPAY-' . $booking['invoice_id'];
+    try {
+        $nextSeq = null;
+        $ubForKey = $db->get('umrah_bookings', ['id'], ['invoice_id' => $booking['invoice_id']]);
+        if ($ubForKey) {
+            $nextInst = $db->get('umrah_installments', ['seq'], [
+                'umrah_booking_id' => (int) $ubForKey['id'],
+                'status'           => ['pending', 'overdue'],
+                'ORDER'            => ['seq' => 'ASC'],
+            ]);
+            if ($nextInst && isset($nextInst['seq'])) { $nextSeq = (int) $nextInst['seq']; }
+        } elseif (function_exists('installments_active_for') && installments_active_for($db, $booking['invoice_id'])) {
+            // Generic (non-umrah) PaySmallSmall schedule — same discriminator.
+            $genNext = $db->get('booking_installments', ['seq'], [
+                'invoice_id' => $booking['invoice_id'],
+                'status'     => ['pending', 'overdue'],
+                'ORDER'      => ['seq' => 'ASC'],
+            ]);
+            if ($genNext && isset($genNext['seq'])) { $nextSeq = (int) $genNext['seq']; }
+        }
+        if ($nextSeq !== null) {
+            // seq makes distinct installments distinct; the time bucket collapses a
+            // refresh of THIS charge so it can't advance to the next installment.
+            $idemKey .= '-s' . $nextSeq . '-t' . (int) floor(time() / 120);
+        }
+    } catch (\Throwable $e) {
+        error_log('wallet_balance idem-key installment lookup: ' . $e->getMessage());
+    }
+
     $spend = wallet_spend($db, $userId, $paymentAmount, $paymentCurrency, [
         'reason'          => 'booking',
         'invoice_id'      => $booking['invoice_id'],
         'method'          => 'wallet',
-        'idempotency_key' => 'WLTPAY-' . $booking['invoice_id'],
+        'idempotency_key' => $idemKey,
         'note'            => 'Wallet payment for invoice ' . $booking['invoice_id'],
     ]);
 
