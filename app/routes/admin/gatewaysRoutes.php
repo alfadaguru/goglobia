@@ -46,185 +46,6 @@ $router->get(admin.'/settings/gateway/edit/(\d+)', function ($gatewayId) use ($S
     require_once views."includes/footer.php";
 });
 
-// ===========================================================================
-// PER-MODULE / PER-SERVICE PAYMENT SCOPING + PAY-LATER RULES
-// ===========================================================================
-
-// Config page: choose a scope (module or a service under it) and configure which
-// gateways apply + the Pay-Later rule for it.
-$router->get(admin.'/settings/payment-scoping', function () use ($SECURE,$db) {
-    ADMIN_AUTH();
-
-    // All module types + their suppliers, from the modules registry.
-    $moduleRows = $db->select('modules', ['type', 'name'], ['status' => '1', 'ORDER' => ['type' => 'ASC', 'name' => 'ASC']]) ?: [];
-    $moduleTypes = [];
-    $suppliersByType = [];
-    foreach ($moduleRows as $m) {
-        $t = (string) $m['type']; $n = (string) $m['name'];
-        if ($t === '') { continue; }
-        $moduleTypes[$t] = true;
-        // A supplier row is one whose name differs from the module type (the
-        // generic "flights/flights" row is the module itself, not a supplier).
-        if ($n !== '' && strtolower($n) !== strtolower($t)) { $suppliersByType[$t][] = $n; }
-    }
-    $moduleTypes = array_keys($moduleTypes);
-    sort($moduleTypes);
-
-    $gateways = $db->select('payment_gateways', ['id', 'name', 'display_name', 'type', 'status'], ['ORDER' => ['order' => 'ASC', 'name' => 'ASC']]) ?: [];
-
-    // Current selection (?module=flights&supplier=duffel).
-    $selModule   = strtolower(trim((string) ($_GET['module'] ?? '')));
-    $selSupplier = strtolower(trim((string) ($_GET['supplier'] ?? '')));
-    if (!in_array($selModule, $moduleTypes, true)) { $selModule = $moduleTypes[0] ?? ''; $selSupplier = ''; }
-
-    // Resolve the scope rows currently stored for the selection.
-    $scopeType = $selSupplier !== '' ? 'service' : 'module';
-    $scopeRows = [];
-    if ($selModule !== '') {
-        foreach ($db->select('payment_gateway_scopes', ['gateway_id', 'enabled'], [
-            'scope_type' => $scopeType, 'module_type' => $selModule, 'supplier' => $selSupplier,
-        ]) ?: [] as $r) { $scopeRows[(int) $r['gateway_id']] = (int) $r['enabled']; }
-    }
-    $hasScopeRows = !empty($scopeRows);
-
-    // Pay-Later rule for the selection (exact row for this scope, if any).
-    $plScope = $selModule === '' ? 'global' : $scopeType;
-    $plRule = $db->get('pay_later_rules', '*', [
-        'scope_type' => $plScope, 'module_type' => ($selModule === '' ? '' : $selModule), 'supplier' => $selSupplier,
-    ]);
-
-    $title = 'Payment Scoping & Pay-Later';
-    $header = true; $footer = true;
-    require_once views."includes/header.php";
-    require_once "app/views/admin/settings/payment-scoping.php";
-    require_once views."includes/footer.php";
-});
-
-// Save the gateway allow-list for a scope.
-$router->post(admin.'/settings/payment-scoping/gateways', function () use ($SECURE,$db) {
-    ADMIN_AUTH();
-    CSRF::guard();
-    header('Content-Type: application/json');
-
-    $moduleType = strtolower(trim((string) ($_POST['module_type'] ?? '')));
-    $supplier   = strtolower(trim((string) ($_POST['supplier'] ?? '')));
-    if ($moduleType === '') { echo json_encode(['status' => 'error', 'message' => 'Module is required']); exit; }
-    $scopeType = $supplier !== '' ? 'service' : 'module';
-
-    // 'inherit' mode: no explicit rules → delete any rows so the scope inherits.
-    $inherit = !empty($_POST['inherit']);
-    $db->delete('payment_gateway_scopes', ['scope_type' => $scopeType, 'module_type' => $moduleType, 'supplier' => $supplier]);
-
-    $saved = 0;
-    if (!$inherit) {
-        // enabled_gateways[] = ids the admin ticked. Everything else is implicitly
-        // excluded for this scope (explicit allow-list).
-        $enabledIds = array_values(array_unique(array_map('intval', (array) ($_POST['enabled_gateways'] ?? []))));
-        // Per-service credential overrides: creds[gid][c1..c5] = value. Only
-        // non-empty values are stored; blanks mean "use the gateway's global keys".
-        $credsIn = (array) ($_POST['creds'] ?? []);
-        $allIds = array_map(fn($g) => (int) $g['id'], $db->select('payment_gateways', ['id']) ?: []);
-        foreach ($allIds as $gid) {
-            $row = [
-                'gateway_id' => $gid, 'scope_type' => $scopeType, 'module_type' => $moduleType,
-                'supplier' => $supplier, 'enabled' => in_array($gid, $enabledIds, true) ? 1 : 0,
-                'updated_at' => date('Y-m-d H:i:s'),
-            ];
-            $gc = (array) ($credsIn[$gid] ?? $credsIn[(string) $gid] ?? []);
-            foreach (['c1', 'c2', 'c3', 'c4', 'c5'] as $ck) {
-                $v = trim((string) ($gc[$ck] ?? ''));
-                $row[$ck] = $v !== '' ? $v : null;
-            }
-            $db->insert('payment_gateway_scopes', $row);
-            $saved++;
-        }
-    }
-    echo json_encode(['status' => 'success', 'message' => $inherit ? 'Scope set to inherit.' : "Saved gateway rules for {$moduleType}" . ($supplier !== '' ? "/{$supplier}" : ''), 'inherit' => $inherit]);
-    exit;
-});
-
-// Save the Pay-Later rule for a scope.
-$router->post(admin.'/settings/payment-scoping/pay-later', function () use ($SECURE,$db) {
-    ADMIN_AUTH();
-    CSRF::guard();
-    header('Content-Type: application/json');
-
-    $moduleType = strtolower(trim((string) ($_POST['module_type'] ?? '')));
-    $supplier   = strtolower(trim((string) ($_POST['supplier'] ?? '')));
-    $scopeType  = $moduleType === '' ? 'global' : ($supplier !== '' ? 'service' : 'module');
-
-    // Sanitize inputs.
-    $enabled  = !empty($_POST['enabled']) ? 1 : 0;
-    $deadline = max(1, min(8760, (int) ($_POST['deadline_hours'] ?? 72)));   // 1h..1yr
-    $policy   = in_array(($_POST['deadline_policy'] ?? ''), ['auto_cancel', 'flag'], true) ? $_POST['deadline_policy'] : 'flag';
-    $release  = !empty($_POST['release_inventory']) ? 1 : 0;
-    $agents   = !empty($_POST['agents_only']) ? 1 : 0;
-    // Normalise the reminder offsets to a sorted, positive, deduped CSV.
-    $offsets = array_values(array_unique(array_filter(array_map(
-        fn($x) => (int) trim($x), explode(',', (string) ($_POST['reminder_offsets_hours'] ?? ''))
-    ), fn($h) => $h > 0 && $h <= 8760)));
-    rsort($offsets);
-    $offsetsCsv = implode(',', $offsets);
-    $minAmount = ($_POST['min_amount'] ?? '') !== '' ? round((float) $_POST['min_amount'], 2) : null;
-
-    $payload = [
-        'enabled' => $enabled, 'deadline_hours' => $deadline, 'reminder_offsets_hours' => $offsetsCsv,
-        'deadline_policy' => $policy, 'release_inventory' => $release, 'agents_only' => $agents,
-        'min_amount' => $minAmount, 'updated_at' => date('Y-m-d H:i:s'),
-    ];
-    $existing = $db->get('pay_later_rules', 'id', ['scope_type' => $scopeType, 'module_type' => ($moduleType ?: ''), 'supplier' => $supplier]);
-    if ($existing) {
-        $db->update('pay_later_rules', $payload, ['id' => (int) $existing]);
-    } else {
-        $db->insert('pay_later_rules', array_merge($payload, ['scope_type' => $scopeType, 'module_type' => ($moduleType ?: ''), 'supplier' => $supplier]));
-    }
-    echo json_encode(['status' => 'success', 'message' => 'Pay-Later rule saved for ' . ($moduleType === '' ? 'global default' : $moduleType . ($supplier !== '' ? "/{$supplier}" : ''))]);
-    exit;
-});
-
-// Save the PaySmallSmall (installment) rule for a scope.
-$router->post(admin.'/settings/payment-scoping/pay-small-small', function () use ($SECURE,$db) {
-    ADMIN_AUTH();
-    CSRF::guard();
-    header('Content-Type: application/json');
-
-    $moduleType = strtolower(trim((string) ($_POST['module_type'] ?? '')));
-    $supplier   = strtolower(trim((string) ($_POST['supplier'] ?? '')));
-    $scopeType  = $moduleType === '' ? 'global' : ($supplier !== '' ? 'service' : 'module');
-
-    $enabled  = !empty($_POST['enabled']) ? 1 : 0;
-    $firstPct = max(1, min(100, (float) ($_POST['first_percent'] ?? 50)));
-    $insts    = max(1, min(24, (int) ($_POST['installments'] ?? 2)));
-    $interval = max(1, min(365, (int) ($_POST['interval_days'] ?? 30)));
-    $policy   = in_array(($_POST['deadline_policy'] ?? ''), ['auto_cancel', 'flag'], true) ? $_POST['deadline_policy'] : 'flag';
-    $release  = !empty($_POST['release_inventory']) ? 1 : 0;
-    $agents   = !empty($_POST['agents_only']) ? 1 : 0;
-    $offsets  = array_values(array_unique(array_filter(array_map(
-        fn($x) => (int) trim($x), explode(',', (string) ($_POST['reminder_offsets_hours'] ?? ''))
-    ), fn($h) => $h > 0 && $h <= 8760)));
-    rsort($offsets);
-    $offsetsCsv = implode(',', $offsets);
-    $minAmount = ($_POST['min_amount'] ?? '') !== '' ? round((float) $_POST['min_amount'], 2) : null;
-    // umrah plan code — validated against a real active plan, else PP-50-25-25.
-    $planCode = trim((string) ($_POST['umrah_plan_code'] ?? 'PP-50-25-25'));
-    if ($planCode === '' || !$db->get('umrah_payment_plans', 'id', ['code' => $planCode])) { $planCode = 'PP-50-25-25'; }
-
-    $payload = [
-        'enabled' => $enabled, 'first_percent' => round($firstPct, 2), 'installments' => $insts,
-        'interval_days' => $interval, 'reminder_offsets_hours' => $offsetsCsv, 'deadline_policy' => $policy,
-        'release_inventory' => $release, 'agents_only' => $agents, 'min_amount' => $minAmount,
-        'umrah_plan_code' => $planCode, 'updated_at' => date('Y-m-d H:i:s'),
-    ];
-    $existing = $db->get('pay_small_small_rules', 'id', ['scope_type' => $scopeType, 'module_type' => ($moduleType ?: ''), 'supplier' => $supplier]);
-    if ($existing) {
-        $db->update('pay_small_small_rules', $payload, ['id' => (int) $existing]);
-    } else {
-        $db->insert('pay_small_small_rules', array_merge($payload, ['scope_type' => $scopeType, 'module_type' => ($moduleType ?: ''), 'supplier' => $supplier]));
-    }
-    echo json_encode(['status' => 'success', 'message' => 'PaySmallSmall rule saved for ' . ($moduleType === '' ? 'global default' : $moduleType . ($supplier !== '' ? "/{$supplier}" : ''))]);
-    exit;
-});
-
 // ---------------------------------------------------------------------------
 // GATEWAY CREDENTIAL TESTS
 // Shared, minimal plumbing used by each gateway's own test route. Every gateway
@@ -494,4 +315,185 @@ $router->post(admin.'/settings/gateway/ajax-update', function () use ($db) {
     // Force termination to prevent profiler output
     die();
 
+});
+
+// ============================================================================
+// PAYMENT SCOPING (per-module / per-service gateway + Pay-Later + PaySmallSmall)
+// RECOVERED: these routes were added (commits 7369739 / 21a9204) then lost from
+// this file, leaving the admin scoping UI (app/views/admin/settings/modules/
+// manage.php + payment-scoping.php) POSTing to handlers that 404d — so admins
+// could not configure per-module payment methods (incl. umrah). Restored verbatim.
+// ============================================================================
+$router->get(admin.'/settings/payment-scoping', function () use ($SECURE,$db) {
+    ADMIN_AUTH();
+
+    // All module types + their suppliers, from the modules registry.
+    $moduleRows = $db->select('modules', ['type', 'name'], ['status' => '1', 'ORDER' => ['type' => 'ASC', 'name' => 'ASC']]) ?: [];
+    $moduleTypes = [];
+    $suppliersByType = [];
+    foreach ($moduleRows as $m) {
+        $t = (string) $m['type']; $n = (string) $m['name'];
+        if ($t === '') { continue; }
+        $moduleTypes[$t] = true;
+        // A supplier row is one whose name differs from the module type (the
+        // generic "flights/flights" row is the module itself, not a supplier).
+        if ($n !== '' && strtolower($n) !== strtolower($t)) { $suppliersByType[$t][] = $n; }
+    }
+    $moduleTypes = array_keys($moduleTypes);
+    sort($moduleTypes);
+
+    $gateways = $db->select('payment_gateways', ['id', 'name', 'display_name', 'type', 'status'], ['ORDER' => ['order' => 'ASC', 'name' => 'ASC']]) ?: [];
+
+    // Current selection (?module=flights&supplier=duffel).
+    $selModule   = strtolower(trim((string) ($_GET['module'] ?? '')));
+    $selSupplier = strtolower(trim((string) ($_GET['supplier'] ?? '')));
+    if (!in_array($selModule, $moduleTypes, true)) { $selModule = $moduleTypes[0] ?? ''; $selSupplier = ''; }
+
+    // Resolve the scope rows currently stored for the selection.
+    $scopeType = $selSupplier !== '' ? 'service' : 'module';
+    $scopeRows = [];
+    if ($selModule !== '') {
+        foreach ($db->select('payment_gateway_scopes', ['gateway_id', 'enabled'], [
+            'scope_type' => $scopeType, 'module_type' => $selModule, 'supplier' => $selSupplier,
+        ]) ?: [] as $r) { $scopeRows[(int) $r['gateway_id']] = (int) $r['enabled']; }
+    }
+    $hasScopeRows = !empty($scopeRows);
+
+    // Pay-Later rule for the selection (exact row for this scope, if any).
+    $plScope = $selModule === '' ? 'global' : $scopeType;
+    $plRule = $db->get('pay_later_rules', '*', [
+        'scope_type' => $plScope, 'module_type' => ($selModule === '' ? '' : $selModule), 'supplier' => $selSupplier,
+    ]);
+
+    $title = 'Payment Scoping & Pay-Later';
+    $header = true; $footer = true;
+    require_once views."includes/header.php";
+    require_once "app/views/admin/settings/payment-scoping.php";
+    require_once views."includes/footer.php";
+});
+
+// Save the gateway allow-list for a scope.
+$router->post(admin.'/settings/payment-scoping/gateways', function () use ($SECURE,$db) {
+    ADMIN_AUTH();
+    CSRF::guard();
+    header('Content-Type: application/json');
+
+    $moduleType = strtolower(trim((string) ($_POST['module_type'] ?? '')));
+    $supplier   = strtolower(trim((string) ($_POST['supplier'] ?? '')));
+    if ($moduleType === '') { echo json_encode(['status' => 'error', 'message' => 'Module is required']); exit; }
+    $scopeType = $supplier !== '' ? 'service' : 'module';
+
+    // 'inherit' mode: no explicit rules → delete any rows so the scope inherits.
+    $inherit = !empty($_POST['inherit']);
+    $db->delete('payment_gateway_scopes', ['scope_type' => $scopeType, 'module_type' => $moduleType, 'supplier' => $supplier]);
+
+    $saved = 0;
+    if (!$inherit) {
+        // enabled_gateways[] = ids the admin ticked. Everything else is implicitly
+        // excluded for this scope (explicit allow-list).
+        $enabledIds = array_values(array_unique(array_map('intval', (array) ($_POST['enabled_gateways'] ?? []))));
+        // Per-service credential overrides: creds[gid][c1..c5] = value. Only
+        // non-empty values are stored; blanks mean "use the gateway's global keys".
+        $credsIn = (array) ($_POST['creds'] ?? []);
+        $allIds = array_map(fn($g) => (int) $g['id'], $db->select('payment_gateways', ['id']) ?: []);
+        foreach ($allIds as $gid) {
+            $row = [
+                'gateway_id' => $gid, 'scope_type' => $scopeType, 'module_type' => $moduleType,
+                'supplier' => $supplier, 'enabled' => in_array($gid, $enabledIds, true) ? 1 : 0,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ];
+            $gc = (array) ($credsIn[$gid] ?? $credsIn[(string) $gid] ?? []);
+            foreach (['c1', 'c2', 'c3', 'c4', 'c5'] as $ck) {
+                $v = trim((string) ($gc[$ck] ?? ''));
+                $row[$ck] = $v !== '' ? $v : null;
+            }
+            $db->insert('payment_gateway_scopes', $row);
+            $saved++;
+        }
+    }
+    echo json_encode(['status' => 'success', 'message' => $inherit ? 'Scope set to inherit.' : "Saved gateway rules for {$moduleType}" . ($supplier !== '' ? "/{$supplier}" : ''), 'inherit' => $inherit]);
+    exit;
+});
+
+// Save the Pay-Later rule for a scope.
+$router->post(admin.'/settings/payment-scoping/pay-later', function () use ($SECURE,$db) {
+    ADMIN_AUTH();
+    CSRF::guard();
+    header('Content-Type: application/json');
+
+    $moduleType = strtolower(trim((string) ($_POST['module_type'] ?? '')));
+    $supplier   = strtolower(trim((string) ($_POST['supplier'] ?? '')));
+    $scopeType  = $moduleType === '' ? 'global' : ($supplier !== '' ? 'service' : 'module');
+
+    // Sanitize inputs.
+    $enabled  = !empty($_POST['enabled']) ? 1 : 0;
+    $deadline = max(1, min(8760, (int) ($_POST['deadline_hours'] ?? 72)));   // 1h..1yr
+    $policy   = in_array(($_POST['deadline_policy'] ?? ''), ['auto_cancel', 'flag'], true) ? $_POST['deadline_policy'] : 'flag';
+    $release  = !empty($_POST['release_inventory']) ? 1 : 0;
+    $agents   = !empty($_POST['agents_only']) ? 1 : 0;
+    // Normalise the reminder offsets to a sorted, positive, deduped CSV.
+    $offsets = array_values(array_unique(array_filter(array_map(
+        fn($x) => (int) trim($x), explode(',', (string) ($_POST['reminder_offsets_hours'] ?? ''))
+    ), fn($h) => $h > 0 && $h <= 8760)));
+    rsort($offsets);
+    $offsetsCsv = implode(',', $offsets);
+    $minAmount = ($_POST['min_amount'] ?? '') !== '' ? round((float) $_POST['min_amount'], 2) : null;
+
+    $payload = [
+        'enabled' => $enabled, 'deadline_hours' => $deadline, 'reminder_offsets_hours' => $offsetsCsv,
+        'deadline_policy' => $policy, 'release_inventory' => $release, 'agents_only' => $agents,
+        'min_amount' => $minAmount, 'updated_at' => date('Y-m-d H:i:s'),
+    ];
+    $existing = $db->get('pay_later_rules', 'id', ['scope_type' => $scopeType, 'module_type' => ($moduleType ?: ''), 'supplier' => $supplier]);
+    if ($existing) {
+        $db->update('pay_later_rules', $payload, ['id' => (int) $existing]);
+    } else {
+        $db->insert('pay_later_rules', array_merge($payload, ['scope_type' => $scopeType, 'module_type' => ($moduleType ?: ''), 'supplier' => $supplier]));
+    }
+    echo json_encode(['status' => 'success', 'message' => 'Pay-Later rule saved for ' . ($moduleType === '' ? 'global default' : $moduleType . ($supplier !== '' ? "/{$supplier}" : ''))]);
+    exit;
+});
+
+// Save the PaySmallSmall (installment) rule for a scope.
+$router->post(admin.'/settings/payment-scoping/pay-small-small', function () use ($SECURE,$db) {
+    ADMIN_AUTH();
+    CSRF::guard();
+    header('Content-Type: application/json');
+
+    $moduleType = strtolower(trim((string) ($_POST['module_type'] ?? '')));
+    $supplier   = strtolower(trim((string) ($_POST['supplier'] ?? '')));
+    $scopeType  = $moduleType === '' ? 'global' : ($supplier !== '' ? 'service' : 'module');
+
+    $enabled  = !empty($_POST['enabled']) ? 1 : 0;
+    $firstPct = max(1, min(100, (float) ($_POST['first_percent'] ?? 50)));
+    $insts    = max(1, min(24, (int) ($_POST['installments'] ?? 2)));
+    $interval = max(1, min(365, (int) ($_POST['interval_days'] ?? 30)));
+    $policy   = in_array(($_POST['deadline_policy'] ?? ''), ['auto_cancel', 'flag'], true) ? $_POST['deadline_policy'] : 'flag';
+    $release  = !empty($_POST['release_inventory']) ? 1 : 0;
+    $agents   = !empty($_POST['agents_only']) ? 1 : 0;
+    $offsets  = array_values(array_unique(array_filter(array_map(
+        fn($x) => (int) trim($x), explode(',', (string) ($_POST['reminder_offsets_hours'] ?? ''))
+    ), fn($h) => $h > 0 && $h <= 8760)));
+    rsort($offsets);
+    $offsetsCsv = implode(',', $offsets);
+    $minAmount = ($_POST['min_amount'] ?? '') !== '' ? round((float) $_POST['min_amount'], 2) : null;
+    // umrah plan code — validated against a real active plan, else PP-50-25-25.
+    $planCode = trim((string) ($_POST['umrah_plan_code'] ?? 'PP-50-25-25'));
+    if ($planCode === '' || !$db->get('umrah_payment_plans', 'id', ['code' => $planCode])) { $planCode = 'PP-50-25-25'; }
+
+    $payload = [
+        'enabled' => $enabled, 'first_percent' => round($firstPct, 2), 'installments' => $insts,
+        'interval_days' => $interval, 'reminder_offsets_hours' => $offsetsCsv, 'deadline_policy' => $policy,
+        'release_inventory' => $release, 'agents_only' => $agents, 'min_amount' => $minAmount,
+        'umrah_plan_code' => $planCode, 'updated_at' => date('Y-m-d H:i:s'),
+    ];
+    $existing = $db->get('pay_small_small_rules', 'id', ['scope_type' => $scopeType, 'module_type' => ($moduleType ?: ''), 'supplier' => $supplier]);
+    if ($existing) {
+        $db->update('pay_small_small_rules', $payload, ['id' => (int) $existing]);
+    } else {
+        $db->insert('pay_small_small_rules', array_merge($payload, ['scope_type' => $scopeType, 'module_type' => ($moduleType ?: ''), 'supplier' => $supplier]));
+    }
+    $note = ($moduleType !== '' && $moduleType !== 'umrah') ? ' (note: only umrah is fulfillable in Phase 1)' : '';
+    echo json_encode(['status' => 'success', 'message' => 'PaySmallSmall rule saved for ' . ($moduleType === '' ? 'global default' : $moduleType . ($supplier !== '' ? "/{$supplier}" : '')) . $note]);
+    exit;
 });
