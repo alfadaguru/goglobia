@@ -52,7 +52,7 @@ $iconColors = [
                 <span class="material-symbols-outlined text-xl">arrow_back</span>
             </a>
             <div>
-                <h1 class="text-1xl font-bold text-slate-800 flex items-center gap-2">
+                <h1 class="text-xl font-bold text-slate-800 flex items-center gap-2">
                     <span class="material-symbols-outlined text-sky-600 text-2xl">smart_toy</span>
                     <?= $isEdit ? 'Edit AI Suggestion' : 'Add AI Suggestion' ?>
                 </h1>

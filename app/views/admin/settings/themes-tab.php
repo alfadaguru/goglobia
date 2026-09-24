@@ -52,7 +52,7 @@
                 <div class="section mt-5">
                     <div class="flex items-center mb-3">
                         <span class="material-symbols-outlined text-purple-600 mr-2 text-xl">text_fields</span>
-                        <h3 class="text-md font-semibold">Typography</h3>
+                        <h3 class="text-base font-semibold">Typography</h3>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <!-- FONT SELECTION HIDDEN FOR NOW — SITE USES THE STATIC LOCAL Outfit FONT
@@ -82,7 +82,7 @@
                 <div class="section mt-5">
                     <div class="flex items-center mb-3">
                         <span class="material-symbols-outlined text-blue-600 mr-2 text-xl">web_asset</span>
-                        <h3 class="text-md font-semibold">Header</h3>
+                        <h3 class="text-base font-semibold">Header</h3>
                     </div>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div class="form-control">
@@ -128,7 +128,7 @@
                 <div class="section mt-5">
                     <div class="flex items-center mb-3">
                         <span class="material-symbols-outlined text-gray-600 mr-2 text-xl">web</span>
-                        <h3 class="text-md font-semibold">Footer</h3>
+                        <h3 class="text-base font-semibold">Footer</h3>
                     </div>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div class="form-control">
@@ -174,7 +174,7 @@
                 <div class="section mt-5">
                     <div class="flex items-center mb-3">
                         <span class="material-symbols-outlined text-indigo-600 mr-2 text-xl">smart_button</span>
-                        <h3 class="text-md font-semibold">Button</h3>
+                        <h3 class="text-base font-semibold">Button</h3>
                     </div>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div class="form-control">
@@ -228,7 +228,7 @@
                 <div class="section mt-5">
                     <div class="flex items-center mb-3">
                         <span class="material-symbols-outlined text-green-600 mr-2 text-xl">input</span>
-                        <h3 class="text-md font-semibold">Input</h3>
+                        <h3 class="text-base font-semibold">Input</h3>
                     </div>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div class="form-control">
@@ -282,7 +282,7 @@
                 <div class="section mt-5">
                     <div class="flex items-center mb-3">
                         <span class="material-symbols-outlined text-orange-600 mr-2 text-xl">text_snippet</span>
-                        <h3 class="text-md font-semibold">Textarea</h3>
+                        <h3 class="text-base font-semibold">Textarea</h3>
                     </div>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div class="form-control">
@@ -336,7 +336,7 @@
                 <div class="section mt-5">
                     <div class="flex items-center mb-3">
                         <span class="material-symbols-outlined text-teal-600 mr-2 text-xl">arrow_drop_down_circle</span>
-                        <h3 class="text-md font-semibold">Select</h3>
+                        <h3 class="text-base font-semibold">Select</h3>
                     </div>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div class="form-control">
@@ -386,7 +386,7 @@
                 <div class="section mt-5">
                     <div class="flex items-center mb-3">
                         <span class="material-symbols-outlined text-pink-600 mr-2 text-xl">crop_portrait</span>
-                        <h3 class="text-md font-semibold">Card</h3>
+                        <h3 class="text-base font-semibold">Card</h3>
                     </div>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div class="form-control">
@@ -416,7 +416,7 @@
                 <div class="section mt-5">
                     <div class="flex items-center mb-3">
                         <span class="material-symbols-outlined text-blue-600 mr-2 text-xl">check_box</span>
-                        <h3 class="text-md font-semibold">Checkbox</h3>
+                        <h3 class="text-base font-semibold">Checkbox</h3>
                     </div>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div class="form-control">
@@ -458,7 +458,7 @@
                 <div class="section mt-5">
                     <div class="flex items-center mb-3">
                         <span class="material-symbols-outlined text-purple-600 mr-2 text-xl">radio_button_checked</span>
-                        <h3 class="text-md font-semibold">Radio</h3>
+                        <h3 class="text-base font-semibold">Radio</h3>
                     </div>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div class="form-control">
@@ -492,7 +492,7 @@
                 <div class="section mt-5">
                     <div class="flex items-center mb-3">
                         <span class="material-symbols-outlined text-red-600 mr-2 text-xl">palette</span>
-                        <h3 class="text-md font-semibold">Theme Colors</h3>
+                        <h3 class="text-base font-semibold">Theme Colors</h3>
                     </div>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div class="form-control">

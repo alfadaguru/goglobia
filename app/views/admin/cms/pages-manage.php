@@ -299,7 +299,7 @@ function cmsFormData() {
                 <span class="material-symbols-outlined text-xl">arrow_back</span>
             </a>
             <div>
-                <h1 class="text-1xl font-bold text-slate-800">
+                <h1 class="text-xl font-bold text-slate-800">
                     <?= $isEdit ? htmlspecialchars($page['page_name'] ?? 'Edit Page') : (T::add_new_page ?? 'Add New Page') ?>
                 </h1>
                 <?php if ($isEdit): ?>

@@ -118,7 +118,7 @@ if ($_POST && isset($_POST['action']) && $_POST['action'] === 'delete_role') {
                 <span class="material-symbols-outlined text-xl">arrow_back</span>
             </a>
             <div>
-                <h1 class="text-1xl font-bold text-slate-800">
+                <h1 class="text-xl font-bold text-slate-800">
                     <?= $isEdit ? T::edit_role . ': ' . htmlspecialchars($role['type_name']) : T::add_new_role ?>
                 </h1>
                 <p class="text-sm text-slate-600 mt-1">

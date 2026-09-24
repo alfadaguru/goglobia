@@ -31,7 +31,7 @@ $isAdd = !$isEdit && $isManageMode;
                     <span class="material-symbols-outlined text-xl">arrow_back</span>
                 </a>
                 <div>
-                    <h1 class="text-1xl font-bold text-slate-800 flex items-center gap-2">
+                    <h1 class="text-xl font-bold text-slate-800 flex items-center gap-2">
                         <span class="material-symbols-outlined">settings</span>
                         <?= $isEdit ? (T::edit_cars_setting ?? 'Edit Cars Setting') : (T::add_new_cars_setting ?? 'Add New Cars Setting') ?>
                     </h1>

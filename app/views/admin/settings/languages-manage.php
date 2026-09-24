@@ -52,7 +52,7 @@ $countries = $db->select('countries', ['iso', 'nicename'], [
                 <span class="material-symbols-outlined text-xl">arrow_back</span>
             </a>
             <div>
-                <h1 class="text-1xl font-bold text-slate-800">
+                <h1 class="text-xl font-bold text-slate-800">
                     <?= $isEdit ? htmlspecialchars($language['name'] ?? 'Edit Language') : (T::add_language ?? 'Add Language') ?>
                 </h1>
                 <?php if ($isEdit): ?>

@@ -39,7 +39,7 @@ $countries = $db->select('countries', ['iso', 'nicename'], [
                 <span class="material-symbols-outlined text-xl">arrow_back</span>
             </a>
             <div>
-                <h1 class="text-1xl font-bold text-slate-800">
+                <h1 class="text-xl font-bold text-slate-800">
                     <?= $isEdit ? htmlspecialchars($location['city'] ?? 'Edit Location') : (T::add_location ?? 'Add Location') ?>
                 </h1>
                 <?php if ($isEdit): ?>

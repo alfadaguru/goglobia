@@ -25,7 +25,7 @@ if ($isEdit) {
                 <span class="material-symbols-outlined text-xl">arrow_back</span>
             </a>
             <div>
-                <h1 class="text-1xl font-bold text-slate-800">
+                <h1 class="text-xl font-bold text-slate-800">
                     <?= $isEdit ? htmlspecialchars($country['nicename'] ?? $country['name'] ?? 'Edit Country') : (T::add_country ?? 'Add Country') ?>
                 </h1>
                 <?php if ($isEdit): ?>

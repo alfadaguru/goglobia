@@ -76,7 +76,7 @@ $isSubjectRequired = $templateType === 'email';
                 <span class="material-symbols-outlined text-xl">arrow_back</span>
             </a>
             <div>
-                <h1 class="text-1xl font-bold text-slate-800">
+                <h1 class="text-xl font-bold text-slate-800">
                     <?= htmlspecialchars($template['name'] ?? T::edit_template) ?>
                 </h1>
                 <div class="flex flex-wrap items-center gap-2 mt-1 text-sm text-slate-600">
@@ -174,7 +174,7 @@ $isSubjectRequired = $templateType === 'email';
                     <button type="button" 
                             class="w-full px-4 py-3 text-left hover:bg-gray-50 focus:outline-none focus:bg-gray-50 transition-colors flex items-center justify-between"
                             @click="toggleCategory('<?= $category ?>')">
-                        <h4 class="font-medium text-gray-900 capitalize text-md flex items-center gap-2">
+                        <h4 class="font-medium text-gray-900 capitalize text-base flex items-center gap-2">
                             <span class="material-symbols-outlined text-lg transform transition-transform" 
                                 :class="openCategories['<?= $category ?>'] ? 'rotate-90' : ''">
                                 chevron_right
