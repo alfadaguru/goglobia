@@ -794,7 +794,7 @@ $router->post('stays/hotelbeds/issue', function() use ($db) {
     error_log("HOTELBEDS ISSUE: Checking for booking reference");
 
     if (!empty($responseData['booking']['reference'])) {
-        
+
         // SUCCESS: Update booking in database
         $updateData = [
             'booking_status' => 'confirmed',
@@ -804,6 +804,42 @@ $router->post('stays/hotelbeds/issue', function() use ($db) {
         ];
 
         $db->update('bookings', $updateData, ['invoice_id' => $invoice_id]);
+
+        // POST-PAYMENT PRICE RECONCILIATION (audit H4): Hotelbeds enforces its OWN
+        // 2% CheckRate->confirm tolerance (see above), but that only guards supplier
+        // rate drift — it never compares the confirmed supplier net to what the
+        // customer PAID (bookings.price_markup). So a tampered/stale draft that
+        // underpaid for a real room would still confirm. The supplier booking is
+        // already committed here, so we do NOT un-confirm; instead we compare and, on
+        // a beyond-tolerance underpayment, record a machine-readable price-mismatch
+        // flag on the booking for ops review/collection. reconcilePostPaymentPrice()
+        // itself writes that flag when it returns not-ok.
+        $confirmedNet = (float) (
+            $responseData['booking']['totalNet']
+            ?? $responseData['booking']['pendingAmount']
+            ?? $responseData['booking']['hotel']['totalNet']
+            ?? 0
+        );
+        $confirmedCurrency = (string) (
+            $responseData['booking']['currency']
+            ?? $booking['currency_markup']
+            ?? ($bookingData['currency'] ?? 'USD')
+        );
+        if ($confirmedNet > 0 && function_exists('reconcilePostPaymentPrice')) {
+            // Re-read the row so the flag isn't clobbered by the update just above.
+            $freshBooking = $db->get('bookings', '*', ['invoice_id' => $invoice_id]) ?: $booking;
+            $priceCheck = reconcilePostPaymentPrice($db, $freshBooking, $confirmedNet, $confirmedCurrency);
+            if (empty($priceCheck['ok'])) {
+                // Keep booking_status='confirmed' (supplier already booked) but restore
+                // it — _reconcile_block set it to 'pending'. The price flag lives in
+                // error_response for ops to action (collect the shortfall / review).
+                $db->update('bookings', [
+                    'booking_status' => 'confirmed',
+                ], ['invoice_id' => $invoice_id]);
+                error_log('HOTELBEDS PRICE RECONCILE (post-confirm) flagged underpayment | invoice=' . $invoice_id
+                    . ' | ' . ($priceCheck['reason'] ?? ''));
+            }
+        }
 
         // Build response array (use array instead of object for consistency)
         $successResponse = [

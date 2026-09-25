@@ -184,6 +184,47 @@ $router->post('/api/cars/booking/draft', function () use ($SECURE, $db) {
             }
         }
 
+        // PRICE-TRUST (audit H2): the client supplies car_data.actual_price and it is
+        // trusted straight into the charge (price_original) with NO supplier
+        // revalidation for cars. For the LOCAL "cars" supplier the trusted price lives
+        // server-side in the car row's `routes` JSON, so we can enforce a floor here:
+        // the claimed actual_price must be at least the cheapest route price for the
+        // booked car (in that route's currency). This blocks the "draft actual_price=1
+        // -> ~$1 charge for a real car" attack for the local supplier. External
+        // suppliers (mozio/cartrawler) cannot be re-priced server-side in the current
+        // architecture (results are not persisted; cartrawler re-quote invalidates the
+        // quote) — that gap is tracked separately and NOT silently trusted here.
+        if (in_array(strtolower((string) $supplier), ['cars', ''], true) && !empty($carIdInput)) {
+            $claimedActual = (float) (
+                $input['car_data']['actual_price']
+                ?? $input['car_data']['base_price']
+                ?? $input['car_data']['price']
+                ?? 0
+            );
+            $carRow = $db->get('cars', ['routes'], ['id' => (int) $carIdInput]);
+            if ($carRow) {
+                $routes = json_decode($carRow['routes'] ?? '[]', true);
+                $minRoutePrice = null;
+                if (is_array($routes)) {
+                    foreach ($routes as $route) {
+                        $rp = (float) ($route['price'] ?? 0);
+                        if ($rp > 0 && ($minRoutePrice === null || $rp < $minRoutePrice)) {
+                            $minRoutePrice = $rp;
+                        }
+                    }
+                }
+                // 5% grace absorbs currency-conversion rounding between the client's
+                // display currency and the stored route base price.
+                if ($minRoutePrice !== null && $minRoutePrice > 0
+                    && $claimedActual > 0 && $claimedActual < ($minRoutePrice * 0.95)) {
+                    error_log('CARS PRICE-TRUST BLOCK (local supplier) | car_id=' . (int) $carIdInput
+                        . ' | claimed_actual=' . $claimedActual . ' < min_route_price=' . $minRoutePrice);
+                    http_response_code(422);
+                    throw new Exception('The selected car price could not be verified. Please search again and reselect.');
+                }
+            }
+        }
+
         // ========================================
         // BUILD COMPLETE BOOKING DATA
         // ========================================

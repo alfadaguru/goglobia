@@ -124,6 +124,16 @@ if (!function_exists('aiTripResolveLinePricing')) {
             $taxValue = (float)($taxCalc['tax_value'] ?? $taxConfig['tax'] ?? 0);
         }
 
+        // PRICE-TRUST (audit H3): a supplier-priced module line with NO verified
+        // supplier net (net amount == 0) means we could not derive a trusted cost —
+        // e.g. a stays item submitted with no selected_rooms, whose revalidator
+        // "skipped" it. In that state $subtotalBase silently falls back to the
+        // CLIENT cart price ($cartBase), so a guest could name their own price
+        // (e.g. $1) for a real supplier booking. Flag it so the charge loop can
+        // refuse to bill an unverified supplier line instead of trusting the cart.
+        $unpriced = ($net['amount'] <= 0)
+            && in_array($moduleType, ['flights', 'stays', 'tours', 'cars', 'umrah'], true);
+
         return [
             'net_base' => round($netBase, 2),
             'subtotal_base' => round($subtotalBase, 2),
@@ -132,6 +142,7 @@ if (!function_exists('aiTripResolveLinePricing')) {
             'final_base' => round($subtotalBase + $tax, 2),
             'tax_type' => $taxType,
             'tax_value' => $taxValue,
+            'unpriced' => $unpriced,
         ];
     }
 }
@@ -963,6 +974,19 @@ $router->post('/api/ai/trip/submit', function () use ($SECURE, $db) {
                 $itemCurrency,
                 (string)$baseCurrencyCode
             );
+            // PRICE-TRUST (audit H3): refuse to bill a supplier-priced line whose
+            // cost we could not verify. Without this, a stays item submitted with no
+            // selected_rooms (whose revalidator "skipped" it, returning is_valid) would
+            // be charged at the CLIENT-supplied cart price — a guest could pay $1 for a
+            // real hotel. aiTripResolveLinePricing() flags this as 'unpriced'. Abort the
+            // whole booking rather than issue a supplier line at an unverified price.
+            if (!empty($linePricing['unpriced'])) {
+                error_log('AI-TRIP PRICE-TRUST BLOCK | unverified supplier line | module=' . $moduleType
+                    . ' supplier=' . $supplier . ' cart_price=' . $priceDisplay . ' ' . $itemCurrency);
+                http_response_code(422);
+                throw new Exception('We could not verify the live price for one of your '
+                    . ucfirst($moduleType) . ' selections. Please re-run your search and add it again.');
+            }
             $netBase = (float)$linePricing['net_base'];
             $priceBase = (float)$linePricing['subtotal_base'];
             $markupBase = (float)$linePricing['markup_base'];
