@@ -2537,13 +2537,17 @@ $router->post('/api/ai/trip/resend-invoice', function () use ($SECURE, $db) {
             $input = $_POST;
         }
 
+        // SECURITY (audit C2): validate the CSRF token the site's own JS sends
+        // (body csrf_token or X-CSRF-TOKEN header) — this is a state-changing,
+        // email-sending action.
+        if (!CSRF::validateToken(CSRF::tokenFromRequest())) {
+            http_response_code(403);
+            throw new Exception('Invalid security token.');
+        }
+
         $invoiceId = preg_replace('/[^A-Za-z0-9]/', '', (string)($input['invoice_id'] ?? ''));
-        $customerEmail = trim((string)($input['customer_email'] ?? ''));
         if ($invoiceId === '') {
             throw new Exception('Invoice ID is required.');
-        }
-        if ($customerEmail !== '' && !filter_var($customerEmail, FILTER_VALIDATE_EMAIL)) {
-            throw new Exception('A valid recipient email address is required.');
         }
 
         $booking = $db->get('bookings', '*', [
@@ -2554,16 +2558,23 @@ $router->post('/api/ai/trip/resend-invoice', function () use ($SECURE, $db) {
             throw new Exception('AI Trip invoice not found.');
         }
 
-        if (isset($_SESSION['user_id']) && !empty($booking['user_id'])) {
-            $isAdmin = isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin';
-            if (!$isAdmin && (string)$booking['user_id'] !== (string)$_SESSION['user_id']) {
-                throw new Exception('Unauthorized access.');
-            }
+        // SECURITY (audit C2): the previous inline ownership check only fired when
+        // BOTH a session user_id AND a booking user_id existed, so an
+        // UNAUTHENTICATED caller (no session) or a guest-created booking (empty
+        // user_id) skipped it entirely — and the recipient email was taken from
+        // client input, so anyone could have ANY invoice's PDF mailed to an
+        // attacker address. enforceInvoiceAccess honors owner / admin / guest-owned
+        // / payment-token and 403-JSON-exits otherwise. The recipient is now ALWAYS
+        // the invoice's on-file email — never a client-supplied address.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        } else {
+            // Fail closed if the guard is unavailable rather than mailing PII out.
+            http_response_code(403);
+            throw new Exception('Unauthorized access.');
         }
 
-        if ($customerEmail === '') {
-            $customerEmail = trim((string)($booking['email'] ?? ''));
-        }
+        $customerEmail = trim((string)($booking['email'] ?? ''));
         if (!filter_var($customerEmail, FILTER_VALIDATE_EMAIL)) {
             throw new Exception('A valid recipient email address is required.');
         }

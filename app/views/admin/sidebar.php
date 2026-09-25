@@ -884,8 +884,8 @@ $notifCount = count($recentNotifBookings);
                                     </span>
                                 </div>
                                 <div class="min-w-0 flex-1">
-                                    <p class="text-[12.5px] font-medium text-gray-200 truncate"><?= $notif['first_name'] . ' ' . $notif['last_name'] ?></p>
-                                    <p class="text-[11px] text-gray-500 truncate"><?= ucfirst($notif['module_type']) ?> - <?= $notif['invoice_id'] ?></p>
+                                    <p class="text-[12.5px] font-medium text-gray-200 truncate"><?= htmlspecialchars($notif['first_name'] . ' ' . $notif['last_name'], ENT_QUOTES, 'UTF-8') ?></p>
+                                    <p class="text-[11px] text-gray-500 truncate"><?= htmlspecialchars(ucfirst($notif['module_type']), ENT_QUOTES, 'UTF-8') ?> - <?= htmlspecialchars($notif['invoice_id'], ENT_QUOTES, 'UTF-8') ?></p>
                                     <p class="text-[10px] text-gray-600 mt-0.5"><?= date('M d, H:i', strtotime($notif['created_at'])) ?></p>
                                 </div>
                             </a>
