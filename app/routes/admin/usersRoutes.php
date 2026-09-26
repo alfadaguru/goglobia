@@ -597,14 +597,51 @@ $router->post(admin.'/users/process-manage-funds', function () use ($SECURE,$db)
         if (function_exists('wallet_get_or_create')) {
             wallet_get_or_create($db, $user_id, $walletCurrency);
         }
-        $spineResult = function_exists('wallet_apply')
-            ? wallet_apply($db, (string) $user_id, (float) $final_amount, ($transaction_type === 'credit' ? 'credit' : 'debit'), $walletCurrency, [
-                'reason'         => 'adjustment',
-                'note'           => $description,
-                'idempotency_key'=> 'ADMINFUND-' . ($transaction_id_row ?: bin2hex(random_bytes(6))),
+        // MONEY MOVEMENT VIA THE SPINE (audit H1 — double-credit fix): the old code
+        // called wallet_apply() with an 'idempotency_key' opt that wallet_apply()
+        // IGNORES — its only dedupe is on 'transaction_id' against
+        // wallet_ledger.uq_txn, and no transaction_id was passed. Worse, the key
+        // was derived from $transaction_id_row, a FRESH transactions-row id minted
+        // on every POST, so it differed on each submit anyway. Net effect: a
+        // double-clicked / retried "Add Funds" form credited the wallet TWICE.
+        //
+        // Fix: route through wallet_refund()/wallet_spend() exactly like the sibling
+        // admin credit route (creditsRoutes.php). These create a money_transactions
+        // row via txn_create(), which dedupes on money_transactions.idempotency_key
+        // (uq_idem) BEFORE any money moves. The key is derived from the operation's
+        // content + the form's CSRF token (stable across an accidental re-submit of
+        // the same form, but distinct for a genuinely new add-funds action), so a
+        // duplicate POST is a no-op that returns the existing transaction.
+        $idemBasis = implode('|', [
+            (string) $user_id,
+            $transaction_type === 'credit' ? 'credit' : 'debit',
+            number_format((float) $final_amount, 2, '.', ''),
+            $walletCurrency,
+            (string) $description,
+            (string) ($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '')),
+        ]);
+        $adminFundIdem = 'ADMINFUND-' . hash('sha256', $idemBasis);
+        if (!function_exists('wallet_refund') || !function_exists('wallet_spend')) {
+            $spineResult = ['ok' => false, 'message' => 'Wallet engine unavailable'];
+        } elseif ($transaction_type === 'credit') {
+            $spineResult = wallet_refund($db, (string) $user_id, (float) $final_amount, $walletCurrency, [
+                'reason'          => 'adjustment',
+                'ref_type'        => 'admin_manage_funds',
+                'ref_id'          => (string) ($transaction_id_row ?: ''),
+                'idempotency_key' => $adminFundIdem,
+                'note'            => $description,
+            ]);
+        } else {
+            $spineResult = wallet_spend($db, (string) $user_id, (float) $final_amount, $walletCurrency, [
+                'reason'          => 'adjustment',
+                'method'          => 'manual',
                 'allow_credit_line' => false,
-              ])
-            : ['ok' => false, 'message' => 'Wallet engine unavailable'];
+                'ref_type'        => 'admin_manage_funds',
+                'ref_id'          => (string) ($transaction_id_row ?: ''),
+                'idempotency_key' => $adminFundIdem,
+                'note'            => $description,
+            ]);
+        }
 
         if (empty($spineResult['ok'])) {
             // Roll back the transaction log + uploaded files so we don't leave a

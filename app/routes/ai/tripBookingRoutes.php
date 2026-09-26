@@ -124,6 +124,16 @@ if (!function_exists('aiTripResolveLinePricing')) {
             $taxValue = (float)($taxCalc['tax_value'] ?? $taxConfig['tax'] ?? 0);
         }
 
+        // PRICE-TRUST (audit H3): a supplier-priced module line with NO verified
+        // supplier net (net amount == 0) means we could not derive a trusted cost —
+        // e.g. a stays item submitted with no selected_rooms, whose revalidator
+        // "skipped" it. In that state $subtotalBase silently falls back to the
+        // CLIENT cart price ($cartBase), so a guest could name their own price
+        // (e.g. $1) for a real supplier booking. Flag it so the charge loop can
+        // refuse to bill an unverified supplier line instead of trusting the cart.
+        $unpriced = ($net['amount'] <= 0)
+            && in_array($moduleType, ['flights', 'stays', 'tours', 'cars', 'umrah'], true);
+
         return [
             'net_base' => round($netBase, 2),
             'subtotal_base' => round($subtotalBase, 2),
@@ -132,6 +142,7 @@ if (!function_exists('aiTripResolveLinePricing')) {
             'final_base' => round($subtotalBase + $tax, 2),
             'tax_type' => $taxType,
             'tax_value' => $taxValue,
+            'unpriced' => $unpriced,
         ];
     }
 }
@@ -963,6 +974,19 @@ $router->post('/api/ai/trip/submit', function () use ($SECURE, $db) {
                 $itemCurrency,
                 (string)$baseCurrencyCode
             );
+            // PRICE-TRUST (audit H3): refuse to bill a supplier-priced line whose
+            // cost we could not verify. Without this, a stays item submitted with no
+            // selected_rooms (whose revalidator "skipped" it, returning is_valid) would
+            // be charged at the CLIENT-supplied cart price — a guest could pay $1 for a
+            // real hotel. aiTripResolveLinePricing() flags this as 'unpriced'. Abort the
+            // whole booking rather than issue a supplier line at an unverified price.
+            if (!empty($linePricing['unpriced'])) {
+                error_log('AI-TRIP PRICE-TRUST BLOCK | unverified supplier line | module=' . $moduleType
+                    . ' supplier=' . $supplier . ' cart_price=' . $priceDisplay . ' ' . $itemCurrency);
+                http_response_code(422);
+                throw new Exception('We could not verify the live price for one of your '
+                    . ucfirst($moduleType) . ' selections. Please re-run your search and add it again.');
+            }
             $netBase = (float)$linePricing['net_base'];
             $priceBase = (float)$linePricing['subtotal_base'];
             $markupBase = (float)$linePricing['markup_base'];
@@ -2537,13 +2561,17 @@ $router->post('/api/ai/trip/resend-invoice', function () use ($SECURE, $db) {
             $input = $_POST;
         }
 
+        // SECURITY (audit C2): validate the CSRF token the site's own JS sends
+        // (body csrf_token or X-CSRF-TOKEN header) — this is a state-changing,
+        // email-sending action.
+        if (!CSRF::validateToken(CSRF::tokenFromRequest())) {
+            http_response_code(403);
+            throw new Exception('Invalid security token.');
+        }
+
         $invoiceId = preg_replace('/[^A-Za-z0-9]/', '', (string)($input['invoice_id'] ?? ''));
-        $customerEmail = trim((string)($input['customer_email'] ?? ''));
         if ($invoiceId === '') {
             throw new Exception('Invoice ID is required.');
-        }
-        if ($customerEmail !== '' && !filter_var($customerEmail, FILTER_VALIDATE_EMAIL)) {
-            throw new Exception('A valid recipient email address is required.');
         }
 
         $booking = $db->get('bookings', '*', [
@@ -2554,16 +2582,23 @@ $router->post('/api/ai/trip/resend-invoice', function () use ($SECURE, $db) {
             throw new Exception('AI Trip invoice not found.');
         }
 
-        if (isset($_SESSION['user_id']) && !empty($booking['user_id'])) {
-            $isAdmin = isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin';
-            if (!$isAdmin && (string)$booking['user_id'] !== (string)$_SESSION['user_id']) {
-                throw new Exception('Unauthorized access.');
-            }
+        // SECURITY (audit C2): the previous inline ownership check only fired when
+        // BOTH a session user_id AND a booking user_id existed, so an
+        // UNAUTHENTICATED caller (no session) or a guest-created booking (empty
+        // user_id) skipped it entirely — and the recipient email was taken from
+        // client input, so anyone could have ANY invoice's PDF mailed to an
+        // attacker address. enforceInvoiceAccess honors owner / admin / guest-owned
+        // / payment-token and 403-JSON-exits otherwise. The recipient is now ALWAYS
+        // the invoice's on-file email — never a client-supplied address.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        } else {
+            // Fail closed if the guard is unavailable rather than mailing PII out.
+            http_response_code(403);
+            throw new Exception('Unauthorized access.');
         }
 
-        if ($customerEmail === '') {
-            $customerEmail = trim((string)($booking['email'] ?? ''));
-        }
+        $customerEmail = trim((string)($booking['email'] ?? ''));
         if (!filter_var($customerEmail, FILTER_VALIDATE_EMAIL)) {
             throw new Exception('A valid recipient email address is required.');
         }

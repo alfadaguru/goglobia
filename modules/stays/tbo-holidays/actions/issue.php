@@ -321,6 +321,28 @@ $router->post('stays/tbo-holidays/issue', function () use ($db) {
             'updated_at' => date('Y-m-d H:i:s'),
         ], ['id' => $booking['id']]);
 
+        // POST-PAYMENT PRICE RECONCILIATION (audit H4): tbo already checks the
+        // fresh PreBook fare against the customer-ACCEPTED snapshot, but never
+        // against what was actually PAID (bookings.price_markup). If the paid
+        // amount ever diverged from the accepted rate (tampered client price /
+        // stale draft), the customer could underpay for a real supplier booking.
+        // Compare the live PreBook total to the amount paid BEFORE committing the
+        // Book; abort + flag for review if the supplier rose beyond tolerance.
+        if (function_exists('reconcilePostPaymentPrice')) {
+            $priceCheck = reconcilePostPaymentPrice($db, $booking, (float) $totalFare, (string) $apiCurrency);
+            if (empty($priceCheck['ok'])) {
+                while (ob_get_level()) { ob_end_clean(); }
+                echo json_encode([
+                    'success'      => false,
+                    'status'       => false,
+                    'message'      => 'Booking held for review: ' . ($priceCheck['reason'] ?? 'price mismatch'),
+                    'price_review' => $priceCheck,
+                    'invoice_id'   => $invoiceId,
+                ], JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+        }
+
         $book = tboHolidaysCall($moduleData, 'Book', $bookPayload, 'POST', 120);
         logApiCall(
             'Book',

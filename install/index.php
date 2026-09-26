@@ -42,6 +42,28 @@ if (isset($_POST['action'])) {
     
     $installer = new Installer();
 
+    // SECURITY (audit C1): the "already installed" guard used to live ONLY in the
+    // Installer constructor, which returns early for ANY request carrying an
+    // `action` param (see __construct) — so every AJAX action (test_database,
+    // import_database, install) ran UNAUTHENTICATED on a live, installed site.
+    // import_database drops every table; install creates a new admin + rewrites
+    // .env. Re-run the same installed-check here, before dispatching a
+    // state-changing action, and refuse it once the app is installed (unless the
+    // operator explicitly opts in with ?reinstall on the URL).
+    $__destructiveActions = ['test_database', 'import_database', 'install'];
+    if (in_array($_POST['action'], $__destructiveActions, true)
+        && !isset($_GET['reinstall'])
+        && $installer->isInstalled()) {
+        while (ob_get_level()) ob_end_clean();
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Application is already installed. Installation is disabled. '
+                . 'Remove the /install directory from your server.',
+        ]);
+        exit;
+    }
+
     try {
         switch ($_POST['action']) {
             case 'check_requirements':
@@ -97,6 +119,15 @@ class Installer {
                 exit;
             }
         }
+    }
+
+    /**
+     * Public installed-state check used by the AJAX guard (audit C1) so
+     * state-changing actions can be refused on an already-installed site.
+     * Requires the .env AND a working DB with all core tables + seeded settings.
+     */
+    public function isInstalled() {
+        return file_exists($this->env_path) && $this->isFullyInstalled();
     }
     
     /**

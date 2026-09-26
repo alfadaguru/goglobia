@@ -660,15 +660,19 @@ if (!function_exists('aiTripRevalidateStayHotelbeds')) {
         $oldDisplay = (float)($it['price'] ?? 0);
 
         if (!$rooms) {
+            // PRICE-TRUST (audit H3): a stays line with no selected rooms has no
+            // verifiable supplier price. Returning is_valid:true here let the charge
+            // path fall back to the client cart price (pay-your-own-price). Mark it
+            // NOT valid so it cannot be booked without a real, re-priceable room.
             return [
                 'module' => 'stays',
                 'supplier' => 'hotelbeds',
                 'skipped' => true,
-                'is_valid' => true,
+                'is_valid' => false,
                 'price_changed' => false,
                 'old_price' => $oldDisplay,
                 'new_price' => $oldDisplay,
-                'message' => 'No rooms to revalidate — skipped.',
+                'message' => 'No room selected to price. Please re-run your search and choose a room.',
             ];
         }
 
@@ -1051,15 +1055,17 @@ if (!function_exists('aiTripRevalidateStayLocalHotels')) {
         };
 
         if (!$rooms) {
+            // PRICE-TRUST (audit H3): see hotelbeds revalidator — a roomless stays
+            // line has no verifiable price; do not let it book at the cart price.
             return [
                 'module' => 'stays',
                 'supplier' => 'hotels',
                 'skipped' => true,
-                'is_valid' => true,
+                'is_valid' => false,
                 'price_changed' => false,
                 'old_price' => $oldDisplay,
                 'new_price' => $oldDisplay,
-                'message' => 'No rooms to revalidate — skipped.',
+                'message' => 'No room selected to price. Please re-run your search and choose a room.',
             ];
         }
 
@@ -1244,15 +1250,17 @@ if (!function_exists('aiTripRevalidateStayRoomsRefresh')) {
         $oldDisplay = (float)($it['price'] ?? 0);
 
         if (!$rooms) {
+            // PRICE-TRUST (audit H3): see hotelbeds revalidator — a roomless stays
+            // line has no verifiable price; do not let it book at the cart price.
             return [
                 'module' => 'stays',
                 'supplier' => $supplier,
                 'skipped' => true,
-                'is_valid' => true,
+                'is_valid' => false,
                 'price_changed' => false,
                 'old_price' => $oldDisplay,
                 'new_price' => $oldDisplay,
-                'message' => 'No rooms to revalidate — skipped.',
+                'message' => 'No room selected to price. Please re-run your search and choose a room.',
             ];
         }
 

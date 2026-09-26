@@ -30,6 +30,42 @@ $router->get('/api/ai/search', function () use ($db) {
             return;
         }
 
+        // COST-ABUSE GUARD (audit H5): every call below makes a real, PAID LLM
+        // request (aiSearchService->search). This route's only gate is the AI
+        // feature flag + the /api/* key check, which is bypassed for the site's own
+        // web client (is_web_client, set on any homepage visit) and permits all
+        // when no server API key is configured — so anyone could script thousands
+        // of calls and run up an unbounded bill on the owner's Claude/OpenAI/Gemini
+        // key. Throttle per client IP (file-backed, same limiter the modules gateway
+        // uses): a short burst cap AND a wider hourly ceiling, BEFORE any provider
+        // call. Fails closed with 429.
+        if (!class_exists('RateLimiter')) {
+            $rlFile = dirname(__DIR__, 3) . '/modules/RateLimiter.php';
+            if (is_file($rlFile)) { require_once $rlFile; }
+        }
+        if (class_exists('RateLimiter')) {
+            $aiRl = new RateLimiter(dirname(__DIR__, 3) . '/app/cache/rate_limiter');
+            $rlId = 'ai_search:' . $aiRl->getClientIdentifier();
+            // Burst: 15 searches / minute. Sustained: 120 searches / hour.
+            $burstOk = $aiRl->attempt($rlId . ':burst', 15, 60);
+            $hourOk  = $aiRl->attempt($rlId . ':hour', 120, 3600);
+            if (!$burstOk || !$hourOk) {
+                http_response_code(429);
+                header('Retry-After: 60');
+                echo json_encode([
+                    'status' => false,
+                    'message' => 'Too many AI searches. Please wait a moment and try again.',
+                    'error_code' => 'AI_RATE_LIMITED',
+                    'result' => '',
+                    'module' => '',
+                    'modules' => [],
+                    'hint' => '',
+                    'searches' => [],
+                ]);
+                return;
+            }
+        }
+
         $q = trim((string) ($_GET['q'] ?? ''));
         $enabled = function_exists('aiTripEnabledModuleTypes')
             ? aiTripEnabledModuleTypes($db)

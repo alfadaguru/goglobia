@@ -10,6 +10,51 @@
 
 require_once dirname(__DIR__, 3) . '/modules/rail/train/search.php';
 
+// SECURITY (audit H6): shared guard for state-changing rail actions
+// (reschedule / refund / cancel / change). These forward to the live supplier and
+// previously had NO login, NO ownership check and NO CSRF — anyone who knew or
+// guessed a rail booking identifier could reschedule, refund, cancel or change
+// another customer's issued ticket. The guard resolves the rail booking by
+// whichever identifier the handler carries (invoice_id, or the supplier
+// main_order_id/pnr) and enforces ownership. Returns the owned booking, or emits a
+// JSON error and false (caller must stop). Enforces: CSRF -> booking exists ->
+// enforceInvoiceAccess (owner/admin/guest-owned/payment-token) 403s otherwise.
+$__railGuardOwnedBooking = function ($db, array $identifiers) {
+    // CSRF (the site's own JS sends X-CSRF-TOKEN on every same-origin fetch).
+    if (!CSRF::validateToken(CSRF::tokenFromRequest())) {
+        http_response_code(403);
+        echo json_encode(['code' => 403, 'status' => false, 'msg' => 'Invalid security token', 'data' => null]);
+        return false;
+    }
+    $invoiceId   = trim((string) ($identifiers['invoice_id'] ?? ''));
+    $mainOrderId = trim((string) ($identifiers['main_order_id'] ?? ''));
+    $booking = null;
+    if ($invoiceId !== '') {
+        $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId, 'module_type' => 'rail']);
+    } elseif ($mainOrderId !== '') {
+        // Supplier order id is stored as the booking pnr on issue.
+        $booking = $db->get('bookings', '*', ['pnr' => $mainOrderId, 'module_type' => 'rail']);
+    } else {
+        http_response_code(400);
+        echo json_encode(['code' => 400, 'status' => false, 'msg' => 'A booking identifier is required', 'data' => null]);
+        return false;
+    }
+    if (!$booking) {
+        http_response_code(404);
+        echo json_encode(['code' => 404, 'status' => false, 'msg' => 'Booking not found', 'data' => null]);
+        return false;
+    }
+    // Ownership: enforceInvoiceAccess emits its own 403 JSON + exits on denial.
+    if (function_exists('enforceInvoiceAccess')) {
+        enforceInvoiceAccess($db, $booking);
+    } else {
+        http_response_code(403);
+        echo json_encode(['code' => 403, 'status' => false, 'msg' => 'Unauthorized', 'data' => null]);
+        return false;
+    }
+    return $booking;
+};
+
 // 1. BOOKING PROCESS PASSENGER DETAILS PAGE
 $router->get('/rail/booking', function () use ($SECURE, $db) {
     $title = 'Train Booking Details | ' . $GLOBALS['app']['home_title'];
@@ -243,7 +288,7 @@ $router->post('/rail/orderResultData', $orderResultDataHandler);
 $router->post('/ticket/orderResultData', $orderResultDataHandler);
 
 // 4. CANCEL ORDER (orderCancel)
-$orderCancelHandler = function () use ($SECURE, $db) {
+$orderCancelHandler = function () use ($SECURE, $db, $__railGuardOwnedBooking) {
     header('Content-Type: application/json; charset=utf-8');
     try {
         $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
@@ -254,7 +299,14 @@ $orderCancelHandler = function () use ($SECURE, $db) {
         if (empty($input['cus_main_order_id']) && !empty($input['main_order_id'])) {
             $input['cus_main_order_id'] = $input['main_order_id'];
         }
-        
+
+        // SECURITY (audit H6): require CSRF + login + ownership before cancelling
+        // this ticket with the supplier (and flipping booking_status).
+        if (!$__railGuardOwnedBooking($db, [
+            'invoice_id'    => $input['invoice_id'] ?? '',
+            'main_order_id' => $input['main_order_id'] ?? '',
+        ])) { return; }
+
         $res = _train_request('/ticket/orderCancel', $input, ['db' => $db]);
         
         if ($res['ok']) {
@@ -279,10 +331,16 @@ $router->post('/rail/orderCancel', $orderCancelHandler);
 $router->post('/ticket/orderCancel', $orderCancelHandler);
 
 // 5. REQUEST RESCHEDULE (orderChange)
-$orderChangeHandler = function () use ($SECURE, $db) {
+$orderChangeHandler = function () use ($SECURE, $db, $__railGuardOwnedBooking) {
     header('Content-Type: application/json; charset=utf-8');
     try {
         $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+        // SECURITY (audit H6): require CSRF + login + ownership before requesting a
+        // supplier-side order change on this ticket.
+        if (!$__railGuardOwnedBooking($db, [
+            'invoice_id'    => $input['invoice_id'] ?? '',
+            'main_order_id' => $input['main_order_id'] ?? ($input['cus_main_order_id'] ?? ''),
+        ])) { return; }
         $res   = _train_request('/ticket/orderChange', $input, ['db' => $db]);
         http_response_code($res['status'] ?: 200);
         echo $res['raw'];
@@ -358,10 +416,14 @@ $router->post('/ticket/changeResultData', $changeResultDataHandler);
 // Customer-only — there is no admin "Reschedule Request" action.
 // Gated by the region policy: blocked outright for journeys where online reschedule isn't supported
 // (Jakarta–Bandung).
-$router->post('/rail/reschedule', function () use ($SECURE, $db) {
+$router->post('/rail/reschedule', function () use ($SECURE, $db, $__railGuardOwnedBooking) {
     header('Content-Type: application/json; charset=utf-8');
     try {
         $invoiceId = trim((string)($_POST['invoice_id'] ?? ''));
+
+        // SECURITY (audit H6): require CSRF + login + ownership before driving a
+        // supplier-side reschedule of this ticket.
+        if (!$__railGuardOwnedBooking($db, ['invoice_id' => $invoiceId])) { return; }
 
         $newLeg = [
             'traffic_no'        => $_POST['traffic_no'] ?? '',
@@ -384,10 +446,18 @@ $router->post('/rail/reschedule', function () use ($SECURE, $db) {
 });
 
 // 7. REQUEST REFUND (orderRefund)
-$orderRefundHandler = function () use ($SECURE, $db) {
+$orderRefundHandler = function () use ($SECURE, $db, $__railGuardOwnedBooking) {
     header('Content-Type: application/json; charset=utf-8');
     try {
         $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+        // SECURITY (audit H6): require CSRF + login + ownership before requesting a
+        // supplier refund. Previously this forwarded the raw client body to the
+        // supplier for ANY invoice, with no auth — an IDOR refund of a stranger's
+        // ticket.
+        if (!$__railGuardOwnedBooking($db, [
+            'invoice_id'    => $input['invoice_id'] ?? '',
+            'main_order_id' => $input['main_order_id'] ?? ($input['cus_main_order_id'] ?? ''),
+        ])) { return; }
         $res   = _train_request('/ticket/orderRefund', $input, ['db' => $db]);
         http_response_code($res['status'] ?: 200);
         echo $res['raw'];

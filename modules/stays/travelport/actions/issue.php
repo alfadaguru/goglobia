@@ -167,6 +167,29 @@ $router->post('stays/travelport/issue', function() use ($db) {
 
         $currency = $firstRoomOption['currency'] ?? $firstRoomOption['base_currency'];
 
+        // POST-PAYMENT PRICE RECONCILIATION (audit H4): travelport books the room's
+        // total_price (a supplier net rate carried on the booking). Before sending
+        // the reservation, compare that supplier total to what the customer actually
+        // PAID (bookings.price_markup). This blocks the "paid $1 for a real hotel"
+        // case — a tampered/stale draft where the paid amount is grossly below the
+        // supplier cost — by holding the booking for review instead of committing it.
+        // (Supplier net is normally <= sell price, so a legitimate booking passes;
+        // only a paid amount below the supplier's own cost trips the tolerance.)
+        if (function_exists('reconcilePostPaymentPrice')) {
+            $priceCheck = reconcilePostPaymentPrice($db, $booking, (float) $totalPrice, (string) $currency);
+            if (empty($priceCheck['ok'])) {
+                while (ob_get_level()) { ob_end_clean(); }
+                echo json_encode([
+                    'success'      => false,
+                    'status'       => false,
+                    'message'      => 'Booking held for review: ' . ($priceCheck['reason'] ?? 'price mismatch'),
+                    'price_review' => $priceCheck,
+                    'invoice_id'   => $invoice_id,
+                ], JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+        }
+
         // ========================================
         // STEP 4: PRIMARY GUEST DATA (REQUIRED)
         // ========================================
