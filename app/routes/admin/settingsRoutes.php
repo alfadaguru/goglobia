@@ -4,6 +4,35 @@
 @$SECURE or die('Access Denied!');
 
 /**
+ * SECURITY (audit M2 — path traversal): several module-logs handlers built a
+ * filesystem path as modules/{module_type}/{module_name}/logs/ using the RAW
+ * POST/GET module_type & module_name, while only the filename was basename()'d.
+ * So module_type=../../.. + filename=.env read or deleted files anywhere on disk
+ * (admin+CSRF gated, but a genuine filesystem escape). Each handler fetched the
+ * module row from the DB for existence but ignored its values. This helper returns
+ * the DB-authoritative, traversal-safe [type, name] for a module id — the ONLY
+ * values that should ever build that path — or null if the module is invalid.
+ */
+if (!function_exists('_moduleLogsSafeSegments')) {
+    function _moduleLogsSafeSegments($db, $moduleId): ?array
+    {
+        $module = $db->get('modules', ['id', 'name', 'type'], ['id' => $moduleId]);
+        if (!$module) {
+            return null;
+        }
+        $type = (string) ($module['type'] ?? '');
+        $name = (string) ($module['name'] ?? '');
+        // Reject anything that could escape the modules/ tree, even from the DB.
+        if ($type === '' || $name === ''
+            || strpbrk($type, "/\\.\0") !== false
+            || strpbrk($name, "/\\.\0") !== false) {
+            return null;
+        }
+        return ['type' => $type, 'name' => $name, 'module' => $module];
+    }
+}
+
+/**
  * Ensure app_settings exists and has usable JSON defaults.
  * Also migrates legacy typo column app_settions when present.
  */
@@ -2422,6 +2451,16 @@ $router->post(admin.'/settings/modules/toggle-logging', function () use ($SECURE
 
         // If logging disabled, delete all log files
         if ($settingValue == '0') {
+            // SECURITY (audit M2): bind the logs path to DB-authoritative segments,
+            // not the raw client module_type/module_name (see _moduleLogsSafeSegments).
+            $__safeSeg = _moduleLogsSafeSegments($db, $moduleId);
+            if ($__safeSeg === null) {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => 'Invalid module.']);
+                return;
+            }
+            $moduleType = $__safeSeg['type'];
+            $moduleName = $__safeSeg['name'];
             // Try multiple possible paths
             $possibleLogPaths = [
                 __DIR__ . '/../../modules/' . $moduleType . '/' . $moduleName . '/logs/',
@@ -2513,6 +2552,17 @@ $router->post(admin.'/settings/modules/log-action', function () use ($SECURE,$db
             ]);
             return;
         }
+
+        // SECURITY (audit M2): bind the logs path to DB-authoritative segments, not
+        // the raw client-supplied module_type/module_name (see _moduleLogsSafeSegments).
+        $__safeSeg = _moduleLogsSafeSegments($db, $moduleId);
+        if ($__safeSeg === null) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Invalid module.']);
+            return;
+        }
+        $moduleType = $__safeSeg['type'];
+        $moduleName = $__safeSeg['name'];
 
         // Find logs directory
         $logsPath = null;
@@ -2791,6 +2841,17 @@ $router->get(admin.'/settings/modules/log-action', function () use ($SECURE,$db)
             ]);
             return;
         }
+
+        // SECURITY (audit M2): bind the logs path to DB-authoritative segments, not
+        // the raw client-supplied module_type/module_name (see _moduleLogsSafeSegments).
+        $__safeSeg = _moduleLogsSafeSegments($db, $moduleId);
+        if ($__safeSeg === null) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Invalid module.']);
+            return;
+        }
+        $moduleType = $__safeSeg['type'];
+        $moduleName = $__safeSeg['name'];
 
         // Find logs directory
         $logsPath = null;
