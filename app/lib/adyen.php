@@ -285,34 +285,77 @@ function adyen_finalize_payment($db, string $invoiceId, ?string $pspReference, a
         }
     }
 
+    // INSTALLMENT-AWARE: a booking on an installment schedule (umrah's own
+    // ledger, or a generic PaySmallSmall schedule) charges only the next slice —
+    // the captured amount is INTENTIONALLY less than the full booking total, and
+    // the schedule engine (not this webhook) owns payment_status. Detect that
+    // first so (a) the underpayment guard below compares against the amount due
+    // now rather than the full total, and (b) we do not blanket-mark a part-paid
+    // booking 'paid'/'confirmed'. Mirrors handle_payment_callback (payment-gateway.php).
+    $isUmrahInst   = ($moduleType === 'umrah');
+    $isGenericInst = !$isUmrahInst && function_exists('installments_active_for')
+        && installments_active_for($db, $invoiceId);
+    $isInstallment = $isUmrahInst || $isGenericInst;
+
     // Amount reconciliation (audit): even though the HMAC authenticates the
-    // notification, verify the captured amount/currency matches the booking so a
-    // genuine partial-capture / under-authorisation does not finalize the
-    // booking as fully paid. Adyen amount.value is in MINOR units.
+    // notification, verify the captured amount/currency matches what is owed so a
+    // genuine partial-capture / under-authorisation does not finalize the booking.
+    // Adyen amount.value is in MINOR units. For installment bookings the expected
+    // figure is the slice due now, not the full total (else every legitimate
+    // deposit would be rejected as an underpayment).
+    $notifMajor = null;
     $notifCur = strtoupper(trim((string) ($rawEvent['amount']['currency'] ?? '')));
     $notifMinor = $rawEvent['amount']['value'] ?? null;
     if ($notifMinor !== null) {
         $exp = adyen_currency_exponent($booking['currency_markup'] ?? 'USD');
         $notifMajor = ((float) $notifMinor) / (10 ** $exp);
-        $expMajor = (float) ($booking['price_markup'] ?? 0);
         $expCur = strtoupper(trim((string) ($booking['currency_markup'] ?? '')));
         if ($notifCur !== '' && $expCur !== '' && $notifCur !== $expCur) {
             error_log("ADYEN FINALIZE: currency mismatch inv {$invoiceId} exp {$expCur} got {$notifCur}");
             return ['success' => false, 'message' => 'Currency mismatch', 'already' => false];
         }
-        if ($expMajor > 0 && ($notifMajor + 0.01) < $expMajor) {
-            error_log("ADYEN FINALIZE: underpayment inv {$invoiceId} exp {$expMajor} got {$notifMajor}");
-            return ['success' => false, 'message' => 'Amount mismatch', 'already' => false];
+        // Only enforce the full-total floor for non-installment bookings. An
+        // installment deposit legitimately pays less than the total; the slice
+        // amount is validated/allocated by the settle engine below.
+        if (!$isInstallment) {
+            $expMajor = (float) ($booking['price_markup'] ?? 0);
+            if ($expMajor > 0 && ($notifMajor + 0.01) < $expMajor) {
+                error_log("ADYEN FINALIZE: underpayment inv {$invoiceId} exp {$expMajor} got {$notifMajor}");
+                return ['success' => false, 'message' => 'Amount mismatch', 'already' => false];
+            }
         }
     }
 
-    // Mark paid.
-    $db->update('bookings', [
-        'payment_status' => 'paid',
-        'booking_status' => 'confirmed',
-        'transaction_id' => $pspReference,
-        'paid_at'        => date('Y-m-d H:i:s'),
-    ], ['invoice_id' => $invoiceId]);
+    // The amount this notification actually settled (major units), used by the
+    // installment engines to allocate against the schedule. Falls back to the
+    // booking total only when the notification carried no amount.
+    $settledAmount   = $notifMajor !== null ? (float) $notifMajor : (float) ($booking['price_markup'] ?? 0);
+    $settledCurrency = (string) ($booking['currency_markup'] ?? ($notifCur ?: 'USD'));
+
+    if ($isInstallment) {
+        // Record only the txn/paid_at; the settle engine owns payment_status
+        // (partially_paid until the balance clears, paid+confirmed on full). Do
+        // NOT write 'paid'/'confirmed' here, which would over-settle a deposit.
+        $db->update('bookings', [
+            'transaction_id' => $pspReference,
+            'paid_at'        => date('Y-m-d H:i:s'),
+        ], ['invoice_id' => $invoiceId]);
+
+        if ($isGenericInst && function_exists('installments_settle_payment')) {
+            installments_settle_payment($db, $invoiceId, $settledAmount, $settledCurrency, (string) $pspReference);
+        }
+        if ($isUmrahInst && function_exists('umrah_settle_payment')) {
+            umrah_settle_payment($db, $invoiceId, $settledAmount, $settledCurrency, (string) $pspReference);
+        }
+    } else {
+        // Non-installment: pay in full and confirm.
+        $db->update('bookings', [
+            'payment_status' => 'paid',
+            'booking_status' => 'confirmed',
+            'transaction_id' => $pspReference,
+            'paid_at'        => date('Y-m-d H:i:s'),
+        ], ['invoice_id' => $invoiceId]);
+    }
 
     if (function_exists('record_transaction')) {
         record_transaction($tokenData, $pspReference, 'success', $rawEvent);
@@ -322,8 +365,18 @@ function adyen_finalize_payment($db, string $invoiceId, ?string $pspReference, a
     $settingsRecord   = $db->get('settings', '*', ['id' => 1]);
     $autoIssueEnabled = $settingsRecord && (int) ($settingsRecord['booking_payment_issue'] ?? 0) === 1;
 
+    // For an installment booking, only place the supplier order once the balance
+    // has fully cleared — a deposit-only payment must not auto-issue. The settle
+    // engine above just drove payment_status, so re-read it.
+    $installmentNotFullyPaid = false;
+    if ($isInstallment) {
+        $postSettle = $db->get('bookings', ['payment_status'], ['invoice_id' => $invoiceId]);
+        $installmentNotFullyPaid = !$postSettle || ($postSettle['payment_status'] ?? '') !== 'paid';
+    }
+
     $issuable = $autoIssueEnabled
         && !$devModeMismatch
+        && !$installmentNotFullyPaid
         && $module
         && !in_array($module, ['flight', 'visas'], true)
         && !in_array(strtolower($moduleType), ['tours', 'tour'], true);

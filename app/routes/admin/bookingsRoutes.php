@@ -118,6 +118,9 @@ $router->post(admin.'/bookings/edit/(.*)', function ($invoice_id) use ($SECURE,$
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    // CSRF: this handler writes booking_status/payment_status/prices from $_POST.
+    // guard() is fail-closed on POST and a no-op otherwise (form or AJAX aware).
+    CSRF::guard();
 
     // Get the booking
     $booking = $db->get('bookings', '*', ['invoice_id' => $invoice_id]);
@@ -204,6 +207,9 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    // CSRF: state-changing admin action (JSON). guard() emits a JSON 403 for
+    // AJAX callers on a bad/missing token and is a no-op on non-POST.
+    CSRF::guard();
 
     header('Content-Type: application/json');
 
