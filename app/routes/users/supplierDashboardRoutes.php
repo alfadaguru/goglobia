@@ -10,15 +10,21 @@
 @$SECURE or die('Access Denied!');
 
 $router->get('/supplier/dashboard', function () use ($SECURE, $db) {
-    // Gate: must be a logged-in supplier. SUPPLIER_AUTH() redirects to /login
-    // otherwise (and a pending/rejected supplier never gets a session anyway —
-    // the status gate holds at login).
-    SUPPLIER_AUTH();
+    // Gate: a supplier OWNER or an active STAFF member (or admin). The acting
+    // context resolves staff → their parent owner, so the dashboard always shows
+    // the OWNER's identity + inventory regardless of who is viewing.
+    SUPPLIER_OR_STAFF_AUTH($db);
 
-    $user_id  = $_SESSION['user_id'];
+    $ctx = supplier_acting_context($db);
+    if ($ctx === null || !empty($ctx['is_admin'])) {
+        // Admins use the admin panel; no single owner to show here.
+        header('Location: ' . root . ($ctx && $ctx['is_admin'] ? 'admin/dashboard' : 'login'));
+        exit;
+    }
+    $viewingAsStaff = empty($ctx['is_owner']);
+    $user_id  = (string) $ctx['owner'];                 // inventory is the OWNER's
     $supplier = $db->get('users', '*', ['user_id' => $user_id]);
     if (!$supplier) {
-        // Session points at a user that no longer exists — bounce to login.
         header('Location: ' . root . 'login');
         exit;
     }

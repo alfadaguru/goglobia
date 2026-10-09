@@ -230,6 +230,27 @@ function SUPPLIER_AUTH()
     }
 }
 
+// SUPPLIER-OR-STAFF gate — admits a supplier OWNER, an active STAFF member of a
+// supplier, or an admin, into the supplier area. It only decides "may enter the
+// area"; what each may actually DO is enforced per-action by supplier_can().
+// Use this on operational routes (stays/reservations) that staff can share; keep
+// plain SUPPLIER_AUTH() for owner-only routes (roles, staff management, payouts).
+function SUPPLIER_OR_STAFF_AUTH($db = null)
+{
+    if (!isset($_SESSION['user_id'])) {
+        header('Location: ' . root . 'login');
+        exit;
+    }
+    if ($db === null) { $db = $GLOBALS['db'] ?? null; }
+    $ctx = $db !== null ? supplier_acting_context($db) : null;
+    // Owner (role=supplier) or admin always allowed; otherwise must resolve to an
+    // active staff context. Anything else (customer/agent/guest) is bounced.
+    if ($ctx === null) {
+        header('Location: ' . root . 'login');
+        exit;
+    }
+}
+
 // ============================================================================
 // SUPPLIER AUTHORIZATION CORE (Phase 1 — docs/supplier/)
 // ----------------------------------------------------------------------------
@@ -283,6 +304,63 @@ if (!function_exists('supplier_acting_context')) {
             }
         }
         return null;
+    }
+}
+
+if (!function_exists('supplier_staff_context')) {
+    /**
+     * Resolve a logged-in user who is STAFF of a supplier into a supplier context:
+     *   ['owner' => <parent owner user_id>, 'actor' => <staff user_id>,
+     *    'is_owner' => false, 'role_id' => ?int]  — or null if not active staff.
+     *
+     * Security (every condition must hold, else null / fail-closed):
+     *   - an ACTIVE supplier_staff row links this staff_user_id to an owner;
+     *   - the parent owner is a real user whose role is 'supplier' and status
+     *     'active' (a suspended/removed owner disables their whole team);
+     *   - the attached role_id (if any) must belong to that SAME owner — a staff
+     *     member can never operate under a role owned by a different supplier.
+     */
+    function supplier_staff_context($db, string $actor): ?array
+    {
+        if ($actor === '') {
+            return null;
+        }
+        try {
+            $staff = $db->get('supplier_staff', ['owner_user_id', 'role_id', 'status'],
+                ['staff_user_id' => $actor, 'status' => 'active']);
+        } catch (\Throwable $e) {
+            return null; // table missing / DB error → deny
+        }
+        if (!$staff) {
+            return null;
+        }
+        $owner = (string) ($staff['owner_user_id'] ?? '');
+        if ($owner === '') {
+            return null;
+        }
+        // Parent owner must be an active supplier.
+        try {
+            $ownerRow = $db->get('users', ['role', 'status'], ['user_id' => $owner]);
+        } catch (\Throwable $e) {
+            return null;
+        }
+        if (!$ownerRow || ($ownerRow['role'] ?? '') !== 'supplier' || ($ownerRow['status'] ?? '') !== 'active') {
+            return null;
+        }
+        // Validate the role belongs to this owner (defense in depth; supplier_role_allows
+        // re-checks too). A mismatched/foreign role is dropped to null (no permissions).
+        $roleId = isset($staff['role_id']) ? (int) $staff['role_id'] : 0;
+        if ($roleId > 0) {
+            try {
+                $role = $db->get('supplier_roles', ['owner_user_id'], ['id' => $roleId]);
+            } catch (\Throwable $e) {
+                $role = null;
+            }
+            if (!$role || (string) ($role['owner_user_id'] ?? '') !== $owner) {
+                $roleId = 0; // foreign/missing role → no permissions (fail-closed)
+            }
+        }
+        return ['owner' => $owner, 'actor' => $actor, 'is_owner' => false, 'role_id' => $roleId ?: null];
     }
 }
 

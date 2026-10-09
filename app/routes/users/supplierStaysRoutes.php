@@ -43,7 +43,7 @@ if (!function_exists('_supplier_stays_deny')) {
 // LIST — GET /supplier/stays  (only the acting supplier's own properties)
 // ============================================================================
 $router->get('/supplier/stays', function () use ($SECURE, $db) {
-    SUPPLIER_AUTH();
+    SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
 
@@ -68,7 +68,7 @@ $router->get('/supplier/stays', function () use ($SECURE, $db) {
 // ADD FORM — GET /supplier/stays/add
 // ============================================================================
 $router->get('/supplier/stays/add', function () use ($SECURE, $db) {
-    SUPPLIER_AUTH();
+    SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
 
@@ -96,7 +96,7 @@ $router->get('/supplier/stays/add', function () use ($SECURE, $db) {
 // ADD SUBMIT — POST /supplier/stays/add  (owner forced + quota enforced)
 // ============================================================================
 $router->post('/supplier/stays/add', function () use ($SECURE, $db) {
-    SUPPLIER_AUTH();
+    SUPPLIER_OR_STAFF_AUTH($db);
     CSRF::guard();
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
@@ -198,7 +198,7 @@ $router->post('/supplier/stays/add', function () use ($SECURE, $db) {
 // EDIT FORM — GET /supplier/stays/edit/{id}
 // ============================================================================
 $router->get('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db) {
-    SUPPLIER_AUTH();
+    SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
 
@@ -224,7 +224,7 @@ $router->get('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db) 
 // EDIT SUBMIT — POST /supplier/stays/edit/{id}
 // ============================================================================
 $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db) {
-    SUPPLIER_AUTH();
+    SUPPLIER_OR_STAFF_AUTH($db);
     CSRF::guard();
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
@@ -282,7 +282,7 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
 // DELETE — POST /supplier/stays/delete
 // ============================================================================
 $router->post('/supplier/stays/delete', function () use ($SECURE, $db) {
-    SUPPLIER_AUTH();
+    SUPPLIER_OR_STAFF_AUTH($db);
     CSRF::guard();
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
@@ -324,7 +324,7 @@ $router->post('/supplier/stays/delete', function () use ($SECURE, $db) {
 // (draft/queried/rejected → submitted; the admin review is increment 7)
 // ============================================================================
 $router->post('/supplier/stays/submit/([0-9]+)', function ($id) use ($SECURE, $db) {
-    SUPPLIER_AUTH();
+    SUPPLIER_OR_STAFF_AUTH($db);
     CSRF::guard();
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }

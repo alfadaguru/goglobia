@@ -244,6 +244,20 @@ $router->post('/login', function () use ($SECURE, $db) {
         } elseif ($user['role'] === 'supplier') {
             // An approved supplier goes to their own area (SUPPLIER_AUTH-gated).
             header('Location: ' . root . 'supplier/dashboard');
+        } elseif (
+            // A supplier STAFF member (an ordinary user linked via supplier_staff)
+            // lands in the supplier area, scoped by their role. Checked only for
+            // non-admin/non-supplier users so normal customers are unaffected.
+            ($__isStaff = (function () use ($db, $user) {
+                try {
+                    return $db->has('supplier_staff', [
+                        'staff_user_id' => (string) $user['user_id'],
+                        'status'        => 'active',
+                    ]);
+                } catch (\Throwable $e) { return false; }
+            })())
+        ) {
+            header('Location: ' . root . 'supplier/dashboard');
         } else {
             $redirectTo = (string)($_POST['redirect'] ?? ($_SESSION['login_redirect'] ?? ''));
             unset($_SESSION['login_redirect']);

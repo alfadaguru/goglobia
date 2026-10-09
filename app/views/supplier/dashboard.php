@@ -55,6 +55,7 @@
         <span class="block text-xs text-gray-500">Create &amp; manage your properties</span>
       </span>
     </a>
+    <?php if (empty($viewingAsStaff)): // owner-only management links ?>
     <a href="<?= root ?>supplier/roles" class="card px-4 py-3 flex items-center gap-3 hover:border-violet-300 transition">
       <span class="w-10 h-10 rounded-lg bg-violet-50 flex items-center justify-center">
         <span class="material-symbols-outlined text-violet-600">badge</span>
@@ -64,7 +65,24 @@
         <span class="block text-xs text-gray-500">Define what your team can do</span>
       </span>
     </a>
+    <a href="<?= root ?>supplier/staff" class="card px-4 py-3 flex items-center gap-3 hover:border-violet-300 transition">
+      <span class="w-10 h-10 rounded-lg bg-violet-50 flex items-center justify-center">
+        <span class="material-symbols-outlined text-violet-600">group</span>
+      </span>
+      <span>
+        <span class="block text-sm font-semibold text-gray-900">Staff</span>
+        <span class="block text-xs text-gray-500">Invite &amp; manage your team</span>
+      </span>
+    </a>
+    <?php endif; ?>
   </div>
+
+  <?php if (!empty($viewingAsStaff)): ?>
+    <div class="card p-3 text-xs text-gray-500 flex items-center gap-2">
+      <span class="material-symbols-outlined text-sm text-gray-400">visibility</span>
+      You are signed in as a team member. What you can do is set by your assigned role.
+    </div>
+  <?php endif; ?>
 
   <!-- Inventory overview -->
   <div>
