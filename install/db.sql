@@ -28579,6 +28579,27 @@ CREATE TABLE `parties` (
 -- --------------------------------------------------------
 
 --
+-- Per-role approval limits (inc S16; docs/supplier/01a §10). Generalizes RBAC with
+-- an approval-limits layer over supplier_roles (discount %, refund/payment amount,
+-- rate override). Enforced by supplier_can_approve(); dormant until a consuming
+-- domain calls it. Does NOT change supplier_can() or the permission matrix.
+--
+CREATE TABLE `supplier_role_limits` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `role_id` int(11) NOT NULL,
+  `limit_key` varchar(40) NOT NULL,
+  `unlimited` tinyint(1) NOT NULL DEFAULT 0,
+  `max_value` decimal(14,2) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_role_key` (`role_id`,`limit_key`),
+  KEY `idx_role` (`role_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Normalized rate-plan MIRROR over room_options (inc S12). room_options JSON
 -- stays the canonical runtime source; these mirror each option (keyed by the
 -- stable option_id) so the rate model is relational. Kept in sync by

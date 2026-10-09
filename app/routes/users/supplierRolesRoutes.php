@@ -126,6 +126,21 @@ $supplierRoleForm = function ($id = 0) use ($SECURE, $db) {
     if ($role && !empty($role['permissions'])) {
         $rolePerms = json_decode((string) $role['permissions'], true) ?: [];
     }
+
+    // Approval limits (inc S16): the configurable keys + any values already set on
+    // this role, so the form can render + preselect them. Defensive.
+    $limitKeys = function_exists('supplier_approval_limit_keys') ? supplier_approval_limit_keys() : [];
+    $roleLimits = [];
+    if ($role && $id) {
+        try {
+            foreach ($db->select('supplier_role_limits', ['limit_key', 'unlimited', 'max_value'], ['role_id' => (int) $id]) ?: [] as $rl) {
+                $roleLimits[$rl['limit_key']] = (int) ($rl['unlimited'] ?? 0) === 1
+                    ? 'unlimited'
+                    : ($rl['max_value'] === null ? '' : (string) (float) $rl['max_value']);
+            }
+        } catch (\Throwable $e) {}
+    }
+
     $title = $isEdit ? 'Edit Role' : 'Create Role';
     $description = '';
     $header = true; $footer = true;
@@ -195,6 +210,41 @@ $router->post('/supplier/roles/save', function () use ($SECURE, $db) {
                 }
             }
         }
+
+        // Approval limits (inc S16) — rebuild from $_POST['limits'][key]. Only keys in
+        // the canonical catalogue are accepted; a blank value = not configured
+        // (row removed → supplier_can_approve denies/escalates); 'unlimited' = no cap;
+        // a number = the max. Non-breaking: absent when the form doesn't post limits.
+        if ($roleId > 0 && function_exists('supplier_approval_limit_keys')) {
+            try {
+                $limitKeys = supplier_approval_limit_keys();
+                $posted = is_array($_POST['limits'] ?? null) ? $_POST['limits'] : [];
+                foreach ($limitKeys as $k => $meta) {
+                    $raw = isset($posted[$k]) ? trim((string) $posted[$k]) : '';
+                    // Always clear the existing row first, then set the new state.
+                    $db->delete('supplier_role_limits', ['role_id' => $roleId, 'limit_key' => $k]);
+                    if ($raw === '') { continue; } // not configured
+                    if (strtolower($raw) === 'unlimited') {
+                        $db->insert('supplier_role_limits', [
+                            'role_id' => $roleId, 'limit_key' => $k, 'unlimited' => 1,
+                            'max_value' => null, 'created_at' => date('Y-m-d H:i:s'),
+                        ]);
+                        continue;
+                    }
+                    if (!is_numeric($raw)) { continue; } // ignore garbage
+                    $val = round((float) $raw, 2);
+                    if ($val < 0) { $val = 0; }
+                    // Percent limits clamp to 100.
+                    if (($meta['unit'] ?? '') === 'percent' && $val > 100) { $val = 100; }
+                    $db->insert('supplier_role_limits', [
+                        'role_id' => $roleId, 'limit_key' => $k, 'unlimited' => 0,
+                        'max_value' => $val, 'created_at' => date('Y-m-d H:i:s'),
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                error_log('supplier role limits save: ' . $e->getMessage());
+            }
+        }
         $_SESSION['message'] = ['type' => 'success', 'text' => 'Role saved.'];
     } catch (\Throwable $e) {
         error_log('supplier role save: ' . $e->getMessage());
@@ -224,6 +274,7 @@ $router->post('/supplier/roles/delete', function () use ($SECURE, $db) {
             _supplier_roles_deny('This role is assigned to ' . $inUse . ' staff member' . ($inUse === 1 ? '' : 's') . '. Reassign them first.');
         }
         $db->delete('supplier_role_property', ['role_id' => $id]);
+        $db->delete('supplier_role_limits', ['role_id' => $id]); // inc S16: no orphan limits
         $db->delete('supplier_roles', ['id' => $id, 'owner_user_id' => $owner]);
         $_SESSION['message'] = ['type' => 'success', 'text' => 'Role deleted.'];
     } catch (\Throwable $e) {

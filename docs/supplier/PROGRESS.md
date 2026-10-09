@@ -102,7 +102,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 |---|---|---|---|---|
 | S14 | **Org→brand→property→unit hierarchy** keys + backfill (+ configurable `accommodation_type`) — additive seam | 02, 03 | S1 | ✅ code-complete (not runtime-verified — no DB) |
 | S15 | **Party model** (guests/companies/agents/vendors/owners/employees as typed parties) — additive seam + user backfill | 15, 18, 43, 48 | S14 | ✅ code-complete (not runtime-verified — no DB) |
-| S16 | **Generalized RBAC** (permission→role→user catalogue) + approval-limits engine | 45, 46 | S4 | ☐ planned |
+| S16 | **Generalized RBAC** (permission catalogue superset) + per-role approval-limits engine (`supplier_can_approve`) — non-breaking over S4 | 45, 46 | S4 | ✅ code-complete (not runtime-verified — no DB) |
 | S17 | **Workflow/event bus** (WHEN→IF→THEN) + platform **audit event** | 46, 57, 61 | S17-self | ☐ planned |
 
 ### Stage C — money (highest risk; build on foundations)
@@ -214,7 +214,21 @@ Before coding: **read** every file to be touched (rule 3). Then:
   CRITICAL: NO reader uses parties yet — identity still on users.user_id / booking rows;
   live path untouched. Subtype extension tables (guest_profile/company_account/…) deferred
   to the domains that consume them. Schema in ensure-fn + install/db.sql. Lint-clean +
-  self-audited. Not runtime-verified. **Next: S16 (generalized RBAC + approval limits).**
+  self-audited. Not runtime-verified.
+- 2026-10 — **S16 done** (generalized RBAC + approval limits): from 01a §10, NON-BREAKING
+  over S4. `supplier_role_modules()` UNCHANGED (role-builder + supplier_can() identical).
+  Added `supplier_permissions_catalogue()` (superset: live 'stays' group active:true =
+  supplier_role_modules(); finance/housekeeping/procurement groups defined but
+  active:false, not offered until their code ships), `supplier_approval_limit_keys()`
+  (discount %, refund/payment amount, rate override), `supplier_role_limit()` reader, and
+  the gate `supplier_can_approve($db,$key,$amount,$stayId)` — admin/owner unrestricted,
+  staff bound by configured limit, FAIL-CLOSED (unconfigured staff → deny/escalate),
+  property IDOR re-checked. New `supplier_role_limits` table (ensure-fn + install/db.sql,
+  uq_role_key). Limits are editable in the EXISTING role form (owner-guarded save;
+  validated/clamped; cleared on role delete). supplier_can_approve has no caller yet
+  (consuming domains = later discount/refund approval). supplier_can() untouched. Lint-
+  clean + self-audited. Not runtime-verified. **Next: S17 (workflow/event bus + audit) —
+  last Stage B item.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

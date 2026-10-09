@@ -101,6 +101,32 @@
       </div>
     </div>
 
+    <!-- Approval limits (inc S16) -->
+    <?php
+      $lk = (isset($limitKeys) && is_array($limitKeys)) ? $limitKeys : [];
+      $lv = (isset($roleLimits) && is_array($roleLimits)) ? $roleLimits : [];
+    ?>
+    <?php if (!empty($lk)): ?>
+    <div class="border-t border-gray-100 pt-4">
+      <h2 class="text-sm font-semibold text-gray-800 mb-1">Approval limits <span class="text-gray-400 font-normal">(optional)</span></h2>
+      <p class="text-xs text-gray-500 mb-3">Caps for staff in this role. Leave blank to require escalation to an owner; type <code>unlimited</code> for no cap. Owners are never capped.</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <?php foreach ($lk as $key => $meta): ?>
+          <div class="form-control">
+            <label class="block text-xs font-medium text-gray-700 mb-1">
+              <?= htmlspecialchars($meta['label'] ?? $key) ?>
+              <span class="text-gray-400">(<?= ($meta['unit'] ?? '') === 'percent' ? '%' : 'amount' ?>)</span>
+            </label>
+            <input type="text" name="limits[<?= htmlspecialchars($key) ?>]" class="input text-sm"
+                   value="<?= htmlspecialchars((string) ($lv[$key] ?? '')) ?>"
+                   placeholder="blank = escalate · unlimited = no cap">
+            <?php if (!empty($meta['hint'])): ?><p class="mt-1 text-[11px] text-gray-400"><?= htmlspecialchars($meta['hint']) ?></p><?php endif; ?>
+          </div>
+        <?php endforeach; ?>
+      </div>
+    </div>
+    <?php endif; ?>
+
     <div class="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
       <a href="<?= root ?>supplier/roles" class="btn secondary">Cancel</a>
       <button type="submit" class="btn emerald">

@@ -7002,6 +7002,142 @@ function supplier_role_modules(): array
     ];
 }
 
+// ============================================================================
+// GENERALIZED RBAC (inc S16; docs 01a §10) — a permission CATALOGUE + approval
+// limits that generalize the fixed supplier_role_modules() set WITHOUT changing
+// it. supplier_role_modules() stays the LIVE set the role-builder + supplier_can()
+// use (back-compat, untouched). The catalogue below is the superset that future
+// ERP domains (finance/housekeeping/procurement/POS) plug into; a domain marks its
+// group 'active' once its code ships, and only then does the role-builder surface
+// it. Nothing here changes how supplier_can() resolves today.
+// ============================================================================
+if (!function_exists('supplier_permissions_catalogue')) {
+    /**
+     * The full permission catalogue, grouped by domain. Each group:
+     *   ['label'=>, 'active'=>bool, 'modules'=>[ key => ['label','actions'=>[...]] ]].
+     * 'active' groups are the ones whose features have shipped — supplier_role_modules()
+     * currently equals the 'stays' group's modules. Dormant groups are DEFINED so the
+     * schema/UI can grow without a gate change, but are not offered until activated.
+     */
+    function supplier_permissions_catalogue(): array
+    {
+        $stays = supplier_role_modules(); // the live, shipped module set (source of truth)
+        return [
+            'stays' => [
+                'label'   => 'Stays / Property',
+                'active'  => true,
+                'modules' => $stays,
+            ],
+            // ---- Dormant groups: defined for the catalogue, NOT yet offered -------
+            'finance' => [
+                'label'  => 'Finance & accounting',
+                'active' => false,
+                'modules' => [
+                    'folio'          => ['label' => 'Guest folios',      'actions' => ['view', 'edit', 'adjust']],
+                    'invoice'        => ['label' => 'Invoices (AR)',     'actions' => ['view', 'issue', 'void']],
+                    'payment'        => ['label' => 'Payments',          'actions' => ['view', 'approve', 'refund']],
+                    'journal'        => ['label' => 'Ledger / journal',  'actions' => ['view', 'post']],
+                    'owner_statement'=> ['label' => 'Owner statements',  'actions' => ['view', 'publish']],
+                ],
+            ],
+            'housekeeping' => [
+                'label'  => 'Housekeeping & maintenance',
+                'active' => false,
+                'modules' => [
+                    'housekeeping' => ['label' => 'Housekeeping', 'actions' => ['view', 'assign', 'update']],
+                    'maintenance'  => ['label' => 'Maintenance', 'actions' => ['view', 'create', 'close']],
+                ],
+            ],
+            'procurement' => [
+                'label'  => 'Procurement & stores',
+                'active' => false,
+                'modules' => [
+                    'purchase_order' => ['label' => 'Purchase orders', 'actions' => ['view', 'create', 'approve']],
+                    'stock'          => ['label' => 'Stock',          'actions' => ['view', 'adjust']],
+                ],
+            ],
+        ];
+    }
+}
+
+if (!function_exists('supplier_approval_limit_keys')) {
+    /**
+     * The approval-limit keys an org can configure per role, each as
+     *   key => ['label','unit'=>'percent'|'amount','hint'].
+     * Dormant until the consuming domain (discount/refund/payment approval) ships;
+     * the role-builder can expose them, and supplier_can_approve() enforces them.
+     */
+    function supplier_approval_limit_keys(): array
+    {
+        return [
+            'discount_percent' => ['label' => 'Max discount %',        'unit' => 'percent', 'hint' => 'Largest discount this role may grant without escalation.'],
+            'refund_amount'    => ['label' => 'Max refund amount',     'unit' => 'amount',  'hint' => 'Largest refund this role may issue.'],
+            'payment_amount'   => ['label' => 'Max payment approval',  'unit' => 'amount',  'hint' => 'Largest outbound payment this role may approve.'],
+            'rate_override'    => ['label' => 'Max rate override %',   'unit' => 'percent', 'hint' => 'Largest manual rate change this role may apply.'],
+        ];
+    }
+}
+
+if (!function_exists('supplier_role_limit')) {
+    /**
+     * The configured approval limit for a role+key, as
+     *   ['configured'=>bool, 'unlimited'=>bool, 'max'=>?float].
+     * No row → not configured (caller decides the default, usually deny/zero).
+     * Fail-closed: any error → not configured.
+     */
+    function supplier_role_limit($db, int $roleId, string $key): array
+    {
+        $out = ['configured' => false, 'unlimited' => false, 'max' => null];
+        if ($roleId <= 0 || $key === '') { return $out; }
+        try {
+            $row = $db->get('supplier_role_limits', ['unlimited', 'max_value'],
+                ['role_id' => $roleId, 'limit_key' => $key]);
+            if ($row) {
+                $out['configured'] = true;
+                $out['unlimited']  = (int) ($row['unlimited'] ?? 0) === 1;
+                $out['max']        = $row['max_value'] === null ? null : (float) $row['max_value'];
+            }
+        } catch (\Throwable $e) {
+            error_log('supplier_role_limit: ' . $e->getMessage());
+        }
+        return $out;
+    }
+}
+
+if (!function_exists('supplier_can_approve')) {
+    /**
+     * Approval-limit gate (inc S16). Returns true iff the acting context may approve
+     * $amount for $key (e.g. a 12% discount, a 50000 refund). Admin + owner are
+     * unrestricted; staff are bound by their role's configured limit. Fail-closed:
+     * an unconfigured limit for a staff member denies (escalation required).
+     *
+     *   $key     one of supplier_approval_limit_keys()
+     *   $amount  the value being requested (percent or currency amount)
+     *   $stayId  optional — enforces property ownership/scope via supplier_can-style ctx
+     */
+    function supplier_can_approve($db, string $key, float $amount, $stayId = null): bool
+    {
+        $ctx = function_exists('supplier_acting_context') ? supplier_acting_context($db) : null;
+        if ($ctx === null) { return false; }
+        if (!empty($ctx['is_admin'])) { return true; }     // admin unrestricted
+        if (!empty($ctx['is_owner'])) { return true; }     // the owner is unrestricted on their org
+        // Property ownership check when a property is named (mirror supplier_can's IDOR stop).
+        if ($stayId !== null) {
+            try {
+                $row = $db->get('stays', ['user_id'], ['id' => (int) $stayId]);
+            } catch (\Throwable $e) { return false; }
+            if (!$row || (string) ($row['user_id'] ?? '') !== (string) $ctx['owner']) { return false; }
+        }
+        $roleId = isset($ctx['role_id']) ? (int) $ctx['role_id'] : 0;
+        if ($roleId <= 0) { return false; }
+        $limit = supplier_role_limit($db, $roleId, $key);
+        if (!$limit['configured']) { return false; }       // not configured for staff → deny (escalate)
+        if ($limit['unlimited']) { return true; }
+        if ($limit['max'] === null) { return false; }
+        return $amount <= $limit['max'] + 1e-9;             // tolerate float rounding
+    }
+}
+
 /**
  * Supplier STAYS platform schema (Phase 1 — see docs/supplier/ + the Phase-1 plan).
  *
@@ -7308,6 +7444,24 @@ function ensureSupplierStaysSchema($db): void
         } catch (\Throwable $e) {
             error_log('ensureSupplierStaysSchema party backfill: ' . $e->getMessage());
         }
+
+        // --- supplier_role_limits (inc S16; docs 01a §10) --------------------------
+        // Per-role approval limits (discount %, refund/payment amount, rate override).
+        // Generalizes RBAC beyond the permission matrix WITHOUT touching supplier_can()
+        // or supplier_roles. Enforced by supplier_can_approve() — dormant until a
+        // consuming domain (discount/refund/payment approval) calls it.
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_role_limits` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `role_id` INT(11) NOT NULL,
+            `limit_key` VARCHAR(40) NOT NULL,
+            `unlimited` TINYINT(1) NOT NULL DEFAULT 0,
+            `max_value` DECIMAL(14,2) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_role_key` (`role_id`,`limit_key`),
+            KEY `idx_role` (`role_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
         // stays hierarchy keys + operating model. Nullable/defaulted so existing rows
         // are untouched; each guarded by SHOW COLUMNS (idempotent).
