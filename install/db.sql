@@ -28048,6 +28048,7 @@ CREATE TABLE `settings` (
   `user_registration` enum('1','0') DEFAULT '1',
   `supplier_registration` enum('1','0') NOT NULL DEFAULT '0',
   `supplier_site_domain` varchar(191) DEFAULT NULL,
+  `supplier_payouts_live` varchar(1) NOT NULL DEFAULT '0',
   `agent_registration` enum('1','0') NOT NULL DEFAULT '0',
   `guest_booking` enum('0','1') NOT NULL DEFAULT '0',
   `social_media` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`social_media`)),
@@ -28677,6 +28678,41 @@ CREATE TABLE `supplier_earnings` (
   KEY `idx_owner_state` (`owner_user_id`,`state`),
   KEY `idx_org` (`org_id`),
   KEY `idx_payout` (`payout_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Supplier payouts to bank (inc S19; OUTBOUND MONEY — highest risk). Admin-approved
+-- transfers from supplier_earnings 'available' to the supplier bank via Paystack.
+-- `reference` UNIQUE = outbound idempotency. Gated by settings.supplier_payouts_live
+-- (ships '0'). Managed by app/lib/supplier_payouts.php.
+--
+CREATE TABLE `supplier_payouts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `owner_user_id` varchar(155) NOT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'NGN',
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `state` enum('requested','approved','processing','paid','failed','rejected','cancelled') NOT NULL DEFAULT 'requested',
+  `bank_code` varchar(20) DEFAULT NULL,
+  `account_number` varchar(40) DEFAULT NULL,
+  `account_name` varchar(191) DEFAULT NULL,
+  `recipient_code` varchar(100) DEFAULT NULL,
+  `transfer_code` varchar(100) DEFAULT NULL,
+  `reference` varchar(100) NOT NULL,
+  `failure_reason` varchar(255) DEFAULT NULL,
+  `decided_by` varchar(155) DEFAULT NULL,
+  `decided_at` datetime DEFAULT NULL,
+  `paid_at` datetime DEFAULT NULL,
+  `requested_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_reference` (`reference`),
+  KEY `idx_owner_state` (`owner_user_id`,`state`),
+  KEY `idx_org` (`org_id`),
+  KEY `idx_state` (`state`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -29624,6 +29660,10 @@ CREATE TABLE `users` (
   `credit_payment_days` int(11) NOT NULL,
   `first_credit_usage_date` date DEFAULT NULL,
   `user_id` varchar(255) NOT NULL,
+  `payout_bank_code` varchar(20) DEFAULT NULL,
+  `payout_account_number` varchar(40) DEFAULT NULL,
+  `payout_account_name` varchar(191) DEFAULT NULL,
+  `payout_recipient_code` varchar(100) DEFAULT NULL,
   `refresh_token` varchar(255) DEFAULT NULL,
   `refresh_token_expires` datetime DEFAULT NULL,
   `apply_markup` varchar(20) DEFAULT NULL,

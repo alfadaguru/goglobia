@@ -110,7 +110,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | # | Increment | Catalogue modules | Depends on | Status |
 |---|---|---|---|---|
 | S18 | Supplier **earnings accrual** (isolated pending→available ledger; read-only to supplier; idempotent per invoice) | 40 | S11, S15 | ✅ code-complete (not runtime-verified — no DB) |
-| S19 | Supplier **payouts to bank** (Paystack transfers; the 7 outbound-money guards) | 40 | S18 | ☐ planned |
+| S19 | Supplier **payouts to bank** (Paystack transfers; admin-approved + kill-switch; 7 outbound guards) | 40 | S18 | ✅ code-complete (not runtime-verified — no DB) · follow-on: transfer webhook |
 | S20 | **Hospitality GL + AR/AP + cashier/bank-rec + tax engine** | 34–38 | S15 | ☐ planned |
 
 ### Stage D — guest & operations depth (per catalogue; sequence TBD with owner)
@@ -254,9 +254,26 @@ Before coding: **read** every file to be touched (rule 3). Then:
   ensure-fn + install/db.sql. Wired: reservations inbox accrues idempotently on paid rows;
   supplier cancel voids; dashboard shows read-only pending/available/paid per currency. NO
   outbound money, NO wallet-spine touch, supplier has NO write path to earnings. Lint-clean
-  + self-audited (7 payout-grounding risks checked). Not runtime-verified. **Next: S19
-  (payouts to bank — Paystack transfers; the outbound-money stack). HIGHEST RISK of all —
-  STRONGLY recommend deploy + smoke-test S1–S18 before S19.**
+  + self-audited (7 payout-grounding risks checked). Not runtime-verified.
+- 2026-10 — **S19 done** (supplier payouts to bank; OUTBOUND MONEY — highest risk):
+  owner-chosen model = ADMIN-APPROVED manual trigger + master kill-switch
+  `settings.supplier_payouts_live` (ships '0'). New `app/lib/supplier_payouts.php`:
+  `supplier_payout_request` (owner requests from UNRESERVED available earnings; atomic
+  SELECT…FOR UPDATE verify + reserve via payout_id; amount re-validated vs locked
+  balance), `supplier_payout_approve_and_send` (admin; approve→kill-switch check→Paystack
+  transferrecipient+transfer reusing paystack_dva_http/c1 secret; amount in integer KOBO;
+  unique `reference` idempotency; mark 'processing' before the call; commit earnings
+  available→paid only on accept; release on fail), `supplier_payout_reject` +
+  `supplier_payable_available`. New table supplier_payouts (uq_reference) + users
+  payout_* columns + settings.supplier_payouts_live (ensure-fn + install/db.sql). Routes:
+  users/supplierPayoutsRoutes (owner save-bank/request), admin/supplierPayoutsRoutes
+  (approve/reject queue). Views supplier/payouts.php + admin/suppliers/payouts.php; nav on
+  dashboard + admin sidebar. 7 outbound risks all addressed. NO wallet-spine touch.
+  ⚠ FOLLOW-ON: Paystack transfer WEBHOOK (transfer.success/failed) NOT wired — a later
+  reversal still shows 'paid' locally; acceptable behind kill-switch + manual approval for
+  first ship, add before scale. Not runtime-verified. **Next: S20 (hospitality
+  GL/AR/AP/cashier/tax) — last Stage C item. STRONGLY recommend deploy + smoke-test the
+  money stack (S18+S19) on the server before go-live.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

@@ -43,6 +43,7 @@ require_once 'app/routes/users/supplierServicesRoutes.php'; // per-service landi
 require_once 'app/routes/users/supplierDashboardRoutes.php'; // supplier area (SUPPLIER_AUTH-gated)
 require_once 'app/routes/users/supplierStaysRoutes.php'; // owner-scoped stays CRUD (Phase 1 inc 3)
 require_once 'app/routes/users/supplierReservationsRoutes.php'; // reservations inbox (inc S11; reuses stays helpers)
+require_once 'app/routes/users/supplierPayoutsRoutes.php'; // supplier payout request UI (inc S19)
 require_once 'app/routes/users/supplierRolesRoutes.php'; // supplier-defined roles + property scope (inc 4)
 require_once 'app/routes/users/supplierStaffRoutes.php'; // staff invitations + accept flow (inc 5)
 require_once 'app/routes/users/logoutRoutes.php';
@@ -144,6 +145,7 @@ require_once 'app/routes/admin/settingsRoutes.php';
 require_once 'app/routes/admin/modulesRoutes.php';
 require_once 'app/routes/admin/usersRoutes.php';
 require_once 'app/routes/admin/suppliersRoutes.php'; // supplier approval queue (approve/reject)
+require_once 'app/routes/admin/supplierPayoutsRoutes.php'; // supplier payout queue — approve/send (inc S19)
 require_once 'app/routes/admin/agentApiRoutes.php';
 require_once 'app/routes/admin/updatesRoutes.php';
 require_once 'app/routes/admin/databaseRoutes.php';

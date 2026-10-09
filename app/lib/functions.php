@@ -7535,6 +7535,56 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_payout` (`payout_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- supplier_payouts (inc S19; OUTBOUND MONEY — highest risk) --------------
+        // Admin-approved payouts from supplier_earnings 'available' to the supplier's
+        // bank via Paystack Transfer. `reference` is UNIQUE = outbound idempotency key.
+        // Managed by app/lib/supplier_payouts.php. Gated by settings.supplier_payouts_live.
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_payouts` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `owner_user_id` VARCHAR(155) NOT NULL,
+            `currency` CHAR(3) NOT NULL DEFAULT 'NGN',
+            `amount` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `state` ENUM('requested','approved','processing','paid','failed','rejected','cancelled') NOT NULL DEFAULT 'requested',
+            `bank_code` VARCHAR(20) DEFAULT NULL,
+            `account_number` VARCHAR(40) DEFAULT NULL,
+            `account_name` VARCHAR(191) DEFAULT NULL,
+            `recipient_code` VARCHAR(100) DEFAULT NULL,
+            `transfer_code` VARCHAR(100) DEFAULT NULL,
+            `reference` VARCHAR(100) NOT NULL,
+            `failure_reason` VARCHAR(255) DEFAULT NULL,
+            `decided_by` VARCHAR(155) DEFAULT NULL,
+            `decided_at` DATETIME DEFAULT NULL,
+            `paid_at` DATETIME DEFAULT NULL,
+            `requested_at` DATETIME DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_reference` (`reference`),
+            KEY `idx_owner_state` (`owner_user_id`,`state`),
+            KEY `idx_org` (`org_id`),
+            KEY `idx_state` (`state`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // Payout bank details on the user (nullable; set by the supplier). The
+        // recipient_code is cached per-user to avoid re-creating Paystack recipients.
+        foreach ([
+            'payout_bank_code'      => "VARCHAR(20) DEFAULT NULL",
+            'payout_account_number' => "VARCHAR(40) DEFAULT NULL",
+            'payout_account_name'   => "VARCHAR(191) DEFAULT NULL",
+            'payout_recipient_code' => "VARCHAR(100) DEFAULT NULL",
+        ] as $col => $def) {
+            if (!$db->query("SHOW COLUMNS FROM `users` LIKE '{$col}'")->fetch()) {
+                $db->query("ALTER TABLE `users` ADD COLUMN `{$col}` {$def}");
+            }
+        }
+
+        // Master kill-switch for outbound payouts. Ships '0' (OFF) — no transfer can
+        // leave until an operator sets it to '1' on the server, even after approval.
+        if (!$db->query("SHOW COLUMNS FROM `settings` LIKE 'supplier_payouts_live'")->fetch()) {
+            $db->query("ALTER TABLE `settings` ADD COLUMN `supplier_payouts_live` VARCHAR(1) NOT NULL DEFAULT '0'");
+        }
+
         // stays hierarchy keys + operating model. Nullable/defaulted so existing rows
         // are untouched; each guarded by SHOW COLUMNS (idempotent).
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'org_id'")->fetch()) {
