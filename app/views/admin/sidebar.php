@@ -76,6 +76,7 @@ $userRoles = $db->select('users_roles', ['id', 'type_name'], ['ORDER' => ['id' =
 $usersSubmenu = [
     ['name' => T::all_users, 'icon' => 'people', 'url' => root.admin.'/users'],
     ['name' => 'Suppliers', 'icon' => 'storefront', 'url' => root.admin.'/suppliers'],
+    ['name' => 'Supplier Listings', 'icon' => 'fact_check', 'url' => root.admin.'/supplier-listings'],
 ];
 
 // ADD EACH USER ROLE DYNAMICALLY

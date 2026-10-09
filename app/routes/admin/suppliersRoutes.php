@@ -183,3 +183,100 @@ $router->post(admin . '/suppliers/reject/(.+)', function ($user_id) use ($SECURE
     header('Location: ' . root . admin . '/suppliers');
     exit;
 });
+
+//==============================================================
+// SUPPLIER LISTING MODERATION (per-listing approval) — inc 7
+//==============================================================
+
+// Queue: stays a supplier has SUBMITTED for approval (plus recently reviewed).
+$router->get(admin . '/supplier-listings', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+
+    // Only supplier-OWNED stays (owner is a user with role 'supplier') are in this
+    // moderation queue — admin/seeded stays were backfilled to 'approved' and never
+    // enter it. Submitted first (actionable), then recently decided for reference.
+    $submitted = [];
+    $others = [];
+    try {
+        $supplierIds = array_map(fn($u) => (string) $u['user_id'],
+            $db->select('users', ['user_id'], ['role' => 'supplier']) ?: []);
+        if (!empty($supplierIds)) {
+            $submitted = $db->select('stays',
+                ['id', 'name', 'location', 'user_id', 'listing_status', 'review_comment', 'created_at'],
+                ['user_id' => $supplierIds, 'listing_status' => 'submitted', 'ORDER' => ['id' => 'DESC']]) ?: [];
+            $others = $db->select('stays',
+                ['id', 'name', 'location', 'user_id', 'listing_status', 'review_comment', 'reviewed_at'],
+                ['user_id' => $supplierIds, 'listing_status' => ['approved', 'queried', 'rejected'],
+                 'ORDER' => ['reviewed_at' => 'DESC'], 'LIMIT' => 50]) ?: [];
+        }
+    } catch (\Throwable $e) {
+        error_log('admin supplier-listings: ' . $e->getMessage());
+    }
+
+    $title = 'Supplier Listings';
+    $description = 'Review properties submitted by suppliers';
+    $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once "app/views/admin/suppliers/listings.php";
+    require_once views . "includes/footer.php";
+});
+
+// Review action: approve | query | reject (modeled on umrah_group_review).
+$router->post(admin . '/supplier-listings/review/([0-9]+)', function ($id) use ($SECURE, $db) {
+    ADMIN_AUTH();
+    CSRF::guard();
+
+    $stay = $db->get('stays', ['id', 'user_id', 'name', 'listing_status'], ['id' => (int) $id]);
+    if (!$stay) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Listing not found.'];
+        header('Location: ' . root . admin . '/supplier-listings');
+        exit;
+    }
+
+    $decision = $_POST['decision'] ?? '';
+    $map = ['approve' => 'approved', 'query' => 'queried', 'reject' => 'rejected'];
+    if (!isset($map[$decision])) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Invalid decision.'];
+        header('Location: ' . root . admin . '/supplier-listings');
+        exit;
+    }
+    $newStatus = $map[$decision];
+    $comment = mb_substr(trim((string) ($_POST['comment'] ?? '')), 0, 255);
+
+    // Approving makes it sellable: also flip the live switch on (status=1).
+    // Query/reject take it offline so it can't sell while unresolved.
+    $update = [
+        'listing_status' => $newStatus,
+        'review_comment' => $comment !== '' ? $comment : null,
+        'reviewed_by'    => (string) ($_SESSION['user_id'] ?? ''),
+        'reviewed_at'    => date('Y-m-d H:i:s'),
+        'status'         => $newStatus === 'approved' ? 1 : 0,
+        'updated_at'     => date('Y-m-d H:i:s'),
+    ];
+    try {
+        $db->update('stays', $update, ['id' => (int) $id]);
+
+        // Notify the owning supplier of the decision (best-effort).
+        if (function_exists('SENDEMAIL')) {
+            $owner = $db->get('users', ['email', 'first_name', 'last_name'], ['user_id' => (string) $stay['user_id']]);
+            if ($owner && !empty($owner['email'])) {
+                $companyName = $GLOBALS['app']['business_name'] ?? ($GLOBALS['app']['app_name'] ?? 'Our Platform');
+                $verb = ['approved' => 'approved and is now live', 'queried' => 'sent back with a query', 'rejected' => 'not approved'][$newStatus];
+                SENDEMAIL(
+                    $owner['email'], trim(($owner['first_name'] ?? '') . ' ' . ($owner['last_name'] ?? '')),
+                    'Your property "' . ($stay['name'] ?? '') . '" has been ' . $newStatus,
+                    '<p>Your property <strong>' . htmlspecialchars((string) ($stay['name'] ?? '')) . '</strong> has been ' . $verb . '.</p>'
+                    . ($comment !== '' ? '<p><strong>Note:</strong> ' . htmlspecialchars($comment) . '</p>' : '')
+                    . '<p>— ' . htmlspecialchars($companyName) . '</p>',
+                    null
+                );
+            }
+        }
+        $_SESSION['message'] = ['type' => 'success', 'text' => 'Listing ' . $newStatus . '.'];
+    } catch (\Throwable $e) {
+        error_log('admin supplier-listings review: ' . $e->getMessage());
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not record the decision.'];
+    }
+    header('Location: ' . root . admin . '/supplier-listings');
+    exit;
+});

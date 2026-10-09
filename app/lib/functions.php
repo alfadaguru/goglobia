@@ -6833,6 +6833,17 @@ function ensureSupplierStaysSchema($db): void
         // Additive column adds, each guarded by SHOW COLUMNS (idempotent).
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'listing_status'")->fetch()) {
             $db->query("ALTER TABLE `stays` ADD COLUMN `listing_status` ENUM('draft','submitted','approved','queried','rejected') NOT NULL DEFAULT 'draft'");
+            // ONE-TIME BACKFILL (runs only when the column is first added): every
+            // stay that is ALREADY live (status=1) predates the supplier approval
+            // workflow and must remain visible — mark it 'approved'. The new
+            // 'draft' default then applies ONLY to supplier-created listings going
+            // forward, so the public 'approved'-only filter never hides existing
+            // admin/seeded hotels.
+            try {
+                $db->update('stays', ['listing_status' => 'approved'], ['status' => 1]);
+            } catch (\Throwable $e) {
+                error_log('ensureSupplierStaysSchema backfill: ' . $e->getMessage());
+            }
         }
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'review_comment'")->fetch()) {
             $db->query("ALTER TABLE `stays` ADD COLUMN `review_comment` VARCHAR(255) DEFAULT NULL");

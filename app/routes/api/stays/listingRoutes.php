@@ -83,11 +83,17 @@ $router->get('/api/stays/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)/(.*)', function
         // =====================================================================
         $destinationForSearch = str_replace('-', ' ', $destination);
 
+        // Public search shows only LIVE + APPROVED listings. 'status=1' is the
+        // owner/admin on-off switch; 'listing_status=approved' is the admin
+        // moderation gate (supplier-created listings start 'draft' and only sell
+        // once approved). Existing/seeded live stays were backfilled to 'approved'
+        // when the column was introduced, so they are unaffected.
         $hotels = $db->select('stays', [
             'id', 'img', 'name', 'location', 'location_coords', 'stars', 'rating', 'discount', 'currency', 'cancellation_policy', 'privacy_policy'
         ], [
             'location[~]' => '%' . $destinationForSearch . '%',
             'status' => 1,
+            'listing_status' => 'approved',
             'ORDER' => ['id' => 'DESC']
         ]);
 
