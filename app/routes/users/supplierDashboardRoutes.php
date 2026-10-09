@@ -72,6 +72,12 @@ $router->get('/supplier/dashboard', function () use ($SECURE, $db) {
         ? supplier_onboarding_state($db, $user_id)
         : null;
 
+    // Earnings summary (inc S18) — read-only pending/available/paid totals per
+    // currency. Payouts (S19) are not built yet; this is visibility only.
+    $earnings = function_exists('supplier_earning_summary')
+        ? supplier_earning_summary($db, $user_id)
+        : [];
+
     $title = 'Supplier Dashboard';
     $description = 'Your supplier account overview';
     $header = true;

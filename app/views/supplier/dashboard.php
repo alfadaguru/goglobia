@@ -22,6 +22,38 @@
   <!-- Go-live checklist (inc S13) — compact; renders only while incomplete -->
   <?php $onboardingCompact = true; require views . "supplier/_onboarding.php"; ?>
 
+  <!-- Earnings summary (inc S18) — read-only; payouts are a later increment -->
+  <?php $earn = (isset($earnings) && is_array($earnings)) ? $earnings : []; ?>
+  <?php if (!empty($earn)): ?>
+  <div class="card p-5">
+    <h2 class="text-lg font-semibold text-gray-900 mb-1 flex items-center gap-2">
+      <span class="material-symbols-outlined text-violet-600">payments</span> Earnings
+    </h2>
+    <p class="text-xs text-gray-500 mb-4">Your net earnings from paid bookings. Payouts to your bank are coming soon.</p>
+    <div class="space-y-4">
+      <?php foreach ($earn as $cur => $v): ?>
+        <div>
+          <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2"><?= htmlspecialchars((string) $cur) ?></div>
+          <div class="grid grid-cols-3 gap-3">
+            <div class="rounded-lg bg-amber-50 p-3">
+              <div class="text-xs text-amber-700">Pending</div>
+              <div class="text-lg font-bold text-amber-800 tabular-nums"><?= number_format((float) ($v['pending'] ?? 0), 2) ?></div>
+            </div>
+            <div class="rounded-lg bg-green-50 p-3">
+              <div class="text-xs text-green-700">Available</div>
+              <div class="text-lg font-bold text-green-800 tabular-nums"><?= number_format((float) ($v['available'] ?? 0), 2) ?></div>
+            </div>
+            <div class="rounded-lg bg-gray-50 p-3">
+              <div class="text-xs text-gray-500">Paid out</div>
+              <div class="text-lg font-bold text-gray-700 tabular-nums"><?= number_format((float) ($v['paid'] ?? 0), 2) ?></div>
+            </div>
+          </div>
+        </div>
+      <?php endforeach; ?>
+    </div>
+  </div>
+  <?php endif; ?>
+
   <!-- Profile card -->
   <div class="card p-5">
     <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">

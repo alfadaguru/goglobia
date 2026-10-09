@@ -7505,6 +7505,36 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_active` (`active`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- supplier_earnings (inc S18; HIGHEST RISK) ------------------------------
+        // A DEDICATED earnings ledger, deliberately ISOLATED from the customer/agent
+        // wallet spine (wallets.kind has no 'supplier' — routing supplier money there
+        // corrupts users.balance; see the money audit). One row per PAID own-inventory
+        // booking (UNIQUE invoice_id = idempotency). net_amount = bookings.price_original
+        // (the supplier's net rate; platform keeps commission + tax). Lifecycle
+        // pending→available→paid (|void). Payouts (S19) will debit this. See
+        // app/lib/supplier_earnings.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_earnings` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `owner_user_id` VARCHAR(155) NOT NULL,
+            `invoice_id` VARCHAR(255) NOT NULL,
+            `stay_id` INT(11) DEFAULT NULL,
+            `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+            `gross_amount` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `commission_amount` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `net_amount` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `state` ENUM('pending','available','paid','void') NOT NULL DEFAULT 'pending',
+            `payout_id` INT(11) DEFAULT NULL,
+            `available_at` DATETIME DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_invoice` (`invoice_id`),
+            KEY `idx_owner_state` (`owner_user_id`,`state`),
+            KEY `idx_org` (`org_id`),
+            KEY `idx_payout` (`payout_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // stays hierarchy keys + operating model. Nullable/defaulted so existing rows
         // are untouched; each guarded by SHOW COLUMNS (idempotent).
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'org_id'")->fetch()) {

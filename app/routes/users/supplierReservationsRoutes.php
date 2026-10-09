@@ -119,6 +119,14 @@ if (!function_exists('supplier_fetch_reservations')) {
             $r['_checkin']  = (string) ($bd['checkin'] ?? '');
             $r['_checkout'] = (string) ($bd['checkout'] ?? '');
             $r['_no_show']  = !empty($bd['supplier_no_show']);
+            // Earnings accrual (inc S18): materialize the supplier's earning for a
+            // PAID booking. Idempotent (UNIQUE invoice_id + locked pre-check), so
+            // calling it here on every inbox view is safe and self-healing. Non-fatal.
+            if (strtolower((string) ($r['payment_status'] ?? '')) === 'paid'
+                && function_exists('supplier_earning_accrue_for_booking')) {
+                try { supplier_earning_accrue_for_booking($db, (string) $r['invoice_id']); }
+                catch (\Throwable $e) { error_log('reservations accrue: ' . $e->getMessage()); }
+            }
             $out[] = $r;
         }
         return $out;
@@ -249,6 +257,11 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                 // Release any live availability holds tied to this invoice so the
                 // nights free up immediately.
                 if (function_exists('stays_hold_release')) { stays_hold_release($db, $invoiceId); }
+                // Void any un-paid-out earning for this booking (inc S18). Never
+                // touches a 'paid' earning (that's a settled payout — clawback is manual).
+                if (function_exists('supplier_earning_void_for_booking')) {
+                    supplier_earning_void_for_booking($db, $invoiceId);
+                }
                 $_SESSION['message'] = ['type' => 'success', 'text' => 'Reservation cancelled.'];
             }
         } elseif ($action === 'no_show') {

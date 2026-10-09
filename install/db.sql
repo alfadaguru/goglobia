@@ -28650,6 +28650,38 @@ CREATE TABLE `workflow_rules` (
 -- --------------------------------------------------------
 
 --
+-- Supplier earnings ledger (inc S18; HIGHEST RISK). DEDICATED + ISOLATED from the
+-- customer/agent wallet spine (wallets.kind has no 'supplier' — routing supplier
+-- money there corrupts users.balance). One row per PAID own-inventory booking
+-- (UNIQUE invoice_id = idempotency). net_amount = bookings.price_original (supplier
+-- net rate; platform keeps commission + tax). Lifecycle pending→available→paid|void.
+-- Payouts (inc S19) debit this via payout_id. Managed by app/lib/supplier_earnings.php.
+--
+CREATE TABLE `supplier_earnings` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `owner_user_id` varchar(155) NOT NULL,
+  `invoice_id` varchar(255) NOT NULL,
+  `stay_id` int(11) DEFAULT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `gross_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `commission_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `net_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `state` enum('pending','available','paid','void') NOT NULL DEFAULT 'pending',
+  `payout_id` int(11) DEFAULT NULL,
+  `available_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_invoice` (`invoice_id`),
+  KEY `idx_owner_state` (`owner_user_id`,`state`),
+  KEY `idx_org` (`org_id`),
+  KEY `idx_payout` (`payout_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Normalized rate-plan MIRROR over room_options (inc S12). room_options JSON
 -- stays the canonical runtime source; these mirror each option (keyed by the
 -- stable option_id) so the rate model is relational. Kept in sync by

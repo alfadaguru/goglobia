@@ -105,11 +105,11 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S16 | **Generalized RBAC** (permission catalogue superset) + per-role approval-limits engine (`supplier_can_approve`) — non-breaking over S4 | 45, 46 | S4 | ✅ code-complete (not runtime-verified — no DB) |
 | S17 | **Event bus + platform audit** (`emit_event` reuses `triggerWebhook`; append-only `audit_events`) + dormant `workflow_rules` WHEN→IF→THEN seam | 46, 57, 61 | S17-self | ✅ code-complete (not runtime-verified — no DB) |
 
-### Stage C — money (highest risk; build on foundations)
+### Stage C — money (highest risk; build on foundations) — IN PROGRESS (S18 done)
 
 | # | Increment | Catalogue modules | Depends on | Status |
 |---|---|---|---|---|
-| S18 | Supplier **earnings accrual** (pending→available ledger; read-only to supplier) | 40 | S11, S15 | ☐ planned |
+| S18 | Supplier **earnings accrual** (isolated pending→available ledger; read-only to supplier; idempotent per invoice) | 40 | S11, S15 | ✅ code-complete (not runtime-verified — no DB) |
 | S19 | Supplier **payouts to bank** (Paystack transfers; the 7 outbound-money guards) | 40 | S18 | ☐ planned |
 | S20 | **Hospitality GL + AR/AP + cashier/bank-rec + tax engine** | 34–38 | S15 | ☐ planned |
 
@@ -239,9 +239,24 @@ Before coding: **read** every file to be touched (rule 3). Then:
   producers wired: supplier signup emits `supplier.registered`; listing submit emits
   `property.submitted`. All emit calls non-fatal/function_exists-guarded; never throw into
   the caller even pre-migration. Schema in ensure-fn + install/db.sql. Lint-clean +
-  self-audited. Not runtime-verified. **Stage B (S14–S17) COMPLETE. Next: Stage C —
-  MONEY (highest risk): S18 earnings accrual, S19 payouts, S20 GL/AR/AP. STRONGLY
-  recommend owner deploy + smoke-test the whole supplier module before Stage C.**
+  self-audited. Not runtime-verified. **Stage B (S14–S17) COMPLETE.**
+- 2026-10 — **S18 done** (supplier earnings accrual; Stage C start — HIGHEST RISK):
+  DEDICATED, ISOLATED `supplier_earnings` ledger — NOT the customer/agent wallet spine
+  (wallets.kind has no 'supplier'; routing supplier money through wallet_apply corrupts
+  users.balance — avoided entirely). New `app/lib/supplier_earnings.php`:
+  `supplier_earning_accrue_for_booking` (idempotent via UNIQUE invoice_id + locked
+  SELECT…FOR UPDATE pre-check inside $db->action; accrues ONLY paid own-inventory stays
+  with a real owner; amount = server-stored bookings.price_original net rate — never a
+  client value), `supplier_earning_void_for_booking` (voids pending/available on cancel;
+  never a 'paid' row), `supplier_earning_release_due` (pending→available after checkout +
+  clearance days, cron-friendly, state-guarded), `supplier_earning_summary` (read-only
+  totals). Table supplier_earnings (BIGINT id, uq_invoice, payout_id reserved for S19) in
+  ensure-fn + install/db.sql. Wired: reservations inbox accrues idempotently on paid rows;
+  supplier cancel voids; dashboard shows read-only pending/available/paid per currency. NO
+  outbound money, NO wallet-spine touch, supplier has NO write path to earnings. Lint-clean
+  + self-audited (7 payout-grounding risks checked). Not runtime-verified. **Next: S19
+  (payouts to bank — Paystack transfers; the outbound-money stack). HIGHEST RISK of all —
+  STRONGLY recommend deploy + smoke-test S1–S18 before S19.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique
