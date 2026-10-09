@@ -336,6 +336,11 @@ try {
     if (function_exists('ensureSupplierSchema')) {
         ensureSupplierSchema($db);
     }
+    // Supplier STAYS platform (docs/supplier/ Phase 1) — supplier_services/roles/staff,
+    // stays listing-approval + inventory/holds + branded-site tables. Idempotent.
+    if (function_exists('ensureSupplierStaysSchema')) {
+        ensureSupplierStaysSchema($db);
+    }
     // Umrah redesign (docs/UMRAH-PHASE1-BUILD-PLAN.md) — schema + seeds, idempotent.
     if (function_exists('ensureUmrahSchema')) {
         ensureUmrahSchema($db);

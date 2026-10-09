@@ -6411,6 +6411,179 @@ function ensureSupplierSchema($db): void
 }
 
 /**
+ * Supplier STAYS platform schema (Phase 1 — see docs/supplier/ + the Phase-1 plan).
+ *
+ * Builds on ensureSupplierSchema() (the supplier account + approval). This adds the
+ * tables that let an approved supplier self-manage hotels/stays:
+ *   - supplier_services      : per-service onboarding + admin-approved creation quota.
+ *   - supplier_roles         : SUPPLIER-DEFINED custom roles (permission matrix, same
+ *                              JSON shape as users_roles.permissions) owned by a supplier,
+ *                              with a property scope (all | selected).
+ *   - supplier_role_property : which properties a 'selected'-scope role applies to.
+ *   - supplier_staff         : staff of a supplier (invited by email → token → accept),
+ *                              linked to a role.
+ *   - stays.*                : per-listing approval state + review fields + owner index.
+ *   - stays_inventory        : the real, decrementable availability (room×option×date).
+ *   - stays_holds            : atomic seat/room holds (FOR UPDATE) — the no-oversell spine.
+ *   - stays_site             : per-property branded site + (future) custom domain.
+ *
+ * IDENTITY: ownership is keyed on users.user_id (the string), consistent with the
+ * admin owner-picker and the supplier dashboard. All owner columns are varchar.
+ *
+ * Idempotent, self-healing, non-fatal (mirrors the other ensure* funcs). Keep
+ * install/db.sql in sync with every object here.
+ */
+function ensureSupplierStaysSchema($db): void
+{
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+    $checked = true;
+
+    try {
+        // --- supplier_services: onboarding declaration + admin-approved quota -------
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_services` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `user_id` VARCHAR(255) NOT NULL,
+            `service` VARCHAR(32) NOT NULL,
+            `requested_count` INT(11) NOT NULL DEFAULT 1,
+            `status` ENUM('requested','approved','suspended','rejected') NOT NULL DEFAULT 'requested',
+            `max_listings` INT(11) DEFAULT NULL,
+            `commission_pct` DECIMAL(5,2) DEFAULT NULL,
+            `review_comment` VARCHAR(255) DEFAULT NULL,
+            `reviewed_by` VARCHAR(255) DEFAULT NULL,
+            `requested_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `reviewed_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_user_service` (`user_id`,`service`),
+            KEY `idx_user` (`user_id`),
+            KEY `idx_status` (`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- supplier_roles: supplier-defined custom roles + property scope ---------
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_roles` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `owner_user_id` VARCHAR(255) NOT NULL,
+            `name` VARCHAR(120) NOT NULL,
+            `permissions` LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`permissions`)),
+            `scope_type` ENUM('all','selected') NOT NULL DEFAULT 'all',
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_owner` (`owner_user_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- supplier_role_property: rows only when a role is 'selected' scope -------
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_role_property` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `role_id` INT(11) NOT NULL,
+            `stay_id` INT(11) NOT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_role_stay` (`role_id`,`stay_id`),
+            KEY `idx_role` (`role_id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- supplier_staff: invited team members, linked to a role -----------------
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_staff` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `owner_user_id` VARCHAR(255) NOT NULL,
+            `staff_user_id` VARCHAR(255) DEFAULT NULL,
+            `role_id` INT(11) DEFAULT NULL,
+            `invited_email` VARCHAR(255) NOT NULL,
+            `invite_token` VARCHAR(255) DEFAULT NULL,
+            `invite_expires` DATETIME DEFAULT NULL,
+            `status` ENUM('invited','active','suspended','revoked') NOT NULL DEFAULT 'invited',
+            `accepted_at` DATETIME DEFAULT NULL,
+            `created_by` VARCHAR(255) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_owner_email` (`owner_user_id`,`invited_email`),
+            KEY `idx_owner` (`owner_user_id`),
+            KEY `idx_staff` (`staff_user_id`),
+            KEY `idx_token` (`invite_token`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- stays: per-listing approval + review fields + owner index --------------
+        // Additive column adds, each guarded by SHOW COLUMNS (idempotent).
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'listing_status'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `listing_status` ENUM('draft','submitted','approved','queried','rejected') NOT NULL DEFAULT 'draft'");
+        }
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'review_comment'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `review_comment` VARCHAR(255) DEFAULT NULL");
+        }
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'reviewed_by'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `reviewed_by` VARCHAR(255) DEFAULT NULL");
+        }
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'reviewed_at'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `reviewed_at` DATETIME DEFAULT NULL");
+        }
+        // Owner index — speeds "my properties" and is cheap; add once.
+        $hasOwnerIdx = $db->query("SHOW INDEX FROM `stays` WHERE Key_name = 'idx_stays_owner'")->fetch();
+        if (!$hasOwnerIdx) {
+            $db->query("ALTER TABLE `stays` ADD INDEX `idx_stays_owner` (`user_id`)");
+        }
+
+        // --- stays_inventory: the real, decrementable availability ------------------
+        // option_id is the STABLE room-option id (see increment 6 stabilization), not a
+        // positional index. UNIQUE prevents duplicate day rows per (room,option).
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_inventory` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `stay_id` INT(11) NOT NULL,
+            `room_id` INT(11) NOT NULL,
+            `option_id` INT(11) NOT NULL,
+            `date` DATE NOT NULL,
+            `available_count` INT(11) NOT NULL DEFAULT 0,
+            `closed` TINYINT(1) NOT NULL DEFAULT 0,
+            `min_stay` INT(11) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_inv` (`stay_id`,`room_id`,`option_id`,`date`),
+            KEY `idx_stay_date` (`stay_id`,`date`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- stays_holds: atomic holds (the no-oversell spine) ----------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_holds` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `stay_id` INT(11) NOT NULL,
+            `room_id` INT(11) NOT NULL,
+            `option_id` INT(11) NOT NULL,
+            `date_from` DATE NOT NULL,
+            `date_to` DATE NOT NULL,
+            `qty` INT(11) NOT NULL DEFAULT 1,
+            `state` ENUM('held','consumed','released','expired') NOT NULL DEFAULT 'held',
+            `ref` VARCHAR(191) DEFAULT NULL,
+            `expires_at` DATETIME DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`),
+            KEY `idx_state` (`state`),
+            KEY `idx_ref` (`ref`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- stays_site: branded site + (future) custom domain ----------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_site` (
+            `stay_id` INT(11) NOT NULL,
+            `hostname` VARCHAR(191) DEFAULT NULL,
+            `custom_domain` VARCHAR(191) DEFAULT NULL,
+            `domain_status` ENUM('none','pending','verified','active') NOT NULL DEFAULT 'none',
+            `verify_token` VARCHAR(255) DEFAULT NULL,
+            `theme` LONGTEXT DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`stay_id`),
+            UNIQUE KEY `uq_hostname` (`hostname`),
+            UNIQUE KEY `uq_custom_domain` (`custom_domain`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (\Throwable $e) {
+        // Never break the page over a migration (e.g. a DB user without ALTER).
+        error_log('ensureSupplierStaysSchema: ' . $e->getMessage());
+    }
+}
+
+/**
  * Paystack Dedicated Virtual Account (DVA / NUBAN) columns on `users`.
  *
  * Step 5 of the payments rework: a Nigerian (NGN) customer can activate a

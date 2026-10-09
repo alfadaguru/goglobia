@@ -28110,6 +28110,10 @@ CREATE TABLE `stays` (
   `id` int(10) UNSIGNED NOT NULL,
   `status` tinyint(1) NOT NULL DEFAULT 1,
   `user_id` varchar(155) DEFAULT NULL,
+  `listing_status` enum('draft','submitted','approved','queried','rejected') NOT NULL DEFAULT 'draft',
+  `review_comment` varchar(255) DEFAULT NULL,
+  `reviewed_by` varchar(255) DEFAULT NULL,
+  `reviewed_at` datetime DEFAULT NULL,
   `name` varchar(250) NOT NULL,
   `slug` varchar(250) NOT NULL,
   `featured` tinyint(1) DEFAULT 0,
@@ -28371,6 +28375,141 @@ INSERT INTO `stays_rooms` (`id`, `stay_id`, `room_type_id`, `room_images`, `amen
 (2392, 239, 45, '[{\"url\":\"/uploads/hotels/rooms/velaa-private-island-room-executive-1.jpg\",\"default\":true},{\"url\":\"/uploads/hotels/rooms/velaa-private-island-room-executive-2.jpg\",\"default\":false}]', '[11,12,13,14,15,16,17,18,19,20]', 1, '[{\"max_adults\":2,\"max_children\":1,\"price\":2250,\"discount_percentage\":15,\"extra_bed_available\":1,\"extra_bed_charge\":450,\"breakfast_included\":1,\"cancellation_free\":1,\"refundable\":1,\"available_quantity\":15,\"status\":1,\"board_id\":24}]', '2026-03-03 15:14:52', '2026-03-03 15:17:41'),
 (2393, 239, 42, '[{\"url\":\"/uploads/hotels/rooms/velaa-private-island-room-family-1.jpg\",\"default\":true},{\"url\":\"/uploads/hotels/rooms/velaa-private-island-room-family-2.jpg\",\"default\":false}]', '[11,12,13,14,15,16,17,18,19,20]', 1, '[{\"max_adults\":3,\"max_children\":2,\"price\":3300,\"discount_percentage\":11,\"extra_bed_available\":1,\"extra_bed_charge\":660,\"breakfast_included\":1,\"cancellation_free\":1,\"refundable\":1,\"available_quantity\":8,\"status\":1,\"board_id\":25}]', '2026-03-03 15:14:52', '2026-03-03 15:17:41'),
 (2394, 233, 47, '[{\"url\":\"\\/uploads\\/hotels\\/rooms\\/room_1779745435_6a14c29b374e2_0.jpg\",\"default\":true}]', '[]', 1, '[{\"max_adults\":2,\"max_children\":0,\"price\":260,\"discount_percentage\":0,\"extra_bed_available\":0,\"extra_bed_charge\":0,\"breakfast_included\":1,\"cancellation_free\":1,\"refundable\":1,\"available_quantity\":1,\"status\":1,\"board_id\":21,\"created_at\":\"2026-05-26 00:08:43\",\"updated_at\":\"2026-05-26 00:08:43\"},{\"max_adults\":3,\"max_children\":1,\"price\":179.99,\"discount_percentage\":0,\"extra_bed_available\":0,\"extra_bed_charge\":0,\"breakfast_included\":1,\"cancellation_free\":0,\"refundable\":0,\"available_quantity\":1,\"status\":1,\"board_id\":24,\"created_at\":\"2026-05-26 00:08:15\",\"updated_at\":\"2026-05-26 00:08:15\"}]', '2026-05-25 18:43:55', '2026-05-25 19:08:43');
+
+-- --------------------------------------------------------
+
+-- --------------------------------------------------------
+-- Supplier STAYS platform (docs/supplier/ Phase 1). Mirrors ensureSupplierStaysSchema()
+-- in app/lib/functions.php — keep the two in sync.
+-- --------------------------------------------------------
+
+--
+-- Supplier onboarding: declared services + admin-approved creation quota
+--
+CREATE TABLE `supplier_services` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` varchar(255) NOT NULL,
+  `service` varchar(32) NOT NULL,
+  `requested_count` int(11) NOT NULL DEFAULT 1,
+  `status` enum('requested','approved','suspended','rejected') NOT NULL DEFAULT 'requested',
+  `max_listings` int(11) DEFAULT NULL,
+  `commission_pct` decimal(5,2) DEFAULT NULL,
+  `review_comment` varchar(255) DEFAULT NULL,
+  `reviewed_by` varchar(255) DEFAULT NULL,
+  `requested_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `reviewed_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_user_service` (`user_id`,`service`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Supplier-defined custom roles (permission matrix + property scope)
+--
+CREATE TABLE `supplier_roles` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `owner_user_id` varchar(255) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `permissions` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`permissions`)),
+  `scope_type` enum('all','selected') NOT NULL DEFAULT 'all',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_owner` (`owner_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Which properties a 'selected'-scope supplier role applies to
+--
+CREATE TABLE `supplier_role_property` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `role_id` int(11) NOT NULL,
+  `stay_id` int(11) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_role_stay` (`role_id`,`stay_id`),
+  KEY `idx_role` (`role_id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Supplier staff (email-invited team members linked to a role)
+--
+CREATE TABLE `supplier_staff` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `owner_user_id` varchar(255) NOT NULL,
+  `staff_user_id` varchar(255) DEFAULT NULL,
+  `role_id` int(11) DEFAULT NULL,
+  `invited_email` varchar(255) NOT NULL,
+  `invite_token` varchar(255) DEFAULT NULL,
+  `invite_expires` datetime DEFAULT NULL,
+  `status` enum('invited','active','suspended','revoked') NOT NULL DEFAULT 'invited',
+  `accepted_at` datetime DEFAULT NULL,
+  `created_by` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_owner_email` (`owner_user_id`,`invited_email`),
+  KEY `idx_owner` (`owner_user_id`),
+  KEY `idx_staff` (`staff_user_id`),
+  KEY `idx_token` (`invite_token`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Real, decrementable stays availability (room × option × date)
+--
+CREATE TABLE `stays_inventory` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `stay_id` int(11) NOT NULL,
+  `room_id` int(11) NOT NULL,
+  `option_id` int(11) NOT NULL,
+  `date` date NOT NULL,
+  `available_count` int(11) NOT NULL DEFAULT 0,
+  `closed` tinyint(1) NOT NULL DEFAULT 0,
+  `min_stay` int(11) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_inv` (`stay_id`,`room_id`,`option_id`,`date`),
+  KEY `idx_stay_date` (`stay_id`,`date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Atomic stays holds (no-oversell spine; FOR UPDATE)
+--
+CREATE TABLE `stays_holds` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `stay_id` int(11) NOT NULL,
+  `room_id` int(11) NOT NULL,
+  `option_id` int(11) NOT NULL,
+  `date_from` date NOT NULL,
+  `date_to` date NOT NULL,
+  `qty` int(11) NOT NULL DEFAULT 1,
+  `state` enum('held','consumed','released','expired') NOT NULL DEFAULT 'held',
+  `ref` varchar(191) DEFAULT NULL,
+  `expires_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`),
+  KEY `idx_state` (`state`),
+  KEY `idx_ref` (`ref`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Per-property branded site + (future) custom domain
+--
+CREATE TABLE `stays_site` (
+  `stay_id` int(11) NOT NULL,
+  `hostname` varchar(191) DEFAULT NULL,
+  `custom_domain` varchar(191) DEFAULT NULL,
+  `domain_status` enum('none','pending','verified','active') NOT NULL DEFAULT 'none',
+  `verify_token` varchar(255) DEFAULT NULL,
+  `theme` longtext DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`stay_id`),
+  UNIQUE KEY `uq_hostname` (`hostname`),
+  UNIQUE KEY `uq_custom_domain` (`custom_domain`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
