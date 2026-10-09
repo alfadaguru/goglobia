@@ -90,7 +90,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 |---|---|---|---|---|
 | S9 | **Per-service supplier landing pages** ("read more" per ticked service) + link them into signup | 01, 17-adjacent | S2 | ✅ code-complete (not runtime-verified — no DB) |
 | S10 | Supplier **room/rate/calendar self-management** (owner-scoped room/option/calendar CRUD under `/supplier/stays/{id}/rooms*`, gated by `supplier_can('rooms'\|'rates')`; options by stable `option_id`) | 05, 06 | S3, S6 | ✅ code-complete (not runtime-verified — no DB) |
-| S11 | Supplier **reservations inbox** (owner sees bookings against their inventory; statuses; cancel/no-show) | 04, 07-adjacent | S3 | ☐ planned |
+| S11 | Supplier **reservations inbox** (owner sees bookings against their inventory; statuses; cancel/no-show) | 04, 07-adjacent | S3 | ✅ code-complete (not runtime-verified — no DB) |
 | S12 | **Normalized rate plans** (`stays_rate_plans`/`stays_rates`) with the `room_options` compatibility bridge | 06 | S6, S10 | ☐ planned |
 | S13 | Supplier **onboarding wizard + go-live checklist** (progress meter; property setup %) | 01, 02, 60 | S9, S10 | ☐ planned |
 
@@ -157,4 +157,15 @@ Before coding: **read** every file to be touched (rule 3). Then:
   cleans `stays_inventory` + `stays_rooms_calendar`; calendar save whitelists option_ids
   and validates dates; unique keys prevent duplicate rate/inventory rows. No schema change
   (reuses existing tables). Lint-clean + self-audited. Not runtime-verified (no DB).
-  **Next: S11 (supplier reservations inbox).**
+- 2026-10 — **S11 done** (supplier reservations inbox): new `supplierReservationsRoutes.php`
+  (`GET /supplier/reservations`, `GET /supplier/reservations/{invoiceId}`,
+  `POST …/{invoiceId}/action`) + views `supplier/reservations/{list,detail}.php` +
+  dashboard link. Scoping crux: `bookings` has NO stay_id column, so the inbox is built
+  from the owner's `stays.id` set, LIKE-prefiltered on `booking_data.hotel_id`, then EVERY
+  row re-verified by decoding the JSON (LIKE is only a hint). Per-action IDOR: re-derives
+  hotel_id from booking_data and calls `supplier_can('reservations','edit',$hotelId)`;
+  CSRF on the write. Actions = cancel / no-show / clear-no-show (operational only — NO
+  refund/payout; cancel flags cancellation_request for admin + releases availability holds
+  by invoice ref). No schema change (writes existing bookings columns). Lint-clean +
+  self-audited. Not runtime-verified (no DB). **Next: S12 (normalized rate plans) or S13
+  (onboarding wizard) — Stage A tail.**
