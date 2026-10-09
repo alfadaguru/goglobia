@@ -329,11 +329,12 @@ try {
     if (function_exists('ensureAgentApiSchema')) {
         ensureAgentApiSchema($db);
     }
-    // Vendor (self-registering supplier) signup+approval — widens users.status
-    // for 'pending'/'rejected', adds the rejection-reason column + the
-    // settings.vendor_registration toggle. Idempotent.
-    if (function_exists('ensureVendorSchema')) {
-        ensureVendorSchema($db);
+    // Supplier self-registration + approval — widens users.status for
+    // 'pending'/'rejected', ensures users.supplier_rejected_reason (renaming the
+    // legacy vendor_rejected_reason if present) and the existing
+    // settings.supplier_registration toggle. Idempotent.
+    if (function_exists('ensureSupplierSchema')) {
+        ensureSupplierSchema($db);
     }
     // Umrah redesign (docs/UMRAH-PHASE1-BUILD-PLAN.md) — schema + seeds, idempotent.
     if (function_exists('ensureUmrahSchema')) {

@@ -56,17 +56,17 @@ $licenseBlocked = !empty($_SESSION['lic_err']);
                                 </form>
                             <?php endif; ?>
                         </div>
-                    <?php elseif ($_SESSION['login_error'] === 'vendor_pending'): ?>
-                        <p>Your vendor application is still under review. We'll email you as soon as it's approved.</p>
-                    <?php elseif ($_SESSION['login_error'] === 'vendor_rejected'): ?>
+                    <?php elseif ($_SESSION['login_error'] === 'supplier_pending'): ?>
+                        <p>Your supplier application is still under review. We'll email you as soon as it's approved.</p>
+                    <?php elseif ($_SESSION['login_error'] === 'supplier_rejected'): ?>
                         <div class="space-y-1">
-                            <p>Your vendor application was not approved.</p>
-                            <?php if (!empty($_SESSION['vendor_rejected_reason'])): ?>
-                                <p class="text-sm"><strong>Reason:</strong> <?= htmlspecialchars($_SESSION['vendor_rejected_reason']) ?></p>
+                            <p>Your supplier application was not approved.</p>
+                            <?php if (!empty($_SESSION['supplier_rejected_reason'])): ?>
+                                <p class="text-sm"><strong>Reason:</strong> <?= htmlspecialchars($_SESSION['supplier_rejected_reason']) ?></p>
                             <?php endif; ?>
                         </div>
-                    <?php elseif ($_SESSION['login_error'] === 'vendor_registration_disabled'): ?>
-                        <p>Vendor registration is currently closed. Please check back later.</p>
+                    <?php elseif ($_SESSION['login_error'] === 'supplier_registration_disabled'): ?>
+                        <p>Supplier registration is currently closed. Please check back later.</p>
                     <?php elseif ($_SESSION['login_error'] === 'csrf'): ?>
                         <p><?= T::error_csrf_token ?></p>
                     <?php elseif ($_SESSION['login_error'] === 'locked'): ?>
@@ -89,17 +89,17 @@ $licenseBlocked = !empty($_SESSION['lic_err']);
                 unset($_SESSION['lock_until']);
                 unset($_SESSION['attempts_remaining']);
                 unset($_SESSION['unverified_user_id']);
-                unset($_SESSION['vendor_rejected_reason']);
+                unset($_SESSION['supplier_rejected_reason']);
             ?>
         <?php endif; ?>
 
-        <!-- Vendor application submitted -->
-        <?php if (isset($_SESSION['vendor_signup_success'])): ?>
+        <!-- Supplier application submitted -->
+        <?php if (isset($_SESSION['supplier_signup_success'])): ?>
             <div class="alert-success">
                 <span class="material-symbols-outlined">check_circle</span>
-                <p>Thanks! Your vendor application has been submitted and is pending review. We'll email you once it's approved.</p>
+                <p>Thanks! Your supplier application has been submitted and is pending review. We'll email you once it's approved.</p>
             </div>
-            <?php unset($_SESSION['vendor_signup_success']); ?>
+            <?php unset($_SESSION['supplier_signup_success']); ?>
         <?php endif; ?>
 
         <!-- Login Success Messages -->

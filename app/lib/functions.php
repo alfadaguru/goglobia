@@ -216,15 +216,15 @@ function ADMIN_AUTH()
     }
 }
 
-// VENDOR AUTH CHECK — gate for the vendor (self-registered supplier) area.
-// Mirrors ADMIN_AUTH(): a logged-in user whose role is exactly 'vendor'. Any
+// SUPPLIER AUTH CHECK — gate for the self-registered supplier area.
+// Mirrors ADMIN_AUTH(): a logged-in user whose role is exactly 'supplier'. Any
 // other visitor (guest, customer, agent, admin) is bounced to login. Because
 // login only establishes a session for an 'active' account (loginRoutes.php),
-// a pending/rejected vendor can never reach here — the approval gate holds at
-// login, and this is the second line of defence on the vendor routes.
-function VENDOR_AUTH()
+// a pending/rejected supplier can never reach here — the approval gate holds at
+// login, and this is the second line of defence on the supplier routes.
+function SUPPLIER_AUTH()
 {
-    if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'vendor') {
+    if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'supplier') {
         header('Location: ' . root . 'login');
         exit;
     }
@@ -6332,26 +6332,30 @@ function ensureUserRestrictionSchema($db): void
 }
 
 /**
- * Vendor (Supplier-role self-registration + approval) schema.
+ * Supplier self-registration + approval schema.
  *
- * The "vendor" account is a self-registering supplier who is held in a PENDING
- * state until an admin approves them. This needs:
+ * A supplier (the existing users_roles 'Supplier' role, id 2) can self-register
+ * and is held PENDING until an admin approves them. This needs:
  *   1. users.status to accept 'pending' and 'rejected' (it ships as a 2-value
  *      enum active/inactive, so a 'pending' write would be silently coerced to
  *      '' on non-strict MySQL — widen it additively, never dropping a value).
- *   2. users.vendor_rejected_reason — the admin's note shown back to the vendor.
+ *   2. users.supplier_rejected_reason — the admin's note shown back to the
+ *      supplier at the login gate.
  *
- * NOTE on the on/off toggle: the platform already ships a
- * settings.supplier_registration flag ("Allow suppliers to register and list
- * their services", translated in every language) — that IS this feature's
- * switch, so we reuse it rather than add a parallel vendor_registration column.
- * This function only ensures that flag EXISTS on installs predating it; it does
- * not create a duplicate.
+ * The on/off toggle reuses the platform's existing settings.supplier_registration
+ * flag ("Allow suppliers to register and list their services", already translated
+ * in every language). This function only ensures that flag EXISTS on installs
+ * predating it; it does not create a duplicate.
+ *
+ * Migration note: an earlier iteration of this feature added a
+ * `vendor_rejected_reason` column. If a DB still has it (the old code ran once),
+ * we RENAME it to supplier_rejected_reason so no data is lost and no orphan
+ * column is left behind.
  *
  * Idempotent, self-healing, non-fatal — mirrors ensureUserRestrictionSchema /
  * ensurePaystackDvaSchema. Keep install/db.sql in sync with these changes.
  */
-function ensureVendorSchema($db): void
+function ensureSupplierSchema($db): void
 {
     static $checked = false;
     if ($checked) {
@@ -6377,9 +6381,18 @@ function ensureVendorSchema($db): void
             }
         }
 
-        // 2) Rejection reason (nullable text; shown to the vendor on the login gate).
-        if (!$db->query("SHOW COLUMNS FROM `users` LIKE 'vendor_rejected_reason'")->fetch()) {
-            $db->query("ALTER TABLE `users` ADD COLUMN `vendor_rejected_reason` VARCHAR(255) DEFAULT NULL");
+        // 2) Rejection reason (nullable text; shown to the supplier on the login
+        //    gate). Three cases, in order:
+        //    a. legacy vendor_rejected_reason exists, supplier_ does not → RENAME
+        //       (preserves any data, removes the orphan);
+        //    b. neither exists → ADD supplier_rejected_reason;
+        //    c. supplier_rejected_reason already exists → no-op.
+        $hasSupplierCol = (bool) $db->query("SHOW COLUMNS FROM `users` LIKE 'supplier_rejected_reason'")->fetch();
+        $hasVendorCol   = (bool) $db->query("SHOW COLUMNS FROM `users` LIKE 'vendor_rejected_reason'")->fetch();
+        if (!$hasSupplierCol && $hasVendorCol) {
+            $db->query("ALTER TABLE `users` CHANGE COLUMN `vendor_rejected_reason` `supplier_rejected_reason` VARCHAR(255) DEFAULT NULL");
+        } elseif (!$hasSupplierCol) {
+            $db->query("ALTER TABLE `users` ADD COLUMN `supplier_rejected_reason` VARCHAR(255) DEFAULT NULL");
         }
 
         // 3) The toggle: ensure settings.supplier_registration exists (older
@@ -6393,7 +6406,7 @@ function ensureVendorSchema($db): void
         }
     } catch (\Throwable $e) {
         // Never break the page over a migration (e.g. a DB user without ALTER).
-        error_log('ensureVendorSchema: ' . $e->getMessage());
+        error_log('ensureSupplierSchema: ' . $e->getMessage());
     }
 }
 

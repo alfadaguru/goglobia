@@ -1,23 +1,23 @@
 <?php
-// FILE: app/routes/users/vendorDashboardRoutes.php
-// Vendor (self-registered supplier) dashboard — the vendor's own area.
+// FILE: app/routes/users/supplierDashboardRoutes.php
+// Supplier dashboard — the supplier's own area.
 //
-// First build: login + a read-only overview. The vendor sees their account
+// First build: login + a read-only overview. The supplier sees their account
 // status/profile and the inventory an admin has assigned to them (rows in
-// flights/stays/tours/cars whose user_id is this vendor). Self-service upload
+// flights/stays/tours/cars whose user_id is this supplier). Self-service upload
 // of inventory is a later phase; this area intentionally does not write.
 
 @$SECURE or die('Access Denied!');
 
-$router->get('/vendor/dashboard', function () use ($SECURE, $db) {
-    // Gate: must be a logged-in vendor. VENDOR_AUTH() redirects to /login
-    // otherwise (and a pending/rejected vendor never gets a session anyway —
+$router->get('/supplier/dashboard', function () use ($SECURE, $db) {
+    // Gate: must be a logged-in supplier. SUPPLIER_AUTH() redirects to /login
+    // otherwise (and a pending/rejected supplier never gets a session anyway —
     // the status gate holds at login).
-    VENDOR_AUTH();
+    SUPPLIER_AUTH();
 
-    $user_id = $_SESSION['user_id'];
-    $vendor  = $db->get('users', '*', ['user_id' => $user_id]);
-    if (!$vendor) {
+    $user_id  = $_SESSION['user_id'];
+    $supplier = $db->get('users', '*', ['user_id' => $user_id]);
+    if (!$supplier) {
         // Session points at a user that no longer exists — bounce to login.
         header('Location: ' . root . 'login');
         exit;
@@ -53,19 +53,19 @@ $router->get('/vendor/dashboard', function () use ($SECURE, $db) {
             }
         } catch (\Throwable $e) {
             // Table missing on this install, or column mismatch — leave at zero.
-            error_log('vendor dashboard inventory (' . $table . '): ' . $e->getMessage());
+            error_log('supplier dashboard inventory (' . $table . '): ' . $e->getMessage());
         }
     }
     unset($info);
 
     $totalInventory = array_sum(array_map(fn($i) => $i['count'], $inventory));
 
-    $title = 'Vendor Dashboard';
-    $description = 'Your vendor account overview';
+    $title = 'Supplier Dashboard';
+    $description = 'Your supplier account overview';
     $header = true;
     $footer = true;
 
     require_once views . "includes/header.php";
-    require_once views . "vendor/dashboard.php";
+    require_once views . "supplier/dashboard.php";
     require_once views . "includes/footer.php";
 });

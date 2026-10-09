@@ -18,8 +18,8 @@
 
   <div class="flex items-center justify-between">
     <div>
-      <h1 class="text-2xl font-bold text-gray-900">Vendors</h1>
-      <p class="text-sm text-gray-600">Review vendor applications and manage approved suppliers.</p>
+      <h1 class="text-2xl font-bold text-gray-900">Suppliers</h1>
+      <p class="text-sm text-gray-600">Review supplier applications and manage approved suppliers.</p>
     </div>
     <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold bg-amber-100 text-amber-700">
       <span class="material-symbols-outlined text-base">hourglass_top</span>
@@ -33,35 +33,35 @@
     <?php if (empty($pending)): ?>
       <div class="card p-6 text-center text-gray-500">
         <span class="material-symbols-outlined text-4xl text-gray-300">inbox</span>
-        <p class="mt-2 text-sm">No vendor applications are waiting for review.</p>
+        <p class="mt-2 text-sm">No supplier applications are waiting for review.</p>
       </div>
     <?php else: ?>
       <div class="space-y-4">
-        <?php foreach ($pending as $v): ?>
+        <?php foreach ($pending as $s): ?>
           <?php
-            $vName = trim(($v['first_name'] ?? '') . ' ' . ($v['last_name'] ?? ''));
-            $vid   = htmlspecialchars((string) ($v['user_id'] ?? ''));
+            $sName = trim(($s['first_name'] ?? '') . ' ' . ($s['last_name'] ?? ''));
+            $sid   = htmlspecialchars((string) ($s['user_id'] ?? ''));
           ?>
           <div class="card p-5">
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div class="min-w-0">
-                <div class="font-semibold text-gray-900"><?= htmlspecialchars($vName) ?: '(no name)' ?></div>
+                <div class="font-semibold text-gray-900"><?= htmlspecialchars($sName) ?: '(no name)' ?></div>
                 <div class="text-sm text-gray-600 space-y-0.5 mt-1">
-                  <?php if (!empty($v['title'])): ?>
-                    <div class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm text-gray-400">business</span><?= htmlspecialchars($v['title']) ?></div>
+                  <?php if (!empty($s['title'])): ?>
+                    <div class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm text-gray-400">business</span><?= htmlspecialchars($s['title']) ?></div>
                   <?php endif; ?>
-                  <div class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm text-gray-400">email</span><?= htmlspecialchars($v['email'] ?? '') ?></div>
-                  <?php if (!empty($v['phone'])): ?>
-                    <div class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm text-gray-400">call</span><?= htmlspecialchars($v['phone'] ?? '') ?></div>
+                  <div class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm text-gray-400">email</span><?= htmlspecialchars($s['email'] ?? '') ?></div>
+                  <?php if (!empty($s['phone'])): ?>
+                    <div class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm text-gray-400">call</span><?= htmlspecialchars($s['phone'] ?? '') ?></div>
                   <?php endif; ?>
-                  <div class="flex items-center gap-1.5 text-gray-400"><span class="material-symbols-outlined text-sm">schedule</span>Applied <?= htmlspecialchars(substr((string) ($v['created_at'] ?? ''), 0, 16)) ?></div>
+                  <div class="flex items-center gap-1.5 text-gray-400"><span class="material-symbols-outlined text-sm">schedule</span>Applied <?= htmlspecialchars(substr((string) ($s['created_at'] ?? ''), 0, 16)) ?></div>
                 </div>
               </div>
 
               <div class="flex items-center gap-2 shrink-0"
                    x-data="{ rejecting: false }">
                 <!-- Approve -->
-                <form action="<?= root . admin ?>/vendors/approve/<?= $vid ?>" method="POST">
+                <form action="<?= root . admin ?>/suppliers/approve/<?= $sid ?>" method="POST">
                   <?= CSRF::tokenField() ?>
                   <button type="submit" class="btn emerald">
                     <span class="flex items-center gap-1.5">
@@ -80,9 +80,9 @@
                 <div x-show="rejecting" x-cloak
                      class="absolute mt-2 right-0 z-10 card p-4 w-72 shadow-lg"
                      style="position:absolute">
-                  <form action="<?= root . admin ?>/vendors/reject/<?= $vid ?>" method="POST" class="space-y-2">
+                  <form action="<?= root . admin ?>/suppliers/reject/<?= $sid ?>" method="POST" class="space-y-2">
                     <?= CSRF::tokenField() ?>
-                    <label class="block text-xs font-medium text-gray-600">Reason (shown to the vendor)</label>
+                    <label class="block text-xs font-medium text-gray-600">Reason (shown to the supplier)</label>
                     <textarea name="reason" rows="3" maxlength="255" class="input w-full text-sm"
                               placeholder="Optional — e.g. incomplete business details"></textarea>
                     <button type="submit" class="btn red w-full">
@@ -100,11 +100,11 @@
     <?php endif; ?>
   </div>
 
-  <!-- Processed vendors -->
+  <!-- Processed suppliers -->
   <div>
-    <h2 class="text-lg font-semibold text-gray-900 mb-3">All vendors</h2>
+    <h2 class="text-lg font-semibold text-gray-900 mb-3">All suppliers</h2>
     <?php if (empty($others)): ?>
-      <div class="card p-6 text-center text-gray-500 text-sm">No approved or rejected vendors yet.</div>
+      <div class="card p-6 text-center text-gray-500 text-sm">No approved or rejected suppliers yet.</div>
     <?php else: ?>
       <div class="card overflow-x-auto">
         <table class="w-full text-sm">
@@ -118,14 +118,14 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
-            <?php foreach ($others as $v): ?>
-              <?php $vid = htmlspecialchars((string) ($v['user_id'] ?? '')); ?>
+            <?php foreach ($others as $s): ?>
+              <?php $sid = htmlspecialchars((string) ($s['user_id'] ?? '')); ?>
               <tr>
-                <td class="px-4 py-3 text-gray-900"><?= htmlspecialchars(trim(($v['first_name'] ?? '') . ' ' . ($v['last_name'] ?? ''))) ?></td>
-                <td class="px-4 py-3 text-gray-600"><?= htmlspecialchars($v['title'] ?? '') ?: '—' ?></td>
-                <td class="px-4 py-3 text-gray-600"><?= htmlspecialchars($v['email'] ?? '') ?></td>
+                <td class="px-4 py-3 text-gray-900"><?= htmlspecialchars(trim(($s['first_name'] ?? '') . ' ' . ($s['last_name'] ?? ''))) ?></td>
+                <td class="px-4 py-3 text-gray-600"><?= htmlspecialchars($s['title'] ?? '') ?: '—' ?></td>
+                <td class="px-4 py-3 text-gray-600"><?= htmlspecialchars($s['email'] ?? '') ?></td>
                 <td class="px-4 py-3">
-                  <?php $st = $v['status'] ?? ''; ?>
+                  <?php $st = $s['status'] ?? ''; ?>
                   <span class="px-2 py-0.5 rounded text-xs font-medium
                     <?= $st === 'active' ? 'bg-green-50 text-green-700' : ($st === 'rejected' ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-600') ?>">
                     <?= $st === 'active' ? 'Approved' : ucfirst((string) $st) ?>
@@ -133,7 +133,7 @@
                 </td>
                 <td class="px-4 py-3">
                   <?php if ($st !== 'active'): ?>
-                    <form action="<?= root . admin ?>/vendors/approve/<?= $vid ?>" method="POST" class="inline">
+                    <form action="<?= root . admin ?>/suppliers/approve/<?= $sid ?>" method="POST" class="inline">
                       <?= CSRF::tokenField() ?>
                       <button type="submit" class="text-green-700 hover:underline text-xs font-medium">Approve</button>
                     </form>

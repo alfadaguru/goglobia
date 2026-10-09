@@ -4,12 +4,12 @@
   <div class="max-w-lg w-full space-y-8">
 
     <!-- Error Messages -->
-    <?php if (isset($_SESSION['vendor_signup_error'])): ?>
+    <?php if (isset($_SESSION['supplier_signup_error'])): ?>
       <div class="alert-error">
         <span class="material-symbols-outlined">error</span>
         <p class="text-sm">
           <?php
-          switch ($_SESSION['vendor_signup_error']) {
+          switch ($_SESSION['supplier_signup_error']) {
               case 'empty':            echo 'Please fill in all required fields.'; break;
               case 'invalid_email':    echo 'Please enter a valid email address.'; break;
               case 'email_exists':     echo 'An account with that email already exists.'; break;
@@ -26,17 +26,17 @@
           ?>
         </p>
       </div>
-      <?php unset($_SESSION['vendor_signup_error']); ?>
+      <?php unset($_SESSION['supplier_signup_error']); ?>
     <?php endif; ?>
 
-    <!-- Vendor notice -->
+    <!-- Supplier notice -->
     <div class="bg-gradient-to-r from-violet-50 to-indigo-50 border border-violet-200 rounded-lg p-4 shadow-sm">
       <div class="flex items-start gap-3">
         <div class="w-12 h-12 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0">
           <span class="material-symbols-outlined text-violet-600 text-2xl">storefront</span>
         </div>
         <div class="flex-1">
-          <h3 class="text-lg font-bold text-gray-900 mb-1">Vendor Registration</h3>
+          <h3 class="text-lg font-bold text-gray-900 mb-1">Supplier Registration</h3>
           <p class="text-sm text-gray-700 leading-relaxed">
             Register as a supplier to list your services. Applications are
             <strong>reviewed by our team</strong>; you'll be able to sign in once your
@@ -52,12 +52,12 @@
         <div class="w-16 h-16 bg-violet-100 rounded-full flex items-center justify-center mx-auto mb-4">
           <span class="material-symbols-outlined text-2xl text-violet-600">add_business</span>
         </div>
-        <h2 class="text-2xl font-bold text-gray-900">Become a Vendor</h2>
+        <h2 class="text-2xl font-bold text-gray-900">Become a Supplier</h2>
         <p class="text-gray-600 text-sm">Create your supplier account</p>
       </div>
 
       <div class="card-body">
-        <form action="<?= root ?>vendor-signup" method="POST"
+        <form action="<?= root ?>supplier-signup" method="POST"
           class="space-y-6"
           x-data="{ showPassword:false, showConfirmPassword:false, passwordsMatch:true, isSubmitting:false,
             checkPasswordMatch(){ const p=document.getElementById('password')?.value||''; const c=document.getElementById('confirm_password')?.value||''; this.passwordsMatch = p===c || c===''; } }"
@@ -71,13 +71,13 @@
               <label for="first_name" class="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
               <input type="text" id="first_name" name="first_name" required class="input"
                 placeholder="First name"
-                value="<?= htmlspecialchars($_SESSION['vendor_form_data']['first_name'] ?? '') ?>">
+                value="<?= htmlspecialchars($_SESSION['supplier_form_data']['first_name'] ?? '') ?>">
             </div>
             <div class="form-control">
               <label for="last_name" class="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
               <input type="text" id="last_name" name="last_name" required class="input"
                 placeholder="Last name"
-                value="<?= htmlspecialchars($_SESSION['vendor_form_data']['last_name'] ?? '') ?>">
+                value="<?= htmlspecialchars($_SESSION['supplier_form_data']['last_name'] ?? '') ?>">
             </div>
           </div>
 
@@ -88,7 +88,7 @@
               <span class="input-icon-left material-symbols-outlined">business</span>
               <input type="text" id="company" name="company" class="input-with-icon"
                 placeholder="Your business name"
-                value="<?= htmlspecialchars($_SESSION['vendor_form_data']['company'] ?? '') ?>">
+                value="<?= htmlspecialchars($_SESSION['supplier_form_data']['company'] ?? '') ?>">
             </div>
           </div>
 
@@ -99,7 +99,7 @@
               <span class="input-icon-left material-symbols-outlined">email</span>
               <input type="email" id="email" name="email" required class="input-with-icon"
                 placeholder="you@company.com"
-                value="<?= htmlspecialchars($_SESSION['vendor_form_data']['email'] ?? '') ?>">
+                value="<?= htmlspecialchars($_SESSION['supplier_form_data']['email'] ?? '') ?>">
             </div>
           </div>
 
@@ -110,7 +110,7 @@
               <span class="input-icon-left material-symbols-outlined">call</span>
               <input type="text" id="phone" name="phone" class="input-with-icon"
                 placeholder="Phone number"
-                value="<?= htmlspecialchars($_SESSION['vendor_form_data']['phone'] ?? '') ?>">
+                value="<?= htmlspecialchars($_SESSION['supplier_form_data']['phone'] ?? '') ?>">
             </div>
           </div>
 
@@ -194,3 +194,9 @@
 
 <script>$(document).ready(() => $('#first_name').focus());</script>
 <style>[x-cloak]{display:none!important}</style>
+
+<?php
+// Clear the repopulation data now the form has rendered, so stale values don't
+// pre-fill the form on a later unrelated visit (matches signup.php's cleanup).
+if (isset($_SESSION['supplier_form_data'])) unset($_SESSION['supplier_form_data']);
+?>

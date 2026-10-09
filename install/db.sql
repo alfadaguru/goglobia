@@ -29250,7 +29250,7 @@ CREATE TABLE `users` (
   `timezone` varchar(50) DEFAULT 'UTC',
   `language` varchar(10) DEFAULT 'en',
   `status` enum('active','inactive','pending','rejected') DEFAULT 'active',
-  `vendor_rejected_reason` varchar(255) DEFAULT NULL,
+  `supplier_rejected_reason` varchar(255) DEFAULT NULL,
   `reset_token` varchar(255) DEFAULT NULL,
   `reset_token_expires` timestamp NULL DEFAULT NULL,
   `otp` varchar(10) DEFAULT NULL,
