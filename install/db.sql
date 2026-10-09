@@ -28896,6 +28896,55 @@ CREATE TABLE `stays_physical_rooms` (
 -- --------------------------------------------------------
 
 --
+-- Maintenance work orders (inc S23; docs/supplier/01 §4.3). Operational tickets.
+--
+CREATE TABLE `stays_work_orders` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `physical_room_id` int(11) DEFAULT NULL,
+  `area` varchar(120) DEFAULT NULL,
+  `title` varchar(191) NOT NULL,
+  `description` text DEFAULT NULL,
+  `priority` enum('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
+  `status` enum('open','in_progress','resolved') NOT NULL DEFAULT 'open',
+  `reported_by` varchar(155) DEFAULT NULL,
+  `resolved_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`),
+  KEY `idx_room` (`physical_room_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Out-of-order blocks (inc S23). An active block decrements pooled stays_inventory
+-- by 1 per option/date for the room's type; clearing restores +1. Reversible,
+-- state-guarded. Managed by app/lib/supplier_maintenance.php.
+--
+CREATE TABLE `stays_ooo_blocks` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `stay_id` int(11) NOT NULL,
+  `physical_room_id` int(11) NOT NULL,
+  `room_id` int(11) NOT NULL,
+  `date_from` date NOT NULL,
+  `date_to` date NOT NULL,
+  `reason` varchar(255) DEFAULT NULL,
+  `eta` date DEFAULT NULL,
+  `state` enum('active','cleared') NOT NULL DEFAULT 'active',
+  `created_by` varchar(155) DEFAULT NULL,
+  `cleared_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_state` (`stay_id`,`state`),
+  KEY `idx_room` (`physical_room_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Normalized rate-plan MIRROR over room_options (inc S12). room_options JSON
 -- stays the canonical runtime source; these mirror each option (keyed by the
 -- stable option_id) so the rate model is relational. Kept in sync by

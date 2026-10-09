@@ -108,6 +108,15 @@
         <span class="block text-xs text-gray-500">Room status &amp; cleaning</span>
       </span>
     </a>
+    <a href="<?= root ?>supplier/maintenance" class="card px-4 py-3 flex items-center gap-3 hover:border-violet-300 transition">
+      <span class="w-10 h-10 rounded-lg bg-violet-50 flex items-center justify-center">
+        <span class="material-symbols-outlined text-violet-600">build</span>
+      </span>
+      <span>
+        <span class="block text-sm font-semibold text-gray-900">Maintenance</span>
+        <span class="block text-xs text-gray-500">Work orders &amp; out-of-order</span>
+      </span>
+    </a>
     <?php if (empty($viewingAsStaff)): // owner-only management links ?>
     <a href="<?= root ?>supplier/roles" class="card px-4 py-3 flex items-center gap-3 hover:border-violet-300 transition">
       <span class="w-10 h-10 rounded-lg bg-violet-50 flex items-center justify-center">

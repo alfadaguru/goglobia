@@ -119,6 +119,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 |---|---|---|---|
 | S21 | **PMS folio / front-desk** — guest folio + check-in/out; checkout posts to the GL (S20) + releases the supplier earning (S18) | 07, 02 | ✅ code-complete (not runtime-verified — no DB) |
 | S22 | **Housekeeping + physical-room assignment** — physical rooms w/ clean/dirty/inspected/OOO; assign at check-in; checkout→dirty. Overlay only (pooled inventory untouched) | 24, 02 | ✅ code-complete (not runtime-verified — no DB) |
+| S23 | **Maintenance / work-orders + OOO→inventory** — tickets (open/in_progress/resolved); OOO a physical room reduces pooled `stays_inventory` by 1/option/date (floored at held), reversible | 25, 06 | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -327,6 +328,22 @@ Before coding: **read** every file to be touched (rule 3). Then:
   gated + CSRF. Lint-clean + self-audited. Not runtime-verified. **Next Stage-D module =
   owner's call (maintenance/OOO→inventory, F&B/POS, night audit, channel mgr, …). STRONGLY
   recommend deploy + smoke-test S1–S22 before more / go-live.**
+- 2026-10 — **S23 done** (maintenance / work-orders + OOO→inventory): new
+  `app/lib/supplier_maintenance.php` — work-order tickets (wo_create/wo_set_status;
+  open→in_progress→resolved, priority, room/area) + OUT-OF-ORDER blocks that, UNLIKE
+  housekeeping, DO touch stays_inventory: ooo_block_create decrements pooled
+  available_count by 1 per (option,date) for the room's TYPE — inside $db->action() with
+  per-row FOR UPDATE, floored at active-hold usage and ≥0 (anti-oversell invariant kept:
+  can't remove already-committed capacity); ooo_block_clear restores +1, state-guarded,
+  never over-restores. Per-UNIT decrement (not closed=1) so OOO one room of a type leaves
+  the rest sellable. Tables stays_work_orders + stays_ooo_blocks (ensure-fn + db.sql).
+  Routes added to supplierHousekeepingRoutes (maintenance list + work-order create/status
+  + ooo create/clear); view supplier/maintenance.php + dashboard link. supplier_can('rooms')
+  + CSRF. Known edge (noted, not hidden): if an owner edits the S10 calendar absolute count
+  while an OOO block is active, the ±1 delta is overwritten — acceptable (explicit override);
+  block row persists for audit. Lint-clean + self-audited. Not runtime-verified. **Next
+  Stage-D = owner's call (F&B/POS, night audit, channel mgr, owner statements, …). STRONGLY
+  recommend deploy + smoke-test S1–S23 before more / go-live.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

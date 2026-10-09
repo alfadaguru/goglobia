@@ -7745,6 +7745,48 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_status` (`stay_id`,`hk_status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- maintenance (inc S23): work orders + out-of-order blocks ---------------
+        // Work-order tickets are operational records. An OOO block (stays_ooo_blocks)
+        // DECREMENTS pooled stays_inventory by 1 per option/date for the room's type
+        // (never below held usage / 0); clearing restores +1. See
+        // app/lib/supplier_maintenance.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_work_orders` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `physical_room_id` INT(11) DEFAULT NULL,
+            `area` VARCHAR(120) DEFAULT NULL,
+            `title` VARCHAR(191) NOT NULL,
+            `description` TEXT DEFAULT NULL,
+            `priority` ENUM('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
+            `status` ENUM('open','in_progress','resolved') NOT NULL DEFAULT 'open',
+            `reported_by` VARCHAR(155) DEFAULT NULL,
+            `resolved_at` DATETIME DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`),
+            KEY `idx_room` (`physical_room_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_ooo_blocks` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `stay_id` INT(11) NOT NULL,
+            `physical_room_id` INT(11) NOT NULL,
+            `room_id` INT(11) NOT NULL,
+            `date_from` DATE NOT NULL,
+            `date_to` DATE NOT NULL,
+            `reason` VARCHAR(255) DEFAULT NULL,
+            `eta` DATE DEFAULT NULL,
+            `state` ENUM('active','cleared') NOT NULL DEFAULT 'active',
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `cleared_at` DATETIME DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_state` (`stay_id`,`state`),
+            KEY `idx_room` (`physical_room_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // stays hierarchy keys + operating model. Nullable/defaulted so existing rows
         // are untouched; each guarded by SHOW COLUMNS (idempotent).
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'org_id'")->fetch()) {
