@@ -6718,6 +6718,106 @@ function supplier_first_class_services($db = null): array
 }
 
 // ============================================================================
+// SUPPLIER SERVICE LANDING CONTENT (Phase 1 inc S9)
+// ----------------------------------------------------------------------------
+// Marketing / "read-more" copy for each first-class supplier service, so every
+// service a supplier can tick at signup has its own landing page explaining what
+// it offers and who it is for. This is the SINGLE SOURCE OF TRUTH for that copy;
+// the public routes app/routes/users/supplierServicesRoutes.php and the views
+// under app/views/supplier/services/ render it. The service keys MUST stay in
+// lock-step with supplier_first_class_services() (stays/flights/tours/cars/bus).
+// Pure content — no DB access, safe to call anywhere. Returns one service array
+// when $key is given (or null if unknown), else the whole keyed map.
+// ============================================================================
+if (!function_exists('supplier_service_landing')) {
+    /**
+     * @param string|null $key  A service key (stays|flights|tours|cars|bus) or null for all.
+     * @return array|null        One landing entry, the full map, or null for an unknown key.
+     */
+    function supplier_service_landing(?string $key = null)
+    {
+        // Icons/labels are mirrored from supplier_first_class_services() so the
+        // learn-more pages and the signup checkboxes read identically.
+        $content = [
+            'stays' => [
+                'label'    => 'Hotels / Stays / Apartments',
+                'icon'     => 'hotel',
+                'tagline'  => 'List your property and run it end-to-end.',
+                'summary'  => 'Sell rooms on the GoGlobia marketplace and manage your whole operation — '
+                            . 'from rates and availability to staff and front desk — in one place. Built to '
+                            . 'feel more capable than a standard OTA extranet, with your own branded booking site.',
+                'audience' => 'Hotels, resorts, serviced apartments, aparthotels, short-lets, hostels and villas.',
+                'features' => [
+                    ['icon' => 'add_business',   'title' => 'List your properties',        'text' => 'Create each property up to your approved quota, with rooms, rate options, photos and amenities.'],
+                    ['icon' => 'event_available','title' => 'Real availability',           'text' => 'Per-date inventory with atomic holds so a room is never double-sold across channels.'],
+                    ['icon' => 'groups',         'title' => 'Staff & roles',               'text' => 'Invite your team and give each member a role scoped to all, one, or selected properties.'],
+                    ['icon' => 'verified',       'title' => 'Per-listing approval',        'text' => 'Each property is reviewed before it goes live, keeping marketplace quality high.'],
+                    ['icon' => 'public',         'title' => 'Your branded site',           'text' => 'Get a branded booking page and (later) point your own domain at it via CNAME.'],
+                ],
+            ],
+            'flights' => [
+                'label'    => 'Flights',
+                'icon'     => 'flight',
+                'tagline'  => 'Distribute your flight inventory to our travellers.',
+                'summary'  => 'List and manage your own flight inventory on GoGlobia, set pricing and '
+                            . 'commission terms, and reconcile your bookings in one supplier dashboard.',
+                'audience' => 'Carriers and consolidators with their own seat inventory to distribute.',
+                'features' => [
+                    ['icon' => 'flight_takeoff','title' => 'List flights',        'text' => 'Publish routes, schedules and fares to the GoGlobia marketplace.'],
+                    ['icon' => 'sell',          'title' => 'Pricing & commission','text' => 'Set your fares and agreed commission terms per listing.'],
+                    ['icon' => 'receipt_long',  'title' => 'Reservations',        'text' => 'See bookings made against your inventory and track their status.'],
+                ],
+            ],
+            'tours' => [
+                'label'    => 'Tours / Activities',
+                'icon'     => 'tour',
+                'tagline'  => 'Sell tours, activities and experiences.',
+                'summary'  => 'Publish your tours and activities with itineraries, schedules and capacity, '
+                            . 'and let travellers book them directly through GoGlobia.',
+                'audience' => 'Tour operators, activity and experience providers, local guides.',
+                'features' => [
+                    ['icon' => 'map',            'title' => 'Build itineraries',  'text' => 'Describe each tour with a day-by-day itinerary, inclusions and media.'],
+                    ['icon' => 'event',          'title' => 'Schedules & capacity','text' => 'Set departure dates and how many guests each departure can take.'],
+                    ['icon' => 'confirmation_number','title' => 'Bookings',       'text' => 'Receive and manage reservations for your scheduled departures.'],
+                ],
+            ],
+            'cars' => [
+                'label'    => 'Cars / Transfers',
+                'icon'     => 'directions_car',
+                'tagline'  => 'Rent out your fleet and offer transfers.',
+                'summary'  => 'List your vehicles and transfer services with availability, pickup locations '
+                            . 'and pricing, and take bookings through the GoGlobia marketplace.',
+                'audience' => 'Car-rental companies and airport/point-to-point transfer providers.',
+                'features' => [
+                    ['icon' => 'directions_car','title' => 'List your fleet',  'text' => 'Add vehicles with photos, specs and pricing.'],
+                    ['icon' => 'location_on',   'title' => 'Locations',        'text' => 'Define pickup and drop-off locations and availability windows.'],
+                    ['icon' => 'event_seat',    'title' => 'Bookings',         'text' => 'Manage rental and transfer reservations in one place.'],
+                ],
+            ],
+            'bus' => [
+                'label'    => 'Bus',
+                'icon'     => 'directions_bus',
+                'tagline'  => 'Sell bus routes and seats online.',
+                'summary'  => 'Publish your bus routes, schedules and seat inventory, and let travellers '
+                            . 'book seats directly through GoGlobia.',
+                'audience' => 'Bus and coach operators with scheduled routes.',
+                'features' => [
+                    ['icon' => 'directions_bus','title' => 'Routes & schedules','text' => 'Publish your routes with timetables and stops.'],
+                    ['icon' => 'event_seat',    'title' => 'Seat inventory',    'text' => 'Manage seats available per departure.'],
+                    ['icon' => 'receipt_long',  'title' => 'Bookings',          'text' => 'Track seat bookings against each departure.'],
+                ],
+            ],
+        ];
+
+        if ($key === null) {
+            return $content;
+        }
+        $key = strtolower(trim($key));
+        return $content[$key] ?? null;
+    }
+}
+
+// ============================================================================
 // SUPPLIER BRANDED SITE / DOMAIN (Phase 1 inc 8 — foundation only)
 // ----------------------------------------------------------------------------
 // Each property gets an auto branded hostname (<slug>.<branded-root>) and can

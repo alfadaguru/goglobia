@@ -101,7 +101,10 @@
           <?php if (!empty($svcOffered)): ?>
           <div class="form-control">
             <label class="block text-sm font-medium text-gray-700 mb-1">Services you offer *</label>
-            <p class="text-xs text-gray-500 mb-2">Pick the services you provide and how many of each you have. An administrator reviews and approves these.</p>
+            <p class="text-xs text-gray-500 mb-2">
+              Pick the services you provide and how many of each you have. An administrator reviews and approves these.
+              <a href="<?= root ?>supplier/services" target="_blank" rel="noopener" class="text-violet-600 hover:underline">Learn about each service</a>.
+            </p>
             <div class="space-y-2">
               <?php foreach ($svcOffered as $key => $meta): ?>
                 <?php
@@ -116,6 +119,8 @@
                     <span class="material-symbols-outlined text-violet-600 text-xl"><?= htmlspecialchars($meta['icon']) ?></span>
                     <span class="text-sm text-gray-800"><?= htmlspecialchars($meta['label']) ?></span>
                   </label>
+                  <a href="<?= root ?>supplier/services/<?= htmlspecialchars($key) ?>" target="_blank" rel="noopener"
+                     class="text-xs text-violet-600 hover:underline flex-shrink-0" title="Read more about <?= htmlspecialchars($meta['label']) ?>">Read more</a>
                   <div class="flex items-center gap-1.5" x-show="on">
                     <label class="text-xs text-gray-500" for="count_<?= htmlspecialchars($key) ?>">How many?</label>
                     <input type="number" min="1" max="500" id="count_<?= htmlspecialchars($key) ?>"

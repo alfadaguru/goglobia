@@ -41,10 +41,10 @@ open to learn what that service offers before/while onboarding).
 
 - **Service-ticking at signup:** ✅ BUILT (increment 2 — `supplier_first_class_services()`
   + checkboxes + per-service counts in `app/routes/users/supplierSignupRoutes.php`).
-- **Per-service supplier landing / "read-more" pages:** ❌ NOT BUILT — confirmed absent
-  (no `/supplier/services/*` learn-more pages today). Public service home pages exist
-  (`/stays/`, `/tours/`, `/bus/`…) to model the pattern on. **This becomes supplier
-  increment S9** (below).
+- **Per-service supplier landing / "read-more" pages:** ✅ BUILT (increment S9 —
+  `GET /supplier/services` overview + `GET /supplier/services/{service}` detail, content
+  from `supplier_service_landing()`; "Read more" + "Learn about each service" links wired
+  into the signup form). Flag-gated on `settings.supplier_registration` (404 when closed).
 
 ---
 
@@ -88,7 +88,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 
 | # | Increment | Catalogue modules | Depends on | Status |
 |---|---|---|---|---|
-| S9 | **Per-service supplier landing pages** ("read more" per ticked service) + link them into signup/dashboard | 01, 17-adjacent | S2 | ⏳ NEXT |
+| S9 | **Per-service supplier landing pages** ("read more" per ticked service) + link them into signup | 01, 17-adjacent | S2 | ✅ code-complete (not runtime-verified — no DB) |
 | S10 | Supplier **room/rate/calendar self-management** (move the admin room/option/calendar CRUD into owner-scoped `/supplier/stays/*`, gated by `supplier_can`) | 05, 06 | S3, S6 | ☐ planned |
 | S11 | Supplier **reservations inbox** (owner sees bookings against their inventory; statuses; cancel/no-show) | 04, 07-adjacent | S3 | ☐ planned |
 | S12 | **Normalized rate plans** (`stays_rate_plans`/`stays_rates`) with the `room_options` compatibility bridge | 06 | S6, S10 | ☐ planned |
@@ -140,5 +140,11 @@ Before coding: **read** every file to be touched (rule 3). Then:
 
 - 2026-10 — Phase 1 (S1–S8) code-complete + committed (`0e8fe3c`…`8403c73`). Docs suite
   + 360 expansion + 61-module catalogue committed (`3e5a4e9`,`45a5511`,`8b555a6`). This
-  tracker created. 11 commits local on `main`, unpushed. **Next: S9 (per-service
-  supplier landing pages).**
+  tracker created. 11 commits local on `main`, unpushed.
+- 2026-10 — **S9 done** (per-service supplier landing pages): `supplier_service_landing()`
+  content helper; public `/supplier/services` + `/supplier/services/{service}` routes
+  (flag-gated, 404 when closed); views `supplier/services/{index,show}.php`; "Read more"
+  / "Learn about each service" links in the signup form. Lint-clean + self-audited (no
+  route collision — detail route constrained to the 5 service keys; public-by-design,
+  no DB writes, fully escaped). Not runtime-verified (no DB). **Next: S10 (supplier
+  room/rate/calendar self-management).**
