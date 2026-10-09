@@ -289,20 +289,59 @@ if (!function_exists('supplier_acting_context')) {
 if (!function_exists('supplier_role_allows')) {
     /**
      * Does the acting context's role grant $action on $module, within property scope
-     * for $stayId? Increment 3: the OWNER has all permissions on their own
-     * properties, so this returns true for an owner. Increment 4/5 replaces the
-     * body with a real permission-matrix + property-scope check for staff roles.
-     * (Admin is handled earlier and never reaches here.)
+     * for $stayId?
+     *   - OWNER (is_owner): unrestricted on their own inventory → true.
+     *   - STAFF (role_id set): must have supplier_roles.permissions[$module][$action]
+     *     AND, if the role is 'selected' scope, $stayId must be in
+     *     supplier_role_property for that role. Fail-closed on any gap.
+     * (Admin is handled earlier in supplier_can() and never reaches here.)
      */
     function supplier_role_allows($db, array $ctx, string $module, string $action, $stayId = null): bool
     {
         if (!empty($ctx['is_owner'])) {
             return true; // owner is unrestricted on their own inventory
         }
-        // Staff path (increment 5): check supplier_roles.permissions[$module][$action]
-        // and, when the role is 'selected' scope, that $stayId is in
-        // supplier_role_property. Until staff exists, deny by default (fail-closed).
-        return false;
+        $roleId = isset($ctx['role_id']) ? (int) $ctx['role_id'] : 0;
+        if ($roleId <= 0) {
+            return false; // staff with no role → nothing
+        }
+        try {
+            $role = $db->get('supplier_roles', ['owner_user_id', 'permissions', 'scope_type'],
+                ['id' => $roleId]);
+        } catch (\Throwable $e) {
+            return false;
+        }
+        if (!$role) {
+            return false;
+        }
+        // The role must belong to the SAME owner as the acting context — a staff
+        // member can never act under a role owned by a different supplier.
+        if ((string) ($role['owner_user_id'] ?? '') !== (string) ($ctx['owner'] ?? "\0")) {
+            return false;
+        }
+        // Permission matrix check.
+        $perms = [];
+        if (!empty($role['permissions'])) {
+            $decoded = json_decode((string) $role['permissions'], true);
+            if (is_array($decoded)) { $perms = $decoded; }
+        }
+        // A granted permission is the KEY being present (value is an empty string),
+        // mirroring the users_roles convention.
+        if (!isset($perms[$module]) || !is_array($perms[$module]) || !array_key_exists($action, $perms[$module])) {
+            return false;
+        }
+        // Property scope: 'all' → any owned property; 'selected' → must be listed.
+        if ($stayId !== null && ($role['scope_type'] ?? 'all') === 'selected') {
+            try {
+                $inScope = $db->has('supplier_role_property', ['role_id' => $roleId, 'stay_id' => (int) $stayId]);
+            } catch (\Throwable $e) {
+                return false;
+            }
+            if (!$inScope) {
+                return false;
+            }
+        }
+        return true;
     }
 }
 
@@ -6598,6 +6637,23 @@ function supplier_first_class_services($db = null): array
         error_log('supplier_first_class_services: ' . $e->getMessage());
     }
     return $all;
+}
+
+/**
+ * The modules (capability areas) a supplier role can grant permissions on, and the
+ * actions available per module. Single source of truth for the role-builder matrix
+ * and the supplier_role_allows() checks. Phase 1 ships the stays/hotel areas; later
+ * phases (PMS/F&B) add more modules here without touching the gate.
+ */
+function supplier_role_modules(): array
+{
+    return [
+        'hotels'       => ['label' => 'Properties',    'actions' => ['view', 'add', 'edit', 'delete']],
+        'rooms'        => ['label' => 'Rooms',         'actions' => ['view', 'add', 'edit', 'delete']],
+        'rates'        => ['label' => 'Rates & availability', 'actions' => ['view', 'edit']],
+        'reservations' => ['label' => 'Reservations',  'actions' => ['view', 'edit']],
+        'staff'        => ['label' => 'Staff & roles', 'actions' => ['view', 'add', 'edit', 'delete']],
+    ];
 }
 
 /**
