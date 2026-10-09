@@ -7687,6 +7687,41 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_org` (`org_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- PMS FOLIO (inc S21; Stage D) -------------------------------------------
+        // Guest bill per reservation. Built from the booking; front-desk adds extras /
+        // payments; check-out posts to the GL (gl_post) + releases the supplier earning.
+        // Reads `bookings`, writes only these new tables + the GL — the live booking /
+        // payment path is untouched. Managed by app/lib/supplier_folio.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_folios` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `owner_user_id` VARCHAR(155) DEFAULT NULL,
+            `stay_id` INT(11) DEFAULT NULL,
+            `invoice_id` VARCHAR(255) NOT NULL,
+            `guest_name` VARCHAR(191) DEFAULT NULL,
+            `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+            `status` ENUM('open','closed') NOT NULL DEFAULT 'open',
+            `closed_at` DATETIME DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_invoice` (`invoice_id`),
+            KEY `idx_owner` (`owner_user_id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_folio_items` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `folio_id` BIGINT(20) NOT NULL,
+            `type` ENUM('room','tax','extra','charge','payment','refund') NOT NULL,
+            `description` VARCHAR(191) DEFAULT NULL,
+            `amount` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_folio` (`folio_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // stays hierarchy keys + operating model. Nullable/defaulted so existing rows
         // are untouched; each guarded by SHOW COLUMNS (idempotent).
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'org_id'")->fetch()) {

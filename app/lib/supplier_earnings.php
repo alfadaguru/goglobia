@@ -141,6 +141,26 @@ if (!function_exists('supplier_earning_void_for_booking')) {
     }
 }
 
+if (!function_exists('supplier_earning_release_for_invoice')) {
+    /** Release a single booking's PENDING earning to 'available' immediately — the
+     *  checkout trigger (inc S21). State-guarded (only pending→available), so a double
+     *  checkout can't double-release, and a voided/paid earning is untouched. */
+    function supplier_earning_release_for_invoice($db, string $invoiceId): bool
+    {
+        $invoiceId = trim($invoiceId);
+        if ($invoiceId === '') { return false; }
+        try {
+            $db->update('supplier_earnings',
+                ['state' => 'available', 'available_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+                ['invoice_id' => $invoiceId, 'state' => 'pending']);
+            return true;
+        } catch (\Throwable $e) {
+            error_log('supplier_earning_release_for_invoice: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
 if (!function_exists('supplier_earning_release_due')) {
     /**
      * Move pending earnings to 'available' once their clearance window has passed

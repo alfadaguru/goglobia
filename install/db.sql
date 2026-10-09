@@ -28830,6 +28830,46 @@ CREATE TABLE `cash_movements` (
 -- --------------------------------------------------------
 
 --
+-- PMS folio (inc S21; Stage D; docs/supplier/01 §4.1). Guest bill per reservation.
+-- Built from the booking; front-desk adds extras/payments; check-out posts into the
+-- GL (gl_post) + releases the supplier earning. Reads `bookings`, writes only these
+-- + the GL — the live booking/payment path is untouched. app/lib/supplier_folio.php.
+--
+CREATE TABLE `stays_folios` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `owner_user_id` varchar(155) DEFAULT NULL,
+  `stay_id` int(11) DEFAULT NULL,
+  `invoice_id` varchar(255) NOT NULL,
+  `guest_name` varchar(191) DEFAULT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `status` enum('open','closed') NOT NULL DEFAULT 'open',
+  `closed_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_invoice` (`invoice_id`),
+  KEY `idx_owner` (`owner_user_id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `stays_folio_items` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `folio_id` bigint(20) NOT NULL,
+  `type` enum('room','tax','extra','charge','payment','refund') NOT NULL,
+  `description` varchar(191) DEFAULT NULL,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_folio` (`folio_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Normalized rate-plan MIRROR over room_options (inc S12). room_options JSON
 -- stays the canonical runtime source; these mirror each option (keyed by the
 -- stable option_id) so the rate model is relational. Kept in sync by

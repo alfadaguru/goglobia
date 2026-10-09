@@ -99,6 +99,83 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
     </div>
   <?php endif; ?>
 
+  <!-- Front desk & folio (inc S21) -->
+  <?php
+    $ss = $stayState ?? 'confirmed';
+    $fitems = (isset($folioItems) && is_array($folioItems)) ? $folioItems : [];
+    $ftot   = (isset($folioTotals) && is_array($folioTotals)) ? $folioTotals : ['charges'=>0,'payments'=>0,'balance'=>0];
+    $folioOpen = isset($folio['status']) ? ($folio['status'] === 'open') : true;
+    $cur = htmlspecialchars((string) ($property['currency'] ?? ''));
+    $ssLabel = ['confirmed'=>'Confirmed','checked_in'=>'Checked in','checked_out'=>'Checked out'][$ss] ?? ucfirst($ss);
+    $ssColor = ['confirmed'=>'bg-gray-100 text-gray-600','checked_in'=>'bg-blue-50 text-blue-700','checked_out'=>'bg-green-50 text-green-700'][$ss] ?? 'bg-gray-100 text-gray-600';
+  ?>
+  <div class="card p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-semibold text-gray-900 flex items-center gap-2"><span class="material-symbols-outlined text-violet-600 text-base">concierge</span> Front desk &amp; folio</h2>
+      <span class="px-2 py-0.5 rounded text-xs font-medium <?= $ssColor ?>"><?= htmlspecialchars($ssLabel) ?></span>
+    </div>
+
+    <?php if ($canEdit && !$isCancelled): ?>
+      <div class="flex flex-wrap items-center gap-3 mb-4">
+        <?php if ($ss === 'confirmed'): ?>
+          <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST">
+            <?= CSRF::tokenField() ?><input type="hidden" name="action" value="check_in">
+            <button type="submit" class="btn emerald text-sm">Check in</button>
+          </form>
+        <?php elseif ($ss === 'checked_in'): ?>
+          <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST"
+                onsubmit="return confirm('Check out this guest? This finalizes the folio and posts the bill to your books.');">
+            <?= CSRF::tokenField() ?><input type="hidden" name="action" value="check_out">
+            <button type="submit" class="btn emerald text-sm">Check out</button>
+          </form>
+        <?php endif; ?>
+      </div>
+    <?php endif; ?>
+
+    <!-- Folio lines -->
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-left text-gray-500 border-b border-gray-100">
+          <th class="px-2 py-2 font-medium">Item</th><th class="px-2 py-2 font-medium">Type</th><th class="px-2 py-2 font-medium text-right">Amount</th>
+        </tr></thead>
+        <tbody class="divide-y divide-gray-50">
+          <?php if (empty($fitems)): ?>
+            <tr><td colspan="3" class="px-2 py-3 text-center text-gray-400 text-xs">No folio lines yet.</td></tr>
+          <?php else: foreach ($fitems as $it): ?>
+            <?php $isPay = in_array((string) $it['type'], ['payment','refund'], true); ?>
+            <tr>
+              <td class="px-2 py-1.5 text-gray-700"><?= htmlspecialchars((string) ($it['description'] ?? '')) ?></td>
+              <td class="px-2 py-1.5 text-gray-500 text-xs"><?= htmlspecialchars(ucfirst((string) $it['type'])) ?></td>
+              <td class="px-2 py-1.5 text-right tabular-nums <?= $isPay ? 'text-green-700' : 'text-gray-900' ?>"><?= $isPay ? '−' : '' ?><?= $cur ?> <?= number_format((float) $it['amount'], 2) ?></td>
+            </tr>
+          <?php endforeach; endif; ?>
+        </tbody>
+        <tfoot class="border-t border-gray-200">
+          <tr><td class="px-2 py-1.5 text-gray-500" colspan="2">Charges</td><td class="px-2 py-1.5 text-right tabular-nums"><?= $cur ?> <?= number_format((float) $ftot['charges'], 2) ?></td></tr>
+          <tr><td class="px-2 py-1.5 text-gray-500" colspan="2">Paid</td><td class="px-2 py-1.5 text-right tabular-nums"><?= $cur ?> <?= number_format((float) $ftot['payments'], 2) ?></td></tr>
+          <tr class="font-semibold"><td class="px-2 py-1.5" colspan="2">Balance</td><td class="px-2 py-1.5 text-right tabular-nums <?= ((float) $ftot['balance']) > 0 ? 'text-red-600' : 'text-green-700' ?>"><?= $cur ?> <?= number_format((float) $ftot['balance'], 2) ?></td></tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <?php if ($canEdit && $folioOpen && !$isCancelled): ?>
+      <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="mt-4 flex flex-wrap items-end gap-2 border-t border-gray-100 pt-4">
+        <?= CSRF::tokenField() ?><input type="hidden" name="action" value="folio_add">
+        <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Type</label>
+          <select name="folio_type" class="input text-sm">
+            <option value="extra">Extra charge</option><option value="charge">Charge</option>
+            <option value="payment">Payment</option><option value="refund">Refund</option>
+          </select>
+        </div>
+        <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Description</label>
+          <input type="text" name="folio_description" class="input text-sm" placeholder="e.g. Minibar"></div>
+        <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Amount (<?= $cur ?>)</label>
+          <input type="number" name="folio_amount" min="0" step="0.01" class="input text-sm w-28" required></div>
+        <button type="submit" class="btn secondary text-sm">Add line</button>
+      </form>
+    <?php endif; ?>
+  </div>
+
   <!-- Actions -->
   <?php if ($canEdit): ?>
   <div class="card p-5">

@@ -113,7 +113,13 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S19 | Supplier **payouts to bank** (Paystack transfers; admin-approved + kill-switch; 7 outbound guards) | 40 | S18 | ✅ code-complete (not runtime-verified — no DB) · follow-on: transfer webhook |
 | S20 | **Hospitality GL** (double-entry, balanced+immutable) + COA + fiscal periods + cashier shifts — the property's own books (3rd ledger) | 34–38 | S15 | ✅ code-complete (not runtime-verified — no DB) |
 
-### Stage D — guest & operations depth (per catalogue; sequence TBD with owner)
+### Stage D — guest & operations depth (per catalogue; sequence TBD with owner) — IN PROGRESS
+
+| # | Increment | Catalogue modules | Status |
+|---|---|---|---|
+| S21 | **PMS folio / front-desk** — guest folio + check-in/out; checkout posts to the GL (S20) + releases the supplier earning (S18) | 07, 02 | ✅ code-complete (not runtime-verified — no DB) |
+
+
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
 depth + laundry/minibar/lost&found (24–29), F&B/POS + recipes (30,31), events/MICE (16),
 guest CRM + unified inbox + digital journey + loyalty + reputation (18–23), channel
@@ -289,6 +295,22 @@ Before coding: **read** every file to be touched (rule 3). Then:
   runtime-verified. **Stage C (S18–S20) COMPLETE. Phase 1 + ERP-foundations roadmap
   (S9–S20) DONE. Next: Stage D (guest/ops depth per catalogue) — sequence with owner; OR
   deploy + smoke-test everything first (strongly recommended before any go-live).**
+- 2026-10 — **S21 done** (PMS folio / front-desk; STAGE D START): the piece that ACTIVATES
+  the dormant S18/S20 seams. New `app/lib/supplier_folio.php`: `folio_get_or_create`
+  (idempotent, UNIQUE invoice_id + locked re-check; seeds room+tax+paid from the booking's
+  GUEST figures — price_markup/tax, distinct from the supplier NET earning),
+  `folio_add_item` (front-desk extra/charge/payment/refund on an open folio),
+  `folio_checkin`, `folio_checkout` (finalize → gl_post the balanced guest bill
+  [DR Guest-AR / CR revenue+tax ; DR Cash / CR Guest-AR] → release the supplier earning
+  pending→available via new `supplier_earning_release_for_invoice`), `folio_totals`,
+  `folio_stay_state`. PMS stay-state (confirmed→checked_in→checked_out) in booking_data
+  (no bookings schema change). New tables stays_folios (uq_invoice) + stays_folio_items
+  (ensure-fn + install/db.sql). Wired into the S11 reservation detail + /action handler
+  (check_in/check_out/folio_add), reusing its supplier_can('reservations','edit',$hid) gate
+  + CSRF. Reads bookings, writes only new tables + GL — live booking/payment path untouched.
+  Idempotent + state-guarded (no double-post/double-release); GL failure never blocks
+  checkout. Lint-clean + self-audited. Not runtime-verified. **Next Stage D module = owner's
+  call. STRONGLY recommend deploy + smoke-test S1–S21 before more / go-live.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

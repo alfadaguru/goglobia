@@ -75,6 +75,7 @@ require_once 'app/lib/supplier_events.php';
 require_once 'app/lib/supplier_earnings.php';
 require_once 'app/lib/supplier_payouts.php';
 require_once 'app/lib/supplier_ledger.php';
+require_once 'app/lib/supplier_folio.php';
 require_once 'app/lib/i18n.php';
 require_once 'app/lib/mailer.php';
 require_once 'app/lib/captcha.php';

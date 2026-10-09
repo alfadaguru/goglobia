@@ -202,6 +202,21 @@ $router->get('/supplier/reservations/([A-Za-z0-9_-]+)', function ($invoiceId) us
     $property = $db->get('stays', ['id', 'name', 'location', 'currency'], ['id' => $hid]);
     $canEdit = supplier_can($db, 'reservations', 'edit', $hid);
 
+    // Front-desk / folio (inc S21): current PMS stay-state + the folio (built on first
+    // view) with its line items and running balance.
+    $stayState = function_exists('folio_stay_state') ? folio_stay_state($booking['booking_data'] ?? null) : 'confirmed';
+    $folio = null; $folioItems = []; $folioTotals = ['charges' => 0, 'payments' => 0, 'balance' => 0];
+    if (function_exists('folio_get_or_create')) {
+        $folioId = folio_get_or_create($db, $invoiceId);
+        if ($folioId > 0) {
+            $folio = $db->get('stays_folios', '*', ['id' => $folioId]);
+            $folioItems = $db->select('stays_folio_items',
+                ['type', 'description', 'amount', 'created_at'],
+                ['folio_id' => $folioId, 'ORDER' => ['id' => 'ASC']]) ?: [];
+            if (function_exists('folio_totals')) { $folioTotals = folio_totals($db, $folioId); }
+        }
+    }
+
     $title = 'Reservation ' . $invoiceId;
     $description = '';
     $header = true; $footer = true;
@@ -277,6 +292,40 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                 ['booking_data' => json_encode($bd), 'updated_at' => $now],
                 ['invoice_id' => $invoiceId]);
             $_SESSION['message'] = ['type' => 'success', 'text' => 'No-show cleared.'];
+        } elseif ($action === 'check_in') {
+            // Front desk (inc S21): mark checked-in + ensure a folio exists.
+            if (function_exists('folio_checkin')) { folio_checkin($db, $invoiceId); }
+            if (function_exists('folio_get_or_create')) { folio_get_or_create($db, $invoiceId); }
+            $_SESSION['message'] = ['type' => 'success', 'text' => 'Guest checked in.'];
+        } elseif ($action === 'check_out') {
+            // Check-out: finalize folio → post to GL → release the supplier earning.
+            if (function_exists('folio_checkout')) {
+                $res = folio_checkout($db, $invoiceId);
+                $_SESSION['message'] = [
+                    'type' => !empty($res['ok']) ? 'success' : 'error',
+                    'text' => $res['message'] ?? 'Checked out.',
+                ];
+            } else {
+                $_SESSION['message'] = ['type' => 'error', 'text' => 'Folio unavailable.'];
+            }
+        } elseif ($action === 'folio_add') {
+            // Add a front-desk charge/payment to the open folio.
+            $ftype = strtolower(trim((string) ($_POST['folio_type'] ?? '')));
+            $famount = round((float) ($_POST['folio_amount'] ?? 0), 2);
+            $fdesc = trim((string) ($_POST['folio_description'] ?? ''));
+            if (!in_array($ftype, ['extra', 'charge', 'payment', 'refund'], true)) {
+                $_SESSION['message'] = ['type' => 'error', 'text' => 'Invalid folio line type.'];
+            } elseif ($famount <= 0) {
+                $_SESSION['message'] = ['type' => 'error', 'text' => 'Amount must be positive.'];
+            } else {
+                $fid = function_exists('folio_get_or_create') ? folio_get_or_create($db, $invoiceId) : 0;
+                $ok = $fid > 0 && function_exists('folio_add_item')
+                    && folio_add_item($db, $fid, $ftype, $famount, $fdesc, (string) ($_SESSION['user_id'] ?? ''));
+                $_SESSION['message'] = [
+                    'type' => $ok ? 'success' : 'error',
+                    'text' => $ok ? 'Folio updated.' : 'Could not add the folio line (is the folio closed?).',
+                ];
+            }
         } else {
             $_SESSION['message'] = ['type' => 'error', 'text' => 'Unknown action.'];
         }
