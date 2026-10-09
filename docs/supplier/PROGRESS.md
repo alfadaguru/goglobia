@@ -96,14 +96,14 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S12 | **Normalized rate plans** (`stays_rate_plans`/`stays_rates`) as a write-only MIRROR over `room_options` (bridge; live path unchanged) | 06 | S6, S10 | ✅ code-complete (not runtime-verified — no DB) |
 | S13 | Supplier **onboarding wizard + go-live checklist** (progress meter; real-state derived) | 01, 02, 60 | S9, S10 | ✅ code-complete (not runtime-verified — no DB) |
 
-### Stage B — the model-level ERP foundations (do before deep ERP features; from `01a`) — IN PROGRESS (S14 done)
+### Stage B — the model-level ERP foundations (do before deep ERP features; from `01a`) — ✅ COMPLETE (S14–S17)
 
 | # | Increment | Catalogue modules | Depends on | Status |
 |---|---|---|---|---|
 | S14 | **Org→brand→property→unit hierarchy** keys + backfill (+ configurable `accommodation_type`) — additive seam | 02, 03 | S1 | ✅ code-complete (not runtime-verified — no DB) |
 | S15 | **Party model** (guests/companies/agents/vendors/owners/employees as typed parties) — additive seam + user backfill | 15, 18, 43, 48 | S14 | ✅ code-complete (not runtime-verified — no DB) |
 | S16 | **Generalized RBAC** (permission catalogue superset) + per-role approval-limits engine (`supplier_can_approve`) — non-breaking over S4 | 45, 46 | S4 | ✅ code-complete (not runtime-verified — no DB) |
-| S17 | **Workflow/event bus** (WHEN→IF→THEN) + platform **audit event** | 46, 57, 61 | S17-self | ☐ planned |
+| S17 | **Event bus + platform audit** (`emit_event` reuses `triggerWebhook`; append-only `audit_events`) + dormant `workflow_rules` WHEN→IF→THEN seam | 46, 57, 61 | S17-self | ✅ code-complete (not runtime-verified — no DB) |
 
 ### Stage C — money (highest risk; build on foundations)
 
@@ -227,8 +227,21 @@ Before coding: **read** every file to be touched (rule 3). Then:
   uq_role_key). Limits are editable in the EXISTING role form (owner-guarded save;
   validated/clamped; cleared on role delete). supplier_can_approve has no caller yet
   (consuming domains = later discount/refund approval). supplier_can() untouched. Lint-
-  clean + self-audited. Not runtime-verified. **Next: S17 (workflow/event bus + audit) —
-  last Stage B item.**
+  clean + self-audited. Not runtime-verified.
+- 2026-10 — **S17 done** (event bus + platform audit; Stage B COMPLETE): from 01a §11,
+  EXTENDS the existing triggerWebhook/webhooks.php rather than duplicating. New
+  `app/lib/supplier_events.php`: `platform_event_catalogue()` (canonical event names),
+  `audit_log()` (append-only cross-domain trail → new `audit_events` table, complements
+  logs_users/logs_webhooks), `emit_event()` (writes audit row + dispatches via
+  triggerWebhook ONLY when a handler file exists — no "file not found" noise),
+  `audit_recent()` reader. New tables `audit_events` (BIGINT id) + dormant `workflow_rules`
+  (WHEN→IF→THEN store; NO engine executes rules yet — later increment). Real first
+  producers wired: supplier signup emits `supplier.registered`; listing submit emits
+  `property.submitted`. All emit calls non-fatal/function_exists-guarded; never throw into
+  the caller even pre-migration. Schema in ensure-fn + install/db.sql. Lint-clean +
+  self-audited. Not runtime-verified. **Stage B (S14–S17) COMPLETE. Next: Stage C —
+  MONEY (highest risk): S18 earnings accrual, S19 payouts, S20 GL/AR/AP. STRONGLY
+  recommend owner deploy + smoke-test the whole supplier module before Stage C.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

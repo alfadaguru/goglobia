@@ -7463,6 +7463,48 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_role` (`role_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- audit_events + workflow_rules (inc S17; docs 01a §11) ------------------
+        // audit_events: append-only cross-domain audit trail (complements logs_users /
+        // logs_webhooks). Written by audit_log()/emit_event() (app/lib/supplier_events.php).
+        // emit_event() REUSES triggerWebhook() for dispatch — no parallel dispatcher.
+        $db->query("CREATE TABLE IF NOT EXISTS `audit_events` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `actor_user_id` VARCHAR(155) DEFAULT NULL,
+            `event` VARCHAR(100) NOT NULL,
+            `subject_type` VARCHAR(40) DEFAULT NULL,
+            `subject_id` VARCHAR(64) DEFAULT NULL,
+            `meta` LONGTEXT DEFAULT NULL,
+            `ip` VARCHAR(45) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_org` (`org_id`),
+            KEY `idx_event` (`event`),
+            KEY `idx_subject` (`subject_type`,`subject_id`),
+            KEY `idx_actor` (`actor_user_id`),
+            KEY `idx_created` (`created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // workflow_rules: the WHEN -> IF -> THEN seam (a rule store). DORMANT — no
+        // runtime engine executes rules yet; the increment that adds the engine +
+        // real actions will consume this. Org-scoped; conditions/action as JSON.
+        $db->query("CREATE TABLE IF NOT EXISTS `workflow_rules` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `name` VARCHAR(191) NOT NULL,
+            `event` VARCHAR(100) NOT NULL,
+            `conditions` LONGTEXT DEFAULT NULL,
+            `action_type` VARCHAR(40) DEFAULT NULL,
+            `action_config` LONGTEXT DEFAULT NULL,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_org` (`org_id`),
+            KEY `idx_event` (`event`),
+            KEY `idx_active` (`active`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // stays hierarchy keys + operating model. Nullable/defaulted so existing rows
         // are untouched; each guarded by SHOW COLUMNS (idempotent).
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'org_id'")->fetch()) {

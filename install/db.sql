@@ -28600,6 +28600,56 @@ CREATE TABLE `supplier_role_limits` (
 -- --------------------------------------------------------
 
 --
+-- Platform audit trail (inc S17; docs/supplier/01a §11). Append-only cross-domain
+-- who-did-what, complementing logs_users / logs_webhooks. Written by audit_log() /
+-- emit_event() (app/lib/supplier_events.php). emit_event() reuses triggerWebhook()
+-- for dispatch — no parallel dispatcher.
+--
+CREATE TABLE `audit_events` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `actor_user_id` varchar(155) DEFAULT NULL,
+  `event` varchar(100) NOT NULL,
+  `subject_type` varchar(40) DEFAULT NULL,
+  `subject_id` varchar(64) DEFAULT NULL,
+  `meta` longtext DEFAULT NULL,
+  `ip` varchar(45) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_org` (`org_id`),
+  KEY `idx_event` (`event`),
+  KEY `idx_subject` (`subject_type`,`subject_id`),
+  KEY `idx_actor` (`actor_user_id`),
+  KEY `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Workflow rules — the WHEN->IF->THEN seam (inc S17; docs/supplier/01a §11).
+-- DORMANT: no runtime engine executes rules yet; a later increment adds the engine
+-- + real actions and consumes this. Org-scoped; conditions/action stored as JSON.
+--
+CREATE TABLE `workflow_rules` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `name` varchar(191) NOT NULL,
+  `event` varchar(100) NOT NULL,
+  `conditions` longtext DEFAULT NULL,
+  `action_type` varchar(40) DEFAULT NULL,
+  `action_config` longtext DEFAULT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org` (`org_id`),
+  KEY `idx_event` (`event`),
+  KEY `idx_active` (`active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Normalized rate-plan MIRROR over room_options (inc S12). room_options JSON
 -- stays the canonical runtime source; these mirror each option (keyed by the
 -- stable option_id) so the rate model is relational. Kept in sync by

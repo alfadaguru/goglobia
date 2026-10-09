@@ -236,6 +236,14 @@ $router->post('/supplier-signup', function () use ($SECURE, $db) {
             catch (\Throwable $e) { error_log('supplier signup: party_ensure: ' . $e->getMessage()); }
         }
 
+        // Event bus (inc S17): record the registration on the audit trail + dispatch
+        // to an 'account/registered' handler if one exists. Non-fatal.
+        if (function_exists('emit_event')) {
+            emit_event($db, 'supplier.registered',
+                ['email' => $email, 'services' => array_keys($selectedServices)],
+                'user', $custom_user_id);
+        }
+
         if (function_exists('triggerWebhook')) {
             triggerWebhook('users/signup', 'signup.success', [
                 'user_id'    => $custom_user_id,

@@ -353,6 +353,12 @@ $router->post('/supplier/stays/submit/([0-9]+)', function ($id) use ($SECURE, $d
             ['listing_status' => 'submitted', 'updated_at' => date('Y-m-d H:i:s')],
             ['id' => (int) $id, 'user_id' => $owner]
         );
+        // Event bus (inc S17): audit + optional dispatch. Org resolved for scope.
+        if (function_exists('emit_event')) {
+            $orgId = function_exists('supplier_property_org') ? supplier_property_org($db, (int) $id) : 0;
+            emit_event($db, 'property.submitted', ['stay_id' => (int) $id],
+                'stays', (int) $id, $orgId > 0 ? $orgId : null);
+        }
         $_SESSION['message'] = ['type' => 'success', 'text' => 'Submitted for approval.'];
     } catch (\Throwable $e) {
         error_log('supplier stays submit: ' . $e->getMessage());
