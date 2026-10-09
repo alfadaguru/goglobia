@@ -120,6 +120,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S21 | **PMS folio / front-desk** — guest folio + check-in/out; checkout posts to the GL (S20) + releases the supplier earning (S18) | 07, 02 | ✅ code-complete (not runtime-verified — no DB) |
 | S22 | **Housekeeping + physical-room assignment** — physical rooms w/ clean/dirty/inspected/OOO; assign at check-in; checkout→dirty. Overlay only (pooled inventory untouched) | 24, 02 | ✅ code-complete (not runtime-verified — no DB) |
 | S23 | **Maintenance / work-orders + OOO→inventory** — tickets (open/in_progress/resolved); OOO a physical room reduces pooled `stays_inventory` by 1/option/date (floored at held), reversible | 25, 06 | ✅ code-complete (not runtime-verified — no DB) |
+| S24 | **F&B / POS (charge-to-room)** — outlets + menu + orders; settle cash OR charge-to-room → posts a `charge` to the in-house guest's folio (S21), server-computed total | 30 | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -344,6 +345,22 @@ Before coding: **read** every file to be touched (rule 3). Then:
   block row persists for audit. Lint-clean + self-audited. Not runtime-verified. **Next
   Stage-D = owner's call (F&B/POS, night audit, channel mgr, owner statements, …). STRONGLY
   recommend deploy + smoke-test S1–S23 before more / go-live.**
+- 2026-10 — **S24 done** (F&B / POS, charge-to-room): new `app/lib/supplier_pos.php` —
+  outlets + menu items + orders + order items + payments. pos_order_create/add_item
+  (price snapshot at add-time), pos_order_total (SERVER-side recompute), pos_order_settle_cash,
+  pos_order_settle_charge_to_room (posts the order total as a 'charge' folio line via
+  folio_add_item). _pos_settle: for 'room', validates booking is own-inventory for THIS
+  property ($hid===$stayId) + checked_in + folio open BEFORE acting; folio-post failure
+  rolls back the whole settlement; re-locks order FOR UPDATE + state-guard (no
+  double-settle). pos_checked_in_reservations (charge targets). Tables stays_outlets,
+  stays_menu_items, pos_orders, pos_order_items, pos_payments (ensure-fn + db.sql). Routes
+  users/supplierPosRoutes (outlets/menu/order/settle), views supplier/pos/{outlets,outlet}.php
+  + dashboard link. supplier_can('rooms',…,$stayId) + CSRF; server-computed amounts.
+  KNOWN SIMPLIFICATION (noted): a charge-to-room line posts into GL Room Revenue (4000) at
+  checkout, not a separate F&B Revenue (4100) account — correct totals, coarse classing;
+  refine when per-outlet GL mapping lands. Not runtime-verified. **Next Stage-D = owner's
+  call (night audit, channel mgr, owner statements, …). STRONGLY recommend deploy +
+  smoke-test S1–S24 before more / go-live.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

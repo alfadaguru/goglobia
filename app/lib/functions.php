@@ -7787,6 +7787,76 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_room` (`physical_room_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- F&B / POS (inc S24; docs 01 §5) ----------------------------------------
+        // Outlets → menu items → orders → order items → payments. Settlement by cash or
+        // CHARGE-TO-ROOM (posts to the guest folio via folio_add_item). Order totals
+        // are recomputed server-side from item snapshots. app/lib/supplier_pos.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_outlets` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `name` VARCHAR(120) NOT NULL,
+            `type` ENUM('restaurant','bar','cafe','room_service') NOT NULL DEFAULT 'restaurant',
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_menu_items` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `outlet_id` INT(11) NOT NULL,
+            `category` VARCHAR(80) DEFAULT NULL,
+            `name` VARCHAR(191) NOT NULL,
+            `price` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_outlet` (`outlet_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `pos_orders` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `outlet_id` INT(11) NOT NULL,
+            `table_label` VARCHAR(60) DEFAULT NULL,
+            `status` ENUM('open','settled','void') NOT NULL DEFAULT 'open',
+            `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+            `server_id` VARCHAR(155) DEFAULT NULL,
+            `settled_at` DATETIME DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`),
+            KEY `idx_outlet` (`outlet_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `pos_order_items` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `order_id` BIGINT(20) NOT NULL,
+            `menu_item_id` INT(11) DEFAULT NULL,
+            `name` VARCHAR(191) NOT NULL,
+            `qty` INT(11) NOT NULL DEFAULT 1,
+            `unit_price` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_order` (`order_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `pos_payments` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `order_id` BIGINT(20) NOT NULL,
+            `tender` ENUM('cash','card','wallet','room') NOT NULL,
+            `amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            `invoice_id` VARCHAR(255) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_order` (`order_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // stays hierarchy keys + operating model. Nullable/defaulted so existing rows
         // are untouched; each guarded by SHOW COLUMNS (idempotent).
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'org_id'")->fetch()) {

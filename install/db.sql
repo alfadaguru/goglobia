@@ -28945,6 +28945,87 @@ CREATE TABLE `stays_ooo_blocks` (
 -- --------------------------------------------------------
 
 --
+-- F&B / POS (inc S24; docs/supplier/01 §5). Outlets → menu items → orders → items →
+-- payments. Settlement by cash or CHARGE-TO-ROOM (posts to the guest folio via
+-- folio_add_item). Order totals recomputed server-side. app/lib/supplier_pos.php.
+--
+CREATE TABLE `stays_outlets` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `type` enum('restaurant','bar','cafe','room_service') NOT NULL DEFAULT 'restaurant',
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `stays_menu_items` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `outlet_id` int(11) NOT NULL,
+  `category` varchar(80) DEFAULT NULL,
+  `name` varchar(191) NOT NULL,
+  `price` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_outlet` (`outlet_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `pos_orders` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `outlet_id` int(11) NOT NULL,
+  `table_label` varchar(60) DEFAULT NULL,
+  `status` enum('open','settled','void') NOT NULL DEFAULT 'open',
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `server_id` varchar(155) DEFAULT NULL,
+  `settled_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`),
+  KEY `idx_outlet` (`outlet_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `pos_order_items` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `order_id` bigint(20) NOT NULL,
+  `menu_item_id` int(11) DEFAULT NULL,
+  `name` varchar(191) NOT NULL,
+  `qty` int(11) NOT NULL DEFAULT 1,
+  `unit_price` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_order` (`order_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `pos_payments` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `order_id` bigint(20) NOT NULL,
+  `tender` enum('cash','card','wallet','room') NOT NULL,
+  `amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `invoice_id` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_order` (`order_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Normalized rate-plan MIRROR over room_options (inc S12). room_options JSON
 -- stays the canonical runtime source; these mirror each option (keyed by the
 -- stable option_id) so the rate model is relational. Kept in sync by

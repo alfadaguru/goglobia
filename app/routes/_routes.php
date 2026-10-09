@@ -44,7 +44,8 @@ require_once 'app/routes/users/supplierDashboardRoutes.php'; // supplier area (S
 require_once 'app/routes/users/supplierStaysRoutes.php'; // owner-scoped stays CRUD (Phase 1 inc 3)
 require_once 'app/routes/users/supplierReservationsRoutes.php'; // reservations inbox (inc S11; reuses stays helpers)
 require_once 'app/routes/users/supplierPayoutsRoutes.php'; // supplier payout request UI (inc S19)
-require_once 'app/routes/users/supplierHousekeepingRoutes.php'; // housekeeping board + physical rooms (inc S22)
+require_once 'app/routes/users/supplierHousekeepingRoutes.php'; // housekeeping board + physical rooms (inc S22) + maintenance (S23)
+require_once 'app/routes/users/supplierPosRoutes.php'; // F&B / POS — outlets, menu, orders, charge-to-room (inc S24)
 require_once 'app/routes/users/supplierRolesRoutes.php'; // supplier-defined roles + property scope (inc 4)
 require_once 'app/routes/users/supplierStaffRoutes.php'; // staff invitations + accept flow (inc 5)
 require_once 'app/routes/users/logoutRoutes.php';

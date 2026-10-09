@@ -78,6 +78,7 @@ require_once 'app/lib/supplier_ledger.php';
 require_once 'app/lib/supplier_folio.php';
 require_once 'app/lib/supplier_housekeeping.php';
 require_once 'app/lib/supplier_maintenance.php';
+require_once 'app/lib/supplier_pos.php';
 require_once 'app/lib/i18n.php';
 require_once 'app/lib/mailer.php';
 require_once 'app/lib/captcha.php';
