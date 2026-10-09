@@ -36,6 +36,10 @@ $router->get('/supplier-signup', function () use ($SECURE, $db) {
     $captchaData = Captcha::generate();
     $_SESSION['captcha_data'] = $captchaData;
 
+    // Services the supplier can offer (first-class, active). The view renders a
+    // checkbox + count field per service.
+    $supplierServices = supplier_first_class_services($db);
+
     $title = 'Become a Supplier';
     $description = 'Register as a supplier and list your travel services.';
     $header = true;
@@ -69,6 +73,22 @@ $router->post('/supplier-signup', function () use ($SECURE, $db) {
     $phone_country_code = trim($_POST['phone_country_code'] ?? '92');
     $terms              = isset($_POST['terms']);
 
+    // Service selection + per-service counts. Validate against the canonical
+    // first-class list (never trust arbitrary client service keys), clamp counts
+    // to a sane range. Stored as supplier_services rows after the user insert.
+    $allowedServices   = supplier_first_class_services($db);
+    $selectedServices  = [];
+    $postedServices    = is_array($_POST['services'] ?? null) ? $_POST['services'] : [];
+    $postedCounts      = is_array($_POST['service_count'] ?? null) ? $_POST['service_count'] : [];
+    foreach ($postedServices as $svc) {
+        $svc = strtolower(trim((string) $svc));
+        if (!isset($allowedServices[$svc])) { continue; } // ignore unknown keys
+        $count = (int) ($postedCounts[$svc] ?? 1);
+        if ($count < 1) { $count = 1; }
+        if ($count > 500) { $count = 500; } // sane ceiling; admin can adjust later
+        $selectedServices[$svc] = $count;
+    }
+
     $_SESSION['supplier_form_data'] = [
         'first_name' => $first_name,
         'last_name'  => $last_name,
@@ -76,6 +96,7 @@ $router->post('/supplier-signup', function () use ($SECURE, $db) {
         'email'      => $email,
         'phone'      => $phone,
         'phone_country_code' => $phone_country_code,
+        'services'   => $selectedServices, // keep selection on validation errors
     ];
 
     // CSRF (same validator as /signup).
@@ -125,6 +146,12 @@ $router->post('/supplier-signup', function () use ($SECURE, $db) {
     }
     if (!$terms) {
         $_SESSION['supplier_signup_error'] = 'terms_required';
+        header('Location: ' . $redirectUrl);
+        exit;
+    }
+    // At least one service must be declared — a supplier with no service can do nothing.
+    if (empty($selectedServices)) {
+        $_SESSION['supplier_signup_error'] = 'no_service';
         header('Location: ' . $redirectUrl);
         exit;
     }
@@ -184,6 +211,23 @@ $router->post('/supplier-signup', function () use ($SECURE, $db) {
         }
 
         logUserActivity($db, $newId, 'signup', 'Supplier registered — pending approval');
+
+        // Persist the declared services + counts (status 'requested'; admin sets the
+        // approved quota at approval time). Keyed on the string users.user_id. Each
+        // insert is defensive so a schema-lag install never blocks signup.
+        foreach ($selectedServices as $svc => $count) {
+            try {
+                $db->insert('supplier_services', [
+                    'user_id'         => $custom_user_id,
+                    'service'         => $svc,
+                    'requested_count' => (int) $count,
+                    'status'          => 'requested',
+                    'requested_at'    => date('Y-m-d H:i:s'),
+                ]);
+            } catch (\Throwable $e) {
+                error_log('supplier signup: supplier_services insert (' . $svc . '): ' . $e->getMessage());
+            }
+        }
 
         if (function_exists('triggerWebhook')) {
             triggerWebhook('users/signup', 'signup.success', [

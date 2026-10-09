@@ -6411,6 +6411,55 @@ function ensureSupplierSchema($db): void
 }
 
 /**
+ * The services a supplier may self-list (the "first-class" supplier services).
+ *
+ * Single source of truth shared by the signup service-selection, the admin approval
+ * screen, and the quota checks. These are the services that have an own-inventory
+ * table with an owner `user_id` column (verified in the audit): stays, flights, tours,
+ * cars, bus. Visa is an admin catalogue; eSIM/ferries/rail/insurance are
+ * integration-only — none are offered for supplier self-listing (see
+ * docs/supplier/05-other-services.md).
+ *
+ * Returns [serviceKey => ['label'=>..., 'icon'=>...]], optionally narrowed to the
+ * services the operator currently has active in the `modules` table so the signup
+ * form never offers a service the platform has switched off.
+ */
+function supplier_first_class_services($db = null): array
+{
+    $all = [
+        'stays'   => ['label' => 'Hotels / Stays / Apartments', 'icon' => 'hotel'],
+        'flights' => ['label' => 'Flights',                     'icon' => 'flight'],
+        'tours'   => ['label' => 'Tours / Activities',          'icon' => 'tour'],
+        'cars'    => ['label' => 'Cars / Transfers',            'icon' => 'directions_car'],
+        'bus'     => ['label' => 'Bus',                         'icon' => 'directions_bus'],
+    ];
+    if ($db === null) {
+        return $all;
+    }
+    // Narrow to active module types where possible; be defensive (never fatal).
+    try {
+        $rows = $db->select('modules', ['type'], ['status' => 1, 'active' => 1]) ?: [];
+        $activeTypes = [];
+        foreach ($rows as $r) {
+            $t = strtolower(trim((string) ($r['type'] ?? '')));
+            if ($t !== '') { $activeTypes[$t] = true; }
+        }
+        if (!empty($activeTypes)) {
+            $filtered = [];
+            foreach ($all as $key => $meta) {
+                if (isset($activeTypes[$key])) { $filtered[$key] = $meta; }
+            }
+            // If the modules table uses a different taxonomy and nothing matched,
+            // fall back to the full set rather than show an empty form.
+            if (!empty($filtered)) { return $filtered; }
+        }
+    } catch (\Throwable $e) {
+        error_log('supplier_first_class_services: ' . $e->getMessage());
+    }
+    return $all;
+}
+
+/**
  * Supplier STAYS platform schema (Phase 1 — see docs/supplier/ + the Phase-1 plan).
  *
  * Builds on ensureSupplierSchema() (the supplier account + approval). This adds the

@@ -56,15 +56,41 @@
                   <?php endif; ?>
                   <div class="flex items-center gap-1.5 text-gray-400"><span class="material-symbols-outlined text-sm">schedule</span>Applied <?= htmlspecialchars(substr((string) ($s['created_at'] ?? ''), 0, 16)) ?></div>
                 </div>
+
+                <!-- Requested services + counts -->
+                <?php $svcs = $servicesByUser[(string) ($s['user_id'] ?? '')] ?? []; ?>
+                <?php if (!empty($svcs)): ?>
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    <?php foreach ($svcs as $sv): ?>
+                      <span class="inline-flex items-center gap-1 px-2 py-1 rounded bg-violet-50 text-violet-700 text-xs font-medium">
+                        <?= htmlspecialchars((string) $sv['service']) ?>
+                        <span class="text-violet-400">×<?= (int) $sv['requested_count'] ?></span>
+                      </span>
+                    <?php endforeach; ?>
+                  </div>
+                <?php endif; ?>
               </div>
 
               <div class="flex items-center gap-2 shrink-0"
                    x-data="{ rejecting: false }">
-                <!-- Approve -->
+                <!-- Approve (optionally adjust approved quota per service) -->
                 <form action="<?= root . admin ?>/suppliers/approve/<?= $sid ?>" method="POST">
                   <?= CSRF::tokenField() ?>
-                  <button type="submit" class="btn emerald">
-                    <span class="flex items-center gap-1.5">
+                  <?php if (!empty($svcs)): ?>
+                    <div class="mb-2 space-y-1.5">
+                      <?php foreach ($svcs as $sv): ?>
+                        <div class="flex items-center gap-2 justify-end text-xs">
+                          <label class="text-gray-500"><?= htmlspecialchars((string) $sv['service']) ?> quota</label>
+                          <input type="number" min="0" max="500"
+                                 name="approved_count[<?= htmlspecialchars((string) $sv['service']) ?>]"
+                                 value="<?= (int) $sv['requested_count'] ?>"
+                                 class="input w-16 text-xs py-1 px-2">
+                        </div>
+                      <?php endforeach; ?>
+                    </div>
+                  <?php endif; ?>
+                  <button type="submit" class="btn emerald w-full">
+                    <span class="flex items-center justify-center gap-1.5">
                       <span class="material-symbols-outlined text-sm">check_circle</span> Approve
                     </span>
                   </button>

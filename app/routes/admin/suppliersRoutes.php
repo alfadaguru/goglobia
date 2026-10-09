@@ -28,6 +28,26 @@ $router->get(admin . '/suppliers', function () use ($SECURE, $db) {
         'ORDER'      => ['id' => 'DESC'],
     ]) ?: [];
 
+    // Declared services per supplier (for the approval cards + quota inputs),
+    // keyed by user_id. Defensive so a schema-lag install still renders the page.
+    $servicesByUser = [];
+    try {
+        $allUserIds = array_values(array_filter(array_map(
+            fn($r) => (string) ($r['user_id'] ?? ''),
+            array_merge($pending, $others)
+        )));
+        if (!empty($allUserIds)) {
+            $svcRows = $db->select('supplier_services',
+                ['user_id', 'service', 'requested_count', 'status', 'max_listings'],
+                ['user_id' => $allUserIds]) ?: [];
+            foreach ($svcRows as $row) {
+                $servicesByUser[(string) $row['user_id']][] = $row;
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log('admin/suppliers: services fetch failed: ' . $e->getMessage());
+    }
+
     $title = 'Suppliers';
     $description = 'Review and approve supplier applications';
     $header = true;
@@ -57,6 +77,30 @@ $router->post(admin . '/suppliers/approve/(.+)', function ($user_id) use ($SECUR
         'supplier_rejected_reason' => null,
         'updated_at'               => date('Y-m-d H:i:s'),
     ], ['user_id' => $user_id]);
+
+    // Approve the supplier's requested services and set the CREATION QUOTA.
+    // max_listings defaults to the requested_count; an admin may override per
+    // service via approved_count[<service>] on the form. This is the hard gate
+    // the /supplier/stays create path enforces (increment 3).
+    try {
+        $approvedCounts = is_array($_POST['approved_count'] ?? null) ? $_POST['approved_count'] : [];
+        $services = $db->select('supplier_services', ['id', 'service', 'requested_count'],
+            ['user_id' => $user_id]) ?: [];
+        foreach ($services as $svc) {
+            $svcKey = (string) $svc['service'];
+            $quota  = isset($approvedCounts[$svcKey]) && $approvedCounts[$svcKey] !== ''
+                ? max(0, (int) $approvedCounts[$svcKey])
+                : (int) $svc['requested_count'];
+            $db->update('supplier_services', [
+                'status'       => 'approved',
+                'max_listings' => $quota,
+                'reviewed_by'  => (string) ($_SESSION['user_id'] ?? ''),
+                'reviewed_at'  => date('Y-m-d H:i:s'),
+            ], ['id' => (int) $svc['id']]);
+        }
+    } catch (\Throwable $e) {
+        error_log('Supplier approve: service/quota update failed: ' . $e->getMessage());
+    }
 
     // Notify the supplier they can now sign in.
     if (function_exists('SENDEMAIL') && !empty($supplier['email'])) {

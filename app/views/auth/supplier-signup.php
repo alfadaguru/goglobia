@@ -16,6 +16,7 @@
               case 'password_mismatch':echo 'Passwords do not match.'; break;
               case 'password_weak':    echo 'Password must be at least 6 characters.'; break;
               case 'terms_required':   echo 'You must agree to the terms to continue.'; break;
+              case 'no_service':       echo 'Please select at least one service you offer.'; break;
               case 'csrf':             echo 'Your session expired. Please try again.'; break;
               case 'captcha_missing':  echo 'Security check missing. Please try again.'; break;
               case 'captcha_expired':  echo 'Security check expired. Please refresh and try again.'; break;
@@ -91,6 +92,42 @@
                 value="<?= htmlspecialchars($_SESSION['supplier_form_data']['company'] ?? '') ?>">
             </div>
           </div>
+
+          <!-- Services offered + counts -->
+          <?php
+          $svcOffered  = $supplierServices ?? [];
+          $svcSelected = $_SESSION['supplier_form_data']['services'] ?? []; // [service => count]
+          ?>
+          <?php if (!empty($svcOffered)): ?>
+          <div class="form-control">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Services you offer *</label>
+            <p class="text-xs text-gray-500 mb-2">Pick the services you provide and how many of each you have. An administrator reviews and approves these.</p>
+            <div class="space-y-2">
+              <?php foreach ($svcOffered as $key => $meta): ?>
+                <?php
+                  $isChecked = array_key_exists($key, $svcSelected);
+                  $countVal  = $isChecked ? (int) $svcSelected[$key] : 1;
+                ?>
+                <div class="flex items-center gap-3 border border-gray-200 rounded-lg p-2.5"
+                     x-data="{ on: <?= $isChecked ? 'true' : 'false' ?> }">
+                  <label class="flex items-center gap-2 flex-1 cursor-pointer">
+                    <input type="checkbox" name="services[]" value="<?= htmlspecialchars($key) ?>"
+                           class="checkbox-input" x-model="on" <?= $isChecked ? 'checked' : '' ?>>
+                    <span class="material-symbols-outlined text-violet-600 text-xl"><?= htmlspecialchars($meta['icon']) ?></span>
+                    <span class="text-sm text-gray-800"><?= htmlspecialchars($meta['label']) ?></span>
+                  </label>
+                  <div class="flex items-center gap-1.5" x-show="on">
+                    <label class="text-xs text-gray-500" for="count_<?= htmlspecialchars($key) ?>">How many?</label>
+                    <input type="number" min="1" max="500" id="count_<?= htmlspecialchars($key) ?>"
+                           name="service_count[<?= htmlspecialchars($key) ?>]"
+                           value="<?= (int) $countVal ?>"
+                           class="input w-20 text-sm py-1 px-2">
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          </div>
+          <?php endif; ?>
 
           <!-- Email -->
           <div class="form-control">
