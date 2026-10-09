@@ -28870,6 +28870,32 @@ CREATE TABLE `stays_folio_items` (
 -- --------------------------------------------------------
 
 --
+-- Physical rooms + housekeeping (inc S22; docs/supplier/01 §4.2). Individual units
+-- under a room TYPE (stays_rooms). Operational overlay — does NOT change the pooled
+-- stays_inventory sellability. Managed by app/lib/supplier_housekeeping.php.
+--
+CREATE TABLE `stays_physical_rooms` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `room_id` int(11) NOT NULL,
+  `room_number` varchar(40) NOT NULL,
+  `floor` varchar(40) DEFAULT NULL,
+  `hk_status` enum('clean','dirty','inspected','out_of_order') NOT NULL DEFAULT 'clean',
+  `hk_updated_by` varchar(155) DEFAULT NULL,
+  `notes` varchar(255) DEFAULT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_stay_number` (`stay_id`,`room_number`),
+  KEY `idx_stay_room` (`stay_id`,`room_id`),
+  KEY `idx_status` (`stay_id`,`hk_status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Normalized rate-plan MIRROR over room_options (inc S12). room_options JSON
 -- stays the canonical runtime source; these mirror each option (keyed by the
 -- stable option_id) so the rate model is relational. Kept in sync by

@@ -7722,6 +7722,29 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_folio` (`folio_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- stays_physical_rooms (inc S22; housekeeping overlay) -------------------
+        // Individual physical units under a room TYPE (stays_rooms). Carries a
+        // housekeeping status; assists the front desk. Does NOT change the pooled
+        // stays_inventory sellability. Managed by app/lib/supplier_housekeeping.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_physical_rooms` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `room_id` INT(11) NOT NULL,
+            `room_number` VARCHAR(40) NOT NULL,
+            `floor` VARCHAR(40) DEFAULT NULL,
+            `hk_status` ENUM('clean','dirty','inspected','out_of_order') NOT NULL DEFAULT 'clean',
+            `hk_updated_by` VARCHAR(155) DEFAULT NULL,
+            `notes` VARCHAR(255) DEFAULT NULL,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_stay_number` (`stay_id`,`room_number`),
+            KEY `idx_stay_room` (`stay_id`,`room_id`),
+            KEY `idx_status` (`stay_id`,`hk_status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // stays hierarchy keys + operating model. Nullable/defaulted so existing rows
         // are untouched; each guarded by SHOW COLUMNS (idempotent).
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'org_id'")->fetch()) {

@@ -184,6 +184,35 @@ $base          = root . 'supplier/stays/' . $stayId . '/rooms';
     <?php endforeach; ?>
   <?php endif; ?>
 
+  <!-- Physical rooms (inc S22): individual units for housekeeping + front-desk assignment -->
+  <?php if ($canAddRoom && !empty($rooms)): ?>
+  <div class="card p-5">
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <h2 class="text-base font-semibold text-gray-900">Physical rooms</h2>
+        <p class="text-xs text-gray-500">Add individual rooms (by number) under a room type for housekeeping &amp; check-in assignment.</p>
+      </div>
+      <a href="<?= root ?>supplier/housekeeping?stay_id=<?= $stayId ?>" class="text-sm text-violet-600 hover:underline">Housekeeping board</a>
+    </div>
+    <form action="<?= root ?>supplier/housekeeping/add" method="POST" class="flex flex-wrap items-end gap-2">
+      <?= CSRF::tokenField() ?>
+      <input type="hidden" name="stay_id" value="<?= $stayId ?>">
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Room type</label>
+        <select name="room_id" class="input text-sm">
+          <?php foreach ($rooms as $room): ?>
+            <option value="<?= (int) $room['id'] ?>"><?= htmlspecialchars($roomTypes[(int) ($room['room_type_id'] ?? 0)] ?? ('Room #' . (int) $room['id'])) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Room number</label>
+        <input type="text" name="room_number" class="input text-sm w-28" placeholder="e.g. 101" required></div>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Floor</label>
+        <input type="text" name="floor" class="input text-sm w-24" placeholder="e.g. 1"></div>
+      <button type="submit" class="btn secondary text-sm">Add physical room</button>
+    </form>
+  </div>
+  <?php endif; ?>
+
   <!-- Option add/edit modal (Alpine) -->
   <?php if ($canEdit): ?>
   <div x-show="optionFor !== null" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"

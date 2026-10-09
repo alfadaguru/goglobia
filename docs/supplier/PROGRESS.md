@@ -118,6 +118,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | # | Increment | Catalogue modules | Status |
 |---|---|---|---|
 | S21 | **PMS folio / front-desk** — guest folio + check-in/out; checkout posts to the GL (S20) + releases the supplier earning (S18) | 07, 02 | ✅ code-complete (not runtime-verified — no DB) |
+| S22 | **Housekeeping + physical-room assignment** — physical rooms w/ clean/dirty/inspected/OOO; assign at check-in; checkout→dirty. Overlay only (pooled inventory untouched) | 24, 02 | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -311,6 +312,21 @@ Before coding: **read** every file to be touched (rule 3). Then:
   Idempotent + state-guarded (no double-post/double-release); GL failure never blocks
   checkout. Lint-clean + self-audited. Not runtime-verified. **Next Stage D module = owner's
   call. STRONGLY recommend deploy + smoke-test S1–S21 before more / go-live.**
+- 2026-10 — **S22 done** (housekeeping + physical-room assignment): new
+  `app/lib/supplier_housekeeping.php` — physical rooms (stays_physical_rooms) under a room
+  TYPE, hk_status clean/dirty/inspected/out_of_order with a validated transition machine
+  (`hk_status_transition_ok`); `hk_assign_room_to_booking` (assign at check-in; validates
+  owned+assignable+not-in-use), `hk_rooms_in_use` (decoded-booking_data verify, not just
+  LIKE), `hk_room_set_status`, `hk_assignable_rooms`, `hk_on_checkout` (checkout→dirty,
+  guarded against OOO). New table stays_physical_rooms (uq stay+number) ensure-fn+db.sql.
+  Routes users/supplierHousekeepingRoutes (board + status + add). Views
+  supplier/housekeeping.php + physical-room add form on the rooms page + check-in room
+  picker on reservation detail + dashboard link. Wired hk_on_checkout into folio_checkout.
+  CRITICAL boundary: OVERLAY only — writes stays_physical_rooms + booking_data; NEVER
+  touches stays_inventory (pooled sellability/anti-oversell unchanged). supplier_can('rooms')
+  gated + CSRF. Lint-clean + self-audited. Not runtime-verified. **Next Stage-D module =
+  owner's call (maintenance/OOO→inventory, F&B/POS, night audit, channel mgr, …). STRONGLY
+  recommend deploy + smoke-test S1–S22 before more / go-live.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

@@ -267,6 +267,8 @@ if (!function_exists('folio_checkout')) {
         if (function_exists('supplier_earning_release_for_invoice')) {
             supplier_earning_release_for_invoice($db, $invoiceId);
         }
+        // Housekeeping (inc S22): the room the guest occupied becomes dirty. Non-fatal.
+        if (function_exists('hk_on_checkout')) { hk_on_checkout($db, $invoiceId); }
         if (function_exists('emit_event')) {
             emit_event($db, 'checkout.completed',
                 ['invoice_id' => $invoiceId, 'balance' => $totals['balance']],

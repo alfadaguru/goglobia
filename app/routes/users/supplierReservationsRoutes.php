@@ -205,6 +205,20 @@ $router->get('/supplier/reservations/([A-Za-z0-9_-]+)', function ($invoiceId) us
     // Front-desk / folio (inc S21): current PMS stay-state + the folio (built on first
     // view) with its line items and running balance.
     $stayState = function_exists('folio_stay_state') ? folio_stay_state($booking['booking_data'] ?? null) : 'confirmed';
+
+    // Physical-room assignment (inc S22): the assigned room + the assignable list for
+    // this booking's room type (for the check-in picker).
+    $assignedRoomId = (int) ($booking['_bd']['pms_physical_room_id'] ?? 0);
+    $assignedRoom = null; $assignableRooms = [];
+    $bookingRoomTypeId = 0;
+    $rd0 = $booking['_bd']['rooms_data'][0] ?? null;
+    if (is_array($rd0)) { $bookingRoomTypeId = (int) ($rd0['room_id'] ?? 0); }
+    if ($assignedRoomId > 0) {
+        $assignedRoom = $db->get('stays_physical_rooms', ['id', 'room_number', 'floor', 'hk_status'], ['id' => $assignedRoomId, 'stay_id' => $hid]);
+    }
+    if ($bookingRoomTypeId > 0 && function_exists('hk_assignable_rooms')) {
+        $assignableRooms = hk_assignable_rooms($db, $hid, $bookingRoomTypeId);
+    }
     $folio = null; $folioItems = []; $folioTotals = ['charges' => 0, 'payments' => 0, 'balance' => 0];
     if (function_exists('folio_get_or_create')) {
         $folioId = folio_get_or_create($db, $invoiceId);
@@ -296,7 +310,16 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
             // Front desk (inc S21): mark checked-in + ensure a folio exists.
             if (function_exists('folio_checkin')) { folio_checkin($db, $invoiceId); }
             if (function_exists('folio_get_or_create')) { folio_get_or_create($db, $invoiceId); }
-            $_SESSION['message'] = ['type' => 'success', 'text' => 'Guest checked in.'];
+            // Optional physical-room assignment (inc S22). Validated inside the helper
+            // (room belongs to $hid, assignable, not in use). Silent if none picked.
+            $prid = (int) ($_POST['physical_room_id'] ?? 0);
+            if ($prid > 0 && function_exists('hk_assign_room_to_booking')) {
+                $assigned = hk_assign_room_to_booking($db, $invoiceId, $prid, $hid);
+                $_SESSION['message'] = ['type' => $assigned ? 'success' : 'error',
+                    'text' => $assigned ? 'Guest checked in and room assigned.' : 'Checked in, but that room could not be assigned (not available?).'];
+            } else {
+                $_SESSION['message'] = ['type' => 'success', 'text' => 'Guest checked in.'];
+            }
         } elseif ($action === 'check_out') {
             // Check-out: finalize folio → post to GL → release the supplier earning.
             if (function_exists('folio_checkout')) {

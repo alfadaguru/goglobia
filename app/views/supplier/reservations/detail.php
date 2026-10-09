@@ -115,11 +115,29 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
       <span class="px-2 py-0.5 rounded text-xs font-medium <?= $ssColor ?>"><?= htmlspecialchars($ssLabel) ?></span>
     </div>
 
+    <?php
+      $assignable = (isset($assignableRooms) && is_array($assignableRooms)) ? $assignableRooms : [];
+      $assigned = (isset($assignedRoom) && is_array($assignedRoom)) ? $assignedRoom : null;
+    ?>
+    <?php if ($assigned): ?>
+      <p class="text-xs text-gray-600 mb-3">Assigned room: <span class="font-semibold text-gray-900">#<?= htmlspecialchars((string) $assigned['room_number']) ?></span><?= !empty($assigned['floor']) ? ' · floor ' . htmlspecialchars((string) $assigned['floor']) : '' ?></p>
+    <?php endif; ?>
+
     <?php if ($canEdit && !$isCancelled): ?>
       <div class="flex flex-wrap items-center gap-3 mb-4">
         <?php if ($ss === 'confirmed'): ?>
-          <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST">
+          <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="flex items-end gap-2">
             <?= CSRF::tokenField() ?><input type="hidden" name="action" value="check_in">
+            <?php if (!empty($assignable)): ?>
+              <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Assign room (optional)</label>
+                <select name="physical_room_id" class="input text-sm">
+                  <option value="0">— none —</option>
+                  <?php foreach ($assignable as $pr): ?>
+                    <option value="<?= (int) $pr['id'] ?>">#<?= htmlspecialchars((string) $pr['room_number']) ?> (<?= htmlspecialchars((string) $pr['hk_status']) ?>)</option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+            <?php endif; ?>
             <button type="submit" class="btn emerald text-sm">Check in</button>
           </form>
         <?php elseif ($ss === 'checked_in'): ?>
