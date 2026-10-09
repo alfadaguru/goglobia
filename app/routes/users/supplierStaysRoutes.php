@@ -346,6 +346,530 @@ $router->post('/supplier/stays/submit/([0-9]+)', function ($id) use ($SECURE, $d
 });
 
 // ============================================================================
+// ROOMS, OPTIONS & CALENDAR  (Phase 1 inc S10 — supplier self-management)
+// ----------------------------------------------------------------------------
+// Owner-scoped mirror of the admin room/option/calendar CRUD, gated by
+// supplier_can($db,'rooms'|'rates',$action,$stayId). The IDOR guard fires on the
+// property id EVERY TIME (supplier_can re-checks stays.user_id === owner), and
+// every room/option/calendar write re-scopes its DB query by stay_id (and, where
+// the property is fetched, by user_id). Options are addressed by the STABLE
+// option_id (stays_room_option_ids) — NEVER by positional index — so pricing and
+// inventory keyed on option_id stay correct across reorder/delete (see
+// app/lib/stays_inventory.php). Server-rendered + form-based by design (simpler
+// and safer than cloning the admin AJAX/option_index flow).
+// ============================================================================
+
+if (!function_exists('_supplier_room_taxonomy')) {
+    /** Global room_type + board taxonomy from stays_settings (id => name). */
+    function _supplier_room_taxonomy($db): array
+    {
+        $map = ['room_type' => [], 'board' => []];
+        foreach (['room_type', 'board'] as $type) {
+            try {
+                $rows = $db->select('stays_settings', ['id', 'name', 'translations'],
+                    ['setting_type' => $type]) ?: [];
+            } catch (\Throwable $e) { $rows = []; }
+            foreach ($rows as $r) {
+                $n = $r['name'] ?? '';
+                if ($n === '' && !empty($r['translations'])) {
+                    $t = json_decode((string) $r['translations'], true);
+                    $n = is_array($t) ? ($t['en'] ?? reset($t)) : '';
+                }
+                $map[$type][(int) $r['id']] = $n !== '' ? $n : ($type . ' #' . $r['id']);
+            }
+        }
+        return $map;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ROOMS LIST — GET /supplier/stays/{id}/rooms
+// ---------------------------------------------------------------------------
+$router->get('/supplier/stays/([0-9]+)/rooms', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'rooms', 'view', (int) $id)) {
+        _supplier_stays_deny('That property is not yours.');
+    }
+
+    $stay = $db->get('stays', ['id', 'name', 'currency'], ['id' => (int) $id, 'user_id' => $owner]);
+    if (!$stay) { _supplier_stays_deny('Property not found.'); }
+
+    // Rooms for this property (owner already proven by supplier_can + scoped fetch).
+    $rooms = $db->select('stays_rooms',
+        ['id', 'room_type_id', 'room_images', 'amenities', 'status', 'room_options'],
+        ['stay_id' => (int) $id, 'ORDER' => ['id' => 'ASC']]) ?: [];
+
+    // Ensure every option carries a stable option_id (idempotent; persists lazily).
+    foreach ($rooms as &$__r) {
+        $__r['_options'] = stays_room_option_ids($db, (int) $__r['id'], (int) $id);
+    }
+    unset($__r);
+
+    $taxonomy = _supplier_room_taxonomy($db);
+    $canEdit  = supplier_can($db, 'rooms', 'edit', (int) $id);
+    $canAddRoom    = supplier_can($db, 'rooms', 'add', (int) $id);
+    $canDeleteRoom = supplier_can($db, 'rooms', 'delete', (int) $id);
+
+    $title = 'Rooms — ' . ($stay['name'] ?? 'Property');
+    $description = '';
+    $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/stays/rooms.php";
+    require_once views . "includes/footer.php";
+});
+
+// ---------------------------------------------------------------------------
+// ROOM SAVE (add/edit) — POST /supplier/stays/{id}/rooms/save
+// ---------------------------------------------------------------------------
+$router->post('/supplier/stays/([0-9]+)/rooms/save', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+
+    $stayId  = (int) $id;
+    $roomId  = (int) ($_POST['room_id'] ?? 0);
+    $isEdit  = $roomId > 0;
+    $action  = $isEdit ? 'edit' : 'add';
+    if (!supplier_can($db, 'rooms', $action, $stayId)) {
+        _supplier_stays_deny('You are not authorised to manage this property\'s rooms.');
+    }
+
+    $back = root . 'supplier/stays/' . $stayId . '/rooms';
+
+    $roomTypeId = (int) ($_POST['room_type_id'] ?? 0);
+    $status     = isset($_POST['room_status']) ? 1 : 0;
+    if ($roomTypeId <= 0) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Please choose a room type.'];
+        header('Location: ' . $back); exit;
+    }
+
+    // Amenities: accept a checkbox array of ints, store as a JSON int array (the
+    // same shape admin stores). Never trust arbitrary values.
+    $amenities = [];
+    if (is_array($_POST['amenities'] ?? null)) {
+        foreach ($_POST['amenities'] as $a) {
+            $a = (int) $a;
+            if ($a > 0) { $amenities[] = $a; }
+        }
+    }
+
+    // Image uploads — same secure path as the property gallery (secureUploadCheck).
+    $existing = null;
+    if ($isEdit) {
+        $existing = $db->get('stays_rooms', '*', ['id' => $roomId, 'stay_id' => $stayId]);
+        if (!$existing) {
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'Room not found for this property.'];
+            header('Location: ' . $back); exit;
+        }
+    }
+    $roomImages = [];
+    if ($isEdit && !empty($existing['room_images'])) {
+        $decoded = json_decode((string) $existing['room_images'], true);
+        if (is_array($decoded)) { $roomImages = $decoded; }
+    }
+    if (isset($_FILES['room_images']) && !empty($_FILES['room_images']['name'][0])) {
+        $projectRoot = realpath(__DIR__ . '/../../../');
+        $uploadDir = $projectRoot . '/uploads/hotels/rooms/';
+        if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0755, true); }
+        $files = $_FILES['room_images'];
+        $count = count($files['name']);
+        for ($i = 0; $i < $count; $i++) {
+            if (($files['error'][$i] ?? 1) !== UPLOAD_ERR_OK) { continue; }
+            $chk = secureUploadCheck(
+                ['name' => $files['name'][$i], 'tmp_name' => $files['tmp_name'][$i], 'size' => $files['size'][$i], 'error' => UPLOAD_ERR_OK],
+                ['jpg', 'jpeg', 'png', 'gif', 'webp'], 5 * 1024 * 1024
+            );
+            if (!$chk['ok']) { continue; }
+            $fn = 'room_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $chk['ext'];
+            if (move_uploaded_file($files['tmp_name'][$i], $uploadDir . $fn)) {
+                @chmod($uploadDir . $fn, 0644);
+                $roomImages[] = ['url' => '/uploads/hotels/rooms/' . $fn, 'default' => empty($roomImages)];
+            }
+        }
+    }
+
+    $data = [
+        'stay_id'      => $stayId,                         // FORCED to this property
+        'room_type_id' => $roomTypeId,
+        'amenities'    => json_encode($amenities),
+        'status'       => $status,
+        'room_images'  => !empty($roomImages) ? json_encode($roomImages) : null,
+        'updated_at'   => date('Y-m-d H:i:s'),
+    ];
+
+    try {
+        if ($isEdit) {
+            // Preserve room_options (managed by the options endpoints, not here).
+            $db->update('stays_rooms', $data, ['id' => $roomId, 'stay_id' => $stayId]);
+            $_SESSION['message'] = ['type' => 'success', 'text' => 'Room updated.'];
+        } else {
+            $data['room_options'] = null;
+            $data['created_at'] = date('Y-m-d H:i:s');
+            $db->insert('stays_rooms', $data);
+            $_SESSION['message'] = ['type' => 'success', 'text' => 'Room added. Now add a rate/option so it can sell.'];
+        }
+    } catch (\Throwable $e) {
+        error_log('supplier room save: ' . $e->getMessage());
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not save the room.'];
+    }
+    header('Location: ' . $back);
+    exit;
+});
+
+// ---------------------------------------------------------------------------
+// ROOM DELETE — POST /supplier/stays/{id}/rooms/delete
+// ---------------------------------------------------------------------------
+$router->post('/supplier/stays/([0-9]+)/rooms/delete', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+
+    $stayId = (int) $id;
+    $roomId = (int) ($_POST['room_id'] ?? 0);
+    if (!$roomId || !supplier_can($db, 'rooms', 'delete', $stayId)) {
+        _supplier_stays_deny('You are not authorised to delete this room.');
+    }
+    $back = root . 'supplier/stays/' . $stayId . '/rooms';
+
+    try {
+        // Room must belong to THIS property (defense in depth behind supplier_can).
+        $room = $db->get('stays_rooms', ['id', 'room_images'], ['id' => $roomId, 'stay_id' => $stayId]);
+        if (!$room) {
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'Room not found for this property.'];
+            header('Location: ' . $back); exit;
+        }
+        // Remove room image files.
+        if (!empty($room['room_images'])) {
+            $imgs = json_decode((string) $room['room_images'], true);
+            if (is_array($imgs)) {
+                $rootPath = realpath(__DIR__ . '/../../../');
+                foreach ($imgs as $im) {
+                    $p = $rootPath . '/' . ltrim((string) ($im['url'] ?? ''), '/');
+                    if (is_file($p)) { @unlink($p); }
+                }
+            }
+        }
+        $db->delete('stays_rooms', ['id' => $roomId, 'stay_id' => $stayId]);
+        // Clean dependent availability/rate rows for this room.
+        $db->delete('stays_inventory', ['stay_id' => $stayId, 'room_id' => $roomId]);
+        $db->delete('stays_rooms_calendar', ['stay_id' => $stayId, 'room_id' => $roomId]);
+        $_SESSION['message'] = ['type' => 'success', 'text' => 'Room deleted.'];
+    } catch (\Throwable $e) {
+        error_log('supplier room delete: ' . $e->getMessage());
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not delete the room.'];
+    }
+    header('Location: ' . $back);
+    exit;
+});
+
+// ---------------------------------------------------------------------------
+// OPTION SAVE (add/edit) — POST /supplier/stays/{id}/rooms/{roomId}/options/save
+// Options are addressed by the STABLE option_id (0/empty = add a new one).
+// ---------------------------------------------------------------------------
+$router->post('/supplier/stays/([0-9]+)/rooms/([0-9]+)/options/save', function ($id, $roomId) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+
+    $stayId = (int) $id;
+    $roomId = (int) $roomId;
+    // Editing an option is a room edit; gate on 'rooms' edit (options live in the room).
+    if (!supplier_can($db, 'rooms', 'edit', $stayId)) {
+        _supplier_stays_deny('You are not authorised to manage this property\'s rates.');
+    }
+    $back = root . 'supplier/stays/' . $stayId . '/rooms';
+
+    // The room must belong to this property.
+    $room = $db->get('stays_rooms', ['id', 'room_options'], ['id' => $roomId, 'stay_id' => $stayId]);
+    if (!$room) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Room not found for this property.'];
+        header('Location: ' . $back); exit;
+    }
+
+    // Load options WITH stable ids assigned.
+    $options  = stays_room_option_ids($db, $roomId, $stayId);
+    $optionId = (int) ($_POST['option_id'] ?? 0);
+
+    $fields = [
+        'max_adults'          => max(1, (int) ($_POST['max_adults'] ?? 2)),
+        'max_children'        => max(0, (int) ($_POST['max_children'] ?? 0)),
+        'price'               => round((float) ($_POST['price'] ?? 0), 2),
+        'discount_percentage' => max(0, min(100, (float) ($_POST['discount_percentage'] ?? 0))),
+        'extra_bed_available' => isset($_POST['extra_bed_available']) ? 1 : 0,
+        'extra_bed_charge'    => round((float) ($_POST['extra_bed_charge'] ?? 0), 2),
+        'breakfast_included'  => isset($_POST['breakfast_included']) ? 1 : 0,
+        'cancellation_free'   => isset($_POST['cancellation_free']) ? 1 : 0,
+        'refundable'          => isset($_POST['refundable']) ? 1 : 0,
+        'available_quantity'  => max(0, (int) ($_POST['available_quantity'] ?? 1)),
+        'status'              => isset($_POST['status']) ? 1 : 0,
+        'board_id'            => (int) ($_POST['board_id'] ?? 0),
+    ];
+    if ($fields['price'] < 0) { $fields['price'] = 0; }
+
+    // Find the target option by STABLE option_id (not position).
+    $foundIndex = -1;
+    if ($optionId > 0) {
+        foreach ($options as $i => $o) {
+            if ((int) ($o['option_id'] ?? 0) === $optionId) { $foundIndex = $i; break; }
+        }
+    }
+
+    try {
+        if ($foundIndex >= 0) {
+            // Update in place — preserve the stable option_id.
+            $options[$foundIndex] = array_merge($options[$foundIndex], $fields, [
+                'option_id' => $optionId,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            $msg = 'Rate updated.';
+        } else {
+            // Add a new option with the next monotonic stable id.
+            $maxId = 0;
+            foreach ($options as $o) { $maxId = max($maxId, (int) ($o['option_id'] ?? 0)); }
+            $fields['option_id'] = $maxId + 1;
+            $fields['created_at'] = date('Y-m-d H:i:s');
+            $fields['updated_at'] = date('Y-m-d H:i:s');
+            $options[] = $fields;
+            $msg = 'Rate added.';
+        }
+        $db->update('stays_rooms',
+            ['room_options' => json_encode(array_values($options)), 'updated_at' => date('Y-m-d H:i:s')],
+            ['id' => $roomId, 'stay_id' => $stayId]);
+        $_SESSION['message'] = ['type' => 'success', 'text' => $msg];
+    } catch (\Throwable $e) {
+        error_log('supplier option save: ' . $e->getMessage());
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not save the rate.'];
+    }
+    header('Location: ' . $back);
+    exit;
+});
+
+// ---------------------------------------------------------------------------
+// OPTION DELETE — POST /supplier/stays/{id}/rooms/{roomId}/options/delete
+// Addressed by STABLE option_id.
+// ---------------------------------------------------------------------------
+$router->post('/supplier/stays/([0-9]+)/rooms/([0-9]+)/options/delete', function ($id, $roomId) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+
+    $stayId   = (int) $id;
+    $roomId   = (int) $roomId;
+    $optionId = (int) ($_POST['option_id'] ?? 0);
+    if (!$optionId || !supplier_can($db, 'rooms', 'edit', $stayId)) {
+        _supplier_stays_deny('You are not authorised to manage this property\'s rates.');
+    }
+    $back = root . 'supplier/stays/' . $stayId . '/rooms';
+
+    $room = $db->get('stays_rooms', ['id'], ['id' => $roomId, 'stay_id' => $stayId]);
+    if (!$room) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Room not found for this property.'];
+        header('Location: ' . $back); exit;
+    }
+
+    try {
+        $options = stays_room_option_ids($db, $roomId, $stayId);
+        $kept = [];
+        $removed = false;
+        foreach ($options as $o) {
+            if ((int) ($o['option_id'] ?? 0) === $optionId) { $removed = true; continue; }
+            $kept[] = $o;
+        }
+        if ($removed) {
+            $db->update('stays_rooms',
+                ['room_options' => json_encode(array_values($kept)), 'updated_at' => date('Y-m-d H:i:s')],
+                ['id' => $roomId, 'stay_id' => $stayId]);
+            // Drop availability/rate rows keyed on this stable option_id.
+            $db->delete('stays_inventory', ['stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $optionId]);
+            $db->delete('stays_rooms_calendar', ['stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $optionId]);
+            $_SESSION['message'] = ['type' => 'success', 'text' => 'Rate deleted.'];
+        } else {
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'Rate not found.'];
+        }
+    } catch (\Throwable $e) {
+        error_log('supplier option delete: ' . $e->getMessage());
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not delete the rate.'];
+    }
+    header('Location: ' . $back);
+    exit;
+});
+
+// ---------------------------------------------------------------------------
+// CALENDAR VIEW — GET /supplier/stays/{id}/rooms/{roomId}/calendar
+// Per-date price + availability for one room's options (one month at a time).
+// ---------------------------------------------------------------------------
+$router->get('/supplier/stays/([0-9]+)/rooms/([0-9]+)/calendar', function ($id, $roomId) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+
+    $stayId = (int) $id;
+    $roomId = (int) $roomId;
+    if (!supplier_can($db, 'rates', 'view', $stayId)) {
+        _supplier_stays_deny('You are not authorised to view this property\'s rates.');
+    }
+    $stay = $db->get('stays', ['id', 'name', 'currency'], ['id' => $stayId, 'user_id' => $owner]);
+    $room = $db->get('stays_rooms', ['id', 'room_type_id'], ['id' => $roomId, 'stay_id' => $stayId]);
+    if (!$stay || !$room) { _supplier_stays_deny('Room not found for this property.'); }
+
+    $year  = (int) ($_GET['year']  ?? date('Y'));
+    $month = (int) ($_GET['month'] ?? date('n'));
+    if ($month < 1 || $month > 12) { $month = (int) date('n'); }
+    if ($year < 2000 || $year > 2100) { $year = (int) date('Y'); }
+    $monthStart = sprintf('%04d-%02d-01', $year, $month);
+    $monthEnd   = date('Y-m-t', strtotime($monthStart));
+
+    $options = stays_room_option_ids($db, $roomId, $stayId);
+
+    // Existing per-date prices for the month (keyed option_id|date).
+    $prices = [];
+    try {
+        $rows = $db->select('stays_rooms_calendar', ['option_id', 'date', 'price'],
+            ['stay_id' => $stayId, 'room_id' => $roomId, 'date[>=]' => $monthStart, 'date[<=]' => $monthEnd]) ?: [];
+        foreach ($rows as $r) { $prices[(int) $r['option_id'] . '|' . $r['date']] = (float) $r['price']; }
+    } catch (\Throwable $e) { error_log('supplier calendar prices: ' . $e->getMessage()); }
+
+    // Existing per-date availability counts for the month (keyed option_id|date).
+    $invCounts = [];
+    try {
+        $rows = $db->select('stays_inventory', ['option_id', 'date', 'available_count', 'closed'],
+            ['stay_id' => $stayId, 'room_id' => $roomId, 'date[>=]' => $monthStart, 'date[<=]' => $monthEnd]) ?: [];
+        foreach ($rows as $r) {
+            $invCounts[(int) $r['option_id'] . '|' . $r['date']] = [
+                'count' => $r['available_count'] === null ? null : (int) $r['available_count'],
+                'closed' => (int) ($r['closed'] ?? 0),
+            ];
+        }
+    } catch (\Throwable $e) { error_log('supplier calendar inv: ' . $e->getMessage()); }
+
+    $taxonomy = _supplier_room_taxonomy($db);
+    $canEdit  = supplier_can($db, 'rates', 'edit', $stayId);
+
+    $title = 'Rates & availability';
+    $description = '';
+    $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/stays/calendar.php";
+    require_once views . "includes/footer.php";
+});
+
+// ---------------------------------------------------------------------------
+// CALENDAR SAVE — POST /supplier/stays/{id}/rooms/{roomId}/calendar/save
+// Saves per-(option_id,date) price and availability count. option_id must be a
+// stable id that EXISTS on this room (validated), so inventory/rate rows always
+// key to a real option.
+// ---------------------------------------------------------------------------
+$router->post('/supplier/stays/([0-9]+)/rooms/([0-9]+)/calendar/save', function ($id, $roomId) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+
+    $stayId = (int) $id;
+    $roomId = (int) $roomId;
+    if (!supplier_can($db, 'rates', 'edit', $stayId)) {
+        _supplier_stays_deny('You are not authorised to edit this property\'s rates.');
+    }
+
+    $year  = (int) ($_POST['year']  ?? date('Y'));
+    $month = (int) ($_POST['month'] ?? date('n'));
+    $back  = root . 'supplier/stays/' . $stayId . '/rooms/' . $roomId . '/calendar?year=' . $year . '&month=' . $month;
+
+    $room = $db->get('stays_rooms', ['id'], ['id' => $roomId, 'stay_id' => $stayId]);
+    if (!$room) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Room not found for this property.'];
+        header('Location: ' . root . 'supplier/stays/' . $stayId . '/rooms'); exit;
+    }
+
+    // The set of stable option_ids that actually exist on this room (whitelist).
+    $options = stays_room_option_ids($db, $roomId, $stayId);
+    $validOptionIds = [];
+    foreach ($options as $o) { $validOptionIds[(int) ($o['option_id'] ?? 0)] = true; }
+
+    // Payloads: prices[optionId][YYYY-MM-DD] and avail[optionId][YYYY-MM-DD],
+    // closed[optionId][YYYY-MM-DD]. Only keys for valid option_ids + real dates
+    // are written. A blank price/availability means "leave as default" (skip).
+    $prices = is_array($_POST['prices'] ?? null) ? $_POST['prices'] : [];
+    $avail  = is_array($_POST['avail'] ?? null)  ? $_POST['avail']  : [];
+    $closed = is_array($_POST['closed'] ?? null) ? $_POST['closed'] : [];
+
+    $now = date('Y-m-d H:i:s');
+    $savedPrices = 0; $savedInv = 0;
+
+    try {
+        // Prices → stays_rooms_calendar (upsert via Medoo: update then insert).
+        foreach ($prices as $oid => $byDate) {
+            $oid = (int) $oid;
+            if (empty($validOptionIds[$oid]) || !is_array($byDate)) { continue; }
+            foreach ($byDate as $date => $val) {
+                if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $date)) { continue; }
+                if ($val === '' || $val === null) { continue; }
+                $price = round((float) $val, 2);
+                if ($price < 0) { $price = 0; }
+                $exists = $db->has('stays_rooms_calendar',
+                    ['stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $oid, 'date' => $date]);
+                if ($exists) {
+                    $db->update('stays_rooms_calendar', ['price' => $price, 'updated_at' => $now],
+                        ['stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $oid, 'date' => $date]);
+                } else {
+                    $db->insert('stays_rooms_calendar', [
+                        'stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $oid,
+                        'date' => $date, 'price' => $price, 'created_at' => $now,
+                    ]);
+                }
+                $savedPrices++;
+            }
+        }
+
+        // Availability counts + closed flag → stays_inventory (upsert).
+        $dateKeys = [];
+        foreach ([$avail, $closed] as $src) {
+            foreach ($src as $oid => $byDate) {
+                if (!is_array($byDate)) { continue; }
+                foreach ($byDate as $date => $_v) { $dateKeys[(int) $oid . '|' . $date] = [(int) $oid, (string) $date]; }
+            }
+        }
+        foreach ($dateKeys as $pair) {
+            [$oid, $date] = $pair;
+            if (empty($validOptionIds[$oid])) { continue; }
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) { continue; }
+            $cntRaw = $avail[$oid][$date] ?? '';
+            $isClosed = !empty($closed[$oid][$date]) ? 1 : 0;
+            // If nothing to set for this cell, skip.
+            if ($cntRaw === '' && $isClosed === 0) { continue; }
+            $count = ($cntRaw === '' || $cntRaw === null) ? null : max(0, (int) $cntRaw);
+            $exists = $db->has('stays_inventory',
+                ['stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $oid, 'date' => $date]);
+            if ($exists) {
+                $upd = ['closed' => $isClosed, 'updated_at' => $now];
+                if ($count !== null) { $upd['available_count'] = $count; }
+                $db->update('stays_inventory', $upd,
+                    ['stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $oid, 'date' => $date]);
+            } else {
+                $db->insert('stays_inventory', [
+                    'stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $oid, 'date' => $date,
+                    'available_count' => $count !== null ? $count : 0, 'closed' => $isClosed, 'created_at' => $now,
+                ]);
+            }
+            $savedInv++;
+        }
+
+        $_SESSION['message'] = ['type' => 'success', 'text' => "Saved {$savedPrices} price(s) and {$savedInv} availability cell(s)."];
+    } catch (\Throwable $e) {
+        error_log('supplier calendar save: ' . $e->getMessage());
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not save the calendar.'];
+    }
+    header('Location: ' . $back);
+    exit;
+});
+
+// ============================================================================
 // BRANDED SITE & DOMAIN (Phase 1 inc 8 — foundation)
 // ============================================================================
 

@@ -27,10 +27,15 @@
   </div>
 
   <?php if ($isEdit): ?>
-    <div class="card p-4 text-sm text-gray-600 flex items-center gap-2">
-      <span class="material-symbols-outlined text-gray-400">info</span>
-      Approval status: <strong class="text-gray-800"><?= htmlspecialchars(ucfirst($s['listing_status'] ?? 'draft')) ?></strong>.
-      A property goes live only after an administrator approves it.
+    <div class="card p-4 text-sm text-gray-600 flex flex-wrap items-center justify-between gap-3">
+      <span class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-gray-400">info</span>
+        Approval status: <strong class="text-gray-800"><?= htmlspecialchars(ucfirst($s['listing_status'] ?? 'draft')) ?></strong>.
+        A property goes live only after an administrator approves it.
+      </span>
+      <a href="<?= root ?>supplier/stays/<?= (int) ($s['id'] ?? 0) ?>/rooms" class="btn emerald text-sm flex-shrink-0">
+        <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">bed</span> Manage rooms &amp; rates</span>
+      </a>
     </div>
   <?php endif; ?>
 
