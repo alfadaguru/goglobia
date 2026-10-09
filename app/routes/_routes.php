@@ -40,6 +40,7 @@ require_once 'app/routes/users/loginRoutes.php';
 require_once 'app/routes/users/signupRoutes.php';
 require_once 'app/routes/users/supplierSignupRoutes.php'; // supplier self-registration + approval gate
 require_once 'app/routes/users/supplierDashboardRoutes.php'; // supplier area (SUPPLIER_AUTH-gated)
+require_once 'app/routes/users/supplierStaysRoutes.php'; // owner-scoped stays CRUD (Phase 1 inc 3)
 require_once 'app/routes/users/logoutRoutes.php';
 require_once 'app/routes/users/emailVerificationRoutes.php';
 require_once 'app/routes/users/passwordResetRoutes.php';

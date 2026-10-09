@@ -230,6 +230,147 @@ function SUPPLIER_AUTH()
     }
 }
 
+// ============================================================================
+// SUPPLIER AUTHORIZATION CORE (Phase 1 — docs/supplier/)
+// ----------------------------------------------------------------------------
+// The single, auditable gate for every supplier-area WRITE. Ownership is keyed
+// on users.user_id (the string), consistent with the admin owner-picker and the
+// supplier dashboard. Admin always bypasses. In increment 3 the acting user IS
+// the owner (role=supplier); staff resolution (acting staff -> parent owner) +
+// per-role permission/property-scope checks are layered in at increments 4-5
+// via supplier_acting_context()/supplier_role_allows() — supplier_can() already
+// calls those hooks so the routes don't change when staff lands.
+// ============================================================================
+
+if (!function_exists('supplier_is_admin')) {
+    /** True when the current session is an admin (admin bypasses supplier gates). */
+    function supplier_is_admin(): bool
+    {
+        return (($_SESSION['user_role'] ?? '') === 'admin')
+            || (!empty($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true);
+    }
+}
+
+if (!function_exists('supplier_acting_context')) {
+    /**
+     * Resolve the acting user into a supplier context:
+     *   ['owner' => <owner users.user_id string>, 'actor' => <acting user_id>,
+     *    'is_owner' => bool, 'role_id' => ?int, 'is_admin' => bool]
+     * or null if the caller is not a supplier (and not admin).
+     *
+     * Increment 3: only a role=supplier user resolves (owner == actor). Increment 5
+     * extends this to resolve an active supplier_staff row to its parent owner +
+     * role_id. Keeping the shape stable now means the routes never change.
+     */
+    function supplier_acting_context($db): ?array
+    {
+        $actor = isset($_SESSION['user_id']) ? (string) $_SESSION['user_id'] : '';
+        if ($actor === '') {
+            return null;
+        }
+        if (supplier_is_admin()) {
+            // Admin acts with no single owner; routes treat is_admin as full access.
+            return ['owner' => '', 'actor' => $actor, 'is_owner' => false, 'role_id' => null, 'is_admin' => true];
+        }
+        if (($_SESSION['user_role'] ?? '') === 'supplier') {
+            return ['owner' => $actor, 'actor' => $actor, 'is_owner' => true, 'role_id' => null, 'is_admin' => false];
+        }
+        // (increment 5) staff resolution hook:
+        if (function_exists('supplier_staff_context')) {
+            $staffCtx = supplier_staff_context($db, $actor);
+            if (is_array($staffCtx)) {
+                return $staffCtx + ['is_admin' => false];
+            }
+        }
+        return null;
+    }
+}
+
+if (!function_exists('supplier_role_allows')) {
+    /**
+     * Does the acting context's role grant $action on $module, within property scope
+     * for $stayId? Increment 3: the OWNER has all permissions on their own
+     * properties, so this returns true for an owner. Increment 4/5 replaces the
+     * body with a real permission-matrix + property-scope check for staff roles.
+     * (Admin is handled earlier and never reaches here.)
+     */
+    function supplier_role_allows($db, array $ctx, string $module, string $action, $stayId = null): bool
+    {
+        if (!empty($ctx['is_owner'])) {
+            return true; // owner is unrestricted on their own inventory
+        }
+        // Staff path (increment 5): check supplier_roles.permissions[$module][$action]
+        // and, when the role is 'selected' scope, that $stayId is in
+        // supplier_role_property. Until staff exists, deny by default (fail-closed).
+        return false;
+    }
+}
+
+if (!function_exists('supplier_can')) {
+    /**
+     * THE gate. Returns true iff the current session may perform $action on $module,
+     * optionally for a specific $stayId (which must be owned by the resolved owner).
+     * Fail-closed: anything unexpected returns false.
+     *
+     *   $module  e.g. 'hotels' | 'rooms' | 'rates'
+     *   $action  e.g. 'add' | 'edit' | 'delete' | 'view'
+     *   $stayId  when set, enforces OWNERSHIP (stays.user_id === owner) + scope.
+     */
+    function supplier_can($db, string $module, string $action, $stayId = null): bool
+    {
+        $ctx = supplier_acting_context($db);
+        if ($ctx === null) {
+            return false;
+        }
+        if (!empty($ctx['is_admin'])) {
+            return true; // admin bypass
+        }
+        // Ownership: when a specific property is named, it MUST belong to the owner.
+        if ($stayId !== null) {
+            try {
+                $row = $db->get('stays', ['user_id'], ['id' => (int) $stayId]);
+            } catch (\Throwable $e) {
+                return false;
+            }
+            if (!$row) {
+                return false;
+            }
+            if ((string) ($row['user_id'] ?? '') !== (string) $ctx['owner']) {
+                return false; // not the owner's property — hard stop (IDOR guard)
+            }
+        }
+        return supplier_role_allows($db, $ctx, $module, $action, $stayId);
+    }
+}
+
+if (!function_exists('supplier_service_quota')) {
+    /**
+     * For an owner + service, return ['max' => ?int, 'used' => int, 'approved' => bool].
+     * 'max' is the admin-approved max_listings (null = no approved quota row);
+     * 'used' counts existing owned listings in that service's table.
+     */
+    function supplier_service_quota($db, string $owner, string $service): array
+    {
+        $out = ['max' => null, 'used' => 0, 'approved' => false];
+        try {
+            $svc = $db->get('supplier_services', ['status', 'max_listings'],
+                ['user_id' => $owner, 'service' => $service]);
+            if ($svc) {
+                $out['approved'] = ($svc['status'] === 'approved');
+                $out['max'] = isset($svc['max_listings']) ? (int) $svc['max_listings'] : null;
+            }
+            // Count existing owned listings in the service's own-inventory table.
+            $table = in_array($service, ['stays', 'flights', 'tours', 'cars', 'bus'], true) ? $service : null;
+            if ($table !== null) {
+                $out['used'] = (int) $db->count($table, ['user_id' => $owner]);
+            }
+        } catch (\Throwable $e) {
+            error_log('supplier_service_quota: ' . $e->getMessage());
+        }
+        return $out;
+    }
+}
+
 // Redirect function
 function redirect($url)
 {
