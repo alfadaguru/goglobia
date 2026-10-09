@@ -1,34 +1,104 @@
-# 01 — Stays / Hotels: the full Hotel ERP
+# 01 — Stays / Hotels: the Hospitality Operating System (360° ERP)
 
-> **Status:** drafted from the inventory/booking-flow audit + industry research
-> (Cloudbeds/Mews/OPERA, Booking.com/Expedia extranets, hotel POS, channel managers,
-> custom-domain SaaS, smart-lock SDKs). Code claims cite `file:line`. This is the
-> largest chapter: stays/hotels is not just a marketplace listing — the owner wants a
-> **complete hotel operating system** the property runs its whole business on.
+> **Status:** architecture spec, drafted from the inventory/booking-flow audit +
+> industry benchmarking (Oracle OPERA, Cloudbeds, Guesty, Hostaway, RMS, SiteMinder,
+> Mews). Code claims cite `file:line`. **Scope correction (this revision):** an earlier
+> version of this chapter specced a strong OTA + PMS + POS spine and called it "the
+> hotel ERP." That spine is necessary but **not sufficient** for a 360° Hospitality
+> Operating System. This revision reframes the target around **18 product domains** and
+> moves the model-level foundations (org hierarchy, accounting ledger, owners/trust
+> accounting, corporate accounts, generic resources, stock, RBAC, workflow, audit) into
+> [`01a-erp-data-foundations.md`](01a-erp-data-foundations.md) — because those are
+> expensive to bolt on after PMS code hardens.
 >
-> Read [`00-supplier-platform.md`](00-supplier-platform.md) first — identity,
-> onboarding, per-service & per-listing approval, quotas, and payouts are defined
-> there and apply here.
+> Read [`00-supplier-platform.md`](00-supplier-platform.md) (identity/onboarding/
+> approval/quotas/payouts) and [`01a-erp-data-foundations.md`](01a-erp-data-foundations.md)
+> (the data model) first.
 
 ---
 
-## 0. The vision in one paragraph
+## 0. The target: a Hospitality Operating System, not a listing
 
-A hotel signs up as a supplier, is approved, and gets a single system that: (1) lists
-its rooms for sale on the goglobia marketplace (OTA), (2) runs its **front desk** —
-walk-in guests, reservations, check-in/out, folios, (3) manages **housekeeping** and
-**maintenance**, (4) runs its **restaurants** (multiple, with POS and charge-to-room),
-(5) publishes its **own branded booking website** on its **own domain**, and (6) — in a
-future phase — issues **mobile/PIN door keys** through smart locks bought from us.
-Every channel (walk-in, our marketplace, the hotel's own site, future OTAs) draws from
-**one pooled inventory** so a room is never double-sold. This is Cloudbeds/Mews-class
-scope; we build it in phases (§10), but we design the data model for all of it now.
+**Conceptual frame (the one that matters):** not *Supplier → Hotel Listing*, but
+**Hospitality Organization → Property/Portfolio Operating System → Distribution**, where
+the GoGlobia marketplace is **one sales channel inside the property's own OS** — beside
+its direct site, walk-ins, phone, and future external OTAs, all on one pooled inventory
+and one ledger. The goal a property should be able to say:
+
+> *"I can stop using my accounting package, spreadsheets, WhatsApp, stock book,
+> maintenance book, owner-statement software, housekeeping sheets, CRM, attendance
+> system, payment tracker and separate OTA tools — because GoGlobia runs the operation."*
+
+### The 18 product domains (the full scope)
+The stays supplier portal is organized around these domains. §§ below + the foundations
+doc detail each; the roadmap sequences them.
+
+| # | Domain | Core of it |
+|---|---|---|
+| 1 | **Marketplace & Distribution** | GoGlobia listing, channel manager, booking engine, direct site, rates, inventory |
+| 2 | **PMS & Front Office** | reservations, front desk, walk-ins, rooms, folios, cashier/shift, night audit |
+| 3 | **Guest Experience** | guest CRM, unified inbox, digital check-in, guest portal, service requests, upsells, loyalty, reviews, journey automation |
+| 4 | **Housekeeping** | room tasks, inspections, laundry/linen, minibar, lost & found |
+| 5 | **Engineering & Maintenance** | assets/CMMS, preventive maintenance, work orders, contractors |
+| 6 | **F&B / POS** | restaurants/bars, KDS, recipes/food-cost, stock, charge-to-room |
+| 7 | **Events & Banquets (MICE)** | function spaces, BEOs, room blocks, catering, event folio |
+| 8 | **Sales & Commercial CRM** | companies, agencies, leads, contracts, negotiated rates, commissions |
+| 9 | **Revenue Management (RMS)** | forecast, pickup/pace, dynamic pricing, yield, market intel |
+| 10 | **Finance** | GL, AR, AP, cashbook, bank rec, taxes, P&L/BS/cash-flow, budgeting, fiscal close |
+| 11 | **Procurement & Inventory** | vendors, PR/RFQ/PO/GRN, three-way match, stores/warehouses, stock control |
+| 12 | **Workforce** | staff, departments, shifts/rosters, attendance/clock-in, leave, tasks, approvals |
+| 13 | **Apartment & Owner Management** | owners, owner portal/statements, management commissions, trust/client accounting |
+| 14 | **Long-Stay / Tenancy** | leases, recurring rent, deposits, move-in/out inspections, utilities, arrears |
+| 15 | **Property & Asset Operations** | buildings/units, parking, utilities, IoT, smart locks |
+| 16 | **Analytics & BI** | operational, financial, commercial, portfolio KPIs + forecasting |
+| 17 | **Automation & AI** | workflow (WHEN→IF→THEN) engine, AI guest assistant, revenue suggestions, anomaly detection |
+| 18 | **Platform & Integrations** | REST API, webhooks, audit, documents, compliance, multi-property, security, data migration |
+
+> **Build reality:** Phase 1 (shipped) covers slices of domains 1, 2, 3, 4-adjacent,
+> 12-adjacent, 15-adjacent. Domains 5–11, 13, 14, 16, 17 and most of 18 are net-new,
+> built in later phases on the foundations in `01a`. The PMS-spine sections that follow
+> remain accurate for domains 1–6; the new domains are summarized in §12 and detailed as
+> they are scheduled.
+
+---
+
+## 0b. The PMS spine (domains 1–6, in one paragraph)
+
+A property lists rooms on the marketplace (1), runs its **front desk** — walk-ins,
+reservations, check-in/out, folios, cashier, night audit (2), serves guests (3), manages
+**housekeeping** (4) and **maintenance** (5), runs its **restaurants** with POS +
+charge-to-room (6), publishes its **own branded site** on its **own domain**, and — later
+— issues **smart-lock keys**. Every channel draws from **one pooled inventory** so a room
+is never double-sold. This spine is Cloudbeds/Mews-class; the sections below detail it.
+The **360° ERP** adds domains 7–18 on top (see §12 + `01a`).
 
 ---
 
 ## 1. What exists today (the honest starting line)
 
-From the audit — the stays substrate we build on:
+> **Reconciled against real commits (this revision).** The table below is the
+> *pre-Phase-1 baseline*. **Phase 1 has since SHIPPED in code** (commits `0e8fe3c`…
+> `8403c73`) and changed several rows — do not read the baseline as current:
+> - **Supplier write surface: BUILT** — owner-scoped `/supplier/stays/*` CRUD
+>   (`app/routes/users/supplierStaysRoutes.php`, inc 3). The "coming soon" note is gone.
+> - **Real inventory + atomic holds: BUILT** — `app/lib/stays_inventory.php`
+>   (`stays_hold_create` = `SELECT … FOR UPDATE` per night, inc 6). Availability is no
+>   longer fictional for manual stays whose clients send `room_id`+`option_id`.
+> - **`option_id` stabilized** (inc 6) — persistent ids inside `room_options`.
+> - **Per-listing approval: BUILT** — `stays.listing_status` + admin review
+>   (`/admin/supplier-listings`, inc 7); public search filters approved+live.
+> - **Supplier staff + roles: BUILT** — `supplier_roles`/`supplier_staff` + invitation
+>   token flow (inc 4–5).
+> - **Branded site: FOUNDATION built** — `stays_site` + host resolver + preview (inc 8);
+>   full direct-booking engine + custom-domain TLS still net-new.
+> - **Still NOT built (audit correct):** normalized rate *plans* (we have JSON
+>   `room_options` + a stable id, not `stays_rate_plans`), supplier payouts, channel
+>   manager, full PMS (front desk/folio/night audit), POS, and all of domains 7–18.
+>
+> See [`supplier-stays-phase1-build`] in memory / the `06-roadmap` for the precise
+> built-vs-net-new split.
+
+From the audit — the pre-Phase-1 stays substrate:
 
 | Thing | Reality | Cite |
 |---|---|---|
@@ -340,6 +410,118 @@ housekeeping, maintenance, restaurant staff. The current model has one `supplier
 - Precedent: the app already has a role concept (`users_roles`) and an agent/agency
   owner→member idea in umrah groups; the sub-user model generalizes that for a property
   team. Scope every staff action to the parent property's `user_id`.
+
+---
+
+## 9b. The ERP domains beyond the PMS spine (7–18)
+
+The PMS spine (§§3–8) is domains 1–6. A 360° Hospitality OS adds the following. Each
+builds on [`01a-erp-data-foundations.md`](01a-erp-data-foundations.md); none are built
+yet. Capability depth is benchmarked against OPERA / Cloudbeds / Guesty / Hostaway /
+RMS / SiteMinder.
+
+### Domain 7 — Events & Banquets (MICE)
+Hotels sell more than bedrooms: conference halls, ballrooms, meeting/breakout rooms,
+gardens, wedding venues. Model on the **generic resource engine** (`01a` §6). Needs:
+function spaces + capacities + seating configs, availability calendar, enquiry→lead→
+quote→contract, **Banquet Event Order (BEO)**, event packages/menus/catering,
+equipment/AV, setup + staffing, deposit schedule, **event folio + invoice**, room-block
+integration (ties to groups), event calendar, event profitability. Strong African
+differentiator (functions are mostly run on notebooks/WhatsApp today).
+
+### Domain 8 — Sales & Commercial CRM (+ groups)
+Two CRM domains, not one: **guest CRM** (360 profile, preferences, history, loyalty) and
+**commercial CRM** (companies, agencies, leads, contracts). On the **party model**
+(`01a` §4). Needs: leads + pipeline + salesperson ownership + tasks, company/agency
+accounts with negotiated rates + credit terms + authorized bookers + AR, quotes/
+contracts, agent commissions + statements. **Group reservations** belong here + in PMS:
+group profile → room **block** → allocation → cut-off/release → rooming list → **master
+folio** with route-charges (individual-pay / company-pay mix) → group deposit/invoice →
+pickup reporting. (Groups are PMS-core, not a luxury add-on.)
+
+### Domain 9 — Revenue Management (RMS)
+Beyond seasonal rules: occupancy/revenue **forecast**, booking **pace/pickup**, lead
+time, demand + event calendars, competitor rates, min-stay + pricing **recommendations**,
+automatic rate rules, yield controls, overbooking optimization, channel-cost-aware net
+RevPAR. KPIs: ADR, RevPAR, TRevPAR, GOPPAR. Later an **AI Revenue Manager** (domain 17).
+
+### Domain 10 — Finance (the ERP backbone)
+The full accounting layer (`01a` §2): **GL** + chart of accounts + journal entries,
+**AR** (company/agent subledger + ageing + statements + collections), **AP** (vendor
+subledger), cashbook + bank accounts + **bank reconciliation**, **cashier/shift**
+accounting (`01a` §3) feeding night audit, expenses + petty cash, credit/debit notes,
+department/cost-centre accounting, **multi-currency** (`01a` §8) + FX gain/loss,
+**tax engine** (`01a` §9), budget-vs-actual, fiscal-period close, audit journals, and
+**P&L / balance sheet / cash-flow** statements. Hospitality subledger **posts into** the
+GL (not the folio-as-GL). Kept distinct from GoGlobia's supplier-settlement spine.
+
+### Domain 11 — Procurement & Inventory (stores/stock)
+`Purchase Request → approval → RFQ → quote compare → PO → Goods-Received Note →
+supplier invoice → AP → payment`, with three-way matching + preferred vendors +
+contract pricing. **Stores/stock** (`01a` §7): products/SKUs/UoM, warehouses (kitchen/
+bar/housekeeping/maintenance/minibar/central), receipts/issues/transfers/adjustments/
+counts/waste, reorder levels, batch/expiry, FIFO/weighted-avg valuation. **Integrated**:
+POS sale → consume bar stock; room clean → consume supplies; kitchen item → consume
+recipe ingredients (**recipe/BOM → food-cost %**, extends §5 POS); minibar → consume +
+post to folio. Linen/laundry accounting + asset registry (`01a` §7 / domain 5).
+
+### Domain 12 — Workforce
+Beyond auth (`supplier_staff` solves login, not HR). Needs: employee profiles,
+departments/job-titles, **shifts + rosters**, **clock-in/out + attendance**, leave +
+overtime + timesheets, task assignment (ties to housekeeping/maintenance/service
+requests), performance/KPI, training/certification, payroll **export** (not full NG
+payroll in v1). Priority order: roster + shifts + attendance + time-clock first.
+
+### Domain 13 — Apartment & Owner Management
+The biggest apartment-specific gap (`01a` §5). Distinguish **operator** (GoGlobia
+supplier) from **owner** (landlord). Needs: owner profiles (multi-property, co-ownership
+%), management agreements (commission/fees/terms), owner expenses/income, owner blocked
+dates, **owner statements** (gross − OTA fees − platform/manager commission − cleaning/
+repairs/utilities − taxes → payout + balance; PDF+Excel+portal), **owner portal**, and
+**trust / client-money accounting** (segregated guest/platform/manager/owner/deposit
+funds, three-way balancing). Four operating models share one core: hotel · aparthotel ·
+short-let (multi-owner) · long-stay.
+
+### Domain 14 — Long-Stay / Tenancy
+For monthly/corporate apartments: tenant profile, **lease** (start/end, escalation),
+recurring **rent** invoicing + arrears + late fees, deposit/bond, **move-in/out
+inspections**, renewals, utility charges, notice period, occupant list, documents. A
+`unit` is short-stay | long-stay | hybrid (from `01a` §1).
+
+### Domain 15 — Property & Asset Operations
+Buildings/units, **parking** (bays, plate, bay assignment, charge-to-folio), **utilities**
+(meters/sub-meters, owner- vs guest-paid, recurring billing), **fixed-asset registry**
+(serial/warranty/location/depreciation/QR tags), **IoT** beyond locks (thermostats,
+energy, occupancy/leak sensors, gates). Smart locks (§8) are one node here.
+
+### Domain 16 — Analytics & BI
+A real BI layer over all domains: occupancy/ADR/RevPAR/TRevPAR/GOPPAR, ALOS, lead time,
+cancellation/no-show, channel mix + acquisition cost, direct-booking ratio, repeat-guest
+rate + CLV, housekeeping/maintenance cost per room, food-cost %/labour-cost %,
+revenue/employee, AR ageing, cash forecast, department P&L, supplier performance, owner
++ apartment-portfolio profitability. Plus **forecasting** (occupancy/revenue/cash/
+staffing/stock/maintenance) — an AI layer later.
+
+### Domain 17 — Automation & AI
+The **workflow/event engine** (`01a` §11): WHEN→IF→THEN rules on domain events
+(confirmations, task creation, escalations, upsell triggers, credit-control, review
+recovery, owner notifications), eventually author-able by supplier admins. Plus **guest
+journey automation** (inquiry→pre-arrival→arrival→in-house→checkout→post-stay→repeat),
+AI guest assistant, revenue suggestions, anomaly detection.
+
+### Domain 18 — Platform & Integrations
+REST API + webhooks + OAuth/API-keys + event subscriptions + sandbox + rate limits +
+logs + retries; an **integration marketplace** (accounting, door locks, payment
+gateways, PBX, TV/Wi-Fi, ID scanners, fiscal printers, energy, revenue managers, OTAs,
+POS hardware). Plus **multi-property/chain** hierarchy + a **Central Reservation System**
+(cross-property search/transfer/call-centre/loyalty/contracts), **document store +
+compliance** (`01a` §13), platform-wide **audit** (`01a` §12), and **data migration**
+importers (commercially critical to win hotels off other PMSs). Guest **unified inbox**
+(GoGlobia + direct + Booking.com + Expedia + Airbnb + WhatsApp/email/SMS on one screen),
+digital registration/self check-in + guest portal/PWA + **service-request** module +
+**upsell/ancillary engine** (which can cross-sell GoGlobia flights/cars/eSIM/tours to a
+hotel guest — a unique multi-vertical advantage) also live in the Guest Experience
+domain (3) and surface here via the platform APIs.
 
 ---
 
