@@ -7585,6 +7585,108 @@ function ensureSupplierStaysSchema($db): void
             $db->query("ALTER TABLE `settings` ADD COLUMN `supplier_payouts_live` VARCHAR(1) NOT NULL DEFAULT '0'");
         }
 
+        // --- HOSPITALITY GENERAL LEDGER (inc S20; docs 01a §2/§3) -------------------
+        // The PROPERTY'S OWN double-entry books — a THIRD ledger, DISTINCT from the
+        // customer wallet spine AND the supplier payout spine (none of these tables
+        // touch wallets/supplier_earnings). Foundations modelled now, posted into by
+        // later PMS/POS domains. Managed by app/lib/supplier_ledger.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `chart_of_accounts` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `code` VARCHAR(20) NOT NULL,
+            `name` VARCHAR(120) NOT NULL,
+            `type` ENUM('asset','liability','equity','revenue','expense') NOT NULL,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_org_code` (`org_id`,`code`),
+            KEY `idx_org` (`org_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // journal_entries: immutable once posted; `amount` = the balanced total.
+        $db->query("CREATE TABLE IF NOT EXISTS `journal_entries` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `property_id` INT(11) DEFAULT NULL,
+            `entry_date` DATE NOT NULL,
+            `memo` VARCHAR(255) DEFAULT NULL,
+            `source` VARCHAR(40) DEFAULT 'manual',
+            `reference` VARCHAR(100) DEFAULT NULL,
+            `currency` CHAR(3) DEFAULT NULL,
+            `amount` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+            `posted_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_org_date` (`org_id`,`entry_date`),
+            KEY `idx_source` (`source`),
+            KEY `idx_reference` (`reference`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // journal_lines: the debits/credits of an entry (each line is debit XOR credit).
+        $db->query("CREATE TABLE IF NOT EXISTS `journal_lines` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `entry_id` BIGINT(20) NOT NULL,
+            `org_id` INT(11) NOT NULL,
+            `account_id` INT(11) NOT NULL,
+            `debit` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+            `credit` DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+            `memo` VARCHAR(255) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_entry` (`entry_id`),
+            KEY `idx_org_acct` (`org_id`,`account_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // fiscal_periods: posting into a 'closed' period is refused (gl_period_is_open).
+        $db->query("CREATE TABLE IF NOT EXISTS `fiscal_periods` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `name` VARCHAR(60) NOT NULL,
+            `start_date` DATE NOT NULL,
+            `end_date` DATE NOT NULL,
+            `status` ENUM('open','closed') NOT NULL DEFAULT 'open',
+            `closed_at` DATETIME DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_org` (`org_id`),
+            KEY `idx_range` (`org_id`,`start_date`,`end_date`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // cashier_shifts + cash_movements (01a §3).
+        $db->query("CREATE TABLE IF NOT EXISTS `cashier_shifts` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `user_id` VARCHAR(155) NOT NULL,
+            `station` VARCHAR(60) DEFAULT NULL,
+            `opening_float` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `closing_counted` DECIMAL(14,2) DEFAULT NULL,
+            `expected_amount` DECIMAL(14,2) DEFAULT NULL,
+            `over_short` DECIMAL(14,2) DEFAULT NULL,
+            `status` ENUM('open','closed') NOT NULL DEFAULT 'open',
+            `opened_at` DATETIME DEFAULT NULL,
+            `closed_at` DATETIME DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_org_status` (`org_id`,`status`),
+            KEY `idx_user` (`user_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `cash_movements` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `shift_id` INT(11) NOT NULL,
+            `org_id` INT(11) NOT NULL,
+            `type` ENUM('received','paid_out','refund','safe_drop') NOT NULL,
+            `amount` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `reference` VARCHAR(100) DEFAULT NULL,
+            `memo` VARCHAR(255) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_shift` (`shift_id`),
+            KEY `idx_org` (`org_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // stays hierarchy keys + operating model. Nullable/defaulted so existing rows
         // are untouched; each guarded by SHOW COLUMNS (idempotent).
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'org_id'")->fetch()) {

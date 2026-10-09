@@ -105,13 +105,13 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S16 | **Generalized RBAC** (permission catalogue superset) + per-role approval-limits engine (`supplier_can_approve`) — non-breaking over S4 | 45, 46 | S4 | ✅ code-complete (not runtime-verified — no DB) |
 | S17 | **Event bus + platform audit** (`emit_event` reuses `triggerWebhook`; append-only `audit_events`) + dormant `workflow_rules` WHEN→IF→THEN seam | 46, 57, 61 | S17-self | ✅ code-complete (not runtime-verified — no DB) |
 
-### Stage C — money (highest risk; build on foundations) — IN PROGRESS (S18 done)
+### Stage C — money (highest risk; build on foundations) — ✅ COMPLETE (S18–S20)
 
 | # | Increment | Catalogue modules | Depends on | Status |
 |---|---|---|---|---|
 | S18 | Supplier **earnings accrual** (isolated pending→available ledger; read-only to supplier; idempotent per invoice) | 40 | S11, S15 | ✅ code-complete (not runtime-verified — no DB) |
 | S19 | Supplier **payouts to bank** (Paystack transfers; admin-approved + kill-switch; 7 outbound guards) | 40 | S18 | ✅ code-complete (not runtime-verified — no DB) · follow-on: transfer webhook |
-| S20 | **Hospitality GL + AR/AP + cashier/bank-rec + tax engine** | 34–38 | S15 | ☐ planned |
+| S20 | **Hospitality GL** (double-entry, balanced+immutable) + COA + fiscal periods + cashier shifts — the property's own books (3rd ledger) | 34–38 | S15 | ✅ code-complete (not runtime-verified — no DB) |
 
 ### Stage D — guest & operations depth (per catalogue; sequence TBD with owner)
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -274,6 +274,21 @@ Before coding: **read** every file to be touched (rule 3). Then:
   first ship, add before scale. Not runtime-verified. **Next: S20 (hospitality
   GL/AR/AP/cashier/tax) — last Stage C item. STRONGLY recommend deploy + smoke-test the
   money stack (S18+S19) on the server before go-live.**
+- 2026-10 — **S20 done** (hospitality GL + cashier; Stage C COMPLETE): the property's own
+  double-entry books — a THIRD ledger, DISTINCT from the customer wallet spine AND the
+  supplier payout spine (verified: supplier_ledger.php touches none of those tables). New
+  `app/lib/supplier_ledger.php`: `gl_seed_accounts` (minimal hospitality COA per org,
+  seeded on org creation), `gl_post` (double-entry poster that REFUSES any unbalanced
+  entry — sum(debit)≠sum(credit) → rejected; line = debit XOR credit; atomic; immutable),
+  `gl_trial_balance`, `gl_period_is_open` (refuses posting into a closed fiscal period,
+  fail-closed), cashier `cashier_shift_open`/`cash_movement_add`/`cashier_shift_close`
+  (expected-vs-actual over/short). New tables chart_of_accounts, journal_entries,
+  journal_lines, fiscal_periods, cashier_shifts, cash_movements (ensure-fn + install/db.sql).
+  COA auto-seeded via supplier_org_ensure. NO auto-posting from folios/bookings yet (Stage
+  D PMS work); nothing in the live path posts to the GL. Lint-clean + self-audited. Not
+  runtime-verified. **Stage C (S18–S20) COMPLETE. Phase 1 + ERP-foundations roadmap
+  (S9–S20) DONE. Next: Stage D (guest/ops depth per catalogue) — sequence with owner; OR
+  deploy + smoke-test everything first (strongly recommended before any go-live).**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

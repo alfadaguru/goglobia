@@ -28718,6 +28718,118 @@ CREATE TABLE `supplier_payouts` (
 -- --------------------------------------------------------
 
 --
+-- Hospitality General Ledger (inc S20; docs/supplier/01a §2/§3). The PROPERTY's own
+-- double-entry books — a THIRD ledger, DISTINCT from the customer wallet spine AND
+-- the supplier payout spine (none of these touch wallets/supplier_earnings). Posted
+-- by app/lib/supplier_ledger.php::gl_post() (balanced + immutable). Foundations now;
+-- automatic folio/POS posting is later (Stage D).
+--
+CREATE TABLE `chart_of_accounts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `code` varchar(20) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `type` enum('asset','liability','equity','revenue','expense') NOT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_org_code` (`org_id`,`code`),
+  KEY `idx_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `journal_entries` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `property_id` int(11) DEFAULT NULL,
+  `entry_date` date NOT NULL,
+  `memo` varchar(255) DEFAULT NULL,
+  `source` varchar(40) DEFAULT 'manual',
+  `reference` varchar(100) DEFAULT NULL,
+  `currency` char(3) DEFAULT NULL,
+  `amount` decimal(16,2) NOT NULL DEFAULT 0.00,
+  `posted_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_org_date` (`org_id`,`entry_date`),
+  KEY `idx_source` (`source`),
+  KEY `idx_reference` (`reference`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `journal_lines` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `entry_id` bigint(20) NOT NULL,
+  `org_id` int(11) NOT NULL,
+  `account_id` int(11) NOT NULL,
+  `debit` decimal(16,2) NOT NULL DEFAULT 0.00,
+  `credit` decimal(16,2) NOT NULL DEFAULT 0.00,
+  `memo` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_entry` (`entry_id`),
+  KEY `idx_org_acct` (`org_id`,`account_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `fiscal_periods` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `name` varchar(60) NOT NULL,
+  `start_date` date NOT NULL,
+  `end_date` date NOT NULL,
+  `status` enum('open','closed') NOT NULL DEFAULT 'open',
+  `closed_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_org` (`org_id`),
+  KEY `idx_range` (`org_id`,`start_date`,`end_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `cashier_shifts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `user_id` varchar(155) NOT NULL,
+  `station` varchar(60) DEFAULT NULL,
+  `opening_float` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `closing_counted` decimal(14,2) DEFAULT NULL,
+  `expected_amount` decimal(14,2) DEFAULT NULL,
+  `over_short` decimal(14,2) DEFAULT NULL,
+  `status` enum('open','closed') NOT NULL DEFAULT 'open',
+  `opened_at` datetime DEFAULT NULL,
+  `closed_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org_status` (`org_id`,`status`),
+  KEY `idx_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `cash_movements` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `shift_id` int(11) NOT NULL,
+  `org_id` int(11) NOT NULL,
+  `type` enum('received','paid_out','refund','safe_drop') NOT NULL,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `reference` varchar(100) DEFAULT NULL,
+  `memo` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_shift` (`shift_id`),
+  KEY `idx_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Normalized rate-plan MIRROR over room_options (inc S12). room_options JSON
 -- stays the canonical runtime source; these mirror each option (keyed by the
 -- stable option_id) so the rate model is relational. Kept in sync by

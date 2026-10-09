@@ -46,7 +46,13 @@ if (!function_exists('supplier_org_ensure')) {
                 'status'        => 1,
                 'created_at'    => date('Y-m-d H:i:s'),
             ]);
-            return (int) $db->id();
+            $newOrgId = (int) $db->id();
+            // Seed the org's chart of accounts (inc S20; idempotent, non-fatal).
+            if ($newOrgId > 0 && function_exists('gl_seed_accounts')) {
+                try { gl_seed_accounts($db, $newOrgId); }
+                catch (\Throwable $e) { error_log('supplier_org_ensure COA seed: ' . $e->getMessage()); }
+            }
+            return $newOrgId;
         } catch (\Throwable $e) {
             error_log('supplier_org_ensure: ' . $e->getMessage());
             return 0;
