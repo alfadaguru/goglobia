@@ -28553,6 +28553,32 @@ CREATE TABLE `supplier_brands` (
 -- --------------------------------------------------------
 
 --
+-- Party model (inc S15; docs/supplier/01a §4). One typed identity spine for
+-- guests/companies/agents/vendors/owners/employees. Additive seam: nothing in the
+-- live path reads it yet. Backfilled from users by app/lib/supplier_parties.php.
+--
+CREATE TABLE `parties` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `type` enum('guest','company','agent','vendor','owner','employee') NOT NULL DEFAULT 'guest',
+  `name` varchar(191) DEFAULT NULL,
+  `email` varchar(191) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `user_id` varchar(155) DEFAULT NULL,
+  `external_ref` varchar(191) DEFAULT NULL,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_user` (`user_id`),
+  KEY `idx_type` (`type`),
+  KEY `idx_org` (`org_id`),
+  KEY `idx_email` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Normalized rate-plan MIRROR over room_options (inc S12). room_options JSON
 -- stays the canonical runtime source; these mirror each option (keyed by the
 -- stable option_id) so the rate model is relational. Kept in sync by

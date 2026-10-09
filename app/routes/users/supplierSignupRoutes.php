@@ -229,6 +229,13 @@ $router->post('/supplier-signup', function () use ($SECURE, $db) {
             }
         }
 
+        // Party-model seam (inc S15): create the vendor party for this new supplier
+        // going forward. Non-fatal; nothing in the live path depends on it yet.
+        if (function_exists('party_ensure_for_user')) {
+            try { party_ensure_for_user($db, $custom_user_id); }
+            catch (\Throwable $e) { error_log('supplier signup: party_ensure: ' . $e->getMessage()); }
+        }
+
         if (function_exists('triggerWebhook')) {
             triggerWebhook('users/signup', 'signup.success', [
                 'user_id'    => $custom_user_id,

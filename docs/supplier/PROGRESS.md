@@ -101,7 +101,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | # | Increment | Catalogue modules | Depends on | Status |
 |---|---|---|---|---|
 | S14 | **Org→brand→property→unit hierarchy** keys + backfill (+ configurable `accommodation_type`) — additive seam | 02, 03 | S1 | ✅ code-complete (not runtime-verified — no DB) |
-| S15 | **Party model** (guests/companies/agents/vendors/owners as typed parties) | 15, 18, 43, 48 | S14 | ☐ planned |
+| S15 | **Party model** (guests/companies/agents/vendors/owners/employees as typed parties) — additive seam + user backfill | 15, 18, 43, 48 | S14 | ✅ code-complete (not runtime-verified — no DB) |
 | S16 | **Generalized RBAC** (permission→role→user catalogue) + approval-limits engine | 45, 46 | S4 | ☐ planned |
 | S17 | **Workflow/event bus** (WHEN→IF→THEN) + platform **audit event** | 46, 57, 61 | S17-self | ☐ planned |
 
@@ -202,5 +202,23 @@ Before coding: **read** every file to be touched (rule 3). Then:
   org_id + validated accommodation_type; edit persists it; form got an Accommodation-type
   select. CRITICAL: NO reader depends on the hierarchy — ownership still resolves on
   stays.user_id; live path untouched (populated seam, like S12). Schema in ensure-fn +
-  install/db.sql. Lint-clean + self-audited. Not runtime-verified (no DB). **Next: S15
-  (party model) — guests/companies/agents/vendors/owners as typed parties.**
+  install/db.sql. Lint-clean + self-audited. Not runtime-verified (no DB).
+- 2026-10 — **S15 done** (party model): additive seam from 01a §4. New `parties` table
+  (type guest/company/agent/vendor/owner/employee; nullable org_id + user_id link, UNIQUE
+  uq_user). New `app/lib/supplier_parties.php` (`party_type_for_role`,
+  `party_ensure_for_user`, `party_for_user`, `party_backfill_users`) required in
+  config.php. Backfill creates a party for every existing user that lacks one — idempotent
+  + re-entrant (per-row `has()` guard + uq_user key; bounded 2000/call), no one-time flag
+  needed; runs from ensureSupplierStaysSchema. Supplier signup stamps the vendor party
+  going forward. Role→type: customer→guest, agent→agent, supplier→vendor, admin→employee.
+  CRITICAL: NO reader uses parties yet — identity still on users.user_id / booking rows;
+  live path untouched. Subtype extension tables (guest_profile/company_account/…) deferred
+  to the domains that consume them. Schema in ensure-fn + install/db.sql. Lint-clean +
+  self-audited. Not runtime-verified. **Next: S16 (generalized RBAC + approval limits).**
+
+> **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
+> (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique
+> indexes included) + `ALTER … ADD COLUMN` for new columns. The BACKFILLS (org promotion,
+> party creation) are NOT run by that tool — they live in `ensureSupplierStaysSchema()`
+> and run on a page load. Deploy = /updates (files) → admin DB Update (DDL) → load an
+> admin page (backfills, idempotent).

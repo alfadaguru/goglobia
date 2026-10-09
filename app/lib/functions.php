@@ -7271,6 +7271,44 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_org` (`org_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- PARTY MODEL (inc S15; docs 01a §4) -------------------------------------
+        // One typed identity spine so the later domains (guest CRM, commercial CRM,
+        // AR/AP, owner accounting, procurement) share a single "who". Additive seam:
+        // nothing in the live path reads it yet. A party optionally links to a
+        // users.user_id (unique when present) and/or an org. The subtype extension
+        // tables (guest_profile/company_account/agent_account/vendor_account/
+        // owner_account) are deferred to the domain that first needs them. Backfill +
+        // forward-stamping live in app/lib/supplier_parties.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `parties` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `type` ENUM('guest','company','agent','vendor','owner','employee') NOT NULL DEFAULT 'guest',
+            `name` VARCHAR(191) DEFAULT NULL,
+            `email` VARCHAR(191) DEFAULT NULL,
+            `phone` VARCHAR(40) DEFAULT NULL,
+            `user_id` VARCHAR(155) DEFAULT NULL,
+            `external_ref` VARCHAR(191) DEFAULT NULL,
+            `status` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_user` (`user_id`),
+            KEY `idx_type` (`type`),
+            KEY `idx_org` (`org_id`),
+            KEY `idx_email` (`email`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // Idempotent backfill: create a party for every existing user that doesn't
+        // already have one (so re-running only fills gaps — no one-time flag needed).
+        // Type mapped from users.role; org resolved for supplier owners. Non-fatal.
+        try {
+            if (function_exists('party_backfill_users')) {
+                party_backfill_users($db, 2000);
+            }
+        } catch (\Throwable $e) {
+            error_log('ensureSupplierStaysSchema party backfill: ' . $e->getMessage());
+        }
+
         // stays hierarchy keys + operating model. Nullable/defaulted so existing rows
         // are untouched; each guarded by SHOW COLUMNS (idempotent).
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'org_id'")->fetch()) {
