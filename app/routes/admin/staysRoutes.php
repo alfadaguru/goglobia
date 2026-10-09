@@ -1618,6 +1618,9 @@ $router->post('/admin/stays/rooms/options/save', function() use ($db) {
             'stay_id' => $hotel_id
         ]);
 
+        // Keep the normalized rate-plan mirror in step (inc S12; non-fatal).
+        if (function_exists('stays_rate_plan_sync')) { stays_rate_plan_sync($db, (int) $hotel_id, (int) $room_id); }
+
         echo json_encode([
             'success' => true,
             'message' => 'Room option saved successfully',
@@ -1678,6 +1681,9 @@ $router->post('/admin/stays/rooms/options/delete', function() use ($db) {
                 'id' => $room_id,
                 'stay_id' => $hotel_id
             ]);
+
+            // Keep the normalized rate-plan mirror in step (inc S12; non-fatal).
+            if (function_exists('stays_rate_plan_sync')) { stays_rate_plan_sync($db, (int) $hotel_id, (int) $room_id); }
 
             echo json_encode([
                 'success' => true,

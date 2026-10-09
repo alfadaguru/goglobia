@@ -28515,6 +28515,60 @@ CREATE TABLE `stays_site` (
 -- --------------------------------------------------------
 
 --
+-- Normalized rate-plan MIRROR over room_options (inc S12). room_options JSON
+-- stays the canonical runtime source; these mirror each option (keyed by the
+-- stable option_id) so the rate model is relational. Kept in sync by
+-- stays_rate_plan_sync() (app/lib/stays_rate_plans.php).
+--
+CREATE TABLE `stays_rate_plans` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `stay_id` int(11) NOT NULL,
+  `room_id` int(11) NOT NULL,
+  `option_id` int(11) NOT NULL,
+  `name` varchar(191) DEFAULT NULL,
+  `board_id` int(11) DEFAULT NULL,
+  `refundable` tinyint(1) NOT NULL DEFAULT 0,
+  `cancellation_free` tinyint(1) NOT NULL DEFAULT 0,
+  `breakfast_included` tinyint(1) NOT NULL DEFAULT 0,
+  `max_adults` int(11) NOT NULL DEFAULT 2,
+  `max_children` int(11) NOT NULL DEFAULT 0,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_plan` (`stay_id`,`room_id`,`option_id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Base (default) rate figures per rate plan — the relational mirror of the
+-- option's price/qty/extras. Per-date overrides stay in stays_rooms_calendar
+-- (price) + stays_inventory (availability).
+--
+CREATE TABLE `stays_rates` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `rate_plan_id` int(11) NOT NULL,
+  `stay_id` int(11) NOT NULL,
+  `room_id` int(11) NOT NULL,
+  `option_id` int(11) NOT NULL,
+  `price` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `discount_percentage` decimal(5,2) NOT NULL DEFAULT 0.00,
+  `extra_bed_available` tinyint(1) NOT NULL DEFAULT 0,
+  `extra_bed_charge` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `available_quantity` int(11) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_rate` (`rate_plan_id`),
+  KEY `idx_plan_keys` (`stay_id`,`room_id`,`option_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `stays_rooms_calendar`
 --
 

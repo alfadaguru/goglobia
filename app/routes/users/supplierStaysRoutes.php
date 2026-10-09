@@ -557,6 +557,9 @@ $router->post('/supplier/stays/([0-9]+)/rooms/delete', function ($id) use ($SECU
         // Clean dependent availability/rate rows for this room.
         $db->delete('stays_inventory', ['stay_id' => $stayId, 'room_id' => $roomId]);
         $db->delete('stays_rooms_calendar', ['stay_id' => $stayId, 'room_id' => $roomId]);
+        // Soft-remove the normalized rate-plan mirror for the whole room (inc S12).
+        // The room row is already gone, so sync can't re-read it — deactivate directly.
+        try { $db->update('stays_rate_plans', ['active' => 0, 'updated_at' => date('Y-m-d H:i:s')], ['stay_id' => $stayId, 'room_id' => $roomId]); } catch (\Throwable $e) { error_log('rate-plan room-delete sync: ' . $e->getMessage()); }
         $_SESSION['message'] = ['type' => 'success', 'text' => 'Room deleted.'];
     } catch (\Throwable $e) {
         error_log('supplier room delete: ' . $e->getMessage());
@@ -640,6 +643,9 @@ $router->post('/supplier/stays/([0-9]+)/rooms/([0-9]+)/options/save', function (
         $db->update('stays_rooms',
             ['room_options' => json_encode(array_values($options)), 'updated_at' => date('Y-m-d H:i:s')],
             ['id' => $roomId, 'stay_id' => $stayId]);
+        // Mirror into the normalized rate-plan tables (inc S12). Non-fatal; the live
+        // path still reads room_options — this only keeps the relational mirror current.
+        if (function_exists('stays_rate_plan_sync')) { stays_rate_plan_sync($db, $stayId, $roomId); }
         $_SESSION['message'] = ['type' => 'success', 'text' => $msg];
     } catch (\Throwable $e) {
         error_log('supplier option save: ' . $e->getMessage());
@@ -688,6 +694,8 @@ $router->post('/supplier/stays/([0-9]+)/rooms/([0-9]+)/options/delete', function
             // Drop availability/rate rows keyed on this stable option_id.
             $db->delete('stays_inventory', ['stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $optionId]);
             $db->delete('stays_rooms_calendar', ['stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $optionId]);
+            // Re-sync the normalized mirror (soft-removes the deleted option's plan).
+            if (function_exists('stays_rate_plan_sync')) { stays_rate_plan_sync($db, $stayId, $roomId); }
             $_SESSION['message'] = ['type' => 'success', 'text' => 'Rate deleted.'];
         } else {
             $_SESSION['message'] = ['type' => 'error', 'text' => 'Rate not found.'];

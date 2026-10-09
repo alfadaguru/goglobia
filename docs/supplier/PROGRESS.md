@@ -72,8 +72,10 @@ Docs: spec suite `3e5a4e9`, 360 expansion `45a5511`, 61-module catalogue `8b555a
 - **Hold→consume on payment** not wired (holds auto-expire safely meanwhile) — S6 note.
 - **Custom-domain CNAME + TLS at the edge** deferred (infra decision) — S8 note.
 - **Supplier room/rate/calendar editing** — DONE in S10 (owner-scoped, `supplier_can`-gated).
-- **Rate *plans*** are still JSON `room_options` + a stable `option_id`, not normalized
-  `stays_rate_plans`.
+- **Rate *plans*** — S12 added normalized `stays_rate_plans`/`stays_rates` as a write-only
+  MIRROR of `room_options` (canonical runtime source unchanged). A future increment can
+  make a consumer (channel manager / OTA mapping) read the normalized model; today
+  nothing reads it, so the live path is untouched.
 - **Supplier payouts** (catalogue module 40) net-new — architecture in `00` §6.
 
 ---
@@ -91,7 +93,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S9 | **Per-service supplier landing pages** ("read more" per ticked service) + link them into signup | 01, 17-adjacent | S2 | ✅ code-complete (not runtime-verified — no DB) |
 | S10 | Supplier **room/rate/calendar self-management** (owner-scoped room/option/calendar CRUD under `/supplier/stays/{id}/rooms*`, gated by `supplier_can('rooms'\|'rates')`; options by stable `option_id`) | 05, 06 | S3, S6 | ✅ code-complete (not runtime-verified — no DB) |
 | S11 | Supplier **reservations inbox** (owner sees bookings against their inventory; statuses; cancel/no-show) | 04, 07-adjacent | S3 | ✅ code-complete (not runtime-verified — no DB) |
-| S12 | **Normalized rate plans** (`stays_rate_plans`/`stays_rates`) with the `room_options` compatibility bridge | 06 | S6, S10 | ☐ planned |
+| S12 | **Normalized rate plans** (`stays_rate_plans`/`stays_rates`) as a write-only MIRROR over `room_options` (bridge; live path unchanged) | 06 | S6, S10 | ✅ code-complete (not runtime-verified — no DB) |
 | S13 | Supplier **onboarding wizard + go-live checklist** (progress meter; property setup %) | 01, 02, 60 | S9, S10 | ☐ planned |
 
 ### Stage B — the model-level ERP foundations (do before deep ERP features; from `01a`)
@@ -167,5 +169,16 @@ Before coding: **read** every file to be touched (rule 3). Then:
   CSRF on the write. Actions = cancel / no-show / clear-no-show (operational only — NO
   refund/payout; cancel flags cancellation_request for admin + releases availability holds
   by invoice ref). No schema change (writes existing bookings columns). Lint-clean +
-  self-audited. Not runtime-verified (no DB). **Next: S12 (normalized rate plans) or S13
-  (onboarding wizard) — Stage A tail.**
+  self-audited. Not runtime-verified (no DB).
+- 2026-10 — **S12 done** (normalized rate plans): added `stays_rate_plans` +
+  `stays_rates` (ensureSupplierStaysSchema + install/db.sql) as a WRITE-ONLY MIRROR over
+  `room_options`, keyed by the stable `option_id`. New `app/lib/stays_rate_plans.php`
+  (`stays_rate_plan_sync` upserts plan+rate per option, soft-removes deleted options;
+  `stays_rate_plans_for_room` read helper, unused yet) required in config.php. Sync wired
+  into supplier option save/delete + room delete AND admin option save/delete, so the
+  mirror stays current whoever edits. CRITICAL: NO reader changed — the live
+  booking/detail/listing/home path still reads `room_options` (canonical runtime source),
+  so pricing/availability/behaviour are unchanged; nothing reads the normalized tables
+  yet. Non-fatal (function_exists-guarded + try/catch). Lint-clean + self-audited. Not
+  runtime-verified (no DB). **Next: S13 (onboarding wizard + go-live checklist) — last
+  Stage A item.**

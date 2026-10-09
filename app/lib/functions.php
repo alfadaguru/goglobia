@@ -7073,6 +7073,58 @@ function ensureSupplierStaysSchema($db): void
         if (!$db->query("SHOW COLUMNS FROM `settings` LIKE 'supplier_site_domain'")->fetch()) {
             $db->query("ALTER TABLE `settings` ADD COLUMN `supplier_site_domain` VARCHAR(191) DEFAULT NULL");
         }
+
+        // --- stays_rate_plans / stays_rates (inc S12) -------------------------------
+        // A NORMALIZATION LAYER over room_options, NOT a replacement. The live
+        // booking/detail/listing path keeps reading stays_rooms.room_options (the
+        // canonical runtime source); these tables MIRROR each option so the rate
+        // model is relational + queryable (for channel-manager / OTA mapping / LOS
+        // pricing later). The join key is the STABLE room_options.option_id
+        // (increment 6). stays_rate_plan_sync() (app/lib/stays_rate_plans.php) keeps
+        // the mirror in step whenever a supplier edits options. Nothing READS these
+        // yet, so they can never break the live path.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_rate_plans` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `stay_id` INT(11) NOT NULL,
+            `room_id` INT(11) NOT NULL,
+            `option_id` INT(11) NOT NULL,
+            `name` VARCHAR(191) DEFAULT NULL,
+            `board_id` INT(11) DEFAULT NULL,
+            `refundable` TINYINT(1) NOT NULL DEFAULT 0,
+            `cancellation_free` TINYINT(1) NOT NULL DEFAULT 0,
+            `breakfast_included` TINYINT(1) NOT NULL DEFAULT 0,
+            `max_adults` INT(11) NOT NULL DEFAULT 2,
+            `max_children` INT(11) NOT NULL DEFAULT 0,
+            `status` TINYINT(1) NOT NULL DEFAULT 1,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_plan` (`stay_id`,`room_id`,`option_id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // The base (default) rate figures for a plan — the relational mirror of the
+        // option's price/qty/extras. Per-date overrides continue to live in
+        // stays_rooms_calendar (price) + stays_inventory (availability); this holds
+        // the plan DEFAULTS, one row per plan.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_rates` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `rate_plan_id` INT(11) NOT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `room_id` INT(11) NOT NULL,
+            `option_id` INT(11) NOT NULL,
+            `price` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            `discount_percentage` DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+            `extra_bed_available` TINYINT(1) NOT NULL DEFAULT 0,
+            `extra_bed_charge` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            `available_quantity` INT(11) NOT NULL DEFAULT 0,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_rate` (`rate_plan_id`),
+            KEY `idx_plan_keys` (`stay_id`,`room_id`,`option_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     } catch (\Throwable $e) {
         // Never break the page over a migration (e.g. a DB user without ALTER).
         error_log('ensureSupplierStaysSchema: ' . $e->getMessage());
