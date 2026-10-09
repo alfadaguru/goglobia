@@ -6,6 +6,11 @@
 > property-management & ERP system. Every structural claim about the existing codebase
 > is cited to `file:line`; industry claims are cited to sources.
 >
+> **Build roadmap + live progress = [`PROGRESS.md`](PROGRESS.md)** — the operating
+> contract (the owner's 4 rules), honest status of the 8 shipped Phase-1 increments, and
+> the sequenced supplier-module build plan mapped to the 61 modules. Updated every
+> increment.
+>
 > **Canonical scope = [`01b-hospitality-pms-catalogue.md`](01b-hospitality-pms-catalogue.md)**
 > — the 61-module catalogue (groups A–L), the accommodation-type model, the
 > configurable module-activation matrix, and the supplier navigation IA. That doc is the
