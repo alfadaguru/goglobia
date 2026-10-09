@@ -9,6 +9,10 @@
 > hardens**, so they must be designed now even though they are built later. This doc
 > captures the foundations; the domains in `01` build on them.
 >
+> **Canonical scope** = [`01b-hospitality-pms-catalogue.md`](01b-hospitality-pms-catalogue.md)
+> (the 61 numbered modules). This doc is the shared **data model** those modules build
+> on — foundations, not the module index.
+>
 > **Grounding note (honest):** this is forward architecture. It builds on what Phase 1
 > actually shipped in code (verified against commits), and does NOT claim any of the
 > foundations below are built — they are not. Phase 1 = supplier onboarding/quota,

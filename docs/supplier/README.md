@@ -2,11 +2,19 @@
 
 > **Status:** research in progress. This suite is the design-of-record for turning
 > goglobia's dormant `supplier` role into a full supplier marketplace **and** — for
-> stays/hotels — a complete hotel ERP. Every structural claim about the existing
-> codebase is cited to `file:line`; industry claims are cited to sources.
+> stays/hotels/apartments — **GoGlobia Hospitality PMS**, an all-in-one hospitality
+> property-management & ERP system. Every structural claim about the existing codebase
+> is cited to `file:line`; industry claims are cited to sources.
+>
+> **Canonical scope = [`01b-hospitality-pms-catalogue.md`](01b-hospitality-pms-catalogue.md)**
+> — the 61-module catalogue (groups A–L), the accommodation-type model, the
+> configurable module-activation matrix, and the supplier navigation IA. That doc is the
+> index of record; the others are the depth behind the modules it lists.
 >
 > **Method (per owner):** exhaustive, autonomous, multi-phase. "Don't rush, don't
-> guess, don't lie." Where the code doesn't support a claim, the doc says so.
+> guess, don't lie." Where the code doesn't support a claim, the doc says so. The
+> catalogue is the proposed TARGET; what has actually shipped (Phase 1) is noted in
+> `01` §1 and memory.
 
 ---
 
@@ -35,6 +43,7 @@ get paid (payouts), and — for hotels — the full operational ERP.
 |---|---|
 | [`00-supplier-platform.md`](00-supplier-platform.md) | Cross-service foundation: the supplier identity & data model, onboarding, **service selection at signup** (supplier declares which services they offer, visible to admin pre-approval), **per-listing approval** workflow, **quotas** (admin-raisable listing limits), supplier settings, notifications, and the **payout / withdrawal** system (options + tradeoffs; highest-risk). |
 | [`01-stays-hotel-erp.md`](01-stays-hotel-erp.md) | **The big one — the Hospitality Operating System (360° ERP).** Reframed around **18 product domains**: Marketplace/Distribution · PMS/Front-Office · Guest Experience · Housekeeping · Engineering/Maintenance · F&B/POS · Events/Banquets(MICE) · Sales/Commercial-CRM · Revenue-Management · Finance(GL/AR/AP) · Procurement/Inventory · Workforce · Apartment/Owner-Management · Long-Stay/Tenancy · Property/Asset-Ops · Analytics/BI · Automation/AI · Platform/Integrations. §§3–8 detail the PMS spine (domains 1–6); §9b summarizes domains 7–18. |
+| [`01b-hospitality-pms-catalogue.md`](01b-hospitality-pms-catalogue.md) | **CANONICAL SCOPE — the index of record.** GoGlobia Hospitality PMS: the full **61-module catalogue** (A. core/platform · B. reservations/front-office · C. distribution/sales/revenue · D. guest experience · E. housekeeping/engineering · F. F&B/POS · G. finance/accounting/payments · H. procurement/stores · I. HR/workflows · J. apartment/owner/lease · K. security/smart-property/compliance · L. analytics/AI/platform), the **accommodation operating models** (hotel/resort/aparthotel/short-let/hostel/villa/long-stay/PM-company), the **configurable module-activation matrix** by property type, and the **supplier navigation IA** (14 groups). Everything else is depth behind these modules. |
 | [`01a-erp-data-foundations.md`](01a-erp-data-foundations.md) | **The model-level decisions that must exist from day one** — org→brand→property→unit hierarchy, accounting GL + hospitality subledger, cashier/shift, the party model (guests/companies/agents/vendors/owners), property-owner + trust/client-money accounting, generic bookable resources, stores/stock, generalized permission→role→user RBAC, the workflow/event bus, platform-wide audit, documents/compliance/migration. These are expensive to bolt on after PMS code hardens, so they're specced now even though built later. |
 | [`02-flights.md`](02-flights.md) | Flight supplier: what a flight supplier lists/manages (own-inventory flights), approval, pricing/commission, payout. |
 | [`03-tours.md`](03-tours.md) | Tour/activity supplier: tours, itineraries, schedules, capacity, approval, payout. |

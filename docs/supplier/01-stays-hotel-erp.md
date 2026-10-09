@@ -14,6 +14,11 @@
 > Read [`00-supplier-platform.md`](00-supplier-platform.md) (identity/onboarding/
 > approval/quotas/payouts) and [`01a-erp-data-foundations.md`](01a-erp-data-foundations.md)
 > (the data model) first.
+>
+> **Canonical scope lives in [`01b-hospitality-pms-catalogue.md`](01b-hospitality-pms-catalogue.md)**
+> — the numbered 61-module catalogue, accommodation types, activation matrix and nav IA.
+> This chapter is the PMS-spine + 18-domain *narrative* behind those modules, not the
+> module index.
 
 ---
 
