@@ -134,12 +134,19 @@ $router->get('/api/stay/([0-9]+)', function ($id) use ($db) {
                 }
             }
 
-            // Room options
+            // Room options. Ensure each option carries a STABLE option_id (assigns
+            // + persists any missing ids) so the client/booking payload can
+            // reference a specific option that survives reorder/delete — the key
+            // the real inventory/holds (stays_inventory) is keyed on.
             $options = [];
-            if (!empty($room['room_options'])) {
-                $decoded = json_decode($room['room_options'], true);
-                if (is_array($decoded)) {
-                    foreach ($decoded as $opt) {
+            $decoded = [];
+            if (function_exists('stays_room_option_ids')) {
+                $decoded = stays_room_option_ids($db, (int) $room['id'], (int) $stay['id']);
+            } elseif (!empty($room['room_options'])) {
+                $decoded = json_decode($room['room_options'], true) ?: [];
+            }
+            if (is_array($decoded)) {
+                foreach ($decoded as $opt) {
 
                         if (isset($opt['price'])) {
                             if ($startingPrice === null || $opt['price'] < $startingPrice) {
@@ -148,6 +155,7 @@ $router->get('/api/stay/([0-9]+)', function ($id) use ($db) {
                         }
 
                         $options[] = [
+                            'option_id' => isset($opt['option_id']) ? (int) $opt['option_id'] : null,
                             'max_adults' => $opt['max_adults'],
                             'max_children' => $opt['max_children'],
                             'price' => $opt['price'],
@@ -160,7 +168,6 @@ $router->get('/api/stay/([0-9]+)', function ($id) use ($db) {
                             'available_quantity' => $opt['available_quantity'],
                             'board' => $map['board'][$opt['board_id']] ?? null
                         ];
-                    }
                 }
             }
 

@@ -617,6 +617,51 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
 
 
         // --------------------------------------------------
+        // REAL AVAILABILITY HOLD (manual stays only) — no-oversell spine (inc 6)
+        // --------------------------------------------------
+        // Only our OWN-INVENTORY stays (module 'stays'/'hotels') participate;
+        // integration suppliers (hotelbeds/ratehawk/…) manage their own stock, so
+        // we never hold against them. The hold is placed per (room_id, option_id)
+        // carried in rooms_data, across [checkin, checkout). For a manual stay with
+        // those identifiers, a FAILED hold REJECTS the booking (can't oversell). If
+        // the payload lacks identifiers (legacy client), we log and proceed so
+        // existing manual bookings keep working until the client sends them.
+        $staysHoldIds = [];
+        $staysModule = strtolower((string) ($bookingData['supplier'] ?? 'stays'));
+        $isManualStay = in_array($staysModule, ['stays', 'hotels'], true);
+        if ($isManualStay && function_exists('stays_hold_create')) {
+            $hotelId  = (int) ($input['hotel_id'] ?? ($bookingData['hotel_id'] ?? 0));
+            $checkin  = (string) ($bookingData['checkin'] ?? '');
+            $checkout = (string) ($bookingData['checkout'] ?? '');
+            $roomsData = $bookingData['rooms_data'] ?? [];
+            $anyIdentified = false;
+            if ($hotelId > 0 && $checkin !== '' && $checkout !== '' && is_array($roomsData)) {
+                foreach ($roomsData as $rd) {
+                    $roomId   = (int) ($rd['room_id'] ?? 0);
+                    $optionId = (int) ($rd['option_id'] ?? 0);
+                    $qty      = max(1, (int) ($rd['qty'] ?? ($rd['rooms'] ?? 1)));
+                    if ($roomId <= 0 || $optionId <= 0) { continue; }
+                    $anyIdentified = true;
+                    $hold = stays_hold_create($db, $hotelId, $roomId, $optionId, $checkin, $checkout, $qty, $invoiceId);
+                    if (empty($hold['ok'])) {
+                        // Release any holds already placed for this booking, then fail.
+                        foreach ($staysHoldIds as $hid) { stays_hold_release($db, $hid); }
+                        http_response_code(409);
+                        echo json_encode([
+                            'success' => false,
+                            'message' => $hold['message'] ?? 'Sorry, those dates are no longer available.',
+                        ]);
+                        exit;
+                    }
+                    $staysHoldIds[] = (int) $hold['hold_id'];
+                }
+            }
+            if (!$anyIdentified) {
+                error_log('stays booking: manual stay without room_id/option_id in rooms_data (invoice ' . $invoiceId . ') — proceeding without a hold (legacy payload)');
+            }
+        }
+
+        // --------------------------------------------------
         // INSERT INTO BOOKINGS TABLE
         // --------------------------------------------------
         $db->insert('bookings', [
