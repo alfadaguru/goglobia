@@ -216,6 +216,20 @@ function ADMIN_AUTH()
     }
 }
 
+// VENDOR AUTH CHECK — gate for the vendor (self-registered supplier) area.
+// Mirrors ADMIN_AUTH(): a logged-in user whose role is exactly 'vendor'. Any
+// other visitor (guest, customer, agent, admin) is bounced to login. Because
+// login only establishes a session for an 'active' account (loginRoutes.php),
+// a pending/rejected vendor can never reach here — the approval gate holds at
+// login, and this is the second line of defence on the vendor routes.
+function VENDOR_AUTH()
+{
+    if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'vendor') {
+        header('Location: ' . root . 'login');
+        exit;
+    }
+}
+
 // Redirect function
 function redirect($url)
 {
@@ -6314,6 +6328,72 @@ function ensureUserRestrictionSchema($db): void
     // was read before the column existed, or came from the short-lived cache).
     if (is_array($GLOBALS['app'] ?? null) && !array_key_exists('user_restriction', $GLOBALS['app'])) {
         $GLOBALS['app']['user_restriction'] = (string) ($db->get('settings', 'user_restriction', ['id' => 1]) ?? '0');
+    }
+}
+
+/**
+ * Vendor (Supplier-role self-registration + approval) schema.
+ *
+ * The "vendor" account is a self-registering supplier who is held in a PENDING
+ * state until an admin approves them. This needs:
+ *   1. users.status to accept 'pending' and 'rejected' (it ships as a 2-value
+ *      enum active/inactive, so a 'pending' write would be silently coerced to
+ *      '' on non-strict MySQL — widen it additively, never dropping a value).
+ *   2. users.vendor_rejected_reason — the admin's note shown back to the vendor.
+ *
+ * NOTE on the on/off toggle: the platform already ships a
+ * settings.supplier_registration flag ("Allow suppliers to register and list
+ * their services", translated in every language) — that IS this feature's
+ * switch, so we reuse it rather than add a parallel vendor_registration column.
+ * This function only ensures that flag EXISTS on installs predating it; it does
+ * not create a duplicate.
+ *
+ * Idempotent, self-healing, non-fatal — mirrors ensureUserRestrictionSchema /
+ * ensurePaystackDvaSchema. Keep install/db.sql in sync with these changes.
+ */
+function ensureVendorSchema($db): void
+{
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+    $checked = true;
+
+    try {
+        // 1) Widen users.status additively. Read the live enum first and only
+        //    MODIFY when a needed value is missing, so re-runs are no-ops and we
+        //    never clobber values a future schema may have added.
+        $col = $db->query("SHOW COLUMNS FROM `users` LIKE 'status'")->fetch(\PDO::FETCH_ASSOC);
+        if ($col && !empty($col['Type'])) {
+            $type = strtolower((string) $col['Type']); // e.g. enum('active','inactive')
+            $needsPending  = strpos($type, "'pending'")  === false;
+            $needsRejected = strpos($type, "'rejected'") === false;
+            if ($needsPending || $needsRejected) {
+                $db->query(
+                    "ALTER TABLE `users` MODIFY COLUMN `status` "
+                    . "ENUM('active','inactive','pending','rejected') "
+                    . "NOT NULL DEFAULT 'active'"
+                );
+            }
+        }
+
+        // 2) Rejection reason (nullable text; shown to the vendor on the login gate).
+        if (!$db->query("SHOW COLUMNS FROM `users` LIKE 'vendor_rejected_reason'")->fetch()) {
+            $db->query("ALTER TABLE `users` ADD COLUMN `vendor_rejected_reason` VARCHAR(255) DEFAULT NULL");
+        }
+
+        // 3) The toggle: ensure settings.supplier_registration exists (older
+        //    installs may predate it). Default '0' = signups closed, matching
+        //    install/db.sql and the agent_registration convention.
+        if (!$db->query("SHOW COLUMNS FROM `settings` LIKE 'supplier_registration'")->fetch()) {
+            $db->query("ALTER TABLE `settings` ADD COLUMN `supplier_registration` ENUM('1','0') NOT NULL DEFAULT '0'");
+            if (is_array($GLOBALS['app'] ?? null)) {
+                $GLOBALS['app']['supplier_registration'] = '0';
+            }
+        }
+    } catch (\Throwable $e) {
+        // Never break the page over a migration (e.g. a DB user without ALTER).
+        error_log('ensureVendorSchema: ' . $e->getMessage());
     }
 }
 

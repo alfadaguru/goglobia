@@ -158,7 +158,17 @@ $router->post('/login', function () use ($SECURE, $db) {
         ], ['id' => $userId]);
 
         if ($user['status'] !== 'active') {
-            $_SESSION['login_error'] = 'invalid';
+            // A pending/rejected vendor gets a specific message (the approval
+            // gate) instead of a generic "invalid credentials". Any other
+            // non-active account keeps the existing generic error.
+            if (($user['role'] ?? '') === 'vendor' && $user['status'] === 'pending') {
+                $_SESSION['login_error'] = 'vendor_pending';
+            } elseif (($user['role'] ?? '') === 'vendor' && $user['status'] === 'rejected') {
+                $_SESSION['login_error'] = 'vendor_rejected';
+                $_SESSION['vendor_rejected_reason'] = (string) ($user['vendor_rejected_reason'] ?? '');
+            } else {
+                $_SESSION['login_error'] = 'invalid';
+            }
             header('Location: ' . root . 'login');
             exit;
         }
@@ -231,6 +241,9 @@ $router->post('/login', function () use ($SECURE, $db) {
         if ($user['role'] === 'admin') {
             $_SESSION['admin_logged_in'] = true;
             header('Location: ' . root . 'admin/dashboard');
+        } elseif ($user['role'] === 'vendor') {
+            // An approved vendor goes to their own area (VENDOR_AUTH-gated).
+            header('Location: ' . root . 'vendor/dashboard');
         } else {
             $redirectTo = (string)($_POST['redirect'] ?? ($_SESSION['login_redirect'] ?? ''));
             unset($_SESSION['login_redirect']);

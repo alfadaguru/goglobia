@@ -38,6 +38,8 @@ require_once 'app/routes/cms/pageRoutes.php';
 // USERS ROUTES
 require_once 'app/routes/users/loginRoutes.php';
 require_once 'app/routes/users/signupRoutes.php';
+require_once 'app/routes/users/vendorSignupRoutes.php'; // vendor (supplier) self-registration + approval gate
+require_once 'app/routes/users/vendorDashboardRoutes.php'; // vendor area (VENDOR_AUTH-gated)
 require_once 'app/routes/users/logoutRoutes.php';
 require_once 'app/routes/users/emailVerificationRoutes.php';
 require_once 'app/routes/users/passwordResetRoutes.php';
@@ -136,6 +138,7 @@ require_once 'app/routes/admin/dashboardRoutes.php';
 require_once 'app/routes/admin/settingsRoutes.php';
 require_once 'app/routes/admin/modulesRoutes.php';
 require_once 'app/routes/admin/usersRoutes.php';
+require_once 'app/routes/admin/vendorsRoutes.php'; // vendor approval queue (approve/reject)
 require_once 'app/routes/admin/agentApiRoutes.php';
 require_once 'app/routes/admin/updatesRoutes.php';
 require_once 'app/routes/admin/databaseRoutes.php';
