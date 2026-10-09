@@ -96,11 +96,11 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S12 | **Normalized rate plans** (`stays_rate_plans`/`stays_rates`) as a write-only MIRROR over `room_options` (bridge; live path unchanged) | 06 | S6, S10 | ✅ code-complete (not runtime-verified — no DB) |
 | S13 | Supplier **onboarding wizard + go-live checklist** (progress meter; real-state derived) | 01, 02, 60 | S9, S10 | ✅ code-complete (not runtime-verified — no DB) |
 
-### Stage B — the model-level ERP foundations (do before deep ERP features; from `01a`)
+### Stage B — the model-level ERP foundations (do before deep ERP features; from `01a`) — IN PROGRESS (S14 done)
 
 | # | Increment | Catalogue modules | Depends on | Status |
 |---|---|---|---|---|
-| S14 | **Org→brand→property→unit hierarchy** keys + backfill (+ configurable `accommodation_type` per property) | 02, 03 | S1 | ☐ planned |
+| S14 | **Org→brand→property→unit hierarchy** keys + backfill (+ configurable `accommodation_type`) — additive seam | 02, 03 | S1 | ✅ code-complete (not runtime-verified — no DB) |
 | S15 | **Party model** (guests/companies/agents/vendors/owners as typed parties) | 15, 18, 43, 48 | S14 | ☐ planned |
 | S16 | **Generalized RBAC** (permission→role→user catalogue) + approval-limits engine | 45, 46 | S4 | ☐ planned |
 | S17 | **Workflow/event bus** (WHEN→IF→THEN) + platform **audit event** | 46, 57, 61 | S17-self | ☐ planned |
@@ -189,5 +189,18 @@ Before coding: **read** every file to be touched (rule 3). Then:
   wizard route + `get-started.php` view; compact checklist embedded on the dashboard. No
   fake progress — every step derives from the tables the live path uses; read-only, no
   schema change. Lint-clean + self-audited. Not runtime-verified (no DB). **Stage A
-  (S9–S13) COMPLETE. Next: Stage B — S14 org→brand→property→unit hierarchy (ERP model
-  foundations from 01a).**
+  (S9–S13) COMPLETE.**
+- 2026-10 — **S14 done** (org→brand→property→unit hierarchy; Stage B start): additive
+  seam from 01a §1. New `supplier_orgs` (1 per supplier owner, unique owner_user_id) +
+  `supplier_brands` (optional) tables; nullable `stays.org_id`/`brand_id` +
+  `stays.accommodation_type` (default 'hotel', distinct from the existing stays_settings
+  `stay_type` FK). One-time backfill (runs only when org_id column is first added, inc-7
+  pattern) promotes each REAL-user owner to an org + stamps its properties; legacy/seed
+  owners with no user row are skipped (left NULL). New `app/lib/supplier_hierarchy.php`
+  (`supplier_org_ensure`/`supplier_org_for_owner`/`supplier_property_org`/
+  `supplier_accommodation_types`) required in config.php. Property create stamps
+  org_id + validated accommodation_type; edit persists it; form got an Accommodation-type
+  select. CRITICAL: NO reader depends on the hierarchy — ownership still resolves on
+  stays.user_id; live path untouched (populated seam, like S12). Schema in ensure-fn +
+  install/db.sql. Lint-clean + self-audited. Not runtime-verified (no DB). **Next: S15
+  (party model) — guests/companies/agents/vendors/owners as typed parties.**

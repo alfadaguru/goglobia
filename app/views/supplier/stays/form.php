@@ -55,6 +55,24 @@
       </div>
     </div>
 
+    <?php
+      // Accommodation operating model (inc S14). Defensive: helper may be absent on
+      // a schema-lag install — then skip the field entirely (column has a DB default).
+      $accTypes = function_exists('supplier_accommodation_types') ? supplier_accommodation_types() : [];
+      $accCurrent = strtolower((string) ($s['accommodation_type'] ?? 'hotel'));
+    ?>
+    <?php if (!empty($accTypes)): ?>
+    <div class="form-control">
+      <label class="block text-sm font-medium text-gray-700 mb-1">Accommodation type</label>
+      <select name="accommodation_type" class="input">
+        <?php foreach ($accTypes as $val => $label): ?>
+          <option value="<?= htmlspecialchars($val) ?>" <?= $accCurrent === $val ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
+        <?php endforeach; ?>
+      </select>
+      <p class="mt-1 text-xs text-gray-500">How this property operates. You can change it later.</p>
+    </div>
+    <?php endif; ?>
+
     <div class="form-control">
       <label class="block text-sm font-medium text-gray-700 mb-1">Address</label>
       <input type="text" name="address" class="input" value="<?= htmlspecialchars($s['address'] ?? '') ?>">

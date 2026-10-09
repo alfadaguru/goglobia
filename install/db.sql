@@ -28111,6 +28111,9 @@ CREATE TABLE `stays` (
   `id` int(10) UNSIGNED NOT NULL,
   `status` tinyint(1) NOT NULL DEFAULT 1,
   `user_id` varchar(155) DEFAULT NULL,
+  `org_id` int(11) DEFAULT NULL,
+  `brand_id` int(11) DEFAULT NULL,
+  `accommodation_type` varchar(32) NOT NULL DEFAULT 'hotel',
   `listing_status` enum('draft','submitted','approved','queried','rejected') NOT NULL DEFAULT 'draft',
   `review_comment` varchar(255) DEFAULT NULL,
   `reviewed_by` varchar(255) DEFAULT NULL,
@@ -28510,6 +28513,41 @@ CREATE TABLE `stays_site` (
   PRIMARY KEY (`stay_id`),
   UNIQUE KEY `uq_hostname` (`hostname`),
   UNIQUE KEY `uq_custom_domain` (`custom_domain`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- ORG -> BRAND -> PROPERTY -> UNIT hierarchy (inc S14; docs/supplier/01a §1).
+-- Additive seam: stays.org_id/brand_id/accommodation_type reference these. The live
+-- path still resolves ownership on stays.user_id; a one-time backfill in
+-- ensureSupplierStaysSchema() promotes each supplier owner to an org.
+--
+CREATE TABLE `supplier_orgs` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `owner_user_id` varchar(155) NOT NULL,
+  `name` varchar(191) DEFAULT NULL,
+  `base_currency` char(3) DEFAULT NULL,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_owner` (`owner_user_id`),
+  KEY `idx_owner` (`owner_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `supplier_brands` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `name` varchar(191) NOT NULL,
+  `slug` varchar(191) DEFAULT NULL,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org` (`org_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------

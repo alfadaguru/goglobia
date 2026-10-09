@@ -150,8 +150,18 @@ $router->post('/supplier/stays/add', function () use ($SECURE, $db) {
     $slug = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $name)));
     $lat = trim($_POST['latitude'] ?? ''); $lng = trim($_POST['longitude'] ?? '');
 
+    // Hierarchy seam (inc S14): ensure the owner's org exists and stamp it on the new
+    // property. Non-fatal — a 0/absent org just leaves the column NULL; the live path
+    // never reads org_id. accommodation_type is validated against the known models.
+    $orgId = function_exists('supplier_org_ensure') ? supplier_org_ensure($db, $owner) : 0;
+    $accTypes = function_exists('supplier_accommodation_types') ? supplier_accommodation_types() : [];
+    $accType = strtolower(trim((string) ($_POST['accommodation_type'] ?? 'hotel')));
+    if (!isset($accTypes[$accType])) { $accType = 'hotel'; }
+
     $data = [
         'user_id'         => $owner,                                   // FORCED to owner
+        'org_id'          => $orgId > 0 ? $orgId : null,               // hierarchy seam
+        'accommodation_type' => $accType,
         'name'            => $name,
         'desc'            => trim($_POST['description'] ?? '') ?: null,
         'slug'            => $slug,
@@ -242,11 +252,17 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
     }
     $lat = trim($_POST['latitude'] ?? ''); $lng = trim($_POST['longitude'] ?? '');
 
+    // Accommodation type (inc S14) — validated against the known operating models.
+    $accTypes = function_exists('supplier_accommodation_types') ? supplier_accommodation_types() : [];
+    $accType = strtolower(trim((string) ($_POST['accommodation_type'] ?? 'hotel')));
+    if (!isset($accTypes[$accType])) { $accType = 'hotel'; }
+
     // NOTE: user_id is NOT in the update set — ownership can never be reassigned
     // by a supplier. A material edit could reset listing_status to 'submitted'
     // for re-review; Phase-1 keeps the existing listing_status (approval in inc 7).
     $data = [
         'name'            => $name,
+        'accommodation_type' => $accType,
         'desc'            => trim($_POST['description'] ?? '') ?: null,
         'slug'            => strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $name))),
         'location'        => $location,

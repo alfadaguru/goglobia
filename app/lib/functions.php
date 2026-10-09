@@ -7239,6 +7239,87 @@ function ensureSupplierStaysSchema($db): void
             UNIQUE KEY `uq_rate` (`rate_plan_id`),
             KEY `idx_plan_keys` (`stay_id`,`room_id`,`option_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- ORG -> BRAND -> PROPERTY -> UNIT hierarchy (inc S14; docs 01a §1) -------
+        // An ADDITIVE SEAM, like the rate-plan mirror: these tables + the nullable
+        // stays.org_id/brand_id/accommodation_type columns let later ERP domains
+        // attach to a stable hierarchy key. The LIVE path does NOT depend on them —
+        // ownership still resolves on stays.user_id. A one-time backfill promotes each
+        // supplier to an org and stamps each stays row. See app/lib/supplier_hierarchy.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_orgs` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `owner_user_id` VARCHAR(155) NOT NULL,
+            `name` VARCHAR(191) DEFAULT NULL,
+            `base_currency` CHAR(3) DEFAULT NULL,
+            `status` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_owner` (`owner_user_id`),
+            KEY `idx_owner` (`owner_user_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_brands` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `name` VARCHAR(191) NOT NULL,
+            `slug` VARCHAR(191) DEFAULT NULL,
+            `status` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_org` (`org_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // stays hierarchy keys + operating model. Nullable/defaulted so existing rows
+        // are untouched; each guarded by SHOW COLUMNS (idempotent).
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'org_id'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `org_id` INT(11) DEFAULT NULL");
+            $db->query("ALTER TABLE `stays` ADD COLUMN `brand_id` INT(11) DEFAULT NULL");
+            // ONE-TIME BACKFILL (runs only when org_id is first added): promote each
+            // distinct stays.user_id owner to a supplier_orgs row and stamp its
+            // properties. Rows with no real owner (legacy seed user_id like '1') are
+            // left NULL — the hierarchy is optional and the live path never reads it.
+            try {
+                $owners = $db->query(
+                    "SELECT DISTINCT user_id FROM `stays` WHERE user_id IS NOT NULL AND user_id <> ''"
+                )->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+                foreach ($owners as $ownerId) {
+                    $ownerId = (string) $ownerId;
+                    // Only promote owners that are REAL users (a matching users.user_id).
+                    $u = $db->get('users', ['first_name', 'last_name', 'title', 'currency'],
+                        ['user_id' => $ownerId]);
+                    if (!$u) { continue; } // legacy/seed owner with no user → skip (leave NULL)
+                    $existing = $db->get('supplier_orgs', ['id'], ['owner_user_id' => $ownerId]);
+                    if ($existing) {
+                        $orgId = (int) $existing['id'];
+                    } else {
+                        $orgName = trim((string) ($u['title'] ?? '')) !== ''
+                            ? (string) $u['title']
+                            : trim((string) ($u['first_name'] ?? '') . ' ' . (string) ($u['last_name'] ?? ''));
+                        $db->insert('supplier_orgs', [
+                            'owner_user_id' => $ownerId,
+                            'name'          => $orgName !== '' ? $orgName : null,
+                            'base_currency' => $u['currency'] ?? null,
+                            'status'        => 1,
+                            'created_at'    => date('Y-m-d H:i:s'),
+                        ]);
+                        $orgId = (int) $db->id();
+                    }
+                    if ($orgId > 0) {
+                        $db->update('stays', ['org_id' => $orgId], ['user_id' => $ownerId]);
+                    }
+                }
+            } catch (\Throwable $e) {
+                error_log('ensureSupplierStaysSchema org backfill: ' . $e->getMessage());
+            }
+        }
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'accommodation_type'")->fetch()) {
+            // Operating model (hotel/aparthotel/short_let/hostel/villa/long_stay/
+            // resort). Distinct from the existing `stay_type` (a stays_settings FK).
+            // Default 'hotel' so existing + new rows have a sane model.
+            $db->query("ALTER TABLE `stays` ADD COLUMN `accommodation_type` VARCHAR(32) NOT NULL DEFAULT 'hotel'");
+        }
     } catch (\Throwable $e) {
         // Never break the page over a migration (e.g. a DB user without ALTER).
         error_log('ensureSupplierStaysSchema: ' . $e->getMessage());
