@@ -28047,6 +28047,7 @@ CREATE TABLE `settings` (
   `booking_cancellation` tinyint(4) NOT NULL DEFAULT 1,
   `user_registration` enum('1','0') DEFAULT '1',
   `supplier_registration` enum('1','0') NOT NULL DEFAULT '0',
+  `supplier_site_domain` varchar(191) DEFAULT NULL,
   `agent_registration` enum('1','0') NOT NULL DEFAULT '0',
   `guest_booking` enum('0','1') NOT NULL DEFAULT '0',
   `social_media` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`social_media`)),

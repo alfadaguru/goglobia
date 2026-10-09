@@ -6717,6 +6717,60 @@ function supplier_first_class_services($db = null): array
     return $all;
 }
 
+// ============================================================================
+// SUPPLIER BRANDED SITE / DOMAIN (Phase 1 inc 8 — foundation only)
+// ----------------------------------------------------------------------------
+// Each property gets an auto branded hostname (<slug>.<branded-root>) and can
+// later point a custom domain (CNAME) at us. Phase 1 provides the DATA + a host
+// resolver + a preview; the EDGE (wildcard DNS, host-based routing, automatic
+// TLS) is a deployment/infra workstream — see docs/supplier/01-stays-hotel-erp.md
+// §7.2. We do NOT intercept the main bootstrap here.
+// ============================================================================
+
+if (!function_exists('supplier_site_branded_root')) {
+    /** The operator's branded root domain for supplier sites (e.g. 'goglobia.com'),
+     *  or '' when not configured — the feature stays inert until set. */
+    function supplier_site_branded_root(): string
+    {
+        return trim((string) ($GLOBALS['app']['supplier_site_domain'] ?? ''));
+    }
+}
+
+if (!function_exists('supplier_site_default_hostname')) {
+    /** The default branded hostname for a property slug: '<slug>.<branded-root>'
+     *  (or '' if no branded root is configured). */
+    function supplier_site_default_hostname(string $slug): string
+    {
+        $root = supplier_site_branded_root();
+        $slug = trim(strtolower(preg_replace('/[^a-z0-9-]+/i', '-', $slug)), '-');
+        return ($root !== '' && $slug !== '') ? ($slug . '.' . $root) : '';
+    }
+}
+
+if (!function_exists('stays_site_resolve_host')) {
+    /**
+     * Given an inbound Host header, return the stay_id it maps to (or null).
+     * Matches an active custom_domain first, then the branded hostname. This is a
+     * pure lookup used by the (future) edge/host router — it does NOT run in the
+     * main bootstrap, so a normal request on the primary host is never affected.
+     */
+    function stays_site_resolve_host($db, string $host): ?int
+    {
+        $host = strtolower(trim($host));
+        if ($host === '') { return null; }
+        try {
+            $row = $db->get('stays_site', ['stay_id'],
+                ['custom_domain' => $host, 'domain_status' => 'active']);
+            if ($row) { return (int) $row['stay_id']; }
+            $row = $db->get('stays_site', ['stay_id'], ['hostname' => $host]);
+            if ($row) { return (int) $row['stay_id']; }
+        } catch (\Throwable $e) {
+            error_log('stays_site_resolve_host: ' . $e->getMessage());
+        }
+        return null;
+    }
+}
+
 /**
  * The modules (capability areas) a supplier role can grant permissions on, and the
  * actions available per module. Single source of truth for the role-builder matrix
@@ -6912,6 +6966,13 @@ function ensureSupplierStaysSchema($db): void
             UNIQUE KEY `uq_hostname` (`hostname`),
             UNIQUE KEY `uq_custom_domain` (`custom_domain`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- settings.supplier_site_domain: the branded root (e.g. 'goglobia.com') --
+        // Empty by default → the branded-site feature is inert until an operator
+        // sets it. Nullable varchar on the single settings row.
+        if (!$db->query("SHOW COLUMNS FROM `settings` LIKE 'supplier_site_domain'")->fetch()) {
+            $db->query("ALTER TABLE `settings` ADD COLUMN `supplier_site_domain` VARCHAR(191) DEFAULT NULL");
+        }
     } catch (\Throwable $e) {
         // Never break the page over a migration (e.g. a DB user without ALTER).
         error_log('ensureSupplierStaysSchema: ' . $e->getMessage());

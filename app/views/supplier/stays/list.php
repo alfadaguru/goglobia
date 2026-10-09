@@ -81,6 +81,7 @@
               <td class="px-4 py-3">
                 <div class="flex items-center gap-3">
                   <a href="<?= root ?>supplier/stays/edit/<?= (int) $p['id'] ?>" class="text-blue-600 hover:underline text-xs font-medium">Edit</a>
+                  <a href="<?= root ?>supplier/stays/site/<?= (int) $p['id'] ?>" class="text-violet-600 hover:underline text-xs font-medium">Site &amp; domain</a>
                   <?php if (in_array($ls, ['draft','queried','rejected'], true)): ?>
                     <form action="<?= root ?>supplier/stays/submit/<?= (int) $p['id'] ?>" method="POST" class="inline">
                       <?= CSRF::tokenField() ?>

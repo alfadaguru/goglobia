@@ -344,3 +344,127 @@ $router->post('/supplier/stays/submit/([0-9]+)', function ($id) use ($SECURE, $d
     header('Location: ' . root . 'supplier/stays/edit/' . (int) $id);
     exit;
 });
+
+// ============================================================================
+// BRANDED SITE & DOMAIN (Phase 1 inc 8 — foundation)
+// ============================================================================
+
+// GET /supplier/stays/site/{id} — view/manage a property's branded site + domain.
+$router->get('/supplier/stays/site/([0-9]+)', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'hotels', 'edit', (int) $id)) { _supplier_stays_deny('That property is not yours.'); }
+
+    $stay = $db->get('stays', ['id', 'name', 'slug'], ['id' => (int) $id]);
+    if (!$stay) { _supplier_stays_deny('Property not found.'); }
+
+    // Ensure a stays_site row exists with a default branded hostname (if a branded
+    // root is configured). Idempotent.
+    $site = $db->get('stays_site', '*', ['stay_id' => (int) $id]);
+    $defaultHost = supplier_site_default_hostname((string) ($stay['slug'] ?? ''));
+    if (!$site) {
+        try {
+            $db->insert('stays_site', [
+                'stay_id'   => (int) $id,
+                'hostname'  => $defaultHost !== '' ? $defaultHost : null,
+                'domain_status' => 'none',
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) { error_log('supplier stays site create: ' . $e->getMessage()); }
+        $site = $db->get('stays_site', '*', ['stay_id' => (int) $id]);
+    }
+
+    $brandedRoot = supplier_site_branded_root();
+    $title = 'Site & Domain';
+    $description = '';
+    $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/stays/site.php";
+    require_once views . "includes/footer.php";
+});
+
+// GET /supplier/stays/site/{id}/preview — render the property's branded booking
+// page (owner-scoped). Demonstrates the branded site; host-based serving on the
+// custom domain is the deferred edge step.
+$router->get('/supplier/stays/site/([0-9]+)/preview', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'hotels', 'view', (int) $id)) { _supplier_stays_deny('That property is not yours.'); }
+
+    $stay = $db->get('stays', '*', ['id' => (int) $id]);
+    if (!$stay) { _supplier_stays_deny('Property not found.'); }
+    $site = $db->get('stays_site', '*', ['stay_id' => (int) $id]);
+
+    // Rooms for the branded page (owner's own inventory).
+    $rooms = $db->select('stays_rooms', ['id', 'room_type_id', 'room_images', 'room_options'],
+        ['stay_id' => (int) $id, 'status' => 1]) ?: [];
+
+    $title = ($stay['name'] ?? 'Property') . ' — Booking';
+    $description = '';
+    $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/stays/branded-preview.php";
+    require_once views . "includes/footer.php";
+});
+
+// POST /supplier/stays/site/{id} — request a custom domain (CNAME) for a property.
+$router->post('/supplier/stays/site/([0-9]+)', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'hotels', 'edit', (int) $id)) { _supplier_stays_deny('That property is not yours.'); }
+
+    // Normalize the requested custom domain (host only, lowercase, no scheme/path).
+    $raw = trim((string) ($_POST['custom_domain'] ?? ''));
+    $domain = strtolower($raw);
+    $domain = preg_replace('#^https?://#', '', $domain);
+    $domain = explode('/', $domain)[0];
+    $domain = trim($domain);
+
+    $back = root . 'supplier/stays/site/' . (int) $id;
+
+    if ($domain === '') {
+        // Clearing the custom domain.
+        try {
+            $db->update('stays_site',
+                ['custom_domain' => null, 'domain_status' => 'none', 'verify_token' => null, 'updated_at' => date('Y-m-d H:i:s')],
+                ['stay_id' => (int) $id]);
+            $_SESSION['message'] = ['type' => 'success', 'text' => 'Custom domain removed.'];
+        } catch (\Throwable $e) { error_log('supplier site clear: ' . $e->getMessage()); }
+        header('Location: ' . $back); exit;
+    }
+
+    // Basic hostname validation.
+    if (!preg_match('/^(?=.{1,253}$)([a-z0-9](-?[a-z0-9])*\.)+[a-z]{2,}$/', $domain)) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Please enter a valid domain, e.g. book.yourhotel.com'];
+        header('Location: ' . $back); exit;
+    }
+    // Uniqueness: a domain can't be claimed by two properties.
+    $claimed = $db->get('stays_site', ['stay_id'], ['custom_domain' => $domain]);
+    if ($claimed && (int) $claimed['stay_id'] !== (int) $id) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'That domain is already in use.'];
+        header('Location: ' . $back); exit;
+    }
+
+    // Record the request: status 'pending' + a verification token. Actual DNS
+    // verification + TLS issuance is the edge/infra step (docs §7.2) — this stores
+    // the intent + the TXT value the supplier must publish.
+    $token = 'goglobia-verify=' . bin2hex(random_bytes(16));
+    try {
+        $db->update('stays_site', [
+            'custom_domain' => $domain,
+            'domain_status' => 'pending',
+            'verify_token'  => $token,
+            'updated_at'    => date('Y-m-d H:i:s'),
+        ], ['stay_id' => (int) $id]);
+        $_SESSION['message'] = ['type' => 'success', 'text' => 'Custom domain saved. Add the DNS records shown, then verification completes it.'];
+    } catch (\Throwable $e) {
+        error_log('supplier site domain: ' . $e->getMessage());
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not save the domain.'];
+    }
+    header('Location: ' . $back);
+    exit;
+});
