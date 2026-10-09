@@ -66,6 +66,12 @@ $router->get('/supplier/dashboard', function () use ($SECURE, $db) {
 
     $totalInventory = array_sum(array_map(fn($i) => $i['count'], $inventory));
 
+    // Go-live onboarding state (inc S13) — derived from real data, shown as a
+    // checklist + progress meter until the supplier has a live listing.
+    $onboarding = function_exists('supplier_onboarding_state')
+        ? supplier_onboarding_state($db, $user_id)
+        : null;
+
     $title = 'Supplier Dashboard';
     $description = 'Your supplier account overview';
     $header = true;
@@ -73,5 +79,34 @@ $router->get('/supplier/dashboard', function () use ($SECURE, $db) {
 
     require_once views . "includes/header.php";
     require_once views . "supplier/dashboard.php";
+    require_once views . "includes/footer.php";
+});
+
+// ============================================================================
+// GET-STARTED WIZARD — GET /supplier/get-started  (inc S13)
+// A focused page that walks a newly-approved supplier through the go-live steps.
+// Pure read of supplier_onboarding_state() (same truth as the dashboard checklist).
+// ============================================================================
+$router->get('/supplier/get-started', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+
+    $ctx = supplier_acting_context($db);
+    if ($ctx === null || !empty($ctx['is_admin'])) {
+        header('Location: ' . root . ($ctx && !empty($ctx['is_admin']) ? 'admin/dashboard' : 'login'));
+        exit;
+    }
+    $user_id  = (string) $ctx['owner'];
+    $supplier = $db->get('users', ['first_name', 'last_name'], ['user_id' => $user_id]);
+    if (!$supplier) { header('Location: ' . root . 'login'); exit; }
+
+    $onboarding = function_exists('supplier_onboarding_state')
+        ? supplier_onboarding_state($db, $user_id)
+        : null;
+
+    $title = 'Get started';
+    $description = 'Set up your supplier account';
+    $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/get-started.php";
     require_once views . "includes/footer.php";
 });

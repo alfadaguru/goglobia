@@ -488,6 +488,120 @@ if (!function_exists('supplier_service_quota')) {
     }
 }
 
+if (!function_exists('supplier_onboarding_state')) {
+    /**
+     * Compute a supplier's go-live onboarding state from REAL data (inc S13) — never
+     * faked. Returns a list of steps (each ['key','label','hint','done','cta_url',
+     * 'cta_label']) plus progress counters. Used by the dashboard checklist and the
+     * dedicated onboarding wizard so both render identical truth.
+     *
+     * Steps (stays-first vertical): account approved → stays service approved →
+     * property created → property has a room + a sellable rate → submitted for
+     * review → live. Each 'done' is derived from the same tables the live path uses.
+     */
+    function supplier_onboarding_state($db, string $owner): array
+    {
+        $supplier = null;
+        try { $supplier = $db->get('users', ['status'], ['user_id' => $owner]); } catch (\Throwable $e) {}
+        $accountActive = $supplier && ($supplier['status'] ?? '') === 'active';
+
+        $quota = function_exists('supplier_service_quota')
+            ? supplier_service_quota($db, $owner, 'stays')
+            : ['approved' => false, 'max' => null, 'used' => 0];
+        $serviceApproved = !empty($quota['approved']);
+
+        // Owned properties + their listing_status (single query).
+        $properties = [];
+        try {
+            $properties = $db->select('stays', ['id', 'listing_status', 'status'],
+                ['user_id' => $owner]) ?: [];
+        } catch (\Throwable $e) { error_log('supplier_onboarding_state stays: ' . $e->getMessage()); }
+        $hasProperty = count($properties) > 0;
+
+        // A property is "configured" when it has at least one room carrying at least
+        // one room_options entry with a positive price (i.e. actually sellable).
+        $hasSellableRate = false;
+        if ($hasProperty) {
+            $ids = array_map(fn($p) => (int) $p['id'], $properties);
+            try {
+                $rooms = $db->select('stays_rooms', ['room_options'], ['stay_id' => $ids]) ?: [];
+                foreach ($rooms as $r) {
+                    $opts = json_decode((string) ($r['room_options'] ?? ''), true);
+                    if (!is_array($opts)) { continue; }
+                    foreach ($opts as $o) {
+                        if ((float) ($o['price'] ?? 0) > 0) { $hasSellableRate = true; break 2; }
+                    }
+                }
+            } catch (\Throwable $e) { error_log('supplier_onboarding_state rooms: ' . $e->getMessage()); }
+        }
+
+        $submitted = false; $live = false;
+        foreach ($properties as $p) {
+            $ls = (string) ($p['listing_status'] ?? '');
+            if (in_array($ls, ['submitted', 'approved'], true)) { $submitted = true; }
+            if ($ls === 'approved' && (int) ($p['status'] ?? 0) === 1) { $live = true; }
+        }
+
+        // First owned property id → a convenient CTA target for the config steps.
+        $firstId = $hasProperty ? (int) $properties[0]['id'] : 0;
+
+        $steps = [
+            [
+                'key' => 'account', 'label' => 'Account approved',
+                'hint' => 'An administrator reviews and approves your supplier account.',
+                'done' => $accountActive, 'cta_url' => null, 'cta_label' => null,
+            ],
+            [
+                'key' => 'service', 'label' => 'Stays service approved',
+                'hint' => 'Your “Hotels / Stays” service and property quota are approved by an admin.',
+                'done' => $serviceApproved, 'cta_url' => null, 'cta_label' => null,
+            ],
+            [
+                'key' => 'property', 'label' => 'Create your first property',
+                'hint' => 'Add a property with its name, location and details.',
+                'done' => $hasProperty,
+                'cta_url' => ($serviceApproved && !$hasProperty) ? (root . 'supplier/stays/add') : null,
+                'cta_label' => 'Add property',
+            ],
+            [
+                'key' => 'rooms', 'label' => 'Add a room with a rate',
+                'hint' => 'Give a property at least one room and one priced rate so it can be booked.',
+                'done' => $hasSellableRate,
+                'cta_url' => ($hasProperty && !$hasSellableRate) ? (root . 'supplier/stays/' . $firstId . '/rooms') : null,
+                'cta_label' => 'Manage rooms & rates',
+            ],
+            [
+                'key' => 'submit', 'label' => 'Submit for approval',
+                'hint' => 'Send a configured property to an administrator for review.',
+                'done' => $submitted,
+                'cta_url' => ($hasSellableRate && !$submitted) ? (root . 'supplier/stays') : null,
+                'cta_label' => 'Go to my hotels',
+            ],
+            [
+                'key' => 'live', 'label' => 'Go live',
+                'hint' => 'Once approved, your property is live and sells on the marketplace.',
+                'done' => $live, 'cta_url' => null, 'cta_label' => null,
+            ],
+        ];
+
+        $total = count($steps);
+        $completed = 0;
+        foreach ($steps as $s) { if ($s['done']) { $completed++; } }
+        // The first actionable (not-done) step — what the supplier should do next.
+        $nextStep = null;
+        foreach ($steps as $s) { if (!$s['done']) { $nextStep = $s; break; } }
+
+        return [
+            'steps'     => $steps,
+            'total'     => $total,
+            'completed' => $completed,
+            'percent'   => $total > 0 ? (int) round($completed / $total * 100) : 0,
+            'complete'  => $completed >= $total,
+            'next'      => $nextStep,
+        ];
+    }
+}
+
 // Redirect function
 function redirect($url)
 {

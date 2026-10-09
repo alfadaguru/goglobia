@@ -86,7 +86,7 @@ Ordered so each increment is independently shippable, reuses the prior, and does
 security-critical / data-model-level work before features that depend on it. Catalogue
 module numbers in brackets. Owner may re-order; this is the proposed sequence.
 
-### Stage A — finish the supplier onboarding & self-service surface (near-term focus)
+### Stage A — finish the supplier onboarding & self-service surface — ✅ COMPLETE (S9–S13)
 
 | # | Increment | Catalogue modules | Depends on | Status |
 |---|---|---|---|---|
@@ -94,7 +94,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S10 | Supplier **room/rate/calendar self-management** (owner-scoped room/option/calendar CRUD under `/supplier/stays/{id}/rooms*`, gated by `supplier_can('rooms'\|'rates')`; options by stable `option_id`) | 05, 06 | S3, S6 | ✅ code-complete (not runtime-verified — no DB) |
 | S11 | Supplier **reservations inbox** (owner sees bookings against their inventory; statuses; cancel/no-show) | 04, 07-adjacent | S3 | ✅ code-complete (not runtime-verified — no DB) |
 | S12 | **Normalized rate plans** (`stays_rate_plans`/`stays_rates`) as a write-only MIRROR over `room_options` (bridge; live path unchanged) | 06 | S6, S10 | ✅ code-complete (not runtime-verified — no DB) |
-| S13 | Supplier **onboarding wizard + go-live checklist** (progress meter; property setup %) | 01, 02, 60 | S9, S10 | ☐ planned |
+| S13 | Supplier **onboarding wizard + go-live checklist** (progress meter; real-state derived) | 01, 02, 60 | S9, S10 | ✅ code-complete (not runtime-verified — no DB) |
 
 ### Stage B — the model-level ERP foundations (do before deep ERP features; from `01a`)
 
@@ -180,5 +180,14 @@ Before coding: **read** every file to be touched (rule 3). Then:
   booking/detail/listing/home path still reads `room_options` (canonical runtime source),
   so pricing/availability/behaviour are unchanged; nothing reads the normalized tables
   yet. Non-fatal (function_exists-guarded + try/catch). Lint-clean + self-audited. Not
-  runtime-verified (no DB). **Next: S13 (onboarding wizard + go-live checklist) — last
-  Stage A item.**
+  runtime-verified (no DB).
+- 2026-10 — **S13 done** (onboarding wizard + go-live checklist): `supplier_onboarding_state($db,$owner)`
+  in functions.php computes 6 go-live steps from REAL data (account active, stays service
+  approved, property created, property has a room with a priced rate, submitted, live) +
+  progress %. Reusable fragment `app/views/supplier/_onboarding.php` (compact on dashboard,
+  full on the wizard; renders only while incomplete). New `GET /supplier/get-started`
+  wizard route + `get-started.php` view; compact checklist embedded on the dashboard. No
+  fake progress — every step derives from the tables the live path uses; read-only, no
+  schema change. Lint-clean + self-audited. Not runtime-verified (no DB). **Stage A
+  (S9–S13) COMPLETE. Next: Stage B — S14 org→brand→property→unit hierarchy (ERP model
+  foundations from 01a).**

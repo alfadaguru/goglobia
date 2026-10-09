@@ -19,6 +19,9 @@
     </span>
   </div>
 
+  <!-- Go-live checklist (inc S13) — compact; renders only while incomplete -->
+  <?php $onboardingCompact = true; require views . "supplier/_onboarding.php"; ?>
+
   <!-- Profile card -->
   <div class="card p-5">
     <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
