@@ -121,6 +121,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S22 | **Housekeeping + physical-room assignment** — physical rooms w/ clean/dirty/inspected/OOO; assign at check-in; checkout→dirty. Overlay only (pooled inventory untouched) | 24, 02 | ✅ code-complete (not runtime-verified — no DB) |
 | S23 | **Maintenance / work-orders + OOO→inventory** — tickets (open/in_progress/resolved); OOO a physical room reduces pooled `stays_inventory` by 1/option/date (floored at held), reversible | 25, 06 | ✅ code-complete (not runtime-verified — no DB) |
 | S24 | **F&B / POS (charge-to-room)** — outlets + menu + orders; settle cash OR charge-to-room → posts a `charge` to the in-house guest's folio (S21), server-computed total | 30 | ✅ code-complete (not runtime-verified — no DB) |
+| S25 | **Night audit (daily close)** — per-property business date; flag no-shows, snapshot occupancy/ADR/RevPAR, roll date; idempotent per (property,date) | 07, 16 | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -361,6 +362,20 @@ Before coding: **read** every file to be touched (rule 3). Then:
   refine when per-outlet GL mapping lands. Not runtime-verified. **Next Stage-D = owner's
   call (night audit, channel mgr, owner statements, …). STRONGLY recommend deploy +
   smoke-test S1–S24 before more / go-live.**
+- 2026-10 — **S25 done** (night audit / daily close): new `app/lib/supplier_night_audit.php`
+  — per-property business date (stays_business_date, seeds to today) + daily-close
+  snapshots (stays_night_audits, UNIQUE stay+date). night_audit_run: flag no-shows
+  (confirmed + checkin≤biz-date never checked in → pms_no_show + release holds; NO money
+  touched), snapshot arrivals/departures/in-house/rooms-sold/room-revenue/ADR/RevPAR/
+  occupancy (occupancy null→"—" when no physical rooms; all div-guarded), then ROLL the
+  business date +1. Idempotent per (stay,date): UNIQUE + locked FOR UPDATE re-check; date
+  only advances on a fresh snapshot. HONEST MODEL NOTE: our folio seeds whole-stay room+tax
+  at check-in, so night audit does NOT re-post per-night room charges (would double-bill) —
+  it's no-shows + snapshot + roll. Tables in ensure-fn + db.sql. Routes added to
+  supplierHousekeepingRoutes (/supplier/night-audit board + /run); view
+  supplier/night-audit.php + dashboard link. supplier_can('reservations') + CSRF. Not
+  runtime-verified. **Next Stage-D = owner's call (channel mgr, owner statements, direct-
+  booking engine, …). STRONGLY recommend deploy + smoke-test S1–S25 before more / go-live.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

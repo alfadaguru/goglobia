@@ -126,6 +126,15 @@
         <span class="block text-xs text-gray-500">Outlets, menus &amp; charge-to-room</span>
       </span>
     </a>
+    <a href="<?= root ?>supplier/night-audit" class="card px-4 py-3 flex items-center gap-3 hover:border-violet-300 transition">
+      <span class="w-10 h-10 rounded-lg bg-violet-50 flex items-center justify-center">
+        <span class="material-symbols-outlined text-violet-600">nightlight</span>
+      </span>
+      <span>
+        <span class="block text-sm font-semibold text-gray-900">Night audit</span>
+        <span class="block text-xs text-gray-500">Daily close &amp; occupancy</span>
+      </span>
+    </a>
     <?php if (empty($viewingAsStaff)): // owner-only management links ?>
     <a href="<?= root ?>supplier/roles" class="card px-4 py-3 flex items-center gap-3 hover:border-violet-300 transition">
       <span class="w-10 h-10 rounded-lg bg-violet-50 flex items-center justify-center">

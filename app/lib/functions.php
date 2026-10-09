@@ -7857,6 +7857,38 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_order` (`order_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- NIGHT AUDIT (inc S25; docs 01 §4.4) ------------------------------------
+        // Per-property business date + daily-close snapshots. Managed by
+        // app/lib/supplier_night_audit.php. One snapshot per (stay, business_date).
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_business_date` (
+            `stay_id` INT(11) NOT NULL,
+            `business_date` DATE NOT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_night_audits` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `stay_id` INT(11) NOT NULL,
+            `business_date` DATE NOT NULL,
+            `arrivals` INT(11) NOT NULL DEFAULT 0,
+            `departures` INT(11) NOT NULL DEFAULT 0,
+            `in_house` INT(11) NOT NULL DEFAULT 0,
+            `rooms_sold` INT(11) NOT NULL DEFAULT 0,
+            `rooms_available` INT(11) NOT NULL DEFAULT 0,
+            `room_revenue` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `adr` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            `revpar` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            `occupancy_pct` DECIMAL(5,1) DEFAULT NULL,
+            `no_shows` INT(11) NOT NULL DEFAULT 0,
+            `run_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_stay_date` (`stay_id`,`business_date`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // stays hierarchy keys + operating model. Nullable/defaulted so existing rows
         // are untouched; each guarded by SHOW COLUMNS (idempotent).
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'org_id'")->fetch()) {

@@ -29026,6 +29026,44 @@ CREATE TABLE `pos_payments` (
 -- --------------------------------------------------------
 
 --
+-- Night audit (inc S25; docs/supplier/01 §4.4). Per-property business date + daily
+-- close snapshots (occupancy/ADR/RevPAR, no-shows). One snapshot per (stay, date).
+-- app/lib/supplier_night_audit.php.
+--
+CREATE TABLE `stays_business_date` (
+  `stay_id` int(11) NOT NULL,
+  `business_date` date NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `stays_night_audits` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `stay_id` int(11) NOT NULL,
+  `business_date` date NOT NULL,
+  `arrivals` int(11) NOT NULL DEFAULT 0,
+  `departures` int(11) NOT NULL DEFAULT 0,
+  `in_house` int(11) NOT NULL DEFAULT 0,
+  `rooms_sold` int(11) NOT NULL DEFAULT 0,
+  `rooms_available` int(11) NOT NULL DEFAULT 0,
+  `room_revenue` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `adr` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `revpar` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `occupancy_pct` decimal(5,1) DEFAULT NULL,
+  `no_shows` int(11) NOT NULL DEFAULT 0,
+  `run_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_stay_date` (`stay_id`,`business_date`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Normalized rate-plan MIRROR over room_options (inc S12). room_options JSON
 -- stays the canonical runtime source; these mirror each option (keyed by the
 -- stable option_id) so the rate model is relational. Kept in sync by

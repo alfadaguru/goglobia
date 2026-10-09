@@ -245,3 +245,56 @@ $router->post('/supplier/maintenance/ooo/clear', function () use ($SECURE, $db) 
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Out-of-order cleared; inventory restored.' : 'Could not clear (already cleared?).'];
     header('Location: ' . $back); exit;
 });
+
+// ============================================================================
+// NIGHT AUDIT (inc S25) — daily close
+// ============================================================================
+
+// GET /supplier/night-audit — per-property current business date + run + history
+$router->get('/supplier/night-audit', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+
+    $stayIds = supplier_owned_stay_ids($db, $owner);
+    $stayFilter = (int) ($_GET['stay_id'] ?? 0);
+    if ($stayFilter > 0 && !in_array($stayFilter, $stayIds, true)) { $stayFilter = 0; }
+
+    $propMap = [];
+    if (!empty($stayIds)) {
+        try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {}
+    }
+    // Current business date per property + recent history for the selected one.
+    $bizDates = [];
+    foreach ($stayIds as $sid) { if (function_exists('na_business_date')) { $bizDates[$sid] = na_business_date($db, $sid); } }
+    $history = ($stayFilter > 0 && function_exists('night_audit_history')) ? night_audit_history($db, $stayFilter) : [];
+    $canRun = supplier_can($db, 'reservations', 'edit');
+
+    $title = 'Night audit'; $description = ''; $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/night-audit.php";
+    require_once views . "includes/footer.php";
+});
+
+// POST /supplier/night-audit/run — run the close for one property (current biz date)
+$router->post('/supplier/night-audit/run', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $back = root . 'supplier/night-audit?stay_id=' . $stayId;
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+
+    if (!function_exists('night_audit_run')) { $_SESSION['message'] = ['type' => 'error', 'text' => 'Unavailable.']; header('Location: ' . $back); exit; }
+    $res = night_audit_run($db, $stayId);
+    if (!empty($res['ok']) && empty($res['already'])) {
+        $_SESSION['message'] = ['type' => 'success', 'text' => 'Night audit closed for ' . htmlspecialchars((string) ($res['business_date'] ?? '')) . '. Business date rolled to ' . htmlspecialchars((string) ($res['new_business_date'] ?? '')) . '.'];
+    } elseif (!empty($res['already'])) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'That business date was already audited.'];
+    } else {
+        $_SESSION['message'] = ['type' => 'error', 'text' => $res['message'] ?? 'Could not run the night audit.'];
+    }
+    header('Location: ' . $back); exit;
+});
