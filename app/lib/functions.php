@@ -7963,6 +7963,65 @@ function ensureSupplierStaysSchema($db): void
             $db->query("ALTER TABLE `stays` ADD COLUMN `rating_count` INT(11) NOT NULL DEFAULT 0");
         }
 
+        // --- procurement (inc S32): vendors + stock + purchase orders + lines -------
+        // GRN (receive) increments stock + posts DR 6000 / CR 2000 to the GL.
+        // app/lib/supplier_procurement.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_vendors` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `name` VARCHAR(191) NOT NULL,
+            `email` VARCHAR(191) DEFAULT NULL,
+            `phone` VARCHAR(40) DEFAULT NULL,
+            `bank_code` VARCHAR(20) DEFAULT NULL,
+            `account_number` VARCHAR(40) DEFAULT NULL,
+            `status` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`), KEY `idx_org` (`org_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_stock_items` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `name` VARCHAR(191) NOT NULL,
+            `unit` VARCHAR(40) NOT NULL DEFAULT 'unit',
+            `on_hand` DECIMAL(14,3) NOT NULL DEFAULT 0.000,
+            `reorder_level` DECIMAL(14,3) NOT NULL DEFAULT 0.000,
+            `status` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`), KEY `idx_org` (`org_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_purchase_orders` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `vendor_id` INT(11) NOT NULL,
+            `reference` VARCHAR(40) NOT NULL,
+            `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+            `status` ENUM('draft','ordered','received','cancelled') NOT NULL DEFAULT 'draft',
+            `total` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `received_at` DATETIME DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_reference` (`reference`),
+            KEY `idx_org_status` (`org_id`,`status`),
+            KEY `idx_vendor` (`vendor_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_po_lines` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `po_id` INT(11) NOT NULL,
+            `item_id` INT(11) NOT NULL,
+            `name` VARCHAR(191) NOT NULL,
+            `qty` DECIMAL(14,3) NOT NULL DEFAULT 0.000,
+            `unit_cost` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`), KEY `idx_po` (`po_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- loyalty (inc S30): per-org config + append-only points ledger ----------
         // Points keyed on the guest email (S29 key). Earn is idempotent per
         // (org, invoice). Balance = SUM(points). Soft currency — no cash value here.

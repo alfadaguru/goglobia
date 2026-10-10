@@ -128,6 +128,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S29 | **Guest CRM** — returning-guest profiles aggregated from bookings by email (stays, spend, history, properties) + owner notes/VIP/tags | 18 | ✅ code-complete (not runtime-verified — no DB) |
 | S30 | **Loyalty** — per-org points ledger keyed on guest email; auto-earn on paid stay at checkout (idempotent); tiers; manual adjust/redeem; balance on guest profile | 22 | ✅ code-complete (not runtime-verified — no DB) |
 | S31 | **Reviews / reputation** — tokened post-stay guest review (1-5 + comment); owner moderation (publish/hide); published reviews roll up to `stays.rating`+`rating_count` (the live public field) | 23 | ✅ code-complete (not runtime-verified — no DB) |
+| S32 | **Procurement + stores** — vendors, stock items, purchase orders + lines, GRN (receive → stock on_hand++ + DR 6000/CR 2000 to GL); low-stock alert | 41, 42 | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -458,8 +459,20 @@ Before coding: **read** every file to be touched (rule 3). Then:
   (supplier_can('reservations','edit') + stays.user_id===owner). Views stays/review.php
   (public star form) + supplier/reviews.php + dashboard link + copy-review-link on the
   checked-out reservation detail. Only live-stays write = the rating/rating_count rollup.
-  Not runtime-verified. **Next Stage-D = owner's call (procurement, events/MICE, channel
-  mgr, smart-locks). STRONGLY recommend deploy + smoke-test S1–S31 before go-live.**
+  Not runtime-verified.
+- 2026-10 — **S32 done** (procurement + stores): new `app/lib/supplier_procurement.php` —
+  proc_vendor_create, proc_item_create (stock SKU w/ on_hand + reorder_level), proc_po_create
+  (draft) / proc_po_add_line (draft only; recomputes total) / proc_po_order (draft→ordered,
+  needs ≥1 line), proc_po_receive (GRN: atomic $db->action + re-lock status guard →
+  increments each item on_hand [row-locked] + posts balanced DR 6000/CR 2000 via gl_post +
+  marks received, idempotent), proc_low_stock. Tables stays_vendors / stays_stock_items /
+  stays_purchase_orders (uq_reference) / stays_po_lines (ensure-fn + db.sql). Routes
+  users/supplierProcurementRoutes (OWNER-ONLY SUPPLIER_AUTH + CSRF, org-scoped); view
+  supplier/procurement.php + dashboard link. Server-computed totals. HONEST: GRN posts to
+  generic Operating Expense (6000) [no inventory-asset COA code]; does NOT pay the vendor
+  (settling AP = later); stock still increments even if GL post is skipped (logged). Not
+  runtime-verified. **Next Stage-D = owner's call (events/MICE, channel mgr, smart-locks).
+  STRONGLY recommend deploy + smoke-test S1–S32 before go-live.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

@@ -29123,6 +29123,78 @@ CREATE TABLE `stays_owner_expenses` (
 -- --------------------------------------------------------
 
 --
+-- Procurement + stores (inc S32; docs 01b 41/42). Vendors → POs → GRN → stock.
+-- Receiving a PO increments stock on_hand + posts DR 6000 / CR 2000 to the GL.
+-- app/lib/supplier_procurement.php.
+--
+CREATE TABLE `stays_vendors` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `name` varchar(191) NOT NULL,
+  `email` varchar(191) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `bank_code` varchar(20) DEFAULT NULL,
+  `account_number` varchar(40) DEFAULT NULL,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `stays_stock_items` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `name` varchar(191) NOT NULL,
+  `unit` varchar(40) NOT NULL DEFAULT 'unit',
+  `on_hand` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `reorder_level` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `stays_purchase_orders` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `vendor_id` int(11) NOT NULL,
+  `reference` varchar(40) NOT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `status` enum('draft','ordered','received','cancelled') NOT NULL DEFAULT 'draft',
+  `total` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `created_by` varchar(155) DEFAULT NULL,
+  `received_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_reference` (`reference`),
+  KEY `idx_org_status` (`org_id`,`status`),
+  KEY `idx_vendor` (`vendor_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `stays_po_lines` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `po_id` int(11) NOT NULL,
+  `item_id` int(11) NOT NULL,
+  `name` varchar(191) NOT NULL,
+  `qty` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `unit_cost` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_po` (`po_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Reviews / reputation (inc S31). Post-stay reviews; published ones roll up to
 -- stays.rating + stays.rating_count. One review per (stay, invoice). supplier_reviews.php.
 --
