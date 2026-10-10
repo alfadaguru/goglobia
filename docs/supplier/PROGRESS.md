@@ -131,6 +131,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S32 | **Procurement + stores** — vendors, stock items, purchase orders + lines, GRN (receive → stock on_hand++ + DR 6000/CR 2000 to GL); low-stock alert | 41, 42 | ✅ code-complete (not runtime-verified — no DB) |
 | S33 | **Events / MICE** — function spaces + event bookings (enquiry→confirmed→completed) + event folio; completion posts DR 1200/CR 4000 to GL | 16 | ✅ code-complete (not runtime-verified — no DB) |
 | S34 | **Supplier IA restructure** — persistent supplier sidebar (grouped, service-gated, perm-aware); post-approval service/quota REQUEST flow + admin queue; admin "Suppliers" consolidated into one menu + overview dashboard; fixed uncompiled violet Tailwind utilities | — | ✅ code-complete (not runtime-verified — no DB) |
+| S35 | **Per-property drill-in** — context-aware supplier sidebar: top-level (account + granted services) vs INSIDE a property (that hotel's full PMS, scoped via ?stay_id); new property hub `/supplier/stays/{id}`; hotels list → Open | — | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -502,6 +503,21 @@ Before coding: **read** every file to be touched (rule 3). Then:
   ADMIN_AUTH/SUPPLIER_AUTH + CSRF. Not runtime-verified. **Stage D + supplier IA DONE.
   Remaining = integration-heavy (channel mgr) or vision-only (smart-locks). STRONGLY
   recommend owner deploy + smoke-test S1–S34 before go-live / any integration module.**
+- 2026-10 — **S35 done** (per-property drill-in restructure — owner's deeper-IA feedback):
+  the supplier sidebar (app/views/supplier/sidebar.php) is now CONTEXT-AWARE. TOP LEVEL
+  (no active property): Dashboard/Insights · My services (granted only; Stays→hotels list)
+  · Guests (org-wide CRM) · Finance & Team (owner-only) · Account/Request. INSIDE A
+  PROPERTY (path/query carries an OWNED stay id): switches to THAT hotel's full PMS —
+  Overview · Rooms & rates · Reservations · Housekeeping · Maintenance · F&B/POS · Events ·
+  Night audit · Reviews · Site · Edit — every cross-property page pre-scoped with
+  ?stay_id={id}; property-name header + "All properties" crumb. Active-property detected
+  from path (/supplier/stays/{id}[/...], /edit/{id}, /site/{id}) or ?stay_id, then
+  supplier_can('hotels','view',$id)-verified. New property HUB route + view
+  /supplier/stays/{id} (fully-anchored regex, no shadowing) = the drill-in landing w/
+  quick stats + PMS tiles. Hotels list: name links to hub + "Open" button. Added ?stay_id
+  scoping to the reviews list route (others already had it). NO engine/schema change —
+  pure nav/context layer reusing every existing route. Not runtime-verified. **Remaining =
+  integration-heavy / vision-only. STRONGLY recommend owner deploy + smoke-test S1–S35.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

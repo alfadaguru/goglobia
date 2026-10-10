@@ -205,6 +205,35 @@ $router->post('/supplier/stays/add', function () use ($SECURE, $db) {
 });
 
 // ============================================================================
+// PROPERTY HUB — GET /supplier/stays/{id}  (inc S35 — the per-property drill-in)
+// The landing when you "enter" a property: a quick overview + the context for the
+// property-scoped sidebar (which keys off this stay id in the path). Fully anchored
+// regex (^…$) so it never shadows /add or the /{id}/rooms etc. routes.
+// ============================================================================
+$router->get('/supplier/stays/([0-9]+)', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'hotels', 'view', (int) $id)) {
+        _supplier_stays_deny('That property is not yours.');
+    }
+    $stay = $db->get('stays', '*', ['id' => (int) $id]);
+    if (!$stay) { _supplier_stays_deny('Property not found.'); }
+
+    // Light overview counts for the hub (defensive — never fatal).
+    $hub = ['rooms' => 0, 'reservations' => 0, 'physical_rooms' => 0, 'open_work_orders' => 0];
+    try { $hub['rooms'] = (int) $db->count('stays_rooms', ['stay_id' => (int) $id]); } catch (\Throwable $e) {}
+    try { $hub['physical_rooms'] = (int) $db->count('stays_physical_rooms', ['stay_id' => (int) $id, 'active' => 1]); } catch (\Throwable $e) {}
+    try { $hub['open_work_orders'] = (int) $db->count('stays_work_orders', ['stay_id' => (int) $id, 'status' => 'open']); } catch (\Throwable $e) {}
+
+    $title = ($stay['name'] ?? 'Property'); $description = '';
+    $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/stays/property-hub.php";
+    require_once views . "includes/footer.php";
+});
+
+// ============================================================================
 // EDIT FORM — GET /supplier/stays/edit/{id}
 // ============================================================================
 $router->get('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db) {

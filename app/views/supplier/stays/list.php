@@ -70,7 +70,7 @@
               ][$ls] ?? 'bg-gray-100 text-gray-600';
             ?>
             <tr>
-              <td class="px-4 py-3 text-gray-900 font-medium"><?= htmlspecialchars($p['name'] ?? '') ?></td>
+              <td class="px-4 py-3"><a href="<?= root ?>supplier/stays/<?= (int) $p['id'] ?>" class="text-gray-900 font-medium hover:text-violet-700 hover:underline"><?= htmlspecialchars($p['name'] ?? '') ?></a></td>
               <td class="px-4 py-3 text-gray-600"><?= htmlspecialchars($p['location'] ?? '') ?></td>
               <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium <?= $lsColor ?>"><?= htmlspecialchars(ucfirst($ls)) ?></span></td>
               <td class="px-4 py-3">
@@ -80,9 +80,7 @@
               </td>
               <td class="px-4 py-3">
                 <div class="flex items-center gap-3">
-                  <a href="<?= root ?>supplier/stays/edit/<?= (int) $p['id'] ?>" class="text-blue-600 hover:underline text-xs font-medium">Edit</a>
-                  <a href="<?= root ?>supplier/stays/<?= (int) $p['id'] ?>/rooms" class="text-blue-600 hover:underline text-xs font-medium">Rooms &amp; rates</a>
-                  <a href="<?= root ?>supplier/stays/site/<?= (int) $p['id'] ?>" class="text-violet-600 hover:underline text-xs font-medium">Site &amp; domain</a>
+                  <a href="<?= root ?>supplier/stays/<?= (int) $p['id'] ?>" class="btn emerald text-xs">Open</a>
                   <?php if (in_array($ls, ['draft','queried','rejected'], true)): ?>
                     <form action="<?= root ?>supplier/stays/submit/<?= (int) $p['id'] ?>" method="POST" class="inline">
                       <?= CSRF::tokenField() ?>

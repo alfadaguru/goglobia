@@ -45,9 +45,13 @@ $router->get('/supplier/reviews', function () use ($SECURE, $db) {
     if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
+    // Property drill-in (inc S35): a ?stay_id scopes the queue to one owned property.
+    $stayFilter = (int) ($_GET['stay_id'] ?? 0);
+    if ($stayFilter > 0 && in_array($stayFilter, $stayIds, true)) { $scopeIds = [$stayFilter]; }
+    else { $scopeIds = $stayIds; }
     $status = strtolower(trim((string) ($_GET['status'] ?? '')));
     if (!in_array($status, ['pending', 'published', 'hidden'], true)) { $status = ''; }
-    $reviews = function_exists('review_list_for_org') ? review_list_for_org($db, $stayIds, $status) : [];
+    $reviews = function_exists('review_list_for_org') ? review_list_for_org($db, $scopeIds, $status) : [];
     $propMap = [];
     if (!empty($stayIds)) {
         try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {}
