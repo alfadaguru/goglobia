@@ -124,6 +124,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S25 | **Night audit (daily close)** — per-property business date; flag no-shows, snapshot occupancy/ADR/RevPAR, roll date; idempotent per (property,date) | 07, 16 | ✅ code-complete (not runtime-verified — no DB) |
 | S26 | **Apartment-owner model + owner statements** — owners + management agreements (mgr commission); statement = earnings − platform − mgr commission − expenses → owner payout | 47, 48 | ✅ code-complete (not runtime-verified — no DB) |
 | S27 | **Direct-booking engine** — branded-site/walk-in booking (source=direct_site) consuming the SAME pooled inventory via stays_hold_create; server-priced; flows into reservations/folio/earnings | 13, 02 | ✅ code-complete (not runtime-verified — no DB) |
+| S28 | **BI / operations dashboard** — READ-ONLY KPIs from real tables: earnings, occupancy/ADR/RevPAR trend, F&B sales, channel mix, reservations, HK/work-order counts | 56 | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -406,9 +407,21 @@ Before coding: **read** every file to be touched (rule 3). Then:
   caught + fixed a tax-key bug (calculateTax returns tax_amount, not tax/amount — was
   silently zeroing tax). Live marketplace path untouched. HONEST: fully-public
   guest-facing booking still needs the S8 host-routing edge (infra-deferred) — this is
-  the desk/walk-in + preview surface. Not runtime-verified. **Next Stage-D = owner's call
-  (channel mgr, procurement, BI, guest CRM, loyalty, reviews, events, smart-locks).
-  STRONGLY recommend deploy + smoke-test S1–S27 before go-live.**
+  the desk/walk-in + preview surface. Not runtime-verified.
+- 2026-10 — **S28 done** (BI / operations dashboard, READ-ONLY): new `app/lib/supplier_bi.php`
+  — bi_reservations_by_status (status + channel mix from booking_data.source, decoded-verify),
+  bi_audit_trend (stays_night_audits occupancy/ADR/RevPAR), bi_fnb_sales (settled
+  pos_orders + pos_payments by tender), bi_ops_counts (housekeeping + open work orders),
+  bi_dashboard (assembles + reuses supplier_earning_summary). Route GET /supplier/insights
+  (supplier_can('reservations','view'), owner's stay-id set). View supplier/insights.php
+  (KPI cards + inline-SVG occupancy sparkline + channel-mix bars + trend table) + dashboard
+  link. NO writes, NO schema change — every metric from a confirmed real column. Self-audit
+  caught a Tailwind precompile gap: bg-violet-500/600 are NOT in the compiled build.css
+  (PR#102 build-time compile) so those fills rendered invisible — FIXED in insights.php AND
+  retro-fixed S13 _onboarding.php progress bar/step marker + S9 services/show.php step
+  numbers to inline background-color:#7c3aed. Not runtime-verified. **Next Stage-D = owner's
+  call (procurement, guest CRM, loyalty, reviews, events, channel mgr, smart-locks).
+  STRONGLY recommend deploy + smoke-test S1–S28 before go-live.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

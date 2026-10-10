@@ -31,7 +31,7 @@ $next = $ob['next'] ?? null;
 
   <!-- Progress meter -->
   <div class="w-full h-2 rounded-full bg-gray-100 overflow-hidden mb-4" role="progressbar" aria-valuenow="<?= $pct ?>" aria-valuemin="0" aria-valuemax="100">
-    <div class="h-full bg-violet-600 transition-all" style="width: <?= $pct ?>%"></div>
+    <div class="h-full transition-all" style="width: <?= $pct ?>%; background-color:#7c3aed;"></div>
   </div>
 
   <ol class="space-y-3">
@@ -42,7 +42,8 @@ $next = $ob['next'] ?? null;
       ?>
       <li class="flex items-start gap-3">
         <span class="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-semibold
-          <?= $isDone ? 'bg-green-100 text-green-700' : ($isNext ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-500') ?>">
+          <?= $isDone ? 'bg-green-100 text-green-700' : ($isNext ? 'text-white' : 'bg-gray-100 text-gray-500') ?>"
+          <?= $isNext ? 'style="background-color:#7c3aed;"' : '' ?>>
           <?php if ($isDone): ?><span class="material-symbols-outlined text-sm">check</span><?php else: ?><?= $i + 1 ?><?php endif; ?>
         </span>
         <div class="flex-1 min-w-0">

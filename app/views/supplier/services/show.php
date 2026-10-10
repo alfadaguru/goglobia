@@ -69,7 +69,7 @@ $features   = is_array($svc['features'] ?? null) ? $svc['features'] : [];
       ];
       foreach ($steps as $i => $step): ?>
         <li class="flex items-start gap-3">
-          <span class="w-7 h-7 rounded-full bg-violet-600 text-white text-sm font-semibold flex items-center justify-center flex-shrink-0"><?= $i + 1 ?></span>
+          <span class="w-7 h-7 rounded-full text-white text-sm font-semibold flex items-center justify-center flex-shrink-0" style="background-color:#7c3aed;"><?= $i + 1 ?></span>
           <div>
             <span class="block text-sm font-semibold text-gray-900"><?= $step[0] ?></span>
             <span class="block text-sm text-gray-600"><?= $step[1] ?></span>

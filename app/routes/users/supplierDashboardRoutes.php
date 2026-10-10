@@ -116,3 +116,37 @@ $router->get('/supplier/get-started', function () use ($SECURE, $db) {
     require_once views . "supplier/get-started.php";
     require_once views . "includes/footer.php";
 });
+
+// ============================================================================
+// GET /supplier/insights — read-only BI / operations dashboard (inc S28)
+// ============================================================================
+$router->get('/supplier/insights', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $ctx = supplier_acting_context($db);
+    if ($ctx === null || !empty($ctx['is_admin'])) {
+        header('Location: ' . root . ($ctx && !empty($ctx['is_admin']) ? 'admin/dashboard' : 'login'));
+        exit;
+    }
+    $user_id = (string) $ctx['owner'];
+    if (!supplier_can($db, 'reservations', 'view')) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'You are not authorised to view insights.'];
+        header('Location: ' . root . 'supplier/dashboard'); exit;
+    }
+
+    $stayIds = function_exists('supplier_owned_stay_ids') ? supplier_owned_stay_ids($db, $user_id) : [];
+    $focus = (int) ($_GET['stay_id'] ?? 0);
+    if ($focus > 0 && !in_array($focus, $stayIds, true)) { $focus = 0; }
+
+    $bi = function_exists('bi_dashboard') ? bi_dashboard($db, $user_id, $stayIds, $focus) : [];
+    // Property names for the trend selector.
+    $propMap = [];
+    if (!empty($stayIds)) {
+        try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {}
+    }
+
+    $title = 'Insights'; $description = 'Your performance at a glance';
+    $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/insights.php";
+    require_once views . "includes/footer.php";
+});
