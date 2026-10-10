@@ -123,6 +123,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S24 | **F&B / POS (charge-to-room)** — outlets + menu + orders; settle cash OR charge-to-room → posts a `charge` to the in-house guest's folio (S21), server-computed total | 30 | ✅ code-complete (not runtime-verified — no DB) |
 | S25 | **Night audit (daily close)** — per-property business date; flag no-shows, snapshot occupancy/ADR/RevPAR, roll date; idempotent per (property,date) | 07, 16 | ✅ code-complete (not runtime-verified — no DB) |
 | S26 | **Apartment-owner model + owner statements** — owners + management agreements (mgr commission); statement = earnings − platform − mgr commission − expenses → owner payout | 47, 48 | ✅ code-complete (not runtime-verified — no DB) |
+| S27 | **Direct-booking engine** — branded-site/walk-in booking (source=direct_site) consuming the SAME pooled inventory via stays_hold_create; server-priced; flows into reservations/folio/earnings | 13, 02 | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -392,6 +393,22 @@ Before coding: **read** every file to be touched (rule 3). Then:
   Stage-D = owner's call (channel mgr, direct-booking engine, procurement, smart-locks,
   BI, loyalty, reviews, events). STRONGLY recommend deploy + smoke-test S1–S26 before
   go-live.**
+- 2026-10 — **S27 done** (direct-booking engine): new `app/lib/supplier_direct_booking.php`
+  — direct_booking_quote (server price = option.price × nights + calculateTax[tax_amount])
+  + direct_booking_create (places a pooled-inventory hold via stays_hold_create FIRST —
+  same anti-oversell pool as marketplace/walk-in — then inserts a bookings row
+  module_type='stays', source='direct_site', commission=0, price_original=room_total,
+  payment_status='unpaid' pay-at-property; releases hold if insert fails). Flows into
+  reservations(S11)/folio(S21)/earnings-on-paid(S18) unchanged. Route
+  POST /supplier/stays/site/{id}/book (desk action, supplier_can('reservations','edit')
+  + CSRF) + a working booking form on the branded preview (replaces the disabled Book
+  button). NO schema change (reuses bookings/stays_holds/stays_inventory). Self-audit
+  caught + fixed a tax-key bug (calculateTax returns tax_amount, not tax/amount — was
+  silently zeroing tax). Live marketplace path untouched. HONEST: fully-public
+  guest-facing booking still needs the S8 host-routing edge (infra-deferred) — this is
+  the desk/walk-in + preview surface. Not runtime-verified. **Next Stage-D = owner's call
+  (channel mgr, procurement, BI, guest CRM, loyalty, reviews, events, smart-locks).
+  STRONGLY recommend deploy + smoke-test S1–S27 before go-live.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

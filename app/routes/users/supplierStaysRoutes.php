@@ -951,9 +951,17 @@ $router->get('/supplier/stays/site/([0-9]+)/preview', function ($id) use ($SECUR
     if (!$stay) { _supplier_stays_deny('Property not found.'); }
     $site = $db->get('stays_site', '*', ['stay_id' => (int) $id]);
 
-    // Rooms for the branded page (owner's own inventory).
+    // Rooms for the branded page (owner's own inventory). Ensure stable option_ids so
+    // the direct-booking form can reference a concrete option.
     $rooms = $db->select('stays_rooms', ['id', 'room_type_id', 'room_images', 'room_options'],
         ['stay_id' => (int) $id, 'status' => 1]) ?: [];
+    if (function_exists('stays_room_option_ids')) {
+        foreach ($rooms as &$__r) { $__r['_options'] = stays_room_option_ids($db, (int) $__r['id'], (int) $id); }
+        unset($__r);
+    }
+    // Direct/walk-in booking is a desk action — gated on reservations edit for this
+    // property. (A fully public guest-facing booking needs the host-routing edge, S8.)
+    $canBook = supplier_can($db, 'reservations', 'edit', (int) $id);
 
     $title = ($stay['name'] ?? 'Property') . ' — Booking';
     $description = '';
@@ -961,6 +969,39 @@ $router->get('/supplier/stays/site/([0-9]+)/preview', function ($id) use ($SECUR
     require_once views . "includes/header.php";
     require_once views . "supplier/stays/branded-preview.php";
     require_once views . "includes/footer.php";
+});
+
+// POST /supplier/stays/site/{id}/book — take a DIRECT / walk-in booking (inc S27).
+// Desk action (supplier_can reservations edit). Server-priced + pooled-inventory hold.
+$router->post('/supplier/stays/site/([0-9]+)/book', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) $id;
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('That property is not yours.'); }
+    $back = root . 'supplier/stays/site/' . $stayId . '/preview';
+
+    if (!function_exists('direct_booking_create')) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Direct booking unavailable.'];
+        header('Location: ' . $back); exit;
+    }
+    $res = direct_booking_create($db, $stayId,
+        (int) ($_POST['room_id'] ?? 0), (int) ($_POST['option_id'] ?? 0),
+        (string) ($_POST['checkin'] ?? ''), (string) ($_POST['checkout'] ?? ''),
+        [
+            'first_name' => $_POST['first_name'] ?? '', 'last_name' => $_POST['last_name'] ?? '',
+            'email' => $_POST['email'] ?? '', 'phone' => $_POST['phone'] ?? '',
+            'adults' => (int) ($_POST['adults'] ?? 1), 'childs' => (int) ($_POST['childs'] ?? 0),
+            'special_requests' => $_POST['special_requests'] ?? '',
+        ],
+        max(1, (int) ($_POST['qty'] ?? 1)));
+    if (!empty($res['ok'])) {
+        $_SESSION['message'] = ['type' => 'success', 'text' => 'Direct booking created (' . htmlspecialchars((string) $res['invoice_id']) . '). Manage it under Reservations.'];
+        header('Location: ' . root . 'supplier/reservations/' . rawurlencode((string) $res['invoice_id'])); exit;
+    }
+    $_SESSION['message'] = ['type' => 'error', 'text' => $res['message'] ?? 'Could not create the booking.'];
+    header('Location: ' . $back); exit;
 });
 
 // POST /supplier/stays/site/{id} — request a custom domain (CNAME) for a property.

@@ -81,6 +81,7 @@ require_once 'app/lib/supplier_maintenance.php';
 require_once 'app/lib/supplier_pos.php';
 require_once 'app/lib/supplier_night_audit.php';
 require_once 'app/lib/supplier_owners.php';
+require_once 'app/lib/supplier_direct_booking.php';
 require_once 'app/lib/i18n.php';
 require_once 'app/lib/mailer.php';
 require_once 'app/lib/captcha.php';

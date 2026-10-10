@@ -10,11 +10,21 @@
   $stars = (int) ($s['stars'] ?? 0);
 ?>
 
+<?php $canBook = !empty($canBook); $cur = htmlspecialchars($s['currency'] ?? 'USD'); $sid = (int) ($s['id'] ?? 0); ?>
 <div class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+
+  <?php if (!empty($_SESSION['message'])): ?>
+    <?php $__m = $_SESSION['message']; $__t = is_array($__m) ? ($__m['type'] ?? 'info') : 'info'; $__x = is_array($__m) ? ($__m['text'] ?? '') : (string) $__m; ?>
+    <div class="<?= $__t === 'error' ? 'alert-error' : 'alert-success' ?>">
+      <span class="material-symbols-outlined"><?= $__t === 'error' ? 'error' : 'check_circle' ?></span>
+      <p class="text-sm"><?= htmlspecialchars($__x) ?></p>
+    </div>
+    <?php unset($_SESSION['message']); ?>
+  <?php endif; ?>
 
   <div class="rounded-xl border border-dashed border-violet-300 bg-violet-50 text-violet-700 text-xs px-3 py-2 flex items-center gap-2">
     <span class="material-symbols-outlined text-sm">visibility</span>
-    Preview of your branded booking page. On your own domain this appears without the platform chrome.
+    Preview of your branded booking page.<?= $canBook ? ' You can take a direct / walk-in booking below.' : '' ?> On your own domain this appears without the platform chrome.
   </div>
 
   <!-- Hero -->
@@ -55,28 +65,60 @@
       <div class="space-y-3">
         <?php foreach ($rooms as $room): ?>
           <?php
-            $opts = [];
-            if (!empty($room['room_options'])) { $opts = json_decode((string) $room['room_options'], true) ?: []; }
+            $opts = is_array($room['_options'] ?? null) ? $room['_options'] : [];
+            if (empty($opts) && !empty($room['room_options'])) { $opts = json_decode((string) $room['room_options'], true) ?: []; }
             $minPrice = null;
             foreach ($opts as $o) {
               if (isset($o['price']) && ($minPrice === null || $o['price'] < $minPrice)) { $minPrice = (float) $o['price']; }
             }
+            $rid = (int) $room['id'];
           ?>
-          <div class="card p-4 flex items-center justify-between gap-4">
-            <div>
-              <div class="font-medium text-gray-900">Room #<?= (int) $room['id'] ?></div>
-              <div class="text-xs text-gray-500"><?= count($opts) ?> rate option<?= count($opts) === 1 ? '' : 's' ?></div>
+          <div class="card p-4" x-data="{ open:false }">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <div class="font-medium text-gray-900">Room #<?= $rid ?></div>
+                <div class="text-xs text-gray-500"><?= count($opts) ?> rate option<?= count($opts) === 1 ? '' : 's' ?></div>
+              </div>
+              <div class="text-right">
+                <?php if ($minPrice !== null): ?>
+                  <div class="text-xs text-gray-500">from</div>
+                  <div class="text-lg font-bold text-gray-900"><?= $cur ?> <?= number_format($minPrice, 2) ?></div>
+                <?php endif; ?>
+                <?php if ($canBook && !empty($opts)): ?>
+                  <button type="button" class="btn emerald btn-sm mt-1" @click="open = !open" x-text="open ? 'Close' : 'Book'"></button>
+                <?php else: ?>
+                  <button type="button" class="btn emerald btn-sm mt-1" disabled title="Booking available on the live site">Book</button>
+                <?php endif; ?>
+              </div>
             </div>
-            <div class="text-right">
-              <?php if ($minPrice !== null): ?>
-                <div class="text-xs text-gray-500">from</div>
-                <div class="text-lg font-bold text-gray-900"><?= htmlspecialchars($s['currency'] ?? 'USD') ?> <?= number_format($minPrice, 2) ?></div>
-              <?php endif; ?>
-              <button type="button" class="btn emerald btn-sm mt-1" disabled title="Booking available on the live site">Book</button>
-            </div>
+
+            <?php if ($canBook && !empty($opts)): ?>
+            <form action="<?= root ?>supplier/stays/site/<?= $sid ?>/book" method="POST" class="mt-4 border-t border-gray-100 pt-4 grid grid-cols-1 sm:grid-cols-2 gap-3" x-show="open" x-cloak>
+              <?= CSRF::tokenField() ?>
+              <input type="hidden" name="room_id" value="<?= $rid ?>">
+              <div class="form-control sm:col-span-2"><label class="block text-xs text-gray-600 mb-1">Rate</label>
+                <select name="option_id" class="input text-sm">
+                  <?php foreach ($opts as $o): if ((int) ($o['status'] ?? 1) !== 1) continue; ?>
+                    <option value="<?= (int) ($o['option_id'] ?? 0) ?>"><?= $cur ?> <?= number_format((float) ($o['price'] ?? 0), 2) ?> / night · <?= (int) ($o['max_adults'] ?? 2) ?> adult(s)</option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Check-in</label><input type="date" name="checkin" class="input text-sm" required></div>
+              <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Check-out</label><input type="date" name="checkout" class="input text-sm" required></div>
+              <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Guest first name *</label><input type="text" name="first_name" class="input text-sm" required></div>
+              <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Last name</label><input type="text" name="last_name" class="input text-sm"></div>
+              <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Email *</label><input type="email" name="email" class="input text-sm" required></div>
+              <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Phone</label><input type="text" name="phone" class="input text-sm"></div>
+              <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Adults</label><input type="number" name="adults" min="1" value="1" class="input text-sm w-20"></div>
+              <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Children</label><input type="number" name="childs" min="0" value="0" class="input text-sm w-20"></div>
+              <div class="sm:col-span-2"><button type="submit" class="btn emerald text-sm">Confirm direct booking</button>
+                <span class="text-xs text-gray-400 ml-2">Pay-at-property — settle on the folio at check-out.</span></div>
+            </form>
+            <?php endif; ?>
           </div>
         <?php endforeach; ?>
       </div>
+      <style>[x-cloak]{display:none!important}</style>
     <?php endif; ?>
   </div>
 </div>
