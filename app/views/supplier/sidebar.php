@@ -72,6 +72,7 @@ if ($activeStay > 0) {
         ['name' => 'Overview',      'icon' => 'dashboard',        'url' => 'supplier/stays/' . $sid, 'show' => true],
         ['name' => 'Rooms & rates', 'icon' => 'bed',              'url' => 'supplier/stays/' . $sid . '/rooms', 'show' => $can('rooms', 'view', $sid)],
         ['name' => 'Reservations',  'icon' => 'receipt_long',     'url' => 'supplier/reservations' . $q, 'show' => $can('reservations', 'view', $sid)],
+        ['name' => 'Groups & blocks','icon' => 'groups_3',        'url' => 'supplier/groups' . $q, 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Housekeeping',  'icon' => 'cleaning_services','url' => 'supplier/housekeeping' . $q, 'show' => $can('rooms', 'view', $sid)],
         ['name' => 'Maintenance',   'icon' => 'build',            'url' => 'supplier/maintenance' . $q, 'show' => $can('rooms', 'edit', $sid)],
         ['name' => 'F&B / POS',     'icon' => 'restaurant',       'url' => 'supplier/pos', 'show' => $can('reservations', 'edit', $sid)],

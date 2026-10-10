@@ -29180,6 +29180,83 @@ CREATE TABLE `stays_event_items` (
 -- --------------------------------------------------------
 
 --
+-- Group & block reservations (inc S38; module 08). Group profile + room blocks
+-- (held against pooled inventory via stays_hold_create) + rooming list + master
+-- folio. Completion posts DR 1200 / CR 4000 to the GL. app/lib/supplier_groups.php.
+--
+CREATE TABLE `stays_groups` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `reference` varchar(40) NOT NULL,
+  `name` varchar(191) NOT NULL,
+  `company` varchar(191) DEFAULT NULL,
+  `contact_name` varchar(120) DEFAULT NULL,
+  `contact_email` varchar(191) DEFAULT NULL,
+  `arrival` date DEFAULT NULL,
+  `departure` date DEFAULT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `status` enum('enquiry','confirmed','completed','cancelled') NOT NULL DEFAULT 'enquiry',
+  `created_by` varchar(155) DEFAULT NULL,
+  `completed_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_reference` (`reference`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `stays_group_blocks` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `group_id` int(11) NOT NULL,
+  `stay_id` int(11) NOT NULL,
+  `room_id` int(11) NOT NULL,
+  `option_id` int(11) NOT NULL,
+  `date_from` date NOT NULL,
+  `date_to` date NOT NULL,
+  `qty` int(11) NOT NULL DEFAULT 1,
+  `hold_id` int(11) DEFAULT NULL,
+  `hold_ref` varchar(191) DEFAULT NULL,
+  `state` enum('held','released') NOT NULL DEFAULT 'held',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_group` (`group_id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `stays_group_members` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `group_id` int(11) NOT NULL,
+  `block_id` int(11) NOT NULL,
+  `guest_name` varchar(120) NOT NULL,
+  `email` varchar(191) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_group` (`group_id`),
+  KEY `idx_block` (`block_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `stays_group_items` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `group_id` int(11) NOT NULL,
+  `type` enum('room','charge','extra','payment','refund') NOT NULL,
+  `description` varchar(191) DEFAULT NULL,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_group` (`group_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Procurement + stores (inc S32; docs 01b 41/42). Vendors → POs → GRN → stock.
 -- Receiving a PO increments stock on_hand + posts DR 6000 / CR 2000 to the GL.
 -- app/lib/supplier_procurement.php.

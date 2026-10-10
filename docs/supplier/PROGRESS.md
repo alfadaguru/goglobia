@@ -134,6 +134,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S35 | **Per-property drill-in** — context-aware supplier sidebar: top-level (account + granted services) vs INSIDE a property (that hotel's full PMS, scoped via ?stay_id); new property hub `/supplier/stays/{id}`; hotels list → Open | — | ✅ code-complete (not runtime-verified — no DB) |
 | S36 | **Request flow across ALL services** — `supplier_all_services()` (full modules.type catalogue: stays/cars/tours/flights/bus/visa/umrah/hajj/cruises/esim/ferries/rail/insurance/events, active-filtered); supplier can request ANY live service; admin queue shows friendly labels + grants | — | ✅ code-complete (not runtime-verified — no DB) |
 | S37 | **Signup across ALL services** — supplier signup now offers the full `supplier_all_services()` catalogue (GET list + POST validation), matching the request flow; a new supplier can tick any active service at registration | — | ✅ code-complete (not runtime-verified — no DB) |
+| S38 | **Groups & blocks** — group profiles (enquiry→confirmed→completed/cancelled); room BLOCKS hold pooled inventory via `stays_hold_create` (no-oversell, long window, `GRP:` ref, released on cancel); rooming list; master folio (room/charge/extra/payment/refund); completion posts DR 1200/CR 4000 to GL (locked, status-guarded, once). Per-property drill-in page `/supplier/groups?stay_id`; sidebar link under Reservations | 08 | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -539,6 +540,19 @@ Before coding: **read** every file to be touched (rule 3). Then:
   clamps counts 1–500 (no trust-the-client regression). View unchanged (already renders
   icon/label). supplier_services insert loop stores whatever was ticked → admin queue +
   sidebar handle any service key. Not runtime-verified. **Deploy + smoke-test S1–S37.**
+- 2026-10 — **S38 done** (stays-depth, catalogue module 08 — group & block reservations):
+  new `app/lib/supplier_groups.php` (group_create / group_block_add / group_block_release /
+  group_member_add / group_folio_add / group_totals / group_set_status / groups_for_property),
+  route `app/routes/users/supplierGroupsRoutes.php` (GET `/supplier/groups?stay_id` + 6 POSTs,
+  all `SUPPLIER_OR_STAFF_AUTH` + `CSRF::guard` + `supplier_can('reservations',…,$stayId)`), view
+  `app/views/supplier/groups.php`, sidebar link "Groups & blocks" under Reservations. BLOCKS
+  reuse `stays_hold_create` (the SAME no-oversell gate marketplace/walk-in/direct use) with a
+  ~1yr window + `GRP:` ref; cancel releases every held block; completion posts DR 1200 City-AR /
+  CR 4000 revenue via `gl_post` inside a `FOR UPDATE` status-guard (balanced + once). 4 new
+  tables (`stays_groups`/`stays_group_blocks`/`stays_group_members`/`stays_group_items`) in
+  BOTH `ensureSupplierStaysSchema()` and `install/db.sql`. All files `php -l` clean; Tailwind
+  utilities verified present in the compiled build (swapped `divide-gray-50`→`-100`). Not
+  runtime-verified (no DB). **Deploy + smoke-test S1–S38.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

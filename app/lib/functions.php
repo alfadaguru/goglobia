@@ -8086,6 +8086,73 @@ function ensureSupplierStaysSchema($db): void
             $db->query("ALTER TABLE `stays` ADD COLUMN `rating_count` INT(11) NOT NULL DEFAULT 0");
         }
 
+        // --- group & block reservations (inc S38; module 08) -----------------------
+        // A group profile + room blocks (held against pooled inventory via
+        // stays_hold_create) + rooming list + master folio. app/lib/supplier_groups.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_groups` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `reference` VARCHAR(40) NOT NULL,
+            `name` VARCHAR(191) NOT NULL,
+            `company` VARCHAR(191) DEFAULT NULL,
+            `contact_name` VARCHAR(120) DEFAULT NULL,
+            `contact_email` VARCHAR(191) DEFAULT NULL,
+            `arrival` DATE DEFAULT NULL,
+            `departure` DATE DEFAULT NULL,
+            `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+            `status` ENUM('enquiry','confirmed','completed','cancelled') NOT NULL DEFAULT 'enquiry',
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `completed_at` DATETIME DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_reference` (`reference`),
+            KEY `idx_stay_status` (`stay_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_group_blocks` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `group_id` INT(11) NOT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `room_id` INT(11) NOT NULL,
+            `option_id` INT(11) NOT NULL,
+            `date_from` DATE NOT NULL,
+            `date_to` DATE NOT NULL,
+            `qty` INT(11) NOT NULL DEFAULT 1,
+            `hold_id` INT(11) DEFAULT NULL,
+            `hold_ref` VARCHAR(191) DEFAULT NULL,
+            `state` ENUM('held','released') NOT NULL DEFAULT 'held',
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_group` (`group_id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_group_members` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `group_id` INT(11) NOT NULL,
+            `block_id` INT(11) NOT NULL,
+            `guest_name` VARCHAR(120) NOT NULL,
+            `email` VARCHAR(191) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_group` (`group_id`),
+            KEY `idx_block` (`block_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_group_items` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `group_id` INT(11) NOT NULL,
+            `type` ENUM('room','charge','extra','payment','refund') NOT NULL,
+            `description` VARCHAR(191) DEFAULT NULL,
+            `amount` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_group` (`group_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- events / MICE (inc S33): function spaces + event bookings + folio ------
         // Completion posts event charges to the GL (DR 1200 / CR 4000). supplier_mice.php.
         $db->query("CREATE TABLE IF NOT EXISTS `stays_event_spaces` (
