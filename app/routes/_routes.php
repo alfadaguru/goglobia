@@ -50,6 +50,7 @@ require_once 'app/routes/users/supplierOwnersRoutes.php'; // property owners + a
 require_once 'app/routes/users/supplierGuestsRoutes.php'; // guest CRM — profiles + history + notes (inc S29)
 require_once 'app/routes/users/supplierReviewsRoutes.php'; // reviews — public capture + owner moderation (inc S31)
 require_once 'app/routes/users/supplierProcurementRoutes.php'; // procurement — vendors/stock/PO/GRN (inc S32)
+require_once 'app/routes/users/supplierEventsRoutes.php'; // events / MICE — spaces + event bookings + folio (inc S33)
 require_once 'app/routes/users/supplierRolesRoutes.php'; // supplier-defined roles + property scope (inc 4)
 require_once 'app/routes/users/supplierStaffRoutes.php'; // staff invitations + accept flow (inc 5)
 require_once 'app/routes/users/logoutRoutes.php';

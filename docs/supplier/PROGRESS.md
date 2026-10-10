@@ -129,6 +129,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S30 | **Loyalty** — per-org points ledger keyed on guest email; auto-earn on paid stay at checkout (idempotent); tiers; manual adjust/redeem; balance on guest profile | 22 | ✅ code-complete (not runtime-verified — no DB) |
 | S31 | **Reviews / reputation** — tokened post-stay guest review (1-5 + comment); owner moderation (publish/hide); published reviews roll up to `stays.rating`+`rating_count` (the live public field) | 23 | ✅ code-complete (not runtime-verified — no DB) |
 | S32 | **Procurement + stores** — vendors, stock items, purchase orders + lines, GRN (receive → stock on_hand++ + DR 6000/CR 2000 to GL); low-stock alert | 41, 42 | ✅ code-complete (not runtime-verified — no DB) |
+| S33 | **Events / MICE** — function spaces + event bookings (enquiry→confirmed→completed) + event folio; completion posts DR 1200/CR 4000 to GL | 16 | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -471,8 +472,21 @@ Before coding: **read** every file to be touched (rule 3). Then:
   supplier/procurement.php + dashboard link. Server-computed totals. HONEST: GRN posts to
   generic Operating Expense (6000) [no inventory-asset COA code]; does NOT pay the vendor
   (settling AP = later); stock still increments even if GL post is skipped (logged). Not
-  runtime-verified. **Next Stage-D = owner's call (events/MICE, channel mgr, smart-locks).
-  STRONGLY recommend deploy + smoke-test S1–S32 before go-live.**
+  runtime-verified.
+- 2026-10 — **S33 done** (events / MICE): new `app/lib/supplier_mice.php` (named _mice to
+  avoid clashing with the S17 supplier_events.php bus — I nearly overwrote that file, caught
+  it, git-restored it, verified emit_event/audit_log intact). mice_space_create,
+  mice_event_create (enquiry), mice_folio_add (venue/catering/extra/payment/refund on a
+  non-completed event), mice_event_totals, mice_event_set_status (enquiry→confirmed→completed
+  |cancelled; on COMPLETE: atomic $db->action + re-lock status guard → balanced DR 1200/CR
+  4000 gl_post, idempotent), mice_events_for_org. Tables stays_event_spaces / stays_events
+  (uq_reference) / stays_event_items (ensure-fn + db.sql). Routes users/supplierEventsRoutes
+  (supplier_can('reservations',…,$stayId) + CSRF); view supplier/events.php + dashboard link.
+  HONEST: core MICE only (no BEO/catering-menus/seating/equipment/deposits/space-conflict
+  check); event revenue posts as one line. Not runtime-verified. **Stage D broad coverage
+  DONE. Remaining catalogue items are integration-heavy (channel manager — needs external
+  OTA creds) or vision-only (smart-locks SDK). STRONGLY recommend owner deploy + smoke-test
+  S1–S33 before go-live / before any integration module.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

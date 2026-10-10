@@ -7963,6 +7963,53 @@ function ensureSupplierStaysSchema($db): void
             $db->query("ALTER TABLE `stays` ADD COLUMN `rating_count` INT(11) NOT NULL DEFAULT 0");
         }
 
+        // --- events / MICE (inc S33): function spaces + event bookings + folio ------
+        // Completion posts event charges to the GL (DR 1200 / CR 4000). supplier_mice.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_event_spaces` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `name` VARCHAR(120) NOT NULL,
+            `capacity` INT(11) NOT NULL DEFAULT 0,
+            `status` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`), KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_events` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `space_id` INT(11) NOT NULL,
+            `reference` VARCHAR(40) NOT NULL,
+            `title` VARCHAR(191) NOT NULL,
+            `client_name` VARCHAR(120) DEFAULT NULL,
+            `client_email` VARCHAR(191) DEFAULT NULL,
+            `event_date` DATE NOT NULL,
+            `pax` INT(11) NOT NULL DEFAULT 0,
+            `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+            `status` ENUM('enquiry','confirmed','completed','cancelled') NOT NULL DEFAULT 'enquiry',
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `completed_at` DATETIME DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_reference` (`reference`),
+            KEY `idx_stay_status` (`stay_id`,`status`),
+            KEY `idx_space_date` (`space_id`,`event_date`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_event_items` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `event_id` INT(11) NOT NULL,
+            `type` ENUM('venue','catering','extra','payment','refund') NOT NULL,
+            `description` VARCHAR(191) DEFAULT NULL,
+            `amount` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`), KEY `idx_event` (`event_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- procurement (inc S32): vendors + stock + purchase orders + lines -------
         // GRN (receive) increments stock + posts DR 6000 / CR 2000 to the GL.
         // app/lib/supplier_procurement.php.

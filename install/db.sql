@@ -29123,6 +29123,63 @@ CREATE TABLE `stays_owner_expenses` (
 -- --------------------------------------------------------
 
 --
+-- Events / MICE (inc S33; docs 01b module 16). Function spaces + event bookings +
+-- event folio. Completion posts DR 1200 / CR 4000 to the GL. app/lib/supplier_mice.php.
+--
+CREATE TABLE `stays_event_spaces` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `capacity` int(11) NOT NULL DEFAULT 0,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `stays_events` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `space_id` int(11) NOT NULL,
+  `reference` varchar(40) NOT NULL,
+  `title` varchar(191) NOT NULL,
+  `client_name` varchar(120) DEFAULT NULL,
+  `client_email` varchar(191) DEFAULT NULL,
+  `event_date` date NOT NULL,
+  `pax` int(11) NOT NULL DEFAULT 0,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `status` enum('enquiry','confirmed','completed','cancelled') NOT NULL DEFAULT 'enquiry',
+  `created_by` varchar(155) DEFAULT NULL,
+  `completed_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_reference` (`reference`),
+  KEY `idx_stay_status` (`stay_id`,`status`),
+  KEY `idx_space_date` (`space_id`,`event_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `stays_event_items` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `event_id` int(11) NOT NULL,
+  `type` enum('venue','catering','extra','payment','refund') NOT NULL,
+  `description` varchar(191) DEFAULT NULL,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_event` (`event_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Procurement + stores (inc S32; docs 01b 41/42). Vendors → POs → GRN → stock.
 -- Receiving a PO increments stock on_hand + posts DR 6000 / CR 2000 to the GL.
 -- app/lib/supplier_procurement.php.
