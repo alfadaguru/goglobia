@@ -130,6 +130,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S31 | **Reviews / reputation** — tokened post-stay guest review (1-5 + comment); owner moderation (publish/hide); published reviews roll up to `stays.rating`+`rating_count` (the live public field) | 23 | ✅ code-complete (not runtime-verified — no DB) |
 | S32 | **Procurement + stores** — vendors, stock items, purchase orders + lines, GRN (receive → stock on_hand++ + DR 6000/CR 2000 to GL); low-stock alert | 41, 42 | ✅ code-complete (not runtime-verified — no DB) |
 | S33 | **Events / MICE** — function spaces + event bookings (enquiry→confirmed→completed) + event folio; completion posts DR 1200/CR 4000 to GL | 16 | ✅ code-complete (not runtime-verified — no DB) |
+| S34 | **Supplier IA restructure** — persistent supplier sidebar (grouped, service-gated, perm-aware); post-approval service/quota REQUEST flow + admin queue; admin "Suppliers" consolidated into one menu + overview dashboard; fixed uncompiled violet Tailwind utilities | — | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -483,10 +484,24 @@ Before coding: **read** every file to be touched (rule 3). Then:
   (uq_reference) / stays_event_items (ensure-fn + db.sql). Routes users/supplierEventsRoutes
   (supplier_can('reservations',…,$stayId) + CSRF); view supplier/events.php + dashboard link.
   HONEST: core MICE only (no BEO/catering-menus/seating/equipment/deposits/space-conflict
-  check); event revenue posts as one line. Not runtime-verified. **Stage D broad coverage
-  DONE. Remaining catalogue items are integration-heavy (channel manager — needs external
-  OTA creds) or vision-only (smart-locks SDK). STRONGLY recommend owner deploy + smoke-test
-  S1–S33 before go-live / before any integration module.**
+  check); event revenue posts as one line. Not runtime-verified.
+- 2026-10 — **S34 done** (supplier IA restructure — owner feedback: no supplier nav, no
+  post-approval quota request, scattered admin menu). (1) Persistent SUPPLIER SIDEBAR
+  (app/views/supplier/sidebar.php) wired into header chrome ($isSupplierSidebar via
+  supplier_acting_context; fixed 240px + body padding; off-canvas mobile). Flat grouped,
+  SERVICE-GATED (supplier_granted_services approvedOnly), owner-only groups hidden from
+  staff, items use supplier_can(). (2) SERVICE/QUOTA REQUEST flow: supplier_requests.php +
+  supplier_quota_requests table; /supplier/request-access (owner submits new-service or
+  quota-increase) → /admin/supplier-service-requests queue → supplier_request_decide
+  (atomic, status-guarded, raises max_listings via max(cur,req), never lowers/disturbs live
+  grants). (3) ADMIN consolidation: 3 scattered Users-submenu Supplier* items → one top-level
+  "Suppliers" menu + /admin/suppliers-overview dashboard (KPI cards). FIXED precompiled-
+  Tailwind gap (text-violet-600/500, bg-violet-600/500, border-violet-600 missing from
+  build.css → appended exact rules; affected ~21 views). New helper
+  supplier_granted_services. Schema supplier_quota_requests (ensure-fn + db.sql). All
+  ADMIN_AUTH/SUPPLIER_AUTH + CSRF. Not runtime-verified. **Stage D + supplier IA DONE.
+  Remaining = integration-heavy (channel mgr) or vision-only (smart-locks). STRONGLY
+  recommend owner deploy + smoke-test S1–S34 before go-live / any integration module.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique
