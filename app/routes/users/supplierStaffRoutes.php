@@ -83,31 +83,55 @@ $router->post('/supplier/staff/invite', function () use ($SECURE, $db) {
         $roleId = null;
     }
 
-    // Don't invite an email that is already this owner's staff (unique owner+email).
-    if ($db->has('supplier_staff', ['owner_user_id' => $owner, 'invited_email' => $email])) {
-        _supplier_staff_deny('That email has already been invited.');
-    }
-    // Don't invite the owner themselves or an existing admin.
+    // HIGH-4 (account-takeover guard): only a brand-new email OR an existing plain
+    // 'customer' may be invited as staff. Inviting an existing supplier/agent/admin is
+    // refused — otherwise the accept flow (which previously reset the account password
+    // on token possession alone) would be a password-reset/takeover primitive against
+    // a privileged account, and that account's real role would silently shadow the
+    // intended staff scope.
     $existing = $db->get('users', ['role'], ['email' => $email]);
-    if ($existing && in_array(($existing['role'] ?? ''), ['admin'], true)) {
-        _supplier_staff_deny('That email belongs to an administrator.');
+    if ($existing && !in_array(($existing['role'] ?? ''), ['customer', ''], true)) {
+        _supplier_staff_deny('That email already belongs to a ' . htmlspecialchars((string) $existing['role']) . ' account and cannot be invited as staff.');
     }
 
     $token = bin2hex(random_bytes(32));
     $expires = date('Y-m-d H:i:s', time() + 7 * 24 * 3600); // 7-day invite window
 
+    // HIGH-5 (re-invite lockout): a prior row for this (owner, email) blocks a fresh
+    // insert via UNIQUE(owner_user_id, invited_email). If it is an active/invited staff
+    // record, refuse (already a member/invited). If it was revoked/rejected, REUSE it —
+    // flip it back to 'invited' with a fresh token — so a revoked person can be re-invited
+    // without a manual DB edit.
+    $prior = $db->get('supplier_staff', ['id', 'status'], ['owner_user_id' => $owner, 'invited_email' => $email]);
     try {
-        $db->insert('supplier_staff', [
-            'owner_user_id' => $owner,
-            'staff_user_id' => null,
-            'role_id'       => $roleId,
-            'invited_email' => $email,
-            'invite_token'  => $token,
-            'invite_expires'=> $expires,
-            'status'        => 'invited',
-            'created_by'    => $owner,
-            'created_at'    => date('Y-m-d H:i:s'),
-        ]);
+        if ($prior) {
+            if (in_array((string) $prior['status'], ['active', 'invited'], true)) {
+                _supplier_staff_deny('That email is already a member or has a pending invitation.');
+            }
+            // revoked / rejected / suspended → reactivate as a fresh invitation.
+            $db->update('supplier_staff', [
+                'staff_user_id'  => null,
+                'role_id'        => $roleId,
+                'invite_token'   => $token,
+                'invite_expires' => $expires,
+                'status'         => 'invited',
+                'accepted_at'    => null,
+                'created_by'     => $owner,
+                'updated_at'     => date('Y-m-d H:i:s'),
+            ], ['id' => (int) $prior['id'], 'owner_user_id' => $owner]);
+        } else {
+            $db->insert('supplier_staff', [
+                'owner_user_id' => $owner,
+                'staff_user_id' => null,
+                'role_id'       => $roleId,
+                'invited_email' => $email,
+                'invite_token'  => $token,
+                'invite_expires'=> $expires,
+                'status'        => 'invited',
+                'created_by'    => $owner,
+                'created_at'    => date('Y-m-d H:i:s'),
+            ]);
+        }
     } catch (\Throwable $e) {
         error_log('supplier staff invite: ' . $e->getMessage());
         _supplier_staff_deny('Could not create the invitation.');
@@ -180,6 +204,17 @@ $router->get('/supplier/staff/accept', function () use ($SECURE, $db) {
             $invite = null;
         }
     }
+    // If an account already exists for the invited email, the accept POST requires the
+    // invitee to be signed in as that account (HIGH-4); surface that in the view so they
+    // get a "sign in first" prompt instead of a dead-end set-password form.
+    $existingAccount = false;
+    if ($invite) {
+        $u = $db->get('users', ['user_id'], ['email' => (string) $invite['invited_email']]);
+        if ($u) {
+            $sessionUid = (string) ($_SESSION['user_id'] ?? '');
+            $existingAccount = ($sessionUid === '' || $sessionUid !== (string) $u['user_id']);
+        }
+    }
     $title = 'Accept Invitation';
     $description = '';
     $header = true; $footer = true;
@@ -235,12 +270,19 @@ $router->post('/supplier/staff/accept', function () use ($SECURE, $db) {
         // owner/admin role. Access comes solely from the supplier_staff row.
         $user = $db->get('users', ['id', 'user_id'], ['email' => $email]);
         if ($user) {
+            // HIGH-4: an account with this email ALREADY EXISTS. Possessing the invite
+            // token must NOT let the holder reset that account's password (that was an
+            // account-takeover primitive). Require the accepter to be authenticated as
+            // that same account; then just LINK the staff row — never touch credentials.
+            $sessionUid = (string) ($_SESSION['user_id'] ?? '');
+            if ($sessionUid === '' || $sessionUid !== (string) $user['user_id']) {
+                $_SESSION['message'] = ['type' => 'error', 'text' =>
+                    'An account already exists for ' . htmlspecialchars($email)
+                    . '. Please sign in to that account first, then open the invitation link to accept.'];
+                header('Location: ' . root . 'login'); exit;
+            }
             $staffUserId = (string) $user['user_id'];
-            // Only set a password if the invitee is creating their credential here.
-            $db->update('users', [
-                'password'   => password_hash($password, PASSWORD_DEFAULT),
-                'updated_at' => date('Y-m-d H:i:s'),
-            ], ['id' => (int) $user['id']]);
+            // No password write — the existing owner of the account keeps their creds.
         } else {
             $staffUserId = generateUserId();
             $retry = 0;

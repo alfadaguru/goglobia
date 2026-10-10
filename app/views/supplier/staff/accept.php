@@ -19,6 +19,13 @@
         <p class="text-sm text-gray-600 mt-1">This invitation link is invalid or has expired. Please ask the supplier to send a new one.</p>
         <a href="<?= root ?>login" class="btn secondary mt-4">Go to sign in</a>
       </div>
+    <?php elseif (!empty($existingAccount)): ?>
+      <div class="card p-6 text-center">
+        <span class="material-symbols-outlined text-5xl text-violet-300">account_circle</span>
+        <h1 class="text-xl font-bold text-gray-900 mt-2">Sign in to accept</h1>
+        <p class="text-sm text-gray-600 mt-1">An account already exists for <strong><?= htmlspecialchars($invite['invited_email'] ?? '') ?></strong>. For your security, please sign in to that account first — then open this invitation link again to join the team. We will never reset your existing password from an invitation.</p>
+        <a href="<?= root ?>login" class="btn secondary mt-4">Sign in</a>
+      </div>
     <?php else: ?>
       <div class="card p-6">
         <div class="text-center mb-5">
