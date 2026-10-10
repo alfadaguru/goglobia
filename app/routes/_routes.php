@@ -52,6 +52,7 @@ require_once 'app/routes/users/supplierReviewsRoutes.php'; // reviews — public
 require_once 'app/routes/users/supplierProcurementRoutes.php'; // procurement — vendors/stock/PO/GRN (inc S32)
 require_once 'app/routes/users/supplierEventsRoutes.php'; // events / MICE — spaces + event bookings + folio (inc S33)
 require_once 'app/routes/users/supplierGroupsRoutes.php'; // group & block reservations (inc S38)
+require_once 'app/routes/users/supplierCalendarRoutes.php'; // reservation calendar / tape-chart (inc S39)
 require_once 'app/routes/users/supplierRequestRoutes.php'; // post-approval service/quota request flow (inc S34)
 require_once 'app/routes/users/supplierRolesRoutes.php'; // supplier-defined roles + property scope (inc 4)
 require_once 'app/routes/users/supplierStaffRoutes.php'; // staff invitations + accept flow (inc 5)

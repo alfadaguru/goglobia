@@ -135,6 +135,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S36 | **Request flow across ALL services** — `supplier_all_services()` (full modules.type catalogue: stays/cars/tours/flights/bus/visa/umrah/hajj/cruises/esim/ferries/rail/insurance/events, active-filtered); supplier can request ANY live service; admin queue shows friendly labels + grants | — | ✅ code-complete (not runtime-verified — no DB) |
 | S37 | **Signup across ALL services** — supplier signup now offers the full `supplier_all_services()` catalogue (GET list + POST validation), matching the request flow; a new supplier can tick any active service at registration | — | ✅ code-complete (not runtime-verified — no DB) |
 | S38 | **Groups & blocks** — group profiles (enquiry→confirmed→completed/cancelled); room BLOCKS hold pooled inventory via `stays_hold_create` (no-oversell, long window, `GRP:` ref, released on cancel); rooming list; master folio (room/charge/extra/payment/refund); completion posts DR 1200/CR 4000 to GL (locked, status-guarded, once). Per-property drill-in page `/supplier/groups?stay_id`; sidebar link under Reservations | 08 | ✅ code-complete (not runtime-verified — no DB) |
+| S39 | **Reservation calendar / tape-chart** — per-(room, stable option_id) × night availability grid over the REAL no-oversell spine (`stays_inventory` + `stays_holds`): each cell = remaining (base − committed), color-banded open/tight/sold-out/closed, group-held flagged; bulk reads (1 inv + 1 holds query). Inline edit sets availability / stop-sell / min-stay across a range via `stays_inventory_set` (locked, REFUSES dropping base below committed → no retro-oversell). Per-property drill-in `/supplier/calendar?stay_id`; sidebar link under Rooms | 09 | ✅ code-complete (grid logic unit-checked; not DB-runtime-verified) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -553,6 +554,28 @@ Before coding: **read** every file to be touched (rule 3). Then:
   BOTH `ensureSupplierStaysSchema()` and `install/db.sql`. All files `php -l` clean; Tailwind
   utilities verified present in the compiled build (swapped `divide-gray-50`→`-100`). Not
   runtime-verified (no DB). **Deploy + smoke-test S1–S38.**
+- 2026-10 — **S39 done** (stays-depth, catalogue module 09 — reservation calendar / tape-chart):
+  new `app/lib/stays_calendar.php` (`stays_calendar_grid` / `stays_inventory_set` /
+  `stays_calendar_committed_on` / `stays_calendar_window` / `stays_calendar_option_name`),
+  route `app/routes/users/supplierCalendarRoutes.php` (GET `/supplier/calendar?stay_id` +
+  POST `/set`, `SUPPLIER_OR_STAFF_AUTH` + `CSRF::guard` + `supplier_can('rooms',…,$stayId)`),
+  view `app/views/supplier/calendar.php` (sticky-left tape-chart, prev/today/later paging,
+  7–60 night window, legend, click-a-cell inline range editor), sidebar link "Calendar" under
+  Rooms & rates. The grid reads the SAME no-oversell truth the booking engine uses: base =
+  `stays_inventory.available_count` (else the option's `available_quantity` bridge), committed
+  = active held + consumed holds (released/expired excluded; `GRP:` group blocks counted +
+  flagged), remaining = base − committed (0 when closed). Reads are BULK (one inventory +
+  one holds query for the whole window, expanded in PHP) — no per-cell queries. `stays_inventory_set`
+  upserts availability/closed/min_stay across an inclusive range inside `$db->action()` with
+  a FOR UPDATE lock per night and REFUSES to set `available_count` below rooms already
+  committed that night (names the offending date) → no retro-oversell. Keyed on the STABLE
+  option_id (`stays_room_option_ids`), NOT the admin rates-calendar's positional index (kept
+  separate — mixing would mis-associate). NO new tables (reuses S-inc-6 inventory/holds). Grid
+  logic unit-checked with a stubbed-DB harness (released-hold exclusion, inventory override,
+  closed→0, default-capacity fallback, group-flagging all correct); all files `php -l` clean;
+  Tailwind utilities confirmed in the compiled build (used inline `style` for exact pixel
+  column widths since arbitrary-value utilities like `min-w-[…]` aren't compiled). Not
+  DB-runtime-verified (no MySQL in sandbox). **Deploy + smoke-test S1–S39.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique
