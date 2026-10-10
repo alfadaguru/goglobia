@@ -125,6 +125,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S26 | **Apartment-owner model + owner statements** — owners + management agreements (mgr commission); statement = earnings − platform − mgr commission − expenses → owner payout | 47, 48 | ✅ code-complete (not runtime-verified — no DB) |
 | S27 | **Direct-booking engine** — branded-site/walk-in booking (source=direct_site) consuming the SAME pooled inventory via stays_hold_create; server-priced; flows into reservations/folio/earnings | 13, 02 | ✅ code-complete (not runtime-verified — no DB) |
 | S28 | **BI / operations dashboard** — READ-ONLY KPIs from real tables: earnings, occupancy/ADR/RevPAR trend, F&B sales, channel mix, reservations, HK/work-order counts | 56 | ✅ code-complete (not runtime-verified — no DB) |
+| S29 | **Guest CRM** — returning-guest profiles aggregated from bookings by email (stays, spend, history, properties) + owner notes/VIP/tags | 18 | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -419,9 +420,20 @@ Before coding: **read** every file to be touched (rule 3). Then:
   caught a Tailwind precompile gap: bg-violet-500/600 are NOT in the compiled build.css
   (PR#102 build-time compile) so those fills rendered invisible — FIXED in insights.php AND
   retro-fixed S13 _onboarding.php progress bar/step marker + S9 services/show.php step
-  numbers to inline background-color:#7c3aed. Not runtime-verified. **Next Stage-D = owner's
-  call (procurement, guest CRM, loyalty, reviews, events, channel mgr, smart-locks).
-  STRONGLY recommend deploy + smoke-test S1–S28 before go-live.**
+  numbers to inline background-color:#7c3aed. Not runtime-verified.
+- 2026-10 — **S29 done** (guest CRM): new `app/lib/supplier_guests.php` — guest_list
+  (profiles aggregated from an org's bookings BY EMAIL: stays, cancelled, total_spent
+  [paid+non-cxl only], first/last seen, properties; decoded-verify vs owned set),
+  guest_history (per-guest stays + profile), guest_profile_meta/guest_profile_save (the
+  ONLY writable part — note/VIP/tags per (org,email) in stays_guest_profiles),
+  guest_token/decode (base64url email in URL, re-validated + ownership-checked). Routes
+  users/supplierGuestsRoutes (/supplier/guests list + /{token} detail + /{token}/note);
+  views supplier/guests/{list,detail}.php + dashboard link. supplier_can('reservations')
+  gated; note-save re-checks the guest has a booking with this owner (no note-spam).
+  Table stays_guest_profiles (uq org+email) ensure-fn + db.sql. Read-mostly, bounded 5k
+  scan. Not runtime-verified. **Next Stage-D = owner's call (loyalty, reviews/reputation,
+  procurement, events, channel mgr, smart-locks). STRONGLY recommend deploy + smoke-test
+  S1–S29 before go-live.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

@@ -7940,6 +7940,23 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_statement` (`statement_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- stays_guest_profiles (inc S29): owner-added guest CRM notes/VIP/tags ----
+        // The only writable part of the guest CRM; the profile itself is aggregated
+        // read-only from bookings by email. Keyed (org, email). supplier_guests.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_guest_profiles` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `email` VARCHAR(191) NOT NULL,
+            `vip` TINYINT(1) NOT NULL DEFAULT 0,
+            `note` TEXT DEFAULT NULL,
+            `tags` VARCHAR(191) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_org_email` (`org_id`,`email`),
+            KEY `idx_org` (`org_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         $db->query("CREATE TABLE IF NOT EXISTS `stays_owner_statements` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,
             `org_id` INT(11) NOT NULL,

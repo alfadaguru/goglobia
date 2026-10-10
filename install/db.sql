@@ -29121,6 +29121,26 @@ CREATE TABLE `stays_owner_expenses` (
 
 -- --------------------------------------------------------
 
+--
+-- Guest CRM owner-notes (inc S29). The only writable part of the guest CRM; the
+-- profile itself is aggregated read-only from bookings by email. app/lib/supplier_guests.php.
+--
+CREATE TABLE `stays_guest_profiles` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `email` varchar(191) NOT NULL,
+  `vip` tinyint(1) NOT NULL DEFAULT 0,
+  `note` text DEFAULT NULL,
+  `tags` varchar(191) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_org_email` (`org_id`,`email`),
+  KEY `idx_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
 CREATE TABLE `stays_owner_statements` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `org_id` int(11) NOT NULL,
