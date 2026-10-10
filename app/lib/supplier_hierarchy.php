@@ -76,6 +76,36 @@ if (!function_exists('supplier_org_for_owner')) {
     }
 }
 
+if (!function_exists('supplier_property_org_ensure')) {
+    /**
+     * The org id for a property, CREATING + STAMPING it if missing. Used by the money
+     * paths (folio checkout, group/MICE completion) so a property whose stays.org_id was
+     * never backfilled still posts to a real ledger instead of silently skipping the GL
+     * (which left revenue unrecorded). Resolves the stay's owner → supplier_org_ensure →
+     * writes stays.org_id. Returns 0 only if the owner isn't a real user. Non-fatal.
+     */
+    function supplier_property_org_ensure($db, int $stayId): int
+    {
+        if ($stayId <= 0) { return 0; }
+        try {
+            $row = $db->get('stays', ['org_id', 'user_id'], ['id' => $stayId]);
+            if (!$row) { return 0; }
+            if ($row['org_id'] !== null && (int) $row['org_id'] > 0) { return (int) $row['org_id']; }
+            $owner = trim((string) ($row['user_id'] ?? ''));
+            if ($owner === '' || !function_exists('supplier_org_ensure')) { return 0; }
+            $orgId = supplier_org_ensure($db, $owner);
+            if ($orgId > 0) {
+                $db->update('stays', ['org_id' => $orgId, 'updated_at' => date('Y-m-d H:i:s')],
+                    ['id' => $stayId, 'org_id' => null]);
+            }
+            return $orgId;
+        } catch (\Throwable $e) {
+            error_log('supplier_property_org_ensure: ' . $e->getMessage());
+            return 0;
+        }
+    }
+}
+
 if (!function_exists('supplier_property_org')) {
     /** The org id stamped on a property (stays.org_id), or 0. Read-only resolver. */
     function supplier_property_org($db, int $stayId): int

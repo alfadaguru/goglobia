@@ -216,6 +216,11 @@ if (!function_exists('folio_checkout')) {
         $orgId = ($folio['org_id'] !== null) ? (int) $folio['org_id'] : 0;
         $stayId = (int) ($folio['stay_id'] ?? 0);
         $currency = (string) ($folio['currency'] ?? 'USD');
+        // Ensure a real org so the guest bill POSTS to the books rather than silently
+        // skipping the GL when org_id was never backfilled (MEDIUM audit).
+        if ($orgId <= 0 && $stayId > 0 && function_exists('supplier_property_org_ensure')) {
+            $orgId = supplier_property_org_ensure($db, $stayId);
+        }
 
         // Compute the posting amounts from the folio items.
         $room = 0.0; $tax = 0.0; $extra = 0.0; $payments = 0.0;

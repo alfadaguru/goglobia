@@ -123,7 +123,10 @@ if (!function_exists('mice_event_set_status')) {
 
             if ($to === 'completed') {
                 $totals = mice_event_totals($db, $eventId);
-                $orgId = ($ev['org_id'] !== null) ? (int) $ev['org_id'] : 0;
+                $orgId = ($ev['org_id'] !== null && (int) $ev['org_id'] > 0) ? (int) $ev['org_id'] : 0;
+                if ($orgId <= 0 && function_exists('supplier_property_org_ensure')) {
+                    $orgId = supplier_property_org_ensure($db, $stayId);
+                }
                 $ok = false;
                 $db->action(function ($db) use ($eventId, $stayId, $ev, $orgId, $totals, &$ok) {
                     $lock = $db->query('SELECT status FROM stays_events WHERE id=:e FOR UPDATE', [':e' => $eventId]);
@@ -137,6 +140,18 @@ if (!function_exists('mice_event_set_status')) {
                         ], ['source' => 'event', 'reference' => (string) $ev['reference'], 'currency' => (string) $ev['currency'],
                             'property_id' => $stayId, 'memo' => 'Event ' . $ev['reference']]);
                         if (empty($res['ok'])) { error_log('mice complete GL: ' . ($res['message'] ?? '?')); }
+                        // AR RELIEF: payments collected against the event folio relieve AR
+                        // (DR Cash / CR City-AR) — without this, City-AR stays overstated
+                        // forever. Separate source so the idempotency key is distinct.
+                        $netPaid = round((float) ($totals['payments'] ?? 0), 2);
+                        if ($netPaid > 0) {
+                            $pres = gl_post($db, $orgId, [
+                                ['code' => '1000', 'debit' => $netPaid],
+                                ['code' => '1200', 'credit' => $netPaid],
+                            ], ['source' => 'event_payment', 'reference' => (string) $ev['reference'], 'currency' => (string) $ev['currency'],
+                                'property_id' => $stayId, 'memo' => 'Event payment ' . $ev['reference']]);
+                            if (empty($pres['ok'])) { error_log('mice payment GL: ' . ($pres['message'] ?? '?')); }
+                        }
                     }
                     $db->update('stays_events', ['status' => 'completed', 'completed_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
                         ['id' => $eventId, 'status' => 'confirmed']);

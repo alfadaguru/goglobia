@@ -3,7 +3,9 @@
 // RESERVATION CALENDAR / TAPE-CHART (inc S39). Per-property drill-in: a ?stay_id selects
 // the property (the drill-in sidebar links here with it set). Shows the real no-oversell
 // grid (stays_inventory + stays_holds) and lets the operator set availability / stop-sell
-// / min-stay across a date range. Scoping: supplier_can('rooms', …, $stayId).
+// / min-stay across a date range. Scoping: supplier_can('rates', …, $stayId) — the SAME
+// 'Rates & availability' module the per-room rates calendar uses, so one staff grant
+// covers both calendars (previously this gated on 'rooms', which split staff access).
 
 @$SECURE or die('Access Denied!');
 
@@ -12,7 +14,7 @@ $router->get('/supplier/calendar', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    if (!supplier_can($db, 'rooms', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    if (!supplier_can($db, 'rates', 'view')) { _supplier_stays_deny('Not authorised.'); }
 
     $stayIds = supplier_owned_stay_ids($db, $owner);
     $stayId = (int) ($_GET['stay_id'] ?? 0);
@@ -21,7 +23,7 @@ $router->get('/supplier/calendar', function () use ($SECURE, $db) {
         header('Location: ' . root . 'supplier/stays'); exit;
     }
     // Per-property authorisation (fires the stays.user_id === owner IDOR check).
-    if (!supplier_can($db, 'rooms', 'view', $stayId)) { _supplier_stays_deny('That property is not yours.'); }
+    if (!supplier_can($db, 'rates', 'view', $stayId)) { _supplier_stays_deny('That property is not yours.'); }
 
     $stay = $db->get('stays', ['id', 'name', 'currency'], ['id' => $stayId]);
 
@@ -36,7 +38,7 @@ $router->get('/supplier/calendar', function () use ($SECURE, $db) {
         ? stays_calendar_grid($db, $stayId, $start, $nights, $taxonomy)
         : ['window' => stays_calendar_window($start, $nights), 'rooms' => []];
 
-    $canEdit = supplier_can($db, 'rooms', 'edit', $stayId);
+    $canEdit = supplier_can($db, 'rates', 'edit', $stayId);
 
     $title = 'Calendar — ' . ($stay['name'] ?? ''); $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -62,7 +64,7 @@ $router->post('/supplier/calendar/set', function () use ($SECURE, $db) {
         . '&start=' . urlencode(preg_match('/^\d{4}-\d{2}-\d{2}$/', $start) ? $start : date('Y-m-d'))
         . '&nights=' . ($nights > 0 ? $nights : 14);
 
-    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    if (!supplier_can($db, 'rates', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
 
     // Only the fields the operator actually submitted are applied.
     $fields = [];

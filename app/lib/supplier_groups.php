@@ -185,19 +185,38 @@ if (!function_exists('group_set_status')) {
 
             if ($to === 'completed') {
                 $totals = group_totals($db, $groupId);
-                $orgId = ($g['org_id'] !== null) ? (int) $g['org_id'] : 0;
+                // Ensure a real org so completion POSTS to the books rather than silently
+                // skipping the GL when stays.org_id was never backfilled (MEDIUM audit).
+                $orgId = ($g['org_id'] !== null && (int) $g['org_id'] > 0) ? (int) $g['org_id'] : 0;
+                if ($orgId <= 0 && function_exists('supplier_property_org_ensure')) {
+                    $orgId = supplier_property_org_ensure($db, $stayId);
+                }
                 $ok = false;
                 $db->action(function ($db) use ($groupId, $stayId, $g, $orgId, $totals, &$ok) {
                     $lock = $db->query('SELECT status FROM stays_groups WHERE id=:x FOR UPDATE', [':x' => $groupId]);
                     $cur = $lock ? $lock->fetch(\PDO::FETCH_ASSOC) : null;
                     if (!$cur || $cur['status'] !== 'confirmed') { $ok = false; return false; }
                     if ($orgId > 0 && $totals['charges'] > 0 && function_exists('gl_post')) {
+                        // Charges: DR City-AR / CR Revenue.
                         $res = gl_post($db, $orgId, [
                             ['code' => '1200', 'debit' => $totals['charges']],
                             ['code' => '4000', 'credit' => $totals['charges']],
                         ], ['source' => 'group', 'reference' => (string) $g['reference'], 'currency' => (string) $g['currency'],
                             'property_id' => $stayId, 'memo' => 'Group ' . $g['reference']]);
                         if (empty($res['ok'])) { error_log('group complete GL: ' . ($res['message'] ?? '?')); }
+                        // AR RELIEF: payments collected against the master folio must
+                        // relieve City-AR (DR Cash / CR City-AR), else AR stays overstated
+                        // forever. Net of refunds; only when positive. Separate source so
+                        // the idempotency key doesn't collide with the charges entry.
+                        $netPaid = round((float) ($totals['payments'] ?? 0), 2);
+                        if ($netPaid > 0) {
+                            $pres = gl_post($db, $orgId, [
+                                ['code' => '1000', 'debit' => $netPaid],
+                                ['code' => '1200', 'credit' => $netPaid],
+                            ], ['source' => 'group_payment', 'reference' => (string) $g['reference'], 'currency' => (string) $g['currency'],
+                                'property_id' => $stayId, 'memo' => 'Group payment ' . $g['reference']]);
+                            if (empty($pres['ok'])) { error_log('group payment GL: ' . ($pres['message'] ?? '?')); }
+                        }
                     }
                     $db->update('stays_groups', ['status' => 'completed', 'completed_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
                         ['id' => $groupId, 'status' => 'confirmed']);
