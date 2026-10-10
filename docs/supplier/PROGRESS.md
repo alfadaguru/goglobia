@@ -133,6 +133,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S34 | **Supplier IA restructure** — persistent supplier sidebar (grouped, service-gated, perm-aware); post-approval service/quota REQUEST flow + admin queue; admin "Suppliers" consolidated into one menu + overview dashboard; fixed uncompiled violet Tailwind utilities | — | ✅ code-complete (not runtime-verified — no DB) |
 | S35 | **Per-property drill-in** — context-aware supplier sidebar: top-level (account + granted services) vs INSIDE a property (that hotel's full PMS, scoped via ?stay_id); new property hub `/supplier/stays/{id}`; hotels list → Open | — | ✅ code-complete (not runtime-verified — no DB) |
 | S36 | **Request flow across ALL services** — `supplier_all_services()` (full modules.type catalogue: stays/cars/tours/flights/bus/visa/umrah/hajj/cruises/esim/ferries/rail/insurance/events, active-filtered); supplier can request ANY live service; admin queue shows friendly labels + grants | — | ✅ code-complete (not runtime-verified — no DB) |
+| S37 | **Signup across ALL services** — supplier signup now offers the full `supplier_all_services()` catalogue (GET list + POST validation), matching the request flow; a new supplier can tick any active service at registration | — | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -530,6 +531,14 @@ Before coding: **read** every file to be touched (rule 3). Then:
   have no own-inventory self-management UI yet — request/grant works + becomes visible,
   per-service management is separate future work. Not runtime-verified. **Remaining =
   per-service management surfaces + integration/vision modules. Deploy + smoke-test S1–S36.**
+- 2026-10 — **S37 done** (broaden signup to all services): supplier signup now offers the
+  FULL `supplier_all_services()` catalogue instead of the 5 first-class services — both the
+  GET form list (line 41) and the POST validation (`$allowedServices`, line 82) switched,
+  with a supplier_first_class_services fallback. Signup + request flow now draw from the
+  SAME catalogue (no drift). POST still validates each posted key against the catalogue +
+  clamps counts 1–500 (no trust-the-client regression). View unchanged (already renders
+  icon/label). supplier_services insert loop stores whatever was ticked → admin queue +
+  sidebar handle any service key. Not runtime-verified. **Deploy + smoke-test S1–S37.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

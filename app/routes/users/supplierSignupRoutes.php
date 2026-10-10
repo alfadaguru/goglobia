@@ -36,9 +36,12 @@ $router->get('/supplier-signup', function () use ($SECURE, $db) {
     $captchaData = Captcha::generate();
     $_SESSION['captcha_data'] = $captchaData;
 
-    // Services the supplier can offer (first-class, active). The view renders a
-    // checkbox + count field per service.
-    $supplierServices = supplier_first_class_services($db);
+    // Services the supplier can offer — the FULL active system catalogue (inc S37),
+    // not just the stays-focused set, so a new supplier can declare any live service
+    // at signup. The view renders a checkbox + count field per service.
+    $supplierServices = function_exists('supplier_all_services')
+        ? supplier_all_services($db)
+        : supplier_first_class_services($db);
 
     $title = 'Become a Supplier';
     $description = 'Register as a supplier and list your travel services.';
@@ -73,10 +76,12 @@ $router->post('/supplier-signup', function () use ($SECURE, $db) {
     $phone_country_code = trim($_POST['phone_country_code'] ?? '92');
     $terms              = isset($_POST['terms']);
 
-    // Service selection + per-service counts. Validate against the canonical
-    // first-class list (never trust arbitrary client service keys), clamp counts
-    // to a sane range. Stored as supplier_services rows after the user insert.
-    $allowedServices   = supplier_first_class_services($db);
+    // Service selection + per-service counts. Validate against the full active system
+    // catalogue (inc S37; never trust arbitrary client service keys), clamp counts to a
+    // sane range. Stored as supplier_services rows after the user insert.
+    $allowedServices   = function_exists('supplier_all_services')
+        ? supplier_all_services($db)
+        : supplier_first_class_services($db);
     $selectedServices  = [];
     $postedServices    = is_array($_POST['services'] ?? null) ? $_POST['services'] : [];
     $postedCounts      = is_array($_POST['service_count'] ?? null) ? $_POST['service_count'] : [];
