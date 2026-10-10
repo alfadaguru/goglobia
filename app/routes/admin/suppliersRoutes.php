@@ -280,3 +280,83 @@ $router->post(admin . '/supplier-listings/review/([0-9]+)', function ($id) use (
     header('Location: ' . root . admin . '/supplier-listings');
     exit;
 });
+
+//==============================================================
+// SUPPLIERS OVERVIEW DASHBOARD (inc S34) — one place to see the supplier programme
+//==============================================================
+$router->get(admin . '/suppliers-overview', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    $stats = [
+        'suppliers_total'    => (int) $db->count('users', ['role' => 'supplier']),
+        'suppliers_pending'  => (int) $db->count('users', ['role' => 'supplier', 'status' => 'pending']),
+        'suppliers_active'   => (int) $db->count('users', ['role' => 'supplier', 'status' => 'active']),
+    ];
+    // Defensive counts over the supplier tables (may be absent pre-migration).
+    foreach ([
+        'service_requests_pending' => ['supplier_quota_requests', ['status' => 'pending']],
+        'listings_submitted'       => ['stays', ['listing_status' => 'submitted']],
+        'payouts_requested'        => ['supplier_payouts', ['state' => 'requested']],
+    ] as $k => [$tbl, $w]) {
+        try { $stats[$k] = (int) $db->count($tbl, $w); } catch (\Throwable $e) { $stats[$k] = 0; }
+    }
+    // Recent suppliers.
+    $recent = $db->select('users', ['user_id', 'first_name', 'last_name', 'title', 'email', 'status', 'created_at'],
+        ['role' => 'supplier', 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 10]) ?: [];
+
+    $title = 'Suppliers overview'; $description = ''; $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "admin/suppliers/overview.php";
+    require_once views . "includes/footer.php";
+});
+
+//==============================================================
+// SUPPLIER SERVICE/QUOTA REQUESTS QUEUE (inc S34)
+//==============================================================
+$router->get(admin . '/supplier-service-requests', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    $pending = function_exists('supplier_requests_pending') ? supplier_requests_pending($db) : [];
+    // Owner display names + current grant for context.
+    $names = []; $currentMax = [];
+    foreach ($pending as $r) {
+        $oid = (string) $r['owner_user_id'];
+        if (!isset($names[$oid])) {
+            $u = $db->get('users', ['first_name', 'last_name', 'title', 'email'], ['user_id' => $oid]);
+            $names[$oid] = $u ? (trim(($u['title'] ?? '') ?: (($u['first_name'] ?? '') . ' ' . ($u['last_name'] ?? ''))) . ' · ' . ($u['email'] ?? '')) : $oid;
+        }
+        $g = $db->get('supplier_services', ['max_listings'], ['user_id' => $oid, 'service' => (string) $r['service']]);
+        $currentMax[(int) $r['id']] = $g && $g['max_listings'] !== null ? (int) $g['max_listings'] : null;
+    }
+    $title = 'Supplier service requests'; $description = ''; $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "admin/suppliers/service-requests.php";
+    require_once views . "includes/footer.php";
+});
+
+$router->post(admin . '/supplier-service-requests/decide', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    CSRF::guard();
+    $id = (int) ($_POST['id'] ?? 0);
+    $decision = strtolower(trim((string) ($_POST['decision'] ?? '')));
+    $back = root . admin . '/supplier-service-requests';
+    $res = function_exists('supplier_request_decide')
+        ? supplier_request_decide($db, $id, $decision, (string) ($_POST['comment'] ?? ''))
+        : ['ok' => false, 'message' => 'Unavailable'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Done.'];
+    // Best-effort notify the supplier of the decision.
+    if (!empty($res['ok']) && function_exists('SENDEMAIL')) {
+        try {
+            $req = $db->get('supplier_quota_requests', ['owner_user_id', 'service', 'status'], ['id' => $id]);
+            if ($req) {
+                $u = $db->get('users', ['email', 'first_name'], ['user_id' => (string) $req['owner_user_id']]);
+                if ($u && !empty($u['email'])) {
+                    $brand = $GLOBALS['app']['business_name'] ?? ($GLOBALS['app']['app_name'] ?? 'Our Platform');
+                    SENDEMAIL($u['email'], (string) ($u['first_name'] ?? ''),
+                        'Your service request has been ' . ($req['status'] ?? 'reviewed'),
+                        '<p>Your request for <strong>' . htmlspecialchars((string) $req['service']) . '</strong> has been <strong>' . htmlspecialchars((string) $req['status']) . '</strong>.</p><p>— ' . htmlspecialchars($brand) . '</p>',
+                        null);
+                }
+            }
+        } catch (\Throwable $e) { error_log('service-request notify: ' . $e->getMessage()); }
+    }
+    header('Location: ' . $back); exit;
+});

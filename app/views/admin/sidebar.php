@@ -75,10 +75,9 @@ $userRoles = $db->select('users_roles', ['id', 'type_name'], ['ORDER' => ['id' =
 // BUILD USERS SUBMENU - Single level with all users, then role types
 $usersSubmenu = [
     ['name' => T::all_users, 'icon' => 'people', 'url' => root.admin.'/users'],
-    ['name' => 'Suppliers', 'icon' => 'storefront', 'url' => root.admin.'/suppliers'],
-    ['name' => 'Supplier Listings', 'icon' => 'fact_check', 'url' => root.admin.'/supplier-listings'],
-    ['name' => 'Supplier Payouts', 'icon' => 'account_balance', 'url' => root.admin.'/supplier-payouts'],
 ];
+// NOTE: the former 3 scattered "Supplier …" items here are consolidated into a single
+// top-level "Suppliers" menu (with its own submenu) added below (inc S34).
 
 // ADD EACH USER ROLE DYNAMICALLY
 foreach ($userRoles as $role) {
@@ -174,6 +173,20 @@ $adminMenu = [
     'name' => T::users,
     'url' => root.admin.'/users',
     'submenu' => $usersSubmenu
+  ],
+  // Suppliers — one consolidated area (inc S34): overview dashboard + the approval
+  // queues that were previously 3 scattered items under Users.
+  [
+    'icon' => 'storefront',
+    'name' => 'Suppliers',
+    'url' => root.admin.'/suppliers-overview',
+    'submenu' => [
+      ['name' => 'Overview', 'icon' => 'dashboard', 'url' => root.admin.'/suppliers-overview'],
+      ['name' => 'All suppliers', 'icon' => 'storefront', 'url' => root.admin.'/suppliers'],
+      ['name' => 'Service requests', 'icon' => 'playlist_add_check', 'url' => root.admin.'/supplier-service-requests'],
+      ['name' => 'Listings', 'icon' => 'fact_check', 'url' => root.admin.'/supplier-listings'],
+      ['name' => 'Payouts', 'icon' => 'account_balance', 'url' => root.admin.'/supplier-payouts'],
+    ],
   ],
 ];
 

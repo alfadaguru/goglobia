@@ -29326,6 +29326,30 @@ CREATE TABLE `stays_guest_profiles` (
 
 -- --------------------------------------------------------
 
+--
+-- Supplier service / quota requests (inc S34). Post-approval: a supplier asks for a
+-- new service or a higher quota; admin approval applies it to supplier_services.
+-- app/lib/supplier_requests.php.
+--
+CREATE TABLE `supplier_quota_requests` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `owner_user_id` varchar(255) NOT NULL,
+  `service` varchar(32) NOT NULL,
+  `kind` enum('new','increase') NOT NULL DEFAULT 'new',
+  `requested_count` int(11) NOT NULL DEFAULT 1,
+  `status` enum('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+  `review_comment` varchar(255) DEFAULT NULL,
+  `reviewed_by` varchar(255) DEFAULT NULL,
+  `reviewed_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_owner_status` (`owner_user_id`,`status`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
 CREATE TABLE `stays_owner_statements` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `org_id` int(11) NOT NULL,

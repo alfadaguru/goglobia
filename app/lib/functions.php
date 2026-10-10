@@ -6831,6 +6831,58 @@ function supplier_first_class_services($db = null): array
     return $all;
 }
 
+if (!function_exists('supplier_granted_services')) {
+    /**
+     * The services an owner has been GRANTED (an approved supplier_services row),
+     * enriched with label/icon (from supplier_first_class_services) + quota counters.
+     * This is the single gate for the supplier sidebar/dashboard/quota-request UI —
+     * a supplier only sees the services they were approved for (inc S34).
+     *
+     * Returns [ service => [
+     *   'label','icon','status','max' (?int),'used' (int),'remaining' (?int),
+     * ] ] for every supplier_services row (any status), so callers can show
+     * approved ones in the nav and pending/requested ones as "awaiting review".
+     * Pass $approvedOnly=true to get only 'approved' services (the nav gate).
+     */
+    function supplier_granted_services($db, string $owner, bool $approvedOnly = false): array
+    {
+        $owner = trim($owner);
+        if ($owner === '') { return []; }
+        $catalogue = supplier_first_class_services($db); // key => [label, icon]
+        $out = [];
+        try {
+            $rows = $db->select('supplier_services',
+                ['service', 'status', 'max_listings', 'requested_count'],
+                ['user_id' => $owner]) ?: [];
+            foreach ($rows as $r) {
+                $svc = strtolower(trim((string) ($r['service'] ?? '')));
+                if ($svc === '') { continue; }
+                $status = (string) ($r['status'] ?? 'requested');
+                if ($approvedOnly && $status !== 'approved') { continue; }
+                $max = isset($r['max_listings']) && $r['max_listings'] !== null ? (int) $r['max_listings'] : null;
+                // used = owned listings in that service's own-inventory table.
+                $used = 0;
+                if (in_array($svc, ['stays', 'flights', 'tours', 'cars', 'bus'], true)) {
+                    try { $used = (int) $db->count($svc, ['user_id' => $owner]); } catch (\Throwable $e) { $used = 0; }
+                }
+                $meta = $catalogue[$svc] ?? ['label' => ucfirst($svc), 'icon' => 'category'];
+                $out[$svc] = [
+                    'label'     => $meta['label'],
+                    'icon'      => $meta['icon'],
+                    'status'    => $status,
+                    'max'       => $max,
+                    'used'      => $used,
+                    'remaining' => $max !== null ? max(0, $max - $used) : null,
+                    'requested_count' => (int) ($r['requested_count'] ?? 0),
+                ];
+            }
+        } catch (\Throwable $e) {
+            error_log('supplier_granted_services: ' . $e->getMessage());
+        }
+        return $out;
+    }
+}
+
 // ============================================================================
 // SUPPLIER SERVICE LANDING CONTENT (Phase 1 inc S9)
 // ----------------------------------------------------------------------------
@@ -7186,6 +7238,26 @@ function ensureSupplierStaysSchema($db): void
             PRIMARY KEY (`id`),
             UNIQUE KEY `uq_user_service` (`user_id`,`service`),
             KEY `idx_user` (`user_id`),
+            KEY `idx_status` (`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- supplier_quota_requests (inc S34): post-approval service/quota requests -
+        // An approved supplier asks for a NEW service or a higher quota; admin approval
+        // applies it to supplier_services (doesn't disturb live grants while pending).
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_quota_requests` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `owner_user_id` VARCHAR(255) NOT NULL,
+            `service` VARCHAR(32) NOT NULL,
+            `kind` ENUM('new','increase') NOT NULL DEFAULT 'new',
+            `requested_count` INT(11) NOT NULL DEFAULT 1,
+            `status` ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+            `review_comment` VARCHAR(255) DEFAULT NULL,
+            `reviewed_by` VARCHAR(255) DEFAULT NULL,
+            `reviewed_at` DATETIME DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_owner_status` (`owner_user_id`,`status`),
             KEY `idx_status` (`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 

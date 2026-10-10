@@ -10,8 +10,20 @@ $assetVersion = rawurlencode((string)($GLOBALS['app']['version'] ?? '1.0.0'));
 // COOKIE (SERVER-READABLE, UNLIKE localStorage) SO PHP RENDERS THE CORRECT BODY
 // OFFSET AND RAIL WIDTH IN THE VERY FIRST PAINT — NO LAYOUT JUMP AT ANY POINT.
 $isAdminSidebar   = (($_SESSION['user_role'] ?? '') === 'admin');
+// SUPPLIER SIDEBAR (inc S34): a persistent left nav for the supplier area, shown to a
+// supplier owner OR an active supplier-staff member (never admin — admin has its own).
+// supplier_acting_context() returns non-null for exactly those users (null for admin/
+// everyone else). Fixed-width (always "open"); no collapse rail.
+$isSupplierSidebar = false;
+if (!$isAdminSidebar && function_exists('supplier_acting_context')) {
+    try {
+        $__sctx = supplier_acting_context($db);
+        $isSupplierSidebar = ($__sctx !== null && empty($__sctx['is_admin']));
+    } catch (\Throwable $e) { $isSupplierSidebar = false; }
+}
 $sidebarExpanded  = $isAdminSidebar && (($_COOKIE['pt_sidebar'] ?? '') === 'expanded');
-$sidebarBodyClass = $isAdminSidebar ? ($sidebarExpanded ? ' sidebar-open' : ' sidebar-closed') : '';
+$sidebarBodyClass = $isAdminSidebar ? ($sidebarExpanded ? ' sidebar-open' : ' sidebar-closed')
+                   : ($isSupplierSidebar ? ' supplier-sidebar-open' : '');
 $headerPages = cms($db, "header", "headerfooter");
 
 if (!function_exists('flagAssetPath')) {
@@ -247,6 +259,16 @@ if (!empty($activeCurrencyRow)) {
       }
       /* MUST MATCH THE RAIL EXACTLY (transition-all duration-200 ease-linear = 0.2s linear) */
       body { transition: padding-left 0.2s linear; }
+      <?php endif; ?>
+      <?php if ($isSupplierSidebar): ?>
+      /* SUPPLIER SIDEBAR LAYOUT (inc S34) — fixed 240px rail on desktop; off-canvas on
+         mobile (toggled by a button in the supplier sidebar via the #supplier-nav checkbox). */
+      @media (min-width: 1024px) {
+        body.supplier-sidebar-open { padding-left: 240px; }
+      }
+      @media (max-width: 1023px) {
+        body.supplier-sidebar-open { padding-left: 0; }
+      }
       <?php endif; ?>
     </style>
 
@@ -1004,4 +1026,7 @@ if (!empty($activeCurrencyRow)) {
 
     <?php
     include "app/views/admin/sidebar.php";
+    // Supplier sidebar (inc S34) — rendered only for supplier owners/staff (the file
+    // self-guards on supplier_acting_context too).
+    if ($isSupplierSidebar) { include "app/views/supplier/sidebar.php"; }
     ?>
