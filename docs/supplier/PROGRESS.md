@@ -122,6 +122,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S23 | **Maintenance / work-orders + OOO→inventory** — tickets (open/in_progress/resolved); OOO a physical room reduces pooled `stays_inventory` by 1/option/date (floored at held), reversible | 25, 06 | ✅ code-complete (not runtime-verified — no DB) |
 | S24 | **F&B / POS (charge-to-room)** — outlets + menu + orders; settle cash OR charge-to-room → posts a `charge` to the in-house guest's folio (S21), server-computed total | 30 | ✅ code-complete (not runtime-verified — no DB) |
 | S25 | **Night audit (daily close)** — per-property business date; flag no-shows, snapshot occupancy/ADR/RevPAR, roll date; idempotent per (property,date) | 07, 16 | ✅ code-complete (not runtime-verified — no DB) |
+| S26 | **Apartment-owner model + owner statements** — owners + management agreements (mgr commission); statement = earnings − platform − mgr commission − expenses → owner payout | 47, 48 | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -374,8 +375,23 @@ Before coding: **read** every file to be touched (rule 3). Then:
   it's no-shows + snapshot + roll. Tables in ensure-fn + db.sql. Routes added to
   supplierHousekeepingRoutes (/supplier/night-audit board + /run); view
   supplier/night-audit.php + dashboard link. supplier_can('reservations') + CSRF. Not
-  runtime-verified. **Next Stage-D = owner's call (channel mgr, owner statements, direct-
-  booking engine, …). STRONGLY recommend deploy + smoke-test S1–S25 before more / go-live.**
+  runtime-verified.
+- 2026-10 — **S26 done** (apartment-owner model + owner statements): new
+  `app/lib/supplier_owners.php` — owner_create (stays_owners), owner_agreement_set
+  (stays_management_agreements; one active per property, supersede-on-new; mgr commission
+  % + fixed fee), owner_expense_add (stays_owner_expenses), owner_statement_preview +
+  owner_statement_generate (stays_owner_statements). Statement aggregates
+  supplier_earnings (S18) for the property+period (exclude void): owner_payout =
+  operator_net (= net after PLATFORM commission) − manager_commission (pct×gross+fixed) −
+  expenses. Server-derived money; attaches in-window unattached expenses to the statement
+  (no double-count next period). OWNER-ONLY (SUPPLIER_AUTH) + CSRF; org-scoped (owner +
+  property must belong to org; statement route re-checks stays.org_id). HONEST SCOPE: NO
+  money movement / NO GL posting — generates statements only; owner bank payout + trust
+  accounting are later. 4 tables (ensure-fn + db.sql). Routes users/supplierOwnersRoutes;
+  view supplier/owners.php + owner-only dashboard link. Not runtime-verified. **Next
+  Stage-D = owner's call (channel mgr, direct-booking engine, procurement, smart-locks,
+  BI, loyalty, reviews, events). STRONGLY recommend deploy + smoke-test S1–S26 before
+  go-live.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

@@ -29064,6 +29064,89 @@ CREATE TABLE `stays_night_audits` (
 -- --------------------------------------------------------
 
 --
+-- Property owners + management agreements + owner statements (inc S26; docs 01a §5).
+-- The apartment/property-manager model: operator ≠ owner. Statements aggregate
+-- supplier_earnings for a property+period minus manager commission + expenses →
+-- owner payout. No money movement / GL posting. app/lib/supplier_owners.php.
+--
+CREATE TABLE `stays_owners` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `name` varchar(191) NOT NULL,
+  `email` varchar(191) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `bank_code` varchar(20) DEFAULT NULL,
+  `account_number` varchar(40) DEFAULT NULL,
+  `account_name` varchar(191) DEFAULT NULL,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `stays_management_agreements` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `stay_id` int(11) NOT NULL,
+  `owner_id` int(11) NOT NULL,
+  `manager_commission_pct` decimal(5,2) NOT NULL DEFAULT 0.00,
+  `fixed_fee` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_active` (`stay_id`,`active`),
+  KEY `idx_owner` (`owner_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `stays_owner_expenses` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `stay_id` int(11) NOT NULL,
+  `description` varchar(191) NOT NULL,
+  `amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `expense_date` date NOT NULL,
+  `statement_id` int(11) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`),
+  KEY `idx_statement` (`statement_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `stays_owner_statements` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `stay_id` int(11) NOT NULL,
+  `owner_id` int(11) NOT NULL,
+  `period_from` date NOT NULL,
+  `period_to` date NOT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `gross` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `platform_commission` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `operator_net` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `manager_commission` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `expenses` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `owner_payout` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `status` enum('generated','paid') NOT NULL DEFAULT 'generated',
+  `generated_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`),
+  KEY `idx_owner` (`owner_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Normalized rate-plan MIRROR over room_options (inc S12). room_options JSON
 -- stays the canonical runtime source; these mirror each option (keyed by the
 -- stable option_id) so the rate model is relational. Kept in sync by

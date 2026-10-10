@@ -7889,6 +7889,80 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay` (`stay_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- PROPERTY OWNERS + MANAGEMENT AGREEMENTS + OWNER STATEMENTS (inc S26) ----
+        // The apartment / property-manager model (01a §5): an operator manages units
+        // owned by different people. Statements aggregate supplier_earnings (S18) for a
+        // property + period minus manager commission + expenses → owner payout. No
+        // money movement / GL posting here. app/lib/supplier_owners.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_owners` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `name` VARCHAR(191) NOT NULL,
+            `email` VARCHAR(191) DEFAULT NULL,
+            `phone` VARCHAR(40) DEFAULT NULL,
+            `bank_code` VARCHAR(20) DEFAULT NULL,
+            `account_number` VARCHAR(40) DEFAULT NULL,
+            `account_name` VARCHAR(191) DEFAULT NULL,
+            `status` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_org` (`org_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_management_agreements` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `owner_id` INT(11) NOT NULL,
+            `manager_commission_pct` DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+            `fixed_fee` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_active` (`stay_id`,`active`),
+            KEY `idx_owner` (`owner_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_owner_expenses` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `description` VARCHAR(191) NOT NULL,
+            `amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+            `expense_date` DATE NOT NULL,
+            `statement_id` INT(11) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`),
+            KEY `idx_statement` (`statement_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_owner_statements` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `owner_id` INT(11) NOT NULL,
+            `period_from` DATE NOT NULL,
+            `period_to` DATE NOT NULL,
+            `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+            `gross` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `platform_commission` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `operator_net` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `manager_commission` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `expenses` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `owner_payout` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `status` ENUM('generated','paid') NOT NULL DEFAULT 'generated',
+            `generated_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`),
+            KEY `idx_owner` (`owner_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // stays hierarchy keys + operating model. Nullable/defaulted so existing rows
         // are untouched; each guarded by SHOW COLUMNS (idempotent).
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'org_id'")->fetch()) {
