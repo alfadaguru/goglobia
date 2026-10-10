@@ -157,39 +157,73 @@ if (!function_exists('gl_post')) {
         }
         if ($totalDebit <= 0) { return ['ok' => false, 'message' => 'Entry total must be positive']; }
 
+        $source = isset($opts['source']) ? substr((string) $opts['source'], 0, 40) : 'manual';
+        $reference = isset($opts['reference']) ? substr((string) $opts['reference'], 0, 100) : null;
+
+        // The actual write — header + lines. Idempotent: when a (source, reference) is
+        // given, a prior entry with the same key is treated as an already-posted no-op
+        // (returns its id), so a double-click / retry can never double-post. The DB
+        // UNIQUE(org_id, source, reference) backs this up if two writers race the check.
+        $doPost = function ($db) use ($orgId, $opts, $date, $norm, $totalDebit, $source, $reference) {
+            if ($reference !== null && $reference !== '') {
+                $existing = $db->get('journal_entries', ['id'],
+                    ['org_id' => $orgId, 'source' => $source, 'reference' => $reference]);
+                if ($existing) {
+                    return ['ok' => true, 'entry_id' => (int) $existing['id'], 'duplicate' => true];
+                }
+            }
+            $db->insert('journal_entries', [
+                'org_id'      => $orgId,
+                'property_id' => isset($opts['property_id']) ? (int) $opts['property_id'] : null,
+                'entry_date'  => $date,
+                'memo'        => isset($opts['memo']) ? substr((string) $opts['memo'], 0, 255) : null,
+                'source'      => $source,
+                'reference'   => $reference,
+                'currency'    => isset($opts['currency']) ? strtoupper(substr((string) $opts['currency'], 0, 3)) : null,
+                'amount'      => $totalDebit,
+                'posted_by'   => (string) ($_SESSION['user_id'] ?? ''),
+                'created_at'  => date('Y-m-d H:i:s'),
+            ]);
+            $entryId = (int) $db->id();
+            if ($entryId <= 0) { return ['ok' => false, 'message' => 'Header insert failed']; }
+            foreach ($norm as $ln) {
+                $db->insert('journal_lines', [
+                    'entry_id'   => $entryId,
+                    'org_id'     => $orgId,
+                    'account_id' => $ln['account_id'],
+                    'debit'      => $ln['debit'],
+                    'credit'     => $ln['credit'],
+                    'memo'       => $ln['memo'] !== '' ? substr($ln['memo'], 0, 255) : null,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
+            return ['ok' => true, 'entry_id' => $entryId];
+        };
+
+        // Nesting-aware: Medoo's action() calls beginTransaction() unconditionally and
+        // has NO savepoint support, so opening a nested action inside a caller's
+        // transaction throws "already an active transaction". When a transaction is
+        // already open (e.g. folio_checkout / group completion locking a row FOR UPDATE
+        // then posting), JOIN it — run the write directly so it commits/rolls back with
+        // the caller. Otherwise wrap in our own action for atomicity.
         $result = ['ok' => false, 'message' => 'Post failed'];
         try {
-            $db->action(function ($db) use ($orgId, $opts, $date, $norm, $totalDebit, &$result) {
-                $db->insert('journal_entries', [
-                    'org_id'      => $orgId,
-                    'property_id' => isset($opts['property_id']) ? (int) $opts['property_id'] : null,
-                    'entry_date'  => $date,
-                    'memo'        => isset($opts['memo']) ? substr((string) $opts['memo'], 0, 255) : null,
-                    'source'      => isset($opts['source']) ? substr((string) $opts['source'], 0, 40) : 'manual',
-                    'reference'   => isset($opts['reference']) ? substr((string) $opts['reference'], 0, 100) : null,
-                    'currency'    => isset($opts['currency']) ? strtoupper(substr((string) $opts['currency'], 0, 3)) : null,
-                    'amount'      => $totalDebit,
-                    'posted_by'   => (string) ($_SESSION['user_id'] ?? ''),
-                    'created_at'  => date('Y-m-d H:i:s'),
-                ]);
-                $entryId = (int) $db->id();
-                if ($entryId <= 0) { $result = ['ok' => false, 'message' => 'Header insert failed']; return false; }
-                foreach ($norm as $ln) {
-                    $db->insert('journal_lines', [
-                        'entry_id'   => $entryId,
-                        'org_id'     => $orgId,
-                        'account_id' => $ln['account_id'],
-                        'debit'      => $ln['debit'],
-                        'credit'     => $ln['credit'],
-                        'memo'       => $ln['memo'] !== '' ? substr($ln['memo'], 0, 255) : null,
-                        'created_at' => date('Y-m-d H:i:s'),
-                    ]);
-                }
-                $result = ['ok' => true, 'entry_id' => $entryId];
-                return true;
-            });
+            if ($db->pdo->inTransaction()) {
+                $r = $doPost($db);
+                if (empty($r['ok'])) { throw new \RuntimeException($r['message'] ?? 'Post failed'); }
+                $result = $r;
+            } else {
+                $db->action(function ($db) use ($doPost, &$result) {
+                    $r = $doPost($db);
+                    $result = $r;
+                    return !empty($r['ok']); // false → rollback
+                });
+            }
         } catch (\Throwable $e) {
             error_log('gl_post: ' . $e->getMessage());
+            // Re-throw when inside a caller's transaction so THEIR action() rolls back
+            // the whole unit (the status flip must not commit if the GL post failed).
+            if ($db->pdo->inTransaction()) { throw $e; }
             return ['ok' => false, 'message' => 'Post error'];
         }
         return $result;

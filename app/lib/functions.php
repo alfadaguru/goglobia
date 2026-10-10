@@ -7743,8 +7743,26 @@ function ensureSupplierStaysSchema($db): void
             PRIMARY KEY (`id`),
             KEY `idx_org_date` (`org_id`,`entry_date`),
             KEY `idx_source` (`source`),
-            KEY `idx_reference` (`reference`)
+            KEY `idx_reference` (`reference`),
+            UNIQUE KEY `uq_org_source_ref` (`org_id`,`source`,`reference`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // Self-heal the GL idempotency key on pre-existing installs. UNIQUE(org_id,
+        // source, reference) makes a double check-out / group-completion / payout GL
+        // post a no-op (NULL references stay distinct, so manual entries are free).
+        // Guarded by a dup check so a legacy install that already double-posted doesn't
+        // hard-fail the migration (mirrors the wallet_ledger uq_txn self-heal).
+        try {
+            $hasGlUniq = $db->query("SHOW INDEX FROM `journal_entries` WHERE Key_name = 'uq_org_source_ref'")->fetch();
+            if (!$hasGlUniq) {
+                $glDups = $db->query("SELECT COUNT(*) c FROM (SELECT org_id, source, reference FROM `journal_entries` WHERE reference IS NOT NULL GROUP BY org_id, source, reference HAVING COUNT(*) > 1) d")->fetch();
+                if ((int) ($glDups['c'] ?? 0) === 0) {
+                    $db->query("ALTER TABLE `journal_entries` ADD UNIQUE KEY `uq_org_source_ref` (`org_id`,`source`,`reference`)");
+                } else {
+                    error_log('ensureSupplierStaysSchema: journal_entries has duplicate (org,source,reference) rows; skipping uq_org_source_ref migration — reconcile manually');
+                }
+            }
+        } catch (\Throwable $e) { error_log('ensureSupplierStaysSchema uq_org_source_ref: ' . $e->getMessage()); }
 
         // journal_lines: the debits/credits of an entry (each line is debit XOR credit).
         $db->query("CREATE TABLE IF NOT EXISTS `journal_lines` (

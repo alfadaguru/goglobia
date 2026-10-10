@@ -203,6 +203,16 @@ if (!function_exists('folio_checkout')) {
             return ['ok' => true, 'message' => 'Already checked out', 'already' => true];
         }
 
+        // HIGH-1: a guest must be CHECKED IN before they can be checked out. Without
+        // this, a never-arrived 'confirmed' booking could be "checked out" — prematurely
+        // recognizing revenue, releasing the payout reservation, and making no-show
+        // processing unreachable. (The booking's state lives in booking_data.)
+        $bk = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
+        $state = folio_stay_state($bk['booking_data'] ?? null);
+        if ($state !== 'checked_in') {
+            return ['ok' => false, 'message' => 'Guest is not checked in (state: ' . $state . ').'];
+        }
+
         $orgId = ($folio['org_id'] !== null) ? (int) $folio['org_id'] : 0;
         $stayId = (int) ($folio['stay_id'] ?? 0);
         $currency = (string) ($folio['currency'] ?? 'USD');
@@ -225,42 +235,72 @@ if (!function_exists('folio_checkout')) {
         $room = round($room, 2); $tax = round($tax, 2); $extra = round($extra, 2); $payments = round($payments, 2);
         $charges = round($room + $tax + $extra, 2);
 
-        $glEntry = null;
-        if ($orgId > 0 && function_exists('gl_post')) {
-            // Bill side: DR Guest AR = charges ; CR revenue + tax.
-            $lines = [];
-            if ($charges > 0) { $lines[] = ['code' => '1100', 'debit' => $charges]; }
-            $rev = round($room + $extra, 2);
-            if ($rev > 0) { $lines[] = ['code' => '4000', 'credit' => $rev]; }
-            if ($tax > 0) { $lines[] = ['code' => '2100', 'credit' => $tax]; }
-            if ($charges > 0 && count($lines) >= 2) {
-                $res = gl_post($db, $orgId, $lines, [
-                    'source' => 'folio', 'reference' => $invoiceId, 'currency' => $currency,
-                    'property_id' => $stayId, 'memo' => 'Guest bill ' . $invoiceId,
-                ]);
-                if (!empty($res['ok'])) { $glEntry = $res['entry_id']; }
-                else { error_log('folio_checkout GL bill: ' . ($res['message'] ?? '?')); }
-            }
-            // Payment side: DR Cash ; CR Guest AR.
-            if ($payments > 0) {
-                $pres = gl_post($db, $orgId, [
-                    ['code' => '1000', 'debit' => $payments],
-                    ['code' => '1100', 'credit' => $payments],
-                ], [
-                    'source' => 'folio_payment', 'reference' => $invoiceId, 'currency' => $currency,
-                    'property_id' => $stayId, 'memo' => 'Payment ' . $invoiceId,
-                ]);
-                if (empty($pres['ok'])) { error_log('folio_checkout GL payment: ' . ($pres['message'] ?? '?')); }
-            }
+        // CRITICAL-1: the whole finalize — status re-check, both GL posts, and the
+        // folio close — runs in ONE transaction with the folio row locked FOR UPDATE.
+        // Two concurrent/double-clicked check-outs serialize: the first closes the
+        // folio, the second sees 'closed' inside the lock and no-ops. gl_post is also
+        // idempotent on (source, reference), so even a torn retry cannot double-post.
+        $glEntry = null; $closed = false;
+        try {
+            $db->action(function ($db) use ($folioId, $orgId, $stayId, $currency, $invoiceId,
+                $charges, $room, $tax, $extra, $payments, &$glEntry, &$closed) {
+                $lock = $db->query('SELECT status FROM stays_folios WHERE id=:id FOR UPDATE', [':id' => $folioId]);
+                $cur = $lock ? $lock->fetch(\PDO::FETCH_ASSOC) : null;
+                if (!$cur || ($cur['status'] ?? '') !== 'open') {
+                    // Someone else already closed it — nothing to do, commit cleanly.
+                    return true;
+                }
+                if ($orgId > 0 && function_exists('gl_post')) {
+                    // Bill side: DR Guest AR = charges ; CR revenue + tax.
+                    $lines = [];
+                    if ($charges > 0) { $lines[] = ['code' => '1100', 'debit' => $charges]; }
+                    $rev = round($room + $extra, 2);
+                    if ($rev > 0) { $lines[] = ['code' => '4000', 'credit' => $rev]; }
+                    if ($tax > 0) { $lines[] = ['code' => '2100', 'credit' => $tax]; }
+                    if ($charges > 0 && count($lines) >= 2) {
+                        $res = gl_post($db, $orgId, $lines, [
+                            'source' => 'folio', 'reference' => $invoiceId, 'currency' => $currency,
+                            'property_id' => $stayId, 'memo' => 'Guest bill ' . $invoiceId,
+                        ]);
+                        // A validation failure (unbalanced / closed period / unknown
+                        // account) returns ok=false WITHOUT throwing; abort the whole
+                        // finalize so we never close a folio with its books un-posted.
+                        if (empty($res['ok'])) { error_log('folio_checkout GL bill: ' . ($res['message'] ?? '?')); return false; }
+                        $glEntry = $res['entry_id'];
+                    }
+                    // Payment side: DR Cash ; CR Guest AR.
+                    if ($payments > 0) {
+                        $pres = gl_post($db, $orgId, [
+                            ['code' => '1000', 'debit' => $payments],
+                            ['code' => '1100', 'credit' => $payments],
+                        ], [
+                            'source' => 'folio_payment', 'reference' => $invoiceId, 'currency' => $currency,
+                            'property_id' => $stayId, 'memo' => 'Payment ' . $invoiceId,
+                        ]);
+                        if (empty($pres['ok'])) { error_log('folio_checkout GL payment: ' . ($pres['message'] ?? '?')); return false; }
+                    }
+                }
+                $db->update('stays_folios',
+                    ['status' => 'closed', 'closed_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+                    ['id' => $folioId, 'status' => 'open']);
+                $closed = true;
+                return true; // commit (gl_post throws on real failure → rolls back the unit)
+            });
+        } catch (\Throwable $e) {
+            error_log('folio_checkout finalize: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not finalize check-out (GL post failed); nothing was posted.'];
         }
 
-        // Advance folio + reservation state.
+        // If the transaction rolled back (GL validation failure returned false), the
+        // folio is still open — report failure and DON'T run checkout side-effects.
+        // A concurrent writer closing it first is a legitimate success (idempotent).
+        $after = $db->get('stays_folios', ['status'], ['id' => $folioId]);
+        if (!$after || ($after['status'] ?? '') !== 'closed') {
+            return ['ok' => false, 'message' => 'Could not finalize check-out; the guest bill was not posted. Nothing was changed.'];
+        }
+
+        // Advance reservation state (outside the money transaction — side-effects only).
         $totals = folio_totals($db, $folioId);
-        try {
-            $db->update('stays_folios',
-                ['status' => 'closed', 'closed_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-                ['id' => $folioId, 'status' => 'open']);
-        } catch (\Throwable $e) { error_log('folio_checkout close: ' . $e->getMessage()); }
         _folio_set_stay_state($db, $invoiceId, 'checked_out', ['checked_out' => true]);
 
         // Release the supplier's pending earning (stay completed). Idempotent.

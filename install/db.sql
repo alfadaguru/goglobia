@@ -28756,7 +28756,8 @@ CREATE TABLE `journal_entries` (
   PRIMARY KEY (`id`),
   KEY `idx_org_date` (`org_id`,`entry_date`),
   KEY `idx_source` (`source`),
-  KEY `idx_reference` (`reference`)
+  KEY `idx_reference` (`reference`),
+  UNIQUE KEY `uq_org_source_ref` (`org_id`,`source`,`reference`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
