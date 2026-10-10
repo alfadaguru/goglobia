@@ -28125,6 +28125,7 @@ CREATE TABLE `stays` (
   `hotel_order` int(11) DEFAULT 0,
   `stars` tinyint(3) UNSIGNED DEFAULT NULL,
   `rating` decimal(3,2) DEFAULT NULL,
+  `rating_count` int(11) NOT NULL DEFAULT 0,
   `location` varchar(255) NOT NULL,
   `location_coords` varchar(255) DEFAULT NULL,
   `address` text DEFAULT NULL,
@@ -29117,6 +29118,29 @@ CREATE TABLE `stays_owner_expenses` (
   PRIMARY KEY (`id`),
   KEY `idx_stay` (`stay_id`),
   KEY `idx_statement` (`statement_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Reviews / reputation (inc S31). Post-stay reviews; published ones roll up to
+-- stays.rating + stays.rating_count. One review per (stay, invoice). supplier_reviews.php.
+--
+CREATE TABLE `stays_reviews` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `invoice_id` varchar(255) NOT NULL,
+  `guest_email` varchar(191) DEFAULT NULL,
+  `guest_name` varchar(120) DEFAULT NULL,
+  `rating` tinyint(1) NOT NULL DEFAULT 5,
+  `comment` text DEFAULT NULL,
+  `status` enum('pending','published','hidden') NOT NULL DEFAULT 'pending',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_stay_invoice` (`stay_id`,`invoice_id`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------

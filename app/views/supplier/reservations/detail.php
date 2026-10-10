@@ -147,6 +147,16 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
             <button type="submit" class="btn emerald text-sm">Check out</button>
           </form>
         <?php endif; ?>
+        <?php if ($ss === 'checked_out' && function_exists('review_token')): ?>
+          <?php $rvUrl = rtrim(root, '/') . '/stay-review/' . review_token($inv); ?>
+          <div class="flex items-center gap-2 text-xs" x-data="{ copied:false }">
+            <span class="text-gray-500">Review link:</span>
+            <input type="text" readonly value="<?= htmlspecialchars($rvUrl) ?>" class="input text-xs py-1 px-2 w-56" onclick="this.select()">
+            <button type="button" class="text-violet-600 hover:underline"
+                    @click="navigator.clipboard.writeText('<?= htmlspecialchars($rvUrl, ENT_QUOTES) ?>'); copied=true; setTimeout(()=>copied=false,1500)"
+                    x-text="copied ? 'Copied' : 'Copy'"></button>
+          </div>
+        <?php endif; ?>
       </div>
     <?php endif; ?>
 

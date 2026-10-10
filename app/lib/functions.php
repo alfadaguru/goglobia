@@ -7940,6 +7940,29 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_statement` (`statement_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- reviews (inc S31): post-stay reviews + rollup to stays.rating -----------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_reviews` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `invoice_id` VARCHAR(255) NOT NULL,
+            `guest_email` VARCHAR(191) DEFAULT NULL,
+            `guest_name` VARCHAR(120) DEFAULT NULL,
+            `rating` TINYINT(1) NOT NULL DEFAULT 5,
+            `comment` TEXT DEFAULT NULL,
+            `status` ENUM('pending','published','hidden') NOT NULL DEFAULT 'pending',
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_stay_invoice` (`stay_id`,`invoice_id`),
+            KEY `idx_stay_status` (`stay_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // stays.rating_count: alongside the existing stays.rating (public avg), so the
+        // rollup can show "x reviews". Additive, nullable-safe.
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'rating_count'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `rating_count` INT(11) NOT NULL DEFAULT 0");
+        }
+
         // --- loyalty (inc S30): per-org config + append-only points ledger ----------
         // Points keyed on the guest email (S29 key). Earn is idempotent per
         // (org, invoice). Balance = SUM(points). Soft currency — no cash value here.

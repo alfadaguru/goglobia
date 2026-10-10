@@ -48,6 +48,7 @@ require_once 'app/routes/users/supplierHousekeepingRoutes.php'; // housekeeping 
 require_once 'app/routes/users/supplierPosRoutes.php'; // F&B / POS — outlets, menu, orders, charge-to-room (inc S24)
 require_once 'app/routes/users/supplierOwnersRoutes.php'; // property owners + agreements + owner statements (inc S26)
 require_once 'app/routes/users/supplierGuestsRoutes.php'; // guest CRM — profiles + history + notes (inc S29)
+require_once 'app/routes/users/supplierReviewsRoutes.php'; // reviews — public capture + owner moderation (inc S31)
 require_once 'app/routes/users/supplierRolesRoutes.php'; // supplier-defined roles + property scope (inc 4)
 require_once 'app/routes/users/supplierStaffRoutes.php'; // staff invitations + accept flow (inc 5)
 require_once 'app/routes/users/logoutRoutes.php';

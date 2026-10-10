@@ -127,6 +127,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S28 | **BI / operations dashboard** — READ-ONLY KPIs from real tables: earnings, occupancy/ADR/RevPAR trend, F&B sales, channel mix, reservations, HK/work-order counts | 56 | ✅ code-complete (not runtime-verified — no DB) |
 | S29 | **Guest CRM** — returning-guest profiles aggregated from bookings by email (stays, spend, history, properties) + owner notes/VIP/tags | 18 | ✅ code-complete (not runtime-verified — no DB) |
 | S30 | **Loyalty** — per-org points ledger keyed on guest email; auto-earn on paid stay at checkout (idempotent); tiers; manual adjust/redeem; balance on guest profile | 22 | ✅ code-complete (not runtime-verified — no DB) |
+| S31 | **Reviews / reputation** — tokened post-stay guest review (1-5 + comment); owner moderation (publish/hide); published reviews roll up to `stays.rating`+`rating_count` (the live public field) | 23 | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -444,8 +445,21 @@ Before coding: **read** every file to be touched (rule 3). Then:
   (next to earnings release + hk). Config form (owner-only) on guest list; balance/tier +
   manual adjust/redeem + ledger on guest detail. supplier_can gated; manual re-checks guest
   has a booking w/ owner. SOFT currency — no cash value, redeem is a ledger row only. Not
-  runtime-verified. **Next Stage-D = owner's call (reviews/reputation, procurement, events,
-  channel mgr, smart-locks). STRONGLY recommend deploy + smoke-test S1–S30 before go-live.**
+  runtime-verified.
+- 2026-10 — **S31 done** (reviews / reputation): new `app/lib/supplier_reviews.php` —
+  review_token/decode (binds invoice), review_eligible_booking (own-inventory +
+  checked_out|paid + not-already-reviewed), review_submit (UNIQUE(stay,invoice) + locked
+  pre-check; rating 1-5; starts 'pending'), review_set_status (owner publish/hide →
+  review_rollup), review_rollup (AVG of PUBLISHED → writes ONLY stays.rating +
+  stays.rating_count = the live public field), review_list_for_org. Table stays_reviews
+  (uq stay+invoice) + new stays.rating_count col (ensure-fn + db.sql CREATE/ALTER).
+  PUBLIC capture GET/POST /stay-review/{token} (no login; token binds invoice; CSRF;
+  re-validates eligibility). OWNER moderation /supplier/reviews + /status
+  (supplier_can('reservations','edit') + stays.user_id===owner). Views stays/review.php
+  (public star form) + supplier/reviews.php + dashboard link + copy-review-link on the
+  checked-out reservation detail. Only live-stays write = the rating/rating_count rollup.
+  Not runtime-verified. **Next Stage-D = owner's call (procurement, events/MICE, channel
+  mgr, smart-locks). STRONGLY recommend deploy + smoke-test S1–S31 before go-live.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique
