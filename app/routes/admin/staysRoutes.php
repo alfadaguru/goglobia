@@ -1029,7 +1029,16 @@ $router->get(admin.'/stays/calendar/(.*)', function ($id) use ($SECURE, $db) {
         $roomName = $roomTypeMap[$room['room_type_id']] ?? 'Room #' . $room['id'];
         $options  = [];
         if (!empty($room['room_options'])) {
-            $decoded = json_decode($room['room_options'], true);
+            // Use the STABLE option_id so per-date rates key on the same id the public
+            // pricing path + inventory/holds use. (Previously this emitted the positional
+            // $idx+1, which diverged from the stable id after any option delete/reorder
+            // and made supplier/admin rate overrides silently miss on the booking page.)
+            if (function_exists('stays_room_option_ids')) {
+                $decoded = stays_room_option_ids($db, (int) $room['id'], (int) $hotel_id);
+                if (empty($decoded)) { $decoded = json_decode($room['room_options'], true); }
+            } else {
+                $decoded = json_decode($room['room_options'], true);
+            }
             if (is_array($decoded)) {
                 foreach ($decoded as $idx => $opt) {
                     if (!empty($opt['board_id']) && isset($boardMap[$opt['board_id']])) {
@@ -1043,7 +1052,7 @@ $router->get(admin.'/stays/calendar/(.*)', function ($id) use ($SECURE, $db) {
                         $optName .= ' (' . intval($opt['max_adults']) . ' Adults)';
                     }
                     $options[] = [
-                        'id'    => $idx + 1,
+                        'id'    => isset($opt['option_id']) && (int) $opt['option_id'] > 0 ? (int) $opt['option_id'] : ($idx + 1),
                         'name'  => $optName,
                         'price' => floatval($opt['price'] ?? 0),
                     ];

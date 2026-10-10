@@ -6,6 +6,15 @@ $router->post('stays/hotels/rooms', function() use ($db) {
     error_reporting(0);
     ini_set('display_errors', 0);
 
+    // The modules gateway does NOT load app/lib/functions.php (see modules/helpers.php),
+    // so stays_room_option_ids() — needed to key calendar prices on the STABLE option_id
+    // like the detail API + inventory spine — isn't defined here. Load the self-contained
+    // inventory lib (idempotent: its functions are function_exists-guarded).
+    if (!function_exists('stays_room_option_ids')) {
+        $__inv = __DIR__ . '/../../../app/lib/stays_inventory.php';
+        if (is_file($__inv)) { require_once $__inv; }
+    }
+
     // Start output buffering
     ob_start();
 
@@ -164,12 +173,24 @@ $router->post('stays/hotels/rooms', function() use ($db) {
             // Parse room options and apply pricing
             $roomOptions = [];
             if (!empty($room['room_options'])) {
-                $options = json_decode($room['room_options'], true);
+                // Use the STABLE option_id (stays_room_option_ids) for calendar lookups —
+                // the same key the supplier calendar WRITES and the inventory/holds spine
+                // + detail API use. The old positional ($index+1) key silently missed
+                // (→ base price) once a supplier deleted/reordered options. Fall back to
+                // $index+1 only for legacy rooms with no stable id yet.
+                if (function_exists('stays_room_option_ids')) {
+                    $options = stays_room_option_ids($db, (int) $room['id'], (int) $hotelId);
+                    if (empty($options)) { $options = json_decode($room['room_options'], true); }
+                } else {
+                    $options = json_decode($room['room_options'], true);
+                }
                 if (is_array($options)) {
                     foreach ($options as $index => $option) {
                         if (isset($option['price']) && $option['price'] > 0) {
                             $basePrice = $option['price'];
-                            $optionId  = $index + 1; // calendar keys use 1-based option index
+                            // Stable id when present; positional fallback otherwise.
+                            $optionId  = isset($option['option_id']) && (int) $option['option_id'] > 0
+                                ? (int) $option['option_id'] : ($index + 1);
 
                             // ── Apply per-night calendar pricing (falls back to base price) ──
                             if (!empty($stayDates)) {

@@ -29515,7 +29515,7 @@ CREATE TABLE `stays_rooms_calendar` (
   `id` int(10) UNSIGNED NOT NULL,
   `stay_id` int(10) UNSIGNED NOT NULL,
   `room_id` int(10) UNSIGNED NOT NULL,
-  `option_id` tinyint(3) UNSIGNED NOT NULL DEFAULT 1,
+  `option_id` int(10) UNSIGNED NOT NULL DEFAULT 1,
   `date` date NOT NULL,
   `price` decimal(10,2) NOT NULL DEFAULT 0.00,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),

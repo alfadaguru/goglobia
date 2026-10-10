@@ -7425,6 +7425,31 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_ref` (`ref`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- stays_rooms_calendar: per-date rate overrides -------------------------
+        // Keyed on the STABLE option_id (INT, not the old TINYINT) so it matches the
+        // inventory/holds spine and the public pricing read. Ensured here (not only
+        // lazily by the admin rates page) so the SUPPLIER calendar-save never depends
+        // on an admin having opened that page first.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_rooms_calendar` (
+            `id`         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            `stay_id`    INT UNSIGNED NOT NULL,
+            `room_id`    INT UNSIGNED NOT NULL,
+            `option_id`  INT UNSIGNED NOT NULL DEFAULT 1,
+            `date`       DATE NOT NULL,
+            `price`      DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY `uq_stay_room_opt_date` (`stay_id`,`room_id`,`option_id`,`date`),
+            INDEX `idx_stay_date` (`stay_id`,`date`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Widen a legacy TINYINT option_id (max 255) to INT — stable ids grow monotonically.
+        try {
+            $col = $db->query("SHOW COLUMNS FROM `stays_rooms_calendar` LIKE 'option_id'")->fetch();
+            if ($col && stripos((string) ($col['Type'] ?? ''), 'tinyint') !== false) {
+                $db->query("ALTER TABLE `stays_rooms_calendar` MODIFY `option_id` INT UNSIGNED NOT NULL DEFAULT 1");
+            }
+        } catch (\Throwable $e) { error_log('ensureSupplierStaysSchema calendar option_id widen: ' . $e->getMessage()); }
+
         // --- stays_site: branded site + (future) custom domain ----------------------
         $db->query("CREATE TABLE IF NOT EXISTS `stays_site` (
             `stay_id` INT(11) NOT NULL,
