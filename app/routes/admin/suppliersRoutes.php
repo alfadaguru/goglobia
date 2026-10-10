@@ -326,6 +326,7 @@ $router->get(admin . '/supplier-service-requests', function () use ($SECURE, $db
         $g = $db->get('supplier_services', ['max_listings'], ['user_id' => $oid, 'service' => (string) $r['service']]);
         $currentMax[(int) $r['id']] = $g && $g['max_listings'] !== null ? (int) $g['max_listings'] : null;
     }
+    $catalogue = function_exists('supplier_all_services') ? supplier_all_services($db, false) : [];
     $title = 'Supplier service requests'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
     require_once views . "admin/suppliers/service-requests.php";

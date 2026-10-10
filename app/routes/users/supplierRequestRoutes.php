@@ -25,8 +25,8 @@ $router->get('/supplier/request-access', function () use ($SECURE, $db) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Only the supplier account owner can request services.'];
         header('Location: ' . root . 'supplier/dashboard'); exit;
     }
-    // All first-class services + this owner's grant status for each.
-    $catalogue = function_exists('supplier_first_class_services') ? supplier_first_class_services($db) : [];
+    // ALL system services (inc S36) + this owner's grant status for each.
+    $catalogue = function_exists('supplier_all_services') ? supplier_all_services($db) : [];
     $granted   = function_exists('supplier_granted_services') ? supplier_granted_services($db, $c['owner'], false) : [];
     $requests  = function_exists('supplier_requests_for_owner') ? supplier_requests_for_owner($db, $c['owner']) : [];
 

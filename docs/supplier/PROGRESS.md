@@ -132,6 +132,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S33 | **Events / MICE** — function spaces + event bookings (enquiry→confirmed→completed) + event folio; completion posts DR 1200/CR 4000 to GL | 16 | ✅ code-complete (not runtime-verified — no DB) |
 | S34 | **Supplier IA restructure** — persistent supplier sidebar (grouped, service-gated, perm-aware); post-approval service/quota REQUEST flow + admin queue; admin "Suppliers" consolidated into one menu + overview dashboard; fixed uncompiled violet Tailwind utilities | — | ✅ code-complete (not runtime-verified — no DB) |
 | S35 | **Per-property drill-in** — context-aware supplier sidebar: top-level (account + granted services) vs INSIDE a property (that hotel's full PMS, scoped via ?stay_id); new property hub `/supplier/stays/{id}`; hotels list → Open | — | ✅ code-complete (not runtime-verified — no DB) |
+| S36 | **Request flow across ALL services** — `supplier_all_services()` (full modules.type catalogue: stays/cars/tours/flights/bus/visa/umrah/hajj/cruises/esim/ferries/rail/insurance/events, active-filtered); supplier can request ANY live service; admin queue shows friendly labels + grants | — | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -516,8 +517,19 @@ Before coding: **read** every file to be touched (rule 3). Then:
   /supplier/stays/{id} (fully-anchored regex, no shadowing) = the drill-in landing w/
   quick stats + PMS tiles. Hotels list: name links to hub + "Open" button. Added ?stay_id
   scoping to the reviews list route (others already had it). NO engine/schema change —
-  pure nav/context layer reusing every existing route. Not runtime-verified. **Remaining =
-  integration-heavy / vision-only. STRONGLY recommend owner deploy + smoke-test S1–S35.**
+  pure nav/context layer reusing every existing route. Not runtime-verified.
+- 2026-10 — **S36 done** (request flow across ALL system services — owner flagged it only
+  offered 5). New `supplier_all_services($db,$activeOnly=true)` = full modules.type
+  catalogue (stays/cars/tours/flights/bus/visa/umrah/hajj/cruises/esim/ferries/rail/
+  insurance/events) w/ friendly labels+icons, filtered to types with an active module.
+  Wired into supplier_request_create validation, supplier_granted_services enrichment,
+  /supplier/request-access catalogue, admin service-requests queue label. Onboarding
+  signup kept stays-focused (per owner "finish stays first"); only the REQUEST flow is
+  system-wide. Approval writes supplier_services → granted service appears in sidebar
+  immediately. HONEST: non-inventory services (visa/esim/cruises/ferries/rail/insurance)
+  have no own-inventory self-management UI yet — request/grant works + becomes visible,
+  per-service management is separate future work. Not runtime-verified. **Remaining =
+  per-service management surfaces + integration/vision modules. Deploy + smoke-test S1–S36.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

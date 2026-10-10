@@ -29,8 +29,10 @@ if (!function_exists('supplier_request_create')) {
         $count = max(1, min(500, (int) $count));
         if ($owner === '') { return ['ok' => false, 'message' => 'No owner']; }
 
-        $catalogue = supplier_first_class_services($db);
-        if (!isset($catalogue[$service])) { return ['ok' => false, 'message' => 'Unknown service.']; }
+        // Validate against the FULL system service catalogue (inc S36) — a supplier may
+        // request ANY active platform service, not just the stays-focused set.
+        $catalogue = function_exists('supplier_all_services') ? supplier_all_services($db) : supplier_first_class_services($db);
+        if (!isset($catalogue[$service])) { return ['ok' => false, 'message' => 'Unknown or unavailable service.']; }
 
         try {
             // Already a pending request for this service?

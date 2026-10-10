@@ -6831,6 +6831,55 @@ function supplier_first_class_services($db = null): array
     return $all;
 }
 
+if (!function_exists('supplier_all_services')) {
+    /**
+     * The FULL system-wide service catalogue for the supplier request flow (inc S36).
+     * Keyed on the modules.type enum — friendly label + Material icon per service. By
+     * default filtered to service types that have at least one ACTIVE module (so the
+     * request form offers only services the platform actually runs); pass
+     * $activeOnly=false for the complete catalogue.
+     *
+     * This is BROADER than supplier_first_class_services() (which is the stays-focused
+     * onboarding set). A supplier may REQUEST any of these; whether own-inventory
+     * self-management exists for a given service is a separate, per-service build.
+     */
+    function supplier_all_services($db = null, bool $activeOnly = true): array
+    {
+        // Canonical catalogue (mirrors the modules.type enum + the admin service list).
+        $all = [
+            'stays'     => ['label' => 'Hotels / Stays / Apartments', 'icon' => 'hotel'],
+            'cars'      => ['label' => 'Cars / Transfers',            'icon' => 'directions_car'],
+            'tours'     => ['label' => 'Tours / Activities',          'icon' => 'tour'],
+            'flights'   => ['label' => 'Flights',                     'icon' => 'flight'],
+            'bus'       => ['label' => 'Bus',                         'icon' => 'directions_bus'],
+            'visa'      => ['label' => 'Visa',                        'icon' => 'description'],
+            'umrah'     => ['label' => 'Umrah',                       'icon' => 'mosque'],
+            'hajj'      => ['label' => 'Hajj',                        'icon' => 'mosque'],
+            'cruises'   => ['label' => 'Cruises',                     'icon' => 'sailing'],
+            'esim'      => ['label' => 'eSIM',                        'icon' => 'sim_card'],
+            'ferries'   => ['label' => 'Ferries',                    'icon' => 'directions_boat'],
+            'rail'      => ['label' => 'Rail',                        'icon' => 'directions_railway'],
+            'insurance' => ['label' => 'Insurance',                  'icon' => 'health_and_safety'],
+            'events'    => ['label' => 'Events',                     'icon' => 'celebration'],
+        ];
+        if ($db === null || !$activeOnly) { return $all; }
+        try {
+            // Distinct service types with ≥1 active module row.
+            $rows = $db->select('modules', ['type'], ['status' => 1, 'active' => 1]) ?: [];
+            $live = [];
+            foreach ($rows as $r) { $t = strtolower(trim((string) ($r['type'] ?? ''))); if ($t !== '') { $live[$t] = true; } }
+            if (!empty($live)) {
+                $filtered = [];
+                foreach ($all as $k => $meta) { if (isset($live[$k])) { $filtered[$k] = $meta; } }
+                if (!empty($filtered)) { return $filtered; }
+            }
+        } catch (\Throwable $e) {
+            error_log('supplier_all_services: ' . $e->getMessage());
+        }
+        return $all;
+    }
+}
+
 if (!function_exists('supplier_granted_services')) {
     /**
      * The services an owner has been GRANTED (an approved supplier_services row),
@@ -6848,7 +6897,9 @@ if (!function_exists('supplier_granted_services')) {
     {
         $owner = trim($owner);
         if ($owner === '') { return []; }
-        $catalogue = supplier_first_class_services($db); // key => [label, icon]
+        // Full system catalogue (inc S36) so any granted service — not just the
+        // stays-focused set — resolves a correct label/icon.
+        $catalogue = function_exists('supplier_all_services') ? supplier_all_services($db, false) : supplier_first_class_services($db);
         $out = [];
         try {
             $rows = $db->select('supplier_services',

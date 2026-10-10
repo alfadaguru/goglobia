@@ -5,6 +5,7 @@
 $pending    = (isset($pending) && is_array($pending)) ? $pending : [];
 $names      = (isset($names) && is_array($names)) ? $names : [];
 $currentMax = (isset($currentMax) && is_array($currentMax)) ? $currentMax : [];
+$catalogue  = (isset($catalogue) && is_array($catalogue)) ? $catalogue : [];
 $base = root . admin . '/supplier-service-requests';
 ?>
 <div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
@@ -35,7 +36,7 @@ $base = root . admin . '/supplier-service-requests';
         <?php else: foreach ($pending as $r): $rid = (int) $r['id']; ?>
           <tr>
             <td class="px-4 py-3 text-gray-700 text-xs"><?= htmlspecialchars($names[(string) $r['owner_user_id']] ?? (string) $r['owner_user_id']) ?></td>
-            <td class="px-4 py-3 text-gray-900 font-medium"><?= htmlspecialchars(ucfirst((string) $r['service'])) ?></td>
+            <td class="px-4 py-3 text-gray-900 font-medium"><?= htmlspecialchars($catalogue[(string) $r['service']]['label'] ?? ucfirst((string) $r['service'])) ?></td>
             <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium <?= $r['kind'] === 'increase' ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700' ?>"><?= $r['kind'] === 'increase' ? 'Increase' : 'New' ?></span></td>
             <td class="px-4 py-3 text-right tabular-nums font-semibold"><?= (int) $r['requested_count'] ?></td>
             <td class="px-4 py-3 text-right tabular-nums text-gray-500"><?= $currentMax[$rid] === null ? '—' : (int) $currentMax[$rid] ?></td>
