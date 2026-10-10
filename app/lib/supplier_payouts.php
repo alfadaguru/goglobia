@@ -177,6 +177,94 @@ if (!function_exists('supplier_payout_release_reservation')) {
     }
 }
 
+if (!function_exists('supplier_payout_reserve_earnings')) {
+    /**
+     * Reserve covering earnings for a payout (used on a failed-retry, whose original
+     * reservation was released). Locks the owner's unreserved 'available' earnings in
+     * the currency FOR UPDATE, oldest first, and stamps payout_id up to $amount. Returns
+     * true only if the full amount is covered; otherwise rolls back and returns false.
+     * Atomic — mirrors the reservation logic in supplier_payout_request.
+     */
+    function supplier_payout_reserve_earnings($db, int $payoutId, string $owner, string $currency, float $amount): bool
+    {
+        if ($payoutId <= 0 || $owner === '' || $amount <= 0) { return false; }
+        $ok = false;
+        try {
+            $db->action(function ($db) use ($payoutId, $owner, $currency, $amount, &$ok) {
+                $locked = $db->query(
+                    "SELECT id, net_amount FROM supplier_earnings
+                     WHERE owner_user_id = :o AND currency = :c AND state = 'available'
+                       AND payout_id IS NULL
+                     ORDER BY id ASC FOR UPDATE",
+                    [':o' => $owner, ':c' => $currency]
+                );
+                $rows = $locked ? $locked->fetchAll(\PDO::FETCH_ASSOC) : [];
+                $avail = 0.0;
+                foreach ($rows as $r) { $avail = round($avail + (float) $r['net_amount'], 2); }
+                if ($amount > $avail + 1e-9) { $ok = false; return false; } // rollback — can't cover
+
+                $need = $amount;
+                foreach ($rows as $r) {
+                    if ($need <= 1e-9) { break; }
+                    $db->update('supplier_earnings',
+                        ['payout_id' => $payoutId, 'updated_at' => date('Y-m-d H:i:s')],
+                        ['id' => (int) $r['id'], 'state' => 'available', 'payout_id' => null]);
+                    $need = round($need - (float) $r['net_amount'], 2);
+                }
+                $ok = true;
+                return true;
+            });
+        } catch (\Throwable $e) { error_log('supplier_payout_reserve_earnings: ' . $e->getMessage()); return false; }
+        return $ok;
+    }
+}
+
+if (!function_exists('supplier_payout_resolve_stuck')) {
+    /**
+     * HIGH-3: resolve a payout frozen in 'processing' (crash/timeout between the
+     * 'processing' flip and the transfer response). Admin-invoked. Queries Paystack for
+     * the transfer by its reference and finalises deterministically:
+     *   - transfer found success/pending  -> commit the debit, state 'paid'
+     *   - transfer failed / not found      -> state 'failed', release the reservation
+     * Safe to call repeatedly. Returns ['ok','state','message'].
+     */
+    function supplier_payout_resolve_stuck($db, int $payoutId): array
+    {
+        $p = $db->get('supplier_payouts', '*', ['id' => $payoutId]);
+        if (!$p) { return ['ok' => false, 'message' => 'Payout not found']; }
+        if ((string) $p['state'] !== 'processing') {
+            return ['ok' => false, 'message' => 'Only a stuck "processing" payout can be resolved (state: ' . $p['state'] . ').'];
+        }
+        $gw = function_exists('paystack_dva_gateway') ? paystack_dva_gateway($db) : null;
+        $secret = $gw ? paystack_dva_secret($gw) : '';
+        if ($secret === '') { return ['ok' => false, 'message' => 'Paystack gateway not configured; cannot verify.']; }
+
+        // Verify by reference (Paystack: GET /transfer/verify/{reference}).
+        $vres = paystack_dva_http('GET', 'https://api.paystack.co/transfer/verify/' . rawurlencode((string) $p['reference']), $secret, null);
+        $status = strtolower((string) ($vres['json']['data']['status'] ?? ''));
+        $httpOk = $vres['http'] >= 200 && $vres['http'] < 300;
+        $transferCode = (string) ($vres['json']['data']['transfer_code'] ?? '');
+
+        if ($httpOk && in_array($status, ['success', 'pending', 'otp'], true)) {
+            try {
+                $db->update('supplier_earnings',
+                    ['state' => 'paid', 'updated_at' => date('Y-m-d H:i:s')],
+                    ['payout_id' => $payoutId, 'state' => 'available']);
+            } catch (\Throwable $e) { error_log('resolve_stuck debit: ' . $e->getMessage()); }
+            $db->update('supplier_payouts',
+                ['state' => 'paid', 'transfer_code' => $transferCode ?: null, 'paid_at' => date('Y-m-d H:i:s')],
+                ['id' => $payoutId, 'state' => 'processing']);
+            return ['ok' => true, 'state' => 'paid', 'message' => 'Transfer confirmed with Paystack; marked paid.'];
+        }
+        // Not found / failed → it did not go through. Fail it and free the money.
+        $db->update('supplier_payouts',
+            ['state' => 'failed', 'failure_reason' => substr('resolve: ' . ($status ?: 'not found'), 0, 255)],
+            ['id' => $payoutId, 'state' => 'processing']);
+        supplier_payout_release_reservation($db, $payoutId);
+        return ['ok' => true, 'state' => 'failed', 'message' => 'Transfer not confirmed; marked failed and released the reservation.'];
+    }
+}
+
 if (!function_exists('supplier_payout_reject')) {
     /** Admin rejects a requested/approved payout (before it is paid). Releases the
      *  reservation. Never affects a 'paid' payout. */
@@ -217,10 +305,37 @@ if (!function_exists('supplier_payout_approve_and_send')) {
             return ['ok' => false, 'message' => 'Payout is not in a sendable state (' . $state . ').'];
         }
 
-        // Mark approved + decided first (audit), independent of the transfer.
-        $db->update('supplier_payouts',
-            ['state' => 'approved', 'decided_at' => date('Y-m-d H:i:s'), 'decided_by' => (string) ($_SESSION['user_id'] ?? '')],
-            ['id' => $payoutId]);
+        // HIGH-2 (no-double-send): atomically claim the payout by flipping the sendable
+        // state -> 'approved' and REQUIRING exactly one row changed. Two concurrent
+        // approvals both read 'requested', but only one UPDATE matches; the loser aborts
+        // here, before any money moves. (Previously the state read + approve were
+        // unconditional, so both callers reached the transfer.)
+        try {
+            $claim = $db->update('supplier_payouts',
+                ['state' => 'approved', 'decided_at' => date('Y-m-d H:i:s'), 'decided_by' => (string) ($_SESSION['user_id'] ?? '')],
+                ['id' => $payoutId, 'state' => $state]);
+            if (!$claim || $claim->rowCount() !== 1) {
+                return ['ok' => false, 'message' => 'Payout was already being processed.'];
+            }
+        } catch (\Throwable $e) {
+            error_log('supplier_payout claim: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not claim the payout for sending.'];
+        }
+
+        // HIGH-1 (failed-retry double-spend): a 'failed' payout already had its earnings
+        // reservation RELEASED (payout_id cleared). Re-reserve covering earnings under
+        // lock BEFORE sending, else a successful retry would debit zero rows — money
+        // leaves the bank while the earnings stay 'available' and can be requested again.
+        if ($state === 'failed') {
+            $reserved = supplier_payout_reserve_earnings($db, $payoutId, (string) $p['owner_user_id'],
+                (string) $p['currency'], (float) $p['amount']);
+            if (!$reserved) {
+                // Not enough available now (e.g. reserved by another request) — revert to
+                // 'failed' and refuse, rather than send money we can't back with earnings.
+                $db->update('supplier_payouts', ['state' => 'failed'], ['id' => $payoutId, 'state' => 'approved']);
+                return ['ok' => false, 'message' => 'Cannot retry: the covering earnings are no longer available. Create a fresh payout request.'];
+            }
+        }
 
         // KILL-SWITCH: if payouts aren't enabled, stop here — approved but NOT sent.
         if (!supplier_payouts_live($db)) {

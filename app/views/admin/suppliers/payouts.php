@@ -76,6 +76,13 @@ $base = root . admin . '/supplier-payouts';
                     <button type="submit" class="btn rose text-xs">Reject</button>
                   </form>
                 </div>
+              <?php elseif ($st === 'processing'): ?>
+                <form action="<?= $base ?>/resolve" method="POST" class="inline"
+                      onsubmit="return confirm('Verify this stuck transfer with Paystack and finalise it (paid or failed)?');">
+                  <?= CSRF::tokenField() ?>
+                  <input type="hidden" name="id" value="<?= (int) $p['id'] ?>">
+                  <button type="submit" class="btn secondary text-xs">Resolve</button>
+                </form>
               <?php else: ?>
                 <span class="text-xs text-gray-400">—</span>
               <?php endif; ?>
