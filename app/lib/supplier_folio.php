@@ -269,6 +269,12 @@ if (!function_exists('folio_checkout')) {
         }
         // Housekeeping (inc S22): the room the guest occupied becomes dirty. Non-fatal.
         if (function_exists('hk_on_checkout')) { hk_on_checkout($db, $invoiceId); }
+        // Loyalty (inc S30): earn points on this paid stay (idempotent; no-op if the
+        // org has loyalty disabled or the booking isn't paid). Non-fatal.
+        if (function_exists('loyalty_accrue_for_booking') && $orgId > 0) {
+            try { loyalty_accrue_for_booking($db, $orgId, $invoiceId); }
+            catch (\Throwable $e) { error_log('folio_checkout loyalty: ' . $e->getMessage()); }
+        }
         if (function_exists('emit_event')) {
             emit_event($db, 'checkout.completed',
                 ['invoice_id' => $invoiceId, 'balance' => $totals['balance']],

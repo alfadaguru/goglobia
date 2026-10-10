@@ -29,6 +29,23 @@ $base = root . 'supplier/guests';
     </form>
   </div>
 
+  <?php
+    $loyaltyCfg = (isset($loyaltyCfg) && is_array($loyaltyCfg)) ? $loyaltyCfg : ['enabled' => false, 'points_per_currency' => 1.0];
+    $isOwner = !empty($isOwner);
+  ?>
+  <?php if ($isOwner): ?>
+  <div class="card p-5">
+    <h2 class="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2"><span class="material-symbols-outlined text-violet-600 text-base">loyalty</span> Loyalty programme</h2>
+    <p class="text-xs text-gray-500 mb-3">When enabled, guests earn points automatically on each paid stay (at checkout).</p>
+    <form action="<?= $base ?>/loyalty/config" method="POST" class="flex flex-wrap items-end gap-3">
+      <?= CSRF::tokenField() ?>
+      <label class="inline-flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" name="enabled" value="1" class="checkbox-input" <?= !empty($loyaltyCfg['enabled']) ? 'checked' : '' ?>> Enable loyalty</label>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Points per 1.00 spent</label><input type="number" name="points_per_currency" min="0" step="0.0001" value="<?= htmlspecialchars((string) (float) $loyaltyCfg['points_per_currency']) ?>" class="input text-sm w-28"></div>
+      <button type="submit" class="btn secondary text-sm">Save</button>
+    </form>
+  </div>
+  <?php endif; ?>
+
   <?php if (empty($guests)): ?>
     <div class="card p-8 text-center text-gray-500">
       <span class="material-symbols-outlined text-5xl text-gray-300">groups</span>

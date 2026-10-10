@@ -29122,6 +29122,38 @@ CREATE TABLE `stays_owner_expenses` (
 -- --------------------------------------------------------
 
 --
+-- Loyalty (inc S30). Per-org config + append-only points ledger keyed on guest
+-- email (S29 key). Earn idempotent per (org, invoice). app/lib/supplier_loyalty.php.
+--
+CREATE TABLE `stays_loyalty_config` (
+  `org_id` int(11) NOT NULL,
+  `enabled` tinyint(1) NOT NULL DEFAULT 0,
+  `points_per_currency` decimal(10,4) NOT NULL DEFAULT 1.0000,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+CREATE TABLE `stays_loyalty_ledger` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `email` varchar(191) NOT NULL,
+  `type` enum('earn','redeem','adjust') NOT NULL DEFAULT 'earn',
+  `points` int(11) NOT NULL DEFAULT 0,
+  `invoice_id` varchar(255) DEFAULT NULL,
+  `reason` varchar(191) DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_org_invoice` (`org_id`,`invoice_id`),
+  KEY `idx_org_email` (`org_id`,`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Guest CRM owner-notes (inc S29). The only writable part of the guest CRM; the
 -- profile itself is aggregated read-only from bookings by email. app/lib/supplier_guests.php.
 --

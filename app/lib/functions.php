@@ -7940,6 +7940,33 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_statement` (`statement_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- loyalty (inc S30): per-org config + append-only points ledger ----------
+        // Points keyed on the guest email (S29 key). Earn is idempotent per
+        // (org, invoice). Balance = SUM(points). Soft currency — no cash value here.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_loyalty_config` (
+            `org_id` INT(11) NOT NULL,
+            `enabled` TINYINT(1) NOT NULL DEFAULT 0,
+            `points_per_currency` DECIMAL(10,4) NOT NULL DEFAULT 1.0000,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`org_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_loyalty_ledger` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `email` VARCHAR(191) NOT NULL,
+            `type` ENUM('earn','redeem','adjust') NOT NULL DEFAULT 'earn',
+            `points` INT(11) NOT NULL DEFAULT 0,
+            `invoice_id` VARCHAR(255) DEFAULT NULL,
+            `reason` VARCHAR(191) DEFAULT NULL,
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_org_invoice` (`org_id`,`invoice_id`),
+            KEY `idx_org_email` (`org_id`,`email`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- stays_guest_profiles (inc S29): owner-added guest CRM notes/VIP/tags ----
         // The only writable part of the guest CRM; the profile itself is aggregated
         // read-only from bookings by email. Keyed (org, email). supplier_guests.php.

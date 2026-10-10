@@ -126,6 +126,7 @@ module numbers in brackets. Owner may re-order; this is the proposed sequence.
 | S27 | **Direct-booking engine** — branded-site/walk-in booking (source=direct_site) consuming the SAME pooled inventory via stays_hold_create; server-priced; flows into reservations/folio/earnings | 13, 02 | ✅ code-complete (not runtime-verified — no DB) |
 | S28 | **BI / operations dashboard** — READ-ONLY KPIs from real tables: earnings, occupancy/ADR/RevPAR trend, F&B sales, channel mix, reservations, HK/work-order counts | 56 | ✅ code-complete (not runtime-verified — no DB) |
 | S29 | **Guest CRM** — returning-guest profiles aggregated from bookings by email (stays, spend, history, properties) + owner notes/VIP/tags | 18 | ✅ code-complete (not runtime-verified — no DB) |
+| S30 | **Loyalty** — per-org points ledger keyed on guest email; auto-earn on paid stay at checkout (idempotent); tiers; manual adjust/redeem; balance on guest profile | 22 | ✅ code-complete (not runtime-verified — no DB) |
 
 
 Groups D–F + J–L of the catalogue: PMS front-desk/night-audit (07,10), housekeeping
@@ -431,9 +432,20 @@ Before coding: **read** every file to be touched (rule 3). Then:
   views supplier/guests/{list,detail}.php + dashboard link. supplier_can('reservations')
   gated; note-save re-checks the guest has a booking with this owner (no note-spam).
   Table stays_guest_profiles (uq org+email) ensure-fn + db.sql. Read-mostly, bounded 5k
-  scan. Not runtime-verified. **Next Stage-D = owner's call (loyalty, reviews/reputation,
-  procurement, events, channel mgr, smart-locks). STRONGLY recommend deploy + smoke-test
-  S1–S29 before go-live.**
+  scan. Not runtime-verified.
+- 2026-10 — **S30 done** (loyalty points): new `app/lib/supplier_loyalty.php` —
+  loyalty_config/save (per-org enable + points_per_currency), loyalty_accrue_for_booking
+  (idempotent earn on a PAID own-inventory stay: UNIQUE(org,invoice) + locked pre-check;
+  points = round(price_markup × rate); keyed on guest email S29), loyalty_manual
+  (adjust/redeem; locks SUM FOR UPDATE + refuses balance<0), loyalty_guest_summary
+  (balance/lifetime/tier), loyalty_guest_ledger. Tiers by lifetime points (config).
+  Tables stays_loyalty_config + stays_loyalty_ledger (ensure-fn + db.sql; UNIQUE org+invoice
+  allows many NULL manual rows + one earn/invoice). Accrual WIRED into folio_checkout
+  (next to earnings release + hk). Config form (owner-only) on guest list; balance/tier +
+  manual adjust/redeem + ledger on guest detail. supplier_can gated; manual re-checks guest
+  has a booking w/ owner. SOFT currency — no cash value, redeem is a ledger row only. Not
+  runtime-verified. **Next Stage-D = owner's call (reviews/reputation, procurement, events,
+  channel mgr, smart-locks). STRONGLY recommend deploy + smoke-test S1–S30 before go-live.**
 
 > **Deploy note (confirmed this session):** `install/db.sql` IS what the admin DB tool
 > (`/admin/updates/database`) reads — it emits each missing table verbatim (keys/unique

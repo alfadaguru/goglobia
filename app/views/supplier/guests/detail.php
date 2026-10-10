@@ -62,6 +62,45 @@ $stBadge = ['confirmed'=>'bg-green-50 text-green-700','pending'=>'bg-amber-50 te
   </div>
   <?php endif; ?>
 
+  <!-- Loyalty (inc S30) -->
+  <?php
+    $loy = (isset($loyalty) && is_array($loyalty)) ? $loyalty : ['cfg' => ['enabled' => false], 'summary' => ['balance' => 0, 'lifetime_earned' => 0, 'tier' => 'Member'], 'ledger' => []];
+    $lcfg = $loy['cfg'] ?? ['enabled' => false];
+    $lsum = $loy['summary'] ?? ['balance' => 0, 'lifetime_earned' => 0, 'tier' => 'Member'];
+    $lled = is_array($loy['ledger'] ?? null) ? $loy['ledger'] : [];
+  ?>
+  <?php if (!empty($lcfg['enabled']) || (int) ($lsum['balance'] ?? 0) !== 0 || !empty($lled)): ?>
+  <div class="card p-5">
+    <h2 class="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2"><span class="material-symbols-outlined text-violet-600 text-base">loyalty</span> Loyalty</h2>
+    <div class="grid grid-cols-3 gap-3 mb-4">
+      <div class="rounded-lg bg-violet-50 p-3"><div class="text-xs text-violet-700">Balance</div><div class="text-lg font-bold text-violet-800 tabular-nums"><?= (int) ($lsum['balance'] ?? 0) ?></div></div>
+      <div class="rounded-lg bg-gray-50 p-3"><div class="text-xs text-gray-500">Lifetime earned</div><div class="text-lg font-bold text-gray-700 tabular-nums"><?= (int) ($lsum['lifetime_earned'] ?? 0) ?></div></div>
+      <div class="rounded-lg bg-amber-50 p-3"><div class="text-xs text-amber-700">Tier</div><div class="text-lg font-bold text-amber-800"><?= htmlspecialchars((string) ($lsum['tier'] ?? 'Member')) ?></div></div>
+    </div>
+    <?php if ($canEdit): ?>
+      <form action="<?= $base ?>/<?= htmlspecialchars($token) ?>/loyalty" method="POST" class="flex flex-wrap items-end gap-2 border-t border-gray-100 pt-3">
+        <?= CSRF::tokenField() ?>
+        <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Action</label>
+          <select name="ltype" class="input text-sm"><option value="adjust">Adjust (±)</option><option value="redeem">Redeem (−)</option></select></div>
+        <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Points</label><input type="number" name="points" class="input text-sm w-24" required></div>
+        <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Reason</label><input type="text" name="reason" class="input text-sm" placeholder="optional"></div>
+        <button type="submit" class="btn secondary text-sm">Apply</button>
+        <p class="text-[11px] text-gray-400 w-full">Adjust accepts a signed value (e.g. 50 or −50). Redeem deducts the amount; it can't take the balance below zero.</p>
+      </form>
+    <?php endif; ?>
+    <?php if (!empty($lled)): ?>
+      <div class="overflow-x-auto mt-3"><table class="w-full text-sm">
+        <thead><tr class="text-left text-gray-500 border-b border-gray-100"><th class="px-2 py-1.5 font-medium">When</th><th class="px-2 py-1.5 font-medium">Type</th><th class="px-2 py-1.5 font-medium">Reason</th><th class="px-2 py-1.5 font-medium text-right">Points</th></tr></thead>
+        <tbody class="divide-y divide-gray-50">
+          <?php foreach ($lled as $l): $pts = (int) $l['points']; ?>
+            <tr><td class="px-2 py-1.5 text-gray-500 text-xs"><?= htmlspecialchars(substr((string) $l['created_at'], 0, 16)) ?></td><td class="px-2 py-1.5 text-gray-600 text-xs"><?= htmlspecialchars(ucfirst((string) $l['type'])) ?></td><td class="px-2 py-1.5 text-gray-600"><?= htmlspecialchars((string) ($l['reason'] ?? '')) ?></td><td class="px-2 py-1.5 text-right tabular-nums <?= $pts < 0 ? 'text-red-600' : 'text-green-700' ?>"><?= $pts > 0 ? '+' : '' ?><?= $pts ?></td></tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table></div>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
+
   <!-- Stay history -->
   <div class="card overflow-x-auto">
     <h2 class="text-sm font-semibold text-gray-900 px-4 pt-4">Stay history</h2>
