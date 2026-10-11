@@ -8326,11 +8326,22 @@ function ensureSupplierStaysSchema($db): void
             `phone` VARCHAR(40) DEFAULT NULL,
             `bank_code` VARCHAR(20) DEFAULT NULL,
             `account_number` VARCHAR(40) DEFAULT NULL,
+            `verified` TINYINT(1) NOT NULL DEFAULT 0,
+            `payment_terms` VARCHAR(120) DEFAULT NULL,
+            `notes` VARCHAR(500) DEFAULT NULL,
             `status` TINYINT(1) NOT NULL DEFAULT 1,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
             PRIMARY KEY (`id`), KEY `idx_org` (`org_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #43): vendor verification + terms + notes. Guarded ALTERs.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `stays_vendors` LIKE 'verified'")->fetch()) {
+                $db->query("ALTER TABLE `stays_vendors` ADD COLUMN `verified` TINYINT(1) NOT NULL DEFAULT 0 AFTER `account_number`");
+                $db->query("ALTER TABLE `stays_vendors` ADD COLUMN `payment_terms` VARCHAR(120) DEFAULT NULL AFTER `verified`");
+                $db->query("ALTER TABLE `stays_vendors` ADD COLUMN `notes` VARCHAR(500) DEFAULT NULL AFTER `payment_terms`");
+            }
+        } catch (\Throwable $e) { error_log('vendor verify cols: ' . $e->getMessage()); }
 
         $db->query("CREATE TABLE IF NOT EXISTS `stays_stock_items` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,

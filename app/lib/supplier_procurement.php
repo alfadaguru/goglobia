@@ -24,10 +24,26 @@ if (!function_exists('proc_vendor_create')) {
                 'phone' => trim((string) ($d['phone'] ?? '')) ?: null,
                 'bank_code' => trim((string) ($d['bank_code'] ?? '')) ?: null,
                 'account_number' => trim((string) ($d['account_number'] ?? '')) ?: null,
+                'payment_terms' => trim((string) ($d['payment_terms'] ?? '')) ?: null,
+                'notes' => substr(trim((string) ($d['notes'] ?? '')), 0, 500) ?: null,
                 'status' => 1, 'created_at' => date('Y-m-d H:i:s'),
             ]);
             return (int) $db->id();
         } catch (\Throwable $e) { error_log('proc_vendor_create: ' . $e->getMessage()); return 0; }
+    }
+}
+
+if (!function_exists('proc_vendor_verify')) {
+    /** Toggle a vendor's verified flag (PMS #43). Org-scoped. Returns bool. */
+    function proc_vendor_verify($db, int $orgId, int $vendorId, bool $verified): bool
+    {
+        if ($orgId <= 0 || $vendorId <= 0) { return false; }
+        try {
+            if (!$db->has('stays_vendors', ['id' => $vendorId, 'org_id' => $orgId])) { return false; }
+            $db->update('stays_vendors', ['verified' => $verified ? 1 : 0, 'updated_at' => date('Y-m-d H:i:s')],
+                ['id' => $vendorId, 'org_id' => $orgId]);
+            return true;
+        } catch (\Throwable $e) { error_log('proc_vendor_verify: ' . $e->getMessage()); return false; }
     }
 }
 

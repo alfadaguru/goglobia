@@ -23,7 +23,7 @@ $router->get('/supplier/procurement', function () use ($SECURE, $db) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Only the supplier account owner can manage procurement.'];
         header('Location: ' . root . 'supplier/dashboard'); exit;
     }
-    $vendors = $db->select('stays_vendors', ['id', 'name', 'email', 'phone'], ['org_id' => $orgId, 'ORDER' => ['name' => 'ASC']]) ?: [];
+    $vendors = $db->select('stays_vendors', ['id', 'name', 'email', 'phone', 'verified', 'payment_terms'], ['org_id' => $orgId, 'ORDER' => ['name' => 'ASC']]) ?: [];
     $items   = $db->select('stays_stock_items', ['id', 'name', 'unit', 'on_hand', 'reorder_level'], ['org_id' => $orgId, 'ORDER' => ['name' => 'ASC']]) ?: [];
     $pos     = $db->select('stays_purchase_orders', ['id', 'vendor_id', 'reference', 'currency', 'status', 'total', 'created_at'], ['org_id' => $orgId, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 50]) ?: [];
     $vendorNames = []; foreach ($vendors as $v) { $vendorNames[(int) $v['id']] = $v['name']; }
@@ -46,8 +46,19 @@ $router->post('/supplier/procurement/vendor', function () use ($SECURE, $db) {
     $id = function_exists('proc_vendor_create') ? proc_vendor_create($db, $orgId, [
         'name' => $_POST['name'] ?? '', 'email' => $_POST['email'] ?? '', 'phone' => $_POST['phone'] ?? '',
         'bank_code' => $_POST['bank_code'] ?? '', 'account_number' => $_POST['account_number'] ?? '',
+        'payment_terms' => $_POST['payment_terms'] ?? '', 'notes' => $_POST['notes'] ?? '',
     ]) : 0;
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Vendor added.' : 'Could not add vendor (name required?).'];
+    header('Location: ' . $back); exit;
+});
+
+// POST vendor verify toggle (PMS #43)
+$router->post('/supplier/procurement/vendor-verify', function () use ($SECURE, $db) {
+    SUPPLIER_AUTH(); CSRF::guard();
+    $orgId = _proc_org($db); $back = root . 'supplier/procurement';
+    if ($orgId <= 0) { _supplier_stays_deny('Only the owner can manage procurement.'); }
+    $ok = function_exists('proc_vendor_verify') && proc_vendor_verify($db, $orgId, (int) ($_POST['vendor_id'] ?? 0), (string) ($_POST['verified'] ?? '0') === '1');
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Vendor verification updated.' : 'Could not update.'];
     header('Location: ' . $back); exit;
 });
 

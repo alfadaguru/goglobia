@@ -38,13 +38,26 @@ $stColor = ['draft'=>'bg-gray-100 text-gray-600','ordered'=>'bg-blue-50 text-blu
       <h2 class="text-sm font-semibold text-gray-900 mb-3">Vendors</h2>
       <?php if (!empty($vendors)): ?>
         <ul class="text-sm divide-y divide-gray-50 mb-3">
-          <?php foreach ($vendors as $v): ?><li class="py-1.5 flex justify-between"><span class="text-gray-800"><?= htmlspecialchars((string) $v['name']) ?></span><span class="text-xs text-gray-400"><?= htmlspecialchars((string) ($v['email'] ?? '')) ?></span></li><?php endforeach; ?>
+          <?php foreach ($vendors as $v): $vrf = !empty($v['verified']); ?>
+            <li class="py-1.5 flex items-center justify-between gap-2">
+              <span class="text-gray-800">
+                <?= htmlspecialchars((string) $v['name']) ?>
+                <?php if ($vrf): ?><span class="ml-1 px-1.5 py-0.5 rounded text-[11px] font-medium bg-green-50 text-green-700">verified</span><?php endif; ?>
+                <?php if (!empty($v['payment_terms'])): ?><span class="ml-1 text-xs text-gray-400"><?= htmlspecialchars((string) $v['payment_terms']) ?></span><?php endif; ?>
+              </span>
+              <form action="<?= $base ?>/vendor-verify" method="POST" class="inline">
+                <?= CSRF::tokenField() ?><input type="hidden" name="vendor_id" value="<?= (int) $v['id'] ?>"><input type="hidden" name="verified" value="<?= $vrf ? '0' : '1' ?>">
+                <button type="submit" class="text-xs text-violet-600 hover:underline"><?= $vrf ? 'Unverify' : 'Verify' ?></button>
+              </form>
+            </li>
+          <?php endforeach; ?>
         </ul>
       <?php endif; ?>
       <form action="<?= $base ?>/vendor" method="POST" class="flex flex-wrap items-end gap-2 border-t border-gray-100 pt-3">
         <?= CSRF::tokenField() ?>
         <input type="text" name="name" class="input text-sm" placeholder="Vendor name *" required>
         <input type="email" name="email" class="input text-sm" placeholder="Email">
+        <input type="text" name="payment_terms" class="input text-sm w-28" placeholder="terms e.g. Net 30">
         <button type="submit" class="btn secondary text-sm">Add vendor</button>
       </form>
     </div>
