@@ -292,6 +292,43 @@ if (!function_exists('resv_waitlist_set_status')) {
     }
 }
 
+if (!function_exists('resv_online_checkin')) {
+    /**
+     * DIGITAL GUEST JOURNEY (#20): a guest completes online check-in against their own
+     * booking (by invoice). Stores arrival details + a flag in booking_data.online_checkin
+     * — it does NOT change the PMS stay-state (the front desk still formally checks them
+     * in). Guest-facing: identity is proven by knowing the invoice id (same trust model
+     * as the invoice/booking pages). Idempotent (re-submitting updates the details).
+     * Returns ['ok','message'].
+     */
+    function resv_online_checkin($db, string $invoiceId, array $d): array
+    {
+        $invoiceId = trim($invoiceId);
+        if ($invoiceId === '') { return ['ok' => false, 'message' => 'No booking reference.']; }
+        try {
+            $b = $db->get('bookings', ['invoice_id', 'booking_status', 'module_type', 'booking_data'], ['invoice_id' => $invoiceId]);
+            if (!$b) { return ['ok' => false, 'message' => 'Booking not found.']; }
+            if (!in_array(strtolower((string) $b['module_type']), ['stays', 'hotels'], true)) { return ['ok' => false, 'message' => 'Not a stay booking.']; }
+            if (strtolower((string) $b['booking_status']) === 'cancelled') { return ['ok' => false, 'message' => 'This booking is cancelled.']; }
+            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
+            if (!is_array($bd)) { $bd = []; }
+            $bd['online_checkin'] = [
+                'done'          => true,
+                'eta'           => substr(trim((string) ($d['eta'] ?? '')), 0, 20) ?: null,
+                'id_number'     => substr(trim((string) ($d['id_number'] ?? '')), 0, 60) ?: null,
+                'address'       => substr(trim((string) ($d['address'] ?? '')), 0, 255) ?: null,
+                'special_requests' => substr(trim((string) ($d['special_requests'] ?? '')), 0, 500) ?: null,
+                'submitted_at'  => date('Y-m-d H:i:s'),
+            ];
+            $db->update('bookings', ['booking_data' => json_encode($bd), 'updated_at' => date('Y-m-d H:i:s')], ['invoice_id' => $invoiceId]);
+            return ['ok' => true, 'message' => 'Online check-in complete — see you soon!'];
+        } catch (\Throwable $e) {
+            error_log('resv_online_checkin: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not complete check-in.'];
+        }
+    }
+}
+
 if (!function_exists('resv_set_vip')) {
     /** Flag/unflag a reservation as VIP (stored in booking_data). (PMS #07 front desk.) */
     function resv_set_vip($db, string $invoiceId, bool $vip): bool

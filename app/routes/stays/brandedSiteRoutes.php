@@ -39,6 +39,24 @@ if (!function_exists('_branded_render_stay')) {
     }
 }
 
+// ONLINE CHECK-IN (#20 digital guest journey): /stay-checkin/{invoice}
+// Guest-facing; identity proven by the invoice id (same trust model as the invoice page).
+$router->get('/stay-checkin/([A-Z0-9]{6,})', function ($invoiceId) use ($SECURE, $db) {
+    $booking = $db->get('bookings', ['invoice_id', 'first_name', 'last_name', 'booking_status', 'module_type', 'booking_data'], ['invoice_id' => $invoiceId]);
+    $ok = $booking && in_array(strtolower((string) $booking['module_type']), ['stays', 'hotels'], true)
+        && strtolower((string) $booking['booking_status']) !== 'cancelled';
+    $bd = $ok ? (json_decode((string) ($booking['booking_data'] ?? ''), true) ?: []) : [];
+    $title = 'Online check-in'; $description = '';
+    require_once views . "stays/online-checkin.php"; // standalone (own html)
+    exit;
+});
+$router->post('/stay-checkin/([A-Z0-9]{6,})', function ($invoiceId) use ($SECURE, $db) {
+    $res = function_exists('resv_online_checkin') ? resv_online_checkin($db, $invoiceId, $_POST) : ['ok' => false, 'message' => 'Unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Error'];
+    header('Location: ' . root . 'stay-checkin/' . rawurlencode($invoiceId));
+    exit;
+});
+
 // Public branded page by SLUG: /book/{slug}
 $router->get('/book/([a-z0-9][a-z0-9-]*)', function ($slug) use ($SECURE, $db) {
     $stay = $db->get('stays', ['id'], ['slug' => $slug, 'status' => '1', 'listing_status' => 'approved']);

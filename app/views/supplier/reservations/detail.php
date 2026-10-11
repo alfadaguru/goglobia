@@ -295,9 +295,16 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
   <div class="card p-5 space-y-4">
     <div class="flex items-center justify-between">
       <h2 class="text-sm font-semibold text-gray-900">Guest services <?= $isVip ? '<span class="ml-1 px-2 py-0.5 rounded text-xs font-medium bg-red-50 text-red-700">VIP</span>' : '' ?></h2>
-      <a href="<?= $base ?>/<?= rawurlencode($inv) ?>/reg-card" target="_blank" class="btn secondary text-xs">
-        <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">print</span> Registration card</span>
-      </a>
+      <div class="flex items-center gap-2">
+        <?php $oc = !empty($booking['_bd']['online_checkin']['done']); ?>
+        <?php if ($oc): ?><span class="px-2 py-0.5 rounded text-xs font-medium bg-green-50 text-green-700">Online checked-in</span><?php endif; ?>
+        <a href="<?= root ?>stay-checkin/<?= rawurlencode($inv) ?>" target="_blank" class="btn secondary text-xs">
+          <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">how_to_reg</span> Online check-in</span>
+        </a>
+        <a href="<?= $base ?>/<?= rawurlencode($inv) ?>/reg-card" target="_blank" class="btn secondary text-xs">
+          <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">print</span> Registration card</span>
+        </a>
+      </div>
     </div>
 
     <?php if ($canEdit): ?>
