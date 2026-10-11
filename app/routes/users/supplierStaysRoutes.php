@@ -39,6 +39,22 @@ if (!function_exists('_supplier_stays_deny')) {
     }
 }
 
+if (!function_exists('_supplier_stay_amenities')) {
+    /** The active property-level amenities (setting_type='stay_amenity' — the
+     *  canonical value the admin form and the public detail page use). Read-only;
+     *  returns [] on any error so the form just renders without the picker. */
+    function _supplier_stay_amenities($db): array
+    {
+        try {
+            return $db->select('stays_settings', ['id', 'name'],
+                ['setting_type' => 'stay_amenity', 'status' => 1, 'ORDER' => ['name' => 'ASC']]) ?: [];
+        } catch (\Throwable $e) {
+            error_log('_supplier_stay_amenities: ' . $e->getMessage());
+            return [];
+        }
+    }
+}
+
 // ============================================================================
 // LIST — GET /supplier/stays  (only the acting supplier's own properties)
 // ============================================================================
@@ -84,6 +100,7 @@ $router->get('/supplier/stays/add', function () use ($SECURE, $db) {
     $isEdit = false;
     $mode = 'add';
     $stay = null;
+    $amenities = _supplier_stay_amenities($db);
     $title = 'Add Property';
     $description = 'Create a new property';
     $header = true; $footer = true;
@@ -251,6 +268,7 @@ $router->get('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db) 
 
     $isEdit = true;
     $mode = 'edit';
+    $amenities = _supplier_stay_amenities($db);
     $title = 'Edit Property';
     $description = 'Edit ' . ($stay['name'] ?? 'property');
     $header = true; $footer = true;
@@ -286,6 +304,84 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
     $accType = strtolower(trim((string) ($_POST['accommodation_type'] ?? 'hotel')));
     if (!isset($accTypes[$accType])) { $accType = 'hotel'; }
 
+    // --------------------------------------------------------------------------
+    // GALLERY MANAGEMENT: delete selected existing images, set the default, and
+    // append new uploads. The old edit flow could only APPEND — existing images
+    // could never be removed or re-defaulted. We rebuild the img JSON here and put
+    // it in the update set. Files for deleted images are unlinked best-effort.
+    // --------------------------------------------------------------------------
+    $galleryChanged = false;
+    $existing = $db->get('stays', ['img'], ['id' => (int) $id, 'user_id' => $owner]);
+    $gallery = [];
+    if ($existing && !empty($existing['img'])) {
+        $decoded = json_decode((string) $existing['img'], true);
+        if (is_array($decoded)) { $gallery = array_values($decoded); }
+    }
+    // Resolve the chosen default by its URL NOW, against the ORIGINAL indices the form
+    // rendered — because we re-index below after deletes, so a post-delete positional
+    // index would point at the wrong image. URL match is stable across re-indexing.
+    $defaultUrl = '';
+    if (isset($_POST['img_default'])) {
+        $di = (int) $_POST['img_default'];
+        if (isset($gallery[$di]['url'])) { $defaultUrl = (string) $gallery[$di]['url']; }
+    }
+    $defaultChosen = isset($_POST['img_default']);
+    // 1) Deletes — img_delete[] carries the ORIGINAL integer indices to remove.
+    $toDelete = array_map('intval', (array) ($_POST['img_delete'] ?? []));
+    if (!empty($toDelete)) {
+        $projectRoot = realpath(__DIR__ . '/../../../');
+        $kept = [];
+        foreach ($gallery as $idx => $im) {
+            if (in_array((int) $idx, $toDelete, true)) {
+                $galleryChanged = true;
+                $url = (string) ($im['url'] ?? '');
+                // Only unlink inside our uploads dir (never follow an arbitrary path).
+                if ($url !== '' && strpos($url, '/uploads/hotels/') === 0 && $projectRoot) {
+                    $abs = $projectRoot . $url;
+                    if (is_file($abs)) { @unlink($abs); }
+                }
+                continue;
+            }
+            $kept[] = $im;
+        }
+        $gallery = array_values($kept);
+    }
+    // 2) New uploads — append (same secure path as add).
+    if (isset($_FILES['hotel_images']) && !empty($_FILES['hotel_images']['name'][0])) {
+        $projectRoot = $projectRoot ?? realpath(__DIR__ . '/../../../');
+        $uploadDir = $projectRoot . '/uploads/hotels/gallery/';
+        if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0755, true); }
+        $files = $_FILES['hotel_images'];
+        $count = count($files['name']);
+        for ($i = 0; $i < $count; $i++) {
+            if (($files['error'][$i] ?? 1) !== UPLOAD_ERR_OK) { continue; }
+            $chk = secureUploadCheck(
+                ['name' => $files['name'][$i], 'tmp_name' => $files['tmp_name'][$i], 'size' => $files['size'][$i], 'error' => UPLOAD_ERR_OK],
+                ['jpg', 'jpeg', 'png', 'gif', 'webp'], 5 * 1024 * 1024
+            );
+            if (!$chk['ok']) { continue; }
+            $fn = 'hotel_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $chk['ext'];
+            if (move_uploaded_file($files['tmp_name'][$i], $uploadDir . $fn)) {
+                @chmod($uploadDir . $fn, 0644);
+                $gallery[] = ['url' => '/uploads/hotels/gallery/' . $fn, 'default' => false];
+                $galleryChanged = true;
+            }
+        }
+    }
+    // 3) Default image — flag by the URL resolved above (survives the re-indexing).
+    //    If the chosen default was itself deleted, or none chosen, fall back to first.
+    if (!empty($gallery)) {
+        $haveDefault = false;
+        foreach ($gallery as $idx => &$im) {
+            $isDef = ($defaultUrl !== '' && (string) ($im['url'] ?? '') === $defaultUrl);
+            $im['default'] = $isDef;
+            if ($isDef) { $haveDefault = true; }
+        }
+        unset($im);
+        if (!$haveDefault) { $gallery[0]['default'] = true; } // never leave zero defaults
+        if ($defaultChosen) { $galleryChanged = true; }
+    }
+
     // NOTE: user_id is NOT in the update set — ownership can never be reassigned
     // by a supplier. A material edit could reset listing_status to 'submitted'
     // for re-review; Phase-1 keeps the existing listing_status (approval in inc 7).
@@ -310,6 +406,11 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
         'cancellation_policy' => trim($_POST['cancellation_policy'] ?? '') ?: null,
         'updated_at'      => date('Y-m-d H:i:s'),
     ];
+    // Only rewrite img when the gallery actually changed (delete/add/default), so a
+    // plain text edit never touches the stored images.
+    if ($galleryChanged) {
+        $data['img'] = !empty($gallery) ? json_encode(array_values($gallery)) : null;
+    }
 
     try {
         // Scope the UPDATE by both id AND owner — defense in depth behind supplier_can.

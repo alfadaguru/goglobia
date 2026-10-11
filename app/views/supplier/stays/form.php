@@ -150,18 +150,69 @@
       <?php
         $imgs = [];
         if ($isEdit && !empty($s['img'])) { $imgs = json_decode((string) $s['img'], true) ?: []; }
+        // Determine the current default (first flagged, else first image).
+        $curDefault = 0;
+        foreach ($imgs as $gi => $gim) { if (!empty($gim['default'])) { $curDefault = (int) $gi; break; } }
       ?>
       <?php if (!empty($imgs)): ?>
-        <div class="flex flex-wrap gap-2 mt-3">
-          <?php foreach ($imgs as $im): ?>
-            <img src="<?= htmlspecialchars(root . ltrim((string) ($im['url'] ?? ''), '/')) ?>"
-                 class="w-20 h-20 object-cover rounded border border-gray-200" alt="">
+        <p class="text-xs text-gray-500 mt-3 mb-1">Current photos — pick the main one, or tick to remove on save.</p>
+        <div class="flex flex-wrap gap-3 mt-1">
+          <?php foreach ($imgs as $gi => $im): $gi = (int) $gi; ?>
+            <div class="relative border border-gray-200 rounded p-1.5 w-28">
+              <img src="<?= htmlspecialchars(root . ltrim((string) ($im['url'] ?? ''), '/')) ?>"
+                   class="w-full h-20 object-cover rounded" alt="">
+              <label class="mt-1 flex items-center gap-1 text-xs text-gray-700">
+                <input type="radio" name="img_default" value="<?= $gi ?>" <?= $gi === $curDefault ? 'checked' : '' ?>>
+                Main
+              </label>
+              <label class="flex items-center gap-1 text-xs text-red-600">
+                <input type="checkbox" name="img_delete[]" value="<?= $gi ?>">
+                Remove
+              </label>
+            </div>
           <?php endforeach; ?>
         </div>
       <?php endif; ?>
     </div>
 
-    <input type="hidden" name="amenity_ids" value="<?= htmlspecialchars($s['amenity_ids'] ?? '[]') ?>">
+    <?php
+      // AMENITY PICKER (replaces the old hidden passthrough that was impossible to
+      // edit). Real checkboxes; a hidden field `amenity_ids` is kept in sync as a JSON
+      // array (e.g. [1,30,2]) — the exact format the save handler stores and the public
+      // detail page json_decode()s. $amenities is loaded by the route
+      // (_supplier_stay_amenities). Current selection is parsed defensively from
+      // whatever shape amenity_ids was stored in.
+      $amenityOptions = (isset($amenities) && is_array($amenities)) ? $amenities : [];
+      $selectedAmenityIds = [];
+      $rawAmen = $s['amenity_ids'] ?? '';
+      if (!empty($rawAmen)) {
+          $dec = json_decode((string) $rawAmen, true);
+          if (is_array($dec)) {
+              $selectedAmenityIds = array_map('intval', $dec);
+          } else {
+              $cleaned = trim((string) $rawAmen, '[]');
+              $selectedAmenityIds = array_values(array_filter(array_map('intval', array_map('trim', explode(',', $cleaned)))));
+          }
+      }
+    ?>
+    <?php if (!empty($amenityOptions)): ?>
+    <div class="form-control">
+      <label class="block text-sm font-medium text-gray-700 mb-1">Amenities</label>
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-2" id="amenityPicker">
+        <?php foreach ($amenityOptions as $am): $aid = (int) $am['id']; ?>
+          <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" class="checkbox-input amenity-check" value="<?= $aid ?>"
+                   <?= in_array($aid, $selectedAmenityIds, true) ? 'checked' : '' ?>>
+            <?= htmlspecialchars((string) $am['name']) ?>
+          </label>
+        <?php endforeach; ?>
+      </div>
+      <p class="mt-1 text-xs text-gray-500">Select the amenities this property offers.</p>
+    </div>
+    <?php endif; ?>
+    <!-- Kept in sync by the script below; this is what the backend actually stores. -->
+    <input type="hidden" name="amenity_ids" id="amenityIdsField"
+           value="<?= htmlspecialchars(json_encode($selectedAmenityIds)) ?>">
 
     <div class="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
       <a href="<?= root ?>supplier/stays" class="btn secondary">Cancel</a>
@@ -171,3 +222,26 @@
     </div>
   </form>
 </div>
+
+<script>
+// Keep the hidden amenity_ids field (a JSON array like [1,30,2]) in sync with the
+// checkbox picker. Runs on every change and once on submit — so the backend contract
+// (json_decode of amenity_ids) is unchanged while the picker is now actually editable.
+(function () {
+  var picker = document.getElementById('amenityPicker');
+  var field = document.getElementById('amenityIdsField');
+  if (!picker || !field) { return; }
+  function sync() {
+    var ids = [];
+    picker.querySelectorAll('.amenity-check:checked').forEach(function (cb) {
+      var v = parseInt(cb.value, 10);
+      if (!isNaN(v)) { ids.push(v); }
+    });
+    field.value = JSON.stringify(ids);
+  }
+  picker.addEventListener('change', sync);
+  var form = field.closest('form');
+  if (form) { form.addEventListener('submit', sync); }
+  sync();
+})();
+</script>
