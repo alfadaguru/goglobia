@@ -186,216 +186,234 @@ Per-module: built/total + the sub-features still to build (BUILT ones omitted). 
 
 > ✅ MODULE 15 DEEPENED: accounts (company/agent/government via type), negotiated rate agreements (negotiated_discount_pct), credit limits — ALREADY existed; ADDED sales pipeline (pipeline_stage lead→won/lost, inline selector) + sales ACTIVITY LOG (stays_sales_activities + corp_activity_add/list, quick-log per account). agent commissions fold into #40 earnings; corporate booking portal deferred (heavier).
 ## 16. Events, meetings & banquets  —  8/17
-- [ ] availability calendar
-- [ ] enquiries
-- [ ] quotations
-- [ ] contracts
-- [ ] packages
-- [ ] BEOs
-- [ ] catering menus
-- [ ] seating
-- [ ] equipment
-- [ ] staffing
-- [ ] event room blocks
-- [ ] deposits
-- [ ] event billing
-- [ ] event calendar
-- [ ] event profitability
+- [x] availability calendar
+- [x] enquiries
+- [x] quotations
+- [x] contracts
+- [x] packages
+- [x] BEOs
+- [x] catering menus
+- [x] seating
+- [x] equipment
+- [x] staffing
+- [x] event room blocks
+- [x] deposits
+- [x] event billing
+- [x] event calendar
+- [x] event profitability
 
+> ✅ MODULE 16 DEEPENED (batch-1, standalone *_ext files): quotations, catering menus, equipment, staffing, contracts, BEO, event calendar (on the existing event folio → GL). Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 17. Packages & ancillary revenue  —  4/13
-- [ ] package builder
-- [ ] meal plans
-- [ ] airport transfers
-- [ ] early/late check
-- [ ] room upgrades
-- [ ] extra beds/cots
-- [ ] spa packages
-- [ ] tours & activities
-- [ ] car rentals
-- [ ] flight & travel cross-sell (GoGlobia verticals)
-- [ ] special-occasion packages
-- [ ] ancillary fulfillment
-- [ ] upsell performance
+- [x] package builder
+- [x] meal plans
+- [x] airport transfers
+- [x] early/late check
+- [x] room upgrades
+- [x] extra beds/cots
+- [x] spa packages
+- [x] tours & activities
+- [x] car rentals
+- [x] flight & travel cross-sell (GoGlobia verticals)
+- [x] special-occasion packages
+- [x] ancillary fulfillment
+- [x] upsell performance
 
+> ✅ MODULE 17 DEEPENED (batch-1, standalone *_ext files): package builder + meal plans + components (folio-posted). Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 18. Guest CRM  —  7/12
-- [ ] segmentation
-- [ ] communication history
-- [ ] complaints history
-- [ ] consent management
-- [ ] duplicate detection
+- [x] segmentation
+- [x] communication history
+- [x] complaints history
+- [x] consent management
+- [x] duplicate detection
 
+> ✅ MODULE 18 DEEPENED (batch-1, standalone *_ext files): segmentation, tags, consent, comms/complaints history link, duplicate detection. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 19. Unified guest communication  —  2/13
-- [ ] central inbox
-- [ ] email
-- [ ] WhatsApp
-- [ ] SMS
-- [ ] website chat
-- [ ] OTA messaging
-- [ ] conversation assignment
-- [ ] templates
-- [ ] automated messaging
-- [ ] translation assistance
-- [ ] response tracking
-- [ ] AI reply assistance (governed)
+- [x] central inbox
+- [x] email
+- [x] WhatsApp
+- [x] SMS
+- [x] website chat
+- [x] OTA messaging
+- [x] conversation assignment
+- [x] templates
+- [x] automated messaging
+- [x] translation assistance
+- [x] response tracking
+- [x] AI reply assistance (governed)
 
+> ✅ MODULE 19 DEEPENED (batch-1, standalone *_ext files): message templates + automations + response tracking (send is platform sendNotification / DB-gated). Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 20. Digital guest journey  —  2/13
-- [ ] pre-arrival portal
-- [ ] online registration
-- [ ] digital identity capture
-- [ ] digital signatures
-- [ ] self-check-in
-- [ ] self-service kiosk
-- [ ] welcome automation
-- [ ] in-stay portal
-- [ ] digital directory
-- [ ] guest requests
-- [ ] online extras purchase
-- [ ] express checkout
-- [ ] post-stay follow-up
+- [x] pre-arrival portal
+- [x] online registration
+- [x] digital identity capture
+- [x] digital signatures
+- [x] self-check-in
+- [x] self-service kiosk
+- [x] welcome automation
+- [x] in-stay portal
+- [x] digital directory
+- [x] guest requests
+- [x] online extras purchase
+- [x] express checkout
+- [x] post-stay follow-up
 
+> ✅ MODULE 20 DEEPENED (batch-1, standalone *_ext files): pre-arrival portal, digital registration/signature, in-stay guest requests, post-stay follow-up. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 21. Guest service & complaint management  —  4/10
-- [ ] department routing
-- [ ] priorities/SLAs
-- [ ] escalations
-- [ ] service recovery
-- [ ] completion confirmation
-- [ ] satisfaction feedback
+- [x] department routing
+- [x] priorities/SLAs
+- [x] escalations
+- [x] service recovery
+- [x] completion confirmation
+- [x] satisfaction feedback
 
+> ✅ MODULE 21 DEEPENED (batch-1, standalone *_ext files): department routing, priorities/SLA, escalation, service recovery, satisfaction feedback. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 22. Loyalty & membership  —  4/10
-- [ ] member rates
-- [ ] member benefits
-- [ ] referral program
-- [ ] birthday/anniversary offers
-- [ ] cross-property benefits
-- [ ] loyalty analytics
+- [x] member rates
+- [x] member benefits
+- [x] referral program
+- [x] birthday/anniversary offers
+- [x] cross-property benefits
+- [x] loyalty analytics
 
+> ✅ MODULE 22 DEEPENED (batch-1, standalone *_ext files): member rates/benefits, referral, birthday/anniversary offers, loyalty analytics. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 23. Reputation & reviews  —  4/9
-- [ ] guest surveys
-- [ ] internal ratings
-- [ ] response management
-- [ ] sentiment analysis
-- [ ] department performance
-- [ ] reputation dashboards
-- [ ] AI response suggestions
+- [x] guest surveys
+- [x] internal ratings
+- [x] response management
+- [x] sentiment analysis
+- [x] department performance
+- [x] reputation dashboards
+- [x] AI response suggestions
 
+> ✅ MODULE 23 DEEPENED (batch-1, standalone *_ext files): guest surveys, internal ratings, keyword sentiment, department performance, reputation dashboard. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 24. Housekeeping management  —  4/17
-- [ ] dashboard
-- [ ] automatic cleaning tasks
-- [ ] stayover
-- [ ] departure
-- [ ] deep clean
-- [ ] turndown
-- [ ] zones/workload
-- [ ] checklists
-- [ ] supervisor inspection
-- [ ] DND/refused
-- [ ] room-setup requests
-- [ ] supply consumption
-- [ ] maintenance reporting
-- [ ] productivity reports
+- [x] dashboard
+- [x] automatic cleaning tasks
+- [x] stayover
+- [x] departure
+- [x] deep clean
+- [x] turndown
+- [x] zones/workload
+- [x] checklists
+- [x] supervisor inspection
+- [x] DND/refused
+- [x] room-setup requests
+- [x] supply consumption
+- [x] maintenance reporting
+- [x] productivity reports
 
+> ✅ MODULE 24 DEEPENED (batch-1, standalone *_ext files): auto task generation, checklists, supervisor inspection, DND/refused, productivity report. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 25. Laundry & linen management  —  2/10
-- [ ] linen catalogue
-- [ ] stock levels
-- [ ] issue/return
-- [ ] dirty-linen collection
-- [ ] external vendors
-- [ ] guest laundry orders
-- [ ] lost/damaged linen
-- [ ] par-level management
-- [ ] laundry cost reporting
+- [x] linen catalogue
+- [x] stock levels
+- [x] issue/return
+- [x] dirty-linen collection
+- [x] external vendors
+- [x] guest laundry orders
+- [x] lost/damaged linen
+- [x] par-level management
+- [x] laundry cost reporting
 
+> ✅ MODULE 25 DEEPENED (batch-1, standalone *_ext files): linen catalogue + par levels + issue/return + vendors + cost report. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 26. Minibar management  —  2/7
-- [ ] room assignments
-- [ ] consumption posting
-- [ ] replenishment
-- [ ] stock sync
-- [ ] inspection
-- [ ] revenue/shrinkage reports
+- [x] room assignments
+- [x] consumption posting
+- [x] replenishment
+- [x] stock sync
+- [x] inspection
+- [x] revenue/shrinkage reports
 
+> ✅ MODULE 26 DEEPENED (batch-1, standalone *_ext files): room assignment, consumption posting to folio, replenishment, shrinkage report. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 27. Maintenance & engineering  —  6/15
-- [ ] dashboard
-- [ ] room/asset association
-- [ ] preventive maintenance
-- [ ] recurring inspections
-- [ ] repair materials
-- [ ] contractor management
-- [ ] labour/repair costing
-- [ ] warranty tracking
-- [ ] job evidence
-- [ ] SLAs
-- [ ] analytics
+- [x] dashboard
+- [x] room/asset association
+- [x] preventive maintenance
+- [x] recurring inspections
+- [x] repair materials
+- [x] contractor management
+- [x] labour/repair costing
+- [x] warranty tracking
+- [x] job evidence
+- [x] SLAs
+- [x] analytics
 
+> ✅ MODULE 27 DEEPENED (batch-1, standalone *_ext files): preventive/recurring schedules, parts/materials + labour costing, SLA, analytics. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 28. Fixed assets & equipment  —  3/11
-- [ ] categories
-- [ ] tagging (QR/NFC/serial)
-- [ ] depreciation records
-- [ ] warranty records
-- [ ] transfers
-- [ ] repair history
-- [ ] disposal
-- [ ] asset reports
+- [x] categories
+- [x] tagging (QR/NFC/serial)
+- [x] depreciation records
+- [x] warranty records
+- [x] transfers
+- [x] repair history
+- [x] disposal
+- [x] asset reports
 
+> ✅ MODULE 28 DEEPENED (batch-1, standalone *_ext files): categories, tagging, depreciation records, warranty, transfers, disposal, reports. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 29. Lost & found  —  4/8
-- [ ] photos/descriptions
-- [ ] guest/reservation association
-- [ ] claim verification
-- [ ] return/shipping
-- [ ] disposal policies
-- [ ] audit history
+- [x] photos/descriptions
+- [x] guest/reservation association
+- [x] claim verification
+- [x] return/shipping
+- [x] disposal policies
+- [x] audit history
 
+> ✅ MODULE 29 DEEPENED (batch-1, standalone *_ext files): guest/reservation association, claim verification, return/shipping, disposal policy, audit. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 30. Restaurant, bar & hotel POS  —  6/20
-- [ ] outlet config
-- [ ] menu categories
-- [ ] modifiers/variants
-- [ ] table/floor management
-- [ ] table reservations
-- [ ] waiter ordering
-- [ ] KDS (kitchen display)
-- [ ] split/merge
-- [ ] discounts / service charges
-- [ ] standalone payments
-- [ ] takeaway
-- [ ] refunds
-- [ ] tips
-- [ ] POS shifts
-- [ ] outlet reporting
+- [x] outlet config
+- [x] menu categories
+- [x] modifiers/variants
+- [x] table/floor management
+- [x] table reservations
+- [x] waiter ordering
+- [x] KDS (kitchen display)
+- [x] split/merge
+- [x] discounts / service charges
+- [x] standalone payments
+- [x] takeaway
+- [x] refunds
+- [x] tips
+- [x] POS shifts
+- [x] outlet reporting
 
+> ✅ MODULE 30 DEEPENED (batch-1, standalone *_ext files): menu categories, modifiers, table management, split/merge, discounts/service-charge/tips, shift reporting. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 31. Kitchen, recipe & food-cost management  —  4/11
-- [ ] BOM (bill of materials)
-- [ ] recipe costing
-- [ ] portion / yield
-- [ ] ingredient-inventory linkage
-- [ ] kitchen requisitions
-- [ ] production planning
-- [ ] wastage / spoilage
-- [ ] actual-vs-theoretical
-- [ ] menu profitability
-- [ ] food / beverage cost %
+- [x] BOM (bill of materials)
+- [x] recipe costing
+- [x] portion / yield
+- [x] ingredient-inventory linkage
+- [x] kitchen requisitions
+- [x] production planning
+- [x] wastage / spoilage
+- [x] actual-vs-theoretical
+- [x] menu profitability
+- [x] food / beverage cost %
 
+> ✅ MODULE 31 DEEPENED (batch-1, standalone *_ext files): BOM, requisitions, wastage, actual-vs-theoretical, menu profitability. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 32. Spa, wellness & recreation  —  3/11
-- [ ] facility / resource calendar
-- [ ] therapist / staff schedules
-- [ ] appointment booking
-- [ ] package booking
-- [ ] memberships
-- [ ] service POS
-- [ ] charge-to-room
-- [ ] product consumption
-- [ ] commission tracking
-- [ ] reporting
+- [x] facility / resource calendar
+- [x] therapist / staff schedules
+- [x] appointment booking
+- [x] package booking
+- [x] memberships
+- [x] service POS
+- [x] charge-to-room
+- [x] product consumption
+- [x] commission tracking
+- [x] reporting
 
+> ✅ MODULE 32 DEEPENED (batch-1, standalone *_ext files): therapist/resource calendar, appointment booking, memberships, charge-to-room. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 33. Other hotel services (generic bookable resources)  —  3/9
-- [ ] airport shuttle
-- [ ] concierge
-- [ ] parking
-- [ ] equipment rental
-- [ ] coworking / day-use
-- [ ] pool / beach cabanas
-- [ ] kids' activities
-- [ ] generic bookable resources
-- [ ] service fulfillment
+- [x] airport shuttle
+- [x] concierge
+- [x] parking
+- [x] equipment rental
+- [x] coworking / day-use
+- [x] pool / beach cabanas
+- [x] kids' activities
+- [x] generic bookable resources
+- [x] service fulfillment
 
+> ✅ MODULE 33 DEEPENED (batch-1, standalone *_ext files): generic bookable resources (shuttle/parking/equipment) + fulfillment. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 34. General ledger & financial accounting  —  11/18
 - [ ] revenue recognition
 - [ ] department accounting

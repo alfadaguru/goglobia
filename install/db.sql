@@ -32480,3 +32480,814 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+
+-- ============================================================
+-- BATCH-1 DEEPEN (PMS modules 16-33) — appended 2026-10-11
+-- ============================================================
+-- ===== BATCH-1 DEEPEN (PMS modules 16-33) additive tables =====
+CREATE TABLE IF NOT EXISTS `stays_event_quotes` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `event_id` int(11) NOT NULL,
+  `stay_id` int(11) NOT NULL,
+  `reference` varchar(40) NOT NULL,
+  `title` varchar(160) NOT NULL,
+  `notes` text DEFAULT NULL,
+  `valid_until` date DEFAULT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `status` enum('draft','sent','accepted','declined') NOT NULL DEFAULT 'draft',
+  `folio_posted` tinyint(1) NOT NULL DEFAULT 0,
+  `created_by` varchar(155) DEFAULT NULL,
+  `accepted_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_reference` (`reference`),
+  KEY `idx_event` (`event_id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_event_quote_items` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `quote_id` int(11) NOT NULL,
+  `type` enum('venue','catering','extra') NOT NULL,
+  `description` varchar(191) DEFAULT NULL,
+  `unit_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `qty` int(11) NOT NULL DEFAULT 1,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_quote` (`quote_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_event_menus` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(160) NOT NULL,
+  `description` varchar(1000) DEFAULT NULL,
+  `price_per_pax` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_event_equipment` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(160) NOT NULL,
+  `unit_price` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `stock_qty` int(11) NOT NULL DEFAULT 0,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_event_assignments` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `event_id` int(11) NOT NULL,
+  `stay_id` int(11) NOT NULL,
+  `kind` enum('equipment','staff') NOT NULL,
+  `ref_id` int(11) NOT NULL DEFAULT 0,
+  `label` varchar(191) NOT NULL,
+  `qty` int(11) NOT NULL DEFAULT 1,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_event` (`event_id`),
+  KEY `idx_stay_kind` (`stay_id`,`kind`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_event_contracts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `event_id` int(11) NOT NULL,
+  `stay_id` int(11) NOT NULL,
+  `quote_id` int(11) DEFAULT NULL,
+  `reference` varchar(40) NOT NULL,
+  `terms` text DEFAULT NULL,
+  `deposit_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `deposit_due` date DEFAULT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `status` enum('draft','sent','signed','cancelled') NOT NULL DEFAULT 'draft',
+  `deposit_posted` tinyint(1) NOT NULL DEFAULT 0,
+  `deposit_posted_at` datetime DEFAULT NULL,
+  `signed_at` datetime DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_reference` (`reference`),
+  KEY `idx_event` (`event_id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_package_items` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `package_id` int(11) NOT NULL,
+  `stay_id` int(11) NOT NULL,
+  `category` varchar(32) NOT NULL DEFAULT 'other',
+  `label` varchar(191) NOT NULL,
+  `qty` int(11) NOT NULL DEFAULT 1,
+  `unit_price` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_package` (`package_id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_meal_plans` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `code` varchar(8) NOT NULL,
+  `price_per_night` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_stay_code` (`stay_id`,`code`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_msg_templates` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `org_id` INT UNSIGNED NULL,
+  `stay_id` INT UNSIGNED NOT NULL,
+  `name` VARCHAR(120) NOT NULL,
+  `channel` VARCHAR(20) NOT NULL DEFAULT 'any',
+  `subject` VARCHAR(191) NULL,
+  `body` TEXT NOT NULL,
+  `active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_by` VARCHAR(64) NULL,
+  `created_at` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_tpl_stay` (`stay_id`,`active`),
+  KEY `idx_tpl_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `stays_msg_automations` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `org_id` INT UNSIGNED NULL,
+  `stay_id` INT UNSIGNED NOT NULL,
+  `trigger_event` VARCHAR(40) NOT NULL,
+  `template_id` INT UNSIGNED NOT NULL,
+  `channel` VARCHAR(20) NOT NULL DEFAULT 'email',
+  `active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_by` VARCHAR(64) NULL,
+  `created_at` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_auto_stay` (`stay_id`,`active`),
+  KEY `idx_auto_tpl` (`template_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `stays_msg_delivery` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `message_id` INT UNSIGNED NOT NULL,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'pending',
+  `detail` VARCHAR(255) NULL,
+  `sent_at` DATETIME NULL,
+  `replied_at` DATETIME NULL,
+  `created_at` DATETIME NULL,
+  `updated_at` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_msg` (`message_id`),
+  KEY `idx_del_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `stays_directory` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `stay_id` int(11) NOT NULL,
+  `kind` enum('info','extra') NOT NULL DEFAULT 'info',
+  `title` varchar(160) NOT NULL,
+  `body` text DEFAULT NULL,
+  `price` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` varchar(10) NOT NULL DEFAULT 'USD',
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `sort` int(11) NOT NULL DEFAULT 0,
+  `created_by` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_kind` (`stay_id`,`kind`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_guest_requests` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `stay_id` int(11) NOT NULL,
+  `invoice_id` varchar(255) NOT NULL,
+  `kind` varchar(32) NOT NULL DEFAULT 'service',
+  `directory_id` int(11) DEFAULT NULL,
+  `message` varchar(500) DEFAULT NULL,
+  `qty` int(11) NOT NULL DEFAULT 1,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` varchar(10) NOT NULL DEFAULT 'USD',
+  `status` enum('new','ack','done','declined') NOT NULL DEFAULT 'new',
+  `folio_posted` tinyint(1) NOT NULL DEFAULT 0,
+  `handled_by` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`),
+  KEY `idx_invoice` (`invoice_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_journey_events` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `invoice_id` varchar(255) NOT NULL,
+  `stay_id` int(11) DEFAULT NULL,
+  `event` varchar(48) NOT NULL,
+  `detail` varchar(500) DEFAULT NULL,
+  `actor` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_invoice` (`invoice_id`),
+  KEY `idx_event` (`event`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_service_ticket_ext` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `ticket_id` int(11) NOT NULL,
+  `stay_id` int(11) NOT NULL,
+  `org_id` int(11) DEFAULT NULL,
+  `department` varchar(40) DEFAULT NULL,
+  `assignee` varchar(155) DEFAULT NULL,
+  `sla_due_at` datetime DEFAULT NULL,
+  `first_response_at` datetime DEFAULT NULL,
+  `esc_level` tinyint(4) NOT NULL DEFAULT 0,
+  `confirmed_at` datetime DEFAULT NULL,
+  `confirmed_by` enum('guest','staff') DEFAULT NULL,
+  `sat_rating` tinyint(4) DEFAULT NULL,
+  `sat_comment` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_ticket` (`ticket_id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_service_recovery` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `ticket_id` int(11) NOT NULL,
+  `stay_id` int(11) NOT NULL,
+  `org_id` int(11) DEFAULT NULL,
+  `invoice_id` varchar(255) DEFAULT NULL,
+  `kind` enum('credit','refund_note','goodwill') NOT NULL DEFAULT 'goodwill',
+  `amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `folio_id` int(11) DEFAULT NULL,
+  `posted` tinyint(1) NOT NULL DEFAULT 0,
+  `note` varchar(300) DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_ticket` (`ticket_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_service_events` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `ticket_id` int(11) NOT NULL,
+  `stay_id` int(11) NOT NULL,
+  `org_id` int(11) DEFAULT NULL,
+  `event` varchar(40) NOT NULL,
+  `detail` varchar(500) DEFAULT NULL,
+  `actor` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_ticket` (`ticket_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_loyalty_benefits` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `tier` varchar(32) NOT NULL,
+  `rate_pct` decimal(5,2) NOT NULL DEFAULT 0.00,
+  `perks` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_org_tier` (`org_id`,`tier`),
+  KEY `idx_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_surveys` (
+  `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+  `org_id` INT(11) DEFAULT NULL,
+  `stay_id` INT(11) NOT NULL,
+  `invoice_id` VARCHAR(255) NOT NULL,
+  `guest_email` VARCHAR(191) DEFAULT NULL,
+  `guest_name` VARCHAR(120) DEFAULT NULL,
+  `nps` TINYINT(2) DEFAULT NULL,
+  `scores_json` TEXT DEFAULT NULL,
+  `comment` TEXT DEFAULT NULL,
+  `sentiment` ENUM('positive','neutral','negative') DEFAULT NULL,
+  `sentiment_score` INT(11) NOT NULL DEFAULT 0,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_survey_stay_invoice` (`stay_id`,`invoice_id`),
+  KEY `idx_survey_stay` (`stay_id`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_internal_notes` (
+  `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+  `org_id` INT(11) DEFAULT NULL,
+  `stay_id` INT(11) NOT NULL,
+  `invoice_id` VARCHAR(255) DEFAULT NULL,
+  `rating` TINYINT(1) NOT NULL DEFAULT 3,
+  `department` VARCHAR(40) DEFAULT NULL,
+  `note` TEXT DEFAULT NULL,
+  `created_by` VARCHAR(191) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_internal_stay` (`stay_id`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_hk_tasks` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `physical_room_id` int(11) NOT NULL,
+  `invoice_id` varchar(64) DEFAULT NULL,
+  `business_date` date NOT NULL,
+  `task_type` enum('departure','stayover','deep_clean','turndown') NOT NULL DEFAULT 'departure',
+  `status` enum('pending','in_progress','done','dnd','refused','inspected_pass','inspected_fail') NOT NULL DEFAULT 'pending',
+  `priority` enum('low','normal','high') NOT NULL DEFAULT 'normal',
+  `attendant` varchar(155) DEFAULT NULL,
+  `checklist` longtext DEFAULT NULL,
+  `notes` varchar(255) DEFAULT NULL,
+  `started_at` datetime DEFAULT NULL,
+  `completed_at` datetime DEFAULT NULL,
+  `minutes` int(11) DEFAULT NULL,
+  `inspected_by` varchar(155) DEFAULT NULL,
+  `inspected_at` datetime DEFAULT NULL,
+  `inspection_fail_reason` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_room_day_type` (`stay_id`,`physical_room_id`,`business_date`,`task_type`),
+  KEY `idx_stay_date` (`stay_id`,`business_date`),
+  KEY `idx_stay_status` (`stay_id`,`status`),
+  KEY `idx_attendant` (`stay_id`,`attendant`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_linen_items` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `category` varchar(60) DEFAULT NULL,
+  `par_level` int(11) NOT NULL DEFAULT 0,
+  `on_hand` int(11) NOT NULL DEFAULT 0,
+  `unit_cost` decimal(14,2) DEFAULT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`,`active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_linen_moves` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `item_id` int(11) NOT NULL,
+  `move_type` enum('receive','issue','return','lost','damaged') NOT NULL,
+  `qty` int(11) NOT NULL DEFAULT 0,
+  `unit_cost` decimal(14,2) DEFAULT NULL,
+  `loss_value` decimal(14,2) DEFAULT NULL,
+  `vendor_id` int(11) DEFAULT NULL,
+  `room_number` varchar(40) DEFAULT NULL,
+  `reference` varchar(120) DEFAULT NULL,
+  `notes` varchar(255) DEFAULT NULL,
+  `moved_by` varchar(64) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_item` (`stay_id`,`item_id`),
+  KEY `idx_type` (`move_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_laundry_vendors` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `contact` varchar(120) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `rate_per_kg` decimal(14,2) DEFAULT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `notes` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`,`active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_minibar_par` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `room_number` varchar(40) NOT NULL,
+  `item_id` int(11) NOT NULL,
+  `par_qty` int(11) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_room_item` (`stay_id`,`room_number`,`item_id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_minibar_movements` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `item_id` int(11) NOT NULL,
+  `kind` enum('consume','replenish','count') NOT NULL,
+  `qty` int(11) NOT NULL DEFAULT 0,
+  `room_number` varchar(40) DEFAULT NULL,
+  `invoice_id` varchar(191) DEFAULT NULL,
+  `folio_id` bigint(20) DEFAULT NULL,
+  `unit_price` decimal(14,2) DEFAULT NULL,
+  `amount` decimal(14,2) DEFAULT NULL,
+  `logged_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`),
+  KEY `idx_stay_item` (`stay_id`,`item_id`),
+  KEY `idx_invoice` (`invoice_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_maint_assets` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `physical_room_id` int(11) DEFAULT NULL,
+  `name` varchar(191) NOT NULL,
+  `category` varchar(120) DEFAULT NULL,
+  `serial_no` varchar(120) DEFAULT NULL,
+  `location` varchar(191) DEFAULT NULL,
+  `purchase_cost` decimal(12,2) DEFAULT NULL,
+  `purchase_date` date DEFAULT NULL,
+  `warranty_expires` date DEFAULT NULL,
+  `status` enum('active','repair','retired') NOT NULL DEFAULT 'active',
+  `notes` text DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`,`status`),
+  KEY `idx_room` (`physical_room_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_maint_contractors` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(191) NOT NULL,
+  `trade` varchar(120) DEFAULT NULL,
+  `phone` varchar(60) DEFAULT NULL,
+  `email` varchar(155) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`,`active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_maint_schedules` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `physical_room_id` int(11) DEFAULT NULL,
+  `asset_id` int(11) DEFAULT NULL,
+  `title` varchar(191) NOT NULL,
+  `area` varchar(120) DEFAULT NULL,
+  `priority` enum('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
+  `interval_days` int(11) NOT NULL DEFAULT 30,
+  `next_due_date` date NOT NULL,
+  `last_generated_date` date DEFAULT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_due` (`stay_id`,`active`,`next_due_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_maint_wo_costs` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `stay_id` int(11) NOT NULL,
+  `work_order_id` int(11) NOT NULL,
+  `cost_type` enum('part','material','labour','contractor') NOT NULL DEFAULT 'part',
+  `description` varchar(191) NOT NULL,
+  `qty` decimal(10,2) NOT NULL DEFAULT 1.00,
+  `unit_cost` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `line_total` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_wo` (`work_order_id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_asset_events` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `org_id` INT UNSIGNED NULL,
+  `asset_id` INT UNSIGNED NOT NULL,
+  `stay_id` INT UNSIGNED NOT NULL,
+  `event_type` VARCHAR(20) NOT NULL DEFAULT 'note',
+  `detail` VARCHAR(500) NULL,
+  `cost` DECIMAL(12,2) NULL,
+  `logged_by` VARCHAR(64) NULL,
+  `created_at` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_sae_asset` (`asset_id`,`stay_id`),
+  KEY `idx_sae_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `stays_asset_depreciation` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `org_id` INT UNSIGNED NULL,
+  `asset_id` INT UNSIGNED NOT NULL,
+  `stay_id` INT UNSIGNED NOT NULL,
+  `period` VARCHAR(7) NOT NULL,
+  `method` VARCHAR(20) NOT NULL DEFAULT 'straight_line',
+  `depreciation` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `book_value` DECIMAL(12,2) NOT NULL DEFAULT 0,
+  `created_at` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_sad_asset` (`asset_id`,`stay_id`),
+  UNIQUE KEY `uq_sad_period` (`asset_id`,`stay_id`,`period`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `stays_lost_found_detail` (
+  `id` INT(11) NOT NULL AUTO_INCREMENT,
+  `item_id` INT(11) NOT NULL,
+  `stay_id` INT(11) NOT NULL,
+  `description` VARCHAR(500) DEFAULT NULL,
+  `storage_location` VARCHAR(191) DEFAULT NULL,
+  `booking_id` INT(11) DEFAULT NULL,
+  `guest_contact` VARCHAR(191) DEFAULT NULL,
+  `claimant_name` VARCHAR(155) DEFAULT NULL,
+  `claimant_contact` VARCHAR(191) DEFAULT NULL,
+  `claim_proof` VARCHAR(500) DEFAULT NULL,
+  `claim_verified_by` VARCHAR(155) DEFAULT NULL,
+  `claim_verified_at` DATETIME DEFAULT NULL,
+  `return_method` VARCHAR(20) DEFAULT NULL,
+  `return_recipient` VARCHAR(155) DEFAULT NULL,
+  `return_carrier` VARCHAR(120) DEFAULT NULL,
+  `return_tracking` VARCHAR(120) DEFAULT NULL,
+  `return_date` DATE DEFAULT NULL,
+  `disposed_method` VARCHAR(191) DEFAULT NULL,
+  `disposed_reason` VARCHAR(255) DEFAULT NULL,
+  `disposed_by` VARCHAR(155) DEFAULT NULL,
+  `disposed_at` DATETIME DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_item` (`item_id`),
+  KEY `idx_stay` (`stay_id`),
+  KEY `idx_booking` (`booking_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_lost_found_audit` (
+  `id` INT(11) NOT NULL AUTO_INCREMENT,
+  `item_id` INT(11) NOT NULL,
+  `stay_id` INT(11) NOT NULL,
+  `event` VARCHAR(40) NOT NULL,
+  `detail` VARCHAR(500) DEFAULT NULL,
+  `actor` VARCHAR(155) DEFAULT NULL,
+  `actor_id` VARCHAR(155) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_item_created` (`item_id`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_lost_found_policy` (
+  `id` INT(11) NOT NULL AUTO_INCREMENT,
+  `org_id` INT(11) NOT NULL,
+  `retention_days` INT(11) NOT NULL DEFAULT 90,
+  `disposal_method` VARCHAR(191) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `pos_order_adjustments` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `order_id` bigint(20) NOT NULL,
+  `kind` enum('discount','service_charge','tip') NOT NULL,
+  `label` varchar(120) DEFAULT NULL,
+  `mode` enum('pct','fixed') NOT NULL DEFAULT 'fixed',
+  `rate` decimal(6,2) NOT NULL DEFAULT 0.00,
+  `amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_order` (`order_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `pos_shifts` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `outlet_id` int(11) NOT NULL,
+  `stay_id` int(11) NOT NULL,
+  `status` enum('open','closed') NOT NULL DEFAULT 'open',
+  `opened_by` varchar(155) DEFAULT NULL,
+  `closed_by` varchar(155) DEFAULT NULL,
+  `opening_float` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `counted_cash` decimal(12,2) DEFAULT NULL,
+  `expected_cash` decimal(12,2) DEFAULT NULL,
+  `variance` decimal(12,2) DEFAULT NULL,
+  `opened_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `closed_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_outlet_status` (`outlet_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_kitchen_ingredients` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(191) NOT NULL,
+  `unit` varchar(16) NOT NULL DEFAULT 'ea',
+  `unit_cost` decimal(14,4) NOT NULL DEFAULT 0.0000,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`), KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_recipe_bom` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `recipe_id` int(11) NOT NULL,
+  `ingredient_id` int(11) NOT NULL,
+  `qty` decimal(14,4) NOT NULL DEFAULT 0.0000,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`), UNIQUE KEY `uniq_recipe_ing` (`recipe_id`,`ingredient_id`), KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_kitchen_requisitions` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `ingredient_id` int(11) NOT NULL,
+  `qty` decimal(14,4) NOT NULL DEFAULT 0.0000,
+  `unit_cost` decimal(14,4) NOT NULL DEFAULT 0.0000,
+  `value` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `outlet` varchar(80) DEFAULT NULL,
+  `note` varchar(300) DEFAULT NULL,
+  `issued_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`), KEY `idx_stay` (`stay_id`), KEY `idx_ing` (`ingredient_id`), KEY `idx_issued` (`issued_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_kitchen_wastage` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `ingredient_id` int(11) NOT NULL,
+  `qty` decimal(14,4) NOT NULL DEFAULT 0.0000,
+  `unit_cost` decimal(14,4) NOT NULL DEFAULT 0.0000,
+  `value` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `reason` varchar(24) NOT NULL DEFAULT 'other',
+  `note` varchar(300) DEFAULT NULL,
+  `logged_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`), KEY `idx_stay` (`stay_id`), KEY `idx_ing` (`ingredient_id`), KEY `idx_logged` (`logged_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_spa_resources` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `kind` enum('therapist','room','equipment') NOT NULL DEFAULT 'therapist',
+  `name` varchar(150) NOT NULL,
+  `capacity` int(11) NOT NULL DEFAULT 1,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_spa_memberships` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `holder_name` varchar(120) NOT NULL,
+  `holder_email` varchar(150) DEFAULT NULL,
+  `plan_name` varchar(120) NOT NULL DEFAULT 'Membership',
+  `sessions_total` int(11) NOT NULL DEFAULT 1,
+  `sessions_used` int(11) NOT NULL DEFAULT 0,
+  `price` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `expires_on` date DEFAULT NULL,
+  `status` enum('active','exhausted','expired','cancelled') NOT NULL DEFAULT 'active',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_spa_appointments` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `service_id` int(11) NOT NULL,
+  `resource_id` int(11) NOT NULL,
+  `membership_id` int(11) DEFAULT NULL,
+  `guest_name` varchar(120) DEFAULT NULL,
+  `invoice_id` varchar(255) DEFAULT NULL,
+  `start_at` datetime NOT NULL,
+  `end_at` datetime NOT NULL,
+  `duration_min` int(11) NOT NULL DEFAULT 30,
+  `price` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `status` enum('booked','completed','no_show','cancelled') NOT NULL DEFAULT 'booked',
+  `charged` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_start` (`stay_id`,`start_at`),
+  KEY `idx_resource` (`resource_id`,`start_at`),
+  KEY `idx_service` (`service_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `stays_resources` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `org_id` INT UNSIGNED NULL,
+  `stay_id` INT UNSIGNED NOT NULL,
+  `kind` VARCHAR(20) NOT NULL DEFAULT 'other',
+  `name` VARCHAR(191) NOT NULL,
+  `location` VARCHAR(120) NULL,
+  `capacity` INT UNSIGNED NOT NULL DEFAULT 1,
+  `unit_price` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  `unit_label` VARCHAR(40) NULL,
+  `active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` DATETIME NULL,
+  `updated_at` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_res_stay` (`stay_id`),
+  KEY `idx_res_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `stays_resource_slots` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `org_id` INT UNSIGNED NULL,
+  `stay_id` INT UNSIGNED NOT NULL,
+  `resource_id` INT UNSIGNED NOT NULL,
+  `guest_name` VARCHAR(120) NULL,
+  `invoice_id` VARCHAR(100) NULL,
+  `units` INT UNSIGNED NOT NULL DEFAULT 1,
+  `start_at` DATETIME NOT NULL,
+  `end_at` DATETIME NOT NULL,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'reserved',
+  `charge` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  `folio_posted` TINYINT(1) NOT NULL DEFAULT 0,
+  `notes` VARCHAR(255) NULL,
+  `created_at` DATETIME NULL,
+  `updated_at` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_slot_stay` (`stay_id`),
+  KEY `idx_slot_resource_status` (`resource_id`,`status`),
+  KEY `idx_slot_window` (`resource_id`,`start_at`,`end_at`),
+  KEY `idx_slot_invoice` (`invoice_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Additive columns on existing tables (batch-1 deepen):
+ALTER TABLE `stays_guest_profiles` ADD COLUMN `consent_marketing` TINYINT(1) NOT NULL DEFAULT 0 AFTER `preferences`;
+ALTER TABLE `stays_guest_profiles` ADD COLUMN `consent_email` TINYINT(1) NOT NULL DEFAULT 0 AFTER `consent_marketing`;
+ALTER TABLE `stays_guest_profiles` ADD COLUMN `consent_sms` TINYINT(1) NOT NULL DEFAULT 0 AFTER `consent_email`;
+ALTER TABLE `stays_guest_profiles` ADD COLUMN `consent_source` VARCHAR(60) DEFAULT NULL AFTER `consent_sms`;
+ALTER TABLE `stays_guest_profiles` ADD COLUMN `consent_updated_at` DATETIME DEFAULT NULL AFTER `consent_source`;
+ALTER TABLE `stays_loyalty_config`
+  ADD COLUMN `referral_bonus_points` int(11) NOT NULL DEFAULT 250,
+  ADD COLUMN `birthday_bonus_points` int(11) NOT NULL DEFAULT 200,
+  ADD COLUMN `anniversary_bonus_points` int(11) NOT NULL DEFAULT 300;
+ALTER TABLE `stays_guest_profiles`
+  ADD COLUMN `birth_date` date DEFAULT NULL,
+  ADD COLUMN `anniversary_date` date DEFAULT NULL;
+ALTER TABLE `stays_laundry` ADD COLUMN `folio_posted` tinyint(1) NOT NULL DEFAULT 0 AFTER `charge`;
+ALTER TABLE `stays_laundry` ADD COLUMN `folio_id` int(11) DEFAULT NULL AFTER `folio_posted`;
+ALTER TABLE `stays_work_orders`
+  ADD COLUMN `asset_id` int(11) DEFAULT NULL,
+  ADD COLUMN `schedule_id` int(11) DEFAULT NULL,
+  ADD COLUMN `contractor_id` int(11) DEFAULT NULL,
+  ADD COLUMN `due_at` datetime DEFAULT NULL,
+  ADD COLUMN `cost_total` decimal(12,2) NOT NULL DEFAULT 0.00;
+ALTER TABLE `stays_assets`
+  ADD COLUMN `asset_tag` VARCHAR(64) NULL,
+  ADD COLUMN `warranty_provider` VARCHAR(120) NULL,
+  ADD COLUMN `warranty_expiry` DATE NULL,
+  ADD COLUMN `warranty_ref` VARCHAR(120) NULL,
+  ADD COLUMN `depr_method` VARCHAR(20) NULL,
+  ADD COLUMN `depr_life` INT NULL,
+  ADD COLUMN `depr_salvage` DECIMAL(12,2) NULL,
+  ADD COLUMN `disposal_method` VARCHAR(20) NULL,
+  ADD COLUMN `disposal_date` DATE NULL,
+  ADD COLUMN `disposal_proceeds` DECIMAL(12,2) NULL;
+ALTER TABLE `pos_orders` ADD COLUMN `shift_id` bigint(20) DEFAULT NULL AFTER `server_id`, ADD KEY `idx_shift` (`shift_id`);

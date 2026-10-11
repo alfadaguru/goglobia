@@ -93,10 +93,15 @@ if ($activeStay > 0) {
         ['name' => 'Safety & docs', 'icon' => 'health_and_safety','url' => 'supplier/safety', 'show' => $can('rooms', 'view', $sid)],
         ['name' => 'F&B / POS',     'icon' => 'restaurant',       'url' => 'supplier/pos', 'show' => $can('reservations', 'edit', $sid)],
         ['name' => 'Recipes',       'icon' => 'menu_book',        'url' => 'supplier/recipes', 'show' => $can('reservations', 'view', $sid)],
+        ['name' => 'Kitchen & food cost','icon' => 'soup_kitchen', 'url' => 'supplier/kitchen', 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Services',      'icon' => 'spa',              'url' => 'supplier/ancillary-services', 'show' => $can('reservations', 'view', $sid)],
+        ['name' => 'Spa & wellness','icon' => 'self_improvement',  'url' => 'supplier/spa', 'show' => $can('reservations', 'view', $sid)],
+        ['name' => 'Resources',     'icon' => 'local_shipping',    'url' => 'supplier/resources', 'show' => $can('reservations', 'view', $sid)],
+        ['name' => 'Engineering',   'icon' => 'engineering',       'url' => 'supplier/maintenance/engineering' . $q, 'show' => $can('rooms', 'edit', $sid)],
         ['name' => 'Events',        'icon' => 'celebration',      'url' => 'supplier/events' . $q, 'show' => $can('reservations', 'edit', $sid)],
         ['name' => 'Night audit',   'icon' => 'nightlight',       'url' => 'supplier/night-audit' . $q, 'show' => $can('reservations', 'edit', $sid)],
         ['name' => 'Reviews',       'icon' => 'reviews',          'url' => 'supplier/reviews' . $q, 'show' => $can('reservations', 'view', $sid)],
+        ['name' => 'Reputation',    'icon' => 'stars',            'url' => 'supplier/reputation', 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Site & domain', 'icon' => 'public',           'url' => 'supplier/stays/site/' . $sid, 'show' => $can('hotels', 'edit', $sid)],
         ['name' => 'Edit property', 'icon' => 'edit',             'url' => 'supplier/stays/edit/' . $sid, 'show' => $can('hotels', 'edit', $sid)],
     ];
@@ -132,8 +137,11 @@ if ($activeStay > 0) {
     // Guest CRM is org-wide (across properties) → stays top-level.
     $crmItems = [];
     if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Guests', 'icon' => 'groups', 'url' => 'supplier/guests', 'show' => true]; }
+    if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Guest CRM', 'icon' => 'insights', 'url' => 'supplier/guests-crm', 'show' => true]; }
     if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Service & complaints', 'icon' => 'support_agent', 'url' => 'supplier/service-tickets', 'show' => true]; }
     if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Guest messages', 'icon' => 'forum', 'url' => 'supplier/guest-messages', 'show' => true]; }
+    if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Guest journey', 'icon' => 'waving_hand', 'url' => 'supplier/journey', 'show' => true]; }
+    if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Loyalty', 'icon' => 'loyalty', 'url' => 'supplier/loyalty', 'show' => true]; }
     if (!empty($crmItems)) { $groups[] = ['label' => 'CRM', 'items' => $crmItems]; }
 
     if ($isOwner) {

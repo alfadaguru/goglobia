@@ -66,6 +66,25 @@ require_once 'app/routes/users/supplierChainRoutes.php'; // multi-property / cha
 require_once 'app/routes/users/supplierMarketplaceRoutes.php'; // marketplace performance scorecard (PMS 11 deepen)
 require_once 'app/routes/users/supplierChannelRoutes.php'; // channel manager: real iCal feed + OTA map stubs (PMS 12 deepen)
 require_once 'app/routes/users/supplierRmsRoutes.php'; // revenue management dashboard (PMS 14 deepen)
+// === BATCH-1 DEEPEN routes (modules 16-33) ===
+require_once 'app/routes/users/supplierMiceExtRoutes.php';
+require_once 'app/routes/users/supplierPackagesExtRoutes.php';
+require_once 'app/routes/users/supplierGuestCrmExtRoutes.php';
+require_once 'app/routes/users/supplierCommsExtRoutes.php';
+require_once 'app/routes/users/supplierJourneyExtRoutes.php';
+require_once 'app/routes/users/supplierServiceExtRoutes.php';
+require_once 'app/routes/users/supplierLoyaltyExtRoutes.php';
+require_once 'app/routes/users/supplierReviewsExtRoutes.php';
+require_once 'app/routes/users/supplierHkExtRoutes.php';
+require_once 'app/routes/users/supplierLaundryExtRoutes.php';
+require_once 'app/routes/users/supplierMinibarExtRoutes.php';
+require_once 'app/routes/users/supplierMaintExtRoutes.php';
+require_once 'app/routes/users/supplierAssetsExtRoutes.php';
+require_once 'app/routes/users/supplierLostfoundExtRoutes.php';
+require_once 'app/routes/users/supplierPosExtRoutes.php';
+require_once 'app/routes/users/supplierKitchenExtRoutes.php';
+require_once 'app/routes/users/supplierSpaExtRoutes.php';
+require_once 'app/routes/users/supplierResourcesExtRoutes.php';
 require_once 'app/routes/users/supplierRatesRoutes.php'; // yield rate-rules + booking restrictions (PMS #06 deepen)
 require_once 'app/routes/users/supplierCalendarRoutes.php'; // reservation calendar / tape-chart (inc S39)
 require_once 'app/routes/users/supplierRequestRoutes.php'; // post-approval service/quota request flow (inc S34)
