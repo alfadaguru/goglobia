@@ -73,6 +73,19 @@
     </div>
     <?php endif; ?>
 
+    <!-- Short-let / apartment disclosed fees (PMS #47). Shown to guests; a security
+         deposit is collected/released at the property, not charged online. -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="form-control">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Cleaning fee</label>
+        <input type="number" name="cleaning_fee" step="0.01" min="0" class="input" value="<?= isset($s['cleaning_fee']) && $s['cleaning_fee'] !== null ? htmlspecialchars((string) (float) $s['cleaning_fee']) : '' ?>" placeholder="optional">
+      </div>
+      <div class="form-control">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Security deposit</label>
+        <input type="number" name="security_deposit" step="0.01" min="0" class="input" value="<?= isset($s['security_deposit']) && $s['security_deposit'] !== null ? htmlspecialchars((string) (float) $s['security_deposit']) : '' ?>" placeholder="optional">
+      </div>
+    </div>
+
     <div class="form-control">
       <label class="block text-sm font-medium text-gray-700 mb-1">Address</label>
       <input type="text" name="address" class="input" value="<?= htmlspecialchars($s['address'] ?? '') ?>">

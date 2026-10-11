@@ -179,6 +179,8 @@ $router->post('/supplier/stays/add', function () use ($SECURE, $db) {
         'user_id'         => $owner,                                   // FORCED to owner
         'org_id'          => $orgId > 0 ? $orgId : null,               // hierarchy seam
         'accommodation_type' => $accType,
+        'cleaning_fee'    => ($_POST['cleaning_fee'] ?? '') !== '' ? max(0, round((float) $_POST['cleaning_fee'], 2)) : null,
+        'security_deposit'=> ($_POST['security_deposit'] ?? '') !== '' ? max(0, round((float) $_POST['security_deposit'], 2)) : null,
         'name'            => $name,
         'desc'            => trim($_POST['description'] ?? '') ?: null,
         'slug'            => $slug,
@@ -388,6 +390,8 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
     $data = [
         'name'            => $name,
         'accommodation_type' => $accType,
+        'cleaning_fee'    => ($_POST['cleaning_fee'] ?? '') !== '' ? max(0, round((float) $_POST['cleaning_fee'], 2)) : null,
+        'security_deposit'=> ($_POST['security_deposit'] ?? '') !== '' ? max(0, round((float) $_POST['security_deposit'], 2)) : null,
         'desc'            => trim($_POST['description'] ?? '') ?: null,
         'slug'            => strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $name))),
         'location'        => $location,

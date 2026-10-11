@@ -8550,6 +8550,12 @@ function ensureSupplierStaysSchema($db): void
             // Default 'hotel' so existing + new rows have a sane model.
             $db->query("ALTER TABLE `stays` ADD COLUMN `accommodation_type` VARCHAR(32) NOT NULL DEFAULT 'hotel'");
         }
+        // Additive (PMS #47): short-let / apartment disclosed fees. Stored + displayed
+        // (not auto-charged into the total yet — that path is price-integrity sensitive).
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'cleaning_fee'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `cleaning_fee` DECIMAL(14,2) DEFAULT NULL");
+            $db->query("ALTER TABLE `stays` ADD COLUMN `security_deposit` DECIMAL(14,2) DEFAULT NULL");
+        }
     } catch (\Throwable $e) {
         // Never break the page over a migration (e.g. a DB user without ALTER).
         error_log('ensureSupplierStaysSchema: ' . $e->getMessage());

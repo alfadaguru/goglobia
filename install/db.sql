@@ -28115,6 +28115,8 @@ CREATE TABLE `stays` (
   `org_id` int(11) DEFAULT NULL,
   `brand_id` int(11) DEFAULT NULL,
   `accommodation_type` varchar(32) NOT NULL DEFAULT 'hotel',
+  `cleaning_fee` decimal(14,2) DEFAULT NULL,
+  `security_deposit` decimal(14,2) DEFAULT NULL,
   `listing_status` enum('draft','submitted','approved','queried','rejected') NOT NULL DEFAULT 'draft',
   `review_comment` varchar(255) DEFAULT NULL,
   `reviewed_by` varchar(255) DEFAULT NULL,

@@ -65,6 +65,22 @@
     <div class="prose max-w-none text-gray-700 text-sm"><?= nl2br(htmlspecialchars((string) $s['desc'], ENT_QUOTES, 'UTF-8')) ?></div>
   <?php endif; ?>
 
+  <!-- Disclosed fees (PMS #47): cleaning fee + security deposit, if set. -->
+  <?php
+    $cleaning = (isset($s['cleaning_fee']) && $s['cleaning_fee'] !== null && (float) $s['cleaning_fee'] > 0) ? (float) $s['cleaning_fee'] : null;
+    $deposit  = (isset($s['security_deposit']) && $s['security_deposit'] !== null && (float) $s['security_deposit'] > 0) ? (float) $s['security_deposit'] : null;
+  ?>
+  <?php if ($cleaning !== null || $deposit !== null): ?>
+    <div class="card p-4 text-sm text-gray-700">
+      <div class="font-medium text-gray-900 mb-1">Fees &amp; deposits</div>
+      <ul class="space-y-0.5">
+        <?php if ($cleaning !== null): ?><li class="flex justify-between"><span>Cleaning fee</span><span class="tabular-nums"><?= $cur ?> <?= number_format($cleaning, 2) ?></span></li><?php endif; ?>
+        <?php if ($deposit !== null): ?><li class="flex justify-between"><span>Refundable security deposit</span><span class="tabular-nums"><?= $cur ?> <?= number_format($deposit, 2) ?></span></li><?php endif; ?>
+      </ul>
+      <p class="text-xs text-gray-400 mt-1">Collected at the property. The deposit is refunded after check-out.</p>
+    </div>
+  <?php endif; ?>
+
   <!-- Rooms -->
   <div>
     <h2 class="text-lg font-semibold text-gray-900 mb-3">Rooms</h2>
