@@ -125,6 +125,7 @@ if ($activeStay > 0) {
         $groups[] = ['label' => 'Team', 'items' => [
             ['name' => 'Staff', 'icon' => 'group', 'url' => 'supplier/staff', 'show' => true],
             ['name' => 'Roles', 'icon' => 'badge', 'url' => 'supplier/roles', 'show' => true],
+            ['name' => 'Integrations', 'icon' => 'hub', 'url' => 'supplier/integrations', 'show' => true],
         ]];
     }
 

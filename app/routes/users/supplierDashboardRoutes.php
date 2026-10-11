@@ -208,3 +208,24 @@ $router->get('/supplier/activity', function () use ($SECURE, $db) {
     require_once views . "supplier/activity.php";
     require_once views . "includes/footer.php";
 });
+
+// GET /supplier/integrations — read-only integrations & API info (PMS #59). Honest
+// surface: the platform manages API credentials + adapters centrally, so this shows a
+// supplier what IS available to them (branded booking URL, activity feed), not a fake
+// credential manager.
+$router->get('/supplier/integrations', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $ctx = supplier_acting_context($db);
+    if ($ctx === null || !empty($ctx['is_admin'])) { header('Location: ' . root . 'login'); exit; }
+    $owner = (string) $ctx['owner'];
+    // The owner's properties + their public branded slugs (live only).
+    $sites = [];
+    try {
+        $sites = $db->select('stays', ['id', 'name', 'slug', 'status', 'listing_status'],
+            ['user_id' => $owner, 'ORDER' => ['name' => 'ASC']]) ?: [];
+    } catch (\Throwable $e) { error_log('integrations sites: ' . $e->getMessage()); }
+    $title = 'Integrations & API'; $description = ''; $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/integrations.php";
+    require_once views . "includes/footer.php";
+});
