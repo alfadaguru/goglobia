@@ -81,6 +81,7 @@ require_once 'app/lib/supplier_facilities.php';
 require_once 'app/lib/supplier_guestservice.php';
 require_once 'app/lib/supplier_hr.php';
 require_once 'app/lib/supplier_lease.php';
+require_once 'app/lib/supplier_corporate.php';
 require_once 'app/lib/supplier_housekeeping.php';
 require_once 'app/lib/supplier_maintenance.php';
 require_once 'app/lib/supplier_pos.php';

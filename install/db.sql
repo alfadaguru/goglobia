@@ -28972,6 +28972,50 @@ CREATE TABLE `stays_lost_found` (
 -- --------------------------------------------------------
 
 --
+-- Corporate / agent accounts (PMS Phase 3 #15).
+--
+CREATE TABLE `stays_corporate_accounts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `type` enum('company','agent') NOT NULL DEFAULT 'company',
+  `name` varchar(191) NOT NULL,
+  `contact_name` varchar(120) DEFAULT NULL,
+  `email` varchar(191) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `negotiated_discount_pct` decimal(5,2) DEFAULT NULL,
+  `credit_limit` decimal(14,2) DEFAULT NULL,
+  `status` enum('active','suspended') NOT NULL DEFAULT 'active',
+  `notes` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org_status` (`org_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Trust / client-money ledger (PMS Phase 3 #50). Money held on behalf of third
+-- parties, separate from platform funds. Signed append-only entries.
+--
+CREATE TABLE `stays_trust_ledger` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `party` varchar(191) NOT NULL,
+  `entry_type` enum('receipt','disbursement','adjustment') NOT NULL DEFAULT 'receipt',
+  `amount` decimal(14,2) NOT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `reference` varchar(120) DEFAULT NULL,
+  `memo` varchar(255) DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_org_party` (`org_id`,`party`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Lease & long-stay (PMS Phase 3 #49).
 --
 CREATE TABLE `stays_leases` (

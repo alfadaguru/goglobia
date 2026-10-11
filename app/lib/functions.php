@@ -7991,6 +7991,43 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay_status` (`stay_id`,`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- Corporate / agent accounts (PMS Phase 3 #15) ---------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_corporate_accounts` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `type` ENUM('company','agent') NOT NULL DEFAULT 'company',
+            `name` VARCHAR(191) NOT NULL,
+            `contact_name` VARCHAR(120) DEFAULT NULL,
+            `email` VARCHAR(191) DEFAULT NULL,
+            `phone` VARCHAR(40) DEFAULT NULL,
+            `negotiated_discount_pct` DECIMAL(5,2) DEFAULT NULL,
+            `credit_limit` DECIMAL(14,2) DEFAULT NULL,
+            `status` ENUM('active','suspended') NOT NULL DEFAULT 'active',
+            `notes` VARCHAR(500) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_org_status` (`org_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Trust / client-money ledger (PMS Phase 3 #50) --------------------------
+        // An append-only ledger of money held ON BEHALF of owners/third parties,
+        // SEPARATE from the platform's own funds. Signed entries; balance = sum.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_trust_ledger` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `party` VARCHAR(191) NOT NULL,
+            `entry_type` ENUM('receipt','disbursement','adjustment') NOT NULL DEFAULT 'receipt',
+            `amount` DECIMAL(14,2) NOT NULL,
+            `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+            `reference` VARCHAR(120) DEFAULT NULL,
+            `memo` VARCHAR(255) DEFAULT NULL,
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_org_party` (`org_id`,`party`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- Lease & long-stay (PMS Phase 3 #49) ------------------------------------
         $db->query("CREATE TABLE IF NOT EXISTS `stays_leases` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,
