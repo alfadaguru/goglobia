@@ -241,6 +241,17 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
       <button type="submit" class="btn secondary text-sm">Update dates</button>
     </form>
 
+    <!-- Repeat / clone onto new dates (creates a NEW unpaid reservation for this guest) -->
+    <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="flex flex-wrap items-end gap-2 border-t border-gray-100 pt-3">
+      <?= CSRF::tokenField() ?><input type="hidden" name="action" value="repeat">
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Repeat — check-in</label>
+        <input type="date" name="new_checkin" required class="input text-sm"></div>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Check-out</label>
+        <input type="date" name="new_checkout" required class="input text-sm"></div>
+      <button type="submit" class="btn secondary text-sm">Repeat booking</button>
+      <span class="text-xs text-gray-400 self-center">Clones this guest + room onto new dates as a fresh unpaid reservation.</span>
+    </form>
+
     <!-- Transfer room -->
     <?php if (!empty($rp)): ?>
     <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="flex flex-wrap items-end gap-2 border-t border-gray-100 pt-3">

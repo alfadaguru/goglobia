@@ -177,6 +177,49 @@ $router->get('/supplier/reservations', function () use ($SECURE, $db) {
 });
 
 // ============================================================================
+// FRONT-DESK DASHBOARD — GET /supplier/front-desk  (PMS #04: arrivals/departures/
+// in-house KPIs for a business date, across the owner's properties or one via ?stay_id)
+// ============================================================================
+$router->get('/supplier/front-desk', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    $stayIds = supplier_owned_stay_ids($db, $owner);
+    $stayFilter = (int) ($_GET['stay_id'] ?? 0);
+    $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['date'] ?? '')) ? (string) $_GET['date'] : date('Y-m-d');
+    $reservations = supplier_fetch_reservations($db, $stayIds, ['stay_id' => $stayFilter], 1000);
+    $buckets = function_exists('resv_dashboard_buckets') ? resv_dashboard_buckets($reservations, $date) : [];
+    $propMap = [];
+    if (!empty($stayIds)) { try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {} }
+    $title = 'Front desk'; $description = ''; $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/reservations/front-desk.php";
+    require_once views . "includes/footer.php";
+});
+
+// ============================================================================
+// ROOM RACK / TAPE CHART — GET /supplier/stays/{id}/tape-chart  (PMS #04)
+// ============================================================================
+$router->get('/supplier/stays/([0-9]+)/tape-chart', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'reservations', 'view', (int) $id)) { _supplier_stays_deny('That property is not yours.'); }
+    $stay = $db->get('stays', ['id', 'name'], ['id' => (int) $id]);
+    if (!$stay) { _supplier_stays_deny('Property not found.'); }
+    $from = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['from'] ?? '')) ? (string) $_GET['from'] : date('Y-m-d');
+    $days = max(7, min(30, (int) ($_GET['days'] ?? 14)));
+    $reservations = supplier_fetch_reservations($db, [(int) $id], ['stay_id' => (int) $id], 2000);
+    $chart = function_exists('resv_tape_chart') ? resv_tape_chart($db, (int) $id, $reservations, $from, $days) : ['dates' => [], 'rows' => [], 'unassigned' => []];
+    $stayId = (int) $id;
+    $title = ($stay['name'] ?? 'Property') . ' — Room rack'; $description = ''; $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/reservations/tape-chart.php";
+    require_once views . "includes/footer.php";
+});
+
+// ============================================================================
 // DETAIL — GET /supplier/reservations/{invoiceId}
 // ============================================================================
 $router->get('/supplier/reservations/([A-Za-z0-9_-]+)', function ($invoiceId) use ($SECURE, $db) {
@@ -420,6 +463,22 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                 $res = resv_modify_dates($db, $invoiceId, $ci, $co);
                 $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error',
                     'text' => $res['message'] ?? 'Could not change the dates.'];
+            }
+        } elseif ($action === 'repeat') {
+            // REPEAT / clone this reservation onto new dates for the same guest + room
+            // (PMS #04). A fresh server-priced, held, unpaid booking — ownership of THIS
+            // reservation already verified above, and the clone targets the same property.
+            $ci = trim((string) ($_POST['new_checkin'] ?? ''));
+            $co = trim((string) ($_POST['new_checkout'] ?? ''));
+            if (!function_exists('resv_clone')) {
+                $_SESSION['message'] = ['type' => 'error', 'text' => 'Reservation engine unavailable.'];
+            } else {
+                $res = resv_clone($db, $invoiceId, $ci, $co);
+                $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error',
+                    'text' => $res['message'] ?? 'Could not repeat the reservation.'];
+                if (!empty($res['ok']) && !empty($res['invoice_id'])) {
+                    header('Location: ' . root . 'supplier/reservations/' . rawurlencode((string) $res['invoice_id'])); exit;
+                }
             }
         } elseif ($action === 'transfer_room') {
             // Move to a different room/option (same property). Re-holds + re-prices.

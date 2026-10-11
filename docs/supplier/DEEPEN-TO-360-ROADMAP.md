@@ -35,17 +35,18 @@ Per-module: built/total + the sub-features still to build (BUILT ones omitted). 
 
 > ✅ MODULE 03 CORE COMPLETE: supplier_chain.php + /supplier/chain portfolio dashboard — consolidated KPIs, brand/region/type breakdown, properties table, cross-property availability, centralized (chain-wide) guest DB. Property-specific permissions already via supplier_role_property scope. FOLDS ELSEWHERE: central rate mgmt→#06 bulk tools per property, central corporate contracts→#15, central procurement→#41, inter-property transfers→#42 stores (cross-store) — tracked there, not duplicated here.
 ## 04. Reservation management  —  11/21
-- [ ] dashboard (arrivals/departures/in-house KPIs)
-- [ ] room rack / tape chart
-- [ ] create — email / online (staff-entered)
+- [x] dashboard (arrivals/departures/in-house KPIs)
+- [x] room rack / tape chart
+- [x] create — email / online (staff-entered)
 - [ ] instant book
 - [ ] request-to-book (approve/decline)
 - [ ] split
 - [ ] merge / link
 - [ ] multi-room
-- [ ] repeat (clone a past reservation)
-- [ ] confirmation
+- [x] repeat (clone a past reservation)
+- [x] confirmation
 
+> ✅ MODULE 04 DEEPENED: front-desk dashboard (arrivals/departures/in-house/stayover for a business date, /supplier/front-desk), room rack / TAPE CHART (physical rooms × nights grid, /supplier/stays/{id}/tape-chart), REPEAT/clone a reservation onto new dates (server-priced + held, action=repeat). create email/online already via resv_create_walkin source tags. STILL OPEN (noted, higher-risk/niche): instant-book vs request-to-book approval flow; split / merge-link folios (tracker-deferred as highest-risk); true multi-room-TYPE single reservation (single-type multi-qty works today).
 ## 05. Room & unit inventory  —  12/15
 - [ ] out-of-service (OOS, sellable-later distinct from OOO)
 - [ ] group allotments

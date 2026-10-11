@@ -648,3 +648,117 @@ if (!function_exists('resv_transfer_room')) {
         );
     }
 }
+
+// ===========================================================================
+// MODULE 04 DEEPEN: front-desk dashboard, room rack / tape chart, clone/repeat.
+// All read-only aggregations over the owner's reservations + a safe clone action.
+// ===========================================================================
+
+if (!function_exists('resv_dashboard_buckets')) {
+    /**
+     * Front-desk dashboard for a business date: arrivals (checkin==date), departures
+     * (checkout==date), in-house (checkin<=date<checkout) and stayovers. Operates on the
+     * already-ownership-filtered reservation rows from supplier_fetch_reservations().
+     * Cancelled rows are excluded. Returns counts + the row lists.
+     */
+    function resv_dashboard_buckets(array $reservations, string $date): array
+    {
+        $out = ['date' => $date, 'arrivals' => [], 'departures' => [], 'in_house' => [], 'stayover' => [],
+                'arrivals_n' => 0, 'departures_n' => 0, 'in_house_n' => 0, 'stayover_n' => 0];
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) { return $out; }
+        foreach ($reservations as $r) {
+            if (strtolower((string) ($r['booking_status'] ?? '')) === 'cancelled') { continue; }
+            $ci = (string) ($r['_checkin'] ?? ''); $co = (string) ($r['_checkout'] ?? '');
+            if ($ci === '' || $co === '') { continue; }
+            if ($ci === $date) { $out['arrivals'][] = $r; }
+            if ($co === $date) { $out['departures'][] = $r; }
+            if ($ci <= $date && $date < $co) {
+                $out['in_house'][] = $r;
+                if ($ci < $date) { $out['stayover'][] = $r; } // in-house but not arriving today
+            }
+        }
+        $out['arrivals_n'] = count($out['arrivals']);
+        $out['departures_n'] = count($out['departures']);
+        $out['in_house_n'] = count($out['in_house']);
+        $out['stayover_n'] = count($out['stayover']);
+        return $out;
+    }
+}
+
+if (!function_exists('resv_tape_chart')) {
+    /**
+     * Room rack / tape chart for one property over a date window: a grid of physical
+     * rooms (rows) × dates (cols), each cell marked occupied when a non-cancelled
+     * reservation for that room covers that night. Reservations are matched to a physical
+     * room by booking_data.physical_room_id when present; otherwise listed in an
+     * "unassigned" lane so the desk can still see demand. Read-only.
+     * Returns ['dates'=>[...], 'rows'=>[ ['room'=>.., 'cells'=>[date=>resv|null] ] ],
+     *          'unassigned'=>[ ['label','checkin','checkout','invoice'] ] ].
+     */
+    function resv_tape_chart($db, int $stayId, array $reservations, string $from, int $days = 14): array
+    {
+        $out = ['dates' => [], 'rows' => [], 'unassigned' => []];
+        if ($stayId <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) { return $out; }
+        $days = max(1, min(60, $days));
+        $dates = [];
+        $t = strtotime($from);
+        for ($i = 0; $i < $days; $i++) { $dates[] = date('Y-m-d', $t); $t = strtotime('+1 day', $t); }
+        $out['dates'] = $dates;
+        // Physical rooms for this property.
+        $phys = [];
+        try { $phys = $db->select('stays_physical_rooms', ['id', 'room_number', 'floor'],
+            ['stay_id' => $stayId, 'active' => 1, 'ORDER' => ['room_number' => 'ASC']]) ?: []; } catch (\Throwable $e) {}
+        $cellsByRoom = [];
+        foreach ($phys as $p) { $cellsByRoom[(int) $p['id']] = ['room' => $p, 'cells' => array_fill_keys($dates, null)]; }
+        $end = $dates[count($dates) - 1];
+        foreach ($reservations as $r) {
+            if (strtolower((string) ($r['booking_status'] ?? '')) === 'cancelled') { continue; }
+            if ((int) ($r['_hotel_id'] ?? 0) !== $stayId) { continue; }
+            $ci = (string) ($r['_checkin'] ?? ''); $co = (string) ($r['_checkout'] ?? '');
+            if ($ci === '' || $co === '' || $co <= $from || $ci > $end) { continue; }
+            $bd = json_decode((string) ($r['booking_data'] ?? ''), true);
+            $prid = is_array($bd) ? (int) ($bd['physical_room_id'] ?? 0) : 0;
+            $label = trim((string) ($r['first_name'] ?? '') . ' ' . (string) ($r['last_name'] ?? '')) ?: (string) $r['invoice_id'];
+            if ($prid > 0 && isset($cellsByRoom[$prid])) {
+                foreach ($dates as $d) { if ($ci <= $d && $d < $co) { $cellsByRoom[$prid]['cells'][$d] = ['label' => $label, 'invoice' => (string) $r['invoice_id']]; } }
+            } else {
+                $out['unassigned'][] = ['label' => $label, 'checkin' => $ci, 'checkout' => $co, 'invoice' => (string) $r['invoice_id']];
+            }
+        }
+        $out['rows'] = array_values($cellsByRoom);
+        return $out;
+    }
+}
+
+if (!function_exists('resv_clone')) {
+    /**
+     * REPEAT a past reservation: create a NEW reservation for the same guest + room/
+     * option/qty on new dates, via resv_create_walkin (server-priced, real hold). Returns
+     * the ops array from create. The source reservation must belong to $stayId (caller
+     * authorized). Never copies payment/folio — it's a fresh unpaid booking.
+     */
+    function resv_clone($db, string $srcInvoiceId, string $newCheckin, string $newCheckout): array
+    {
+        if (!function_exists('resv_create_walkin')) { return ['ok' => false, 'message' => 'Unavailable.']; }
+        $b = $db->get('bookings', ['first_name', 'last_name', 'email', 'phone', 'adults', 'childs', 'booking_data'], ['invoice_id' => $srcInvoiceId]);
+        if (!$b) { return ['ok' => false, 'message' => 'Source reservation not found.']; }
+        $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
+        if (!is_array($bd)) { return ['ok' => false, 'message' => 'Source reservation is unreadable.']; }
+        $hid = function_exists('supplier_reservation_hotel_id') ? supplier_reservation_hotel_id($b['booking_data']) : 0;
+        $sel = $bd['selected_rooms'][0] ?? null;
+        $roomId = (int) ($sel['room_id'] ?? 0);
+        $optionId = (int) ($sel['option']['option_id'] ?? 0);
+        $qty = max(1, (int) ($sel['quantity'] ?? 1));
+        if ($hid <= 0 || $roomId <= 0 || $optionId <= 0) {
+            return ['ok' => false, 'message' => 'Source reservation has no room selection to repeat.'];
+        }
+        return resv_create_walkin($db, $hid, [
+            'room_id' => $roomId, 'option_id' => $optionId, 'qty' => $qty,
+            'checkin' => $newCheckin, 'checkout' => $newCheckout,
+            'first_name' => (string) $b['first_name'], 'last_name' => (string) $b['last_name'],
+            'email' => (string) $b['email'], 'phone' => (string) $b['phone'],
+            'adults' => (int) $b['adults'], 'children' => (int) $b['childs'],
+            'source' => 'repeat', 'mark_paid' => false,
+        ]);
+    }
+}
