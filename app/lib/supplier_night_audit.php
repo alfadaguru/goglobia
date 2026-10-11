@@ -118,9 +118,14 @@ if (!function_exists('night_audit_run')) {
             // Arrivals / departures / in-house for THIS business date.
             if ($checkin === $bizDate) { $arrivals++; }
             if ($checkout === $bizDate) { $departures++; }
-            if ($stayState === 'checked_in') {
+            // Count in-house / rooms-sold / revenue ONLY for a night actually within the
+            // stay: checkin <= bizDate < checkout. Without the checkout bound (LOW audit),
+            // a guest left 'checked_in' past departure was re-counted on every later
+            // business date, inflating occupancy/ADR/RevPAR indefinitely.
+            $withinStay = ($checkin !== '' && $checkin <= $bizDate)
+                && ($checkout === '' || $bizDate < $checkout);
+            if ($stayState === 'checked_in' && $withinStay) {
                 $inHouse++;
-                // Rooms sold + room revenue are counted for the in-house night.
                 $roomsSold++;
                 // Room revenue = guest room charge (price_markup − tax), server-stored.
                 $gross = (float) ($b['price_markup'] ?? 0);

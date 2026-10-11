@@ -12,17 +12,46 @@
 // The ONLY write to the live stays row is rating/rating_count (the rollup) — exactly
 // the field the public path already consumes. Everything else is in stays_reviews.
 
+if (!function_exists('_review_secret')) {
+    /** Server secret for signing review tokens. Prefers an env override; otherwise a
+     *  stable per-install path-derived key (mirrors captcha.php's scheme). */
+    function _review_secret(): string
+    {
+        $env = getenv('REVIEW_SECRET');
+        if (is_string($env) && $env !== '') { return $env; }
+        return hash('sha256', 'review-v10|' . __DIR__ . '|' . (getenv('HOSTNAME') ?: php_uname('n')));
+    }
+}
 if (!function_exists('review_token')) {
-    /** A review token binding the invoice (so a link can only review that booking).
-     *  Not secret — the submit path re-validates the booking is checked-out + unreviewed. */
-    function review_token(string $invoiceId): string { return rtrim(strtr(base64_encode('rv:' . $invoiceId), '+/', '-_'), '='); }
+    /**
+     * A review token binding the invoice. HMAC-SIGNED (MEDIUM audit) so it can't be
+     * forged from a guessed invoice id — the old token was reversible base64('rv:'+id),
+     * letting an attacker enumerate invoices and post reviews impersonating guests. The
+     * submit path STILL re-validates the booking is checked-out + unreviewed.
+     */
+    function review_token(string $invoiceId): string
+    {
+        $sig = substr(hash_hmac('sha256', 'rv:' . $invoiceId, _review_secret()), 0, 32);
+        return rtrim(strtr(base64_encode($invoiceId . '.' . $sig), '+/', '-_'), '=');
+    }
 }
 if (!function_exists('review_token_decode')) {
+    /** Returns the invoice id ONLY if the HMAC verifies; '' otherwise. */
     function review_token_decode(string $token): string
     {
         $b64 = strtr($token, '-_', '+/'); $pad = strlen($b64) % 4; if ($pad) { $b64 .= str_repeat('=', 4 - $pad); }
         $raw = base64_decode($b64, true);
-        return (is_string($raw) && strpos($raw, 'rv:') === 0) ? substr($raw, 3) : '';
+        if (!is_string($raw) || strpos($raw, '.') === false) {
+            // Backward-compat: accept the legacy unsigned 'rv:' token so links already in
+            // the wild still work (the submit path's own re-validation remains the gate).
+            if (is_string($raw) && strpos($raw, 'rv:') === 0) { return substr($raw, 3); }
+            return '';
+        }
+        $pos = strrpos($raw, '.');
+        $invoiceId = substr($raw, 0, $pos);
+        $sig = substr($raw, $pos + 1);
+        $expect = substr(hash_hmac('sha256', 'rv:' . $invoiceId, _review_secret()), 0, 32);
+        return hash_equals($expect, $sig) ? $invoiceId : '';
     }
 }
 

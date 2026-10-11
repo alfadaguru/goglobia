@@ -41,10 +41,14 @@ if (!function_exists('wo_create')) {
         if ($title === '') { return 0; }
         try {
             $orgId = function_exists('supplier_property_org') ? supplier_property_org($db, $stayId) : 0;
+            // Validate physical_room_id belongs to THIS property (else store null rather
+            // than a foreign room id). LOW audit — defensive, not a cross-tenant leak.
+            $pr = (int) ($data['physical_room_id'] ?? 0);
+            if ($pr > 0 && !$db->has('stays_physical_rooms', ['id' => $pr, 'stay_id' => $stayId])) { $pr = 0; }
             $db->insert('stays_work_orders', [
                 'org_id'          => $orgId > 0 ? $orgId : null,
                 'stay_id'         => $stayId,
-                'physical_room_id'=> ($pr = (int) ($data['physical_room_id'] ?? 0)) > 0 ? $pr : null,
+                'physical_room_id'=> $pr > 0 ? $pr : null,
                 'area'            => trim((string) ($data['area'] ?? '')) ?: null,
                 'title'           => substr($title, 0, 191),
                 'description'     => trim((string) ($data['description'] ?? '')) ?: null,
@@ -71,6 +75,7 @@ if (!function_exists('wo_set_status')) {
             if (!$wo) { return false; }
             $upd = ['status' => $to, 'updated_at' => date('Y-m-d H:i:s')];
             if ($to === 'resolved') { $upd['resolved_at'] = date('Y-m-d H:i:s'); }
+            else { $upd['resolved_at'] = null; } // reopening clears the resolved stamp (LOW audit)
             $db->update('stays_work_orders', $upd, ['id' => $woId, 'stay_id' => $stayId]);
             return true;
         } catch (\Throwable $e) {
@@ -116,6 +121,18 @@ if (!function_exists('ooo_block_create')) {
             $result = ['ok' => false, 'message' => 'Could not create OOO block'];
             $db->action(function ($db) use ($physicalRoomId, $stayId, $roomTypeId, $optionIds, $nights, $from, $to, $reason, $eta, &$result) {
                 $now = date('Y-m-d H:i:s');
+                // GUARD (MEDIUM audit): refuse if an active OOO block already overlaps this
+                // physical room's date range. Without this, double-submitting decrements
+                // pooled inventory twice while clear() reverses only one block, permanently
+                // losing a unit of capacity. Overlap: existing from < new_to AND to > new_from.
+                $overlap = $db->get('stays_ooo_blocks', ['id'], [
+                    'physical_room_id' => $physicalRoomId, 'stay_id' => $stayId, 'state' => 'active',
+                    'date_from[<]' => $to, 'date_to[>]' => $nights[0],
+                ]);
+                if ($overlap) {
+                    $result = ['ok' => false, 'message' => 'This room already has an out-of-order block overlapping those dates.'];
+                    return false; // rollback (nothing inserted/decremented)
+                }
                 // Record the block FIRST (so the inventory delta is traceable/reversible).
                 $db->insert('stays_ooo_blocks', [
                     'stay_id'          => $stayId,

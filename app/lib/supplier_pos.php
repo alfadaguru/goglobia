@@ -67,6 +67,7 @@ if (!function_exists('pos_order_add_item')) {
     {
         if ($orderId <= 0 || $menuItemId <= 0) { return false; }
         if ($qty < 1) { $qty = 1; }
+        if ($qty > 999) { $qty = 999; } // ceiling (LOW audit): guard a fat-finger/overflow line
         try {
             $order = $db->get('pos_orders', ['id', 'outlet_id', 'status'], ['id' => $orderId]);
             if (!$order || $order['status'] !== 'open') { return false; }
