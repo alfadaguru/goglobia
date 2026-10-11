@@ -7991,6 +7991,54 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay_status` (`stay_id`,`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- Bookable services: spa/wellness (#32) + generic resources (#33) --------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_services` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `kind` ENUM('spa','wellness','recreation','transfer','equipment','other') NOT NULL DEFAULT 'other',
+            `name` VARCHAR(191) NOT NULL,
+            `duration_min` INT(11) DEFAULT NULL,
+            `price` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_service_bookings` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `service_id` INT(11) NOT NULL,
+            `guest_name` VARCHAR(120) DEFAULT NULL,
+            `invoice_id` VARCHAR(255) DEFAULT NULL,
+            `scheduled_at` DATETIME DEFAULT NULL,
+            `status` ENUM('booked','completed','cancelled') NOT NULL DEFAULT 'booked',
+            `price` DECIMAL(14,2) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`),
+            KEY `idx_service` (`service_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Recipes / food-cost (#31) ----------------------------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_recipes` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `name` VARCHAR(191) NOT NULL,
+            `yield_qty` INT(11) NOT NULL DEFAULT 1,
+            `food_cost` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `sell_price` DECIMAL(14,2) DEFAULT NULL,
+            `notes` VARCHAR(500) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- Corporate / agent accounts (PMS Phase 3 #15) ---------------------------
         $db->query("CREATE TABLE IF NOT EXISTS `stays_corporate_accounts` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,

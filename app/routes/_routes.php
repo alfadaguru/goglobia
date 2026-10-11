@@ -59,6 +59,7 @@ require_once 'app/routes/users/supplierGuestServiceRoutes.php'; // service ticke
 require_once 'app/routes/users/supplierHrRoutes.php'; // HR / workforce — employees + leave (PMS Phase 3 #44)
 require_once 'app/routes/users/supplierLeaseRoutes.php'; // leases + utilities (PMS Phase 3 #49/#51)
 require_once 'app/routes/users/supplierCorporateRoutes.php'; // corporate accounts + trust ledger (PMS Phase 3 #15/#50)
+require_once 'app/routes/users/supplierAncillaryRoutes.php'; // services (spa/generic) + recipes (PMS Phase 3 #31/#32/#33)
 require_once 'app/routes/users/supplierCalendarRoutes.php'; // reservation calendar / tape-chart (inc S39)
 require_once 'app/routes/users/supplierRequestRoutes.php'; // post-approval service/quota request flow (inc S34)
 require_once 'app/routes/users/supplierRolesRoutes.php'; // supplier-defined roles + property scope (inc 4)

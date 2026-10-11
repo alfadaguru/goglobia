@@ -83,6 +83,8 @@ if ($activeStay > 0) {
         ['name' => 'Leases',        'icon' => 'home_work',        'url' => 'supplier/leases', 'show' => $can('hotels', 'view', $sid)],
         ['name' => 'Utilities',     'icon' => 'bolt',             'url' => 'supplier/utilities', 'show' => $can('hotels', 'view', $sid)],
         ['name' => 'F&B / POS',     'icon' => 'restaurant',       'url' => 'supplier/pos', 'show' => $can('reservations', 'edit', $sid)],
+        ['name' => 'Recipes',       'icon' => 'menu_book',        'url' => 'supplier/recipes', 'show' => $can('reservations', 'view', $sid)],
+        ['name' => 'Services',      'icon' => 'spa',              'url' => 'supplier/services', 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Events',        'icon' => 'celebration',      'url' => 'supplier/events' . $q, 'show' => $can('reservations', 'edit', $sid)],
         ['name' => 'Night audit',   'icon' => 'nightlight',       'url' => 'supplier/night-audit' . $q, 'show' => $can('reservations', 'edit', $sid)],
         ['name' => 'Reviews',       'icon' => 'reviews',          'url' => 'supplier/reviews' . $q, 'show' => $can('reservations', 'view', $sid)],

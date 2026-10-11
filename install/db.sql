@@ -28972,6 +28972,67 @@ CREATE TABLE `stays_lost_found` (
 -- --------------------------------------------------------
 
 --
+-- Bookable services: spa/wellness (#32) + generic resources (#33).
+--
+CREATE TABLE `stays_services` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `kind` enum('spa','wellness','recreation','transfer','equipment','other') NOT NULL DEFAULT 'other',
+  `name` varchar(191) NOT NULL,
+  `duration_min` int(11) DEFAULT NULL,
+  `price` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Service bookings (#32/#33).
+--
+CREATE TABLE `stays_service_bookings` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `service_id` int(11) NOT NULL,
+  `guest_name` varchar(120) DEFAULT NULL,
+  `invoice_id` varchar(255) DEFAULT NULL,
+  `scheduled_at` datetime DEFAULT NULL,
+  `status` enum('booked','completed','cancelled') NOT NULL DEFAULT 'booked',
+  `price` decimal(14,2) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`),
+  KEY `idx_service` (`service_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Recipes / food-cost (#31).
+--
+CREATE TABLE `stays_recipes` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(191) NOT NULL,
+  `yield_qty` int(11) NOT NULL DEFAULT 1,
+  `food_cost` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `sell_price` decimal(14,2) DEFAULT NULL,
+  `notes` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Corporate / agent accounts (PMS Phase 3 #15).
 --
 CREATE TABLE `stays_corporate_accounts` (
