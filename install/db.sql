@@ -28864,10 +28864,33 @@ CREATE TABLE `stays_folios` (
 CREATE TABLE `stays_folio_items` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `folio_id` bigint(20) NOT NULL,
-  `type` enum('room','tax','extra','charge','payment','refund') NOT NULL,
+  `folio_no` tinyint(4) NOT NULL DEFAULT 1,
+  `type` enum('room','tax','extra','charge','payment','refund','credit_note','debit_note','preauth') NOT NULL,
   `description` varchar(191) DEFAULT NULL,
   `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `void` tinyint(1) NOT NULL DEFAULT 0,
+  `void_reason` varchar(191) DEFAULT NULL,
+  `void_by` varchar(155) DEFAULT NULL,
   `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_folio` (`folio_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- MODULE 09: append-only folio transaction audit.
+--
+CREATE TABLE `stays_folio_audit` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `folio_id` bigint(20) NOT NULL,
+  `invoice_id` varchar(64) DEFAULT NULL,
+  `action` varchar(40) NOT NULL,
+  `item_id` bigint(20) DEFAULT NULL,
+  `detail` varchar(255) DEFAULT NULL,
+  `amount` decimal(14,2) DEFAULT NULL,
+  `actor` varchar(155) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `idx_folio` (`folio_id`)

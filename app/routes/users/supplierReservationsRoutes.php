@@ -324,14 +324,17 @@ $router->get('/supplier/reservations/([A-Za-z0-9_-]+)', function ($invoiceId) us
         $assignableRooms = hk_assignable_rooms($db, $hid, $bookingRoomTypeId);
     }
     $folio = null; $folioItems = []; $folioTotals = ['charges' => 0, 'payments' => 0, 'balance' => 0];
+    $folioWindows = []; $folioAudit = [];
     if (function_exists('folio_get_or_create')) {
         $folioId = folio_get_or_create($db, $invoiceId);
         if ($folioId > 0) {
             $folio = $db->get('stays_folios', '*', ['id' => $folioId]);
             $folioItems = $db->select('stays_folio_items',
-                ['type', 'description', 'amount', 'created_at'],
+                ['id', 'folio_no', 'type', 'description', 'amount', 'void', 'void_reason', 'created_at'],
                 ['folio_id' => $folioId, 'ORDER' => ['id' => 'ASC']]) ?: [];
             if (function_exists('folio_totals')) { $folioTotals = folio_totals($db, $folioId); }
+            if (function_exists('folio_windows')) { $folioWindows = folio_windows($db, $folioId); }
+            try { $folioAudit = $db->select('stays_folio_audit', ['action', 'detail', 'amount', 'actor', 'created_at'], ['folio_id' => $folioId, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 30]) ?: []; } catch (\Throwable $e) {}
         }
     }
 
@@ -507,23 +510,32 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
             $id = function_exists('wakeup_add') ? wakeup_add($db, $org, $hid, (string) ($_POST['wake_at'] ?? ''), $invoiceId, (string) ($_POST['note'] ?? '')) : 0;
             $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Wake-up call scheduled.' : 'Could not schedule (valid time required).'];
         } elseif ($action === 'folio_add') {
-            // Add a front-desk charge/payment to the open folio.
+            // Add a folio line. MODULE 09: now supports credit/debit notes + preauth and
+            // a folio WINDOW (split billing). room/tax stay system-seeded only.
             $ftype = strtolower(trim((string) ($_POST['folio_type'] ?? '')));
             $famount = round((float) ($_POST['folio_amount'] ?? 0), 2);
             $fdesc = trim((string) ($_POST['folio_description'] ?? ''));
-            if (!in_array($ftype, ['extra', 'charge', 'payment', 'refund'], true)) {
+            $fno = max(1, min(9, (int) ($_POST['folio_no'] ?? 1)));
+            if (!in_array($ftype, ['extra', 'charge', 'payment', 'refund', 'credit_note', 'debit_note', 'preauth'], true)) {
                 $_SESSION['message'] = ['type' => 'error', 'text' => 'Invalid folio line type.'];
             } elseif ($famount <= 0) {
                 $_SESSION['message'] = ['type' => 'error', 'text' => 'Amount must be positive.'];
             } else {
                 $fid = function_exists('folio_get_or_create') ? folio_get_or_create($db, $invoiceId) : 0;
                 $ok = $fid > 0 && function_exists('folio_add_item')
-                    && folio_add_item($db, $fid, $ftype, $famount, $fdesc, (string) ($_SESSION['user_id'] ?? ''));
+                    && folio_add_item($db, $fid, $ftype, $famount, $fdesc, (string) ($_SESSION['user_id'] ?? ''), $fno);
                 $_SESSION['message'] = [
                     'type' => $ok ? 'success' : 'error',
                     'text' => $ok ? 'Folio updated.' : 'Could not add the folio line (is the folio closed?).',
                 ];
             }
+        } elseif ($action === 'folio_void') {
+            // MODULE 09 supervisor override: void a posted folio line (kept for audit).
+            $itemId = (int) ($_POST['item_id'] ?? 0);
+            $reason = trim((string) ($_POST['void_reason'] ?? ''));
+            $fid = function_exists('folio_get_or_create') ? folio_get_or_create($db, $invoiceId) : 0;
+            $ok = $fid > 0 && function_exists('folio_void_item') && folio_void_item($db, $fid, $itemId, $reason);
+            $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Line voided.' : 'Could not void (closed folio / already void?).'];
         } elseif ($action === 'redeem_loyalty') {
             // Redeem the guest's loyalty points as a cash discount on this folio (PMS #22).
             $pts = (int) ($_POST['points'] ?? 0);

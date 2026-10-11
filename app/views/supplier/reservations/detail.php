@@ -214,18 +214,29 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
     <!-- Folio lines -->
     <div class="overflow-x-auto">
       <table class="w-full text-sm">
+        <?php $multiWin = count(array_unique(array_map(fn($i) => (int) ($i['folio_no'] ?? 1), $fitems))) > 1; ?>
         <thead><tr class="text-left text-gray-500 border-b border-gray-100">
-          <th class="px-2 py-2 font-medium">Item</th><th class="px-2 py-2 font-medium">Type</th><th class="px-2 py-2 font-medium text-right">Amount</th>
+          <th class="px-2 py-2 font-medium">Item</th><th class="px-2 py-2 font-medium">Type</th><?php if ($multiWin): ?><th class="px-2 py-2 font-medium">Win</th><?php endif; ?><th class="px-2 py-2 font-medium text-right">Amount</th><?php if ($canEdit): ?><th></th><?php endif; ?>
         </tr></thead>
         <tbody class="divide-y divide-gray-50">
           <?php if (empty($fitems)): ?>
-            <tr><td colspan="3" class="px-2 py-3 text-center text-gray-400 text-xs">No folio lines yet.</td></tr>
+            <tr><td colspan="5" class="px-2 py-3 text-center text-gray-400 text-xs">No folio lines yet.</td></tr>
           <?php else: foreach ($fitems as $it): ?>
-            <?php $isPay = in_array((string) $it['type'], ['payment','refund'], true); ?>
-            <tr>
-              <td class="px-2 py-1.5 text-gray-700"><?= htmlspecialchars((string) ($it['description'] ?? '')) ?></td>
-              <td class="px-2 py-1.5 text-gray-500 text-xs"><?= htmlspecialchars(ucfirst((string) $it['type'])) ?></td>
+            <?php $isPay = in_array((string) $it['type'], ['payment','refund','credit_note'], true); $isVoid = (int) ($it['void'] ?? 0) === 1; $sys = in_array((string) $it['type'], ['room','tax'], true); ?>
+            <tr class="<?= $isVoid ? 'opacity-40 line-through' : '' ?>">
+              <td class="px-2 py-1.5 text-gray-700"><?= htmlspecialchars((string) ($it['description'] ?? '')) ?><?php if ($isVoid && !empty($it['void_reason'])): ?> <span class="text-xs text-red-500 no-underline">(void: <?= htmlspecialchars((string) $it['void_reason']) ?>)</span><?php endif; ?></td>
+              <td class="px-2 py-1.5 text-gray-500 text-xs"><?= htmlspecialchars(ucfirst(str_replace('_', ' ', (string) $it['type']))) ?></td>
+              <?php if ($multiWin): ?><td class="px-2 py-1.5 text-gray-400 text-xs"><?= chr(64 + (int) ($it['folio_no'] ?? 1)) ?></td><?php endif; ?>
               <td class="px-2 py-1.5 text-right tabular-nums <?= $isPay ? 'text-green-700' : 'text-gray-900' ?>"><?= $isPay ? '−' : '' ?><?= $cur ?> <?= number_format((float) $it['amount'], 2) ?></td>
+              <?php if ($canEdit): ?><td class="px-2 py-1.5 text-right">
+                <?php if (!$isVoid && !$sys && $folioOpen): ?>
+                  <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="inline" onsubmit="return confirm('Void this line? (supervisor override — kept for audit)');">
+                    <?= CSRF::tokenField() ?><input type="hidden" name="action" value="folio_void"><input type="hidden" name="item_id" value="<?= (int) $it['id'] ?>">
+                    <input type="text" name="void_reason" placeholder="reason" class="input text-xs py-0.5 px-1 w-24" required>
+                    <button class="text-xs text-red-600 hover:underline">Void</button>
+                  </form>
+                <?php endif; ?>
+              </td><?php endif; ?>
             </tr>
           <?php endforeach; endif; ?>
         </tbody>
@@ -244,6 +255,13 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
           <select name="folio_type" class="input text-sm">
             <option value="extra">Extra charge</option><option value="charge">Charge</option>
             <option value="payment">Payment</option><option value="refund">Refund</option>
+            <option value="credit_note">Credit note</option><option value="debit_note">Debit note</option>
+            <option value="preauth">Pre-auth (hold)</option>
+          </select>
+        </div>
+        <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Window</label>
+          <select name="folio_no" class="input text-sm w-20" title="Split billing — route to a folio window">
+            <?php for ($w = 1; $w <= 4; $w++): ?><option value="<?= $w ?>"><?= chr(64 + $w) ?></option><?php endfor; ?>
           </select>
         </div>
         <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Description</label>
@@ -252,6 +270,7 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
           <input type="number" name="folio_amount" min="0" step="0.01" class="input text-sm w-28" required></div>
         <button type="submit" class="btn secondary text-sm">Add line</button>
       </form>
+      <p class="text-xs text-gray-400 mt-1">Pre-auth records a held amount (not charged). Credit/debit notes adjust the balance. Window routes a charge to a split folio (A/B/…).</p>
       <!-- Loyalty redemption as a cash discount (PMS #22). Requires a redeem value set
            in loyalty config; the handler refuses if points/value are insufficient. -->
       <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="mt-2 flex flex-wrap items-end gap-2">
@@ -262,6 +281,35 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
       </form>
     <?php endif; ?>
   </div>
+
+  <?php // MODULE 09: split-billing windows summary + transaction audit. ?>
+  <?php $fwins = (isset($folioWindows) && is_array($folioWindows)) ? $folioWindows : []; $faudit = (isset($folioAudit) && is_array($folioAudit)) ? $folioAudit : []; ?>
+  <?php if (count($fwins) > 1): ?>
+  <div class="card p-5">
+    <h2 class="text-sm font-semibold text-gray-900 mb-2">Folio windows (split billing)</h2>
+    <table class="w-full text-sm">
+      <thead><tr class="text-left text-gray-500 border-b border-gray-100"><th class="px-2 py-2 font-medium">Window</th><th class="px-2 py-2 font-medium text-right">Charges</th><th class="px-2 py-2 font-medium text-right">Paid</th><th class="px-2 py-2 font-medium text-right">Balance</th></tr></thead>
+      <tbody class="divide-y divide-gray-50">
+        <?php foreach ($fwins as $w): $t = $w['totals']; ?>
+          <tr><td class="px-2 py-1.5 font-medium"><?= chr(64 + (int) $w['no']) ?></td>
+            <td class="px-2 py-1.5 text-right tabular-nums"><?= $cur ?> <?= number_format((float) $t['charges'], 2) ?></td>
+            <td class="px-2 py-1.5 text-right tabular-nums"><?= $cur ?> <?= number_format((float) $t['payments'], 2) ?></td>
+            <td class="px-2 py-1.5 text-right tabular-nums <?= ((float) $t['balance']) > 0 ? 'text-red-600' : 'text-green-700' ?>"><?= $cur ?> <?= number_format((float) $t['balance'], 2) ?></td></tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+  <?php endif; ?>
+  <?php if (!empty($faudit)): ?>
+  <div class="card p-5">
+    <h2 class="text-sm font-semibold text-gray-900 mb-2">Folio transaction audit</h2>
+    <ul class="text-xs text-gray-600 space-y-1 max-h-48 overflow-y-auto">
+      <?php foreach ($faudit as $a): ?>
+        <li class="flex justify-between gap-2"><span><span class="font-mono text-gray-800"><?= htmlspecialchars((string) $a['action']) ?></span> <?= htmlspecialchars((string) ($a['detail'] ?? '')) ?></span><span class="text-gray-400 whitespace-nowrap"><?= htmlspecialchars(substr((string) $a['created_at'], 0, 16)) ?> · <?= htmlspecialchars((string) ($a['actor'] ?? '')) ?></span></li>
+      <?php endforeach; ?>
+    </ul>
+  </div>
+  <?php endif; ?>
 
   <!-- Modify (PMS completion #04): change dates, transfer room, set source. Each
        re-holds inventory + re-prices server-side. Hidden once cancelled. -->

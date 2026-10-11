@@ -7881,10 +7881,43 @@ function ensureSupplierStaysSchema($db): void
         $db->query("CREATE TABLE IF NOT EXISTS `stays_folio_items` (
             `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
             `folio_id` BIGINT(20) NOT NULL,
-            `type` ENUM('room','tax','extra','charge','payment','refund') NOT NULL,
+            `folio_no` TINYINT(4) NOT NULL DEFAULT 1,
+            `type` ENUM('room','tax','extra','charge','payment','refund','credit_note','debit_note','preauth') NOT NULL,
             `description` VARCHAR(191) DEFAULT NULL,
             `amount` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `void` TINYINT(1) NOT NULL DEFAULT 0,
+            `void_reason` VARCHAR(191) DEFAULT NULL,
+            `void_by` VARCHAR(155) DEFAULT NULL,
             `created_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_folio` (`folio_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // MODULE 09: folio WINDOWS (split billing) + supervisor VOID + extra line types.
+        if (!$db->query("SHOW COLUMNS FROM `stays_folio_items` LIKE 'folio_no'")->fetch()) {
+            $db->query("ALTER TABLE `stays_folio_items` ADD COLUMN `folio_no` TINYINT(4) NOT NULL DEFAULT 1 AFTER `folio_id`");
+            $db->query("ALTER TABLE `stays_folio_items` ADD COLUMN `void` TINYINT(1) NOT NULL DEFAULT 0");
+            $db->query("ALTER TABLE `stays_folio_items` ADD COLUMN `void_reason` VARCHAR(191) DEFAULT NULL");
+            $db->query("ALTER TABLE `stays_folio_items` ADD COLUMN `void_by` VARCHAR(155) DEFAULT NULL");
+        }
+        // Widen the type enum to include credit/debit notes + preauth (additive; safe —
+        // existing rows keep their value). Guarded so it only runs when needed.
+        try {
+            $col = $db->query("SHOW COLUMNS FROM `stays_folio_items` LIKE 'type'")->fetch(\PDO::FETCH_ASSOC);
+            if ($col && stripos((string) ($col['Type'] ?? ''), 'credit_note') === false) {
+                $db->query("ALTER TABLE `stays_folio_items` MODIFY COLUMN `type` ENUM('room','tax','extra','charge','payment','refund','credit_note','debit_note','preauth') NOT NULL");
+            }
+        } catch (\Throwable $e) { error_log('folio type enum widen: ' . $e->getMessage()); }
+        // Append-only folio transaction audit (who posted/voided what, when).
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_folio_audit` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `folio_id` BIGINT(20) NOT NULL,
+            `invoice_id` VARCHAR(64) DEFAULT NULL,
+            `action` VARCHAR(40) NOT NULL,
+            `item_id` BIGINT(20) DEFAULT NULL,
+            `detail` VARCHAR(255) DEFAULT NULL,
+            `amount` DECIMAL(14,2) DEFAULT NULL,
+            `actor` VARCHAR(155) DEFAULT NULL,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (`id`),
             KEY `idx_folio` (`folio_id`)

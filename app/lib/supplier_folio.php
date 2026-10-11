@@ -22,8 +22,28 @@
 // booking has been authorized and re-scope by invoice.
 
 if (!function_exists('folio_item_types')) {
-    /** Folio line kinds. 'charge'/'tax' increase the bill; 'payment' reduces it. */
-    function folio_item_types(): array { return ['room', 'tax', 'extra', 'charge', 'payment', 'refund']; }
+    /** Folio line kinds. charge/tax/extra/debit_note increase the bill; payment/refund/
+     *  credit_note reduce it; preauth is a held-amount record (not a charge). */
+    function folio_item_types(): array { return ['room', 'tax', 'extra', 'charge', 'payment', 'refund', 'credit_note', 'debit_note', 'preauth']; }
+}
+
+if (!function_exists('folio_audit')) {
+    /** Append a row to the folio transaction audit (best-effort, never fatal). */
+    function folio_audit($db, int $folioId, string $action, array $meta = []): void
+    {
+        try {
+            $db->insert('stays_folio_audit', [
+                'folio_id'   => $folioId,
+                'invoice_id' => $meta['invoice_id'] ?? null,
+                'action'     => substr($action, 0, 40),
+                'item_id'    => isset($meta['item_id']) ? (int) $meta['item_id'] : null,
+                'detail'     => isset($meta['detail']) ? substr((string) $meta['detail'], 0, 255) : null,
+                'amount'     => isset($meta['amount']) ? round((float) $meta['amount'], 2) : null,
+                'actor'      => (string) ($_SESSION['user_id'] ?? '') ?: null,
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) { error_log('folio_audit: ' . $e->getMessage()); }
+    }
 }
 
 if (!function_exists('folio_get_or_create')) {
@@ -117,18 +137,25 @@ if (!function_exists('folio_totals')) {
      * charges − payments (what the guest still owes; negative = overpaid/refundable).
      * charges = room+tax+extra+charge; payments = payment; refund adds back to owed.
      */
-    function folio_totals($db, int $folioId): array
+    function folio_totals($db, int $folioId, ?int $folioNo = null): array
     {
         $out = ['charges' => 0.0, 'payments' => 0.0, 'balance' => 0.0];
         if ($folioId <= 0) { return $out; }
         try {
-            $items = $db->select('stays_folio_items', ['type', 'amount'], ['folio_id' => $folioId]) ?: [];
+            // Select void-awareness defensively: older rows may predate the `void`/
+            // `folio_no` columns, so default them when absent.
+            $items = $db->select('stays_folio_items', ['type', 'amount', 'void', 'folio_no'], ['folio_id' => $folioId]) ?: [];
             foreach ($items as $it) {
+                if ((int) ($it['void'] ?? 0) === 1) { continue; } // supervisor-voided → excluded
+                if ($folioNo !== null && (int) ($it['folio_no'] ?? 1) !== $folioNo) { continue; } // window filter
                 $amt = round((float) $it['amount'], 2);
                 switch ((string) $it['type']) {
-                    case 'payment': $out['payments'] = round($out['payments'] + $amt, 2); break;
-                    case 'refund':  $out['payments'] = round($out['payments'] - $amt, 2); break; // refund reduces net paid
-                    default:        $out['charges']  = round($out['charges'] + $amt, 2); break;  // room/tax/extra/charge
+                    case 'payment':     $out['payments'] = round($out['payments'] + $amt, 2); break;
+                    case 'refund':      $out['payments'] = round($out['payments'] - $amt, 2); break; // refund reduces net paid
+                    case 'credit_note': $out['charges']  = round($out['charges']  - $amt, 2); break; // credit reduces what's owed
+                    case 'debit_note':  $out['charges']  = round($out['charges']  + $amt, 2); break; // debit increases what's owed
+                    case 'preauth':     break;                                                       // held, not charged → ignored
+                    default:            $out['charges']  = round($out['charges']  + $amt, 2); break;  // room/tax/extra/charge
                 }
             }
             $out['balance'] = round($out['charges'] - $out['payments'], 2);
@@ -142,27 +169,79 @@ if (!function_exists('folio_totals')) {
 if (!function_exists('folio_add_item')) {
     /** Add a line to an OPEN folio (front-desk extra charge / payment / refund).
      *  Returns bool. Refuses a closed folio or an unknown type / non-positive amount. */
-    function folio_add_item($db, int $folioId, string $type, float $amount, string $description = '', string $actor = ''): bool
+    function folio_add_item($db, int $folioId, string $type, float $amount, string $description = '', string $actor = '', int $folioNo = 1): bool
     {
         $type = in_array($type, folio_item_types(), true) ? $type : '';
         $amount = round($amount, 2);
         if ($folioId <= 0 || $type === '' || $amount <= 0) { return false; }
+        $folioNo = max(1, min(9, $folioNo)); // windows A..I
         try {
-            $f = $db->get('stays_folios', ['id', 'status'], ['id' => $folioId]);
+            $f = $db->get('stays_folios', ['id', 'status', 'invoice_id'], ['id' => $folioId]);
             if (!$f || $f['status'] !== 'open') { return false; }
             $db->insert('stays_folio_items', [
                 'folio_id'   => $folioId,
+                'folio_no'   => $folioNo,
                 'type'       => $type,
-                'description'=> $description !== '' ? substr($description, 0, 191) : ucfirst($type),
+                'description'=> $description !== '' ? substr($description, 0, 191) : ucfirst(str_replace('_', ' ', $type)),
                 'amount'     => $amount,
                 'created_by' => $actor !== '' ? substr($actor, 0, 155) : 'desk',
                 'created_at' => date('Y-m-d H:i:s'),
             ]);
+            $itemId = (int) $db->id();
+            folio_audit($db, $folioId, 'post:' . $type, ['invoice_id' => $f['invoice_id'] ?? null, 'item_id' => $itemId, 'amount' => $amount, 'detail' => 'window ' . $folioNo . ' · ' . $description]);
             return true;
         } catch (\Throwable $e) {
             error_log('folio_add_item: ' . $e->getMessage());
             return false;
         }
+    }
+}
+
+if (!function_exists('folio_void_item')) {
+    /**
+     * SUPERVISOR OVERRIDE: void a posted folio line (with a reason). The line is kept for
+     * the audit trail (never deleted) but excluded from folio_totals. Only lines on an
+     * OPEN folio can be voided. Records an audit row. Returns bool.
+     */
+    function folio_void_item($db, int $folioId, int $itemId, string $reason): bool
+    {
+        if ($folioId <= 0 || $itemId <= 0) { return false; }
+        try {
+            $f = $db->get('stays_folios', ['id', 'status', 'invoice_id'], ['id' => $folioId]);
+            if (!$f || $f['status'] !== 'open') { return false; }
+            $it = $db->get('stays_folio_items', ['id', 'type', 'amount', 'void'], ['id' => $itemId, 'folio_id' => $folioId]);
+            if (!$it || (int) ($it['void'] ?? 0) === 1) { return false; } // missing / already void
+            $db->update('stays_folio_items', [
+                'void' => 1, 'void_reason' => substr(trim($reason), 0, 191) ?: 'voided',
+                'void_by' => (string) ($_SESSION['user_id'] ?? '') ?: 'supervisor',
+            ], ['id' => $itemId, 'folio_id' => $folioId, 'void' => 0]);
+            folio_audit($db, $folioId, 'void', ['invoice_id' => $f['invoice_id'] ?? null, 'item_id' => $itemId, 'amount' => (float) $it['amount'], 'detail' => $it['type'] . ' · ' . $reason]);
+            return true;
+        } catch (\Throwable $e) { error_log('folio_void_item: ' . $e->getMessage()); return false; }
+    }
+}
+
+if (!function_exists('folio_windows')) {
+    /**
+     * SPLIT BILLING: the distinct folio windows (1..9) in use on a folio, each with its
+     * own totals (charges/payments/balance). Window 1 is the primary guest folio; extra
+     * windows let the desk route charges separately (e.g. room to company, extras to
+     * guest). Read-only. Returns [ ['no'=>int,'totals'=>[...]], ... ].
+     */
+    function folio_windows($db, int $folioId): array
+    {
+        if ($folioId <= 0) { return []; }
+        try {
+            $nos = [];
+            foreach ($db->select('stays_folio_items', ['folio_no'], ['folio_id' => $folioId]) ?: [] as $r) {
+                $nos[(int) ($r['folio_no'] ?? 1)] = true;
+            }
+            if (empty($nos)) { $nos[1] = true; }
+            ksort($nos);
+            $out = [];
+            foreach (array_keys($nos) as $no) { $out[] = ['no' => $no, 'totals' => folio_totals($db, $folioId, $no)]; }
+            return $out;
+        } catch (\Throwable $e) { error_log('folio_windows: ' . $e->getMessage()); return []; }
     }
 }
 
@@ -222,22 +301,34 @@ if (!function_exists('folio_checkout')) {
             $orgId = supplier_property_org_ensure($db, $stayId);
         }
 
-        // Compute the posting amounts from the folio items.
+        // Compute the posting amounts from the folio items. MODULE 09: exclude VOIDED
+        // lines (supervisor overrides) and honour credit/debit notes + preauth so the GL
+        // post matches the void-aware folio_totals balance the guest actually owes.
+        //   credit_note → reduces non-tax revenue (a discount on charges)
+        //   debit_note  → adds to extra (a surcharge)
+        //   preauth     → a held amount, never posted
         $room = 0.0; $tax = 0.0; $extra = 0.0; $payments = 0.0;
         try {
-            foreach ($db->select('stays_folio_items', ['type', 'amount'], ['folio_id' => $folioId]) ?: [] as $it) {
+            foreach ($db->select('stays_folio_items', ['type', 'amount', 'void'], ['folio_id' => $folioId]) ?: [] as $it) {
+                if ((int) ($it['void'] ?? 0) === 1) { continue; } // voided → not posted
                 $amt = round((float) $it['amount'], 2);
                 switch ((string) $it['type']) {
-                    case 'room':    $room += $amt; break;
-                    case 'tax':     $tax += $amt; break;
+                    case 'room':        $room += $amt; break;
+                    case 'tax':         $tax += $amt; break;
                     case 'extra':
-                    case 'charge':  $extra += $amt; break;
-                    case 'payment': $payments += $amt; break;
-                    case 'refund':  $payments -= $amt; break;
+                    case 'charge':
+                    case 'debit_note':  $extra += $amt; break;
+                    case 'credit_note': $extra -= $amt; break; // discount off revenue
+                    case 'payment':     $payments += $amt; break;
+                    case 'refund':      $payments -= $amt; break;
+                    case 'preauth':     break;                  // held, not charged
                 }
             }
         } catch (\Throwable $e) { error_log('folio_checkout tally: ' . $e->getMessage()); }
         $room = round($room, 2); $tax = round($tax, 2); $extra = round($extra, 2); $payments = round($payments, 2);
+        // A credit note could push non-tax revenue slightly negative in odd cases; floor
+        // the revenue components at 0 for the GL (the balance math above is unaffected).
+        if ($extra < 0 && ($room + $extra) < 0) { $extra = -$room; }
         $charges = round($room + $tax + $extra, 2);
 
         // CRITICAL-1: the whole finalize — status re-check, both GL posts, and the

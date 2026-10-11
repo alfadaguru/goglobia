@@ -95,16 +95,17 @@ Per-module: built/total + the sub-features still to build (BUILT ones omitted). 
 
 > ✅ MODULE 08 DEEPENED: cutoff_date + rate on stays_group_blocks; group_cutoff_sweep auto-releases unsold held blocks past cutoff (self-healing on the groups page load); negotiated group rate per block; group_checkin_all (bulk check-in rooming-list members with a linked booking via canonical folio_checkin); printable MASTER INVOICE (/supplier/groups/{id}/invoice + group_invoice_data). Deposits + charge routing = existing master folio (group_folio_add); profitability = group_totals (→ #56 BI). Block/rooming/pickup/GL-on-complete already existed.
 ## 09. Guest folio, billing & cashier  —  14/21
-- [ ] multiple folios
-- [ ] charge routing
-- [ ] split billing
-- [ ] preauthorizations
-- [ ] refunds
-- [ ] receipts
-- [ ] credit/debit notes
-- [ ] supervisor overrides
-- [ ] transaction audit
+- [x] multiple folios
+- [x] charge routing
+- [x] split billing
+- [x] preauthorizations
+- [x] refunds
+- [x] receipts
+- [x] credit/debit notes
+- [x] supervisor overrides
+- [x] transaction audit
 
+> ✅ MODULE 09 DEEPENED: FOLIO WINDOWS (folio_no on items → split billing + charge routing A/B/…, folio_windows() per-window totals); CREDIT/DEBIT NOTES + PREAUTH line types (preauth = held, not charged); SUPERVISOR VOID (folio_void_item keeps the line, excludes from totals, reason+actor); folio_totals now void-aware + correct signs (harness_folio_totals, 16 checks); folio_checkout GL tally ALSO made void-aware + type-correct (critical consistency fix — a voided line no longer posts to the GL); TRANSACTION AUDIT (stays_folio_audit + folio_audit on every post/void). DB-GATED: actual gateway charge/refund + preauth capture are external rails (records built; execution verify-with-DB). Receipts = folio-invoice print (payment lines).
 ## 10. Night audit & business-day close  —  8/12
 - [ ] cashier reconciliation
 - [ ] payment reconciliation
