@@ -85,6 +85,35 @@ require_once 'app/routes/users/supplierPosExtRoutes.php';
 require_once 'app/routes/users/supplierKitchenExtRoutes.php';
 require_once 'app/routes/users/supplierSpaExtRoutes.php';
 require_once 'app/routes/users/supplierResourcesExtRoutes.php';
+// === BATCH-2 DEEPEN routes (modules 34-61) ===
+require_once 'app/routes/users/supplierAiExtRoutes.php';
+require_once 'app/routes/users/supplierApExtRoutes.php';
+require_once 'app/routes/users/supplierApartmentExtRoutes.php';
+require_once 'app/routes/users/supplierApiExtRoutes.php';
+require_once 'app/routes/users/supplierArExtRoutes.php';
+require_once 'app/routes/users/supplierBiExtRoutes.php';
+require_once 'app/routes/users/supplierDocsExtRoutes.php';
+require_once 'app/routes/users/supplierGlExtRoutes.php';
+require_once 'app/routes/users/supplierHrExtRoutes.php';
+require_once 'app/routes/users/supplierIotExtRoutes.php';
+require_once 'app/routes/users/supplierLeaseExtRoutes.php';
+require_once 'app/routes/users/supplierLocksExtRoutes.php';
+require_once 'app/routes/users/supplierMigrationExtRoutes.php';
+require_once 'app/routes/users/supplierNotifyExtRoutes.php';
+require_once 'app/routes/users/supplierOwnersExtRoutes.php';
+require_once 'app/routes/users/supplierPaymentsExtRoutes.php';
+require_once 'app/routes/users/supplierPlatformopsExtRoutes.php';
+require_once 'app/routes/users/supplierProcurementExtRoutes.php';
+require_once 'app/routes/users/supplierRbacExtRoutes.php';
+require_once 'app/routes/users/supplierSafetyExtRoutes.php';
+require_once 'app/routes/users/supplierSettlementExtRoutes.php';
+require_once 'app/routes/users/supplierStoresExtRoutes.php';
+require_once 'app/routes/users/supplierTaxExtRoutes.php';
+require_once 'app/routes/users/supplierTreasuryExtRoutes.php';
+require_once 'app/routes/users/supplierTrustExtRoutes.php';
+require_once 'app/routes/users/supplierUtilitiesExtRoutes.php';
+require_once 'app/routes/users/supplierVendorsExtRoutes.php';
+require_once 'app/routes/users/supplierWorkflowExtRoutes.php';
 require_once 'app/routes/users/supplierRatesRoutes.php'; // yield rate-rules + booking restrictions (PMS #06 deepen)
 require_once 'app/routes/users/supplierCalendarRoutes.php'; // reservation calendar / tape-chart (inc S39)
 require_once 'app/routes/users/supplierRequestRoutes.php'; // post-approval service/quota request flow (inc S34)

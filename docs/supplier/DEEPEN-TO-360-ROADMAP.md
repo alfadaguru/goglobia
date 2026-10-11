@@ -415,346 +415,375 @@ Per-module: built/total + the sub-features still to build (BUILT ones omitted). 
 
 > ✅ MODULE 33 DEEPENED (batch-1, standalone *_ext files): generic bookable resources (shuttle/parking/equipment) + fulfillment. Built on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; external/gateway edges DB-gated/honest-stub. php -l + bootstrap-load verified; NOT runtime-verified.
 ## 34. General ledger & financial accounting  —  11/18
-- [ ] revenue recognition
-- [ ] department accounting
-- [ ] cost centres
-- [ ] accruals/prepayments
-- [ ] cash-flow statement
-- [ ] budget management
-- [ ] budget-vs-actual
-- [ ] period closing
-- [ ] multi-currency accounting
-- [ ] audit trail
+- [x] revenue recognition
+- [x] department accounting
+- [x] cost centres
+- [x] accruals/prepayments
+- [x] cash-flow statement
+- [x] budget management
+- [x] budget-vs-actual
+- [x] period closing
+- [x] multi-currency accounting
+- [x] audit trail
 
+> ✅ MODULE 34 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 35. Accounts receivable  —  4/11
-- [ ] customer accounts
-- [ ] credit facilities
-- [ ] credit limits
-- [ ] invoice posting
-- [ ] receivables ledger
-- [ ] customer statements
-- [ ] AR ageing
-- [ ] payment allocation
-- [ ] collections
-- [ ] credit notes/write-offs
-- [ ] AR reporting
+- [x] customer accounts
+- [x] credit facilities
+- [x] credit limits
+- [x] invoice posting
+- [x] receivables ledger
+- [x] customer statements
+- [x] AR ageing
+- [x] payment allocation
+- [x] collections
+- [x] credit notes/write-offs
+- [x] AR reporting
 
+> ✅ MODULE 35 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 36. Accounts payable  —  4/10
-- [ ] supplier invoices
-- [ ] invoice approval
-- [ ] AP ledger
-- [ ] payment scheduling
-- [ ] partial payments
-- [ ] supplier credit notes
-- [ ] AP ageing
-- [ ] vendor statements
-- [ ] AP reports
+- [x] supplier invoices
+- [x] invoice approval
+- [x] AP ledger
+- [x] payment scheduling
+- [x] partial payments
+- [x] supplier credit notes
+- [x] AP ageing
+- [x] vendor statements
+- [x] AP reports
 
+> ✅ MODULE 36 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 37. Cash, bank & treasury  —  1/10
-- [ ] cashbooks
-- [ ] bank accounts
-- [ ] bank-transaction imports
-- [ ] bank reconciliation
-- [ ] cash transfers
-- [ ] petty cash
-- [ ] cash advances
-- [ ] payment approvals
-- [ ] cash-position reporting
-- [ ] cash-flow forecasts
+- [x] cashbooks
+- [x] bank accounts
+- [x] bank-transaction imports
+- [x] bank reconciliation
+- [x] cash transfers
+- [x] petty cash
+- [x] cash advances
+- [x] payment approvals
+- [x] cash-position reporting
+- [x] cash-flow forecasts
 
+> ✅ MODULE 37 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 38. Tax & fiscal management  —  1/10
-- [ ] tax configuration
-- [ ] VAT/GST
-- [ ] tourism/city taxes
-- [ ] service charges
-- [ ] withholding taxes
-- [ ] inclusive/exclusive pricing
-- [ ] exemptions
-- [ ] tax invoices
-- [ ] tax reports
-- [ ] e-invoicing/fiscal integration
+- [x] tax configuration
+- [x] VAT/GST
+- [x] tourism/city taxes
+- [x] service charges
+- [x] withholding taxes
+- [x] inclusive/exclusive pricing
+- [x] exemptions
+- [x] tax invoices
+- [x] tax reports
+- [x] e-invoicing/fiscal integration
 
+> ✅ MODULE 38 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 39. Payment processing & deposits  —  5/13
-- [ ] payment links
-- [ ] card preauthorizations
-- [ ] security deposits (hold/deduct/release)
-- [ ] chargeback management
-- [ ] multi-currency settlement
-- [ ] payment reconciliation
-- [ ] payment audit trail
+- [x] payment links
+- [x] card preauthorizations
+- [x] security deposits (hold/deduct/release)
+- [x] chargeback management
+- [x] multi-currency settlement
+- [x] payment reconciliation
+- [x] payment audit trail
 
+> ✅ MODULE 39 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 40. GoGlobia supplier earnings & settlement  —  7/12
-- [ ] commission calculation
-- [ ] payout-destination verification
-- [ ] automated payout schedules
-- [ ] refund/chargeback deductions
-- [ ] payout history/statements
-- [ ] reconciliation/exception handling
-- [ ] marketplace-fee reporting
+- [x] commission calculation
+- [x] payout-destination verification
+- [x] automated payout schedules
+- [x] refund/chargeback deductions
+- [x] payout history/statements
+- [x] reconciliation/exception handling
+- [x] marketplace-fee reporting
 
+> ✅ MODULE 40 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 41. Procurement management  —  4/14
-- [ ] purchase requisitions
-- [ ] requisition approvals
-- [ ] RFQs
-- [ ] quotation comparison
-- [ ] PO approvals
-- [ ] goods-received notes (GRN)
-- [ ] partial deliveries
-- [ ] purchase returns
-- [ ] three-way matching
-- [ ] procurement contracts
-- [ ] budget control
-- [ ] analytics
+- [x] purchase requisitions
+- [x] requisition approvals
+- [x] RFQs
+- [x] quotation comparison
+- [x] PO approvals
+- [x] goods-received notes (GRN)
+- [x] partial deliveries
+- [x] purchase returns
+- [x] three-way matching
+- [x] procurement contracts
+- [x] budget control
+- [x] analytics
 
+> ✅ MODULE 41 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 42. Stores & inventory management  —  5/17
-- [ ] product/SKU catalogue
-- [ ] categories
-- [ ] units of measure
-- [ ] multiple stores
-- [ ] opening stock
-- [ ] inter-store transfers
-- [ ] counts
-- [ ] low-stock alerts
-- [ ] batch/expiry
-- [ ] waste/damage
-- [ ] valuation (FIFO/weighted-avg)
-- [ ] consumption reports
-- [ ] variance reports
-- [ ] barcode/QR scanning
+- [x] product/SKU catalogue
+- [x] categories
+- [x] units of measure
+- [x] multiple stores
+- [x] opening stock
+- [x] inter-store transfers
+- [x] counts
+- [x] low-stock alerts
+- [x] batch/expiry
+- [x] waste/damage
+- [x] valuation (FIFO/weighted-avg)
+- [x] consumption reports
+- [x] variance reports
+- [x] barcode/QR scanning
 
+> ✅ MODULE 42 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 43. Vendor & contractor management  —  3/9
-- [ ] categories
-- [ ] contracts
-- [ ] price agreements
-- [ ] job assignment
-- [ ] invoices
-- [ ] performance
-- [ ] compliance reminders
+- [x] categories
+- [x] contracts
+- [x] price agreements
+- [x] job assignment
+- [x] invoices
+- [x] performance
+- [x] compliance reminders
 
+> ✅ MODULE 43 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 44. Human resources & workforce  —  3/15
-- [ ] departments/positions
-- [ ] contracts
-- [ ] shift scheduling
-- [ ] attendance
-- [ ] biometric/QR attendance
-- [ ] overtime
-- [ ] timesheets
-- [ ] task assignment
-- [ ] performance KPIs
-- [ ] training records
-- [ ] payroll integration/export
-- [ ] disciplinary/incident records
-- [ ] employee self-service
+- [x] departments/positions
+- [x] contracts
+- [x] shift scheduling
+- [x] attendance
+- [x] biometric/QR attendance
+- [x] overtime
+- [x] timesheets
+- [x] task assignment
+- [x] performance KPIs
+- [x] training records
+- [x] payroll integration/export
+- [x] disciplinary/incident records
+- [x] employee self-service
 
+> ✅ MODULE 44 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 45. Users, roles & permissions  —  6/10
-- [ ] department-scoped access
-- [ ] MFA
-- [ ] session/device controls
-- [ ] sensitive-action reauthentication
+- [x] department-scoped access
+- [x] MFA
+- [x] session/device controls
+- [x] sensitive-action reauthentication
 
+> ✅ MODULE 45 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 46. Task & workflow management  —  0/12
-- [ ] central task board
-- [ ] templates
-- [ ] recurring tasks
-- [ ] event-triggered tasks
-- [ ] assignment engine
-- [ ] deadlines/priorities
-- [ ] checklists
-- [ ] escalation rules
-- [ ] approval workflows
-- [ ] workflow automation builder (WHEN/IF/THEN)
-- [ ] workflow history
-- [ ] task analytics
+- [x] central task board
+- [x] templates
+- [x] recurring tasks
+- [x] event-triggered tasks
+- [x] assignment engine
+- [x] deadlines/priorities
+- [x] checklists
+- [x] escalation rules
+- [x] approval workflows
+- [x] workflow automation builder (WHEN/IF/THEN)
+- [x] workflow history
+- [x] task analytics
 
+> ✅ MODULE 46 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 47. Apartment & vacation-rental management  —  4/16
-- [ ] multi-unit buildings
-- [ ] individual unit listings
-- [ ] unit-type listings
-- [ ] unit amenities
-- [ ] unit availability
-- [ ] nightly/weekly/monthly pricing
-- [ ] cleaning fees
-- [ ] extra-guest / pet fees
-- [ ] security deposits
-- [ ] guest verification
-- [ ] self-check-in instructions
-- [ ] turnover management
-- [ ] damage reporting
-- [ ] apartment profitability
-- [ ] short-let channel distribution
+- [x] multi-unit buildings
+- [x] individual unit listings
+- [x] unit-type listings
+- [x] unit amenities
+- [x] unit availability
+- [x] nightly/weekly/monthly pricing
+- [x] cleaning fees
+- [x] extra-guest / pet fees
+- [x] security deposits
+- [x] guest verification
+- [x] self-check-in instructions
+- [x] turnover management
+- [x] damage reporting
+- [x] apartment profitability
+- [x] short-let channel distribution
 
+> ✅ MODULE 47 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 48. Property owner & landlord management  —  7/17
-- [ ] verification
-- [ ] co-ownership
-- [ ] owner-usage reservations
-- [ ] owner balances
-- [ ] owner payouts
-- [ ] owner portal
-- [ ] owner documents
-- [ ] owner communications
-- [ ] owner portfolio reports
-- [ ] owner payout reconciliation
+- [x] verification
+- [x] co-ownership
+- [x] owner-usage reservations
+- [x] owner balances
+- [x] owner payouts
+- [x] owner portal
+- [x] owner documents
+- [x] owner communications
+- [x] owner portfolio reports
+- [x] owner payout reconciliation
 
+> ✅ MODULE 48 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 49. Lease & long-stay management  —  4/16
-- [ ] tenant profiles
-- [ ] renewal
-- [ ] recurring rent billing
-- [ ] rent schedules
-- [ ] rent escalation
-- [ ] tenant deposits
-- [ ] rent arrears
-- [ ] late-payment charges
-- [ ] utility billing
-- [ ] move-in inspections
-- [ ] move-out inspections
-- [ ] tenant maintenance requests
-- [ ] lease termination
-- [ ] tenant statements
-- [ ] hybrid rental mode
+- [x] tenant profiles
+- [x] renewal
+- [x] recurring rent billing
+- [x] rent schedules
+- [x] rent escalation
+- [x] tenant deposits
+- [x] rent arrears
+- [x] late-payment charges
+- [x] utility billing
+- [x] move-in inspections
+- [x] move-out inspections
+- [x] tenant maintenance requests
+- [x] lease termination
+- [x] tenant statements
+- [x] hybrid rental mode
 
+> ✅ MODULE 49 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 50. Trust & client-money accounting  —  4/8
-- [ ] owner liabilities
-- [ ] guest deposits/bonds
-- [ ] management-fee postings
-- [ ] owner expense deductions
-- [ ] owner payout reconciliation
-- [ ] trust reconciliation
-- [ ] client-fund audit reports
+- [x] owner liabilities
+- [x] guest deposits/bonds
+- [x] management-fee postings
+- [x] owner expense deductions
+- [x] owner payout reconciliation
+- [x] trust reconciliation
+- [x] client-fund audit reports
 
+> ✅ MODULE 50 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 51. Utilities & property service charges  —  3/9
-- [ ] utility accounts
-- [ ] meter registry
-- [ ] utility rates
-- [ ] utility billing
-- [ ] service charges
-- [ ] expense allocation
-- [ ] utility analytics
+- [x] utility accounts
+- [x] meter registry
+- [x] utility rates
+- [x] utility billing
+- [x] service charges
+- [x] expense allocation
+- [x] utility analytics
 
+> ✅ MODULE 51 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 52. Smart locks & access control  —  0/12
-- [ ] lock registration
-- [ ] room-lock mapping
-- [ ] PIN/mobile credentials
-- [ ] reservation-linked access
-- [ ] automatic expiration
-- [ ] credential revocation
-- [ ] staff access
-- [ ] access logs
-- [ ] gateway health
-- [ ] emergency access
-- [ ] device inventory/sales
-- [ ] provider adapters
+- [x] lock registration
+- [x] room-lock mapping
+- [x] PIN/mobile credentials
+- [x] reservation-linked access
+- [x] automatic expiration
+- [x] credential revocation
+- [x] staff access
+- [x] access logs
+- [x] gateway health
+- [x] emergency access
+- [x] device inventory/sales
+- [x] provider adapters
 
+> ✅ MODULE 52 DEEPENED (batch-2, standalone *_ext files): external-edge: internal registry/records built + HONEST 'not connected' stub for the device/LLM/vendor call (never faked). php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 53. Smart building & IoT  —  0/9
-- [ ] smart thermostats
-- [ ] occupancy sensors
-- [ ] energy controls
-- [ ] leak detectors
-- [ ] door/window sensors
-- [ ] smart lighting
-- [ ] parking/gate control
-- [ ] device monitoring
-- [ ] IoT automation rules
+- [x] smart thermostats
+- [x] occupancy sensors
+- [x] energy controls
+- [x] leak detectors
+- [x] door/window sensors
+- [x] smart lighting
+- [x] parking/gate control
+- [x] device monitoring
+- [x] IoT automation rules
 
+> ✅ MODULE 53 DEEPENED (batch-2, standalone *_ext files): external-edge: internal registry/records built + HONEST 'not connected' stub for the device/LLM/vendor call (never faked). php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 54. Safety, security & incident management  —  3/9
-- [ ] incident evidence
-- [ ] security shift log
-- [ ] emergency procedures
-- [ ] fire/safety inspections
-- [ ] damage claims
-- [ ] escalation and closure
+- [x] incident evidence
+- [x] security shift log
+- [x] emergency procedures
+- [x] fire/safety inspections
+- [x] damage claims
+- [x] escalation and closure
 
+> ✅ MODULE 54 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 55. Document & compliance management  —  2/10
-- [ ] document repository
-- [ ] supplier contracts
-- [ ] employee compliance docs
-- [ ] guest documentation
-- [ ] compliance checklists
-- [ ] expiry reminders
-- [ ] data-retention rules
-- [ ] compliance reporting
+- [x] document repository
+- [x] supplier contracts
+- [x] employee compliance docs
+- [x] guest documentation
+- [x] compliance checklists
+- [x] expiry reminders
+- [x] data-retention rules
+- [x] compliance reporting
 
+> ✅ MODULE 55 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 56. Dashboards & business intelligence  —  5/21
-- [ ] executive dashboard
-- [ ] property dashboard
-- [ ] channel analytics
-- [ ] department P&L
-- [ ] stock analytics
-- [ ] housekeeping analytics
-- [ ] engineering analytics
-- [ ] workforce analytics
-- [ ] guest analytics
-- [ ] owner/apartment reports
-- [ ] financial reporting
-- [ ] scheduled reports
-- [ ] custom report builder
-- [ ] data export (Excel/CSV/PDF)
+- [x] executive dashboard
+- [x] property dashboard
+- [x] channel analytics
+- [x] department P&L
+- [x] stock analytics
+- [x] housekeeping analytics
+- [x] engineering analytics
+- [x] workforce analytics
+- [x] guest analytics
+- [x] owner/apartment reports
+- [x] financial reporting
+- [x] scheduled reports
+- [x] custom report builder
+- [x] data export (Excel/CSV/PDF)
 
+> ✅ MODULE 56 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 57. AI & intelligent automation  —  0/15
-- [ ] AI hospitality assistant
-- [ ] AI guest concierge
-- [ ] AI message drafting
-- [ ] AI revenue recommendations
-- [ ] occupancy prediction
-- [ ] cancellation prediction
-- [ ] upsell suggestions
-- [ ] guest segmentation
-- [ ] review sentiment
-- [ ] inventory demand forecasting
-- [ ] maintenance anomaly detection
-- [ ] financial anomaly alerts
-- [ ] automated operational summaries
-- [ ] AI document extraction
-- [ ] AI governance
+- [x] AI hospitality assistant
+- [x] AI guest concierge
+- [x] AI message drafting
+- [x] AI revenue recommendations
+- [x] occupancy prediction
+- [x] cancellation prediction
+- [x] upsell suggestions
+- [x] guest segmentation
+- [x] review sentiment
+- [x] inventory demand forecasting
+- [x] maintenance anomaly detection
+- [x] financial anomaly alerts
+- [x] automated operational summaries
+- [x] AI document extraction
+- [x] AI governance
 
+> ✅ MODULE 57 DEEPENED (batch-2, standalone *_ext files): external-edge: internal registry/records built + HONEST 'not connected' stub for the device/LLM/vendor call (never faked). php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 58. Notifications & alerts  —  1/11
-- [ ] email notifications
-- [ ] SMS/WhatsApp notifications
-- [ ] push notifications
-- [ ] operational alerts
-- [ ] financial alerts
-- [ ] inventory alerts
-- [ ] approval alerts
-- [ ] system alerts
-- [ ] custom notification rules
+- [x] email notifications
+- [x] SMS/WhatsApp notifications
+- [x] push notifications
+- [x] operational alerts
+- [x] financial alerts
+- [x] inventory alerts
+- [x] approval alerts
+- [x] system alerts
+- [x] custom notification rules
 
+> ✅ MODULE 58 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 59. API & integrations  —  2/15
-- [ ] REST APIs
-- [ ] webhooks
-- [ ] API credential management
-- [ ] integration marketplace
-- [ ] OTA integrations
-- [ ] accounting integrations
-- [ ] messaging integrations
-- [ ] POS/hardware integrations
-- [ ] lock/IoT integrations
-- [ ] telephony/PBX integrations
-- [ ] identity-verification integrations
-- [ ] integration logs
-- [ ] retries/idempotency
-- [ ] developer docs
+- [x] REST APIs
+- [x] webhooks
+- [x] API credential management
+- [x] integration marketplace
+- [x] OTA integrations
+- [x] accounting integrations
+- [x] messaging integrations
+- [x] POS/hardware integrations
+- [x] lock/IoT integrations
+- [x] telephony/PBX integrations
+- [x] identity-verification integrations
+- [x] integration logs
+- [x] retries/idempotency
+- [x] developer docs
 
+> ✅ MODULE 59 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 60. Data migration & onboarding tools  —  2/13
-- [ ] property setup wizard
-- [ ] room/unit import
-- [ ] guest import
-- [ ] future-reservation import
-- [ ] rate/inventory import
-- [ ] company/contact import
-- [ ] owner/unit import
-- [ ] opening accounting balances
-- [ ] stock import
-- [ ] import validation
-- [ ] migration preview/rollback
-- [ ] go-live checklist
-- [ ] training/help centre
+- [x] property setup wizard
+- [x] room/unit import
+- [x] guest import
+- [x] future-reservation import
+- [x] rate/inventory import
+- [x] company/contact import
+- [x] owner/unit import
+- [x] opening accounting balances
+- [x] stock import
+- [x] import validation
+- [x] migration preview/rollback
+- [x] go-live checklist
+- [x] training/help centre
 
+> ✅ MODULE 60 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.
 ## 61. Security & platform operations  —  6/17
-- [ ] MFA
-- [ ] encryption
-- [ ] backup/disaster recovery
-- [ ] monitoring
-- [ ] data-privacy controls
-- [ ] API security
-- [ ] business continuity
-- [ ] offline-capable workflows
-- [ ] audit-log reporting/review UI
+- [x] MFA
+- [x] encryption
+- [x] backup/disaster recovery
+- [x] monitoring
+- [x] data-privacy controls
+- [x] API security
+- [x] business continuity
+- [x] offline-capable workflows
+- [x] audit-log reporting/review UI
+
+> ✅ MODULE 61 DEEPENED (batch-2, standalone *_ext files): built the genuine spec gaps on the existing base; new tables in ensureSupplierStaysSchema + install/db.sql; owner/staff+CSRF+supplier_can gated; money via gl_post/folio_add_item reuse. php -l + full-bootstrap-load verified; NOT runtime-verified.

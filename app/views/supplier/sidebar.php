@@ -145,21 +145,50 @@ if ($activeStay > 0) {
     if (!empty($crmItems)) { $groups[] = ['label' => 'CRM', 'items' => $crmItems]; }
 
     if ($isOwner) {
-        $groups[] = ['label' => 'Finance & stores', 'items' => [
+        $groups[] = ['label' => 'Finance & accounting', 'items' => [
             ['name' => 'Finance',         'icon' => 'account_balance_wallet', 'url' => 'supplier/finance', 'show' => true],
+            ['name' => 'General ledger',  'icon' => 'receipt_long',     'url' => 'supplier/finance/ledger', 'show' => true],
+            ['name' => 'Accounts receivable','icon' => 'request_quote', 'url' => 'supplier/ar', 'show' => true],
+            ['name' => 'Accounts payable','icon' => 'payments',         'url' => 'supplier/ap', 'show' => true],
+            ['name' => 'Treasury',        'icon' => 'account_balance',  'url' => 'supplier/treasury', 'show' => true],
+            ['name' => 'Tax & fiscal',    'icon' => 'percent',          'url' => 'supplier/tax', 'show' => true],
+            ['name' => 'Payments & deposits','icon' => 'credit_card',   'url' => 'supplier/payments', 'show' => true],
             ['name' => 'Cashier',         'icon' => 'point_of_sale',    'url' => 'supplier/cashier', 'show' => true],
-            ['name' => 'Trust / client money','icon' => 'savings',      'url' => 'supplier/trust', 'show' => true],
-            ['name' => 'Corporate & agents','icon' => 'corporate_fare', 'url' => 'supplier/corporate', 'show' => true],
-            ['name' => 'Payouts',         'icon' => 'account_balance',  'url' => 'supplier/payouts', 'show' => true],
-            ['name' => 'Property owners', 'icon' => 'real_estate_agent','url' => 'supplier/owners', 'show' => true],
-            ['name' => 'Procurement',     'icon' => 'inventory_2',      'url' => 'supplier/procurement', 'show' => true],
+            ['name' => 'Settlement',      'icon' => 'account_balance',  'url' => 'supplier/settlement', 'show' => true],
+            ['name' => 'Payouts',         'icon' => 'savings',          'url' => 'supplier/payouts', 'show' => true],
         ]];
-        $groups[] = ['label' => 'Team', 'items' => [
+        $groups[] = ['label' => 'Procurement & stores', 'items' => [
+            ['name' => 'Procurement',     'icon' => 'inventory_2',      'url' => 'supplier/procurement', 'show' => true],
+            ['name' => 'Stores & inventory','icon' => 'warehouse',      'url' => 'supplier/stores', 'show' => true],
+            ['name' => 'Vendors',         'icon' => 'handshake',        'url' => 'supplier/vendors', 'show' => true],
+        ]];
+        $groups[] = ['label' => 'Owners & tenancy', 'items' => [
+            ['name' => 'Corporate & agents','icon' => 'corporate_fare', 'url' => 'supplier/corporate', 'show' => true],
+            ['name' => 'Property owners', 'icon' => 'real_estate_agent','url' => 'supplier/owners', 'show' => true],
+            ['name' => 'Owner accounting','icon' => 'account_balance_wallet','url' => 'supplier/owners/manage', 'show' => true],
+            ['name' => 'Lease billing',   'icon' => 'home_work',        'url' => 'supplier/lease-billing', 'show' => true],
+            ['name' => 'Client-money trust','icon' => 'savings',        'url' => 'supplier/trust', 'show' => true],
+            ['name' => 'Apartments',      'icon' => 'apartment',        'url' => 'supplier/apartment/manage', 'show' => true],
+        ]];
+        $groups[] = ['label' => 'Team & workflow', 'items' => [
             ['name' => 'Staff', 'icon' => 'group', 'url' => 'supplier/staff', 'show' => true],
             ['name' => 'Roles', 'icon' => 'badge', 'url' => 'supplier/roles', 'show' => true],
+            ['name' => 'Access control', 'icon' => 'admin_panel_settings', 'url' => 'supplier/rbac', 'show' => true],
             ['name' => 'HR & workforce', 'icon' => 'badge', 'url' => 'supplier/hr', 'show' => true],
+            ['name' => 'Tasks & workflow', 'icon' => 'checklist', 'url' => 'supplier/workflow', 'show' => true],
+        ]];
+        $groups[] = ['label' => 'Intelligence & platform', 'items' => [
+            ['name' => 'Executive BI',    'icon' => 'leaderboard',      'url' => 'supplier/insights/executive', 'show' => true],
+            ['name' => 'AI & automation',  'icon' => 'auto_awesome',    'url' => 'supplier/ai-ext', 'show' => true],
+            ['name' => 'Alerts',          'icon' => 'notifications_active','url' => 'supplier/alerts', 'show' => true],
+            ['name' => 'Compliance',      'icon' => 'verified_user',    'url' => 'supplier/compliance', 'show' => true],
+            ['name' => 'Smart locks',     'icon' => 'lock',             'url' => 'supplier/access/locks', 'show' => true],
+            ['name' => 'Smart building',  'icon' => 'sensors',          'url' => 'supplier/iot', 'show' => true],
+            ['name' => 'API & webhooks',  'icon' => 'api',              'url' => 'supplier/api', 'show' => true],
+            ['name' => 'Data migration',  'icon' => 'upload_file',      'url' => 'supplier/migration', 'show' => true],
+            ['name' => 'Security & ops',  'icon' => 'security',         'url' => 'supplier/platform-ops', 'show' => true],
             ['name' => 'Integrations', 'icon' => 'hub', 'url' => 'supplier/integrations', 'show' => true],
-            ['name' => 'Growth & brands', 'icon' => 'hub', 'url' => 'supplier/growth', 'show' => true],
+            ['name' => 'Growth & brands', 'icon' => 'domain', 'url' => 'supplier/growth', 'show' => true],
         ]];
     }
 

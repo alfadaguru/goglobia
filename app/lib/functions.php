@@ -9660,6 +9660,1003 @@ function ensureSupplierStaysSchema($db): void
         if (!$db->query("SHOW COLUMNS FROM `pos_orders` LIKE 'shift_id'")->fetch()) { $db->query("ALTER TABLE `pos_orders` ADD COLUMN `shift_id` bigint(20) DEFAULT NULL AFTER `server_id`"); }
 
 
+        // === BATCH-2 DEEPEN (modules 34-61): additive tables + guarded columns ===
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_ar_folio_account` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `folio_id` bigint(20) NOT NULL,
+  `account_id` int(11) NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_org_folio` (`org_id`,`folio_id`),
+  KEY `idx_account` (`account_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_ar_collections` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `account_id` int(11) NOT NULL,
+  `kind` enum('call','email','letter','promise','dispute','note') NOT NULL DEFAULT 'note',
+  `detail` varchar(500) DEFAULT NULL,
+  `promise_date` date DEFAULT NULL,
+  `promise_amount` decimal(14,2) DEFAULT NULL,
+  `status` enum('open','logged','kept','broken') NOT NULL DEFAULT 'logged',
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_org_account` (`org_id`,`account_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_vendor_invoices` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `vendor_id` int(11) NOT NULL,
+  `reference` varchar(40) NOT NULL,
+  `vendor_ref` varchar(100) DEFAULT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `paid` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `issue_date` date NOT NULL,
+  `due_date` date DEFAULT NULL,
+  `scheduled_pay_date` date DEFAULT NULL,
+  `status` enum('draft','approved','paid','void') NOT NULL DEFAULT 'draft',
+  `memo` varchar(255) DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `approved_by` varchar(155) DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_reference` (`reference`),
+  KEY `idx_org_status` (`org_id`,`status`),
+  KEY `idx_vendor` (`vendor_id`),
+  KEY `idx_due` (`org_id`,`due_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_vendor_payments` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `invoice_id` int(11) NOT NULL,
+  `vendor_id` int(11) NOT NULL,
+  `reference` varchar(40) NOT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `method` enum('manual','bank','cash','gateway') NOT NULL DEFAULT 'manual',
+  `status` varchar(20) NOT NULL DEFAULT 'recorded',
+  `note` varchar(255) DEFAULT NULL,
+  `gl_entry_id` int(11) DEFAULT NULL,
+  `paid_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_reference` (`reference`),
+  KEY `idx_org_invoice` (`org_id`,`invoice_id`),
+  KEY `idx_vendor` (`vendor_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `treasury_accounts` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `org_id` INT UNSIGNED NOT NULL,
+  `name` VARCHAR(120) NOT NULL,
+  `kind` VARCHAR(20) NOT NULL DEFAULT 'bank',          -- bank|cash|petty_cash
+  `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+  `coa_code` VARCHAR(10) NOT NULL DEFAULT '1000',      -- mapped chart_of_accounts.code (asset)
+  `bank_name` VARCHAR(120) NULL,
+  `account_number_last4` VARCHAR(4) NULL,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'active',
+  `created_at` DATETIME NULL,
+  `updated_at` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_treasury_org_name` (`org_id`,`name`),
+  KEY `idx_treasury_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+        $db->query("CREATE TABLE IF NOT EXISTS `treasury_movements` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `org_id` INT UNSIGNED NOT NULL,
+  `account_id` INT UNSIGNED NOT NULL,
+  `type` VARCHAR(20) NOT NULL,                         -- deposit|withdrawal|transfer_in|transfer_out|petty_topup|petty_expense|adjustment
+  `amount` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+  `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+  `description` VARCHAR(255) NULL,
+  `gl_entry_id` INT UNSIGNED NULL,                      -- FK (logical) -> journal_entries.id
+  `counter_account_id` INT UNSIGNED NULL,               -- other treasury_accounts.id on a transfer
+  `reconciled` TINYINT(1) NOT NULL DEFAULT 0,
+  `reconciled_at` DATETIME NULL,
+  `created_by` VARCHAR(64) NULL,
+  `created_at` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_tmov_account` (`account_id`),
+  KEY `idx_tmov_org` (`org_id`),
+  KEY `idx_tmov_recon` (`account_id`,`reconciled`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+        $db->query("CREATE TABLE IF NOT EXISTS `tax_profiles` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `org_id` INT UNSIGNED NOT NULL,
+  `name` VARCHAR(120) NOT NULL,
+  `kind` VARCHAR(20) NOT NULL DEFAULT 'vat',
+  `rate_pct` DECIMAL(7,4) NOT NULL DEFAULT 0.0000,
+  `mode` VARCHAR(10) NOT NULL DEFAULT 'exclusive',
+  `applies_to` VARCHAR(40) NOT NULL DEFAULT 'all',
+  `is_default` TINYINT(1) NOT NULL DEFAULT 0,
+  `active` TINYINT(1) NOT NULL DEFAULT 1,
+  `start_date` DATE NULL,
+  `end_date` DATE NULL,
+  `created_at` DATETIME NULL,
+  `updated_at` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_taxprof_org` (`org_id`),
+  KEY `idx_taxprof_org_kind` (`org_id`,`kind`,`is_default`),
+  KEY `idx_taxprof_org_active` (`org_id`,`active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+        $db->query("CREATE TABLE IF NOT EXISTS `tax_exemptions` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `org_id` INT UNSIGNED NOT NULL,
+  `profile_id` INT UNSIGNED NOT NULL DEFAULT 0,
+  `ref` VARCHAR(120) NOT NULL,
+  `label` VARCHAR(160) NULL,
+  `reason` VARCHAR(255) NULL,
+  `start_date` DATE NULL,
+  `end_date` DATE NULL,
+  `active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` DATETIME NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_taxexm_org_ref` (`org_id`,`ref`,`active`),
+  KEY `idx_taxexm_org_profile` (`org_id`,`profile_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_release_runs` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `released_count` int(11) NOT NULL DEFAULT 0,
+  `trigger_source` varchar(20) NOT NULL DEFAULT 'cron',
+  `run_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_proc_requisitions` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `reference` varchar(40) NOT NULL,
+  `title` varchar(191) NOT NULL,
+  `justification` varchar(1000) DEFAULT NULL,
+  `estimated_cost` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `vendor_id` int(11) DEFAULT NULL,
+  `status` enum('requested','approved','rejected','converted') NOT NULL DEFAULT 'requested',
+  `requested_by` varchar(155) DEFAULT NULL,
+  `decided_by` varchar(155) DEFAULT NULL,
+  `decision_note` varchar(500) DEFAULT NULL,
+  `decided_at` datetime DEFAULT NULL,
+  `po_id` int(11) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_req_ref` (`reference`),
+  KEY `idx_org_status` (`org_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_proc_rfqs` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `reference` varchar(40) NOT NULL,
+  `item_id` int(11) NOT NULL,
+  `item_name` varchar(191) NOT NULL,
+  `qty` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `needed_by` date DEFAULT NULL,
+  `notes` varchar(500) DEFAULT NULL,
+  `status` enum('open','awarded','closed') NOT NULL DEFAULT 'open',
+  `awarded_vendor_id` int(11) DEFAULT NULL,
+  `po_id` int(11) DEFAULT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_rfq_ref` (`reference`),
+  KEY `idx_org_status` (`org_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_proc_quotes` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `rfq_id` int(11) NOT NULL,
+  `vendor_id` int(11) NOT NULL,
+  `unit_price` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `line_total` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `lead_days` int(11) NOT NULL DEFAULT 0,
+  `notes` varchar(300) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_rfq_vendor` (`rfq_id`,`vendor_id`),
+  KEY `idx_org_rfq` (`org_id`,`rfq_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_proc_grns` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `reference` varchar(40) NOT NULL,
+  `po_id` int(11) NOT NULL,
+  `value` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `received_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_grn_ref` (`reference`),
+  KEY `idx_org_po` (`org_id`,`po_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_proc_grn_lines` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `grn_ref` varchar(40) NOT NULL,
+  `po_id` int(11) NOT NULL,
+  `po_line_id` bigint(20) NOT NULL,
+  `item_id` int(11) NOT NULL,
+  `qty` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `unit_cost` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `line_value` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_grn` (`grn_ref`),
+  KEY `idx_po` (`po_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_proc_returns` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `reference` varchar(40) NOT NULL,
+  `po_id` int(11) NOT NULL,
+  `po_line_id` bigint(20) NOT NULL,
+  `item_id` int(11) NOT NULL,
+  `qty` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `unit_cost` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `value` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `reason` varchar(300) DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_return_ref` (`reference`),
+  KEY `idx_org_po` (`org_id`,`po_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_proc_invoices` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `po_id` int(11) NOT NULL,
+  `invoice_no` varchar(100) DEFAULT NULL,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `invoice_date` date DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_org_po` (`org_id`,`po_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_proc_contracts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `vendor_id` int(11) NOT NULL,
+  `title` varchar(191) NOT NULL,
+  `start_date` date NOT NULL,
+  `end_date` date DEFAULT NULL,
+  `spend_cap` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `terms` varchar(1000) DEFAULT NULL,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_org_vendor` (`org_id`,`vendor_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_proc_budgets` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `period` char(7) NOT NULL,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_org_period` (`org_id`,`period`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_stock_uoms` (`id` int(11) NOT NULL AUTO_INCREMENT, `org_id` int(11) NOT NULL, `code` varchar(40) NOT NULL, `name` varchar(80) NOT NULL, `symbol` varchar(16) DEFAULT NULL, `status` tinyint(1) NOT NULL DEFAULT 1, `created_at` datetime NOT NULL DEFAULT current_timestamp(), PRIMARY KEY (`id`), UNIQUE KEY `uq_org_code` (`org_id`,`code`), KEY `idx_org` (`org_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_stock_categories` (`id` int(11) NOT NULL AUTO_INCREMENT, `org_id` int(11) NOT NULL, `name` varchar(120) NOT NULL, `notes` varchar(255) DEFAULT NULL, `status` tinyint(1) NOT NULL DEFAULT 1, `created_at` datetime NOT NULL DEFAULT current_timestamp(), PRIMARY KEY (`id`), KEY `idx_org` (`org_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_stores` (`id` int(11) NOT NULL AUTO_INCREMENT, `org_id` int(11) NOT NULL, `name` varchar(120) NOT NULL, `location` varchar(191) DEFAULT NULL, `is_default` tinyint(1) NOT NULL DEFAULT 0, `status` tinyint(1) NOT NULL DEFAULT 1, `created_at` datetime NOT NULL DEFAULT current_timestamp(), PRIMARY KEY (`id`), KEY `idx_org` (`org_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_store_stock` (`id` bigint(20) NOT NULL AUTO_INCREMENT, `org_id` int(11) NOT NULL, `store_id` int(11) NOT NULL, `item_id` int(11) NOT NULL, `on_hand` decimal(14,3) NOT NULL DEFAULT 0.000, `avg_cost` decimal(14,4) NOT NULL DEFAULT 0.0000, `created_at` datetime NOT NULL DEFAULT current_timestamp(), `updated_at` datetime DEFAULT NULL, PRIMARY KEY (`id`), UNIQUE KEY `uq_org_store_item` (`org_id`,`store_id`,`item_id`), KEY `idx_org_item` (`org_id`,`item_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_store_transfers` (`id` bigint(20) NOT NULL AUTO_INCREMENT, `org_id` int(11) NOT NULL, `reference` varchar(40) NOT NULL, `from_store` int(11) NOT NULL, `to_store` int(11) NOT NULL, `item_id` int(11) NOT NULL, `qty` decimal(14,3) NOT NULL, `unit_cost` decimal(14,4) NOT NULL DEFAULT 0.0000, `note` varchar(255) DEFAULT NULL, `actor` varchar(155) DEFAULT NULL, `created_at` datetime NOT NULL DEFAULT current_timestamp(), PRIMARY KEY (`id`), KEY `idx_org` (`org_id`), KEY `idx_item` (`org_id`,`item_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_stock_batches` (`id` bigint(20) NOT NULL AUTO_INCREMENT, `org_id` int(11) NOT NULL, `store_id` int(11) NOT NULL, `item_id` int(11) NOT NULL, `lot_no` varchar(80) NOT NULL, `qty` decimal(14,3) NOT NULL DEFAULT 0.000, `qty_remaining` decimal(14,3) NOT NULL DEFAULT 0.000, `expiry_date` date DEFAULT NULL, `status` tinyint(1) NOT NULL DEFAULT 1, `created_at` datetime NOT NULL DEFAULT current_timestamp(), PRIMARY KEY (`id`), KEY `idx_org_item` (`org_id`,`item_id`), KEY `idx_expiry` (`org_id`,`expiry_date`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_store_counts` (`id` bigint(20) NOT NULL AUTO_INCREMENT, `org_id` int(11) NOT NULL, `store_id` int(11) NOT NULL, `item_id` int(11) NOT NULL, `system_qty` decimal(14,3) NOT NULL DEFAULT 0.000, `counted_qty` decimal(14,3) NOT NULL DEFAULT 0.000, `variance` decimal(14,3) NOT NULL DEFAULT 0.000, `avg_cost` decimal(14,4) NOT NULL DEFAULT 0.0000, `value_impact` decimal(14,2) NOT NULL DEFAULT 0.00, `note` varchar(255) DEFAULT NULL, `actor` varchar(155) DEFAULT NULL, `created_at` datetime NOT NULL DEFAULT current_timestamp(), PRIMARY KEY (`id`), KEY `idx_org` (`org_id`), KEY `idx_created` (`created_at`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_vendor_contracts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `vendor_id` int(11) NOT NULL,
+  `title` varchar(191) NOT NULL,
+  `reference` varchar(60) DEFAULT NULL,
+  `value` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` varchar(3) NOT NULL DEFAULT 'USD',
+  `start_date` date DEFAULT NULL,
+  `end_date` date DEFAULT NULL,
+  `auto_renew` tinyint(1) NOT NULL DEFAULT 0,
+  `status` varchar(20) NOT NULL DEFAULT 'active',
+  `notes` varchar(500) DEFAULT NULL,
+  `created_by` varchar(64) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org_vendor` (`org_id`,`vendor_id`),
+  KEY `idx_end` (`org_id`,`status`,`end_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_vendor_prices` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `vendor_id` int(11) NOT NULL,
+  `item_id` int(11) DEFAULT NULL,
+  `item_label` varchar(191) NOT NULL,
+  `unit` varchar(40) NOT NULL DEFAULT 'unit',
+  `unit_price` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` varchar(3) NOT NULL DEFAULT 'USD',
+  `valid_from` date DEFAULT NULL,
+  `valid_to` date DEFAULT NULL,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_org_vendor` (`org_id`,`vendor_id`),
+  KEY `idx_item` (`org_id`,`vendor_id`,`item_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_vendor_jobs` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `vendor_id` int(11) NOT NULL,
+  `title` varchar(191) NOT NULL,
+  `description` varchar(1000) DEFAULT NULL,
+  `stay_id` int(11) DEFAULT NULL,
+  `wo_id` int(11) DEFAULT NULL,
+  `est_cost` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` varchar(3) NOT NULL DEFAULT 'USD',
+  `due_date` date DEFAULT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'assigned',
+  `assigned_by` varchar(64) DEFAULT NULL,
+  `completed_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org_vendor` (`org_id`,`vendor_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_vendor_scores` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `vendor_id` int(11) NOT NULL,
+  `job_id` int(11) DEFAULT NULL,
+  `m_quality` tinyint(1) DEFAULT NULL,
+  `m_delivery` tinyint(1) DEFAULT NULL,
+  `m_price` tinyint(1) DEFAULT NULL,
+  `m_communication` tinyint(1) DEFAULT NULL,
+  `overall` decimal(4,2) DEFAULT NULL,
+  `comment` varchar(500) DEFAULT NULL,
+  `scored_by` varchar(64) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_org_vendor` (`org_id`,`vendor_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_vendor_docs` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `vendor_id` int(11) NOT NULL,
+  `doc_type` varchar(40) NOT NULL DEFAULT 'other',
+  `title` varchar(191) NOT NULL,
+  `reference` varchar(120) DEFAULT NULL,
+  `file_path` varchar(255) DEFAULT NULL,
+  `issued_date` date DEFAULT NULL,
+  `expiry_date` date DEFAULT NULL,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_org_vendor` (`org_id`,`vendor_id`),
+  KEY `idx_expiry` (`org_id`,`status`,`expiry_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_tasks` (
+  `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+  `org_id` INT(11) NOT NULL,
+  `owner_user_id` VARCHAR(155) NOT NULL,
+  `stay_id` INT(11) DEFAULT NULL,
+  `title` VARCHAR(191) NOT NULL,
+  `body` TEXT DEFAULT NULL,
+  `category` VARCHAR(40) NOT NULL DEFAULT 'general',
+  `priority` VARCHAR(16) NOT NULL DEFAULT 'normal',
+  `status` VARCHAR(16) NOT NULL DEFAULT 'open',
+  `source` VARCHAR(16) NOT NULL DEFAULT 'manual',
+  `source_ref` VARCHAR(120) DEFAULT NULL,
+  `assignee_id` VARCHAR(155) DEFAULT NULL,
+  `due_date` DATE DEFAULT NULL,
+  `requires_approval` TINYINT(1) NOT NULL DEFAULT 0,
+  `approval_state` VARCHAR(16) NOT NULL DEFAULT 'none',
+  `approved_by` VARCHAR(155) DEFAULT NULL,
+  `approved_at` DATETIME DEFAULT NULL,
+  `completed_at` DATETIME DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org_status` (`org_id`,`status`),
+  KEY `idx_owner` (`owner_user_id`),
+  KEY `idx_assignee` (`assignee_id`),
+  KEY `idx_due` (`due_date`),
+  KEY `idx_approval` (`requires_approval`,`approval_state`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_task_comments` (
+  `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+  `task_id` BIGINT(20) NOT NULL,
+  `kind` VARCHAR(24) NOT NULL DEFAULT 'comment',
+  `body` TEXT DEFAULT NULL,
+  `actor` VARCHAR(155) DEFAULT NULL,
+  `actor_id` VARCHAR(155) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_task` (`task_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_task_templates` (
+  `id` INT(11) NOT NULL AUTO_INCREMENT,
+  `org_id` INT(11) NOT NULL,
+  `name` VARCHAR(120) NOT NULL,
+  `title` VARCHAR(191) NOT NULL,
+  `body` TEXT DEFAULT NULL,
+  `category` VARCHAR(40) NOT NULL DEFAULT 'general',
+  `priority` VARCHAR(16) NOT NULL DEFAULT 'normal',
+  `due_offset_days` INT(11) NOT NULL DEFAULT 0,
+  `requires_approval` TINYINT(1) NOT NULL DEFAULT 0,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_task_recurrences` (
+  `id` INT(11) NOT NULL AUTO_INCREMENT,
+  `org_id` INT(11) NOT NULL,
+  `owner_user_id` VARCHAR(155) NOT NULL,
+  `template_id` INT(11) NOT NULL,
+  `cadence` VARCHAR(16) NOT NULL DEFAULT 'weekly',
+  `stay_id` INT(11) DEFAULT NULL,
+  `assignee_id` VARCHAR(155) DEFAULT NULL,
+  `active` TINYINT(1) NOT NULL DEFAULT 1,
+  `last_run_at` DATETIME DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org_active` (`org_id`,`active`),
+  KEY `idx_template` (`template_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `workflow_run_state` (
+  `org_id` INT(11) NOT NULL,
+  `last_event_id` BIGINT(20) NOT NULL DEFAULT 0,
+  `updated_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_apartment_units` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `stay_id` int(11) NOT NULL,
+  `unit_id` int(11) NOT NULL,
+  `base_occupancy` tinyint(3) UNSIGNED NOT NULL DEFAULT 2,
+  `max_occupancy` tinyint(3) UNSIGNED NOT NULL DEFAULT 2,
+  `extra_guest_fee` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `pets_allowed` tinyint(1) NOT NULL DEFAULT 0,
+  `pet_fee` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_unit` (`unit_id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_apartment_checkin` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `stay_id` int(11) NOT NULL,
+  `unit_id` int(11) NOT NULL,
+  `access_method` varchar(20) NOT NULL DEFAULT 'reception',
+  `access_code` varchar(64) DEFAULT NULL,
+  `wifi_ssid` varchar(120) DEFAULT NULL,
+  `wifi_password` varchar(120) DEFAULT NULL,
+  `directions` text DEFAULT NULL,
+  `checkin_notes` text DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_unit_ci` (`unit_id`),
+  KEY `idx_stay_ci` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_apartment_turnovers` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `stay_id` int(11) NOT NULL,
+  `unit_id` int(11) NOT NULL,
+  `status` enum('pending','in_progress','done','blocked') NOT NULL DEFAULT 'pending',
+  `due_date` date DEFAULT NULL,
+  `assigned_to` varchar(155) DEFAULT NULL,
+  `checklist` text DEFAULT NULL,
+  `notes` varchar(500) DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `done_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`),
+  KEY `idx_unit_to` (`unit_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_apartment_damage` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `stay_id` int(11) NOT NULL,
+  `unit_id` int(11) NOT NULL,
+  `invoice_id` varchar(191) DEFAULT NULL,
+  `status` enum('reported','billed','waived','resolved') NOT NULL DEFAULT 'reported',
+  `description` varchar(1000) NOT NULL,
+  `estimated_cost` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `charged_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `photos` text DEFAULT NULL,
+  `reported_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_dmg` (`stay_id`,`status`),
+  KEY `idx_invoice_dmg` (`invoice_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_owner_coowners` (
+  `id` INT(11) NOT NULL AUTO_INCREMENT,
+  `org_id` INT(11) NOT NULL,
+  `stay_id` INT(11) NOT NULL,
+  `owner_id` INT(11) NOT NULL,
+  `share_pct` DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_stay_owner` (`stay_id`,`owner_id`),
+  KEY `idx_org` (`org_id`),
+  KEY `idx_owner` (`owner_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_owner_documents` (
+  `id` INT(11) NOT NULL AUTO_INCREMENT,
+  `org_id` INT(11) NOT NULL,
+  `owner_id` INT(11) NOT NULL,
+  `title` VARCHAR(191) NOT NULL,
+  `doc_type` ENUM('agreement','id','tax','bank','insurance','other') NOT NULL DEFAULT 'other',
+  `reference` VARCHAR(120) DEFAULT NULL,
+  `expires_on` DATE DEFAULT NULL,
+  `notes` VARCHAR(500) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_org_owner` (`org_id`,`owner_id`),
+  KEY `idx_expires` (`expires_on`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_owner_usage` (
+  `id` INT(11) NOT NULL AUTO_INCREMENT,
+  `org_id` INT(11) NOT NULL,
+  `stay_id` INT(11) NOT NULL,
+  `owner_id` INT(11) NOT NULL,
+  `date_from` DATE NOT NULL,
+  `date_to` DATE NOT NULL,
+  `status` ENUM('booked','cancelled') NOT NULL DEFAULT 'booked',
+  `note` VARCHAR(255) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_dates` (`stay_id`,`date_from`,`date_to`),
+  KEY `idx_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_owner_comms` (
+  `id` INT(11) NOT NULL AUTO_INCREMENT,
+  `org_id` INT(11) NOT NULL,
+  `owner_id` INT(11) NOT NULL,
+  `channel` ENUM('note','email') NOT NULL DEFAULT 'note',
+  `subject` VARCHAR(191) DEFAULT NULL,
+  `body` TEXT DEFAULT NULL,
+  `delivery` ENUM('logged','sent','not_sent') NOT NULL DEFAULT 'logged',
+  `created_by` VARCHAR(64) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_org_owner` (`org_id`,`owner_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_lease_charges` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `lease_id` int(11) NOT NULL,
+  `kind` enum('rent','late_fee','deposit','adjustment') NOT NULL DEFAULT 'rent',
+  `period_start` date DEFAULT NULL,
+  `period_end` date DEFAULT NULL,
+  `due_date` date DEFAULT NULL,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `amount_paid` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `description` varchar(255) DEFAULT NULL,
+  `gl_entry_id` int(11) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_lease_kind_period` (`lease_id`,`kind`,`period_start`),
+  KEY `idx_lease_due` (`lease_id`,`due_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_lease_receipts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `lease_id` int(11) NOT NULL,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `method` enum('cash','bank_transfer','cheque','card_offline','other') NOT NULL DEFAULT 'cash',
+  `reference` varchar(100) DEFAULT NULL,
+  `received_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `received_by` varchar(64) DEFAULT NULL,
+  `gl_entry_id` int(11) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_lease` (`lease_id`,`received_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_lease_inspections` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `lease_id` int(11) NOT NULL,
+  `kind` enum('move_in','move_out','periodic') NOT NULL DEFAULT 'periodic',
+  `inspected_on` date NOT NULL,
+  `inspector` varchar(120) DEFAULT NULL,
+  `checklist` longtext DEFAULT NULL,
+  `summary` varchar(500) DEFAULT NULL,
+  `deposit_deduction` decimal(14,2) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_lease` (`lease_id`,`inspected_on`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_trust_bonds` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `party` varchar(191) NOT NULL,
+  `kind` enum('security','advance','owner_liability') NOT NULL DEFAULT 'security',
+  `reference` varchar(120) DEFAULT NULL,
+  `amount_held` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `amount_released` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `status` enum('held','partial','refunded','forfeited') NOT NULL DEFAULT 'held',
+  `memo` varchar(255) DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `released_at` datetime DEFAULT NULL,
+  `released_by` varchar(155) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org_status` (`org_id`,`status`),
+  KEY `idx_org_party` (`org_id`,`party`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_trust_bank` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `balance` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `as_of` date NOT NULL,
+  `note` varchar(255) DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_org_cur` (`org_id`,`currency`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_utility_accounts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `utility` enum('electricity','water','gas','internet','other') NOT NULL DEFAULT 'electricity',
+  `provider` varchar(120) NOT NULL,
+  `account_no` varchar(80) DEFAULT NULL,
+  `tariff_name` varchar(80) DEFAULT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `status` enum('active','closed') NOT NULL DEFAULT 'active',
+  `notes` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_utility_meters` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `account_id` int(11) DEFAULT NULL,
+  `utility` enum('electricity','water','gas','internet','other') NOT NULL DEFAULT 'electricity',
+  `label` varchar(80) NOT NULL,
+  `serial_no` varchar(80) DEFAULT NULL,
+  `unit` varchar(20) DEFAULT NULL,
+  `status` enum('active','retired') NOT NULL DEFAULT 'active',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`,`status`),
+  KEY `idx_account` (`account_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_utility_rates` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `account_id` int(11) DEFAULT NULL,
+  `utility` enum('electricity','water','gas','internet','other') NOT NULL DEFAULT 'electricity',
+  `unit_rate` decimal(14,4) NOT NULL DEFAULT 0.0000,
+  `standing_charge` decimal(14,2) DEFAULT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `effective_from` date NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_lookup` (`stay_id`,`utility`,`effective_from`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_utility_bills` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `account_id` int(11) DEFAULT NULL,
+  `utility` enum('electricity','water','gas','internet','other') NOT NULL DEFAULT 'electricity',
+  `period_from` date NOT NULL,
+  `period_to` date NOT NULL,
+  `consumption` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `unit_rate` decimal(14,4) NOT NULL DEFAULT 0.0000,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `status` enum('draft','posted','void') NOT NULL DEFAULT 'draft',
+  `allocated` tinyint(1) NOT NULL DEFAULT 0,
+  `gl_entry_id` int(11) DEFAULT NULL,
+  `posted_at` datetime DEFAULT NULL,
+  `notes` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_utility_bill_allocations` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `bill_id` int(11) NOT NULL,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `lease_id` int(11) NOT NULL,
+  `weight` decimal(14,6) NOT NULL DEFAULT 0.000000,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `folio_id` int(11) DEFAULT NULL,
+  `recharged` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_bill` (`bill_id`),
+  KEY `idx_lease` (`lease_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_service_charges` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `lease_id` int(11) DEFAULT NULL,
+  `name` varchar(120) NOT NULL,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `cadence` enum('one_off','monthly','quarterly','yearly') NOT NULL DEFAULT 'monthly',
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `status` enum('active','archived') NOT NULL DEFAULT 'active',
+  `notes` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_incident_evidence` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `incident_id` int(11) NOT NULL,
+  `stay_id` int(11) NOT NULL,
+  `evidence_type` enum('photo','document','video','note') NOT NULL DEFAULT 'note',
+  `file_path` varchar(255) DEFAULT NULL,
+  `note` varchar(500) DEFAULT NULL,
+  `added_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_incident` (`incident_id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_security_shifts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `officer` varchar(120) NOT NULL,
+  `post` varchar(120) DEFAULT NULL,
+  `started_at` datetime DEFAULT NULL,
+  `ended_at` datetime DEFAULT NULL,
+  `handover` varchar(1000) DEFAULT NULL,
+  `opened_by` varchar(155) DEFAULT NULL,
+  `closed_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_open` (`stay_id`,`ended_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_emergency_procedures` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `kind` enum('fire','medical','evacuation','security','natural','other') NOT NULL DEFAULT 'other',
+  `title` varchar(191) NOT NULL,
+  `steps` text DEFAULT NULL,
+  `contacts` varchar(500) DEFAULT NULL,
+  `assembly_point` varchar(191) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_stay_kind` (`stay_id`,`kind`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_safety_inspections` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `inspection_type` enum('fire','electrical','gas','water','general','other') NOT NULL DEFAULT 'general',
+  `inspector` varchar(120) DEFAULT NULL,
+  `inspected_on` date NOT NULL,
+  `result` enum('pass','fail','conditional') NOT NULL DEFAULT 'pass',
+  `findings` varchar(1000) DEFAULT NULL,
+  `next_due` date DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`),
+  KEY `idx_next_due` (`next_due`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_damage_claims` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `incident_id` int(11) DEFAULT NULL,
+  `invoice_id` varchar(191) DEFAULT NULL,
+  `item` varchar(191) NOT NULL,
+  `location` varchar(120) DEFAULT NULL,
+  `description` varchar(1000) DEFAULT NULL,
+  `est_cost` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `billed_amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `billed_folio_id` int(11) DEFAULT NULL,
+  `status` enum('open','assessed','resolved','waived') NOT NULL DEFAULT 'open',
+  `resolution` varchar(1000) DEFAULT NULL,
+  `reported_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`),
+  KEY `idx_invoice` (`invoice_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_notifications` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `org_id` INT NOT NULL,
+  `recipient_id` VARCHAR(64) NOT NULL,
+  `category` VARCHAR(40) NOT NULL DEFAULT 'system',
+  `severity` VARCHAR(16) NOT NULL DEFAULT 'info',
+  `event` VARCHAR(100) DEFAULT NULL,
+  `title` VARCHAR(191) NOT NULL,
+  `body` VARCHAR(2000) DEFAULT NULL,
+  `link` VARCHAR(255) DEFAULT NULL,
+  `meta` TEXT DEFAULT NULL,
+  `dedupe_key` VARCHAR(160) DEFAULT NULL,
+  `status` VARCHAR(16) NOT NULL DEFAULT 'unread',
+  `read_at` DATETIME DEFAULT NULL,
+  `created_at` DATETIME NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_inbox` (`org_id`,`recipient_id`,`status`,`id`),
+  KEY `idx_dedupe` (`org_id`,`recipient_id`,`dedupe_key`,`status`)
+);
+
+CREATE TABLE IF NOT EXISTS `supplier_notify_prefs` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `org_id` INT NOT NULL,
+  `user_id` VARCHAR(64) NOT NULL,
+  `category` VARCHAR(40) NOT NULL,
+  `ch_inapp` TINYINT(1) NOT NULL DEFAULT 1,
+  `ch_email` TINYINT(1) NOT NULL DEFAULT 0,
+  `ch_webhook` TINYINT(1) NOT NULL DEFAULT 0,
+  `created_at` DATETIME NOT NULL,
+  `updated_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_pref` (`org_id`,`user_id`,`category`)
+);
+
+CREATE TABLE IF NOT EXISTS `supplier_alert_rules` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `org_id` INT NOT NULL,
+  `name` VARCHAR(191) NOT NULL,
+  `event` VARCHAR(100) NOT NULL,
+  `category` VARCHAR(40) NOT NULL DEFAULT 'system',
+  `severity` VARCHAR(16) NOT NULL DEFAULT 'info',
+  `threshold_field` VARCHAR(60) DEFAULT NULL,
+  `threshold_op` VARCHAR(8) DEFAULT NULL,
+  `threshold_value` DECIMAL(18,4) DEFAULT NULL,
+  `recipient` VARCHAR(64) NOT NULL DEFAULT 'all',
+  `email_template` VARCHAR(120) DEFAULT NULL,
+  `channels` VARCHAR(120) NOT NULL DEFAULT 'inapp',
+  `active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` DATETIME NOT NULL,
+  `updated_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org_event` (`org_id`,`active`,`event`)
+);
+
+CREATE TABLE IF NOT EXISTS `supplier_notify_cursor` (
+  `org_id` INT NOT NULL,
+  `last_event_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `updated_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`org_id`)
+);
+
+CREATE TABLE IF NOT EXISTS `supplier_webhook_endpoints` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `org_id` INT NOT NULL,
+  `label` VARCHAR(120) NOT NULL,
+  `url` VARCHAR(500) NOT NULL,
+  `secret` VARCHAR(64) DEFAULT NULL,
+  `active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` DATETIME NOT NULL,
+  `updated_at` DATETIME DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org` (`org_id`,`active`)
+);
+
+CREATE TABLE IF NOT EXISTS `supplier_webhook_deliveries` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `org_id` INT NOT NULL,
+  `endpoint_id` INT UNSIGNED NOT NULL,
+  `rule_id` INT UNSIGNED DEFAULT NULL,
+  `event` VARCHAR(100) NOT NULL,
+  `category` VARCHAR(40) DEFAULT NULL,
+  `payload` TEXT DEFAULT NULL,
+  `status` VARCHAR(24) NOT NULL DEFAULT 'not_connected',
+  `attempts` INT NOT NULL DEFAULT 0,
+  `created_at` DATETIME NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org_ep` (`org_id`,`endpoint_id`,`id`)
+);
+
+-- MODULE 59: supplier outbound webhook endpoints (additive; safe to run once).
+-- Guard: skip if table exists (SHOW TABLES LIKE 'supplier_webhook_endpoints').
+CREATE TABLE IF NOT EXISTS `supplier_webhook_endpoints` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `url` varchar(500) NOT NULL,
+  `secret` varchar(80) NOT NULL,
+  `events` varchar(255) NOT NULL DEFAULT '',
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_webhook_deliveries` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `endpoint_id` int(11) NOT NULL,
+  `event_type` varchar(40) NOT NULL,
+  `event_key` varchar(120) NOT NULL,
+  `payload_json` mediumtext DEFAULT NULL,
+  `status` enum('pending','delivered','failed') NOT NULL DEFAULT 'pending',
+  `attempts` int(11) NOT NULL DEFAULT 0,
+  `last_attempt_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_endpoint_eventkey` (`endpoint_id`,`event_key`),
+  KEY `idx_org_status` (`org_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `supplier_import_batches` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) DEFAULT NULL,
+  `kind` varchar(32) NOT NULL,
+  `rows_applied` int(11) NOT NULL DEFAULT 0,
+  `rows_skipped` int(11) NOT NULL DEFAULT 0,
+  `error_digest` varchar(1000) DEFAULT NULL,
+  `actor` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_org` (`org_id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        $db->query("CREATE TABLE IF NOT EXISTS `ai_ext_briefs` (
+  `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+  `org_id` INT(11) NOT NULL,
+  `title` VARCHAR(190) NOT NULL,
+  `body_json` MEDIUMTEXT DEFAULT NULL,
+  `source` VARCHAR(32) NOT NULL DEFAULT 'rule-based',
+  `created_by` VARCHAR(155) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ai_brief_org` (`org_id`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+        if (!$db->query("SHOW COLUMNS FROM `journal_entries` LIKE 'cost_center_id'")->fetch()) { $db->query("ALTER TABLE `journal_entries` ADD COLUMN `cost_center_id` int(11) DEFAULT NULL"); }
+        if (!$db->query("SHOW COLUMNS FROM `journal_entries` LIKE 'reversed_by'")->fetch()) { $db->query("ALTER TABLE `journal_entries` ADD COLUMN `reversed_by` bigint(20) DEFAULT NULL"); }
+        if (!$db->query("SHOW COLUMNS FROM `users` LIKE 'payout_account_verified'")->fetch()) { $db->query("ALTER TABLE `users` ADD COLUMN `payout_account_verified` varchar(1) NOT NULL DEFAULT '0'"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_po_lines` LIKE 'received_qty'")->fetch()) { $db->query("ALTER TABLE `stays_po_lines` ADD COLUMN `received_qty` decimal(14"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_stock_items` LIKE 'category_id'")->fetch()) { $db->query("ALTER TABLE `stays_stock_items` ADD COLUMN `category_id` int(11) DEFAULT NULL"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_stock_items` LIKE 'barcode'")->fetch()) { $db->query("ALTER TABLE `stays_stock_items` ADD COLUMN `barcode` varchar(64) DEFAULT NULL"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_vendors` LIKE 'category'")->fetch()) { $db->query("ALTER TABLE `stays_vendors` ADD COLUMN `category` varchar(40) DEFAULT NULL AFTER `payment_terms`"); }
+        if (!$db->query("SHOW COLUMNS FROM `supplier_staff` LIKE 'department_id'")->fetch()) { $db->query("ALTER TABLE `supplier_staff` ADD COLUMN `department_id` INT(11) DEFAULT NULL AFTER `role_id`"); }
+        if (!$db->query("SHOW COLUMNS FROM `workflow_rules` LIKE 'action_config'")->fetch()) { $db->query("ALTER TABLE `workflow_rules` ADD COLUMN `action_config` LONGTEXT DEFAULT NULL would be the additive fix.
+
+-- All ADDITIVE. For each"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_owners` LIKE 'kyc_status'")->fetch()) { $db->query("ALTER TABLE `stays_owners` ADD COLUMN `kyc_status` ENUM('unverified'"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_leases` LIKE 'escalation_type'")->fetch()) { $db->query("ALTER TABLE `stays_leases` ADD COLUMN `escalation_type` enum('none'"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_incidents` LIKE 'escalated'")->fetch()) { $db->query("ALTER TABLE `stays_incidents` ADD COLUMN `escalated` tinyint(1) NOT NULL DEFAULT 0"); }
+        if (!$db->query("SHOW COLUMNS FROM `stays_documents` LIKE 'owner_scope'")->fetch()) { $db->query("ALTER TABLE `stays_documents` ADD COLUMN `owner_scope` ENUM('property'"); }
+
+
     } catch (\Throwable $e) {
         // Never break the page over a migration (e.g. a DB user without ALTER).
         error_log('ensureSupplierStaysSchema: ' . $e->getMessage());
