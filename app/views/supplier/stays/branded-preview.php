@@ -95,6 +95,9 @@
                 <?php endif; ?>
                 <?php if ($canBook && !empty($opts)): ?>
                   <button type="button" class="btn emerald btn-sm mt-1" @click="open = !open" x-text="open ? 'Close' : 'Book'"></button>
+                <?php elseif (!empty($publicBooking) && !empty($s['_slug'])): ?>
+                  <!-- Public branded page: book through the main, price-integrity-protected flow. -->
+                  <a href="<?= root ?>stay/<?= htmlspecialchars((string) $s['_slug']) ?>" class="btn emerald btn-sm mt-1">Book</a>
                 <?php else: ?>
                   <button type="button" class="btn emerald btn-sm mt-1" disabled title="Booking available on the live site">Book</button>
                 <?php endif; ?>

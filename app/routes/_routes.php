@@ -85,6 +85,7 @@ require_once 'app/routes/stays/invoiceRoutes.php';
 require_once 'app/routes/stays/homeRoutes.php';
 require_once 'app/routes/stays/listingRoutes.php';
 require_once 'app/routes/stays/detailRoutes.php';
+require_once 'app/routes/stays/brandedSiteRoutes.php'; // PMS #13: public /book/{slug} branded page
 require_once 'app/routes/stays/destinationSuggestionRoutes.php';
 
 // TOURS ROUTES
