@@ -193,3 +193,18 @@ $router->get('/supplier/insights/export', function () use ($SECURE, $db) {
     fclose($out);
     exit;
 });
+
+// GET /supplier/activity — in-app activity / notifications feed (PMS #58). Consumes the
+// audit_events bus (previously had no consumer) for the acting owner's org.
+$router->get('/supplier/activity', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $ctx = supplier_acting_context($db);
+    if ($ctx === null || !empty($ctx['is_admin'])) { header('Location: ' . root . 'login'); exit; }
+    $owner = (string) $ctx['owner'];
+    $orgId = function_exists('supplier_org_for_owner') ? supplier_org_for_owner($db, $owner) : 0;
+    $events = ($orgId > 0 && function_exists('audit_recent')) ? audit_recent($db, $orgId, 200) : [];
+    $title = 'Activity'; $description = ''; $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/activity.php";
+    require_once views . "includes/footer.php";
+});

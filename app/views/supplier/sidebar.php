@@ -92,6 +92,7 @@ if ($activeStay > 0) {
     $groups[] = ['label' => null, 'items' => [
         ['name' => 'Dashboard', 'icon' => 'dashboard', 'url' => 'supplier/dashboard', 'show' => true],
         ['name' => 'Insights',  'icon' => 'insights',   'url' => 'supplier/insights',  'show' => $can('reservations', 'view')],
+        ['name' => 'Activity',  'icon' => 'notifications', 'url' => 'supplier/activity', 'show' => true],
     ]];
 
     // Service entry points — only GRANTED services. Stays → the hotels list (drill-in).
