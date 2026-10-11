@@ -123,3 +123,6 @@ goglobia_live*.sql
 
 # Updates rate-limit runtime state
 app/cache/updates_rl/
+
+# Runtime mPDF font cache (generated at request time — never commit)
+uploads/tmp/
