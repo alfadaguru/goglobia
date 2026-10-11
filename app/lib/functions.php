@@ -7991,6 +7991,37 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay_status` (`stay_id`,`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- Laundry & linen (PMS Phase 3 #25) --------------------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_laundry` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `item` VARCHAR(120) NOT NULL,
+            `qty` INT(11) NOT NULL DEFAULT 1,
+            `kind` ENUM('guest','house') NOT NULL DEFAULT 'house',
+            `room_number` VARCHAR(40) DEFAULT NULL,
+            `status` ENUM('collected','in_wash','ready','delivered') NOT NULL DEFAULT 'collected',
+            `charge` DECIMAL(14,2) DEFAULT NULL,
+            `notes` VARCHAR(255) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Minibar (PMS Phase 3 #26): per-property catalogue + room postings -------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_minibar_items` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `name` VARCHAR(120) NOT NULL,
+            `price` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- Fixed assets (PMS Phase 3 #28) -----------------------------------------
         $db->query("CREATE TABLE IF NOT EXISTS `stays_assets` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,

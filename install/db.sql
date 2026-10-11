@@ -28972,6 +28972,45 @@ CREATE TABLE `stays_lost_found` (
 -- --------------------------------------------------------
 
 --
+-- Laundry & linen (PMS Phase 3 #25).
+--
+CREATE TABLE `stays_laundry` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `item` varchar(120) NOT NULL,
+  `qty` int(11) NOT NULL DEFAULT 1,
+  `kind` enum('guest','house') NOT NULL DEFAULT 'house',
+  `room_number` varchar(40) DEFAULT NULL,
+  `status` enum('collected','in_wash','ready','delivered') NOT NULL DEFAULT 'collected',
+  `charge` decimal(14,2) DEFAULT NULL,
+  `notes` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Minibar catalogue (PMS Phase 3 #26). Consumption is charged via the folio.
+--
+CREATE TABLE `stays_minibar_items` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `price` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Fixed assets (PMS Phase 3 #28).
 --
 CREATE TABLE `stays_assets` (

@@ -129,3 +129,96 @@ if (!function_exists('asset_list')) {
         } catch (\Throwable $e) { error_log('asset_list: ' . $e->getMessage()); return []; }
     }
 }
+
+// ---------------------------------------------------------------------------
+// LAUNDRY & LINEN (#25)
+// ---------------------------------------------------------------------------
+if (!function_exists('laundry_statuses')) {
+    function laundry_statuses(): array
+    {
+        return ['collected' => 'Collected', 'in_wash' => 'In wash', 'ready' => 'Ready', 'delivered' => 'Delivered'];
+    }
+}
+if (!function_exists('laundry_add')) {
+    /** Log a laundry batch. Returns id. */
+    function laundry_add($db, int $stayId, array $d): int
+    {
+        $item = trim((string) ($d['item'] ?? ''));
+        if ($stayId <= 0 || $item === '') { return 0; }
+        try {
+            $orgId = function_exists('supplier_property_org') ? supplier_property_org($db, $stayId) : 0;
+            $kind = in_array(($d['kind'] ?? ''), ['guest', 'house'], true) ? $d['kind'] : 'house';
+            $db->insert('stays_laundry', [
+                'org_id'      => $orgId > 0 ? $orgId : null,
+                'stay_id'     => $stayId,
+                'item'        => substr($item, 0, 120),
+                'qty'         => max(1, (int) ($d['qty'] ?? 1)),
+                'kind'        => $kind,
+                'room_number' => substr(trim((string) ($d['room_number'] ?? '')), 0, 40) ?: null,
+                'status'      => 'collected',
+                'charge'      => ($d['charge'] ?? '') !== '' ? max(0, round((float) $d['charge'], 2)) : null,
+                'notes'       => substr(trim((string) ($d['notes'] ?? '')), 0, 255) ?: null,
+                'created_at'  => date('Y-m-d H:i:s'),
+            ]);
+            return (int) $db->id();
+        } catch (\Throwable $e) { error_log('laundry_add: ' . $e->getMessage()); return 0; }
+    }
+}
+if (!function_exists('laundry_set_status')) {
+    function laundry_set_status($db, int $id, int $stayId, string $status): bool
+    {
+        if (!isset(laundry_statuses()[$status])) { return false; }
+        try {
+            if (!$db->has('stays_laundry', ['id' => $id, 'stay_id' => $stayId])) { return false; }
+            $db->update('stays_laundry', ['status' => $status, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $id, 'stay_id' => $stayId]);
+            return true;
+        } catch (\Throwable $e) { error_log('laundry_set_status: ' . $e->getMessage()); return false; }
+    }
+}
+if (!function_exists('laundry_list')) {
+    function laundry_list($db, array $stayIds, int $limit = 300): array
+    {
+        if (empty($stayIds)) { return []; }
+        try { return $db->select('stays_laundry', '*', ['stay_id' => $stayIds, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => max(1, $limit)]) ?: []; }
+        catch (\Throwable $e) { error_log('laundry_list: ' . $e->getMessage()); return []; }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MINIBAR (#26) — a per-property catalogue; consumption is charged via the folio.
+// ---------------------------------------------------------------------------
+if (!function_exists('minibar_add')) {
+    /** Add a minibar catalogue item. Returns id. */
+    function minibar_add($db, int $stayId, string $name, float $price): int
+    {
+        $name = trim($name);
+        if ($stayId <= 0 || $name === '') { return 0; }
+        try {
+            $orgId = function_exists('supplier_property_org') ? supplier_property_org($db, $stayId) : 0;
+            $db->insert('stays_minibar_items', [
+                'org_id' => $orgId > 0 ? $orgId : null, 'stay_id' => $stayId,
+                'name' => substr($name, 0, 120), 'price' => max(0, round($price, 2)),
+                'active' => 1, 'created_at' => date('Y-m-d H:i:s'),
+            ]);
+            return (int) $db->id();
+        } catch (\Throwable $e) { error_log('minibar_add: ' . $e->getMessage()); return 0; }
+    }
+}
+if (!function_exists('minibar_set_active')) {
+    function minibar_set_active($db, int $id, int $stayId, bool $active): bool
+    {
+        try {
+            if (!$db->has('stays_minibar_items', ['id' => $id, 'stay_id' => $stayId])) { return false; }
+            $db->update('stays_minibar_items', ['active' => $active ? 1 : 0], ['id' => $id, 'stay_id' => $stayId]);
+            return true;
+        } catch (\Throwable $e) { error_log('minibar_set_active: ' . $e->getMessage()); return false; }
+    }
+}
+if (!function_exists('minibar_list')) {
+    function minibar_list($db, array $stayIds, int $limit = 300): array
+    {
+        if (empty($stayIds)) { return []; }
+        try { return $db->select('stays_minibar_items', '*', ['stay_id' => $stayIds, 'ORDER' => ['name' => 'ASC'], 'LIMIT' => max(1, $limit)]) ?: []; }
+        catch (\Throwable $e) { error_log('minibar_list: ' . $e->getMessage()); return []; }
+    }
+}
