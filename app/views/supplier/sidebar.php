@@ -117,6 +117,8 @@ if ($activeStay > 0) {
     // Guest CRM is org-wide (across properties) → stays top-level.
     $crmItems = [];
     if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Guests', 'icon' => 'groups', 'url' => 'supplier/guests', 'show' => true]; }
+    if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Service & complaints', 'icon' => 'support_agent', 'url' => 'supplier/service-tickets', 'show' => true]; }
+    if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Guest messages', 'icon' => 'forum', 'url' => 'supplier/guest-messages', 'show' => true]; }
     if (!empty($crmItems)) { $groups[] = ['label' => 'CRM', 'items' => $crmItems]; }
 
     if ($isOwner) {

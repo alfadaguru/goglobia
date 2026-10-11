@@ -28972,6 +28972,52 @@ CREATE TABLE `stays_lost_found` (
 -- --------------------------------------------------------
 
 --
+-- Guest service tickets / complaints (PMS Phase 3 #21).
+--
+CREATE TABLE `stays_service_tickets` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `invoice_id` varchar(255) DEFAULT NULL,
+  `guest_name` varchar(120) DEFAULT NULL,
+  `category` enum('complaint','request','maintenance','other') NOT NULL DEFAULT 'request',
+  `priority` enum('low','normal','high') NOT NULL DEFAULT 'normal',
+  `subject` varchar(191) NOT NULL,
+  `detail` text DEFAULT NULL,
+  `status` enum('open','in_progress','resolved','closed') NOT NULL DEFAULT 'open',
+  `assigned_to` varchar(155) DEFAULT NULL,
+  `resolution` varchar(500) DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Guest communication log (PMS Phase 3 #19).
+--
+CREATE TABLE `stays_guest_messages` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `invoice_id` varchar(255) DEFAULT NULL,
+  `guest_email` varchar(191) DEFAULT NULL,
+  `channel` enum('note','email','phone','whatsapp','sms') NOT NULL DEFAULT 'note',
+  `direction` enum('in','out') NOT NULL DEFAULT 'out',
+  `body` text NOT NULL,
+  `logged_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`),
+  KEY `idx_invoice` (`invoice_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Laundry & linen (PMS Phase 3 #25).
 --
 CREATE TABLE `stays_laundry` (

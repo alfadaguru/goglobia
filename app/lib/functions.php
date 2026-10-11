@@ -7991,6 +7991,44 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay_status` (`stay_id`,`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- Guest service tickets / complaints (PMS Phase 3 #21) -------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_service_tickets` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `invoice_id` VARCHAR(255) DEFAULT NULL,
+            `guest_name` VARCHAR(120) DEFAULT NULL,
+            `category` ENUM('complaint','request','maintenance','other') NOT NULL DEFAULT 'request',
+            `priority` ENUM('low','normal','high') NOT NULL DEFAULT 'normal',
+            `subject` VARCHAR(191) NOT NULL,
+            `detail` TEXT DEFAULT NULL,
+            `status` ENUM('open','in_progress','resolved','closed') NOT NULL DEFAULT 'open',
+            `assigned_to` VARCHAR(155) DEFAULT NULL,
+            `resolution` VARCHAR(500) DEFAULT NULL,
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Guest communication log (PMS Phase 3 #19) ------------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_guest_messages` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `invoice_id` VARCHAR(255) DEFAULT NULL,
+            `guest_email` VARCHAR(191) DEFAULT NULL,
+            `channel` ENUM('note','email','phone','whatsapp','sms') NOT NULL DEFAULT 'note',
+            `direction` ENUM('in','out') NOT NULL DEFAULT 'out',
+            `body` TEXT NOT NULL,
+            `logged_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`),
+            KEY `idx_invoice` (`invoice_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- Laundry & linen (PMS Phase 3 #25) --------------------------------------
         $db->query("CREATE TABLE IF NOT EXISTS `stays_laundry` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,
