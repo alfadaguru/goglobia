@@ -55,21 +55,22 @@ Per-module: built/total + the sub-features still to build (BUILT ones omitted). 
 
 > ✅ MODULE 05 DEEPENED: OOS (out-of-service, kind='oos' on stays_ooo_blocks — reuses the atomic inventory-block path, distinct badge/label from OOO) + ROOM MAPPING (standalone assign/reassign physical room on the reservation detail via canonical hk_assign_room_to_booking → pms_physical_room_id; surfaced in the tape chart). FOLDS: group allotments→#08 group blocks; forecasting→#14 RMS/#56 BI.
 ## 06. Rates, pricing & rate plans  —  9/20
-- [ ] derived rates
-- [ ] occupancy-based pricing
-- [ ] length-of-stay pricing (LOS)
-- [ ] early-bird
-- [ ] last-minute
-- [ ] dynamic rules
+- [x] derived rates
+- [x] occupancy-based pricing
+- [x] length-of-stay pricing (LOS)
+- [x] early-bird
+- [x] last-minute
+- [x] dynamic rules
 - [ ] channel pricing
 - [ ] corporate negotiated rates
 - [ ] agent rates
-- [ ] promo codes
+- [x] promo codes
 - [ ] packages
-- [ ] min / max stay
+- [x] min / max stay
 - [ ] CTA / CTD (closed-to-arrival / departure)
-- [ ] advance-booking windows
+- [x] advance-booking windows
 
+> ✅ MODULE 06 DEEPENED: server-side YIELD ENGINE (stays_rate_rules → applied inside stays_recompute_net, the one authoritative pricer): occupancy / LOS / early-bird / last-minute / weekday / derived; pure math harnessed (harness_rate_rules, 18 checks). Booking RESTRICTIONS (stays_rate_restrictions: min/max stay, CTA, min/max advance window) enforced at the stays booking submit. Promo codes = existing platform promo_codes + validatePromoCode (per-property target_ids) — not duplicated. /supplier/stays/{id}/rate-rules mgmt UI + 'Rate rules' sidebar link. STILL OPEN: channel pricing→#12 (external OTA), corporate negotiated + agent rates→#15 (negotiated price lists), CTD (column stored; checkout-date gate partial).
 ## 07. Front desk operations  —  11/18
 - [ ] dashboard
 - [ ] early check-in

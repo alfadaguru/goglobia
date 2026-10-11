@@ -513,6 +513,23 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
                     // room_options.price and the client draft's base_currency).
                     $actualPrice = (float) $netRes['net'];
                     $bookingData['actual_amount'] = $actualPrice;
+
+                    // MODULE 06: enforce booking RESTRICTIONS (min/max stay, CTA, advance
+                    // window) server-side for own inventory. A violated restriction blocks
+                    // the sale with the owner's message. Scoped per room when configured.
+                    if (function_exists('rate_restrictions_check')) {
+                        $losNights = max(1, (int) ((strtotime($coForNet) - strtotime($ciForNet)) / 86400));
+                        $leadDays = max(0, (int) floor((strtotime($ciForNet) - strtotime(date('Y-m-d'))) / 86400));
+                        $firstSel = is_array($selForNet) ? ($selForNet[0] ?? []) : [];
+                        $rc = rate_restrictions_check($db, $hotelIdForNet, [
+                            'checkin' => $ciForNet, 'checkout' => $coForNet, 'los' => $losNights, 'lead_days' => $leadDays,
+                            'room_id' => (int) ($firstSel['room_id'] ?? 0),
+                            'option_id' => (int) ($firstSel['option']['option_id'] ?? ($firstSel['option_id'] ?? 0)),
+                        ]);
+                        if (empty($rc['ok'])) {
+                            throw new Exception($rc['message'] ?? 'These dates cannot be booked under the property\'s rules.');
+                        }
+                    }
                 } else {
                     // Own-inventory booking we cannot re-price (no selected_rooms / dates)
                     // must not fall through to the client net — refuse.

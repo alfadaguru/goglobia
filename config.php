@@ -68,6 +68,7 @@ require_once 'app/lib/paysmallsmall.php';
 require_once 'app/lib/installments.php';
 require_once 'app/lib/cards.php';
 require_once 'app/lib/stays_inventory.php';
+require_once 'app/lib/supplier_rates.php'; // MODULE 06 yield rules/restrictions/promo (used by stays_recompute_net)
 require_once 'app/lib/stays_rate_plans.php';
 require_once 'app/lib/supplier_hierarchy.php';
 require_once 'app/lib/supplier_parties.php';

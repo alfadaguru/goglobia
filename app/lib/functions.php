@@ -8007,6 +8007,55 @@ function ensureSupplierStaysSchema($db): void
             UNIQUE KEY `uq_org_integration` (`org_id`,`integration`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- MODULE 06 (rates & pricing → 360): yield RULES + promo codes -----------
+        // Server-side rate rules applied INSIDE stays_recompute_net (the one authoritative
+        // pricer). Each rule adjusts the per-night rate by pct/amount when its condition
+        // matches (occupancy / LOS / lead-time / weekday). Stay-level validity rules
+        // (min/max stay, CTA/CTD, advance window) gate the booking instead of pricing.
+        // scope_room_id/scope_option_id NULL = applies to the whole property.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_rate_rules` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `name` VARCHAR(120) NOT NULL,
+            `rule_type` ENUM('occupancy','los','early_bird','last_minute','weekday','derived') NOT NULL,
+            `scope_room_id` INT(11) DEFAULT NULL,
+            `scope_option_id` INT(11) DEFAULT NULL,
+            `threshold` DECIMAL(10,2) DEFAULT NULL,
+            `adjust_mode` ENUM('pct','amount') NOT NULL DEFAULT 'pct',
+            `adjust_value` DECIMAL(12,2) NOT NULL DEFAULT 0,
+            `weekdays` VARCHAR(20) DEFAULT NULL,
+            `priority` INT(11) NOT NULL DEFAULT 0,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_active` (`stay_id`,`active`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Stay-level booking restrictions (min/max stay, CTA/CTD, advance window). A
+        // date-ranged rule gating whether a booking is ALLOWED (not a price change).
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_rate_restrictions` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `scope_room_id` INT(11) DEFAULT NULL,
+            `scope_option_id` INT(11) DEFAULT NULL,
+            `date_from` DATE DEFAULT NULL,
+            `date_to` DATE DEFAULT NULL,
+            `min_stay` INT(11) DEFAULT NULL,
+            `max_stay` INT(11) DEFAULT NULL,
+            `cta` TINYINT(1) NOT NULL DEFAULT 0,
+            `ctd` TINYINT(1) NOT NULL DEFAULT 0,
+            `min_advance_days` INT(11) DEFAULT NULL,
+            `max_advance_days` INT(11) DEFAULT NULL,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_active` (`stay_id`,`active`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // (Promo codes for stays reuse the platform `promo_codes` table + validatePromoCode
+        // with per-property targeting — see supplier_rates.php note; no parallel table.)
+
         // --- Packages (#17): bundled offerings -------------------------------------
         $db->query("CREATE TABLE IF NOT EXISTS `stays_packages` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,

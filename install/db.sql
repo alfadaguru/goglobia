@@ -29015,6 +29015,56 @@ CREATE TABLE `stays_integration_config` (
 -- --------------------------------------------------------
 
 --
+-- MODULE 06: yield rate rules (applied inside stays_recompute_net).
+--
+CREATE TABLE `stays_rate_rules` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `rule_type` enum('occupancy','los','early_bird','last_minute','weekday','derived') NOT NULL,
+  `scope_room_id` int(11) DEFAULT NULL,
+  `scope_option_id` int(11) DEFAULT NULL,
+  `threshold` decimal(10,2) DEFAULT NULL,
+  `adjust_mode` enum('pct','amount') NOT NULL DEFAULT 'pct',
+  `adjust_value` decimal(12,2) NOT NULL DEFAULT 0,
+  `weekdays` varchar(20) DEFAULT NULL,
+  `priority` int(11) NOT NULL DEFAULT 0,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_active` (`stay_id`,`active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- MODULE 06: booking restrictions (min/max stay, CTA/CTD, advance window).
+--
+CREATE TABLE `stays_rate_restrictions` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `scope_room_id` int(11) DEFAULT NULL,
+  `scope_option_id` int(11) DEFAULT NULL,
+  `date_from` date DEFAULT NULL,
+  `date_to` date DEFAULT NULL,
+  `min_stay` int(11) DEFAULT NULL,
+  `max_stay` int(11) DEFAULT NULL,
+  `cta` tinyint(1) NOT NULL DEFAULT 0,
+  `ctd` tinyint(1) NOT NULL DEFAULT 0,
+  `min_advance_days` int(11) DEFAULT NULL,
+  `max_advance_days` int(11) DEFAULT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_active` (`stay_id`,`active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Packages (#17): bundled offerings.
 --
 CREATE TABLE `stays_packages` (

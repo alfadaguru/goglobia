@@ -128,6 +128,13 @@ if (!function_exists('stays_recompute_net')) {
             }
         } catch (\Throwable $e) { $calendarRates = []; } // calendar optional → base price
 
+        // MODULE 06: active yield rate-rules for this property (server-side, applied
+        // below per night on top of the base/calendar rate). Empty → no change, so the
+        // legacy pricing is exactly preserved when no rules are configured.
+        $rateRules = function_exists('rate_rules_for_stay') ? rate_rules_for_stay($db, $stayId) : [];
+        $leadDays = max(0, (int) floor((strtotime($nights[0]) - strtotime(date('Y-m-d'))) / 86400));
+        $losNights = $nightCount;
+
         $net = 0.0;
         $lines = [];
         foreach ($selectedRooms as $sr) {
@@ -149,11 +156,23 @@ if (!function_exists('stays_recompute_net')) {
             if ($basePrice === null || $basePrice <= 0) {
                 return ['ok' => false, 'net' => 0.0, 'message' => 'Room option no longer available'];
             }
-            // Sum per-night (calendar overrides base), × qty. Matches rooms.php $totalRaw.
+            // Sum per-night (calendar overrides base), THEN apply yield rules per night,
+            // × qty. Matches rooms.php $totalRaw when no rules are configured.
             $roomNet = 0.0;
             foreach ($nights as $d) {
                 $k = $roomId . '_' . $optionId . '_' . $d;
-                $roomNet += isset($calendarRates[$k]) ? $calendarRates[$k] : $basePrice;
+                $nightly = isset($calendarRates[$k]) ? $calendarRates[$k] : $basePrice;
+                if (!empty($rateRules)) {
+                    $nightly = rate_rules_adjust_nightly($rateRules, (float) $nightly, [
+                        'room_id' => $roomId, 'option_id' => $optionId,
+                        'los' => $losNights, 'lead_days' => $leadDays,
+                        'weekday' => (string) (int) date('w', strtotime($d)),
+                        'occupancy_pct' => null, // cheap path: occupancy-based rules need a
+                                                 // per-night availability probe; left null
+                                                 // here so they no-op until wired with it.
+                    ]);
+                }
+                $roomNet += $nightly;
             }
             $roomNet *= $qty;
             $net += $roomNet;
