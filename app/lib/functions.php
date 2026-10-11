@@ -7991,6 +7991,48 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay_status` (`stay_id`,`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- Lease & long-stay (PMS Phase 3 #49) ------------------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_leases` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `unit_label` VARCHAR(80) DEFAULT NULL,
+            `tenant_name` VARCHAR(120) NOT NULL,
+            `tenant_email` VARCHAR(191) DEFAULT NULL,
+            `tenant_phone` VARCHAR(40) DEFAULT NULL,
+            `rent_amount` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `rent_cycle` ENUM('monthly','weekly','quarterly','yearly') NOT NULL DEFAULT 'monthly',
+            `deposit` DECIMAL(14,2) DEFAULT NULL,
+            `start_date` DATE DEFAULT NULL,
+            `end_date` DATE DEFAULT NULL,
+            `status` ENUM('active','ended','terminated') NOT NULL DEFAULT 'active',
+            `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+            `notes` VARCHAR(500) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Utilities / meter readings (PMS Phase 3 #51) ---------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_utility_readings` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `lease_id` INT(11) DEFAULT NULL,
+            `utility` ENUM('electricity','water','gas','internet','other') NOT NULL DEFAULT 'electricity',
+            `reading_date` DATE NOT NULL,
+            `previous_reading` DECIMAL(14,3) DEFAULT NULL,
+            `current_reading` DECIMAL(14,3) NOT NULL DEFAULT 0.000,
+            `unit_rate` DECIMAL(14,4) DEFAULT NULL,
+            `amount` DECIMAL(14,2) DEFAULT NULL,
+            `notes` VARCHAR(255) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`),
+            KEY `idx_lease` (`lease_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- HR / workforce (PMS Phase 3 #44): employees + leave --------------------
         $db->query("CREATE TABLE IF NOT EXISTS `stays_employees` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,

@@ -28972,6 +28972,56 @@ CREATE TABLE `stays_lost_found` (
 -- --------------------------------------------------------
 
 --
+-- Lease & long-stay (PMS Phase 3 #49).
+--
+CREATE TABLE `stays_leases` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `unit_label` varchar(80) DEFAULT NULL,
+  `tenant_name` varchar(120) NOT NULL,
+  `tenant_email` varchar(191) DEFAULT NULL,
+  `tenant_phone` varchar(40) DEFAULT NULL,
+  `rent_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `rent_cycle` enum('monthly','weekly','quarterly','yearly') NOT NULL DEFAULT 'monthly',
+  `deposit` decimal(14,2) DEFAULT NULL,
+  `start_date` date DEFAULT NULL,
+  `end_date` date DEFAULT NULL,
+  `status` enum('active','ended','terminated') NOT NULL DEFAULT 'active',
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `notes` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Utilities / meter readings (PMS Phase 3 #51).
+--
+CREATE TABLE `stays_utility_readings` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `lease_id` int(11) DEFAULT NULL,
+  `utility` enum('electricity','water','gas','internet','other') NOT NULL DEFAULT 'electricity',
+  `reading_date` date NOT NULL,
+  `previous_reading` decimal(14,3) DEFAULT NULL,
+  `current_reading` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `unit_rate` decimal(14,4) DEFAULT NULL,
+  `amount` decimal(14,2) DEFAULT NULL,
+  `notes` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`),
+  KEY `idx_lease` (`lease_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- HR / workforce (PMS Phase 3 #44): employees + leave.
 --
 CREATE TABLE `stays_employees` (
