@@ -153,21 +153,22 @@ Per-module: built/total + the sub-features still to build (BUILT ones omitted). 
 
 > ✅ MODULE 13 DEEPENED: SITE-BUILDER (supplier_sitebuilder.php) on stays_site.theme JSON — branding (accent+tagline), promotion banner, custom About page block, SEO title/desc, analytics id; editor on /supplier/stays/site/{id} (new site-theme POST), rendered on the branded /book/{slug} + preview with STRICT escaping (no supplier HTML emitted; accent hex-validated, analytics alnum-validated). Live room search + checkout + guest payments already route into the main price-integrity booking flow; multilingual + multi-currency inherited from the platform header switchers. DEFERRED (heavier): abandoned-booking recovery + reviews/testimonials (→#23) need draft-capture/cron.
 ## 14. Revenue management & forecasting  —  2/16
-- [ ] dashboard
-- [ ] TRevPAR
-- [ ] GOPPAR
-- [ ] occupancy forecasts
-- [ ] demand forecasting
-- [ ] booking pace
-- [ ] lead-time
+- [x] dashboard
+- [x] TRevPAR
+- [x] GOPPAR
+- [x] occupancy forecasts
+- [x] demand forecasting
+- [x] booking pace
+- [x] lead-time
 - [ ] competitor-rate monitoring
-- [ ] dynamic-pricing suggestions
-- [ ] automated yield rules
-- [ ] LOS optimization
+- [x] dynamic-pricing suggestions
+- [x] automated yield rules
+- [x] LOS optimization
 - [ ] overbooking controls
 - [ ] revenue budgets
 - [ ] channel profitability
 
+> ✅ MODULE 14 DEEPENED (real analytics + honest stub): RMS dashboard /supplier/stays/{id}/rms — ADR/RevPAR/TRevPAR/GOPPAR (rms_revenue_kpis, harness 11 checks, div0-safe) from night-audit snapshots + POS F&B; forward OCCUPANCY forecast (rms_forward_occupancy from live holds vs capacity) as a 30-night bar chart; booking PACE + LEAD-TIME (rms_lead_time). Automated yield = module-06 rate rules (linked). Competitor-rate monitoring HONESTLY 'not connected' (needs external rate-shop vendor). supplier_rms.php + 'Revenue mgmt' sidebar. DEFERRED: overbooking controls + revenue budgets (config-heavy).
 ## 15. Sales & corporate account management  —  3/15
 - [ ] leads
 - [ ] pipeline

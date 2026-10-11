@@ -91,6 +91,7 @@ require_once 'app/lib/supplier_chain.php';
 require_once 'app/lib/supplier_marketplace.php';
 require_once 'app/lib/supplier_channel.php';
 require_once 'app/lib/supplier_sitebuilder.php';
+require_once 'app/lib/supplier_rms.php';
 require_once 'app/lib/supplier_frontdesk.php';
 require_once 'app/lib/supplier_housekeeping.php';
 require_once 'app/lib/supplier_maintenance.php';

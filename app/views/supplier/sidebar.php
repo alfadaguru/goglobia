@@ -75,6 +75,7 @@ if ($activeStay > 0) {
         ['name' => 'Calendar',      'icon' => 'calendar_month',   'url' => 'supplier/calendar' . $q, 'show' => $can('rates', 'view', $sid)],
         ['name' => 'Rate rules',    'icon' => 'tune',             'url' => 'supplier/stays/' . $sid . '/rate-rules', 'show' => $can('rates', 'view', $sid)],
         ['name' => 'Channels',      'icon' => 'hub',              'url' => 'supplier/stays/' . $sid . '/channels', 'show' => $can('rates', 'view', $sid)],
+        ['name' => 'Revenue mgmt',  'icon' => 'trending_up',      'url' => 'supplier/stays/' . $sid . '/rms', 'show' => $can('rates', 'view', $sid)],
         ['name' => 'Front desk',    'icon' => 'concierge',        'url' => 'supplier/front-desk' . $q, 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Reservations',  'icon' => 'receipt_long',     'url' => 'supplier/reservations' . $q, 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Room rack',     'icon' => 'grid_view',        'url' => 'supplier/stays/' . $sid . '/tape-chart', 'show' => $can('reservations', 'view', $sid)],
