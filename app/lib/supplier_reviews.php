@@ -174,6 +174,28 @@ if (!function_exists('review_set_status')) {
     }
 }
 
+if (!function_exists('review_set_reply')) {
+    /** Owner's PUBLIC reply to a review (PMS #23). Validates the review belongs to
+     *  $stayId. An empty reply clears it. Returns bool. */
+    function review_set_reply($db, int $reviewId, int $stayId, string $reply): bool
+    {
+        try {
+            $r = $db->get('stays_reviews', ['id'], ['id' => $reviewId, 'stay_id' => $stayId]);
+            if (!$r) { return false; }
+            $reply = trim($reply);
+            $db->update('stays_reviews', [
+                'owner_reply'    => $reply !== '' ? substr($reply, 0, 2000) : null,
+                'owner_reply_at' => $reply !== '' ? date('Y-m-d H:i:s') : null,
+                'updated_at'     => date('Y-m-d H:i:s'),
+            ], ['id' => $reviewId, 'stay_id' => $stayId]);
+            return true;
+        } catch (\Throwable $e) {
+            error_log('review_set_reply: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
 if (!function_exists('review_list_for_org')) {
     /** Reviews across the owner's properties (optional status filter). Read-only. */
     function review_list_for_org($db, array $stayIds, string $status = '', int $limit = 300): array
@@ -185,7 +207,7 @@ if (!function_exists('review_list_for_org')) {
         $where['LIMIT'] = max(1, $limit);
         try {
             return $db->select('stays_reviews',
-                ['id', 'stay_id', 'invoice_id', 'guest_name', 'rating', 'comment', 'status', 'created_at'],
+                ['id', 'stay_id', 'invoice_id', 'guest_name', 'rating', 'comment', 'status', 'owner_reply', 'owner_reply_at', 'created_at'],
                 $where) ?: [];
         } catch (\Throwable $e) {
             error_log('review_list_for_org: ' . $e->getMessage());

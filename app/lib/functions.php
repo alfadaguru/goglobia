@@ -8166,12 +8166,21 @@ function ensureSupplierStaysSchema($db): void
             `rating` TINYINT(1) NOT NULL DEFAULT 5,
             `comment` TEXT DEFAULT NULL,
             `status` ENUM('pending','published','hidden') NOT NULL DEFAULT 'pending',
+            `owner_reply` TEXT DEFAULT NULL,
+            `owner_reply_at` DATETIME DEFAULT NULL,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
             PRIMARY KEY (`id`),
             UNIQUE KEY `uq_stay_invoice` (`stay_id`,`invoice_id`),
             KEY `idx_stay_status` (`stay_id`,`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #23): public owner reply to a review. Guarded ALTERs.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `stays_reviews` LIKE 'owner_reply'")->fetch()) {
+                $db->query("ALTER TABLE `stays_reviews` ADD COLUMN `owner_reply` TEXT DEFAULT NULL AFTER `status`");
+                $db->query("ALTER TABLE `stays_reviews` ADD COLUMN `owner_reply_at` DATETIME DEFAULT NULL AFTER `owner_reply`");
+            }
+        } catch (\Throwable $e) { error_log('review owner_reply col: ' . $e->getMessage()); }
         // stays.rating_count: alongside the existing stays.rating (public avg), so the
         // rollup can show "x reviews". Additive, nullable-safe.
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'rating_count'")->fetch()) {

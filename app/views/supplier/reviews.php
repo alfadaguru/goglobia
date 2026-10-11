@@ -64,6 +64,23 @@ $stColor = ['pending' => 'bg-amber-50 text-amber-700', 'published' => 'bg-green-
               </div>
             <?php endif; ?>
           </div>
+
+          <!-- Owner reply (PMS #23): public response shown with the published review. -->
+          <?php if (!empty($r['owner_reply'])): ?>
+            <div class="mt-3 ml-4 pl-3 border-l-2 border-violet-200">
+              <div class="text-xs font-semibold text-violet-700">Response from the property</div>
+              <p class="text-sm text-gray-700 whitespace-pre-line mt-0.5"><?= htmlspecialchars((string) $r['owner_reply']) ?></p>
+            </div>
+          <?php endif; ?>
+          <?php if ($canEdit): ?>
+            <form action="<?= $base ?>/reply" method="POST" class="mt-2 flex flex-wrap items-end gap-2">
+              <?= CSRF::tokenField() ?>
+              <input type="hidden" name="review_id" value="<?= (int) $r['id'] ?>">
+              <input type="hidden" name="stay_id" value="<?= (int) $r['stay_id'] ?>">
+              <input type="text" name="reply" class="input text-sm flex-1 min-w-[200px]" value="<?= htmlspecialchars((string) ($r['owner_reply'] ?? '')) ?>" placeholder="<?= !empty($r['owner_reply']) ? 'Edit your public reply' : 'Reply publicly to this review' ?>">
+              <button type="submit" class="btn secondary text-xs"><?= !empty($r['owner_reply']) ? 'Update reply' : 'Reply' ?></button>
+            </form>
+          <?php endif; ?>
         </div>
       <?php endforeach; ?>
     </div>

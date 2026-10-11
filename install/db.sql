@@ -29394,6 +29394,8 @@ CREATE TABLE `stays_reviews` (
   `rating` tinyint(1) NOT NULL DEFAULT 5,
   `comment` text DEFAULT NULL,
   `status` enum('pending','published','hidden') NOT NULL DEFAULT 'pending',
+  `owner_reply` text DEFAULT NULL,
+  `owner_reply_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),

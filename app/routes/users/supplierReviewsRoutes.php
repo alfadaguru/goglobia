@@ -84,3 +84,20 @@ $router->post('/supplier/reviews/status', function () use ($SECURE, $db) {
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Review updated; rating recomputed.' : 'Could not update the review.'];
     header('Location: ' . $back); exit;
 });
+
+// ---- OWNER: POST /supplier/reviews/reply — public reply to a review (PMS #23) -------
+$router->post('/supplier/reviews/reply', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $back = root . 'supplier/reviews';
+    $reviewId = (int) ($_POST['review_id'] ?? 0);
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    if (!supplier_can($db, 'reservations', 'edit', $stayId) || !$db->has('stays', ['id' => $stayId, 'user_id' => $owner])) {
+        _supplier_stays_deny('Not your property.');
+    }
+    $ok = function_exists('review_set_reply') && review_set_reply($db, $reviewId, $stayId, (string) ($_POST['reply'] ?? ''));
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Reply saved.' : 'Could not save the reply.'];
+    header('Location: ' . $back); exit;
+});
