@@ -114,9 +114,10 @@ Per-module: built/total + the sub-features still to build (BUILT ones omitted). 
 
 > ✅ MODULE 10 DEEPENED: DAILY REVENUE REPORT (na_daily_revenue — snapshot room rev + folio extras/tax + POS F&B for a date); CASHIER RECONCILIATION (na_cashier_reconciliation — shifts closed that day, expected vs counted, over/short); PAYMENT RECONCILIATION (na_payment_reconciliation — folio + POS collections for the date); REOPEN control (na_reopen — OWNER-ONLY, reason-required, flags snapshot reopened + logs via emit_event, does NOT silently reverse the GL; 'reopened' badge in history). All surfaced on the night-audit page for a chosen date. supplier_nightaudit_ext.php. Per-night revenue proration (prior fix) feeds the room figure.
 ## 11. GoGlobia marketplace management  —  8/12
-- [ ] marketplace performance
-- [ ] commission settings
+- [x] marketplace performance
+- [x] commission settings
 
+> ✅ MODULE 11 DEEPENED: marketplace PERFORMANCE scorecard (/supplier/marketplace) — listings live/in-review/draft, earnings by currency (pending/available/paid from supplier_earning_summary), platform commission_pct + property quota used/max, paid-booking volume. Commission SETTINGS are platform-set (supplier_services.commission_pct at admin approval) — surfaced read-only to the supplier here (suppliers don't set their own platform rate). marketplace_performance() composes existing data; no new tables.
 ## 12. Channel manager  —  1/14
 - [ ] OTA connections
 - [ ] two-way availability sync

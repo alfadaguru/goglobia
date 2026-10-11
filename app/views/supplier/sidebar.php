@@ -108,6 +108,7 @@ if ($activeStay > 0) {
         ['name' => 'Dashboard', 'icon' => 'dashboard', 'url' => 'supplier/dashboard', 'show' => true],
         ['name' => 'Insights',  'icon' => 'insights',   'url' => 'supplier/insights',  'show' => $can('reservations', 'view')],
         ['name' => 'Portfolio', 'icon' => 'domain',     'url' => 'supplier/chain', 'show' => $isOwner],
+        ['name' => 'Marketplace','icon' => 'storefront', 'url' => 'supplier/marketplace', 'show' => $can('reservations', 'view')],
         ['name' => 'Activity',  'icon' => 'notifications', 'url' => 'supplier/activity', 'show' => true],
     ]];
 
