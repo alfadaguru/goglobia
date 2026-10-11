@@ -237,6 +237,14 @@ $router->post('stays/hotels/rooms', function() use ($db) {
 
                             $roomOptions[] = [
                                 'option_index' => $index,
+                                // STABLE option id (stays_room_option_ids) — the key the
+                                // inventory/holds spine and the calendar use. Exposed so the
+                                // booking draft's selected_rooms carries it and the submit
+                                // path can place a real no-oversell hold (previously only the
+                                // positional option_index reached the client, so holds could
+                                // never be keyed correctly). Positional fallback for legacy
+                                // rooms with no stable id yet.
+                                'option_id' => $optionId,
                                 'max_adults' => $option['max_adults'] ?? 2,
                                 'max_children' => $option['max_children'] ?? 0,
                                 'price_per_night' => $pricePerNight['price'],

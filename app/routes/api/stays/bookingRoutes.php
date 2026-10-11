@@ -619,11 +619,19 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
         // --------------------------------------------------
         // Only our OWN-INVENTORY stays (module 'stays'/'hotels') participate;
         // integration suppliers (hotelbeds/ratehawk/…) manage their own stock, so
-        // we never hold against them. The hold is placed per (room_id, option_id)
-        // carried in rooms_data, across [checkin, checkout). For a manual stay with
-        // those identifiers, a FAILED hold REJECTS the booking (can't oversell). If
-        // the payload lacks identifiers (legacy client), we log and proceed so
-        // existing manual bookings keep working until the client sends them.
+        // we never hold against them. The hold is placed per (room_id, stable
+        // option_id) across [checkin, checkout). A FAILED hold REJECTS the booking
+        // (we cannot oversell own inventory).
+        //
+        // SOURCE OF ROOM IDENTIFIERS: the authoritative selection is `selected_rooms`
+        // (each entry has room_id, quantity, and option.option_id — the STABLE id the
+        // rooms API now emits and the calendar/inventory key on). `rooms_data` holds
+        // only the occupancy config (adults/children) and carries NO identifiers, so
+        // reading it meant NO hold was ever placed on the live own-inventory path —
+        // the no-oversell spine was effectively dormant. We now read selected_rooms,
+        // and fall back to rooms_data only for a legacy payload that happens to carry
+        // ids. If NO identifiers are found at all we log and proceed (so a legacy or
+        // malformed client still books) — that single remaining gap is logged loudly.
         $staysHoldIds = [];
         $staysModule = strtolower((string) ($bookingData['supplier'] ?? 'stays'));
         $isManualStay = in_array($staysModule, ['stays', 'hotels'], true);
@@ -631,16 +639,37 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
             $hotelId  = (int) ($input['hotel_id'] ?? ($bookingData['hotel_id'] ?? 0));
             $checkin  = (string) ($bookingData['checkin'] ?? '');
             $checkout = (string) ($bookingData['checkout'] ?? '');
-            $roomsData = $bookingData['rooms_data'] ?? [];
-            $anyIdentified = false;
-            if ($hotelId > 0 && $checkin !== '' && $checkout !== '' && is_array($roomsData)) {
-                foreach ($roomsData as $rd) {
+
+            // Normalise the room list into {room_id, option_id, qty} triples from
+            // selected_rooms first, then rooms_data as a legacy fallback.
+            $holdTriples = [];
+            $selectedRooms = $bookingData['selected_rooms'] ?? ($input['selected_rooms'] ?? []);
+            if (is_array($selectedRooms)) {
+                foreach ($selectedRooms as $sr) {
+                    $roomId = (int) ($sr['room_id'] ?? 0);
+                    // Stable option_id rides inside the option object (API-emitted);
+                    // accept a top-level option_id too for forward-compat.
+                    $optionId = (int) ($sr['option']['option_id'] ?? ($sr['option_id'] ?? 0));
+                    $qty = max(1, (int) ($sr['quantity'] ?? ($sr['qty'] ?? ($sr['rooms'] ?? 1))));
+                    if ($roomId > 0 && $optionId > 0) {
+                        $holdTriples[] = ['room_id' => $roomId, 'option_id' => $optionId, 'qty' => $qty];
+                    }
+                }
+            }
+            if (empty($holdTriples) && is_array($bookingData['rooms_data'] ?? null)) {
+                foreach ($bookingData['rooms_data'] as $rd) {
                     $roomId   = (int) ($rd['room_id'] ?? 0);
                     $optionId = (int) ($rd['option_id'] ?? 0);
                     $qty      = max(1, (int) ($rd['qty'] ?? ($rd['rooms'] ?? 1)));
-                    if ($roomId <= 0 || $optionId <= 0) { continue; }
-                    $anyIdentified = true;
-                    $hold = stays_hold_create($db, $hotelId, $roomId, $optionId, $checkin, $checkout, $qty, $invoiceId);
+                    if ($roomId > 0 && $optionId > 0) {
+                        $holdTriples[] = ['room_id' => $roomId, 'option_id' => $optionId, 'qty' => $qty];
+                    }
+                }
+            }
+
+            if ($hotelId > 0 && $checkin !== '' && $checkout !== '' && !empty($holdTriples)) {
+                foreach ($holdTriples as $t) {
+                    $hold = stays_hold_create($db, $hotelId, $t['room_id'], $t['option_id'], $checkin, $checkout, $t['qty'], $invoiceId);
                     if (empty($hold['ok'])) {
                         // Release any holds already placed for this booking, then fail.
                         foreach ($staysHoldIds as $hid) { stays_hold_release($db, $hid); }
@@ -653,9 +682,8 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
                     }
                     $staysHoldIds[] = (int) $hold['hold_id'];
                 }
-            }
-            if (!$anyIdentified) {
-                error_log('stays booking: manual stay without room_id/option_id in rooms_data (invoice ' . $invoiceId . ') — proceeding without a hold (legacy payload)');
+            } else {
+                error_log('stays booking: own-inventory stay without resolvable room_id/option_id (invoice ' . $invoiceId . ', hotel ' . $hotelId . ') — proceeding WITHOUT a hold. Check that the rooms API emits option_id and the client sends selected_rooms.');
             }
         }
 
