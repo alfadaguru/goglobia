@@ -8056,6 +8056,34 @@ function ensureSupplierStaysSchema($db): void
         // (Promo codes for stays reuse the platform `promo_codes` table + validatePromoCode
         // with per-property targeting — see supplier_rates.php note; no parallel table.)
 
+        // --- MODULE 07 (front desk ops → 360): shift handover + wake-up calls --------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_shift_handover` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `shift` ENUM('morning','evening','night') NOT NULL DEFAULT 'morning',
+            `handover_date` DATE NOT NULL,
+            `notes` TEXT DEFAULT NULL,
+            `cash_balance` DECIMAL(14,2) DEFAULT NULL,
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_date` (`stay_id`,`handover_date`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_wakeup_calls` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `invoice_id` VARCHAR(64) DEFAULT NULL,
+            `wake_at` DATETIME NOT NULL,
+            `note` VARCHAR(255) DEFAULT NULL,
+            `status` ENUM('scheduled','done','cancelled') NOT NULL DEFAULT 'scheduled',
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- Packages (#17): bundled offerings -------------------------------------
         $db->query("CREATE TABLE IF NOT EXISTS `stays_packages` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,

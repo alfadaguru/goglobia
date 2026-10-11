@@ -29065,6 +29065,44 @@ CREATE TABLE `stays_rate_restrictions` (
 -- --------------------------------------------------------
 
 --
+-- MODULE 07: front-desk shift handover log.
+--
+CREATE TABLE `stays_shift_handover` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `shift` enum('morning','evening','night') NOT NULL DEFAULT 'morning',
+  `handover_date` date NOT NULL,
+  `notes` text DEFAULT NULL,
+  `cash_balance` decimal(14,2) DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_date` (`stay_id`,`handover_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- MODULE 07: wake-up calls.
+--
+CREATE TABLE `stays_wakeup_calls` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `invoice_id` varchar(64) DEFAULT NULL,
+  `wake_at` datetime NOT NULL,
+  `note` varchar(255) DEFAULT NULL,
+  `status` enum('scheduled','done','cancelled') NOT NULL DEFAULT 'scheduled',
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Packages (#17): bundled offerings.
 --
 CREATE TABLE `stays_packages` (

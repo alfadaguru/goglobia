@@ -199,6 +199,67 @@ $router->get('/supplier/front-desk', function () use ($SECURE, $db) {
 });
 
 // ============================================================================
+// SHIFT HANDOVER + WAKE-UP CALLS — GET /supplier/stays/{id}/shift  (PMS #07)
+// ============================================================================
+$router->get('/supplier/stays/([0-9]+)/shift', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'reservations', 'view', (int) $id)) { _supplier_stays_deny('That property is not yours.'); }
+    $stay = $db->get('stays', ['id', 'name'], ['id' => (int) $id]);
+    if (!$stay) { _supplier_stays_deny('Property not found.'); }
+    $stayId = (int) $id;
+    $handovers = function_exists('handover_list') ? handover_list($db, $stayId) : [];
+    $wakeups = function_exists('wakeup_list') ? wakeup_list($db, $stayId) : [];
+    $canEdit = supplier_can($db, 'reservations', 'edit', $stayId);
+    $title = ($stay['name'] ?? 'Property') . ' — Shift & wake-ups'; $description = ''; $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/reservations/shift.php";
+    require_once views . "includes/footer.php";
+});
+$router->post('/supplier/stays/shift/handover', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/stays/' . $stayId . '/shift';
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $org = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $stayId) : 0;
+    $id = function_exists('handover_add') ? handover_add($db, $org, $stayId, $_POST) : 0;
+    $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Handover logged.' : 'Could not log.'];
+    header('Location: ' . $back); exit;
+});
+$router->post('/supplier/stays/shift/wakeup-status', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/stays/' . $stayId . '/shift';
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $ok = function_exists('wakeup_set_status') && wakeup_set_status($db, $stayId, (int) ($_POST['wakeup_id'] ?? 0), strtolower((string) ($_POST['status'] ?? '')));
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Updated.' : 'Could not update.'];
+    header('Location: ' . $back); exit;
+});
+
+// ============================================================================
+// ARRIVAL / DEPARTURE MANIFEST — GET /supplier/manifest?which=arrivals&date=  (PMS #07)
+// ============================================================================
+$router->get('/supplier/manifest', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    $stayIds = supplier_owned_stay_ids($db, $owner);
+    $stayFilter = (int) ($_GET['stay_id'] ?? 0);
+    $which = ($_GET['which'] ?? 'arrivals') === 'departures' ? 'departures' : 'arrivals';
+    $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['date'] ?? '')) ? (string) $_GET['date'] : date('Y-m-d');
+    $reservations = supplier_fetch_reservations($db, $stayIds, ['stay_id' => $stayFilter], 1000);
+    $rows = function_exists('fd_manifest') ? fd_manifest($reservations, $date, $which) : [];
+    $propMap = [];
+    if (!empty($stayIds)) { try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {} }
+    $title = ucfirst($which) . ' manifest'; $description = ''; $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/reservations/manifest.php";
+    require_once views . "includes/footer.php";
+});
+
+// ============================================================================
 // ROOM RACK / TAPE CHART — GET /supplier/stays/{id}/tape-chart  (PMS #04)
 // ============================================================================
 $router->get('/supplier/stays/([0-9]+)/tape-chart', function ($id) use ($SECURE, $db) {
@@ -425,6 +486,26 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
             } else {
                 $_SESSION['message'] = ['type' => 'error', 'text' => 'Folio unavailable.'];
             }
+        } elseif ($action === 'express_checkin') {
+            // MODULE 07: one-click check-in (+ optional room assign).
+            $prid = (int) ($_POST['physical_room_id'] ?? 0);
+            $res = function_exists('fd_express_checkin') ? fd_express_checkin($db, $invoiceId, $hid, $prid) : ['ok' => false, 'message' => 'Unavailable.'];
+            $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not check in.'];
+        } elseif ($action === 'express_checkout') {
+            // MODULE 07: one-click checkout (finalizes folio → GL → earning).
+            $res = function_exists('fd_express_checkout') ? fd_express_checkout($db, $invoiceId) : ['ok' => false, 'message' => 'Unavailable.'];
+            $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not check out.'];
+        } elseif ($action === 'early_late') {
+            // MODULE 07: flag early check-in / late checkout (fee posted via folio_add).
+            $which = (string) ($_POST['which'] ?? 'early_checkin');
+            $on = (string) ($_POST['on'] ?? '1') === '1';
+            $ok = function_exists('fd_set_early_late') && fd_set_early_late($db, $invoiceId, $which, $on, (string) ($_POST['time'] ?? ''));
+            $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Updated.' : 'Could not update.'];
+        } elseif ($action === 'wakeup_add') {
+            // MODULE 07: schedule a wake-up call for this guest.
+            $org = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $hid) : 0;
+            $id = function_exists('wakeup_add') ? wakeup_add($db, $org, $hid, (string) ($_POST['wake_at'] ?? ''), $invoiceId, (string) ($_POST['note'] ?? '')) : 0;
+            $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Wake-up call scheduled.' : 'Could not schedule (valid time required).'];
         } elseif ($action === 'folio_add') {
             // Add a front-desk charge/payment to the open folio.
             $ftype = strtolower(trim((string) ($_POST['folio_type'] ?? '')));

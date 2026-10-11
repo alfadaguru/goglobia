@@ -168,6 +168,36 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
             <button type="submit" class="btn emerald text-sm">Check out</button>
           </form>
         <?php endif; ?>
+
+        <?php // MODULE 07: express check-in/out + early/late flags + wake-up. ?>
+        <?php if ($ss === 'confirmed'): ?>
+          <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="inline">
+            <?= CSRF::tokenField() ?><input type="hidden" name="action" value="express_checkin">
+            <button type="submit" class="btn secondary text-sm" title="One-click check-in">Express check-in</button>
+          </form>
+          <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="inline">
+            <?= CSRF::tokenField() ?><input type="hidden" name="action" value="early_late"><input type="hidden" name="which" value="early_checkin"><input type="hidden" name="on" value="1">
+            <button type="submit" class="btn secondary text-sm">Flag early check-in</button>
+          </form>
+        <?php elseif ($ss === 'checked_in'): ?>
+          <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="inline"
+                onsubmit="return confirm('Express checkout? This finalizes the folio and posts the bill.');">
+            <?= CSRF::tokenField() ?><input type="hidden" name="action" value="express_checkout">
+            <button type="submit" class="btn secondary text-sm">Express checkout</button>
+          </form>
+          <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="inline">
+            <?= CSRF::tokenField() ?><input type="hidden" name="action" value="early_late"><input type="hidden" name="which" value="late_checkout"><input type="hidden" name="on" value="1">
+            <button type="submit" class="btn secondary text-sm">Flag late checkout</button>
+          </form>
+        <?php endif; ?>
+        <?php if ($ss !== 'checked_out' && $ss !== 'cancelled'): ?>
+          <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="inline-flex items-end gap-1">
+            <?= CSRF::tokenField() ?><input type="hidden" name="action" value="wakeup_add">
+            <input type="datetime-local" name="wake_at" class="input text-xs py-1" required>
+            <button type="submit" class="btn secondary text-sm">Set wake-up</button>
+          </form>
+        <?php endif; ?>
+
         <?php if ($ss === 'checked_out' && function_exists('review_token')): ?>
           <?php $rvUrl = rtrim(root, '/') . '/stay-review/' . review_token($inv); ?>
           <div class="flex items-center gap-2 text-xs" x-data="{ copied:false }">

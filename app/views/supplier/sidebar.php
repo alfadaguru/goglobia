@@ -77,6 +77,7 @@ if ($activeStay > 0) {
         ['name' => 'Front desk',    'icon' => 'concierge',        'url' => 'supplier/front-desk' . $q, 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Reservations',  'icon' => 'receipt_long',     'url' => 'supplier/reservations' . $q, 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Room rack',     'icon' => 'grid_view',        'url' => 'supplier/stays/' . $sid . '/tape-chart', 'show' => $can('reservations', 'view', $sid)],
+        ['name' => 'Shift & wake-ups','icon' => 'alarm',           'url' => 'supplier/stays/' . $sid . '/shift', 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Groups & blocks','icon' => 'groups_3',        'url' => 'supplier/groups' . $q, 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Housekeeping',  'icon' => 'cleaning_services','url' => 'supplier/housekeeping' . $q, 'show' => $can('rooms', 'view', $sid)],
         ['name' => 'Maintenance',   'icon' => 'build',            'url' => 'supplier/maintenance' . $q, 'show' => $can('rooms', 'edit', $sid)],

@@ -72,17 +72,18 @@ Per-module: built/total + the sub-features still to build (BUILT ones omitted). 
 
 > ✅ MODULE 06 DEEPENED: server-side YIELD ENGINE (stays_rate_rules → applied inside stays_recompute_net, the one authoritative pricer): occupancy / LOS / early-bird / last-minute / weekday / derived; pure math harnessed (harness_rate_rules, 18 checks). Booking RESTRICTIONS (stays_rate_restrictions: min/max stay, CTA, min/max advance window) enforced at the stays booking submit. Promo codes = existing platform promo_codes + validatePromoCode (per-property target_ids) — not duplicated. /supplier/stays/{id}/rate-rules mgmt UI + 'Rate rules' sidebar link. STILL OPEN: channel pricing→#12 (external OTA), corporate negotiated + agent rates→#15 (negotiated price lists), CTD (column stored; checkout-date gate partial).
 ## 07. Front desk operations  —  11/18
-- [ ] dashboard
-- [ ] early check-in
-- [ ] late checkout
-- [ ] express check-in/out
-- [ ] identity verification
-- [ ] messages/traces
-- [ ] wake-up calls
-- [ ] shift handover
-- [ ] room-status visibility
-- [ ] arrival/departure manifests
+- [x] dashboard
+- [x] early check-in
+- [x] late checkout
+- [x] express check-in/out
+- [x] identity verification
+- [x] messages/traces
+- [x] wake-up calls
+- [x] shift handover
+- [x] room-status visibility
+- [x] arrival/departure manifests
 
+> ✅ MODULE 07 DEEPENED: express check-in/out (one-click → folio_checkin/checkout), early-checkin/late-checkout flags, WAKE-UP CALLS (stays_wakeup_calls + schedule on reservation detail + manage on Shift page), SHIFT HANDOVER log (stays_shift_handover + /supplier/stays/{id}/shift), printable ARRIVAL/DEPARTURE MANIFESTS (/supplier/manifest, reuses #04 dashboard buckets). dashboard + traces already built in #04; identity verification via online check-in ID capture (#20); room-status visibility on the housekeeping board (#24).
 ## 08. Group & block reservations  —  8/15
 - [ ] release/cutoff
 - [ ] group rates
