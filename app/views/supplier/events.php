@@ -48,6 +48,21 @@ $stNext  = ['enquiry'=>[['confirmed','Confirm'],['cancelled','Cancel']],'confirm
           <?php if (!empty($spaces)): ?>
             <ul class="text-sm divide-y divide-gray-50 mb-3"><?php foreach ($spaces as $s): ?><li class="py-1.5 flex justify-between"><span class="text-gray-800"><?= htmlspecialchars((string) $s['name']) ?></span><span class="text-xs text-gray-400">cap <?= (int) $s['capacity'] ?></span></li><?php endforeach; ?></ul>
           <?php endif; ?>
+          <?php $sa = (isset($spaceAvail) && is_array($spaceAvail)) ? $spaceAvail : []; if (!empty($sa)): ?>
+            <div class="border-t border-gray-100 pt-3 mb-3">
+              <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Booked dates (next 30 days)</div>
+              <ul class="space-y-1 text-xs">
+                <?php foreach ($sa as $sp): ?>
+                  <li class="flex justify-between gap-2">
+                    <span class="text-gray-700"><?= htmlspecialchars((string) $sp['name']) ?></span>
+                    <span class="text-right <?= empty($sp['booked_dates']) ? 'text-green-700' : 'text-gray-500' ?>">
+                      <?= empty($sp['booked_dates']) ? 'free' : htmlspecialchars(implode(', ', array_map(function($d){ return substr($d,5); }, $sp['booked_dates']))) ?>
+                    </span>
+                  </li>
+                <?php endforeach; ?>
+              </ul>
+            </div>
+          <?php endif; ?>
           <form action="<?= $base ?>/space" method="POST" class="flex flex-wrap items-end gap-2 border-t border-gray-100 pt-3">
             <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $stayFilter ?>">
             <input type="text" name="name" class="input text-sm" placeholder="Space name *" required>

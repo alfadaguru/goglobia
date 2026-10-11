@@ -186,6 +186,41 @@ if (!function_exists('mice_event_set_status')) {
     }
 }
 
+if (!function_exists('mice_space_availability')) {
+    /**
+     * SPACE AVAILABILITY (PMS completion #16). For each function space of a property,
+     * list the dates in [from,to] on which it is BOOKED (a confirmed/completed event),
+     * so the planner can see what is free. Mirrors the double-booking guard's rule
+     * (only confirmed/completed hold a space; enquiries do not). Read-only.
+     * Returns [ ['space_id','name','capacity','booked_dates'=>['Y-m-d',...]], ... ].
+     */
+    function mice_space_availability($db, int $stayId, string $from, string $to): array
+    {
+        $out = [];
+        if ($stayId <= 0) { return $out; }
+        $fts = strtotime($from); $tts = strtotime($to);
+        if ($fts === false || $tts === false || $tts < $fts) { return $out; }
+        try {
+            $spaces = $db->select('stays_event_spaces', ['id', 'name', 'capacity'], ['stay_id' => $stayId]) ?: [];
+            if (empty($spaces)) { return $out; }
+            // All space-holding events in the window, in one query.
+            $events = $db->select('stays_events', ['space_id', 'event_date'],
+                ['stay_id' => $stayId, 'status' => ['confirmed', 'completed'],
+                 'event_date[<>]' => [date('Y-m-d', $fts), date('Y-m-d', $tts)]]) ?: [];
+            $bySpace = [];
+            foreach ($events as $e) { $bySpace[(int) $e['space_id']][] = (string) $e['event_date']; }
+            foreach ($spaces as $sp) {
+                $sid = (int) $sp['id'];
+                $dates = $bySpace[$sid] ?? [];
+                sort($dates);
+                $out[] = ['space_id' => $sid, 'name' => (string) $sp['name'],
+                          'capacity' => (int) ($sp['capacity'] ?? 0), 'booked_dates' => array_values(array_unique($dates))];
+            }
+        } catch (\Throwable $e) { error_log('mice_space_availability: ' . $e->getMessage()); }
+        return $out;
+    }
+}
+
 if (!function_exists('mice_events_for_org')) {
     /** Events across the owner's properties (optional status filter). Read-only. */
     function mice_events_for_org($db, array $stayIds, string $status = '', int $limit = 200): array

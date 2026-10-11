@@ -36,6 +36,12 @@ $router->get('/supplier/events', function () use ($SECURE, $db) {
         try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {}
     }
     $spaceNames = []; foreach ($spaces as $s) { $spaceNames[(int) $s['id']] = $s['name']; }
+    // Space availability (PMS #16) — booked dates per space over the next ~30 days,
+    // shown when a single property is selected.
+    $spaceAvail = [];
+    if ($stayFilter > 0 && function_exists('mice_space_availability')) {
+        $spaceAvail = mice_space_availability($db, $stayFilter, date('Y-m-d'), date('Y-m-d', strtotime('+30 days')));
+    }
     $canEdit = supplier_can($db, 'reservations', 'edit');
 
     $title = 'Events'; $description = ''; $header = true; $footer = true;
