@@ -1109,6 +1109,19 @@ $router->get('/supplier/stays/site/([0-9]+)/preview', function ($id) use ($SECUR
     require_once views . "includes/footer.php";
 });
 
+// POST /supplier/stays/site-theme — save the site-builder theme (MODULE 13). Distinct
+// literal path so it never collides with the numeric-id /site/{id} domain route.
+$router->post('/supplier/stays/site-theme', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $back = root . 'supplier/stays/site/' . $stayId;
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $ok = function_exists('sitebuilder_save') && sitebuilder_save($db, $stayId, $_POST);
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Site design saved.' : 'Could not save.'];
+    header('Location: ' . $back); exit;
+});
+
 // POST /supplier/stays/site/{id}/book — take a DIRECT / walk-in booking (inc S27).
 // Desk action (supplier_can reservations edit). Server-priced + pooled-inventory hold.
 $router->post('/supplier/stays/site/([0-9]+)/book', function ($id) use ($SECURE, $db) {

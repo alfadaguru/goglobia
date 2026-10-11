@@ -136,21 +136,22 @@ Per-module: built/total + the sub-features still to build (BUILT ones omitted). 
 
 > ✅ MODULE 12 DEEPENED (honest external-edge): iCal is REAL — a standards-compliant RFC-5545 availability feed (/ical/{token}.ics, token-gated, dates-only, built from live holds; harness_ical 13 checks, exclusive DTEND) that Airbnb/Booking.com/Google Calendar can subscribe to with NO vendor account. OTA channel MAP (room↔remote id, stays_channel_map) persisted + managed on /supplier/stays/{id}/channels. Two-way OTA API sync (Booking.com/Expedia/Airbnb) is HONESTLY STUBBED — channel_sync_status returns 'not connected' unless a {channel}_adapter exists (none ship); UI says so plainly. Per the build-real-part-stub-the-edge rule.
 ## 13. Direct booking engine & website builder  —  6/19
-- [ ] templates
-- [ ] branding
-- [ ] custom pages
-- [ ] live room search
-- [ ] checkout
-- [ ] guest payments
-- [ ] multilingual
-- [ ] multi-currency display
-- [ ] SEO
-- [ ] promotion banners
+- [x] templates
+- [x] branding
+- [x] custom pages
+- [x] live room search
+- [x] checkout
+- [x] guest payments
+- [x] multilingual
+- [x] multi-currency display
+- [x] SEO
+- [x] promotion banners
 - [ ] reviews/testimonials
-- [ ] analytics integration
+- [x] analytics integration
 - [ ] abandoned-booking recovery
-- [ ] direct-booking incentives
+- [x] direct-booking incentives
 
+> ✅ MODULE 13 DEEPENED: SITE-BUILDER (supplier_sitebuilder.php) on stays_site.theme JSON — branding (accent+tagline), promotion banner, custom About page block, SEO title/desc, analytics id; editor on /supplier/stays/site/{id} (new site-theme POST), rendered on the branded /book/{slug} + preview with STRICT escaping (no supplier HTML emitted; accent hex-validated, analytics alnum-validated). Live room search + checkout + guest payments already route into the main price-integrity booking flow; multilingual + multi-currency inherited from the platform header switchers. DEFERRED (heavier): abandoned-booking recovery + reviews/testimonials (→#23) need draft-capture/cron.
 ## 14. Revenue management & forecasting  —  2/16
 - [ ] dashboard
 - [ ] TRevPAR

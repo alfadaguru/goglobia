@@ -28,6 +28,31 @@
   </div>
   <p class="text-sm text-gray-600"><?= htmlspecialchars($stayName) ?> has its own branded booking page.</p>
 
+  <!-- MODULE 13: site-builder design (branding / banner / custom about / SEO / analytics) -->
+  <?php $theme = function_exists('sitebuilder_decode') ? sitebuilder_decode($s['theme'] ?? null) : []; $sid13 = (int) ($stay['id'] ?? 0); ?>
+  <div class="card p-5 space-y-3">
+    <h2 class="text-sm font-semibold text-gray-800">Design &amp; content</h2>
+    <form action="<?= root ?>supplier/stays/site-theme" method="POST" class="space-y-3">
+      <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid13 ?>">
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div><label class="block text-xs text-gray-600 mb-1">Accent colour</label><input type="color" name="accent" value="<?= htmlspecialchars((string) ($theme['accent'] ?? '#7c3aed')) ?>" class="input h-9 p-1"></div>
+        <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Tagline</label><input type="text" name="tagline" value="<?= htmlspecialchars((string) ($theme['tagline'] ?? '')) ?>" class="input text-sm" placeholder="Your stay, your way"></div>
+      </div>
+      <div>
+        <label class="inline-flex items-center gap-1.5 text-xs text-gray-700 mb-1"><input type="checkbox" name="banner_on" value="1" class="checkbox-input" <?= !empty($theme['banner_on']) ? 'checked' : '' ?>> Show promotion banner</label>
+        <input type="text" name="banner" value="<?= htmlspecialchars((string) ($theme['banner'] ?? '')) ?>" class="input text-sm" placeholder="Book direct & save 10% — no OTA fees">
+      </div>
+      <div><label class="block text-xs text-gray-600 mb-1">About this property (custom page text)</label>
+        <textarea name="about" rows="3" class="input text-sm" placeholder="Tell guests what makes your property special…"><?= htmlspecialchars((string) ($theme['about'] ?? '')) ?></textarea></div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div><label class="block text-xs text-gray-600 mb-1">SEO title</label><input type="text" name="meta_title" value="<?= htmlspecialchars((string) ($theme['meta_title'] ?? '')) ?>" class="input text-sm"></div>
+        <div><label class="block text-xs text-gray-600 mb-1">Analytics ID</label><input type="text" name="analytics_id" value="<?= htmlspecialchars((string) ($theme['analytics_id'] ?? '')) ?>" class="input text-sm" placeholder="G-XXXXXXX / UA-…"></div>
+      </div>
+      <div><label class="block text-xs text-gray-600 mb-1">SEO description</label><input type="text" name="meta_desc" value="<?= htmlspecialchars((string) ($theme['meta_desc'] ?? '')) ?>" class="input text-sm"></div>
+      <button type="submit" class="btn secondary text-sm">Save design</button>
+    </form>
+  </div>
+
   <!-- Branded (built-in) address -->
   <div class="card p-5 space-y-2">
     <h2 class="text-sm font-semibold text-gray-800">Your branded address</h2>

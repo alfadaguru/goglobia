@@ -11,7 +11,22 @@
 ?>
 
 <?php $canBook = !empty($canBook); $cur = htmlspecialchars($s['currency'] ?? 'USD'); $sid = (int) ($s['id'] ?? 0); ?>
+<?php
+  // MODULE 13: site-builder theme (branding/banner/about/SEO). Self-contained — fetch
+  // from stays_site so both the owner preview and the public /book/{slug} render it.
+  $theme = ['accent' => '#7c3aed', 'tagline' => '', 'banner' => '', 'banner_on' => false, 'about' => '', 'analytics_id' => ''];
+  // $db is in scope here (the includers — _branded_render_stay($db,…) and the preview
+  // route closure's use($db) — both pass it as a local), so use it directly.
+  if ($sid > 0 && function_exists('sitebuilder_decode') && isset($db)) {
+      try { $__st = $db->get('stays_site', ['theme'], ['stay_id' => $sid]); if ($__st) { $theme = sitebuilder_decode($__st['theme'] ?? null); } } catch (\Throwable $e) {}
+  }
+  $accent = function_exists('sitebuilder_accent_safe') ? sitebuilder_accent_safe($theme) : '#7c3aed';
+?>
 <div class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+
+  <?php if (!empty($theme['banner_on']) && trim((string) $theme['banner']) !== ''): ?>
+    <div class="rounded-lg px-4 py-2 text-sm text-white text-center font-medium" style="background-color: <?= htmlspecialchars($accent) ?>;"><?= htmlspecialchars((string) $theme['banner']) ?></div>
+  <?php endif; ?>
 
   <?php if (!empty($_SESSION['message'])): ?>
     <?php $__m = $_SESSION['message']; $__t = is_array($__m) ? ($__m['type'] ?? 'info') : 'info'; $__x = is_array($__m) ? ($__m['text'] ?? '') : (string) $__m; ?>
@@ -46,11 +61,21 @@
         <span class="text-amber-500 text-lg"><?= str_repeat('★', $stars) ?></span>
       <?php endif; ?>
     </div>
+    <?php if (trim((string) ($theme['tagline'] ?? '')) !== ''): ?>
+      <p class="mt-1 font-medium" style="color: <?= htmlspecialchars($accent) ?>;"><?= htmlspecialchars((string) $theme['tagline']) ?></p>
+    <?php endif; ?>
     <p class="text-gray-600 mt-1 flex items-center gap-1.5">
       <span class="material-symbols-outlined text-base text-gray-400">location_on</span>
       <?= htmlspecialchars($s['location'] ?? '') ?><?= !empty($s['address']) ? ' · ' . htmlspecialchars($s['address']) : '' ?>
     </p>
   </div>
+
+  <?php if (trim((string) ($theme['about'] ?? '')) !== ''): ?>
+    <div class="card p-5">
+      <h2 class="text-sm font-semibold text-gray-900 mb-2">About</h2>
+      <div class="text-sm text-gray-700 whitespace-pre-line"><?= htmlspecialchars((string) $theme['about']) ?></div>
+    </div>
+  <?php endif; ?>
 
   <?php if (!empty($s['desc'])): ?>
     <?php
