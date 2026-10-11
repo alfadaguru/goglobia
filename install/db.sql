@@ -28885,6 +28885,7 @@ CREATE TABLE `stays_physical_rooms` (
   `floor` varchar(40) DEFAULT NULL,
   `hk_status` enum('clean','dirty','inspected','out_of_order') NOT NULL DEFAULT 'clean',
   `hk_updated_by` varchar(155) DEFAULT NULL,
+  `hk_assigned_to` varchar(155) DEFAULT NULL,
   `notes` varchar(255) DEFAULT NULL,
   `active` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),

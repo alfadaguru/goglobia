@@ -7903,6 +7903,7 @@ function ensureSupplierStaysSchema($db): void
             `floor` VARCHAR(40) DEFAULT NULL,
             `hk_status` ENUM('clean','dirty','inspected','out_of_order') NOT NULL DEFAULT 'clean',
             `hk_updated_by` VARCHAR(155) DEFAULT NULL,
+            `hk_assigned_to` VARCHAR(155) DEFAULT NULL,
             `notes` VARCHAR(255) DEFAULT NULL,
             `active` TINYINT(1) NOT NULL DEFAULT 1,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -7912,6 +7913,12 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay_room` (`stay_id`,`room_id`),
             KEY `idx_status` (`stay_id`,`hk_status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #24): housekeeping attendant assignment. Guarded ALTER.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `stays_physical_rooms` LIKE 'hk_assigned_to'")->fetch()) {
+                $db->query("ALTER TABLE `stays_physical_rooms` ADD COLUMN `hk_assigned_to` VARCHAR(155) DEFAULT NULL AFTER `hk_updated_by`");
+            }
+        } catch (\Throwable $e) { error_log('hk_assigned_to col: ' . $e->getMessage()); }
 
         // --- maintenance (inc S23): work orders + out-of-order blocks ---------------
         // Work-order tickets are operational records. An OOO block (stays_ooo_blocks)

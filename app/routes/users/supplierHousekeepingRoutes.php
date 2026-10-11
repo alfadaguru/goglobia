@@ -24,7 +24,7 @@ $router->get('/supplier/housekeeping', function () use ($SECURE, $db) {
         $scope = $stayFilter > 0 ? [$stayFilter] : $stayIds;
         try {
             $rooms = $db->select('stays_physical_rooms',
-                ['id', 'stay_id', 'room_id', 'room_number', 'floor', 'hk_status', 'active'],
+                ['id', 'stay_id', 'room_id', 'room_number', 'floor', 'hk_status', 'hk_assigned_to', 'active'],
                 ['stay_id' => $scope, 'ORDER' => ['stay_id' => 'ASC', 'room_number' => 'ASC']]) ?: [];
         } catch (\Throwable $e) { error_log('hk board: ' . $e->getMessage()); }
     }
@@ -65,6 +65,21 @@ $router->post('/supplier/housekeeping/status', function () use ($SECURE, $db) {
     if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('hk_room_set_status') && hk_room_set_status($db, $prid, $stayId, $to, (string) ($_SESSION['user_id'] ?? ''));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Room status updated.' : 'Could not update that room (invalid transition?).'];
+    header('Location: ' . $back); exit;
+});
+
+// POST /supplier/housekeeping/assign — assign an attendant to a room (PMS #24)
+$router->post('/supplier/housekeeping/assign', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $prid = (int) ($_POST['physical_room_id'] ?? 0);
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $back = root . 'supplier/housekeeping' . ($stayId > 0 ? '?stay_id=' . $stayId : '');
+    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $ok = function_exists('hk_assign_attendant') && hk_assign_attendant($db, $prid, $stayId, (string) ($_POST['attendant'] ?? ''));
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Attendant updated.' : 'Could not assign.'];
     header('Location: ' . $back); exit;
 });
 

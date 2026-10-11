@@ -59,7 +59,7 @@ $nextOf = [
         <thead><tr class="text-left text-gray-500 border-b border-gray-100">
           <th class="px-4 py-3 font-medium">Property</th><th class="px-4 py-3 font-medium">Room</th>
           <th class="px-4 py-3 font-medium">Floor</th><th class="px-4 py-3 font-medium">Status</th>
-          <th class="px-4 py-3 font-medium">Occupied</th><th class="px-4 py-3 font-medium">Set to</th>
+          <th class="px-4 py-3 font-medium">Occupied</th><th class="px-4 py-3 font-medium">Attendant</th><th class="px-4 py-3 font-medium">Set to</th>
         </tr></thead>
         <tbody class="divide-y divide-gray-100">
           <?php foreach ($rooms as $r): ?>
@@ -70,6 +70,19 @@ $nextOf = [
               <td class="px-4 py-3 text-gray-500"><?= htmlspecialchars((string) ($r['floor'] ?? '')) ?: '—' ?></td>
               <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium <?= $hkColor[$st] ?? 'bg-gray-100 text-gray-600' ?>"><?= htmlspecialchars(str_replace('_', ' ', ucfirst($st))) ?></span></td>
               <td class="px-4 py-3"><?= $occupied ? '<span class="text-xs text-indigo-600 font-medium">In-house</span>' : '<span class="text-xs text-gray-400">—</span>' ?></td>
+              <td class="px-4 py-3">
+                <?php if ($canEdit): ?>
+                  <form action="<?= $base ?>/assign" method="POST" class="flex items-center gap-1">
+                    <?= CSRF::tokenField() ?>
+                    <input type="hidden" name="physical_room_id" value="<?= (int) $r['id'] ?>">
+                    <input type="hidden" name="stay_id" value="<?= (int) $r['stay_id'] ?>">
+                    <input type="text" name="attendant" value="<?= htmlspecialchars((string) ($r['hk_assigned_to'] ?? '')) ?>" placeholder="unassigned" class="input text-xs w-28">
+                    <button type="submit" class="text-xs text-violet-600 hover:underline">Save</button>
+                  </form>
+                <?php else: ?>
+                  <span class="text-xs text-gray-500"><?= htmlspecialchars((string) ($r['hk_assigned_to'] ?? '')) ?: '—' ?></span>
+                <?php endif; ?>
+              </td>
               <td class="px-4 py-3">
                 <?php if ($canEdit && !empty($nextOf[$st])): ?>
                   <div class="flex items-center gap-1.5">
