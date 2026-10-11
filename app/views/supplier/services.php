@@ -6,7 +6,7 @@
   $propList = (isset($propList) && is_array($propList)) ? $propList : [];
   $svcNames = (isset($svcNames) && is_array($svcNames)) ? $svcNames : [];
   $canEdit = !empty($canEdit);
-  $base = root . 'supplier/services';
+  $base = root . 'supplier/ancillary-services';
   $kLabel = ['spa'=>'Spa','wellness'=>'Wellness','recreation'=>'Recreation','transfer'=>'Transfer','equipment'=>'Equipment','other'=>'Other'];
   $bsColor = ['booked'=>'bg-blue-50 text-blue-700','completed'=>'bg-green-50 text-green-700','cancelled'=>'bg-gray-100 text-gray-500'];
 ?>

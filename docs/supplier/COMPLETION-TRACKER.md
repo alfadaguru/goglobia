@@ -81,11 +81,31 @@ spec (docs/supplier/01b). Built in order: **24 Partial → 7 Dead → 30 Missing
 - ✅ #49/#51 Leases & long-stay + Utilities / meter readings — stays_leases + stays_utility_readings; supplier_lease.php (utility_amount harness: max(0,cur-prev)*rate).
 - ✅ #15/#50 Corporate & agent accounts + Trust / client-money ledger — stays_corporate_accounts + stays_trust_ledger; supplier_corporate.php (trust signed-balance harness). Owner-only.
 - ✅ #31/#32/#33 Services (spa/wellness/generic) + Recipes/food-cost — stays_services + stays_service_bookings + stays_recipes; supplier_ancillary.php (recipe-margin harness).
-- ✅ #17/#52-55 Packages + Safety & compliance — stays_packages + stays_incidents + stays_visitors + stays_documents; supplier_safety.php; routes + views + sidebar.
+- ✅ #17 Packages + #54 Safety/incident + #55 Document & compliance — stays_packages + stays_incidents + stays_visitors + stays_documents; supplier_safety.php; routes + views + sidebar.
+  ⚠️ CORRECTION (post-audit 2026-10-11): this line previously read "#17/#52-55" which FALSELY implied #52 (smart locks/access control) and #53 (smart building/IoT) were built. They are NOT — there is ZERO code, no table, and not even the mandated external-edge adapter stub for 52/53. Only 17, 54, 55 ship here. 52/53 remain **unbuilt** (not even stubbed) — see the honest-completion note at the end of this file.
 - ✅ #20 Digital guest journey — online check-in on the public branded path (/stay-checkin/{invoice}); brandedSiteRoutes.php.
 - ✅ #03 Multi-property / brands (REAL) + #12/#14/#57 Channel manager / RMS / AI (external-edge STUBS) — supplier_growth.php: brand CRUD + property→brand assignment on supplier_brands/stays.brand_id; integration config persisted to stays_integration_config but integration_status() honestly reports 'off'/'stub'/'connected' — only 'connected' when a real `{key}_adapter` fn exists (none ship), so the UI shows "Configured — not connected" and never fakes a live sync. /supplier/growth route + growth.php view + Team sidebar link. Owner-only.
 
-**Phase 3 (Missing modules): 24/24 built.** Every module is code-complete, php-l clean, schema mirrored in both ensureSupplierStaysSchema() and install/db.sql, and owner/staff/scope gated. **NOT runtime-verified** — no MySQL in this sandbox; owner smoke-tests on the server.
+**Phase 3 build count (corrected post-audit 2026-10-11):** the earlier "24/24 built" banner was misleading. A 13-lane adversarial audit against the 61-module spec found that the Phase-3 ✅ set actually delivers **~22 module-slices**, and that **two spec modules were silently NOT built**:
+- **#52 Smart locks / access control** — unbuilt (no code, no stub). External-edge; needs a provider adapter.
+- **#53 Smart building / IoT** — unbuilt (no code, no stub). External-edge; needs device integration.
+- **#37 Cash, bank & treasury** — unbuilt AND was never even listed in the "30 Missing" enumeration above (silent omission). Nearest existing coverage is the POS cashier shift-float (Phase 2) + the GL (#34), neither of which is bank reconciliation / cashbook / petty cash.
+
+Everything that IS marked ✅ is code-complete, php-l clean, schema-mirrored, and owner/staff/scope gated — but each is **one working slice** of its module, not the full sub-feature set (see the honest-completion note). **NOT runtime-verified** — no MySQL in this sandbox; owner smoke-tests on the server.
+
+---
+
+## HONEST COMPLETION NOTE (post-audit 2026-10-11) — read before claiming "360"
+
+A 13-lane, 33-agent adversarial audit (each finding independently verified against source) assessed this work against the 61-module spec in `01b`. The honest verdict:
+
+**Stays/hotels is NOT "360° complete."** It is a **credible Phase-1/2/3 foundation**: for ~55 of 61 modules there is schema + one working end-to-end path + security + tenant-scoping. At the **sub-feature** level (the spec lists ~10–18 sub-features per module) real completion is roughly **25–35%**, not 100%. Examples: POS (#30) ships 1 slice and defers ~12 of ~18 sub-features (modifiers, tables/floor, KDS, split/merge, discounts, tips, refunds, shifts, reporting); procurement (#41) defers ~9 of ~14.
+
+**What is genuinely solid:** the money spine (GL double-entry, earnings/payout isolation, server-authoritative net recompute, no-oversell holds on the marketplace path), the honesty of the external-edge stubs (#12/#14/#57 truthfully report "not connected" — verified, no `*_adapter` ships), tenant scoping, and CSRF/auth coverage. 92 individual tracker ✅ claims were verified genuinely backed by code.
+
+**Real defects the audit confirmed (being tracked/fixed):** see `scratchpad/audit` + the git log. Headline: a front-desk walk-in/phone confirmed-but-unpaid reservation oversell (hold expires, nights resell) and a payout void-race (only when live payouts are enabled).
+
+**Corrected false claims:** the completeness critic alleged loyalty-redeem (#22) was "outright broken" — this was RE-VERIFIED directly and is FALSE; `loyalty_redeem_to_folio` is correct and atomic. The #52/#53 "built" implication and the #37 omission (above) were the real documentation defects and are now corrected.
 
 
 ---

@@ -124,16 +124,25 @@ if (!function_exists('supplier_earning_accrue_for_booking')) {
 if (!function_exists('supplier_earning_void_for_booking')) {
     /** Void a pending/available earning when its booking is cancelled before payout.
      *  Never touches a 'paid' earning (already settled — a clawback is a separate,
-     *  manual process). Idempotent. */
+     *  manual process). Idempotent.
+     *
+     *  CRITICAL guard: only voids earnings NOT already reserved for a payout
+     *  (payout_id IS NULL). supplier_payout_request() stamps payout_id on an
+     *  'available' earning while leaving its state 'available'; voiding such a row
+     *  out from under a pending payout would let the payout's debit
+     *  (WHERE payout_id=? AND state='available') match zero rows at transfer time —
+     *  money would leave the float with no earning backing it. Cancelling a booking
+     *  whose earning is already reserved therefore does NOT void it here; the covering
+     *  payout must be rejected/settled first. Returns true iff a row was voided. */
     function supplier_earning_void_for_booking($db, string $invoiceId): bool
     {
         $invoiceId = trim($invoiceId);
         if ($invoiceId === '') { return false; }
         try {
-            $db->update('supplier_earnings',
+            $stmt = $db->update('supplier_earnings',
                 ['state' => 'void', 'updated_at' => date('Y-m-d H:i:s')],
-                ['invoice_id' => $invoiceId, 'state' => ['pending', 'available']]);
-            return true;
+                ['invoice_id' => $invoiceId, 'state' => ['pending', 'available'], 'payout_id' => null]);
+            return $stmt ? $stmt->rowCount() > 0 : false;
         } catch (\Throwable $e) {
             error_log('supplier_earning_void_for_booking: ' . $e->getMessage());
             return false;

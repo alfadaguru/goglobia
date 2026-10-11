@@ -189,8 +189,15 @@ if (!function_exists('resv_create_walkin')) {
                     return false;
                 }
 
-                // 3) If paid at the desk, consume the hold (permanent reservation).
-                if ($markPaid && function_exists('stays_hold_consume_ref')) {
+                // 3) CONSUME the hold → permanent reservation. A front-desk walk-in/phone
+                //    booking is created booking_status='confirmed' (a firm commitment the
+                //    hotel honors), so its inventory must be reserved REGARDLESS of payment
+                //    — "pay at property" is the normal case. Previously this only fired when
+                //    $markPaid, so an unpaid confirmed reservation held its rooms only for
+                //    the ~20-min hold TTL and then the nights became re-sellable (oversell
+                //    of a firm reservation). Consuming unconditionally closes that window.
+                //    stays_hold_consume_ref is idempotent (state-guarded held→consumed).
+                if (function_exists('stays_hold_consume_ref')) {
                     stays_hold_consume_ref($db, $invoiceId);
                 }
 
@@ -542,8 +549,13 @@ if (!function_exists('_resv_reprice_and_rehold')) {
                     $result = ['ok' => false, 'message' => $hold['message'] ?? 'The new dates/room are not available.'];
                     return false; // rollback — original holds are restored
                 }
-                // 3) If the booking was paid, the new hold is permanent.
-                if ($wasPaid && function_exists('stays_hold_consume_ref')) {
+                // 3) The new hold is permanent for a CONFIRMED reservation — same
+                //    invariant as create: a confirmed booking holds its inventory
+                //    regardless of payment (pay-at-property is normal). Previously gated
+                //    on $wasPaid, which left a modified unpaid-confirmed reservation with
+                //    only an expiring hold → same oversell window as the create path.
+                //    stays_hold_consume_ref is idempotent (state-guarded held→consumed).
+                if (function_exists('stays_hold_consume_ref')) {
                     stays_hold_consume_ref($db, $invoiceId);
                 }
                 // 4) Update the booking money + dates + selected_rooms.
