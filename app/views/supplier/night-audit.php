@@ -100,6 +100,62 @@ $base = root . 'supplier/night-audit';
       <?php endif; ?>
     </div>
 
+    <?php // MODULE 10: daily revenue report + reconciliation + owner reopen. ?>
+    <?php $dr = $dailyRevenue ?? null; $cr = $cashierRecon ?? null; $pr = $paymentRecon ?? null; $rd = (string) ($repDate ?? ''); $own = !empty($isOwner); ?>
+    <?php if ($rd !== ''): ?>
+    <div class="card p-5 space-y-4">
+      <div class="flex items-center justify-between flex-wrap gap-2">
+        <h2 class="text-sm font-semibold text-gray-900">Daily report — <?= htmlspecialchars($rd) ?></h2>
+        <form method="GET" action="<?= root ?>supplier/night-audit" class="flex items-end gap-2">
+          <input type="hidden" name="stay_id" value="<?= (int) $stayFilter ?>">
+          <input type="date" name="report_date" value="<?= htmlspecialchars($rd) ?>" class="input text-sm">
+          <button type="submit" class="btn secondary text-sm">View date</button>
+        </form>
+      </div>
+      <?php if ($dr): ?>
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div><div class="text-xs text-gray-500">Rooms</div><div class="text-lg font-bold tabular-nums"><?= number_format((float) $dr['rooms'], 2) ?></div></div>
+        <div><div class="text-xs text-gray-500">Extras</div><div class="text-lg font-bold tabular-nums"><?= number_format((float) $dr['extras'], 2) ?></div></div>
+        <div><div class="text-xs text-gray-500">Tax</div><div class="text-lg font-bold tabular-nums"><?= number_format((float) $dr['tax'], 2) ?></div></div>
+        <div><div class="text-xs text-gray-500">F&amp;B</div><div class="text-lg font-bold tabular-nums"><?= number_format((float) $dr['fnb'], 2) ?></div></div>
+        <div><div class="text-xs text-gray-500">Total</div><div class="text-lg font-bold tabular-nums text-violet-700"><?= number_format((float) $dr['total'], 2) ?></div></div>
+      </div>
+      <div class="text-xs text-gray-400">ADR <?= number_format((float) $dr['adr'], 2) ?> · RevPAR <?= number_format((float) $dr['revpar'], 2) ?> · Occupancy <?= $dr['occupancy'] === null ? '—' : number_format((float) $dr['occupancy'], 1) . '%' ?></div>
+      <?php endif; ?>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-gray-100 pt-3">
+        <div>
+          <h3 class="text-xs font-semibold text-gray-700 mb-1">Payment reconciliation</h3>
+          <?php if ($pr): ?>
+            <div class="text-sm space-y-0.5">
+              <div class="flex justify-between"><span class="text-gray-500">Folio payments</span><span class="tabular-nums"><?= number_format((float) $pr['folio_payments'], 2) ?></span></div>
+              <div class="flex justify-between"><span class="text-gray-500">F&amp;B payments</span><span class="tabular-nums"><?= number_format((float) $pr['pos_payments'], 2) ?></span></div>
+              <div class="flex justify-between font-semibold border-t border-gray-100 pt-0.5"><span>Collected</span><span class="tabular-nums"><?= number_format((float) $pr['total'], 2) ?></span></div>
+            </div>
+          <?php else: ?><p class="text-xs text-gray-400">—</p><?php endif; ?>
+        </div>
+        <div>
+          <h3 class="text-xs font-semibold text-gray-700 mb-1">Cashier reconciliation</h3>
+          <?php if ($cr && !empty($cr['shifts'])): ?>
+            <div class="text-sm space-y-0.5">
+              <div class="flex justify-between"><span class="text-gray-500">Expected</span><span class="tabular-nums"><?= number_format((float) $cr['expected'], 2) ?></span></div>
+              <div class="flex justify-between"><span class="text-gray-500">Counted</span><span class="tabular-nums"><?= number_format((float) $cr['counted'], 2) ?></span></div>
+              <div class="flex justify-between font-semibold border-t border-gray-100 pt-0.5"><span>Over / short</span><span class="tabular-nums <?= (float) $cr['over_short'] < 0 ? 'text-red-600' : 'text-green-700' ?>"><?= number_format((float) $cr['over_short'], 2) ?></span></div>
+            </div>
+          <?php else: ?><p class="text-xs text-gray-400">No cashier shifts closed on this date.</p><?php endif; ?>
+        </div>
+      </div>
+
+      <?php if ($own && $canRun): ?>
+      <form action="<?= root ?>supplier/night-audit/reopen" method="POST" class="flex flex-wrap items-end gap-2 border-t border-gray-100 pt-3" onsubmit="return confirm('Reopen this closed business date? It will be flagged for review (owner action, logged).');">
+        <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= (int) $stayFilter ?>"><input type="hidden" name="business_date" value="<?= htmlspecialchars($rd) ?>">
+        <div><label class="block text-xs text-gray-600 mb-1">Reopen reason (owner only)</label><input type="text" name="reason" class="input text-sm w-64" placeholder="e.g. late charge discovered" required></div>
+        <button type="submit" class="btn rose text-sm">Reopen day</button>
+      </form>
+      <?php endif; ?>
+    </div>
+    <?php endif; ?>
+
     <div class="card overflow-x-auto">
       <h2 class="text-sm font-semibold text-gray-900 px-4 pt-4">History</h2>
       <table class="w-full text-sm mt-2">
@@ -114,7 +170,7 @@ $base = root . 'supplier/night-audit';
             <tr><td colspan="10" class="px-4 py-6 text-center text-gray-400 text-sm">No audits run yet.</td></tr>
           <?php else: foreach ($history as $h): ?>
             <tr>
-              <td class="px-4 py-2 font-medium text-gray-900 tabular-nums"><?= htmlspecialchars((string) $h['business_date']) ?></td>
+              <td class="px-4 py-2 font-medium text-gray-900 tabular-nums"><?= htmlspecialchars((string) $h['business_date']) ?><?php if ((int) ($h['reopened'] ?? 0) === 1): ?> <span class="px-1.5 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-700" title="<?= htmlspecialchars((string) ($h['reopen_reason'] ?? '')) ?>">reopened</span><?php endif; ?></td>
               <td class="px-4 py-2 text-right tabular-nums"><?= (int) $h['arrivals'] ?></td>
               <td class="px-4 py-2 text-right tabular-nums"><?= (int) $h['departures'] ?></td>
               <td class="px-4 py-2 text-right tabular-nums"><?= (int) $h['in_house'] ?></td>

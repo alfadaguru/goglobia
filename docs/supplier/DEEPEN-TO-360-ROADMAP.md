@@ -107,11 +107,12 @@ Per-module: built/total + the sub-features still to build (BUILT ones omitted). 
 
 > ✅ MODULE 09 DEEPENED: FOLIO WINDOWS (folio_no on items → split billing + charge routing A/B/…, folio_windows() per-window totals); CREDIT/DEBIT NOTES + PREAUTH line types (preauth = held, not charged); SUPERVISOR VOID (folio_void_item keeps the line, excludes from totals, reason+actor); folio_totals now void-aware + correct signs (harness_folio_totals, 16 checks); folio_checkout GL tally ALSO made void-aware + type-correct (critical consistency fix — a voided line no longer posts to the GL); TRANSACTION AUDIT (stays_folio_audit + folio_audit on every post/void). DB-GATED: actual gateway charge/refund + preauth capture are external rails (records built; execution verify-with-DB). Receipts = folio-invoice print (payment lines).
 ## 10. Night audit & business-day close  —  8/12
-- [ ] cashier reconciliation
-- [ ] payment reconciliation
-- [ ] daily revenue report
-- [ ] audit log + reopen controls
+- [x] cashier reconciliation
+- [x] payment reconciliation
+- [x] daily revenue report
+- [x] audit log + reopen controls
 
+> ✅ MODULE 10 DEEPENED: DAILY REVENUE REPORT (na_daily_revenue — snapshot room rev + folio extras/tax + POS F&B for a date); CASHIER RECONCILIATION (na_cashier_reconciliation — shifts closed that day, expected vs counted, over/short); PAYMENT RECONCILIATION (na_payment_reconciliation — folio + POS collections for the date); REOPEN control (na_reopen — OWNER-ONLY, reason-required, flags snapshot reopened + logs via emit_event, does NOT silently reverse the GL; 'reopened' badge in history). All surfaced on the night-audit page for a chosen date. supplier_nightaudit_ext.php. Per-night revenue proration (prior fix) feeds the room figure.
 ## 11. GoGlobia marketplace management  —  8/12
 - [ ] marketplace performance
 - [ ] commission settings

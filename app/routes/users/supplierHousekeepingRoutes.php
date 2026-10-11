@@ -305,6 +305,18 @@ $router->get('/supplier/night-audit', function () use ($SECURE, $db) {
     $exceptions = ($stayFilter > 0 && function_exists('night_audit_exceptions')) ? night_audit_exceptions($db, $stayFilter) : ['count' => 0];
     $canRun = supplier_can($db, 'reservations', 'edit');
 
+    // MODULE 10: daily revenue report + cashier/payment reconciliation for a chosen date
+    // (defaults to the most recent closed business date in history). Owner-only reopen.
+    $isOwner = (function_exists('supplier_acting_context') && ($ctx = supplier_acting_context($db)) && !empty($ctx['is_owner']));
+    $repDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['report_date'] ?? '')) ? (string) $_GET['report_date'] : (!empty($history[0]['business_date']) ? (string) $history[0]['business_date'] : '');
+    $dailyRevenue = null; $cashierRecon = null; $paymentRecon = null;
+    if ($stayFilter > 0 && $repDate !== '') {
+        $orgId = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $stayFilter) : 0;
+        if (function_exists('na_daily_revenue'))         { $dailyRevenue = na_daily_revenue($db, $stayFilter, $repDate); }
+        if ($orgId > 0 && function_exists('na_cashier_reconciliation')) { $cashierRecon = na_cashier_reconciliation($db, $orgId, $repDate); }
+        if (function_exists('na_payment_reconciliation')) { $paymentRecon = na_payment_reconciliation($db, $stayFilter, $repDate); }
+    }
+
     $title = 'Night audit'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
     require_once views . "supplier/night-audit.php";
@@ -330,5 +342,21 @@ $router->post('/supplier/night-audit/run', function () use ($SECURE, $db) {
     } else {
         $_SESSION['message'] = ['type' => 'error', 'text' => $res['message'] ?? 'Could not run the night audit.'];
     }
+    header('Location: ' . $back); exit;
+});
+
+// POST /supplier/night-audit/reopen — OWNER-ONLY, logged reopen of a closed date (PMS #10)
+$router->post('/supplier/night-audit/reopen', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $date = (string) ($_POST['business_date'] ?? '');
+    $back = root . 'supplier/night-audit?stay_id=' . $stayId . '&report_date=' . rawurlencode($date);
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    // Reopen is an OWNER exception, not a staff action (it flags the books for review).
+    $ctx = function_exists('supplier_acting_context') ? supplier_acting_context($db) : null;
+    if (!$ctx || empty($ctx['is_owner'])) { _supplier_stays_deny('Only the account owner can reopen a closed business date.'); }
+    $res = function_exists('na_reopen') ? na_reopen($db, $stayId, $date, (string) ($_POST['reason'] ?? '')) : ['ok' => false, 'message' => 'Unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not reopen.'];
     header('Location: ' . $back); exit;
 });

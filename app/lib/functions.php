@@ -8089,6 +8089,17 @@ function ensureSupplierStaysSchema($db): void
         // (Promo codes for stays reuse the platform `promo_codes` table + validatePromoCode
         // with per-property targeting — see supplier_rates.php note; no parallel table.)
 
+        // --- MODULE 10 (night audit → 360): reopen controls + audit of closes --------
+        // A night-audit close is normally immutable; a reopen is an owner-only, logged
+        // exception (e.g. a late charge discovered after close). We mark the snapshot
+        // reopened + log who/why, rather than silently mutating the books.
+        if (!$db->query("SHOW COLUMNS FROM `stays_night_audits` LIKE 'reopened'")->fetch()) {
+            $db->query("ALTER TABLE `stays_night_audits` ADD COLUMN `reopened` TINYINT(1) NOT NULL DEFAULT 0");
+            $db->query("ALTER TABLE `stays_night_audits` ADD COLUMN `reopened_by` VARCHAR(155) DEFAULT NULL");
+            $db->query("ALTER TABLE `stays_night_audits` ADD COLUMN `reopened_at` DATETIME DEFAULT NULL");
+            $db->query("ALTER TABLE `stays_night_audits` ADD COLUMN `reopen_reason` VARCHAR(255) DEFAULT NULL");
+        }
+
         // --- MODULE 07 (front desk ops → 360): shift handover + wake-up calls --------
         $db->query("CREATE TABLE IF NOT EXISTS `stays_shift_handover` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,
