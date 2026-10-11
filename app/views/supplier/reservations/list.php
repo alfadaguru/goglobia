@@ -44,6 +44,11 @@ $payBadge = function ($s) {
       <h1 class="text-2xl font-bold text-gray-900">Reservations</h1>
       <p class="text-sm text-gray-600">Bookings made against your properties.</p>
     </div>
+      <div class="flex items-center gap-2">
+        <a href="<?= root ?>supplier/reservations-export" class="btn secondary text-sm">
+          <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">download</span> Export CSV</span>
+        </a>
+      </div>
     <?php if ($canEdit): ?>
       <div class="flex items-center gap-2">
         <?php if ($stayFilter > 0): // a property is selected → direct new-reservation + waitlist ?>

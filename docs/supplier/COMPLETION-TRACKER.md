@@ -50,7 +50,7 @@ spec (docs/supplier/01b). Built in order: **24 Partial → 7 Dead → 30 Missing
 | 56 | Dashboards & BI | ✅ CSV export of the insights dashboard (new /supplier/insights/export: earnings by currency/state, reservations, F&B, housekeeping, night-audit occupancy/ADR/RevPAR trend). Portfolio roll-up across all owned properties already in bi_dashboard; chip bug fixed PR#111. Deferred: scheduled reports, report builder, dept P&L, engineering/workforce analytics. | ✅ |
 | 58 | Notifications & alerts | ✅ in-app activity/notifications center (/supplier/activity) consuming the audit_events bus (audit_recent — previously no consumer) for the owner's org, with friendly labels/icons + sidebar link. emit_event→webhook/NOTIFY plumbing already exists. Deferred: custom-rule UI, per-type alert prefs. | ✅ |
 | 59 | API / integrations | credential mgmt UI, integration marketplace, adapters (EXTERNAL edge) | ⬜ |
-| 60-61 | Data migration / platform ops | import wizards, migration preview/rollback, backup/DR tooling, offline, report export | ⬜ |
+| 60-61 | Data migration / platform ops | ✅ report/data export — reservations CSV (/supplier/reservations-export, owner-scoped, all booking records) + insights CSV (#56). Route named to avoid the detail {invoiceId} collision. audit_events trail + tenant scoping already exist. Deferred: import wizards, migration preview/rollback, backup/DR tooling, offline workflows (infra/platform-ops, out of app scope). | ✅ |
 
 ## PHASE 2 — Wire the 7 Dead/dormant subsystems
 | Subsystem | Target | Status |

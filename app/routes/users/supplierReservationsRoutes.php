@@ -622,3 +622,36 @@ $router->post('/supplier/stays/([0-9]+)/waitlist/([0-9]+)/status', function ($id
     header('Location: ' . root . 'supplier/stays/' . $stayId . '/waitlist');
     exit;
 });
+
+// GET /supplier/reservations-export — CSV of the owner's reservations (PMS #60-61 export)
+$router->get('/supplier/reservations-export', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    $stayIds = supplier_owned_stay_ids($db, $owner);
+    $rows = supplier_fetch_reservations($db, $stayIds, [], 5000);
+    $propMap = [];
+    if (!empty($stayIds)) {
+        try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {}
+    }
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="reservations_' . date('Y-m-d') . '.csv"');
+    $out = fopen('php://output', 'w');
+    fputcsv($out, ['Invoice', 'Property', 'Guest', 'Email', 'Phone', 'Check-in', 'Check-out', 'Status', 'Payment', 'Total', 'Currency', 'Booked']);
+    foreach ($rows as $r) {
+        fputcsv($out, [
+            (string) ($r['invoice_id'] ?? ''),
+            $propMap[(int) ($r['_hotel_id'] ?? 0)] ?? ('#' . ($r['_hotel_id'] ?? '')),
+            trim((string) ($r['first_name'] ?? '') . ' ' . (string) ($r['last_name'] ?? '')),
+            (string) ($r['email'] ?? ''), (string) ($r['phone'] ?? ''),
+            (string) ($r['_checkin'] ?? ''), (string) ($r['_checkout'] ?? ''),
+            (string) ($r['booking_status'] ?? ''), (string) ($r['payment_status'] ?? ''),
+            (string) ($r['price_markup'] ?? ''), (string) ($r['currency_markup'] ?? ''),
+            (string) ($r['created_at'] ?? $r['booking_date'] ?? ''),
+        ]);
+    }
+    fclose($out);
+    exit;
+});
