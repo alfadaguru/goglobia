@@ -250,21 +250,38 @@ if (!function_exists('stays_hold_create')) {
         $options = stays_room_option_ids($db, $roomId, $stayId);
         $defaultQty = stays_option_default_quantity($options, $optionId);
 
+        $losLength = count($nights);
+        $arrivalNight = $nights[0];
+
         $result = ['ok' => false, 'message' => 'Could not create hold'];
         try {
-            $db->action(function ($db) use ($stayId, $roomId, $optionId, $nights, $qty, $ref, $holdMinutes, $defaultQty, &$result) {
+            $db->action(function ($db) use ($stayId, $roomId, $optionId, $nights, $qty, $ref, $holdMinutes, $defaultQty, $losLength, $arrivalNight, &$result) {
                 $now = date('Y-m-d H:i:s');
 
                 // 1) Lock + verify EVERY night first (all-or-nothing). Seed a row
                 //    from the option default if a night has none yet.
                 foreach ($nights as $date) {
                     $locked = $db->query(
-                        "SELECT id, available_count, closed FROM stays_inventory
+                        "SELECT id, available_count, closed, min_stay FROM stays_inventory
                          WHERE stay_id = :s AND room_id = :r AND option_id = :o AND date = :d
                          FOR UPDATE",
                         [':s' => $stayId, ':r' => $roomId, ':o' => $optionId, ':d' => $date]
                     );
                     $invRow = $locked ? $locked->fetch(\PDO::FETCH_ASSOC) : null;
+
+                    // MIN-STAY: a minimum length-of-stay set on the ARRIVAL night must
+                    // be honoured — a guest cannot book fewer nights than the owner
+                    // requires for that date. (Checked on check-in night only, the
+                    // standard PMS rule.) Stored per-night in stays_inventory.min_stay;
+                    // previously written by the calendar but NEVER enforced at booking.
+                    if ($date === $arrivalNight && $invRow && $invRow['min_stay'] !== null) {
+                        $minStay = (int) $invRow['min_stay'];
+                        if ($minStay > 0 && $losLength < $minStay) {
+                            $result = ['ok' => false, 'date' => $date, 'min_stay' => $minStay,
+                                'message' => 'This date requires a minimum stay of ' . $minStay . ' night' . ($minStay === 1 ? '' : 's') . '.'];
+                            return false; // rollback
+                        }
+                    }
 
                     if (!$invRow) {
                         // Seed from the option's available_quantity. If the option has

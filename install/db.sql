@@ -28922,6 +28922,30 @@ CREATE TABLE `stays_work_orders` (
 -- --------------------------------------------------------
 
 --
+-- Inventory audit (PMS completion #05). One row per stays_inventory_set() change —
+-- availability / stop-sell / min-stay / owner block — recording who/when/range/why.
+-- See app/lib/stays_calendar.php.
+--
+CREATE TABLE `stays_inventory_audit` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `room_id` int(11) NOT NULL,
+  `option_id` int(11) NOT NULL,
+  `date_from` date NOT NULL,
+  `date_to` date NOT NULL,
+  `change_type` enum('availability','stop_sell','min_stay','owner_block','mixed') NOT NULL DEFAULT 'mixed',
+  `detail` varchar(500) DEFAULT NULL,
+  `reason` varchar(255) DEFAULT NULL,
+  `actor` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_created` (`stay_id`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Reservation waitlist (PMS completion #04). Holds NO inventory — a lead the front
 -- desk converts to a walk-in when space frees up. See app/lib/supplier_reservation_ops.php.
 --

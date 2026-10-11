@@ -7935,6 +7935,28 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_room` (`physical_room_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- inventory audit (PMS completion #05): a log of availability changes ----
+        // Every stays_inventory_set() write (ceiling / stop-sell / min-stay / owner
+        // block) appends a row, so an owner can see WHO changed availability, WHEN,
+        // over WHICH range, and WHY (reason supports "owner blocks": a close with a
+        // maintenance/owner-use reason). See app/lib/stays_calendar.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_inventory_audit` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `room_id` INT(11) NOT NULL,
+            `option_id` INT(11) NOT NULL,
+            `date_from` DATE NOT NULL,
+            `date_to` DATE NOT NULL,
+            `change_type` ENUM('availability','stop_sell','min_stay','owner_block','mixed') NOT NULL DEFAULT 'mixed',
+            `detail` VARCHAR(500) DEFAULT NULL,
+            `reason` VARCHAR(255) DEFAULT NULL,
+            `actor` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_created` (`stay_id`,`created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- reservations (PMS completion #04): waitlist ----------------------------
         // A waitlisted request holds NO inventory — it is a lead the front desk can
         // convert to a walk-in booking when space frees up. See
