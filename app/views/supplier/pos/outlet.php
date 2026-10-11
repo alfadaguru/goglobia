@@ -91,6 +91,12 @@ $activeMenu = array_values(array_filter($menu, fn($m) => (int) $m['active'] === 
               <?php else: ?>
                 <span class="text-xs text-gray-400">No in-house guests to charge.</span>
               <?php endif; ?>
+              <!-- Void (PMS #30): cancel an open order (before settlement). -->
+              <form action="<?= $base ?>/order/void" method="POST" class="inline"
+                    onsubmit="return confirm('Void this order? It will be cancelled, not settled.');">
+                <?= CSRF::tokenField() ?><input type="hidden" name="outlet_id" value="<?= $oid ?>"><input type="hidden" name="order_id" value="<?= $id ?>">
+                <button type="submit" class="btn rose text-xs">Void</button>
+              </form>
             </div>
             <?php endif; ?>
           <?php endif; ?>

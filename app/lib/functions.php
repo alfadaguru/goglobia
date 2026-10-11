@@ -8055,6 +8055,7 @@ function ensureSupplierStaysSchema($db): void
             `status` ENUM('open','settled','void') NOT NULL DEFAULT 'open',
             `currency` CHAR(3) NOT NULL DEFAULT 'USD',
             `server_id` VARCHAR(155) DEFAULT NULL,
+            `void_reason` VARCHAR(191) DEFAULT NULL,
             `settled_at` DATETIME DEFAULT NULL,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
@@ -8062,6 +8063,12 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay_status` (`stay_id`,`status`),
             KEY `idx_outlet` (`outlet_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #30): POS void reason. Guarded ALTER.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `pos_orders` LIKE 'void_reason'")->fetch()) {
+                $db->query("ALTER TABLE `pos_orders` ADD COLUMN `void_reason` VARCHAR(191) DEFAULT NULL AFTER `server_id`");
+            }
+        } catch (\Throwable $e) { error_log('pos void_reason col: ' . $e->getMessage()); }
 
         $db->query("CREATE TABLE IF NOT EXISTS `pos_order_items` (
             `id` BIGINT(20) NOT NULL AUTO_INCREMENT,

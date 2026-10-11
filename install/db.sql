@@ -29043,6 +29043,7 @@ CREATE TABLE `pos_orders` (
   `status` enum('open','settled','void') NOT NULL DEFAULT 'open',
   `currency` char(3) NOT NULL DEFAULT 'USD',
   `server_id` varchar(155) DEFAULT NULL,
+  `void_reason` varchar(191) DEFAULT NULL,
   `settled_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
