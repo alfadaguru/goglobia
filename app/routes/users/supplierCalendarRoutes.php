@@ -94,6 +94,33 @@ $router->post('/supplier/calendar/set', function () use ($SECURE, $db) {
     header('Location: ' . $back); exit;
 });
 
+// POST /supplier/stays/{id}/rooms/{roomId}/bulk-price — bulk/seasonal/weekday pricing
+// (PMS completion #06). Writes stays_rooms_calendar (the live read-source).
+$router->post('/supplier/stays/([0-9]+)/rooms/([0-9]+)/bulk-price', function ($id, $roomId) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) $id; $roomId = (int) $roomId;
+    if (!supplier_can($db, 'rates', 'edit', $stayId)) { _supplier_stays_deny('Not authorised to edit rates.'); }
+
+    $back = root . 'supplier/stays/' . $stayId . '/rooms/' . $roomId . '/calendar';
+    $optionId = (int) ($_POST['option_id'] ?? 0);
+    $from = (string) ($_POST['date_from'] ?? '');
+    $to   = (string) ($_POST['date_to'] ?? '');
+    $mode = (string) ($_POST['mode'] ?? 'flat');
+    $wd = round((float) ($_POST['weekday_price'] ?? 0), 2);
+    $we = round((float) ($_POST['weekend_price'] ?? 0), 2);
+    $pct = round((float) ($_POST['percent'] ?? 0), 2);
+
+    if (!function_exists('stays_bulk_price_set')) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Pricing engine unavailable.'];
+        header('Location: ' . $back); exit;
+    }
+    $res = stays_bulk_price_set($db, $stayId, $roomId, $optionId, $from, $to, $mode, $wd, $we, $pct);
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Done.'];
+    header('Location: ' . $back); exit;
+});
+
 // GET /supplier/stays/{id}/inventory-audit — the availability change log (PMS #05)
 $router->get('/supplier/stays/([0-9]+)/inventory-audit', function ($id) use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);

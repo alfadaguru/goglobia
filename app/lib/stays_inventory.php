@@ -401,6 +401,84 @@ if (!function_exists('stays_hold_release')) {
     }
 }
 
+if (!function_exists('stays_bulk_price_set')) {
+    /**
+     * BULK / SEASONAL / WEEKDAY-WEEKEND pricing (PMS completion #06). Writes per-night
+     * prices into stays_rooms_calendar — the SAME table the live booking path reads
+     * (modules/stays/hotels/rooms.php) and the no-oversell net recompute uses — so the
+     * rates actually take effect (unlike the dead stays_rate_plans mirror).
+     *
+     * Modes:
+     *   'flat'     : set every night in [from,to] to $weekdayPrice.
+     *   'split'    : weekdays (Mon–Thu) = $weekdayPrice, weekend (Fri–Sun) = $weekendPrice.
+     *   'adjust'   : multiply the EXISTING per-night price (or the option base when no
+     *                calendar row yet) by (1 + $percent/100) — seasonal uplift/discount.
+     *
+     * Only the given room+option is touched. Dates are inclusive. Returns
+     * ['ok','updated','message'].
+     */
+    function stays_bulk_price_set($db, int $stayId, int $roomId, int $optionId, string $from, string $to, string $mode, float $weekdayPrice = 0.0, float $weekendPrice = 0.0, float $percent = 0.0): array
+    {
+        if ($stayId <= 0 || $roomId <= 0 || $optionId <= 0) { return ['ok' => false, 'message' => 'Bad input']; }
+        $fts = strtotime($from); $tts = strtotime($to);
+        if ($fts === false || $tts === false || $tts < $fts) { return ['ok' => false, 'message' => 'Invalid date range']; }
+        if (($tts - $fts) / 86400 > 366) { return ['ok' => false, 'message' => 'Range too long (max 366 days)']; }
+        if (!in_array($mode, ['flat', 'split', 'adjust'], true)) { return ['ok' => false, 'message' => 'Unknown mode']; }
+
+        // Validate the option belongs to the room, and get its base price (for 'adjust'
+        // on nights with no calendar row yet).
+        $options = stays_room_option_ids($db, $roomId, $stayId);
+        $base = null;
+        foreach ($options as $o) {
+            if ((int) ($o['option_id'] ?? 0) === $optionId) { $base = (float) ($o['price'] ?? 0); break; }
+        }
+        if ($base === null) { return ['ok' => false, 'message' => 'That rate is not on this room.']; }
+
+        $now = date('Y-m-d H:i:s');
+        $updated = 0;
+        $result = ['ok' => false, 'message' => 'Could not apply prices'];
+        try {
+            $db->action(function ($db) use ($stayId, $roomId, $optionId, $fts, $tts, $mode, $weekdayPrice, $weekendPrice, $percent, $base, $now, &$updated, &$result) {
+                for ($t = $fts; $t <= $tts; $t += 86400) {
+                    $date = date('Y-m-d', $t);
+                    $dow = (int) date('N', $t); // 1=Mon .. 7=Sun
+                    $isWeekend = ($dow >= 5); // Fri/Sat/Sun
+
+                    $existing = $db->get('stays_rooms_calendar', ['id', 'price'],
+                        ['stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $optionId, 'date' => $date]);
+
+                    if ($mode === 'flat') {
+                        $price = $weekdayPrice;
+                    } elseif ($mode === 'split') {
+                        $price = $isWeekend ? $weekendPrice : $weekdayPrice;
+                    } else { // adjust
+                        $cur = $existing ? (float) $existing['price'] : $base;
+                        $price = $cur * (1 + ($percent / 100));
+                    }
+                    $price = round(max(0, $price), 2);
+                    if ($price <= 0) { continue; } // never write a zero/negative rate
+
+                    if ($existing) {
+                        $db->update('stays_rooms_calendar', ['price' => $price, 'updated_at' => $now], ['id' => (int) $existing['id']]);
+                    } else {
+                        $db->insert('stays_rooms_calendar', [
+                            'stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $optionId,
+                            'date' => $date, 'price' => $price, 'created_at' => $now,
+                        ]);
+                    }
+                    $updated++;
+                }
+                $result = ['ok' => true, 'updated' => $updated, 'message' => $updated . ' night(s) priced.'];
+                return true;
+            });
+        } catch (\Throwable $e) {
+            error_log('stays_bulk_price_set: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not apply prices.'];
+        }
+        return $result;
+    }
+}
+
 if (!function_exists('stays_hold_supersede_ref')) {
     /**
      * Release EVERY still-active hold (both 'held' AND 'consumed') for a booking
