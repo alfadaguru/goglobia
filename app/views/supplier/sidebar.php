@@ -82,6 +82,8 @@ if ($activeStay > 0) {
         ['name' => 'Assets',        'icon' => 'chair',            'url' => 'supplier/assets', 'show' => $can('rooms', 'view', $sid)],
         ['name' => 'Leases',        'icon' => 'home_work',        'url' => 'supplier/leases', 'show' => $can('hotels', 'view', $sid)],
         ['name' => 'Utilities',     'icon' => 'bolt',             'url' => 'supplier/utilities', 'show' => $can('hotels', 'view', $sid)],
+        ['name' => 'Packages',      'icon' => 'redeem',           'url' => 'supplier/packages', 'show' => $can('rates', 'view', $sid)],
+        ['name' => 'Safety & docs', 'icon' => 'health_and_safety','url' => 'supplier/safety', 'show' => $can('rooms', 'view', $sid)],
         ['name' => 'F&B / POS',     'icon' => 'restaurant',       'url' => 'supplier/pos', 'show' => $can('reservations', 'edit', $sid)],
         ['name' => 'Recipes',       'icon' => 'menu_book',        'url' => 'supplier/recipes', 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Services',      'icon' => 'spa',              'url' => 'supplier/services', 'show' => $can('reservations', 'view', $sid)],

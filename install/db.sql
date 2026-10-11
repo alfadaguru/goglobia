@@ -28972,6 +28972,90 @@ CREATE TABLE `stays_lost_found` (
 -- --------------------------------------------------------
 
 --
+-- Packages (#17): bundled offerings.
+--
+CREATE TABLE `stays_packages` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(191) NOT NULL,
+  `description` varchar(500) DEFAULT NULL,
+  `inclusions` varchar(1000) DEFAULT NULL,
+  `price` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `nights` int(11) DEFAULT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Incident register (#52-55 safety & compliance).
+--
+CREATE TABLE `stays_incidents` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `kind` enum('safety','security','medical','damage','other') NOT NULL DEFAULT 'other',
+  `occurred_at` datetime DEFAULT NULL,
+  `location` varchar(120) DEFAULT NULL,
+  `summary` varchar(191) NOT NULL,
+  `detail` text DEFAULT NULL,
+  `severity` enum('low','medium','high') NOT NULL DEFAULT 'low',
+  `status` enum('open','investigating','closed') NOT NULL DEFAULT 'open',
+  `reported_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Visitor register (#52-55).
+--
+CREATE TABLE `stays_visitors` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `visitor_name` varchar(120) NOT NULL,
+  `visiting` varchar(120) DEFAULT NULL,
+  `purpose` varchar(120) DEFAULT NULL,
+  `checked_in_at` datetime DEFAULT NULL,
+  `checked_out_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Document / compliance register (#52-55).
+--
+CREATE TABLE `stays_documents` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `title` varchar(191) NOT NULL,
+  `doc_type` enum('licence','insurance','certificate','contract','other') NOT NULL DEFAULT 'other',
+  `reference` varchar(120) DEFAULT NULL,
+  `expires_on` date DEFAULT NULL,
+  `notes` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`),
+  KEY `idx_expires` (`expires_on`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Bookable services: spa/wellness (#32) + generic resources (#33).
 --
 CREATE TABLE `stays_services` (

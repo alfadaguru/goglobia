@@ -7991,6 +7991,72 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay_status` (`stay_id`,`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- Packages (#17): bundled offerings -------------------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_packages` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `name` VARCHAR(191) NOT NULL,
+            `description` VARCHAR(500) DEFAULT NULL,
+            `inclusions` VARCHAR(1000) DEFAULT NULL,
+            `price` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `nights` INT(11) DEFAULT NULL,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Incident / visitor / document registers (#52-55: safety & compliance) --
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_incidents` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `kind` ENUM('safety','security','medical','damage','other') NOT NULL DEFAULT 'other',
+            `occurred_at` DATETIME DEFAULT NULL,
+            `location` VARCHAR(120) DEFAULT NULL,
+            `summary` VARCHAR(191) NOT NULL,
+            `detail` TEXT DEFAULT NULL,
+            `severity` ENUM('low','medium','high') NOT NULL DEFAULT 'low',
+            `status` ENUM('open','investigating','closed') NOT NULL DEFAULT 'open',
+            `reported_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_visitors` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `visitor_name` VARCHAR(120) NOT NULL,
+            `visiting` VARCHAR(120) DEFAULT NULL,
+            `purpose` VARCHAR(120) DEFAULT NULL,
+            `checked_in_at` DATETIME DEFAULT NULL,
+            `checked_out_at` DATETIME DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_documents` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `title` VARCHAR(191) NOT NULL,
+            `doc_type` ENUM('licence','insurance','certificate','contract','other') NOT NULL DEFAULT 'other',
+            `reference` VARCHAR(120) DEFAULT NULL,
+            `expires_on` DATE DEFAULT NULL,
+            `notes` VARCHAR(500) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`),
+            KEY `idx_expires` (`expires_on`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- Bookable services: spa/wellness (#32) + generic resources (#33) --------
         $db->query("CREATE TABLE IF NOT EXISTS `stays_services` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,
