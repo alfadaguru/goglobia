@@ -206,6 +206,14 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
           <input type="number" name="folio_amount" min="0" step="0.01" class="input text-sm w-28" required></div>
         <button type="submit" class="btn secondary text-sm">Add line</button>
       </form>
+      <!-- Loyalty redemption as a cash discount (PMS #22). Requires a redeem value set
+           in loyalty config; the handler refuses if points/value are insufficient. -->
+      <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="mt-2 flex flex-wrap items-end gap-2">
+        <?= CSRF::tokenField() ?><input type="hidden" name="action" value="redeem_loyalty">
+        <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Redeem loyalty points</label>
+          <input type="number" name="points" min="1" step="1" class="input text-sm w-32" placeholder="points"></div>
+        <button type="submit" class="btn secondary text-sm">Redeem as discount</button>
+      </form>
     <?php endif; ?>
   </div>
 

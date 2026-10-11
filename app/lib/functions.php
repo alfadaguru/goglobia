@@ -8358,10 +8358,18 @@ function ensureSupplierStaysSchema($db): void
             `org_id` INT(11) NOT NULL,
             `enabled` TINYINT(1) NOT NULL DEFAULT 0,
             `points_per_currency` DECIMAL(10,4) NOT NULL DEFAULT 1.0000,
+            `redeem_value_per_point` DECIMAL(10,4) NOT NULL DEFAULT 0.0000,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
             PRIMARY KEY (`org_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #22): the cash value of one point when redeemed against a folio.
+        // 0 = points have no cash value (the pre-existing behaviour). Guarded ALTER.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `stays_loyalty_config` LIKE 'redeem_value_per_point'")->fetch()) {
+                $db->query("ALTER TABLE `stays_loyalty_config` ADD COLUMN `redeem_value_per_point` DECIMAL(10,4) NOT NULL DEFAULT 0.0000 AFTER `points_per_currency`");
+            }
+        } catch (\Throwable $e) { error_log('loyalty redeem_value col: ' . $e->getMessage()); }
 
         $db->query("CREATE TABLE IF NOT EXISTS `stays_loyalty_ledger` (
             `id` BIGINT(20) NOT NULL AUTO_INCREMENT,

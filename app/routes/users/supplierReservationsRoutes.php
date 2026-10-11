@@ -400,6 +400,15 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                     'text' => $ok ? 'Folio updated.' : 'Could not add the folio line (is the folio closed?).',
                 ];
             }
+        } elseif ($action === 'redeem_loyalty') {
+            // Redeem the guest's loyalty points as a cash discount on this folio (PMS #22).
+            $pts = (int) ($_POST['points'] ?? 0);
+            if (!function_exists('loyalty_redeem_to_folio')) {
+                $_SESSION['message'] = ['type' => 'error', 'text' => 'Loyalty engine unavailable.'];
+            } else {
+                $res = loyalty_redeem_to_folio($db, $invoiceId, $pts);
+                $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not redeem.'];
+            }
         } elseif ($action === 'modify_dates') {
             // Change check-in/out (move / extend / shorten). The engine re-holds
             // inventory atomically + re-prices. (PMS completion #04.)

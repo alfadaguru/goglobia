@@ -41,6 +41,7 @@ $base = root . 'supplier/guests';
       <?= CSRF::tokenField() ?>
       <label class="inline-flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" name="enabled" value="1" class="checkbox-input" <?= !empty($loyaltyCfg['enabled']) ? 'checked' : '' ?>> Enable loyalty</label>
       <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Points per 1.00 spent</label><input type="number" name="points_per_currency" min="0" step="0.0001" value="<?= htmlspecialchars((string) (float) $loyaltyCfg['points_per_currency']) ?>" class="input text-sm w-28"></div>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Cash value per point</label><input type="number" name="redeem_value_per_point" min="0" step="0.0001" value="<?= htmlspecialchars((string) (float) ($loyaltyCfg['redeem_value_per_point'] ?? 0)) ?>" class="input text-sm w-28"></div>
       <button type="submit" class="btn secondary text-sm">Save</button>
     </form>
   </div>

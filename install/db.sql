@@ -29411,6 +29411,7 @@ CREATE TABLE `stays_loyalty_config` (
   `org_id` int(11) NOT NULL,
   `enabled` tinyint(1) NOT NULL DEFAULT 0,
   `points_per_currency` decimal(10,4) NOT NULL DEFAULT 1.0000,
+  `redeem_value_per_point` decimal(10,4) NOT NULL DEFAULT 0.0000,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`org_id`)
