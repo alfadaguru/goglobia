@@ -28972,6 +28972,50 @@ CREATE TABLE `stays_lost_found` (
 -- --------------------------------------------------------
 
 --
+-- HR / workforce (PMS Phase 3 #44): employees + leave.
+--
+CREATE TABLE `stays_employees` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) DEFAULT NULL,
+  `name` varchar(120) NOT NULL,
+  `role_title` varchar(120) DEFAULT NULL,
+  `department` varchar(80) DEFAULT NULL,
+  `email` varchar(191) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `employment_type` enum('full_time','part_time','casual','contract') NOT NULL DEFAULT 'full_time',
+  `pay_rate` decimal(14,2) DEFAULT NULL,
+  `status` enum('active','on_leave','terminated') NOT NULL DEFAULT 'active',
+  `started_on` date DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org_status` (`org_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Staff leave (PMS Phase 3 #44).
+--
+CREATE TABLE `stays_leave` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `employee_id` int(11) NOT NULL,
+  `kind` enum('annual','sick','unpaid','other') NOT NULL DEFAULT 'annual',
+  `from_date` date NOT NULL,
+  `to_date` date NOT NULL,
+  `status` enum('requested','approved','rejected') NOT NULL DEFAULT 'requested',
+  `notes` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_emp` (`employee_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Guest service tickets / complaints (PMS Phase 3 #21).
 --
 CREATE TABLE `stays_service_tickets` (

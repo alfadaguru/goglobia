@@ -7991,6 +7991,41 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay_status` (`stay_id`,`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- HR / workforce (PMS Phase 3 #44): employees + leave --------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_employees` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) DEFAULT NULL,
+            `name` VARCHAR(120) NOT NULL,
+            `role_title` VARCHAR(120) DEFAULT NULL,
+            `department` VARCHAR(80) DEFAULT NULL,
+            `email` VARCHAR(191) DEFAULT NULL,
+            `phone` VARCHAR(40) DEFAULT NULL,
+            `employment_type` ENUM('full_time','part_time','casual','contract') NOT NULL DEFAULT 'full_time',
+            `pay_rate` DECIMAL(14,2) DEFAULT NULL,
+            `status` ENUM('active','on_leave','terminated') NOT NULL DEFAULT 'active',
+            `started_on` DATE DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_org_status` (`org_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_leave` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `employee_id` INT(11) NOT NULL,
+            `kind` ENUM('annual','sick','unpaid','other') NOT NULL DEFAULT 'annual',
+            `from_date` DATE NOT NULL,
+            `to_date` DATE NOT NULL,
+            `status` ENUM('requested','approved','rejected') NOT NULL DEFAULT 'requested',
+            `notes` VARCHAR(255) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_emp` (`employee_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- Guest service tickets / complaints (PMS Phase 3 #21) -------------------
         $db->query("CREATE TABLE IF NOT EXISTS `stays_service_tickets` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,
