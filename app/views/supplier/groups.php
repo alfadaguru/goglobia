@@ -137,6 +137,25 @@ foreach ($rooms as $r) {
             <input type="text" name="guest_name" class="input text-xs w-full" placeholder="Guest name" required>
             <button type="submit" class="btn secondary text-xs">Add guest</button>
           </form>
+
+          <!-- Bulk rooming import (PMS #08): paste a roster, one guest per line -->
+          <details class="mt-1">
+            <summary class="cursor-pointer text-xs text-violet-600">Bulk import roster</summary>
+            <form action="<?= $base ?>/rooming-import" method="POST" class="space-y-1.5 mt-1.5">
+              <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid ?>"><input type="hidden" name="group_id" value="<?= $gid ?>">
+              <select name="block_id" class="input text-xs w-full"><?php foreach ($blocks as $b): if ($b['state'] !== 'held') continue; ?><option value="<?= (int) $b['id'] ?>">Block #<?= (int) $b['id'] ?> (<?= (int) $b['qty'] ?> rm)</option><?php endforeach; ?></select>
+              <textarea name="roster" rows="4" class="input text-xs w-full" placeholder="One per line:&#10;Jane Doe, jane@email.com&#10;John Smith"></textarea>
+              <button type="submit" class="btn secondary text-xs">Import roster</button>
+            </form>
+          </details>
+
+          <!-- Pickup summary (PMS #08): rooms held vs rooming list filled -->
+          <?php $pk = $gPickup[$gid] ?? null; if ($pk && $pk['held_total'] > 0): ?>
+          <div class="mt-2 text-xs text-gray-600">
+            <div class="flex items-center justify-between"><span class="font-semibold text-gray-700">Pickup</span><span class="tabular-nums"><?= (int) $pk['members_total'] ?>/<?= (int) $pk['held_total'] ?> rooms (<?= number_format((float) $pk['pickup_pct'], 0) ?>%)</span></div>
+            <div class="h-1.5 rounded-full bg-gray-100 overflow-hidden mt-1"><div class="h-full" style="width: <?= min(100, (float) $pk['pickup_pct']) ?>%; background-color:#7c3aed;"></div></div>
+          </div>
+          <?php endif; ?>
           <?php endif; ?>
           <!-- Master folio -->
           <form action="<?= $base ?>/folio" method="POST" class="space-y-1.5">

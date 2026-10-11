@@ -119,6 +119,84 @@ if (!function_exists('group_member_add')) {
     }
 }
 
+if (!function_exists('group_rooming_import')) {
+    /**
+     * BULK ROOMING LIST IMPORT (PMS completion #08). Add many guests to a block at once
+     * from a newline/comma-separated list. Each line is "Name" or "Name, email". Skips
+     * blanks; caps at 500 per import. Returns ['ok','added','skipped','message'].
+     */
+    function group_rooming_import($db, int $groupId, int $stayId, int $blockId, string $raw): array
+    {
+        if ($groupId <= 0 || $blockId <= 0) { return ['ok' => false, 'message' => 'Bad input']; }
+        $blk = $db->get('stays_group_blocks', ['id'], ['id' => $blockId, 'group_id' => $groupId, 'stay_id' => $stayId]);
+        if (!$blk) { return ['ok' => false, 'message' => 'Block not found for this group.']; }
+
+        $lines = preg_split('/\r\n|\r|\n/', (string) $raw) ?: [];
+        $added = 0; $skipped = 0; $count = 0;
+        try {
+            foreach ($lines as $line) {
+                if ($count >= 500) { break; }
+                $line = trim($line);
+                if ($line === '') { continue; }
+                $count++;
+                // "Name, email" or "Name <email>" or just "Name".
+                $email = '';
+                if (strpos($line, ',') !== false) {
+                    $parts = array_map('trim', explode(',', $line, 2));
+                    $name = $parts[0]; $email = $parts[1] ?? '';
+                } elseif (preg_match('/^(.*)<([^>]+)>\s*$/', $line, $m)) {
+                    $name = trim($m[1]); $email = trim($m[2]);
+                } else {
+                    $name = $line;
+                }
+                if ($name === '') { $skipped++; continue; }
+                if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) { $email = ''; }
+                $ok = group_member_add($db, $groupId, $stayId, $blockId, $name, ['email' => $email]);
+                if ($ok) { $added++; } else { $skipped++; }
+            }
+        } catch (\Throwable $e) {
+            error_log('group_rooming_import: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Import failed.'];
+        }
+        return ['ok' => true, 'added' => $added, 'skipped' => $skipped,
+                'message' => $added . ' guest(s) added' . ($skipped ? ', ' . $skipped . ' skipped' : '') . '.'];
+    }
+}
+
+if (!function_exists('group_pickup_summary')) {
+    /**
+     * PICKUP REPORT (PMS completion #08). For each block: rooms held (qty) vs rooming
+     * list filled (members), and the pickup gap. Plus group totals. Read-only.
+     * Returns ['blocks'=>[['block_id','room_id','option_id','qty','members','gap']...],
+     *          'held_total','members_total','pickup_pct'].
+     */
+    function group_pickup_summary($db, int $groupId, int $stayId): array
+    {
+        $out = ['blocks' => [], 'held_total' => 0, 'members_total' => 0, 'pickup_pct' => 0.0];
+        try {
+            $blocks = $db->select('stays_group_blocks',
+                ['id', 'room_id', 'option_id', 'qty', 'state'],
+                ['group_id' => $groupId, 'stay_id' => $stayId]) ?: [];
+            foreach ($blocks as $b) {
+                $bid = (int) $b['id'];
+                $members = (int) $db->count('stays_group_members', ['group_id' => $groupId, 'block_id' => $bid]);
+                $qty = (int) $b['qty'];
+                $active = in_array((string) ($b['state'] ?? ''), ['held', 'released'], true);
+                if ((string) ($b['state'] ?? '') !== 'released') { $out['held_total'] += $qty; }
+                $out['members_total'] += $members;
+                $out['blocks'][] = [
+                    'block_id' => $bid, 'room_id' => (int) $b['room_id'], 'option_id' => (int) $b['option_id'],
+                    'qty' => $qty, 'state' => (string) ($b['state'] ?? ''), 'members' => $members,
+                    'gap' => max(0, $qty - $members),
+                ];
+            }
+            $out['pickup_pct'] = $out['held_total'] > 0
+                ? round($out['members_total'] / $out['held_total'] * 100, 1) : 0.0;
+        } catch (\Throwable $e) { error_log('group_pickup_summary: ' . $e->getMessage()); }
+        return $out;
+    }
+}
+
 if (!function_exists('group_folio_add')) {
     /** Add a master-folio line to an open group (room/charge/extra/payment/refund). */
     function group_folio_add($db, int $groupId, int $stayId, string $type, float $amount, string $desc = ''): bool
