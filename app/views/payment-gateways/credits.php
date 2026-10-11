@@ -201,6 +201,24 @@ try {
         'invoice_id' => $booking['invoice_id']
     ]);
 
+    // STAYS no-oversell: credits is a synchronous gateway (no handle_payment_callback),
+    // so consume the availability hold here too — else an own-inventory stay paid by
+    // credits loses its hold after ~20 min and the seat could be resold. Idempotent.
+    if (in_array(strtolower((string) ($booking['module_type'] ?? '')), ['stays', 'hotels'], true)) {
+        if (!function_exists('stays_hold_consume_ref')) {
+            $invLib = dirname(__DIR__, 2) . '/lib/stays_inventory.php';
+            if (is_file($invLib)) { require_once $invLib; }
+        }
+        if (function_exists('stays_hold_consume_ref')) {
+            try {
+                $consumed = stays_hold_consume_ref($db, (string) $booking['invoice_id']);
+                if ($consumed === 0) {
+                    error_log('STAYS hold-consume (credits): no held rows for invoice ' . $booking['invoice_id'] . ' — benign for integration suppliers; if own-inventory the hold may have expired (possible oversell).');
+                }
+            } catch (\Throwable $e) { error_log('credits stays hold consume: ' . $e->getMessage()); }
+        }
+    }
+
     // SUCCESS - SHOW CONFIRMATION AND REDIRECT
     ?>
     

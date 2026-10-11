@@ -361,6 +361,29 @@ function adyen_finalize_payment($db, string $invoiceId, ?string $pspReference, a
         record_transaction($tokenData, $pspReference, 'success', $rawEvent);
     }
 
+    // STAYS no-oversell: Adyen confirms via webhook (no handle_payment_callback), so
+    // consume the availability hold here too — else an own-inventory stay paid by
+    // Adyen loses its hold after ~20 min and the seat could be resold. Idempotent by
+    // invoice ref; best effort. Only on full payment (installments keep the hold until
+    // the balance clears — see installment branch above which does not set 'paid').
+    if (in_array(strtolower($moduleType), ['stays', 'hotels'], true)) {
+        if (!function_exists('stays_hold_consume_ref')) {
+            $invLib = __DIR__ . '/stays_inventory.php';
+            if (is_file($invLib)) { require_once $invLib; }
+        }
+        if (function_exists('stays_hold_consume_ref')) {
+            try {
+                $postPay = $db->get('bookings', ['payment_status'], ['invoice_id' => $invoiceId]);
+                if ($postPay && strtolower((string) ($postPay['payment_status'] ?? '')) === 'paid') {
+                    $consumed = stays_hold_consume_ref($db, (string) $invoiceId);
+                    if ($consumed === 0) {
+                        error_log('STAYS hold-consume (adyen): no held rows for invoice ' . $invoiceId . ' — benign for integration suppliers; if own-inventory the hold may have expired (possible oversell).');
+                    }
+                }
+            } catch (\Throwable $e) { error_log('adyen stays hold consume: ' . $e->getMessage()); }
+        }
+    }
+
     // Auto-issue (mirrors the core handle_payment_callback success path, condensed).
     $settingsRecord   = $db->get('settings', '*', ['id' => 1]);
     $autoIssueEnabled = $settingsRecord && (int) ($settingsRecord['booking_payment_issue'] ?? 0) === 1;

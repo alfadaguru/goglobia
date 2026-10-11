@@ -341,6 +341,26 @@ try {
         catch (\Throwable $e) { error_log('wallet_balance loyalty earn: ' . $e->getMessage()); }
     }
 
+    // STAYS no-oversell (docs/SMOKE-TEST-stays-holds.md P1): consume the availability
+    // hold so the seat is reserved PERMANENTLY. The wallet path is synchronous and
+    // never calls handle_payment_callback (where the card/bank path consumes), so
+    // without this a WALLET-paid own-inventory stay would lose its hold after ~20 min
+    // and the seat could be resold. Idempotent by invoice ref; best effort.
+    if (in_array(strtolower((string) ($booking['module_type'] ?? '')), ['stays', 'hotels'], true)) {
+        if (!function_exists('stays_hold_consume_ref')) {
+            $invLib = dirname(__DIR__, 2) . '/lib/stays_inventory.php';
+            if (is_file($invLib)) { require_once $invLib; }
+        }
+        if (function_exists('stays_hold_consume_ref')) {
+            try {
+                $consumed = stays_hold_consume_ref($db, (string) $booking['invoice_id']);
+                if ($consumed === 0) {
+                    error_log('STAYS hold-consume (wallet): no held rows for invoice ' . $booking['invoice_id'] . ' — benign for integration suppliers; if own-inventory the hold may have EXPIRED before payment (possible oversell).');
+                }
+            } catch (\Throwable $e) { error_log('wallet_balance stays hold consume: ' . $e->getMessage()); }
+        }
+    }
+
     // Get full booking data for auto-issue
     $bookingData = $db->get('bookings', '*', ['invoice_id' => $booking['invoice_id']]);
     

@@ -503,7 +503,9 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
                 $ciForNet = (string) ($bookingData['checkin'] ?? '');
                 $coForNet = (string) ($bookingData['checkout'] ?? '');
                 if ($hotelIdForNet > 0 && is_array($selForNet) && !empty($selForNet) && $ciForNet !== '' && $coForNet !== '') {
-                    $netRes = stays_recompute_net($db, $hotelIdForNet, $selForNet, $ciForNet, $coForNet);
+                    // $currency is the booking's base currency; convert the net into it
+                    // (room_options.price is in the hotel's own currency).
+                    $netRes = stays_recompute_net($db, $hotelIdForNet, $selForNet, $ciForNet, $coForNet, (string) $currency);
                     if (empty($netRes['ok'])) {
                         throw new Exception($netRes['message'] ?? 'This room is no longer available at the displayed price. Please search again.');
                     }
@@ -727,6 +729,45 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
                 } else {
                     error_log("Failed to create user account from booking");
                 }
+            }
+        }
+
+        // --------------------------------------------------
+        // REAL AVAILABILITY HOLD (own-inventory stays only) — no-oversell spine.
+        // --------------------------------------------------
+        // This is the PRIMARY browser booking path (/api/stay/booking/submit). It
+        // previously placed NO hold at all, so the no-oversell guarantee did not apply
+        // to real web bookings. Mirror the mobile-API path: place a per-(room,option)
+        // hold across [checkin, checkout) from selected_rooms (stable option_id) for our
+        // OWN inventory only; integration suppliers manage their own stock. A FAILED
+        // hold REJECTS the booking (can't oversell). The hold is consumed at payment
+        // success (payment-gateway.php) so the seat is reserved permanently.
+        if ($isOwnInventoryStay && function_exists('stays_hold_create')) {
+            $holdHotelId = (int) ($bookingData['hotel_id'] ?? ($input['hotel_id'] ?? 0));
+            $holdCheckin  = (string) ($bookingData['checkin'] ?? '');
+            $holdCheckout = (string) ($bookingData['checkout'] ?? '');
+            $holdTriples = [];
+            $selHold = $bookingData['selected_rooms'] ?? ($input['selected_rooms'] ?? []);
+            if (is_array($selHold)) {
+                foreach ($selHold as $sr) {
+                    $rId = (int) ($sr['room_id'] ?? 0);
+                    $oId = (int) ($sr['option']['option_id'] ?? ($sr['option_id'] ?? 0));
+                    $q   = max(1, (int) ($sr['quantity'] ?? ($sr['qty'] ?? ($sr['rooms'] ?? 1))));
+                    if ($rId > 0 && $oId > 0) { $holdTriples[] = ['room_id' => $rId, 'option_id' => $oId, 'qty' => $q]; }
+                }
+            }
+            if ($holdHotelId > 0 && $holdCheckin !== '' && $holdCheckout !== '' && !empty($holdTriples)) {
+                $placedHoldIds = [];
+                foreach ($holdTriples as $t) {
+                    $hold = stays_hold_create($db, $holdHotelId, $t['room_id'], $t['option_id'], $holdCheckin, $holdCheckout, $t['qty'], $invoiceId);
+                    if (empty($hold['ok'])) {
+                        foreach ($placedHoldIds as $hid) { stays_hold_release($db, $hid); }
+                        throw new Exception($hold['message'] ?? 'Sorry, those dates are no longer available.');
+                    }
+                    $placedHoldIds[] = (int) $hold['hold_id'];
+                }
+            } else {
+                error_log('stays web booking: own-inventory stay without resolvable room_id/option_id (invoice ' . $invoiceId . ', hotel ' . $holdHotelId . ') — proceeding WITHOUT a hold.');
             }
         }
 

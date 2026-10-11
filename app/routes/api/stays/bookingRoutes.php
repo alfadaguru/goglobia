@@ -468,7 +468,9 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
                 $ciForNet = (string) ($bookingData['checkin'] ?? '');
                 $coForNet = (string) ($bookingData['checkout'] ?? '');
                 if ($hotelIdForNet > 0 && is_array($selForNet) && !empty($selForNet) && $ciForNet !== '' && $coForNet !== '') {
-                    $netRes = stays_recompute_net($db, $hotelIdForNet, $selForNet, $ciForNet, $coForNet);
+                    // $currency is the draft's base currency; convert the net into it
+                    // (room_options.price is in the hotel's own currency).
+                    $netRes = stays_recompute_net($db, $hotelIdForNet, $selForNet, $ciForNet, $coForNet, (string) $currency);
                     if (empty($netRes['ok'])) {
                         http_response_code(409);
                         echo json_encode(['success' => false, 'message' => $netRes['message'] ?? 'This room is no longer available at the displayed price. Please search again.']);

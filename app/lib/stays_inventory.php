@@ -92,18 +92,31 @@ if (!function_exists('stays_recompute_net')) {
      * Mirrors modules/stays/hotels/rooms.php:216-230 (the $totalRaw accumulation)
      * so the figure equals what the customer was shown, pre-markup.
      *
-     * @param array $selectedRooms each: ['room_id'=>int, 'quantity'=>int,
-     *              'option'=>['option_id'=>int], ...] (as stored in the draft)
+     * @param array  $selectedRooms each: ['room_id'=>int, 'quantity'=>int,
+     *               'option'=>['option_id'=>int], ...] (as stored in the draft)
+     * @param string $toCurrency   convert the net INTO this currency (the booking's
+     *               base currency). room_options.price is in the HOTEL's currency
+     *               (stays.currency); when they differ we must convert, exactly as
+     *               rooms.php does with CURRENCY_CONVERT($x,$db,$hotelCurrency,$display)
+     *               — otherwise a EUR hotel's number would be charged as the base
+     *               currency. '' = no conversion (assume already base).
      * @return array ['ok'=>bool, 'net'=>float, 'lines'=>array, 'message'=>?string]
      *               ok=false when a selected room/option cannot be resolved (caller
      *               should refuse rather than fall back to the client value).
      */
-    function stays_recompute_net($db, int $stayId, array $selectedRooms, string $checkin, string $checkout): array
+    function stays_recompute_net($db, int $stayId, array $selectedRooms, string $checkin, string $checkout, string $toCurrency = ''): array
     {
         if ($stayId <= 0) { return ['ok' => false, 'net' => 0.0, 'message' => 'No property']; }
         $nights = stays_date_range($checkin, $checkout);
         $nightCount = count($nights);
         if ($nightCount < 1) { return ['ok' => false, 'net' => 0.0, 'message' => 'Invalid dates']; }
+
+        // The hotel's own currency — room_options.price and calendar rates are in it.
+        $hotelCurrency = '';
+        try {
+            $hrow = $db->get('stays', ['currency'], ['id' => $stayId]);
+            $hotelCurrency = strtoupper(trim((string) ($hrow['currency'] ?? '')));
+        } catch (\Throwable $e) { $hotelCurrency = ''; }
 
         // Per-date calendar rates for this property, keyed room_option_date.
         $calendarRates = [];
@@ -146,7 +159,22 @@ if (!function_exists('stays_recompute_net')) {
             $net += $roomNet;
             $lines[] = ['room_id' => $roomId, 'option_id' => $optionId, 'qty' => $qty, 'net' => round($roomNet, 2)];
         }
-        return ['ok' => true, 'net' => round($net, 2), 'lines' => $lines];
+
+        // Convert from the HOTEL's currency into the booking's base currency when they
+        // differ (same step rooms.php applies to what the customer was shown). Without
+        // this a non-base-currency hotel's raw number would be charged as base currency.
+        $converted = $net;
+        $toCurrency = strtoupper(trim($toCurrency));
+        if ($toCurrency !== '' && $hotelCurrency !== '' && $toCurrency !== $hotelCurrency && function_exists('CURRENCY_CONVERT')) {
+            $c = CURRENCY_CONVERT($net, $db, $hotelCurrency, $toCurrency);
+            // CURRENCY_CONVERT returns a float (or ['price'=>..] in some variants).
+            if (is_array($c)) { $converted = (float) ($c['price'] ?? $net); }
+            else { $converted = (float) $c; }
+            if ($converted <= 0) { $converted = $net; } // never let a conversion glitch zero the net
+        }
+
+        return ['ok' => true, 'net' => round($converted, 2), 'net_hotel_currency' => round($net, 2),
+                'hotel_currency' => $hotelCurrency, 'to_currency' => $toCurrency, 'lines' => $lines];
     }
 }
 
