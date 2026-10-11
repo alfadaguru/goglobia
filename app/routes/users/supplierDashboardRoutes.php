@@ -150,3 +150,46 @@ $router->get('/supplier/insights', function () use ($SECURE, $db) {
     require_once views . "supplier/insights.php";
     require_once views . "includes/footer.php";
 });
+
+// GET /supplier/insights/export — CSV of the dashboard figures (PMS #56)
+$router->get('/supplier/insights/export', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $ctx = supplier_acting_context($db);
+    if ($ctx === null || !empty($ctx['is_admin'])) { header('Location: ' . root . 'login'); exit; }
+    $user_id = (string) $ctx['owner'];
+    if (!supplier_can($db, 'reservations', 'view')) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Not authorised.'];
+        header('Location: ' . root . 'supplier/dashboard'); exit;
+    }
+    $stayIds = function_exists('supplier_owned_stay_ids') ? supplier_owned_stay_ids($db, $user_id) : [];
+    $bi = function_exists('bi_dashboard') ? bi_dashboard($db, $user_id, $stayIds) : [];
+
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="insights_' . date('Y-m-d') . '.csv"');
+    $out = fopen('php://output', 'w');
+    $w = function (array $row) use ($out) { fputcsv($out, $row); };
+
+    // Earnings by currency/state.
+    $w(['Section', 'Key', 'Value']);
+    foreach (($bi['earnings'] ?? []) as $cur => $st) {
+        if (!is_array($st)) { continue; }
+        foreach ($st as $k => $v) { $w(['Earnings (' . $cur . ')', (string) $k, is_scalar($v) ? (string) $v : json_encode($v)]); }
+    }
+    // Reservations by status.
+    foreach (($bi['reservations']['status'] ?? []) as $k => $v) { $w(['Reservations', (string) $k, (string) $v]); }
+    // F&B.
+    $fnb = $bi['fnb'] ?? [];
+    $w(['F&B', 'total', (string) ($fnb['total'] ?? 0)]);
+    $w(['F&B', 'orders', (string) ($fnb['orders'] ?? 0)]);
+    // Ops.
+    foreach (($bi['ops']['hk'] ?? []) as $k => $v) { $w(['Housekeeping', (string) $k, (string) $v]); }
+    // Night-audit trend (one row per day).
+    $w([]);
+    $w(['Trend date', 'Occupancy %', 'ADR', 'RevPAR', 'Room revenue']);
+    foreach (($bi['trend'] ?? []) as $t) {
+        $w([(string) ($t['business_date'] ?? ''), (string) ($t['occupancy_pct'] ?? ''), (string) ($t['adr'] ?? ''), (string) ($t['revpar'] ?? ''), (string) ($t['room_revenue'] ?? '')]);
+    }
+    fclose($out);
+    exit;
+});

@@ -38,6 +38,9 @@ $spark = function (array $pts, int $w = 320, int $h = 48) {
       <h1 class="text-2xl font-bold text-gray-900">Insights</h1>
       <p class="text-sm text-gray-600">A read-only snapshot across your properties. Figures come straight from your bookings, folios, earnings and night-audit.</p>
     </div>
+    <a href="<?= root ?>supplier/insights/export" class="btn secondary text-sm">
+      <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">download</span> Export CSV</span>
+    </a>
   </div>
 
   <!-- Earnings -->
