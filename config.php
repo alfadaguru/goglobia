@@ -86,6 +86,7 @@ require_once 'app/lib/supplier_ancillary.php';
 require_once 'app/lib/supplier_safety.php';
 require_once 'app/lib/supplier_growth.php';
 require_once 'app/lib/supplier_property.php';
+require_once 'app/lib/supplier_chain.php';
 require_once 'app/lib/supplier_housekeeping.php';
 require_once 'app/lib/supplier_maintenance.php';
 require_once 'app/lib/supplier_pos.php';

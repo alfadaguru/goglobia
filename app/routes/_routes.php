@@ -62,6 +62,7 @@ require_once 'app/routes/users/supplierCorporateRoutes.php'; // corporate accoun
 require_once 'app/routes/users/supplierAncillaryRoutes.php'; // services (spa/generic) + recipes (PMS Phase 3 #31/#32/#33)
 require_once 'app/routes/users/supplierSafetyRoutes.php'; // packages + safety/compliance registers (PMS Phase 3 #17/#52-55)
 require_once 'app/routes/users/supplierGrowthRoutes.php'; // brands (#03) + integrations channel-mgr/RMS/AI config stubs (PMS Phase 3 #12/#14/#57)
+require_once 'app/routes/users/supplierChainRoutes.php'; // multi-property / chain portfolio dashboard (PMS #03 deepen)
 require_once 'app/routes/users/supplierCalendarRoutes.php'; // reservation calendar / tape-chart (inc S39)
 require_once 'app/routes/users/supplierRequestRoutes.php'; // post-approval service/quota request flow (inc S34)
 require_once 'app/routes/users/supplierRolesRoutes.php'; // supplier-defined roles + property scope (inc 4)

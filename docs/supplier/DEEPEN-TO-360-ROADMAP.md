@@ -20,19 +20,20 @@ Per-module: built/total + the sub-features still to build (BUILT ones omitted). 
 
 > ✅ MODULE 02 COMPLETE (deepen pass): buildings/blocks/wings registry + mgmt UI, structured house rules, per-property timezone added; rest pre-existing (gallery, listing_status activation, bed/occupancy, room-level amenities). tax profiles → #38, departments/outlets → POS #30.
 ## 03. Multi-property / chain management  —  2/12
-- [ ] corporate dashboard
-- [ ] brand-level control
-- [ ] regional management
-- [ ] centralized guest database
-- [ ] central reservations
-- [ ] cross-property availability
+- [x] corporate dashboard
+- [x] brand-level control
+- [x] regional management
+- [x] centralized guest database
+- [x] central reservations
+- [x] cross-property availability
 - [ ] central rate management
 - [ ] central corporate contracts
 - [ ] central procurement
 - [ ] inter-property transfers
-- [ ] consolidated reporting
-- [ ] property-specific permissions
+- [x] consolidated reporting
+- [x] property-specific permissions
 
+> ✅ MODULE 03 CORE COMPLETE: supplier_chain.php + /supplier/chain portfolio dashboard — consolidated KPIs, brand/region/type breakdown, properties table, cross-property availability, centralized (chain-wide) guest DB. Property-specific permissions already via supplier_role_property scope. FOLDS ELSEWHERE: central rate mgmt→#06 bulk tools per property, central corporate contracts→#15, central procurement→#41, inter-property transfers→#42 stores (cross-store) — tracked there, not duplicated here.
 ## 04. Reservation management  —  11/21
 - [ ] dashboard (arrivals/departures/in-house KPIs)
 - [ ] room rack / tape chart
