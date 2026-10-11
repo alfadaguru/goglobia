@@ -53,7 +53,16 @@
   </div>
 
   <?php if (!empty($s['desc'])): ?>
-    <div class="prose max-w-none text-gray-700 text-sm"><?= $s['desc'] /* stored HTML, admin/supplier authored */ ?></div>
+    <?php
+      // STORED-XSS FIX: the supplier property form captures `description` via a PLAIN
+      // textarea (no rich editor, no sanitizer), so a supplier could inject <script>
+      // into their own property's desc and this preview — and the public branded site
+      // that reuses it — would execute it. Escape + nl2br so plain-text line breaks
+      // still render. (Admin stays author desc via CKEditor as rich HTML; if an
+      // admin-owned stay is ever previewed here its markup shows escaped rather than
+      // rendered — safe over pretty. A proper HTML sanitizer would be the richer fix.)
+    ?>
+    <div class="prose max-w-none text-gray-700 text-sm"><?= nl2br(htmlspecialchars((string) $s['desc'], ENT_QUOTES, 'UTF-8')) ?></div>
   <?php endif; ?>
 
   <!-- Rooms -->

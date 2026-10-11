@@ -156,13 +156,21 @@ if (!function_exists('proc_po_receive')) {
                 }
 
                 // 2) Post the balanced GL entry (DR expense / CR AP) for the total.
+                //    FAIL-HARD: a failed GL post rolls back the WHOLE receive — including
+                //    the stock increment in step 1 above — so a PO is never marked
+                //    'received' with stock bumped but no expense/AP booked. gl_post is
+                //    idempotent on (org,source,reference) so a retry re-posts cleanly.
                 if ($total > 0 && function_exists('gl_post')) {
                     $gl = gl_post($db, $orgId, [
                         ['code' => '6000', 'debit' => $total],   // Operating expense (cost recognised)
                         ['code' => '2000', 'credit' => $total],  // Accounts payable (owed to vendor)
                     ], ['source' => 'grn', 'reference' => (string) $po['reference'], 'currency' => $currency,
                         'memo' => 'Goods received ' . $po['reference']]);
-                    if (empty($gl['ok'])) { error_log('proc_po_receive GL: ' . ($gl['message'] ?? '?')); }
+                    if (empty($gl['ok'])) {
+                        error_log('proc_po_receive GL: ' . ($gl['message'] ?? '?'));
+                        $result = ['ok' => false, 'message' => 'Could not post goods-received to the ledger; nothing changed.'];
+                        return false; // rollback the whole $db->action()
+                    }
                 }
 
                 // 3) Mark received.

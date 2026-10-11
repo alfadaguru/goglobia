@@ -57,19 +57,26 @@ if (!function_exists('owner_agreement_set')) {
             // Owner must belong to this org; property must belong to this org.
             if (!$db->has('stays_owners', ['id' => $ownerId, 'org_id' => $orgId])) { return false; }
             if (!$db->has('stays', ['id' => $stayId, 'org_id' => $orgId])) { return false; }
-            // Supersede any existing active agreement for this property.
-            $db->update('stays_management_agreements', ['active' => 0, 'updated_at' => date('Y-m-d H:i:s')],
-                ['stay_id' => $stayId, 'active' => 1]);
-            $db->insert('stays_management_agreements', [
-                'org_id'                 => $orgId,
-                'stay_id'                => $stayId,
-                'owner_id'               => $ownerId,
-                'manager_commission_pct' => $managerPct,
-                'fixed_fee'              => $fixedFee,
-                'active'                 => 1,
-                'created_at'             => date('Y-m-d H:i:s'),
-            ]);
-            return true;
+            // Supersede the existing active agreement AND insert the new one ATOMICALLY.
+            // Previously these were two separate statements: a crash between them left
+            // the property with ZERO active agreements (no owner payout basis).
+            $ok = false;
+            $db->action(function ($db) use ($orgId, $stayId, $ownerId, $managerPct, $fixedFee, &$ok) {
+                $db->update('stays_management_agreements', ['active' => 0, 'updated_at' => date('Y-m-d H:i:s')],
+                    ['stay_id' => $stayId, 'active' => 1]);
+                $db->insert('stays_management_agreements', [
+                    'org_id'                 => $orgId,
+                    'stay_id'                => $stayId,
+                    'owner_id'               => $ownerId,
+                    'manager_commission_pct' => $managerPct,
+                    'fixed_fee'              => $fixedFee,
+                    'active'                 => 1,
+                    'created_at'             => date('Y-m-d H:i:s'),
+                ]);
+                $ok = true;
+                return true;
+            });
+            return $ok;
         } catch (\Throwable $e) {
             error_log('owner_agreement_set: ' . $e->getMessage());
             return false;

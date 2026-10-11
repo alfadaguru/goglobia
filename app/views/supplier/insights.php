@@ -62,8 +62,17 @@ $spark = function (array $pts, int $w = 320, int $h = 48) {
     <div class="card p-5">
       <h2 class="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2"><span class="material-symbols-outlined text-violet-600 text-base">event_note</span> Reservations</h2>
       <div class="grid grid-cols-3 gap-3 mb-4">
-        <?php foreach (['confirmed' => 'green', 'pending' => 'amber', 'cancelled' => 'red'] as $k => $c): ?>
-          <div class="rounded-lg bg-<?= $c ?>-50 p-3"><div class="text-xs text-<?= $c ?>-700"><?= ucfirst($k) ?></div><div class="text-lg font-bold text-<?= $c ?>-800 tabular-nums"><?= (int) ($res['status'][$k] ?? 0) ?></div></div>
+        <?php
+          // Tailwind is PRECOMPILED — dynamically concatenated class names like
+          // "bg-{$c}-50" do NOT appear in the build and render unstyled. Use LITERAL
+          // full class strings so the compiler sees them.
+          $resChip = [
+            'confirmed' => ['box' => 'rounded-lg bg-green-50 p-3', 'lbl' => 'text-xs text-green-700', 'num' => 'text-lg font-bold text-green-800 tabular-nums'],
+            'pending'   => ['box' => 'rounded-lg bg-amber-50 p-3', 'lbl' => 'text-xs text-amber-700', 'num' => 'text-lg font-bold text-amber-800 tabular-nums'],
+            'cancelled' => ['box' => 'rounded-lg bg-red-50 p-3',   'lbl' => 'text-xs text-red-700',   'num' => 'text-lg font-bold text-red-800 tabular-nums'],
+          ];
+          foreach ($resChip as $k => $cls): ?>
+          <div class="<?= $cls['box'] ?>"><div class="<?= $cls['lbl'] ?>"><?= ucfirst($k) ?></div><div class="<?= $cls['num'] ?>"><?= (int) ($res['status'][$k] ?? 0) ?></div></div>
         <?php endforeach; ?>
       </div>
       <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Channel mix</div>
@@ -84,8 +93,17 @@ $spark = function (array $pts, int $w = 320, int $h = 48) {
       </div>
       <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Housekeeping</div>
       <div class="flex flex-wrap gap-2 text-xs">
-        <?php $hkColor = ['clean' => 'green', 'dirty' => 'amber', 'inspected' => 'blue', 'out_of_order' => 'red']; foreach (($ops['hk'] ?? []) as $s => $n): ?>
-          <span class="px-2 py-1 rounded bg-<?= $hkColor[$s] ?? 'gray' ?>-50 text-<?= $hkColor[$s] ?? 'gray' ?>-700"><?= htmlspecialchars(str_replace('_', ' ', $s)) ?>: <span class="font-semibold tabular-nums"><?= (int) $n ?></span></span>
+        <?php
+          // Literal class strings (precompiled Tailwind — see note above).
+          $hkChip = [
+            'clean'        => 'px-2 py-1 rounded bg-green-50 text-green-700',
+            'dirty'        => 'px-2 py-1 rounded bg-amber-50 text-amber-700',
+            'inspected'    => 'px-2 py-1 rounded bg-blue-50 text-blue-700',
+            'out_of_order' => 'px-2 py-1 rounded bg-red-50 text-red-700',
+          ];
+          $hkFallback = 'px-2 py-1 rounded bg-gray-50 text-gray-700';
+          foreach (($ops['hk'] ?? []) as $s => $n): ?>
+          <span class="<?= $hkChip[$s] ?? $hkFallback ?>"><?= htmlspecialchars(str_replace('_', ' ', $s)) ?>: <span class="font-semibold tabular-nums"><?= (int) $n ?></span></span>
         <?php endforeach; ?>
       </div>
     </div>

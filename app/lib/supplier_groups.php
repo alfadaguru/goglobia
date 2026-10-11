@@ -203,7 +203,12 @@ if (!function_exists('group_set_status')) {
                             ['code' => '4000', 'credit' => $totals['charges']],
                         ], ['source' => 'group', 'reference' => (string) $g['reference'], 'currency' => (string) $g['currency'],
                             'property_id' => $stayId, 'memo' => 'Group ' . $g['reference']]);
-                        if (empty($res['ok'])) { error_log('group complete GL: ' . ($res['message'] ?? '?')); }
+                        // FAIL-HARD: a failed GL post must ROLL BACK the whole completion
+                        // (mirrors the folio-checkout fix). Previously the error was only
+                        // logged and the group was still marked 'completed' below, leaving
+                        // a completed group with no/partial books. gl_post is idempotent on
+                        // (org,source,reference), so a retry re-posts cleanly.
+                        if (empty($res['ok'])) { error_log('group complete GL: ' . ($res['message'] ?? '?')); $ok = false; return false; }
                         // AR RELIEF: payments collected against the master folio must
                         // relieve City-AR (DR Cash / CR City-AR), else AR stays overstated
                         // forever. Net of refunds; only when positive. Separate source so
@@ -215,7 +220,7 @@ if (!function_exists('group_set_status')) {
                                 ['code' => '1200', 'credit' => $netPaid],
                             ], ['source' => 'group_payment', 'reference' => (string) $g['reference'], 'currency' => (string) $g['currency'],
                                 'property_id' => $stayId, 'memo' => 'Group payment ' . $g['reference']]);
-                            if (empty($pres['ok'])) { error_log('group payment GL: ' . ($pres['message'] ?? '?')); }
+                            if (empty($pres['ok'])) { error_log('group payment GL: ' . ($pres['message'] ?? '?')); $ok = false; return false; }
                         }
                     }
                     $db->update('stays_groups', ['status' => 'completed', 'completed_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],

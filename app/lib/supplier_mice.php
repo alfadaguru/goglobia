@@ -121,6 +121,20 @@ if (!function_exists('mice_event_set_status')) {
             $from = (string) $ev['status'];
             if (!in_array($to, $allowed[$from] ?? [], true)) { return false; }
 
+            // DOUBLE-BOOKING GUARD: many enquiries may exist for one space/date, but
+            // only ONE event may be CONFIRMED (or already completed) on a given space
+            // for a given date. Checked at the enquiry→confirmed transition. mice_event_create
+            // intentionally does NOT block here (enquiries are non-exclusive).
+            if ($to === 'confirmed') {
+                $clash = $db->get('stays_events', ['id'], [
+                    'space_id'  => (int) $ev['space_id'],
+                    'event_date'=> (string) $ev['event_date'],
+                    'status'    => ['confirmed', 'completed'],
+                    'id[!]'     => $eventId,
+                ]);
+                if ($clash) { return false; }
+            }
+
             if ($to === 'completed') {
                 $totals = mice_event_totals($db, $eventId);
                 $orgId = ($ev['org_id'] !== null && (int) $ev['org_id'] > 0) ? (int) $ev['org_id'] : 0;
@@ -139,7 +153,10 @@ if (!function_exists('mice_event_set_status')) {
                             ['code' => '4000', 'credit' => $totals['charges']],  // venue/event revenue
                         ], ['source' => 'event', 'reference' => (string) $ev['reference'], 'currency' => (string) $ev['currency'],
                             'property_id' => $stayId, 'memo' => 'Event ' . $ev['reference']]);
-                        if (empty($res['ok'])) { error_log('mice complete GL: ' . ($res['message'] ?? '?')); }
+                        // FAIL-HARD: roll back completion if the GL post fails, else the
+                        // event is marked 'completed' with no/partial books. gl_post is
+                        // idempotent on (org,source,reference) so a retry re-posts cleanly.
+                        if (empty($res['ok'])) { error_log('mice complete GL: ' . ($res['message'] ?? '?')); $ok = false; return false; }
                         // AR RELIEF: payments collected against the event folio relieve AR
                         // (DR Cash / CR City-AR) — without this, City-AR stays overstated
                         // forever. Separate source so the idempotency key is distinct.
@@ -150,7 +167,7 @@ if (!function_exists('mice_event_set_status')) {
                                 ['code' => '1200', 'credit' => $netPaid],
                             ], ['source' => 'event_payment', 'reference' => (string) $ev['reference'], 'currency' => (string) $ev['currency'],
                                 'property_id' => $stayId, 'memo' => 'Event payment ' . $ev['reference']]);
-                            if (empty($pres['ok'])) { error_log('mice payment GL: ' . ($pres['message'] ?? '?')); }
+                            if (empty($pres['ok'])) { error_log('mice payment GL: ' . ($pres['message'] ?? '?')); $ok = false; return false; }
                         }
                     }
                     $db->update('stays_events', ['status' => 'completed', 'completed_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],

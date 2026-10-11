@@ -103,19 +103,25 @@ $stColor = ['draft'=>'bg-gray-100 text-gray-600','ordered'=>'bg-blue-50 text-blu
         <?php endif; ?>
 
         <?php if ($st === 'draft'): ?>
-          <form action="<?= $base ?>/po/line" method="POST" class="flex flex-wrap items-end gap-2 mt-3 border-t border-gray-100 pt-3">
-            <?= CSRF::tokenField() ?><input type="hidden" name="po_id" value="<?= $pid ?>">
-            <select name="item_id" class="input text-sm"><?php foreach ($items as $it): ?><option value="<?= (int) $it['id'] ?>"><?= htmlspecialchars((string) $it['name']) ?></option><?php endforeach; ?></select>
-            <input type="number" name="qty" step="0.001" min="0" class="input text-sm w-20" placeholder="qty" required>
-            <input type="number" name="unit_cost" step="0.01" min="0" class="input text-sm w-24" placeholder="unit cost" required>
-            <button type="submit" class="btn secondary text-xs">Add line</button>
+          <!-- NOTE: the "Place order" form must NOT be nested inside the add-line
+               form — browsers ignore a nested <form>, so the button previously
+               submitted the OUTER add-line form to /po/line (to=ordered ignored)
+               and the draft→ordered transition never happened. They are siblings now. -->
+          <div class="flex flex-wrap items-end gap-2 mt-3 border-t border-gray-100 pt-3">
+            <form action="<?= $base ?>/po/line" method="POST" class="flex flex-wrap items-end gap-2">
+              <?= CSRF::tokenField() ?><input type="hidden" name="po_id" value="<?= $pid ?>">
+              <select name="item_id" class="input text-sm"><?php foreach ($items as $it): ?><option value="<?= (int) $it['id'] ?>"><?= htmlspecialchars((string) $it['name']) ?></option><?php endforeach; ?></select>
+              <input type="number" name="qty" step="0.001" min="0" class="input text-sm w-20" placeholder="qty" required>
+              <input type="number" name="unit_cost" step="0.01" min="0" class="input text-sm w-24" placeholder="unit cost" required>
+              <button type="submit" class="btn secondary text-xs">Add line</button>
+            </form>
             <?php if (!empty($lines)): ?>
               <form action="<?= $base ?>/po/transition" method="POST" class="inline">
                 <?= CSRF::tokenField() ?><input type="hidden" name="po_id" value="<?= $pid ?>"><input type="hidden" name="to" value="ordered">
                 <button type="submit" class="btn emerald text-xs">Place order</button>
               </form>
             <?php endif; ?>
-          </form>
+          </div>
         <?php elseif ($st === 'ordered'): ?>
           <form action="<?= $base ?>/po/transition" method="POST" class="mt-3 border-t border-gray-100 pt-3"
                 onsubmit="return confirm('Receive these goods? Stock will increase and the amount owed to the vendor is recorded in your books.');">
