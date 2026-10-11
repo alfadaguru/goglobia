@@ -17,9 +17,14 @@ $router->get('/api/stays', function () use ($db) {
         // Fetch stays module config
         $staysModule = $db->get('modules', '*', ['name' => 'hotels', 'type' => 'stays', 'status' => 1]);
 
-        // Get all stays data
+        // Get all stays data. listing_status='approved' REQUIRED on this public
+        // mobile-API list (mirrors the web sell path): a supplier property that is
+        // switched on (status=1) but still draft/submitted/queried/rejected must not
+        // appear. Admin stays are stamped 'approved'; existing status=1 rows were
+        // backfilled to 'approved' by ensureSupplierStaysSchema.
         $stays_raw = $db->select('stays', '*', [
             'status' => 1,
+            'listing_status' => 'approved',
             'ORDER' => ['name' => 'ASC']
         ]);
 
@@ -156,7 +161,7 @@ $router->get('/api/stays/featured', function () use ($db) {
         $staysModule = $db->get('modules', '*', ['name' => 'hotels', 'type' => 'stays', 'status' => 1]);
 
         // 1) Up to 8 locations
-        $locations = $db->select('stays', 'location', ['status' => '1', 'GROUP' => 'location', 'ORDER' => ['id' => 'ASC'], 'LIMIT' => 8]) ?: [];
+        $locations = $db->select('stays', 'location', ['status' => '1', 'listing_status' => 'approved', 'GROUP' => 'location', 'ORDER' => ['id' => 'ASC'], 'LIMIT' => 8]) ?: [];
         $locations = array_values(array_filter($locations));
         if (empty($locations)) {
             echo json_encode(['success' => true, 'data' => ['locations' => [], 'hotels_by_location' => [], 'currency' => $displayCurrency]]);
@@ -164,7 +169,7 @@ $router->get('/api/stays/featured', function () use ($db) {
         }
 
         // 2) All featured hotels for those locations in ONE query
-        $featuredRows = $db->select('stays', '*', ['status' => '1', 'featured' => '1', 'location' => $locations, 'ORDER' => ['id' => 'ASC']]) ?: [];
+        $featuredRows = $db->select('stays', '*', ['status' => '1', 'listing_status' => 'approved', 'featured' => '1', 'location' => $locations, 'ORDER' => ['id' => 'ASC']]) ?: [];
         $byLoc = [];
         foreach ($featuredRows as $r) $byLoc[$r['location']][] = $r;
 
