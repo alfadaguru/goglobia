@@ -104,10 +104,12 @@ if (!function_exists('MARKUP')) {
 
                 if (!empty($token)) {
                     try {
+                        // Verify signature AND expiry. The old decode($token,false)
+                        // fallback skips only the EXPIRY check (not the signature),
+                        // so it honored expired tokens for markup-tier resolution.
+                        // An expired token should resolve to the default (anonymous)
+                        // tier, so the fallback is removed.
                         $tokenData = JWT::verify($token);
-                        if (!$tokenData && method_exists('JWT', 'decode')) {
-                            $tokenData = JWT::decode($token, false);
-                        }
                         if ($tokenData && !empty($tokenData['user_id'])) {
                             $userId = $tokenData['user_id'];
                             if (!empty($tokenData['role'])) {

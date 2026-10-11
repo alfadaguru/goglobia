@@ -403,11 +403,16 @@ $router->post('stays/hotels/search', function() use ($db) {
     //   ['status' => 1] => WHERE status = 1
     // ========================================
 
-    // Build where conditions - if no city specified, get all active hotels
+    // Build where conditions - if no city specified, get all active hotels.
+    // listing_status='approved' is REQUIRED on the public sell path: a supplier
+    // property that is switched on (status=1) but still draft/submitted/queried/
+    // rejected must NOT be searchable or bookable. Admin-created stays are stamped
+    // 'approved' at creation, and all pre-existing status=1 rows were backfilled to
+    // 'approved', so this does not hide legitimate live listings.
     if (!empty($city)) {
-        $whereConditions = ['status' => 1, 'location[~]' => $city];
+        $whereConditions = ['status' => 1, 'listing_status' => 'approved', 'location[~]' => $city];
     } else {
-        $whereConditions = ['status' => 1];
+        $whereConditions = ['status' => 1, 'listing_status' => 'approved'];
     }
 
     // Add star rating filter if specified (frontend filter can override)

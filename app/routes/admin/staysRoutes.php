@@ -247,6 +247,11 @@ $router->post(admin.'/stays/add', function () use ($SECURE,$db) {
         'amenity_ids' => $amenity_ids,
         'img' => !empty($images) ? json_encode($images) : null,
         'status' => 1,
+        // Admin IS the listing authority — an admin-created stay is self-approved so
+        // it is immediately public. (Supplier-created stays start 'draft' and must be
+        // admin-approved; the public sell path filters listing_status='approved'.)
+        // Without this an admin stay would default to 'draft' and never appear.
+        'listing_status' => 'approved',
         'created_at' => date('Y-m-d H:i:s'),
         'translations' => !empty($translations) ? json_encode($translations) : null
     ];

@@ -64,11 +64,32 @@ $router->post('stays/hotels/rooms', function() use ($db) {
         // Get currency
         $currency = isset($_SESSION['app_currency']) ? $_SESSION['app_currency'] : 'USD';
 
-        // Fetch hotel to get base currency
+        // Fetch hotel to get base currency. listing_status='approved' REQUIRED on
+        // the public rooms/pricing path — a non-approved property must not serve
+        // bookable room options (admin stays are stamped 'approved' at creation).
         $hotel = $db->get('stays', ['currency'], [
             'id' => $hotelId,
-            'status' => '1'
+            'status' => '1',
+            'listing_status' => 'approved'
         ]);
+
+        // Non-approved / non-existent property → no rooms to sell. Match the
+        // normal success envelope ({success,data:{...,rooms:[]}}) and the output
+        // buffering used at the end of this handler so the frontend parses cleanly.
+        if (!$hotel) {
+            if (function_exists('ob_get_level') && ob_get_level()) { ob_clean(); }
+            echo json_encode([
+                'success' => true,
+                'data' => [
+                    'hotel_id' => $hotelId,
+                    'nights'   => $nights,
+                    'currency' => $currency,
+                    'rooms'    => []
+                ]
+            ]);
+            if (function_exists('ob_get_level') && ob_get_level()) { ob_end_flush(); }
+            exit;
+        }
 
         $hotelCurrency = !empty($hotel['currency']) ? $hotel['currency'] : 'USD';
 

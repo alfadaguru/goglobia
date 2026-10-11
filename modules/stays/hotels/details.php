@@ -107,10 +107,13 @@ $router->post('/stays/hotels/details', function() use ($db) {
         exit;
     }
 
-    // Fetch hotel from database
+    // Fetch hotel from database. listing_status='approved' is REQUIRED on the
+    // public detail path — a non-approved supplier property must not be viewable
+    // or bookable even if its status=1 (admin stays are stamped 'approved').
     $hotel = $db->get('stays', '*', [
         'id' => $hotelId,
-        'status' => '1'
+        'status' => '1',
+        'listing_status' => 'approved'
     ]);
 
     if (!$hotel) {
