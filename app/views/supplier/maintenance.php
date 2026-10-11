@@ -119,10 +119,10 @@ $pickRooms = $stayFilter > 0 ? ($physRooms[$stayFilter] ?? []) : [];
   <!-- Work orders -->
   <div class="card overflow-x-auto">
     <table class="w-full text-sm">
-      <thead><tr class="text-left text-gray-500 border-b border-gray-100"><th class="px-4 py-3 font-medium">Property</th><th class="px-4 py-3 font-medium">Issue</th><th class="px-4 py-3 font-medium">Area</th><th class="px-4 py-3 font-medium">Priority</th><th class="px-4 py-3 font-medium">Status</th><th class="px-4 py-3 font-medium">Advance</th></tr></thead>
+      <thead><tr class="text-left text-gray-500 border-b border-gray-100"><th class="px-4 py-3 font-medium">Property</th><th class="px-4 py-3 font-medium">Issue</th><th class="px-4 py-3 font-medium">Area</th><th class="px-4 py-3 font-medium">Priority</th><th class="px-4 py-3 font-medium">Status</th><th class="px-4 py-3 font-medium">Technician</th><th class="px-4 py-3 font-medium">Advance</th></tr></thead>
       <tbody class="divide-y divide-gray-100">
         <?php if (empty($orders)): ?>
-          <tr><td colspan="6" class="px-4 py-6 text-center text-gray-400 text-sm">No work orders.</td></tr>
+          <tr><td colspan="7" class="px-4 py-6 text-center text-gray-400 text-sm">No work orders.</td></tr>
         <?php else: foreach ($orders as $o): ?>
           <?php $st = (string) $o['status']; ?>
           <tr>
@@ -131,6 +131,15 @@ $pickRooms = $stayFilter > 0 ? ($physRooms[$stayFilter] ?? []) : [];
             <td class="px-4 py-3 text-gray-500"><?= htmlspecialchars((string) ($o['area'] ?? '')) ?: '—' ?></td>
             <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium <?= $prColor[(string) $o['priority']] ?? '' ?>"><?= htmlspecialchars(ucfirst((string) $o['priority'])) ?></span></td>
             <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium <?= $stColor[$st] ?? '' ?>"><?= htmlspecialchars(str_replace('_', ' ', ucfirst($st))) ?></span></td>
+            <td class="px-4 py-3">
+              <?php if ($canEdit): ?>
+                <form action="<?= $base ?>/assign" method="POST" class="flex items-center gap-1">
+                  <?= CSRF::tokenField() ?><input type="hidden" name="work_order_id" value="<?= (int) $o['id'] ?>"><input type="hidden" name="stay_id" value="<?= (int) $o['stay_id'] ?>">
+                  <input type="text" name="technician" value="<?= htmlspecialchars((string) ($o['assigned_to'] ?? '')) ?>" placeholder="unassigned" class="input text-xs w-28">
+                  <button type="submit" class="text-xs text-violet-600 hover:underline">Save</button>
+                </form>
+              <?php else: ?><span class="text-xs text-gray-500"><?= htmlspecialchars((string) ($o['assigned_to'] ?? '')) ?: '—' ?></span><?php endif; ?>
+            </td>
             <td class="px-4 py-3">
               <?php if ($canEdit && !empty($stNext[$st])): ?>
                 <div class="flex items-center gap-1.5">

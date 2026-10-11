@@ -85,6 +85,26 @@ if (!function_exists('wo_set_status')) {
     }
 }
 
+if (!function_exists('wo_assign')) {
+    /** Assign (or clear) a technician on a work order (PMS #27). Property-scoped. */
+    function wo_assign($db, int $woId, int $stayId, string $tech): bool
+    {
+        try {
+            $wo = $db->get('stays_work_orders', ['id'], ['id' => $woId, 'stay_id' => $stayId]);
+            if (!$wo) { return false; }
+            $tech = trim($tech);
+            $db->update('stays_work_orders', [
+                'assigned_to' => $tech !== '' ? substr($tech, 0, 155) : null,
+                'updated_at'  => date('Y-m-d H:i:s'),
+            ], ['id' => $woId, 'stay_id' => $stayId]);
+            return true;
+        } catch (\Throwable $e) {
+            error_log('wo_assign: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
 if (!function_exists('_ooo_option_ids_for_room')) {
     /** The stable option_ids of a physical room's TYPE (so we know which pooled
      *  inventory rows to adjust). */

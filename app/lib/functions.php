@@ -7936,6 +7936,7 @@ function ensureSupplierStaysSchema($db): void
             `priority` ENUM('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
             `status` ENUM('open','in_progress','resolved') NOT NULL DEFAULT 'open',
             `reported_by` VARCHAR(155) DEFAULT NULL,
+            `assigned_to` VARCHAR(155) DEFAULT NULL,
             `resolved_at` DATETIME DEFAULT NULL,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
@@ -7943,6 +7944,12 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay_status` (`stay_id`,`status`),
             KEY `idx_room` (`physical_room_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #27): work-order technician assignment. Guarded ALTER.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `stays_work_orders` LIKE 'assigned_to'")->fetch()) {
+                $db->query("ALTER TABLE `stays_work_orders` ADD COLUMN `assigned_to` VARCHAR(155) DEFAULT NULL AFTER `reported_by`");
+            }
+        } catch (\Throwable $e) { error_log('wo assigned_to col: ' . $e->getMessage()); }
 
         // --- inventory audit (PMS completion #05): a log of availability changes ----
         // Every stays_inventory_set() write (ceiling / stop-sell / min-stay / owner

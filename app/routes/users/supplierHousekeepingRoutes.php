@@ -153,7 +153,7 @@ $router->get('/supplier/maintenance', function () use ($SECURE, $db) {
         $scope = $stayFilter > 0 ? [$stayFilter] : $stayIds;
         try {
             $orders = $db->select('stays_work_orders',
-                ['id', 'stay_id', 'title', 'area', 'priority', 'status', 'created_at'],
+                ['id', 'stay_id', 'title', 'area', 'priority', 'status', 'assigned_to', 'created_at'],
                 ['stay_id' => $scope, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 200]) ?: [];
             $oooBlocks = $db->select('stays_ooo_blocks',
                 ['id', 'stay_id', 'physical_room_id', 'date_from', 'date_to', 'reason', 'eta', 'state'],
@@ -219,6 +219,21 @@ $router->post('/supplier/maintenance/work-order/status', function () use ($SECUR
 
     $ok = function_exists('wo_set_status') && wo_set_status($db, $woId, $stayId, $to);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Work order updated.' : 'Could not update the work order.'];
+    header('Location: ' . $back); exit;
+});
+
+// POST /supplier/maintenance/assign — assign a technician to a work order (PMS #27)
+$router->post('/supplier/maintenance/assign', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $woId = (int) ($_POST['work_order_id'] ?? 0);
+    $back = root . 'supplier/maintenance' . ($stayId > 0 ? '?stay_id=' . $stayId : '');
+    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $ok = function_exists('wo_assign') && wo_assign($db, $woId, $stayId, (string) ($_POST['technician'] ?? ''));
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Technician updated.' : 'Could not assign.'];
     header('Location: ' . $back); exit;
 });
 

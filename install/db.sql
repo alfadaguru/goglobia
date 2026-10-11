@@ -28912,6 +28912,7 @@ CREATE TABLE `stays_work_orders` (
   `priority` enum('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
   `status` enum('open','in_progress','resolved') NOT NULL DEFAULT 'open',
   `reported_by` varchar(155) DEFAULT NULL,
+  `assigned_to` varchar(155) DEFAULT NULL,
   `resolved_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
