@@ -33,6 +33,45 @@ if (!function_exists('proc_vendor_create')) {
     }
 }
 
+if (!function_exists('ap_summary')) {
+    /**
+     * ACCOUNTS PAYABLE summary (PMS #36): what the property owes vendors. Derived from
+     * RECEIVED purchase orders (a GRN posts DR expense / CR AP, so a received PO is an
+     * amount owed). The platform does not yet record vendor payments, so this is the
+     * gross owed per vendor. Returns ['vendors'=>[['vendor_id','name','owed','pos']...],
+     * 'total'=>float, 'currency'=>string]. Read-only.
+     */
+    function ap_summary($db, int $orgId): array
+    {
+        $out = ['vendors' => [], 'total' => 0.0, 'currency' => 'USD'];
+        if ($orgId <= 0) { return $out; }
+        try {
+            $pos = $db->select('stays_purchase_orders', ['vendor_id', 'total', 'currency'],
+                ['org_id' => $orgId, 'status' => 'received']) ?: [];
+            if (empty($pos)) { return $out; }
+            $vendorNames = [];
+            foreach ($db->select('stays_vendors', ['id', 'name'], ['org_id' => $orgId]) ?: [] as $v) {
+                $vendorNames[(int) $v['id']] = (string) $v['name'];
+            }
+            $byVendor = [];
+            foreach ($pos as $po) {
+                $vid = (int) $po['vendor_id'];
+                if (!isset($byVendor[$vid])) { $byVendor[$vid] = ['vendor_id' => $vid, 'name' => $vendorNames[$vid] ?? ('#' . $vid), 'owed' => 0.0, 'pos' => 0]; }
+                $byVendor[$vid]['owed'] += (float) $po['total'];
+                $byVendor[$vid]['pos']++;
+                $out['total'] += (float) $po['total'];
+                if (!empty($po['currency'])) { $out['currency'] = strtoupper((string) $po['currency']); }
+            }
+            foreach ($byVendor as &$v) { $v['owed'] = round($v['owed'], 2); } unset($v);
+            // Highest owed first.
+            usort($byVendor, fn($a, $b) => $b['owed'] <=> $a['owed']);
+            $out['vendors'] = array_values($byVendor);
+            $out['total'] = round($out['total'], 2);
+        } catch (\Throwable $e) { error_log('ap_summary: ' . $e->getMessage()); }
+        return $out;
+    }
+}
+
 if (!function_exists('proc_vendor_verify')) {
     /** Toggle a vendor's verified flag (PMS #43). Org-scoped. Returns bool. */
     function proc_vendor_verify($db, int $orgId, int $vendorId, bool $verified): bool

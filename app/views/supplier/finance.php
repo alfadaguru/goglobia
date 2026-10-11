@@ -43,6 +43,25 @@
     </div>
   </div>
 
+  <!-- Accounts payable (PMS #36): owed to vendors from received POs -->
+  <?php $ap = (isset($ap) && is_array($ap)) ? $ap : ['vendors'=>[],'total'=>0,'currency'=>'USD']; if (!empty($ap['vendors'])): ?>
+  <div class="card p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-semibold text-gray-900">Accounts payable</h2>
+      <span class="text-sm font-semibold text-gray-900 tabular-nums"><?= htmlspecialchars((string) $ap['currency']) ?> <?= number_format((float) $ap['total'], 2) ?> owed</span>
+    </div>
+    <table class="w-full text-sm">
+      <thead><tr class="text-left text-gray-500 border-b border-gray-100"><th class="px-2 py-1.5 font-medium">Vendor</th><th class="px-2 py-1.5 font-medium text-right">Received POs</th><th class="px-2 py-1.5 font-medium text-right">Owed</th></tr></thead>
+      <tbody class="divide-y divide-gray-50">
+        <?php foreach ($ap['vendors'] as $v): ?>
+          <tr><td class="px-2 py-1.5 text-gray-800"><?= htmlspecialchars((string) $v['name']) ?></td><td class="px-2 py-1.5 text-right tabular-nums text-gray-500"><?= (int) $v['pos'] ?></td><td class="px-2 py-1.5 text-right tabular-nums font-medium"><?= number_format((float) $v['owed'], 2) ?></td></tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+    <p class="text-xs text-gray-400 mt-2">Owed is the total of received purchase orders per vendor (goods received, not yet recorded as paid).</p>
+  </div>
+  <?php endif; ?>
+
   <!-- Trial balance -->
   <div class="card overflow-x-auto">
     <div class="flex items-center justify-between px-4 pt-4">

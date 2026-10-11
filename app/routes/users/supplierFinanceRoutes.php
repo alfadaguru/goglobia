@@ -21,6 +21,8 @@ $router->get('/supplier/finance', function () use ($SECURE, $db) {
         : ['accounts' => [], 'tb_debit' => 0, 'tb_credit' => 0, 'balanced' => true,
            'pl' => ['revenue' => 0, 'expense' => 0, 'net_income' => 0],
            'bs' => ['assets' => 0, 'liabilities' => 0, 'equity' => 0, 'equity_plus_income' => 0, 'balanced' => true]];
+    // Accounts-payable summary (PMS #36): owed to vendors from received POs.
+    $ap = ($orgId > 0 && function_exists('ap_summary')) ? ap_summary($db, $orgId) : ['vendors' => [], 'total' => 0, 'currency' => 'USD'];
 
     $title = 'Finance'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
