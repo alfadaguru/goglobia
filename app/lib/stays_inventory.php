@@ -182,13 +182,20 @@ if (!function_exists('stays_available_on_date')) {
         if ($inv && (int) ($inv['closed'] ?? 0) === 1) { return 0; }
         $base = ($inv && $inv['available_count'] !== null) ? (int) $inv['available_count'] : $defaultQty;
         try {
+            // Committed = active held (unexpired) + consumed (permanent, see
+            // stays_hold_create). Mirrors the authoritative in-lock check.
             $held = (int) $db->sum('stays_holds', 'qty', [
                 'stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $optionId,
                 'state' => 'held', 'expires_at[>]' => $now,
                 'date_from[<=]' => $date, 'date_to[>]' => $date,
             ]);
-        } catch (\Throwable $e) { $held = 0; }
-        return max(0, $base - $held);
+            $consumed = (int) $db->sum('stays_holds', 'qty', [
+                'stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $optionId,
+                'state' => 'consumed',
+                'date_from[<=]' => $date, 'date_to[>]' => $date,
+            ]);
+        } catch (\Throwable $e) { $held = 0; $consumed = 0; }
+        return max(0, $base - $held - $consumed);
     }
 }
 
@@ -252,13 +259,22 @@ if (!function_exists('stays_hold_create')) {
                         $baseCount = (int) $invRow['available_count'];
                     }
 
-                    // Active holds already placed on this night (excludes expired).
+                    // Seats already committed on this night = active (unexpired) HELD
+                    // + CONSUMED. Consumed = a confirmed/paid booking: it reduces
+                    // availability PERMANENTLY (no expiry) — otherwise a paid booking's
+                    // seat would be re-sellable the moment its 20-min hold expired
+                    // (the long-term oversell gap). Matches stays_calendar_committed_on.
                     $held = (int) $db->sum('stays_holds', 'qty', [
                         'stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $optionId,
                         'state' => 'held', 'expires_at[>]' => $now,
                         'date_from[<=]' => $date, 'date_to[>]' => $date,
                     ]);
-                    $remaining = $baseCount - $held;
+                    $consumed = (int) $db->sum('stays_holds', 'qty', [
+                        'stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $optionId,
+                        'state' => 'consumed',
+                        'date_from[<=]' => $date, 'date_to[>]' => $date,
+                    ]);
+                    $remaining = $baseCount - $held - $consumed;
                     if ($qty > $remaining) {
                         $result = ['ok' => false, 'message' => 'Not enough availability on ' . $date,
                                    'date' => $date, 'remaining' => max(0, $remaining)];
@@ -295,6 +311,29 @@ if (!function_exists('stays_hold_consume')) {
         } catch (\Throwable $e) {
             error_log('stays_hold_consume: ' . $e->getMessage());
             return false;
+        }
+    }
+}
+
+if (!function_exists('stays_hold_consume_ref')) {
+    /**
+     * Consume EVERY still-held hold for a booking reference (invoice id) — called when
+     * the booking is confirmed/paid. Flips state 'held'→'consumed' so the seats are
+     * reserved PERMANENTLY (consumed holds have no expiry and are counted by the
+     * availability checks), closing the long-term oversell gap where a paid booking's
+     * seat freed up once its 20-minute hold expired. Idempotent: only touches rows
+     * still in 'held' (re-running, or running after expiry, is a safe no-op — and if a
+     * hold already expired before payment, see the caller note). Returns rows consumed.
+     */
+    function stays_hold_consume_ref($db, string $ref): int
+    {
+        if ($ref === '') { return 0; }
+        try {
+            $stmt = $db->update('stays_holds', ['state' => 'consumed'], ['ref' => $ref, 'state' => 'held']);
+            return $stmt ? (int) $stmt->rowCount() : 0;
+        } catch (\Throwable $e) {
+            error_log('stays_hold_consume_ref: ' . $e->getMessage());
+            return 0;
         }
     }
 }
