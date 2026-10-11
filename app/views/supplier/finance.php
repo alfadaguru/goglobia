@@ -43,6 +43,32 @@
     </div>
   </div>
 
+  <!-- Accounts receivable (#35) + Tax payable (#38) -->
+  <?php $ar = (isset($ar) && is_array($ar)) ? $ar : ['rows'=>[],'total'=>0]; $tax = (isset($tax) && is_array($tax)) ? $tax : ['payable'=>0]; ?>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div class="card p-5">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-sm font-semibold text-gray-900">Accounts receivable</h2>
+        <span class="text-sm font-semibold text-gray-900 tabular-nums"><?= number_format((float) $ar['total'], 2) ?> owed</span>
+      </div>
+      <?php if (empty($ar['rows'])): ?>
+        <p class="text-sm text-gray-500">No open guest balances.</p>
+      <?php else: ?>
+        <ul class="text-sm divide-y divide-gray-50">
+          <?php foreach (array_slice($ar['rows'], 0, 12) as $r): ?>
+            <li class="py-1.5 flex justify-between"><span class="text-gray-700"><?= htmlspecialchars((string) $r['guest']) ?></span><span class="tabular-nums"><?= htmlspecialchars((string) $r['currency']) ?> <?= number_format((float) $r['balance'], 2) ?></span></li>
+          <?php endforeach; ?>
+        </ul>
+        <p class="text-xs text-gray-400 mt-1">Open folios with an outstanding balance.</p>
+      <?php endif; ?>
+    </div>
+    <div class="card p-5">
+      <h2 class="text-sm font-semibold text-gray-900 mb-2">Tax payable</h2>
+      <div class="text-2xl font-bold text-gray-900 tabular-nums"><?= number_format((float) $tax['payable'], 2) ?></div>
+      <p class="text-xs text-gray-400 mt-1">Tax collected on bookings and owed to the authority (GL account 2100).</p>
+    </div>
+  </div>
+
   <!-- Accounts payable (PMS #36): owed to vendors from received POs -->
   <?php $ap = (isset($ap) && is_array($ap)) ? $ap : ['vendors'=>[],'total'=>0,'currency'=>'USD']; if (!empty($ap['vendors'])): ?>
   <div class="card p-5">

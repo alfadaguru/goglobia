@@ -23,6 +23,9 @@ $router->get('/supplier/finance', function () use ($SECURE, $db) {
            'bs' => ['assets' => 0, 'liabilities' => 0, 'equity' => 0, 'equity_plus_income' => 0, 'balanced' => true]];
     // Accounts-payable summary (PMS #36): owed to vendors from received POs.
     $ap = ($orgId > 0 && function_exists('ap_summary')) ? ap_summary($db, $orgId) : ['vendors' => [], 'total' => 0, 'currency' => 'USD'];
+    // Accounts-receivable subledger (#35) + tax payable (#38).
+    $ar = ($orgId > 0 && function_exists('ar_subledger')) ? ar_subledger($db, $orgId) : ['rows' => [], 'total' => 0];
+    $tax = ($orgId > 0 && function_exists('tax_summary')) ? tax_summary($db, $orgId) : ['payable' => 0];
 
     $title = 'Finance'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";

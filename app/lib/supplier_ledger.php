@@ -301,6 +301,56 @@ if (!function_exists('gl_financial_summary')) {
     }
 }
 
+if (!function_exists('ar_subledger')) {
+    /**
+     * ACCOUNTS RECEIVABLE subledger (PMS Phase 3 #35): guest/city amounts still owed —
+     * OPEN folios carrying a positive balance (charges > payments). Complements the GL's
+     * 1100/1200 AR accounts with the per-guest detail. Read-only.
+     * Returns ['rows'=>[['invoice_id','guest','currency','balance']...], 'total'=>float].
+     */
+    function ar_subledger($db, int $orgId, int $limit = 500): array
+    {
+        $out = ['rows' => [], 'total' => 0.0];
+        if ($orgId <= 0) { return $out; }
+        try {
+            $folios = $db->select('stays_folios', ['id', 'invoice_id', 'guest_name', 'currency', 'status'],
+                ['org_id' => $orgId, 'status' => 'open', 'ORDER' => ['id' => 'DESC'], 'LIMIT' => max(1, $limit)]) ?: [];
+            foreach ($folios as $f) {
+                $tot = function_exists('folio_totals') ? folio_totals($db, (int) $f['id']) : ['balance' => 0];
+                $bal = round((float) ($tot['balance'] ?? 0), 2);
+                if ($bal <= 0) { continue; } // only amounts actually owed
+                $out['rows'][] = [
+                    'invoice_id' => (string) $f['invoice_id'],
+                    'guest'      => (string) ($f['guest_name'] ?? '') ?: (string) $f['invoice_id'],
+                    'currency'   => (string) ($f['currency'] ?? 'USD'),
+                    'balance'    => $bal,
+                ];
+                $out['total'] += $bal;
+            }
+            $out['total'] = round($out['total'], 2);
+        } catch (\Throwable $e) { error_log('ar_subledger: ' . $e->getMessage()); }
+        return $out;
+    }
+}
+
+if (!function_exists('tax_summary')) {
+    /**
+     * TAX summary (PMS Phase 3 #38): the current Tax Payable (GL account 2100) balance —
+     * tax collected on bookings and owed to the authority. Read-only, derived from the
+     * trial balance. Returns ['payable'=>float].
+     */
+    function tax_summary($db, int $orgId): array
+    {
+        $out = ['payable' => 0.0];
+        if ($orgId <= 0) { return $out; }
+        try {
+            $tb = function_exists('gl_trial_balance') ? gl_trial_balance($db, $orgId) : [];
+            if (isset($tb['2100'])) { $out['payable'] = round((float) $tb['2100']['balance'], 2); }
+        } catch (\Throwable $e) { error_log('tax_summary: ' . $e->getMessage()); }
+        return $out;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // CASHIER SHIFTS (01a §3) — front-desk / POS cash, feeds night audit + GL.
 // ---------------------------------------------------------------------------
