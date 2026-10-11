@@ -438,6 +438,16 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
             $ok = function_exists('resv_set_source') && resv_set_source($db, $invoiceId, $src);
             $_SESSION['message'] = ['type' => $ok ? 'success' : 'error',
                 'text' => $ok ? 'Booking source updated.' : 'Could not update the source.'];
+        } elseif ($action === 'deposit') {
+            // Security-deposit lifecycle (PMS #39) — operational record, not a rails charge.
+            $depAction = strtolower(trim((string) ($_POST['deposit_action'] ?? '')));
+            $depAmount = round((float) ($_POST['deposit_amount'] ?? 0), 2);
+            if (!function_exists('resv_deposit_set')) {
+                $_SESSION['message'] = ['type' => 'error', 'text' => 'Deposit engine unavailable.'];
+            } else {
+                $res = resv_deposit_set($db, $invoiceId, $depAction, $depAmount, (string) ($_POST['deposit_reason'] ?? ''));
+                $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not update the deposit.'];
+            }
         } elseif ($action === 'set_vip') {
             $ok = function_exists('resv_set_vip') && resv_set_vip($db, $invoiceId, (string) ($_POST['vip'] ?? '0') === '1');
             $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'VIP status updated.' : 'Could not update VIP status.'];

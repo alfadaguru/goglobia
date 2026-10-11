@@ -339,6 +339,43 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
     </div>
   </div>
 
+  <!-- Security deposit (PMS #39): operational hold/release/deduct, not a rails charge. -->
+  <?php if ($canEdit && !$isCancelled): ?>
+  <?php
+    $dep = (isset($booking['_bd']['deposit']) && is_array($booking['_bd']['deposit'])) ? $booking['_bd']['deposit'] : [];
+    $depState = (string) ($dep['state'] ?? '');
+  ?>
+  <div class="card p-5 space-y-3">
+    <h2 class="text-sm font-semibold text-gray-900">Security deposit</h2>
+    <?php if ($depState === 'held'): ?>
+      <p class="text-sm text-gray-700">Holding <span class="font-semibold"><?= $cur ?> <?= number_format((float) ($dep['amount'] ?? 0), 2) ?></span> (recorded <?= htmlspecialchars(substr((string) ($dep['held_at'] ?? ''), 0, 10)) ?>).</p>
+      <div class="flex flex-wrap items-end gap-2">
+        <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="inline">
+          <?= CSRF::tokenField() ?><input type="hidden" name="action" value="deposit"><input type="hidden" name="deposit_action" value="release">
+          <button type="submit" class="btn secondary text-sm">Release in full</button>
+        </form>
+        <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="inline flex items-end gap-2">
+          <?= CSRF::tokenField() ?><input type="hidden" name="action" value="deposit"><input type="hidden" name="deposit_action" value="deduct">
+          <input type="number" name="deposit_amount" step="0.01" min="0" class="input text-sm w-24" placeholder="deduct">
+          <input type="text" name="deposit_reason" class="input text-sm w-32" placeholder="reason">
+          <button type="submit" class="btn secondary text-sm">Deduct</button>
+        </form>
+      </div>
+    <?php elseif ($depState === 'released'): ?>
+      <p class="text-sm text-green-700">Deposit of <?= $cur ?> <?= number_format((float) ($dep['amount'] ?? 0), 2) ?> released in full.</p>
+    <?php elseif ($depState === 'deducted'): ?>
+      <p class="text-sm text-gray-700"><?= $cur ?> <?= number_format((float) ($dep['deducted'] ?? 0), 2) ?> deducted<?= !empty($dep['reason']) ? ' (' . htmlspecialchars((string) $dep['reason']) . ')' : '' ?>, <?= $cur ?> <?= number_format((float) ($dep['refunded'] ?? 0), 2) ?> refunded.</p>
+    <?php else: ?>
+      <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="flex items-end gap-2">
+        <?= CSRF::tokenField() ?><input type="hidden" name="action" value="deposit"><input type="hidden" name="deposit_action" value="hold">
+        <input type="number" name="deposit_amount" step="0.01" min="0" class="input text-sm w-28" placeholder="amount taken">
+        <button type="submit" class="btn secondary text-sm">Record deposit</button>
+      </form>
+      <p class="text-xs text-gray-400">Record a refundable deposit collected at the desk. Collection/refund happens at the property.</p>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
+
   <!-- Actions -->
   <?php if ($canEdit): ?>
   <div class="card p-5">

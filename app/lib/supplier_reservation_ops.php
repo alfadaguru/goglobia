@@ -355,6 +355,55 @@ if (!function_exists('resv_resolve_trace')) {
     }
 }
 
+if (!function_exists('resv_deposit_set')) {
+    /**
+     * SECURITY-DEPOSIT lifecycle on a reservation (PMS #39). Records that a refundable
+     * security deposit was taken at the property and tracks its disposition. This is
+     * OPERATIONAL record-keeping — it does NOT charge/refund through the payment rails
+     * (deposits are collected/released at the desk; auto-charging a card deposit is a
+     * rails feature, deferred). Stored in booking_data.deposit.
+     * $action ∈ hold (record taken) | release (refunded in full) | deduct (kept, with
+     * an amount + reason). Returns ['ok','message'].
+     */
+    function resv_deposit_set($db, string $invoiceId, string $action, float $amount = 0.0, string $reason = ''): array
+    {
+        if (!in_array($action, ['hold', 'release', 'deduct'], true)) { return ['ok' => false, 'message' => 'Unknown deposit action']; }
+        try {
+            $b = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
+            if (!$b) { return ['ok' => false, 'message' => 'Booking not found.']; }
+            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
+            if (!is_array($bd)) { $bd = []; }
+            $dep = (isset($bd['deposit']) && is_array($bd['deposit'])) ? $bd['deposit'] : [];
+            $now = date('Y-m-d H:i:s');
+            $actor = (string) ($_SESSION['user_id'] ?? '');
+            if ($action === 'hold') {
+                if ($amount <= 0) { return ['ok' => false, 'message' => 'Enter the deposit amount taken.']; }
+                $dep = ['state' => 'held', 'amount' => round($amount, 2), 'held_at' => $now, 'by' => $actor];
+                $msg = 'Security deposit recorded.';
+            } elseif ($action === 'release') {
+                if (($dep['state'] ?? '') !== 'held') { return ['ok' => false, 'message' => 'No held deposit to release.']; }
+                $dep['state'] = 'released'; $dep['released_at'] = $now; $dep['released_by'] = $actor;
+                $msg = 'Deposit released in full.';
+            } else { // deduct
+                if (($dep['state'] ?? '') !== 'held') { return ['ok' => false, 'message' => 'No held deposit to deduct from.']; }
+                $held = (float) ($dep['amount'] ?? 0);
+                $amount = round(max(0, min($amount, $held)), 2); // can't deduct more than held
+                $dep['state'] = 'deducted'; $dep['deducted'] = $amount;
+                $dep['refunded'] = round($held - $amount, 2);
+                $dep['reason'] = substr(trim($reason), 0, 255) ?: null;
+                $dep['deducted_at'] = $now; $dep['deducted_by'] = $actor;
+                $msg = 'Deposit: ' . number_format($amount, 2) . ' deducted, ' . number_format($held - $amount, 2) . ' refunded.';
+            }
+            $bd['deposit'] = $dep;
+            $db->update('bookings', ['booking_data' => json_encode($bd), 'updated_at' => $now], ['invoice_id' => $invoiceId]);
+            return ['ok' => true, 'message' => $msg];
+        } catch (\Throwable $e) {
+            error_log('resv_deposit_set: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not update the deposit.'];
+        }
+    }
+}
+
 if (!function_exists('_resv_load_for_reprice')) {
     /**
      * Internal: load a reservation's repricing context from booking_data. Returns
