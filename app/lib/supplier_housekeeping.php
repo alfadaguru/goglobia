@@ -78,6 +78,28 @@ if (!function_exists('hk_room_set_status')) {
     }
 }
 
+if (!function_exists('hk_assign_attendant')) {
+    /** Assign (or clear) a housekeeping attendant for a physical room (PMS #24).
+     *  Owner-scoped by $stayId. Empty name clears the assignment. Returns bool. */
+    function hk_assign_attendant($db, int $physicalRoomId, int $stayId, string $attendant): bool
+    {
+        if ($physicalRoomId <= 0) { return false; }
+        try {
+            $r = $db->get('stays_physical_rooms', ['id'], ['id' => $physicalRoomId, 'stay_id' => $stayId]);
+            if (!$r) { return false; }
+            $attendant = trim($attendant);
+            $db->update('stays_physical_rooms', [
+                'hk_assigned_to' => $attendant !== '' ? substr($attendant, 0, 155) : null,
+                'updated_at'     => date('Y-m-d H:i:s'),
+            ], ['id' => $physicalRoomId, 'stay_id' => $stayId]);
+            return true;
+        } catch (\Throwable $e) {
+            error_log('hk_assign_attendant: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
 if (!function_exists('hk_assignable_rooms')) {
     /**
      * Physical rooms that can be assigned to a guest for a room type: active,

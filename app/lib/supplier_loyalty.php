@@ -19,13 +19,14 @@ if (!function_exists('loyalty_config')) {
      *  Defaults: disabled, 1 point per 1 currency unit. */
     function loyalty_config($db, int $orgId): array
     {
-        $out = ['enabled' => false, 'points_per_currency' => 1.0];
+        $out = ['enabled' => false, 'points_per_currency' => 1.0, 'redeem_value_per_point' => 0.0];
         if ($orgId <= 0) { return $out; }
         try {
-            $row = $db->get('stays_loyalty_config', ['enabled', 'points_per_currency'], ['org_id' => $orgId]);
+            $row = $db->get('stays_loyalty_config', ['enabled', 'points_per_currency', 'redeem_value_per_point'], ['org_id' => $orgId]);
             if ($row) {
                 $out['enabled'] = (int) ($row['enabled'] ?? 0) === 1;
                 $out['points_per_currency'] = (float) ($row['points_per_currency'] ?? 1);
+                $out['redeem_value_per_point'] = (float) ($row['redeem_value_per_point'] ?? 0);
             }
         } catch (\Throwable $e) { error_log('loyalty_config: ' . $e->getMessage()); }
         return $out;
@@ -34,12 +35,13 @@ if (!function_exists('loyalty_config')) {
 
 if (!function_exists('loyalty_config_save')) {
     /** Upsert the per-org loyalty config. Returns bool. */
-    function loyalty_config_save($db, int $orgId, bool $enabled, float $rate): bool
+    function loyalty_config_save($db, int $orgId, bool $enabled, float $rate, ?float $redeemValue = null): bool
     {
         if ($orgId <= 0) { return false; }
         $rate = max(0.0, round($rate, 4));
         try {
             $fields = ['enabled' => $enabled ? 1 : 0, 'points_per_currency' => $rate, 'updated_at' => date('Y-m-d H:i:s')];
+            if ($redeemValue !== null) { $fields['redeem_value_per_point'] = max(0.0, round($redeemValue, 4)); }
             if ($db->has('stays_loyalty_config', ['org_id' => $orgId])) {
                 $db->update('stays_loyalty_config', $fields, ['org_id' => $orgId]);
             } else {
@@ -150,6 +152,76 @@ if (!function_exists('loyalty_manual')) {
             error_log('loyalty_manual: ' . $e->getMessage());
             return ['ok' => false, 'message' => 'Error'];
         }
+    }
+}
+
+if (!function_exists('loyalty_redeem_to_folio')) {
+    /**
+     * REDEEM POINTS AS A CASH DISCOUNT on a booking's folio (PMS completion #22). This
+     * is the piece that was missing — previously a redeem only recorded negative points
+     * with no money effect. Here we, in ONE transaction:
+     *   1. resolve the booking's org + guest email + open folio,
+     *   2. compute cash = points × redeem_value_per_point (org config; 0 ⇒ refuse),
+     *   3. burn the points (locked balance floor check — no negative balance),
+     *   4. post a folio 'payment' line for the cash value (a loyalty discount reduces
+     *      what the guest owes, exactly like a payment).
+     * Returns ['ok','cash','message'].
+     */
+    function loyalty_redeem_to_folio($db, string $invoiceId, int $points): array
+    {
+        $points = abs($points);
+        if ($invoiceId === '' || $points <= 0) { return ['ok' => false, 'message' => 'Enter a point amount to redeem.']; }
+
+        $b = $db->get('bookings', ['invoice_id', 'email', 'booking_data'], ['invoice_id' => $invoiceId]);
+        if (!$b) { return ['ok' => false, 'message' => 'Booking not found.']; }
+        $hid = function_exists('supplier_reservation_hotel_id') ? supplier_reservation_hotel_id($b['booking_data'] ?? null) : 0;
+        $orgId = ($hid > 0 && function_exists('supplier_property_org')) ? supplier_property_org($db, $hid) : 0;
+        if ($orgId <= 0) { return ['ok' => false, 'message' => 'Loyalty is not configured for this property.']; }
+
+        $cfg = loyalty_config($db, $orgId);
+        $valuePer = (float) ($cfg['redeem_value_per_point'] ?? 0);
+        if ($valuePer <= 0) { return ['ok' => false, 'message' => 'Point redemption value is not set for this property.']; }
+
+        $email = function_exists('guest_email_key') ? guest_email_key((string) ($b['email'] ?? '')) : strtolower(trim((string) ($b['email'] ?? '')));
+        if ($email === '') { return ['ok' => false, 'message' => 'This booking has no guest email to redeem against.']; }
+
+        $cash = round($points * $valuePer, 2);
+        if ($cash <= 0) { return ['ok' => false, 'message' => 'That redemption has no cash value.']; }
+
+        $fid = function_exists('folio_get_or_create') ? folio_get_or_create($db, $invoiceId) : 0;
+        if ($fid <= 0) { return ['ok' => false, 'message' => 'No folio for this booking.']; }
+
+        $result = ['ok' => false, 'message' => 'Could not redeem.'];
+        try {
+            $db->action(function ($db) use ($orgId, $email, $points, $cash, $fid, $invoiceId, &$result) {
+                // Lock + balance floor.
+                $locked = $db->query('SELECT COALESCE(SUM(points),0) AS bal FROM stays_loyalty_ledger WHERE org_id=:o AND email=:e FOR UPDATE',
+                    [':o' => $orgId, ':e' => $email]);
+                $bal = $locked ? (int) ($locked->fetch(\PDO::FETCH_ASSOC)['bal'] ?? 0) : 0;
+                if ($bal < $points) { $result = ['ok' => false, 'message' => 'Insufficient points (balance ' . $bal . ').']; return false; }
+                // Folio must be open.
+                $folio = $db->get('stays_folios', ['status'], ['id' => $fid]);
+                if (!$folio || $folio['status'] !== 'open') { $result = ['ok' => false, 'message' => 'The folio is closed.']; return false; }
+                // 1) burn points
+                $db->insert('stays_loyalty_ledger', [
+                    'org_id' => $orgId, 'email' => $email, 'type' => 'redeem', 'points' => -$points,
+                    'invoice_id' => $invoiceId, 'reason' => 'Redeemed ' . $points . ' pts = ' . number_format($cash, 2) . ' discount',
+                    'created_by' => (string) ($_SESSION['user_id'] ?? ''), 'created_at' => date('Y-m-d H:i:s'),
+                ]);
+                // 2) apply the cash as a folio payment (reduces the guest balance)
+                $db->insert('stays_folio_items', [
+                    'folio_id' => $fid, 'type' => 'payment',
+                    'description' => 'Loyalty redemption (' . $points . ' pts)', 'amount' => $cash,
+                    'created_by' => 'loyalty', 'created_at' => date('Y-m-d H:i:s'),
+                ]);
+                $result = ['ok' => true, 'cash' => $cash, 'message' => 'Redeemed ' . $points . ' points as a ' . number_format($cash, 2) . ' discount.'];
+                return true;
+            });
+        } catch (\Throwable $e) {
+            error_log('loyalty_redeem_to_folio: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not redeem.'];
+        }
+        return $result;
     }
 }
 

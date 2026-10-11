@@ -480,11 +480,52 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
         $markupPrice = $bookingData['total_amount'] ?? 0;
         $currency = $bookingData['currency'] ?? 'USD';
 
+        // ============================================================================
+        // PRICE INTEGRITY (own-inventory): the NET must be recomputed server-side from
+        // stays_rooms.room_options + the per-night calendar — NEVER trusted from the
+        // client draft. Previously $actualPrice came straight from the browser
+        // (bookingData['actual_amount']) and MARKUP only added margin on top, so a
+        // client could post actual_amount=1 and pay ~1. We re-derive the authoritative
+        // net here for our OWN-INVENTORY stays only (integration suppliers —
+        // hotelbeds/ratehawk/… — carry a real supplier net via their own CheckRate
+        // flow and are left untouched). A failed recompute REFUSES the booking rather
+        // than falling back to the client value.
+        $staysSupplierLc = strtolower(trim((string) ($bookingData['supplier'] ?? 'hotels')));
+        $isOwnInventoryStay = in_array($staysSupplierLc, ['stays', 'hotels'], true);
+        if ($isOwnInventoryStay) {
+            if (!function_exists('stays_recompute_net')) {
+                $invLib = dirname(__DIR__, 2) . '/lib/stays_inventory.php';
+                if (is_file($invLib)) { require_once $invLib; }
+            }
+            if (function_exists('stays_recompute_net')) {
+                $selForNet = $bookingData['selected_rooms'] ?? ($input['selected_rooms'] ?? []);
+                $hotelIdForNet = (int) ($bookingData['hotel_id'] ?? ($input['hotel_id'] ?? 0));
+                $ciForNet = (string) ($bookingData['checkin'] ?? '');
+                $coForNet = (string) ($bookingData['checkout'] ?? '');
+                if ($hotelIdForNet > 0 && is_array($selForNet) && !empty($selForNet) && $ciForNet !== '' && $coForNet !== '') {
+                    // $currency is the booking's base currency; convert the net into it
+                    // (room_options.price is in the hotel's own currency).
+                    $netRes = stays_recompute_net($db, $hotelIdForNet, $selForNet, $ciForNet, $coForNet, (string) $currency);
+                    if (empty($netRes['ok'])) {
+                        throw new Exception($netRes['message'] ?? 'This room is no longer available at the displayed price. Please search again.');
+                    }
+                    // Server net is authoritative (hotel base currency, same basis as
+                    // room_options.price and the client draft's base_currency).
+                    $actualPrice = (float) $netRes['net'];
+                    $bookingData['actual_amount'] = $actualPrice;
+                } else {
+                    // Own-inventory booking we cannot re-price (no selected_rooms / dates)
+                    // must not fall through to the client net — refuse.
+                    throw new Exception('Could not verify room pricing. Please search again.');
+                }
+            }
+        }
+
         // MARKUP NORMALISATION (docs/MONEY-WALLET-AUDIT.md §C.4 step 6): re-derive
         // the sell price SERVER-SIDE via MARKUP() from the trusted supplier net
-        // ($actualPrice from the server draft), so the agent's b2b rate + member-
-        // tier discount + any custom user markup are honoured at checkout instead
-        // of trusting the search-time total_amount. Only when we have a real net.
+        // ($actualPrice — for own inventory this is now the recomputed figure above),
+        // so the agent's b2b rate + member-tier discount + any custom user markup are
+        // honoured at checkout instead of trusting the search-time total_amount.
         if ((float)$actualPrice > 0) {
             if (!function_exists('MARKUP')) {
                 require_once dirname(__DIR__, 3) . '/modules/helpers.php';
@@ -564,10 +605,12 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
         $taxInfo = calculateTax($subtotal, $supplier, $db);
         $calculatedTaxAmount = $taxInfo['tax_amount'] ?? 0;
 
-        // USE TAX AMOUNT FROM FRONTEND IF PROVIDED
-        if ($taxAmount == 0) {
-            $taxAmount = $calculatedTaxAmount;
-        }
+        // PRICE INTEGRITY: tax is ALWAYS the server-computed amount on the server
+        // subtotal — never the client-supplied tax_amount. Previously a nonzero client
+        // tax_amount overrode calculateTax() (only tax_amount==0 triggered recompute),
+        // so a client could set tax_amount=0.01 and pay almost no tax. Client value
+        // discarded for pricing.
+        $taxAmount = $calculatedTaxAmount;
 
         // CALCULATE COMMISSION (MARKUP MINUS ACTUAL PRICE)
         $commission = round($markupPrice - $actualPrice, 2);
@@ -686,6 +729,45 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
                 } else {
                     error_log("Failed to create user account from booking");
                 }
+            }
+        }
+
+        // --------------------------------------------------
+        // REAL AVAILABILITY HOLD (own-inventory stays only) — no-oversell spine.
+        // --------------------------------------------------
+        // This is the PRIMARY browser booking path (/api/stay/booking/submit). It
+        // previously placed NO hold at all, so the no-oversell guarantee did not apply
+        // to real web bookings. Mirror the mobile-API path: place a per-(room,option)
+        // hold across [checkin, checkout) from selected_rooms (stable option_id) for our
+        // OWN inventory only; integration suppliers manage their own stock. A FAILED
+        // hold REJECTS the booking (can't oversell). The hold is consumed at payment
+        // success (payment-gateway.php) so the seat is reserved permanently.
+        if ($isOwnInventoryStay && function_exists('stays_hold_create')) {
+            $holdHotelId = (int) ($bookingData['hotel_id'] ?? ($input['hotel_id'] ?? 0));
+            $holdCheckin  = (string) ($bookingData['checkin'] ?? '');
+            $holdCheckout = (string) ($bookingData['checkout'] ?? '');
+            $holdTriples = [];
+            $selHold = $bookingData['selected_rooms'] ?? ($input['selected_rooms'] ?? []);
+            if (is_array($selHold)) {
+                foreach ($selHold as $sr) {
+                    $rId = (int) ($sr['room_id'] ?? 0);
+                    $oId = (int) ($sr['option']['option_id'] ?? ($sr['option_id'] ?? 0));
+                    $q   = max(1, (int) ($sr['quantity'] ?? ($sr['qty'] ?? ($sr['rooms'] ?? 1))));
+                    if ($rId > 0 && $oId > 0) { $holdTriples[] = ['room_id' => $rId, 'option_id' => $oId, 'qty' => $q]; }
+                }
+            }
+            if ($holdHotelId > 0 && $holdCheckin !== '' && $holdCheckout !== '' && !empty($holdTriples)) {
+                $placedHoldIds = [];
+                foreach ($holdTriples as $t) {
+                    $hold = stays_hold_create($db, $holdHotelId, $t['room_id'], $t['option_id'], $holdCheckin, $holdCheckout, $t['qty'], $invoiceId);
+                    if (empty($hold['ok'])) {
+                        foreach ($placedHoldIds as $hid) { stays_hold_release($db, $hid); }
+                        throw new Exception($hold['message'] ?? 'Sorry, those dates are no longer available.');
+                    }
+                    $placedHoldIds[] = (int) $hold['hold_id'];
+                }
+            } else {
+                error_log('stays web booking: own-inventory stay without resolvable room_id/option_id (invoice ' . $invoiceId . ', hotel ' . $holdHotelId . ') — proceeding WITHOUT a hold.');
             }
         }
 

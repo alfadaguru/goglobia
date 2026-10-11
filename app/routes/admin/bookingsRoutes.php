@@ -257,6 +257,26 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
         }
 
         if ($updated) {
+            // STAYS no-oversell: an admin "mark paid" (offline/bank-transfer/Pay-Later
+            // settlement) confirms the booking WITHOUT going through
+            // handle_payment_callback, so consume the availability hold here too, or an
+            // own-inventory stay's seat would free up after its ~20-min hold expires and
+            // could be resold. Idempotent by invoice ref; best effort.
+            if (in_array(strtolower((string) ($booking['module'] ?? $booking['module_type'] ?? '')), ['stays', 'hotels'], true)) {
+                if (!function_exists('stays_hold_consume_ref')) {
+                    $invLib = dirname(__DIR__, 2) . '/lib/stays_inventory.php';
+                    if (is_file($invLib)) { require_once $invLib; }
+                }
+                if (function_exists('stays_hold_consume_ref')) {
+                    try {
+                        $consumed = stays_hold_consume_ref($db, (string) $invoice_id);
+                        if ($consumed === 0) {
+                            error_log('STAYS hold-consume (admin mark_paid): no held rows for invoice ' . $invoice_id . ' — benign for integration suppliers; if own-inventory the hold may have expired (possible oversell).');
+                        }
+                    } catch (\Throwable $e) { error_log('admin mark_paid stays hold consume: ' . $e->getMessage()); }
+                }
+            }
+
             // Trigger Notification
             $pdfPath = GENERATE_BOOKING_PDF($invoice_id);
             NOTIFY::payment($booking['module'], $booking, [

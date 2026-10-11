@@ -144,12 +144,12 @@ if (!function_exists('guest_profile_meta')) {
     /** The owner-added note/VIP/tags for (org, email), or defaults. Read-only. */
     function guest_profile_meta($db, int $orgId, string $email): array
     {
-        $out = ['vip' => 0, 'note' => '', 'tags' => ''];
+        $out = ['vip' => 0, 'note' => '', 'tags' => '', 'preferences' => ''];
         $email = guest_email_key($email);
         if ($orgId <= 0 || $email === '') { return $out; }
         try {
-            $row = $db->get('stays_guest_profiles', ['vip', 'note', 'tags'], ['org_id' => $orgId, 'email' => $email]);
-            if ($row) { $out = ['vip' => (int) ($row['vip'] ?? 0), 'note' => (string) ($row['note'] ?? ''), 'tags' => (string) ($row['tags'] ?? '')]; }
+            $row = $db->get('stays_guest_profiles', ['vip', 'note', 'tags', 'preferences'], ['org_id' => $orgId, 'email' => $email]);
+            if ($row) { $out = ['vip' => (int) ($row['vip'] ?? 0), 'note' => (string) ($row['note'] ?? ''), 'tags' => (string) ($row['tags'] ?? ''), 'preferences' => (string) ($row['preferences'] ?? '')]; }
         } catch (\Throwable $e) { error_log('guest_profile_meta: ' . $e->getMessage()); }
         return $out;
     }
@@ -164,10 +164,11 @@ if (!function_exists('guest_profile_save')) {
         if ($orgId <= 0 || $email === '') { return false; }
         try {
             $fields = [
-                'vip'        => !empty($data['vip']) ? 1 : 0,
-                'note'       => substr(trim((string) ($data['note'] ?? '')), 0, 2000),
-                'tags'       => substr(trim((string) ($data['tags'] ?? '')), 0, 191),
-                'updated_at' => date('Y-m-d H:i:s'),
+                'vip'         => !empty($data['vip']) ? 1 : 0,
+                'note'        => substr(trim((string) ($data['note'] ?? '')), 0, 2000),
+                'tags'        => substr(trim((string) ($data['tags'] ?? '')), 0, 191),
+                'preferences' => substr(trim((string) ($data['preferences'] ?? '')), 0, 500) ?: null,
+                'updated_at'  => date('Y-m-d H:i:s'),
             ];
             if ($db->has('stays_guest_profiles', ['org_id' => $orgId, 'email' => $email])) {
                 $db->update('stays_guest_profiles', $fields, ['org_id' => $orgId, 'email' => $email]);

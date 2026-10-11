@@ -112,7 +112,12 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
   <div class="card p-5">
     <div class="flex items-center justify-between mb-3">
       <h2 class="text-sm font-semibold text-gray-900 flex items-center gap-2"><span class="material-symbols-outlined text-violet-600 text-base">concierge</span> Front desk &amp; folio</h2>
-      <span class="px-2 py-0.5 rounded text-xs font-medium <?= $ssColor ?>"><?= htmlspecialchars($ssLabel) ?></span>
+      <div class="flex items-center gap-2">
+        <a href="<?= $base ?>/<?= rawurlencode($inv) ?>/folio-invoice" target="_blank" class="btn secondary text-xs">
+          <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">receipt_long</span> Invoice</span>
+        </a>
+        <span class="px-2 py-0.5 rounded text-xs font-medium <?= $ssColor ?>"><?= htmlspecialchars($ssLabel) ?></span>
+      </div>
     </div>
 
     <?php
@@ -201,8 +206,182 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
           <input type="number" name="folio_amount" min="0" step="0.01" class="input text-sm w-28" required></div>
         <button type="submit" class="btn secondary text-sm">Add line</button>
       </form>
+      <!-- Loyalty redemption as a cash discount (PMS #22). Requires a redeem value set
+           in loyalty config; the handler refuses if points/value are insufficient. -->
+      <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="mt-2 flex flex-wrap items-end gap-2">
+        <?= CSRF::tokenField() ?><input type="hidden" name="action" value="redeem_loyalty">
+        <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Redeem loyalty points</label>
+          <input type="number" name="points" min="1" step="1" class="input text-sm w-32" placeholder="points"></div>
+        <button type="submit" class="btn secondary text-sm">Redeem as discount</button>
+      </form>
     <?php endif; ?>
   </div>
+
+  <!-- Modify (PMS completion #04): change dates, transfer room, set source. Each
+       re-holds inventory + re-prices server-side. Hidden once cancelled. -->
+  <?php
+    $rp = (isset($roomPicker) && is_array($roomPicker)) ? $roomPicker : [];
+    $srcList = (isset($bookingSources) && is_array($bookingSources)) ? $bookingSources : [];
+    $curCheckin  = (string) ($booking['_bd']['checkin'] ?? '');
+    $curCheckout = (string) ($booking['_bd']['checkout'] ?? '');
+    $curSource   = (string) ($booking['_bd']['booking_source'] ?? '');
+  ?>
+  <?php if ($canEdit && !$isCancelled): ?>
+  <div class="card p-5 space-y-4">
+    <h2 class="text-sm font-semibold text-gray-900">Modify reservation</h2>
+    <p class="text-xs text-gray-500">Changing the dates or room re-checks availability and recalculates the price from your rates. If the new dates/room are full, the change is refused and the original booking is kept.</p>
+
+    <!-- Change dates -->
+    <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="flex flex-wrap items-end gap-2">
+      <?= CSRF::tokenField() ?><input type="hidden" name="action" value="modify_dates">
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">New check-in</label>
+        <input type="date" name="new_checkin" value="<?= htmlspecialchars($curCheckin) ?>" required class="input text-sm"></div>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">New check-out</label>
+        <input type="date" name="new_checkout" value="<?= htmlspecialchars($curCheckout) ?>" required class="input text-sm"></div>
+      <button type="submit" class="btn secondary text-sm">Update dates</button>
+    </form>
+
+    <!-- Transfer room -->
+    <?php if (!empty($rp)): ?>
+    <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="flex flex-wrap items-end gap-2 border-t border-gray-100 pt-3">
+      <?= CSRF::tokenField() ?><input type="hidden" name="action" value="transfer_room">
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Move to room</label>
+        <select name="new_room_id" id="xferRoom" required class="input text-sm">
+          <option value="">Select…</option>
+          <?php foreach ($rp as $p): ?><option value="<?= (int) $p['room_id'] ?>"><?= htmlspecialchars((string) $p['room_name']) ?></option><?php endforeach; ?>
+        </select></div>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Rate</label>
+        <select name="new_option_id" id="xferOption" required class="input text-sm"><option value="">Select a room…</option></select></div>
+      <button type="submit" class="btn secondary text-sm">Transfer</button>
+    </form>
+    <?php endif; ?>
+
+    <!-- Booking source -->
+    <?php if (!empty($srcList)): ?>
+    <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="flex flex-wrap items-end gap-2 border-t border-gray-100 pt-3">
+      <?= CSRF::tokenField() ?><input type="hidden" name="action" value="set_source">
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Booking source</label>
+        <select name="booking_source" class="input text-sm">
+          <?php foreach ($srcList as $val => $label): ?>
+            <option value="<?= htmlspecialchars((string) $val) ?>" <?= $curSource === (string) $val ? 'selected' : '' ?>><?= htmlspecialchars((string) $label) ?></option>
+          <?php endforeach; ?>
+        </select></div>
+      <button type="submit" class="btn secondary text-sm">Save source</button>
+    </form>
+    <?php endif; ?>
+  </div>
+
+  <script>
+  (function () {
+    var byRoom = <?= json_encode(array_column($rp, 'options', 'room_id')) ?>;
+    var rs = document.getElementById('xferRoom'), os = document.getElementById('xferOption');
+    if (!rs || !os) { return; }
+    rs.addEventListener('change', function () {
+      os.innerHTML = '';
+      (byRoom[rs.value] || []).forEach(function (op) {
+        var o = document.createElement('option'); o.value = op.option_id; o.textContent = op.label; os.appendChild(o);
+      });
+      if (!os.children.length) { var o=document.createElement('option'); o.value=''; o.textContent='Select a room…'; os.appendChild(o); }
+    });
+  })();
+  </script>
+  <?php endif; ?>
+
+  <!-- Guest services (PMS #07): VIP flag + front-desk traces + registration card. -->
+  <?php
+    $isVip = !empty($booking['_bd']['vip']);
+    $traces = (isset($booking['_bd']['traces']) && is_array($booking['_bd']['traces'])) ? $booking['_bd']['traces'] : [];
+  ?>
+  <div class="card p-5 space-y-4">
+    <div class="flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-gray-900">Guest services <?= $isVip ? '<span class="ml-1 px-2 py-0.5 rounded text-xs font-medium bg-red-50 text-red-700">VIP</span>' : '' ?></h2>
+      <div class="flex items-center gap-2">
+        <?php $oc = !empty($booking['_bd']['online_checkin']['done']); ?>
+        <?php if ($oc): ?><span class="px-2 py-0.5 rounded text-xs font-medium bg-green-50 text-green-700">Online checked-in</span><?php endif; ?>
+        <a href="<?= root ?>stay-checkin/<?= rawurlencode($inv) ?>" target="_blank" class="btn secondary text-xs">
+          <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">how_to_reg</span> Online check-in</span>
+        </a>
+        <a href="<?= $base ?>/<?= rawurlencode($inv) ?>/reg-card" target="_blank" class="btn secondary text-xs">
+          <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">print</span> Registration card</span>
+        </a>
+      </div>
+    </div>
+
+    <?php if ($canEdit): ?>
+      <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="inline">
+        <?= CSRF::tokenField() ?><input type="hidden" name="action" value="set_vip">
+        <input type="hidden" name="vip" value="<?= $isVip ? '0' : '1' ?>">
+        <button type="submit" class="btn secondary text-sm"><?= $isVip ? 'Remove VIP' : 'Mark VIP' ?></button>
+      </form>
+    <?php endif; ?>
+
+    <!-- Traces -->
+    <div>
+      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Traces</h3>
+      <?php if (empty($traces)): ?>
+        <p class="text-xs text-gray-400 mb-2">No traces.</p>
+      <?php else: ?>
+        <ul class="space-y-1 mb-2">
+          <?php foreach ($traces as $ti => $tr): $done = !empty($tr['done']); ?>
+            <li class="flex items-center justify-between text-sm <?= $done ? 'text-gray-400 line-through' : 'text-gray-700' ?>">
+              <span><?= htmlspecialchars((string) ($tr['note'] ?? '')) ?><?= !empty($tr['for_date']) ? ' <span class="text-xs text-gray-400">(' . htmlspecialchars((string) $tr['for_date']) . ')</span>' : '' ?></span>
+              <?php if ($canEdit && !$done): ?>
+                <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="inline">
+                  <?= CSRF::tokenField() ?><input type="hidden" name="action" value="resolve_trace"><input type="hidden" name="trace_index" value="<?= (int) $ti ?>">
+                  <button type="submit" class="text-xs text-violet-600 hover:underline">Resolve</button>
+                </form>
+              <?php endif; ?>
+            </li>
+          <?php endforeach; ?>
+        </ul>
+      <?php endif; ?>
+      <?php if ($canEdit): ?>
+        <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="flex flex-wrap items-end gap-2">
+          <?= CSRF::tokenField() ?><input type="hidden" name="action" value="add_trace">
+          <input type="text" name="trace_note" placeholder="Add a trace / reminder" class="input text-sm flex-1 min-w-[180px]" required>
+          <input type="date" name="trace_date" class="input text-sm">
+          <button type="submit" class="btn secondary text-sm">Add trace</button>
+        </form>
+      <?php endif; ?>
+    </div>
+  </div>
+
+  <!-- Security deposit (PMS #39): operational hold/release/deduct, not a rails charge. -->
+  <?php if ($canEdit && !$isCancelled): ?>
+  <?php
+    $dep = (isset($booking['_bd']['deposit']) && is_array($booking['_bd']['deposit'])) ? $booking['_bd']['deposit'] : [];
+    $depState = (string) ($dep['state'] ?? '');
+  ?>
+  <div class="card p-5 space-y-3">
+    <h2 class="text-sm font-semibold text-gray-900">Security deposit</h2>
+    <?php if ($depState === 'held'): ?>
+      <p class="text-sm text-gray-700">Holding <span class="font-semibold"><?= $cur ?> <?= number_format((float) ($dep['amount'] ?? 0), 2) ?></span> (recorded <?= htmlspecialchars(substr((string) ($dep['held_at'] ?? ''), 0, 10)) ?>).</p>
+      <div class="flex flex-wrap items-end gap-2">
+        <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="inline">
+          <?= CSRF::tokenField() ?><input type="hidden" name="action" value="deposit"><input type="hidden" name="deposit_action" value="release">
+          <button type="submit" class="btn secondary text-sm">Release in full</button>
+        </form>
+        <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="inline flex items-end gap-2">
+          <?= CSRF::tokenField() ?><input type="hidden" name="action" value="deposit"><input type="hidden" name="deposit_action" value="deduct">
+          <input type="number" name="deposit_amount" step="0.01" min="0" class="input text-sm w-24" placeholder="deduct">
+          <input type="text" name="deposit_reason" class="input text-sm w-32" placeholder="reason">
+          <button type="submit" class="btn secondary text-sm">Deduct</button>
+        </form>
+      </div>
+    <?php elseif ($depState === 'released'): ?>
+      <p class="text-sm text-green-700">Deposit of <?= $cur ?> <?= number_format((float) ($dep['amount'] ?? 0), 2) ?> released in full.</p>
+    <?php elseif ($depState === 'deducted'): ?>
+      <p class="text-sm text-gray-700"><?= $cur ?> <?= number_format((float) ($dep['deducted'] ?? 0), 2) ?> deducted<?= !empty($dep['reason']) ? ' (' . htmlspecialchars((string) $dep['reason']) . ')' : '' ?>, <?= $cur ?> <?= number_format((float) ($dep['refunded'] ?? 0), 2) ?> refunded.</p>
+    <?php else: ?>
+      <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="flex items-end gap-2">
+        <?= CSRF::tokenField() ?><input type="hidden" name="action" value="deposit"><input type="hidden" name="deposit_action" value="hold">
+        <input type="number" name="deposit_amount" step="0.01" min="0" class="input text-sm w-28" placeholder="amount taken">
+        <button type="submit" class="btn secondary text-sm">Record deposit</button>
+      </form>
+      <p class="text-xs text-gray-400">Record a refundable deposit collected at the desk. Collection/refund happens at the property.</p>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
 
   <!-- Actions -->
   <?php if ($canEdit): ?>

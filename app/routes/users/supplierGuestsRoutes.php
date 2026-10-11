@@ -100,6 +100,7 @@ $router->post('/supplier/guests/([A-Za-z0-9_-]+)/note', function ($token) use ($
 
     $ok = function_exists('guest_profile_save') && guest_profile_save($db, $c['org'], $email, [
         'vip' => isset($_POST['vip']), 'note' => $_POST['note'] ?? '', 'tags' => $_POST['tags'] ?? '',
+        'preferences' => $_POST['preferences'] ?? '',
     ]);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Guest profile saved.' : 'Could not save.'];
     header('Location: ' . $back); exit;
@@ -113,7 +114,7 @@ $router->post('/supplier/guests/loyalty/config', function () use ($SECURE, $db) 
     // Owner-only: _guests_ctx resolves staff to the parent, but config is an owner act.
     $ctx = supplier_acting_context($db);
     if ($c === null || empty($ctx['is_owner']) || $c['org'] <= 0) { _supplier_stays_deny('Only the owner can configure loyalty.'); }
-    $ok = function_exists('loyalty_config_save') && loyalty_config_save($db, $c['org'], isset($_POST['enabled']), (float) ($_POST['points_per_currency'] ?? 1));
+    $ok = function_exists('loyalty_config_save') && loyalty_config_save($db, $c['org'], isset($_POST['enabled']), (float) ($_POST['points_per_currency'] ?? 1), isset($_POST['redeem_value_per_point']) ? (float) $_POST['redeem_value_per_point'] : null);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Loyalty settings saved.' : 'Could not save loyalty settings.'];
     header('Location: ' . $back); exit;
 });

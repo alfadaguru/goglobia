@@ -75,6 +75,11 @@ $router->post('/supplier/calendar/set', function () use ($SECURE, $db) {
     if (array_key_exists('min_stay', $_POST)) {
         $fields['min_stay'] = ($_POST['min_stay'] === '' ? null : (int) $_POST['min_stay']);
     }
+    // Optional reason — logged in the inventory audit; a reason on a stop-sell marks
+    // an "owner block" (maintenance / owner use). (PMS completion #05.)
+    if (isset($_POST['reason']) && trim((string) $_POST['reason']) !== '') {
+        $fields['reason'] = trim((string) $_POST['reason']);
+    }
 
     if (empty($fields)) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Nothing to change — set availability, stop-sell, or min-stay.'];
@@ -87,4 +92,47 @@ $router->post('/supplier/calendar/set', function () use ($SECURE, $db) {
 
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Done.'];
     header('Location: ' . $back); exit;
+});
+
+// POST /supplier/stays/{id}/rooms/{roomId}/bulk-price — bulk/seasonal/weekday pricing
+// (PMS completion #06). Writes stays_rooms_calendar (the live read-source).
+$router->post('/supplier/stays/([0-9]+)/rooms/([0-9]+)/bulk-price', function ($id, $roomId) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) $id; $roomId = (int) $roomId;
+    if (!supplier_can($db, 'rates', 'edit', $stayId)) { _supplier_stays_deny('Not authorised to edit rates.'); }
+
+    $back = root . 'supplier/stays/' . $stayId . '/rooms/' . $roomId . '/calendar';
+    $optionId = (int) ($_POST['option_id'] ?? 0);
+    $from = (string) ($_POST['date_from'] ?? '');
+    $to   = (string) ($_POST['date_to'] ?? '');
+    $mode = (string) ($_POST['mode'] ?? 'flat');
+    $wd = round((float) ($_POST['weekday_price'] ?? 0), 2);
+    $we = round((float) ($_POST['weekend_price'] ?? 0), 2);
+    $pct = round((float) ($_POST['percent'] ?? 0), 2);
+
+    if (!function_exists('stays_bulk_price_set')) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Pricing engine unavailable.'];
+        header('Location: ' . $back); exit;
+    }
+    $res = stays_bulk_price_set($db, $stayId, $roomId, $optionId, $from, $to, $mode, $wd, $we, $pct);
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Done.'];
+    header('Location: ' . $back); exit;
+});
+
+// GET /supplier/stays/{id}/inventory-audit — the availability change log (PMS #05)
+$router->get('/supplier/stays/([0-9]+)/inventory-audit', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) $id;
+    if (!supplier_can($db, 'rates', 'view', $stayId)) { _supplier_stays_deny('That property is not yours.'); }
+    $stay = $db->get('stays', ['id', 'name'], ['id' => $stayId]);
+    if (!$stay) { _supplier_stays_deny('Property not found.'); }
+    $auditRows = function_exists('stays_inventory_audit_list') ? stays_inventory_audit_list($db, $stayId, 200) : [];
+    $title = 'Availability log — ' . ($stay['name'] ?? ''); $description = ''; $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/inventory-audit.php";
+    require_once views . "includes/footer.php";
 });

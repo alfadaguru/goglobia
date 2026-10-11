@@ -76,20 +76,13 @@ $router->get('/api/stays/booking/([a-f0-9]{16})', function ($hash) use ($db) {
                   ?? '';
         }
 
-        if (!empty($token)) {
-            try {
-                $tokenData = JWT::verify($token);
-                if (!$tokenData && method_exists('JWT', 'decode')) {
-                    $tokenData = JWT::decode($token, false);
-                }
-                if ($tokenData && !empty($tokenData['user_id'])) {
-                    $_SESSION['user_id'] = $tokenData['user_id'];
-                    $_SESSION['user_role'] = $tokenData['role'] ?? null;
-                }
-            } catch (Exception $e) {
-                // Silent fail
-            }
-        }
+        // NOTE: we deliberately do NOT establish session identity here. This is a
+        // read-only draft viewer; MARKUP() below resolves the Bearer token on its
+        // own (to pick the viewer's markup tier) without us writing $_SESSION. The
+        // previous code set $_SESSION['user_id']/['user_role'] from the token on a
+        // GET — unnecessary, and it also honored EXPIRED tokens via a
+        // decode($token,false) fallback (false = skip-expiry, not skip-signature).
+        // Expired tokens must not authenticate; the fallback is removed.
 
         // Apply MARKUP to draft payload for response
         $actualAmt = floatval(
@@ -355,10 +348,12 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
 
         if (!empty($token)) {
             try {
+                // Verify signature AND expiry. Previously fell back to
+                // JWT::decode($token,false) which skips the EXPIRY check (not the
+                // signature) — i.e. it accepted expired-but-signed tokens. An
+                // expired token must not authenticate; a failed verify falls
+                // through to guest/email-based user resolution below.
                 $tokenData = JWT::verify($token);
-                if (!$tokenData && method_exists('JWT', 'decode')) {
-                    $tokenData = JWT::decode($token, false);
-                }
                 if ($tokenData && !empty($tokenData['user_id'])) {
                     $userId = $tokenData['user_id'];
                     $whereClause = ['user_id' => (string)$userId];
@@ -457,6 +452,40 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
         );
         $currency = $bookingData['currency'] ?? 'USD';
 
+        // PRICE INTEGRITY (own-inventory): recompute the NET server-side from
+        // stays_rooms.room_options + the per-night calendar — never trust the client
+        // draft's actual_amount. (Matches the web path fix; integration suppliers keep
+        // their own CheckRate net.) A failed recompute REFUSES rather than falling back.
+        $apiSupplierLc = strtolower(trim((string) ($bookingData['supplier'] ?? 'hotels')));
+        if (in_array($apiSupplierLc, ['stays', 'hotels'], true)) {
+            if (!function_exists('stays_recompute_net')) {
+                $invLib = dirname(__DIR__, 3) . '/lib/stays_inventory.php';
+                if (is_file($invLib)) { require_once $invLib; }
+            }
+            if (function_exists('stays_recompute_net')) {
+                $selForNet = $bookingData['selected_rooms'] ?? ($input['selected_rooms'] ?? []);
+                $hotelIdForNet = (int) ($input['hotel_id'] ?? ($bookingData['hotel_id'] ?? 0));
+                $ciForNet = (string) ($bookingData['checkin'] ?? '');
+                $coForNet = (string) ($bookingData['checkout'] ?? '');
+                if ($hotelIdForNet > 0 && is_array($selForNet) && !empty($selForNet) && $ciForNet !== '' && $coForNet !== '') {
+                    // $currency is the draft's base currency; convert the net into it
+                    // (room_options.price is in the hotel's own currency).
+                    $netRes = stays_recompute_net($db, $hotelIdForNet, $selForNet, $ciForNet, $coForNet, (string) $currency);
+                    if (empty($netRes['ok'])) {
+                        http_response_code(409);
+                        echo json_encode(['success' => false, 'message' => $netRes['message'] ?? 'This room is no longer available at the displayed price. Please search again.']);
+                        exit;
+                    }
+                    $actualPrice = (float) $netRes['net'];
+                    $bookingData['actual_amount'] = $actualPrice;
+                } else {
+                    http_response_code(409);
+                    echo json_encode(['success' => false, 'message' => 'Could not verify room pricing. Please search again.']);
+                    exit;
+                }
+            }
+        }
+
         // Set session user context for MARKUP() calculation
         if ($userId) {
             $_SESSION['user_id'] = $userId;
@@ -478,10 +507,11 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
             }
         }
 
-        // USE PRICE FROM FRONTEND IF PROVIDED, OTHERWISE FROM BOOKING DATA
-        if ($subtotal == 0) {
-            $subtotal = $markupPrice;
-        }
+        // PRICE INTEGRITY: the room price (subtotal) is ALWAYS the server-computed
+        // marked-up price — never the client-supplied `subtotal`. A client could
+        // otherwise post a smaller/zero subtotal and shrink the tax base + total.
+        // The client value is ignored for pricing (it is only an echo for display).
+        $subtotal = $markupPrice;
 
         // GENERATE 8-CHARACTER UUID FOR INVOICE
         $invoiceId = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
@@ -511,10 +541,12 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
         $taxInfo = calculateTax($subtotal, $supplierName, $db);
         $calculatedTaxAmount = $taxInfo['tax_amount'] ?? 0;
 
-        // USE TAX AMOUNT FROM FRONTEND IF PROVIDED
-        if ($taxAmount == 0) {
-            $taxAmount = $calculatedTaxAmount;
-        }
+        // PRICE INTEGRITY: tax is ALWAYS the server-computed amount on the server
+        // subtotal — never the client-supplied `tax_amount`. Previously a client
+        // could post tax_amount=0 (or any value) and have it flow straight into the
+        // charged total (`$finalTotalWithTax` below) and stored `bookings.tax`,
+        // paying little or no tax. The client value is discarded for pricing.
+        $taxAmount = $calculatedTaxAmount;
 
         // CALCULATE COMMISSION (MARKUP MINUS ACTUAL PRICE)
         $commission = round($markupPrice - $actualPrice, 2);
@@ -621,11 +653,19 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
         // --------------------------------------------------
         // Only our OWN-INVENTORY stays (module 'stays'/'hotels') participate;
         // integration suppliers (hotelbeds/ratehawk/…) manage their own stock, so
-        // we never hold against them. The hold is placed per (room_id, option_id)
-        // carried in rooms_data, across [checkin, checkout). For a manual stay with
-        // those identifiers, a FAILED hold REJECTS the booking (can't oversell). If
-        // the payload lacks identifiers (legacy client), we log and proceed so
-        // existing manual bookings keep working until the client sends them.
+        // we never hold against them. The hold is placed per (room_id, stable
+        // option_id) across [checkin, checkout). A FAILED hold REJECTS the booking
+        // (we cannot oversell own inventory).
+        //
+        // SOURCE OF ROOM IDENTIFIERS: the authoritative selection is `selected_rooms`
+        // (each entry has room_id, quantity, and option.option_id — the STABLE id the
+        // rooms API now emits and the calendar/inventory key on). `rooms_data` holds
+        // only the occupancy config (adults/children) and carries NO identifiers, so
+        // reading it meant NO hold was ever placed on the live own-inventory path —
+        // the no-oversell spine was effectively dormant. We now read selected_rooms,
+        // and fall back to rooms_data only for a legacy payload that happens to carry
+        // ids. If NO identifiers are found at all we log and proceed (so a legacy or
+        // malformed client still books) — that single remaining gap is logged loudly.
         $staysHoldIds = [];
         $staysModule = strtolower((string) ($bookingData['supplier'] ?? 'stays'));
         $isManualStay = in_array($staysModule, ['stays', 'hotels'], true);
@@ -633,16 +673,37 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
             $hotelId  = (int) ($input['hotel_id'] ?? ($bookingData['hotel_id'] ?? 0));
             $checkin  = (string) ($bookingData['checkin'] ?? '');
             $checkout = (string) ($bookingData['checkout'] ?? '');
-            $roomsData = $bookingData['rooms_data'] ?? [];
-            $anyIdentified = false;
-            if ($hotelId > 0 && $checkin !== '' && $checkout !== '' && is_array($roomsData)) {
-                foreach ($roomsData as $rd) {
+
+            // Normalise the room list into {room_id, option_id, qty} triples from
+            // selected_rooms first, then rooms_data as a legacy fallback.
+            $holdTriples = [];
+            $selectedRooms = $bookingData['selected_rooms'] ?? ($input['selected_rooms'] ?? []);
+            if (is_array($selectedRooms)) {
+                foreach ($selectedRooms as $sr) {
+                    $roomId = (int) ($sr['room_id'] ?? 0);
+                    // Stable option_id rides inside the option object (API-emitted);
+                    // accept a top-level option_id too for forward-compat.
+                    $optionId = (int) ($sr['option']['option_id'] ?? ($sr['option_id'] ?? 0));
+                    $qty = max(1, (int) ($sr['quantity'] ?? ($sr['qty'] ?? ($sr['rooms'] ?? 1))));
+                    if ($roomId > 0 && $optionId > 0) {
+                        $holdTriples[] = ['room_id' => $roomId, 'option_id' => $optionId, 'qty' => $qty];
+                    }
+                }
+            }
+            if (empty($holdTriples) && is_array($bookingData['rooms_data'] ?? null)) {
+                foreach ($bookingData['rooms_data'] as $rd) {
                     $roomId   = (int) ($rd['room_id'] ?? 0);
                     $optionId = (int) ($rd['option_id'] ?? 0);
                     $qty      = max(1, (int) ($rd['qty'] ?? ($rd['rooms'] ?? 1)));
-                    if ($roomId <= 0 || $optionId <= 0) { continue; }
-                    $anyIdentified = true;
-                    $hold = stays_hold_create($db, $hotelId, $roomId, $optionId, $checkin, $checkout, $qty, $invoiceId);
+                    if ($roomId > 0 && $optionId > 0) {
+                        $holdTriples[] = ['room_id' => $roomId, 'option_id' => $optionId, 'qty' => $qty];
+                    }
+                }
+            }
+
+            if ($hotelId > 0 && $checkin !== '' && $checkout !== '' && !empty($holdTriples)) {
+                foreach ($holdTriples as $t) {
+                    $hold = stays_hold_create($db, $hotelId, $t['room_id'], $t['option_id'], $checkin, $checkout, $t['qty'], $invoiceId);
                     if (empty($hold['ok'])) {
                         // Release any holds already placed for this booking, then fail.
                         foreach ($staysHoldIds as $hid) { stays_hold_release($db, $hid); }
@@ -655,9 +716,8 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
                     }
                     $staysHoldIds[] = (int) $hold['hold_id'];
                 }
-            }
-            if (!$anyIdentified) {
-                error_log('stays booking: manual stay without room_id/option_id in rooms_data (invoice ' . $invoiceId . ') — proceeding without a hold (legacy payload)');
+            } else {
+                error_log('stays booking: own-inventory stay without resolvable room_id/option_id (invoice ' . $invoiceId . ', hotel ' . $hotelId . ') — proceeding WITHOUT a hold. Check that the rooms API emits option_id and the client sends selected_rooms.');
             }
         }
 
@@ -835,11 +895,15 @@ $router->get('/api/stays/booking/download-invoice/([A-Z0-9]{8})', function ($inv
         }
 
         // IDOR GUARD: the PDF contains customer PII + pricing. Restrict to
-        // admin / owner / creating session / valid payment token. Was
-        // previously unauthenticated. enforceInvoiceAccess() exits on denial.
-        if (function_exists('enforceInvoiceAccess')) {
-            enforceInvoiceAccess($db, $booking);
+        // admin / owner / creating session / valid payment token. enforceInvoiceAccess()
+        // exits on denial. FAIL-CLOSED: if the guard helper is somehow not loaded we
+        // must NOT serve the PDF (the old function_exists wrapper silently skipped
+        // the check — fail-open — when the helper was absent).
+        if (!function_exists('enforceInvoiceAccess')) {
+            http_response_code(500);
+            die('Access control unavailable');
         }
+        enforceInvoiceAccess($db, $booking);
 
         // --------------------------------------------------
         // GENERATE / REFRESH PDF
@@ -890,12 +954,14 @@ $router->post('/api/stays/invoice/resend', function () use ($db) {
             throw new Exception('Booking not found');
         }
 
-        // SECURITY: resend is owner/admin only (was unauthenticated). Sends to the
-        // booking's own email. enforceInvoiceAccess() emits 403 JSON + exit for a
-        // non-owner on an /api/ route.
-        if (function_exists('enforceInvoiceAccess')) {
-            enforceInvoiceAccess($db, $booking);
+        // SECURITY: resend is owner/admin only. Sends to the booking's own email.
+        // enforceInvoiceAccess() emits 403 JSON + exit for a non-owner on an /api/
+        // route. FAIL-CLOSED: deny if the guard helper is unavailable (the old
+        // function_exists wrapper skipped the check entirely when it was absent).
+        if (!function_exists('enforceInvoiceAccess')) {
+            throw new Exception('Access control unavailable');
         }
+        enforceInvoiceAccess($db, $booking);
 
         $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
 
@@ -949,13 +1015,15 @@ $router->post('/api/stays/booking/cancel', function () use ($db) {
         }
 
         // OWNERSHIP GUARD (IDOR): only the invoice owner / creating session /
-        // admin may flag a booking for cancellation. Was unauthenticated — anyone
-        // who knew an invoice id could flag another customer's booking and trigger
-        // a cancellation notification to them. enforceInvoiceAccess() auto-responds
-        // 403 JSON on an /api/ route and exits for a non-owner.
-        if (function_exists('enforceInvoiceAccess')) {
-            enforceInvoiceAccess($db, $booking);
+        // admin may flag a booking for cancellation. Anyone who knew an invoice id
+        // could otherwise flag another customer's booking and trigger a cancellation
+        // notification to them. enforceInvoiceAccess() auto-responds 403 JSON on an
+        // /api/ route and exits for a non-owner. FAIL-CLOSED: deny if the guard
+        // helper is unavailable (the old function_exists wrapper skipped it).
+        if (!function_exists('enforceInvoiceAccess')) {
+            throw new Exception('Access control unavailable');
         }
+        enforceInvoiceAccess($db, $booking);
 
         $db->update('bookings', ['cancellation_request' => 1], [
             'invoice_id' => $invoiceId

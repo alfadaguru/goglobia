@@ -76,7 +76,17 @@ if ($activeStay > 0) {
         ['name' => 'Groups & blocks','icon' => 'groups_3',        'url' => 'supplier/groups' . $q, 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Housekeeping',  'icon' => 'cleaning_services','url' => 'supplier/housekeeping' . $q, 'show' => $can('rooms', 'view', $sid)],
         ['name' => 'Maintenance',   'icon' => 'build',            'url' => 'supplier/maintenance' . $q, 'show' => $can('rooms', 'edit', $sid)],
+        ['name' => 'Laundry',       'icon' => 'local_laundry_service','url' => 'supplier/laundry', 'show' => $can('rooms', 'view', $sid)],
+        ['name' => 'Minibar',       'icon' => 'liquor',           'url' => 'supplier/minibar', 'show' => $can('rooms', 'view', $sid)],
+        ['name' => 'Lost & found',  'icon' => 'inventory',        'url' => 'supplier/lost-found', 'show' => $can('rooms', 'view', $sid)],
+        ['name' => 'Assets',        'icon' => 'chair',            'url' => 'supplier/assets', 'show' => $can('rooms', 'view', $sid)],
+        ['name' => 'Leases',        'icon' => 'home_work',        'url' => 'supplier/leases', 'show' => $can('hotels', 'view', $sid)],
+        ['name' => 'Utilities',     'icon' => 'bolt',             'url' => 'supplier/utilities', 'show' => $can('hotels', 'view', $sid)],
+        ['name' => 'Packages',      'icon' => 'redeem',           'url' => 'supplier/packages', 'show' => $can('rates', 'view', $sid)],
+        ['name' => 'Safety & docs', 'icon' => 'health_and_safety','url' => 'supplier/safety', 'show' => $can('rooms', 'view', $sid)],
         ['name' => 'F&B / POS',     'icon' => 'restaurant',       'url' => 'supplier/pos', 'show' => $can('reservations', 'edit', $sid)],
+        ['name' => 'Recipes',       'icon' => 'menu_book',        'url' => 'supplier/recipes', 'show' => $can('reservations', 'view', $sid)],
+        ['name' => 'Services',      'icon' => 'spa',              'url' => 'supplier/services', 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Events',        'icon' => 'celebration',      'url' => 'supplier/events' . $q, 'show' => $can('reservations', 'edit', $sid)],
         ['name' => 'Night audit',   'icon' => 'nightlight',       'url' => 'supplier/night-audit' . $q, 'show' => $can('reservations', 'edit', $sid)],
         ['name' => 'Reviews',       'icon' => 'reviews',          'url' => 'supplier/reviews' . $q, 'show' => $can('reservations', 'view', $sid)],
@@ -92,6 +102,7 @@ if ($activeStay > 0) {
     $groups[] = ['label' => null, 'items' => [
         ['name' => 'Dashboard', 'icon' => 'dashboard', 'url' => 'supplier/dashboard', 'show' => true],
         ['name' => 'Insights',  'icon' => 'insights',   'url' => 'supplier/insights',  'show' => $can('reservations', 'view')],
+        ['name' => 'Activity',  'icon' => 'notifications', 'url' => 'supplier/activity', 'show' => true],
     ]];
 
     // Service entry points — only GRANTED services. Stays → the hotels list (drill-in).
@@ -112,10 +123,16 @@ if ($activeStay > 0) {
     // Guest CRM is org-wide (across properties) → stays top-level.
     $crmItems = [];
     if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Guests', 'icon' => 'groups', 'url' => 'supplier/guests', 'show' => true]; }
+    if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Service & complaints', 'icon' => 'support_agent', 'url' => 'supplier/service-tickets', 'show' => true]; }
+    if ($can('reservations', 'view')) { $crmItems[] = ['name' => 'Guest messages', 'icon' => 'forum', 'url' => 'supplier/guest-messages', 'show' => true]; }
     if (!empty($crmItems)) { $groups[] = ['label' => 'CRM', 'items' => $crmItems]; }
 
     if ($isOwner) {
         $groups[] = ['label' => 'Finance & stores', 'items' => [
+            ['name' => 'Finance',         'icon' => 'account_balance_wallet', 'url' => 'supplier/finance', 'show' => true],
+            ['name' => 'Cashier',         'icon' => 'point_of_sale',    'url' => 'supplier/cashier', 'show' => true],
+            ['name' => 'Trust / client money','icon' => 'savings',      'url' => 'supplier/trust', 'show' => true],
+            ['name' => 'Corporate & agents','icon' => 'corporate_fare', 'url' => 'supplier/corporate', 'show' => true],
             ['name' => 'Payouts',         'icon' => 'account_balance',  'url' => 'supplier/payouts', 'show' => true],
             ['name' => 'Property owners', 'icon' => 'real_estate_agent','url' => 'supplier/owners', 'show' => true],
             ['name' => 'Procurement',     'icon' => 'inventory_2',      'url' => 'supplier/procurement', 'show' => true],
@@ -123,6 +140,9 @@ if ($activeStay > 0) {
         $groups[] = ['label' => 'Team', 'items' => [
             ['name' => 'Staff', 'icon' => 'group', 'url' => 'supplier/staff', 'show' => true],
             ['name' => 'Roles', 'icon' => 'badge', 'url' => 'supplier/roles', 'show' => true],
+            ['name' => 'HR & workforce', 'icon' => 'badge', 'url' => 'supplier/hr', 'show' => true],
+            ['name' => 'Integrations', 'icon' => 'hub', 'url' => 'supplier/integrations', 'show' => true],
+            ['name' => 'Growth & brands', 'icon' => 'hub', 'url' => 'supplier/growth', 'show' => true],
         ]];
     }
 

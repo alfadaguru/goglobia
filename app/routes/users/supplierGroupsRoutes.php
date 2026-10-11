@@ -24,13 +24,14 @@ $router->get('/supplier/groups', function () use ($SECURE, $db) {
     $stay = $db->get('stays', ['id', 'name', 'currency'], ['id' => $stayId]);
     $groups = function_exists('groups_for_property') ? groups_for_property($db, $stayId) : [];
     // Per-group: totals + blocks + rooming + folio for the open ones.
-    $gTotals = []; $gBlocks = []; $gItems = []; $gMembers = [];
+    $gTotals = []; $gBlocks = []; $gItems = []; $gMembers = []; $gPickup = [];
     foreach ($groups as $g) {
         $gid = (int) $g['id'];
         $gTotals[$gid] = function_exists('group_totals') ? group_totals($db, $gid) : ['charges'=>0,'payments'=>0,'balance'=>0];
         $gBlocks[$gid] = $db->select('stays_group_blocks', ['id', 'room_id', 'option_id', 'date_from', 'date_to', 'qty', 'state'], ['group_id' => $gid, 'ORDER' => ['id' => 'ASC']]) ?: [];
         $gItems[$gid]  = $db->select('stays_group_items', ['type', 'description', 'amount'], ['group_id' => $gid, 'ORDER' => ['id' => 'ASC']]) ?: [];
         $gMembers[$gid]= (int) $db->count('stays_group_members', ['group_id' => $gid]);
+        $gPickup[$gid] = function_exists('group_pickup_summary') ? group_pickup_summary($db, $gid, $stayId) : ['held_total'=>0,'members_total'=>0,'pickup_pct'=>0,'blocks'=>[]];
     }
     // Room types for the block picker (with stable option ids).
     $rooms = $db->select('stays_rooms', ['id', 'room_type_id', 'room_options'], ['stay_id' => $stayId, 'status' => 1]) ?: [];
@@ -108,6 +109,21 @@ $router->post('/supplier/groups/member', function () use ($SECURE, $db) {
     $ok = function_exists('group_member_add') && group_member_add($db, (int) ($_POST['group_id'] ?? 0), $stayId, (int) ($_POST['block_id'] ?? 0),
         (string) ($_POST['guest_name'] ?? ''), ['email' => $_POST['email'] ?? '']);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Guest added to rooming list.' : 'Could not add guest.'];
+    header('Location: ' . $back); exit;
+});
+
+// POST /supplier/groups/rooming-import — bulk-add guests to a block (PMS #08)
+$router->post('/supplier/groups/rooming-import', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $back = root . 'supplier/groups?stay_id=' . $stayId;
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $res = function_exists('group_rooming_import')
+        ? group_rooming_import($db, (int) ($_POST['group_id'] ?? 0), $stayId, (int) ($_POST['block_id'] ?? 0), (string) ($_POST['roster'] ?? ''))
+        : ['ok' => false, 'message' => 'Import engine unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Import failed.'];
     header('Location: ' . $back); exit;
 });
 

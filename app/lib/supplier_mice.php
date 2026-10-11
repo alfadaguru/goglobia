@@ -121,6 +121,20 @@ if (!function_exists('mice_event_set_status')) {
             $from = (string) $ev['status'];
             if (!in_array($to, $allowed[$from] ?? [], true)) { return false; }
 
+            // DOUBLE-BOOKING GUARD: many enquiries may exist for one space/date, but
+            // only ONE event may be CONFIRMED (or already completed) on a given space
+            // for a given date. Checked at the enquiry→confirmed transition. mice_event_create
+            // intentionally does NOT block here (enquiries are non-exclusive).
+            if ($to === 'confirmed') {
+                $clash = $db->get('stays_events', ['id'], [
+                    'space_id'  => (int) $ev['space_id'],
+                    'event_date'=> (string) $ev['event_date'],
+                    'status'    => ['confirmed', 'completed'],
+                    'id[!]'     => $eventId,
+                ]);
+                if ($clash) { return false; }
+            }
+
             if ($to === 'completed') {
                 $totals = mice_event_totals($db, $eventId);
                 $orgId = ($ev['org_id'] !== null && (int) $ev['org_id'] > 0) ? (int) $ev['org_id'] : 0;
@@ -139,7 +153,10 @@ if (!function_exists('mice_event_set_status')) {
                             ['code' => '4000', 'credit' => $totals['charges']],  // venue/event revenue
                         ], ['source' => 'event', 'reference' => (string) $ev['reference'], 'currency' => (string) $ev['currency'],
                             'property_id' => $stayId, 'memo' => 'Event ' . $ev['reference']]);
-                        if (empty($res['ok'])) { error_log('mice complete GL: ' . ($res['message'] ?? '?')); }
+                        // FAIL-HARD: roll back completion if the GL post fails, else the
+                        // event is marked 'completed' with no/partial books. gl_post is
+                        // idempotent on (org,source,reference) so a retry re-posts cleanly.
+                        if (empty($res['ok'])) { error_log('mice complete GL: ' . ($res['message'] ?? '?')); $ok = false; return false; }
                         // AR RELIEF: payments collected against the event folio relieve AR
                         // (DR Cash / CR City-AR) — without this, City-AR stays overstated
                         // forever. Separate source so the idempotency key is distinct.
@@ -150,7 +167,7 @@ if (!function_exists('mice_event_set_status')) {
                                 ['code' => '1200', 'credit' => $netPaid],
                             ], ['source' => 'event_payment', 'reference' => (string) $ev['reference'], 'currency' => (string) $ev['currency'],
                                 'property_id' => $stayId, 'memo' => 'Event payment ' . $ev['reference']]);
-                            if (empty($pres['ok'])) { error_log('mice payment GL: ' . ($pres['message'] ?? '?')); }
+                            if (empty($pres['ok'])) { error_log('mice payment GL: ' . ($pres['message'] ?? '?')); $ok = false; return false; }
                         }
                     }
                     $db->update('stays_events', ['status' => 'completed', 'completed_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
@@ -166,6 +183,41 @@ if (!function_exists('mice_event_set_status')) {
             error_log('mice_event_set_status: ' . $e->getMessage());
             return false;
         }
+    }
+}
+
+if (!function_exists('mice_space_availability')) {
+    /**
+     * SPACE AVAILABILITY (PMS completion #16). For each function space of a property,
+     * list the dates in [from,to] on which it is BOOKED (a confirmed/completed event),
+     * so the planner can see what is free. Mirrors the double-booking guard's rule
+     * (only confirmed/completed hold a space; enquiries do not). Read-only.
+     * Returns [ ['space_id','name','capacity','booked_dates'=>['Y-m-d',...]], ... ].
+     */
+    function mice_space_availability($db, int $stayId, string $from, string $to): array
+    {
+        $out = [];
+        if ($stayId <= 0) { return $out; }
+        $fts = strtotime($from); $tts = strtotime($to);
+        if ($fts === false || $tts === false || $tts < $fts) { return $out; }
+        try {
+            $spaces = $db->select('stays_event_spaces', ['id', 'name', 'capacity'], ['stay_id' => $stayId]) ?: [];
+            if (empty($spaces)) { return $out; }
+            // All space-holding events in the window, in one query.
+            $events = $db->select('stays_events', ['space_id', 'event_date'],
+                ['stay_id' => $stayId, 'status' => ['confirmed', 'completed'],
+                 'event_date[<>]' => [date('Y-m-d', $fts), date('Y-m-d', $tts)]]) ?: [];
+            $bySpace = [];
+            foreach ($events as $e) { $bySpace[(int) $e['space_id']][] = (string) $e['event_date']; }
+            foreach ($spaces as $sp) {
+                $sid = (int) $sp['id'];
+                $dates = $bySpace[$sid] ?? [];
+                sort($dates);
+                $out[] = ['space_id' => $sid, 'name' => (string) $sp['name'],
+                          'capacity' => (int) ($sp['capacity'] ?? 0), 'booked_dates' => array_values(array_unique($dates))];
+            }
+        } catch (\Throwable $e) { error_log('mice_space_availability: ' . $e->getMessage()); }
+        return $out;
     }
 }
 

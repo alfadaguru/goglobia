@@ -52,6 +52,16 @@ require_once 'app/routes/users/supplierReviewsRoutes.php'; // reviews — public
 require_once 'app/routes/users/supplierProcurementRoutes.php'; // procurement — vendors/stock/PO/GRN (inc S32)
 require_once 'app/routes/users/supplierEventsRoutes.php'; // events / MICE — spaces + event bookings + folio (inc S33)
 require_once 'app/routes/users/supplierGroupsRoutes.php'; // group & block reservations (inc S38)
+require_once 'app/routes/users/supplierFinanceRoutes.php'; // GL trial balance + P&L + balance sheet (PMS #34)
+require_once 'app/routes/users/supplierCashierRoutes.php'; // cashier shifts + cash movements (PMS Phase 2)
+require_once 'app/routes/users/supplierFacilitiesRoutes.php'; // lost&found + fixed assets + laundry + minibar (PMS Phase 3)
+require_once 'app/routes/users/supplierGuestServiceRoutes.php'; // service tickets + guest messages (PMS Phase 3 #21/#19)
+require_once 'app/routes/users/supplierHrRoutes.php'; // HR / workforce — employees + leave (PMS Phase 3 #44)
+require_once 'app/routes/users/supplierLeaseRoutes.php'; // leases + utilities (PMS Phase 3 #49/#51)
+require_once 'app/routes/users/supplierCorporateRoutes.php'; // corporate accounts + trust ledger (PMS Phase 3 #15/#50)
+require_once 'app/routes/users/supplierAncillaryRoutes.php'; // services (spa/generic) + recipes (PMS Phase 3 #31/#32/#33)
+require_once 'app/routes/users/supplierSafetyRoutes.php'; // packages + safety/compliance registers (PMS Phase 3 #17/#52-55)
+require_once 'app/routes/users/supplierGrowthRoutes.php'; // brands (#03) + integrations channel-mgr/RMS/AI config stubs (PMS Phase 3 #12/#14/#57)
 require_once 'app/routes/users/supplierCalendarRoutes.php'; // reservation calendar / tape-chart (inc S39)
 require_once 'app/routes/users/supplierRequestRoutes.php'; // post-approval service/quota request flow (inc S34)
 require_once 'app/routes/users/supplierRolesRoutes.php'; // supplier-defined roles + property scope (inc 4)
@@ -85,6 +95,7 @@ require_once 'app/routes/stays/invoiceRoutes.php';
 require_once 'app/routes/stays/homeRoutes.php';
 require_once 'app/routes/stays/listingRoutes.php';
 require_once 'app/routes/stays/detailRoutes.php';
+require_once 'app/routes/stays/brandedSiteRoutes.php'; // PMS #13: public /book/{slug} branded page
 require_once 'app/routes/stays/destinationSuggestionRoutes.php';
 
 // TOURS ROUTES

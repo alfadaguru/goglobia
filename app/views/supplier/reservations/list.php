@@ -44,6 +44,32 @@ $payBadge = function ($s) {
       <h1 class="text-2xl font-bold text-gray-900">Reservations</h1>
       <p class="text-sm text-gray-600">Bookings made against your properties.</p>
     </div>
+      <div class="flex items-center gap-2">
+        <a href="<?= root ?>supplier/reservations-export" class="btn secondary text-sm">
+          <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">download</span> Export CSV</span>
+        </a>
+      </div>
+    <?php if ($canEdit): ?>
+      <div class="flex items-center gap-2">
+        <?php if ($stayFilter > 0): // a property is selected → direct new-reservation + waitlist ?>
+          <a href="<?= root ?>supplier/stays/<?= $stayFilter ?>/waitlist" class="btn secondary text-sm">
+            <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">hourglass_empty</span> Waitlist</span>
+          </a>
+          <a href="<?= root ?>supplier/stays/<?= $stayFilter ?>/reservations/new" class="btn emerald text-sm">
+            <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">add</span> New reservation</span>
+          </a>
+        <?php else: // no property chosen → quick picker ?>
+          <form method="GET" action="<?= $base ?>" class="flex items-center gap-2">
+            <select name="stay_id" class="input text-sm" onchange="this.form.submit()">
+              <option value="0">Pick a property to add a booking…</option>
+              <?php foreach ($propMap as $sid => $pname): ?>
+                <option value="<?= (int) $sid ?>"><?= htmlspecialchars($pname ?? ('Property #' . $sid)) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </form>
+        <?php endif; ?>
+      </div>
+    <?php endif; ?>
   </div>
 
   <!-- Filters -->

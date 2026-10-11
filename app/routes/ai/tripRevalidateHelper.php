@@ -1074,9 +1074,14 @@ if (!function_exists('aiTripRevalidateStayLocalHotels')) {
             return $fail('Hotel ID is missing. Please search again.');
         }
 
+        // listing_status='approved' REQUIRED: the AI planner's revalidate-before-book
+        // step must not price/book an own-inventory stay that is switched on (status=1)
+        // but not approved (draft/submitted/queried/rejected). Matches the public web +
+        // mobile-API sell paths. Admin stays are stamped 'approved'.
         $hotel = $db->get('stays', ['id', 'currency', 'status'], [
             'id' => $hotelId,
             'status' => '1',
+            'listing_status' => 'approved',
         ]);
         if (!$hotel) {
             return $fail('This hotel is no longer available. Please search again.');

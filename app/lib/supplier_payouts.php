@@ -368,13 +368,41 @@ if (!function_exists('supplier_payout_approve_and_send')) {
             $db->update('supplier_payouts', ['recipient_code' => $recipient], ['id' => $payoutId]);
         }
 
+        // 1b) FLOAT PREFLIGHT (PMS #40, guard #5): check the platform's Paystack NGN
+        //     balance covers this transfer BEFORE initiating it. Without this, a
+        //     transfer fired against insufficient platform float fails at Paystack,
+        //     consuming the reference and leaving the payout to bounce to 'failed' and
+        //     re-reserve — noisy and operationally confusing. If the balance can't be
+        //     read we DO NOT block (fail-open on the check only: Paystack itself is the
+        //     ultimate authority and will reject if truly short); we only hard-stop when
+        //     we positively know the float is short. The payout stays 'approved' with
+        //     its reservation intact.
+        $kobo = (int) round(((float) $p['amount']) * 100);
+        $balRes = paystack_dva_http('GET', 'https://api.paystack.co/balance', $secret, null);
+        if (!empty($balRes['json']['data']) && is_array($balRes['json']['data'])) {
+            $ngnAvail = null;
+            foreach ($balRes['json']['data'] as $bEntry) {
+                if (strtoupper((string) ($bEntry['currency'] ?? '')) === 'NGN') {
+                    $ngnAvail = (int) ($bEntry['balance'] ?? 0); // kobo
+                    break;
+                }
+            }
+            if ($ngnAvail !== null && $ngnAvail < $kobo) {
+                // Revert the claim so it can be retried once the float is topped up.
+                $db->update('supplier_payouts', [
+                    'state' => $state, // back to 'requested'/'failed'
+                    'failure_reason' => substr('float preflight: platform NGN balance ' . number_format($ngnAvail / 100, 2) . ' < payout ' . number_format($kobo / 100, 2), 0, 255),
+                ], ['id' => $payoutId, 'state' => 'approved']);
+                return ['ok' => false, 'message' => 'Payout not sent: the platform Paystack balance is currently too low to cover this transfer. Top up the Paystack float and retry.'];
+            }
+        }
+
         // 2) Mark 'processing' BEFORE the transfer call (so a crash mid-call never
         //    leaves a 'requested' row that could be re-sent; recovery inspects
         //    'processing' rows against Paystack by reference).
         $db->update('supplier_payouts', ['state' => 'processing'], ['id' => $payoutId, 'state' => 'approved']);
 
-        // 3) Initiate the transfer. amount in KOBO (integer) — never float to Paystack.
-        $kobo = (int) round(((float) $p['amount']) * 100);
+        // 3) Initiate the transfer. amount in KOBO (integer, computed above) — never float.
         $tres = paystack_dva_http('POST', 'https://api.paystack.co/transfer', $secret, [
             'source'    => 'balance',
             'amount'    => $kobo,

@@ -24,6 +24,9 @@
         <?php else: ?>
           Your stays service is awaiting approval.
         <?php endif; ?>
+        <?php if (isset($quota['commission_pct']) && $quota['commission_pct'] !== null): ?>
+          <span class="ml-1 text-gray-400">· Platform commission: <span class="font-semibold text-gray-600"><?= rtrim(rtrim(number_format((float) $quota['commission_pct'], 2), '0'), '.') ?>%</span> of each booking.</span>
+        <?php endif; ?>
       </p>
     </div>
     <?php

@@ -42,6 +42,18 @@
         A branded address isn't configured yet. The administrator needs to set the platform's branded domain in Settings before per-property addresses are issued.
       </p>
     <?php endif; ?>
+    <?php $slug = (string) ($stay['slug'] ?? ''); $isLive = (int) ($stay['status'] ?? 0) === 1 && (string) ($stay['listing_status'] ?? '') === 'approved'; ?>
+    <?php if ($slug !== ''): ?>
+      <div class="flex items-center gap-2 pt-1">
+        <span class="material-symbols-outlined text-violet-600">link</span>
+        <code class="text-sm bg-gray-50 border border-gray-200 rounded px-2 py-1"><?= htmlspecialchars(rtrim(root, '/') . '/book/' . $slug) ?></code>
+      </div>
+      <p class="text-xs <?= $isLive ? 'text-gray-500' : 'text-amber-700' ?>">
+        <?= $isLive
+          ? 'Your live public booking page — share this link. Guests book through the main checkout.'
+          : 'This public link goes live once the property is approved and switched on.' ?>
+      </p>
+    <?php endif; ?>
     <div>
       <a href="<?= root ?>supplier/stays/site/<?= (int) ($stay['id'] ?? 0) ?>/preview" target="_blank"
          class="text-sm text-blue-600 hover:underline">Preview your page &rarr;</a>

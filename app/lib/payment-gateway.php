@@ -465,6 +465,22 @@ function handle_payment_callback($token, $action, $data = [])
                             _train_issue_rail_after_payment($db, $tokenData['invoice_id']);
                         }
 
+                        // Stays: consume the availability hold (permanent reservation),
+                        // same as the main path below. Money was collected, booking is
+                        // confirmed. Idempotent by invoice ref.
+                        if (in_array(strtolower((string) ($booking['module_type'] ?? '')), ['stays', 'hotels'], true)) {
+                            if (!function_exists('stays_hold_consume_ref')) {
+                                $invLib = __DIR__ . '/stays_inventory.php';
+                                if (is_file($invLib)) { require_once $invLib; }
+                            }
+                            if (function_exists('stays_hold_consume_ref')) {
+                                $consumed = stays_hold_consume_ref($db, (string) $tokenData['invoice_id']);
+                                if ($consumed === 0) {
+                                    error_log('STAYS hold-consume (dev-mismatch path): no held rows for invoice ' . $tokenData['invoice_id'] . ' — benign for integration suppliers; if own-inventory the hold may have EXPIRED before payment (possible oversell).');
+                                }
+                            }
+                        }
+
                         // Clear token
                         clear_payment_token($token);
 
@@ -953,6 +969,29 @@ function handle_payment_callback($token, $action, $data = [])
                     $bookingReference = $railIssue['pnr'] ?? $railIssue['Prn'] ?? null;
                 } elseif (!empty($railIssue['message'])) {
                     error_log('RAIL DIRECT ISSUE FAILED | Invoice: ' . $tokenData['invoice_id'] . ' | ' . $railIssue['message']);
+                }
+            }
+
+            // ============================================================
+            // STAYS (own inventory): CONSUME the availability hold on payment so the
+            // seat is reserved PERMANENTLY (not just for the 20-min hold window).
+            // Closes the long-term oversell gap. Idempotent by invoice ref.
+            // ============================================================
+            if (in_array(strtolower((string) ($booking['module_type'] ?? '')), ['stays', 'hotels'], true)) {
+                if (!function_exists('stays_hold_consume_ref')) {
+                    $invLib = __DIR__ . '/stays_inventory.php';
+                    if (is_file($invLib)) { require_once $invLib; }
+                }
+                if (function_exists('stays_hold_consume_ref')) {
+                    $consumed = stays_hold_consume_ref($db, (string) $tokenData['invoice_id']);
+                    if ($consumed === 0) {
+                        // No live hold to consume: either a non-own-inventory stay (no
+                        // hold is ever placed — benign) OR the hold expired before this
+                        // (late) payment and the seat may have been resold. Log loudly so
+                        // a genuine oversell can be reconciled; do NOT silently re-hold
+                        // (that could itself oversell).
+                        error_log('STAYS hold-consume: no held rows for invoice ' . $tokenData['invoice_id'] . ' at payment — benign for integration suppliers, but if this is own-inventory the hold may have EXPIRED before payment (possible oversell to reconcile).');
+                    }
                 }
             }
 

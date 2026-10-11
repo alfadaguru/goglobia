@@ -468,13 +468,15 @@ if (!function_exists('supplier_service_quota')) {
      */
     function supplier_service_quota($db, string $owner, string $service): array
     {
-        $out = ['max' => null, 'used' => 0, 'approved' => false];
+        $out = ['max' => null, 'used' => 0, 'approved' => false, 'commission_pct' => null];
         try {
-            $svc = $db->get('supplier_services', ['status', 'max_listings'],
+            $svc = $db->get('supplier_services', ['status', 'max_listings', 'commission_pct'],
                 ['user_id' => $owner, 'service' => $service]);
             if ($svc) {
                 $out['approved'] = ($svc['status'] === 'approved');
                 $out['max'] = isset($svc['max_listings']) ? (int) $svc['max_listings'] : null;
+                $out['commission_pct'] = ($svc['commission_pct'] !== null && $svc['commission_pct'] !== '')
+                    ? (float) $svc['commission_pct'] : null;
             }
             // Count existing owned listings in the service's own-inventory table.
             $table = in_array($service, ['stays', 'flights', 'tours', 'cars', 'bus'], true) ? $service : null;
@@ -7901,6 +7903,7 @@ function ensureSupplierStaysSchema($db): void
             `floor` VARCHAR(40) DEFAULT NULL,
             `hk_status` ENUM('clean','dirty','inspected','out_of_order') NOT NULL DEFAULT 'clean',
             `hk_updated_by` VARCHAR(155) DEFAULT NULL,
+            `hk_assigned_to` VARCHAR(155) DEFAULT NULL,
             `notes` VARCHAR(255) DEFAULT NULL,
             `active` TINYINT(1) NOT NULL DEFAULT 1,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -7910,6 +7913,12 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay_room` (`stay_id`,`room_id`),
             KEY `idx_status` (`stay_id`,`hk_status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #24): housekeeping attendant assignment. Guarded ALTER.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `stays_physical_rooms` LIKE 'hk_assigned_to'")->fetch()) {
+                $db->query("ALTER TABLE `stays_physical_rooms` ADD COLUMN `hk_assigned_to` VARCHAR(155) DEFAULT NULL AFTER `hk_updated_by`");
+            }
+        } catch (\Throwable $e) { error_log('hk_assigned_to col: ' . $e->getMessage()); }
 
         // --- maintenance (inc S23): work orders + out-of-order blocks ---------------
         // Work-order tickets are operational records. An OOO block (stays_ooo_blocks)
@@ -7927,12 +7936,416 @@ function ensureSupplierStaysSchema($db): void
             `priority` ENUM('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
             `status` ENUM('open','in_progress','resolved') NOT NULL DEFAULT 'open',
             `reported_by` VARCHAR(155) DEFAULT NULL,
+            `assigned_to` VARCHAR(155) DEFAULT NULL,
             `resolved_at` DATETIME DEFAULT NULL,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
             PRIMARY KEY (`id`),
             KEY `idx_stay_status` (`stay_id`,`status`),
             KEY `idx_room` (`physical_room_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #27): work-order technician assignment. Guarded ALTER.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `stays_work_orders` LIKE 'assigned_to'")->fetch()) {
+                $db->query("ALTER TABLE `stays_work_orders` ADD COLUMN `assigned_to` VARCHAR(155) DEFAULT NULL AFTER `reported_by`");
+            }
+        } catch (\Throwable $e) { error_log('wo assigned_to col: ' . $e->getMessage()); }
+
+        // --- inventory audit (PMS completion #05): a log of availability changes ----
+        // Every stays_inventory_set() write (ceiling / stop-sell / min-stay / owner
+        // block) appends a row, so an owner can see WHO changed availability, WHEN,
+        // over WHICH range, and WHY (reason supports "owner blocks": a close with a
+        // maintenance/owner-use reason). See app/lib/stays_calendar.php.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_inventory_audit` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `room_id` INT(11) NOT NULL,
+            `option_id` INT(11) NOT NULL,
+            `date_from` DATE NOT NULL,
+            `date_to` DATE NOT NULL,
+            `change_type` ENUM('availability','stop_sell','min_stay','owner_block','mixed') NOT NULL DEFAULT 'mixed',
+            `detail` VARCHAR(500) DEFAULT NULL,
+            `reason` VARCHAR(255) DEFAULT NULL,
+            `actor` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_created` (`stay_id`,`created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Lost & found (PMS Phase 3 #29) -----------------------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_lost_found` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `item` VARCHAR(191) NOT NULL,
+            `found_location` VARCHAR(191) DEFAULT NULL,
+            `found_date` DATE DEFAULT NULL,
+            `guest_name` VARCHAR(120) DEFAULT NULL,
+            `status` ENUM('stored','claimed','returned','disposed') NOT NULL DEFAULT 'stored',
+            `notes` VARCHAR(500) DEFAULT NULL,
+            `logged_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Integration config (PMS Phase 3 #12/#14/#57 external-edge STUBS) --------
+        // Stores per-org config for external integrations that are NOT wired to a vendor
+        // yet (channel manager, RMS, AI). Having the config persisted is the honest
+        // internal half; the adapter that would USE it is a documented stub.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_integration_config` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `integration` VARCHAR(40) NOT NULL,
+            `enabled` TINYINT(1) NOT NULL DEFAULT 0,
+            `config_json` TEXT DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_org_integration` (`org_id`,`integration`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Packages (#17): bundled offerings -------------------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_packages` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `name` VARCHAR(191) NOT NULL,
+            `description` VARCHAR(500) DEFAULT NULL,
+            `inclusions` VARCHAR(1000) DEFAULT NULL,
+            `price` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `nights` INT(11) DEFAULT NULL,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Incident / visitor / document registers (#52-55: safety & compliance) --
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_incidents` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `kind` ENUM('safety','security','medical','damage','other') NOT NULL DEFAULT 'other',
+            `occurred_at` DATETIME DEFAULT NULL,
+            `location` VARCHAR(120) DEFAULT NULL,
+            `summary` VARCHAR(191) NOT NULL,
+            `detail` TEXT DEFAULT NULL,
+            `severity` ENUM('low','medium','high') NOT NULL DEFAULT 'low',
+            `status` ENUM('open','investigating','closed') NOT NULL DEFAULT 'open',
+            `reported_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_visitors` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `visitor_name` VARCHAR(120) NOT NULL,
+            `visiting` VARCHAR(120) DEFAULT NULL,
+            `purpose` VARCHAR(120) DEFAULT NULL,
+            `checked_in_at` DATETIME DEFAULT NULL,
+            `checked_out_at` DATETIME DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_documents` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `title` VARCHAR(191) NOT NULL,
+            `doc_type` ENUM('licence','insurance','certificate','contract','other') NOT NULL DEFAULT 'other',
+            `reference` VARCHAR(120) DEFAULT NULL,
+            `expires_on` DATE DEFAULT NULL,
+            `notes` VARCHAR(500) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`),
+            KEY `idx_expires` (`expires_on`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Bookable services: spa/wellness (#32) + generic resources (#33) --------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_services` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `kind` ENUM('spa','wellness','recreation','transfer','equipment','other') NOT NULL DEFAULT 'other',
+            `name` VARCHAR(191) NOT NULL,
+            `duration_min` INT(11) DEFAULT NULL,
+            `price` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_service_bookings` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `service_id` INT(11) NOT NULL,
+            `guest_name` VARCHAR(120) DEFAULT NULL,
+            `invoice_id` VARCHAR(255) DEFAULT NULL,
+            `scheduled_at` DATETIME DEFAULT NULL,
+            `status` ENUM('booked','completed','cancelled') NOT NULL DEFAULT 'booked',
+            `price` DECIMAL(14,2) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`),
+            KEY `idx_service` (`service_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Recipes / food-cost (#31) ----------------------------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_recipes` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `name` VARCHAR(191) NOT NULL,
+            `yield_qty` INT(11) NOT NULL DEFAULT 1,
+            `food_cost` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `sell_price` DECIMAL(14,2) DEFAULT NULL,
+            `notes` VARCHAR(500) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Corporate / agent accounts (PMS Phase 3 #15) ---------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_corporate_accounts` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `type` ENUM('company','agent') NOT NULL DEFAULT 'company',
+            `name` VARCHAR(191) NOT NULL,
+            `contact_name` VARCHAR(120) DEFAULT NULL,
+            `email` VARCHAR(191) DEFAULT NULL,
+            `phone` VARCHAR(40) DEFAULT NULL,
+            `negotiated_discount_pct` DECIMAL(5,2) DEFAULT NULL,
+            `credit_limit` DECIMAL(14,2) DEFAULT NULL,
+            `status` ENUM('active','suspended') NOT NULL DEFAULT 'active',
+            `notes` VARCHAR(500) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_org_status` (`org_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Trust / client-money ledger (PMS Phase 3 #50) --------------------------
+        // An append-only ledger of money held ON BEHALF of owners/third parties,
+        // SEPARATE from the platform's own funds. Signed entries; balance = sum.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_trust_ledger` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `party` VARCHAR(191) NOT NULL,
+            `entry_type` ENUM('receipt','disbursement','adjustment') NOT NULL DEFAULT 'receipt',
+            `amount` DECIMAL(14,2) NOT NULL,
+            `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+            `reference` VARCHAR(120) DEFAULT NULL,
+            `memo` VARCHAR(255) DEFAULT NULL,
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_org_party` (`org_id`,`party`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Lease & long-stay (PMS Phase 3 #49) ------------------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_leases` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `unit_label` VARCHAR(80) DEFAULT NULL,
+            `tenant_name` VARCHAR(120) NOT NULL,
+            `tenant_email` VARCHAR(191) DEFAULT NULL,
+            `tenant_phone` VARCHAR(40) DEFAULT NULL,
+            `rent_amount` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `rent_cycle` ENUM('monthly','weekly','quarterly','yearly') NOT NULL DEFAULT 'monthly',
+            `deposit` DECIMAL(14,2) DEFAULT NULL,
+            `start_date` DATE DEFAULT NULL,
+            `end_date` DATE DEFAULT NULL,
+            `status` ENUM('active','ended','terminated') NOT NULL DEFAULT 'active',
+            `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+            `notes` VARCHAR(500) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Utilities / meter readings (PMS Phase 3 #51) ---------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_utility_readings` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `lease_id` INT(11) DEFAULT NULL,
+            `utility` ENUM('electricity','water','gas','internet','other') NOT NULL DEFAULT 'electricity',
+            `reading_date` DATE NOT NULL,
+            `previous_reading` DECIMAL(14,3) DEFAULT NULL,
+            `current_reading` DECIMAL(14,3) NOT NULL DEFAULT 0.000,
+            `unit_rate` DECIMAL(14,4) DEFAULT NULL,
+            `amount` DECIMAL(14,2) DEFAULT NULL,
+            `notes` VARCHAR(255) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`),
+            KEY `idx_lease` (`lease_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- HR / workforce (PMS Phase 3 #44): employees + leave --------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_employees` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) DEFAULT NULL,
+            `name` VARCHAR(120) NOT NULL,
+            `role_title` VARCHAR(120) DEFAULT NULL,
+            `department` VARCHAR(80) DEFAULT NULL,
+            `email` VARCHAR(191) DEFAULT NULL,
+            `phone` VARCHAR(40) DEFAULT NULL,
+            `employment_type` ENUM('full_time','part_time','casual','contract') NOT NULL DEFAULT 'full_time',
+            `pay_rate` DECIMAL(14,2) DEFAULT NULL,
+            `status` ENUM('active','on_leave','terminated') NOT NULL DEFAULT 'active',
+            `started_on` DATE DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_org_status` (`org_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_leave` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `employee_id` INT(11) NOT NULL,
+            `kind` ENUM('annual','sick','unpaid','other') NOT NULL DEFAULT 'annual',
+            `from_date` DATE NOT NULL,
+            `to_date` DATE NOT NULL,
+            `status` ENUM('requested','approved','rejected') NOT NULL DEFAULT 'requested',
+            `notes` VARCHAR(255) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_emp` (`employee_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Guest service tickets / complaints (PMS Phase 3 #21) -------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_service_tickets` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `invoice_id` VARCHAR(255) DEFAULT NULL,
+            `guest_name` VARCHAR(120) DEFAULT NULL,
+            `category` ENUM('complaint','request','maintenance','other') NOT NULL DEFAULT 'request',
+            `priority` ENUM('low','normal','high') NOT NULL DEFAULT 'normal',
+            `subject` VARCHAR(191) NOT NULL,
+            `detail` TEXT DEFAULT NULL,
+            `status` ENUM('open','in_progress','resolved','closed') NOT NULL DEFAULT 'open',
+            `assigned_to` VARCHAR(155) DEFAULT NULL,
+            `resolution` VARCHAR(500) DEFAULT NULL,
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Guest communication log (PMS Phase 3 #19) ------------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_guest_messages` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `invoice_id` VARCHAR(255) DEFAULT NULL,
+            `guest_email` VARCHAR(191) DEFAULT NULL,
+            `channel` ENUM('note','email','phone','whatsapp','sms') NOT NULL DEFAULT 'note',
+            `direction` ENUM('in','out') NOT NULL DEFAULT 'out',
+            `body` TEXT NOT NULL,
+            `logged_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`),
+            KEY `idx_invoice` (`invoice_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Laundry & linen (PMS Phase 3 #25) --------------------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_laundry` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `item` VARCHAR(120) NOT NULL,
+            `qty` INT(11) NOT NULL DEFAULT 1,
+            `kind` ENUM('guest','house') NOT NULL DEFAULT 'house',
+            `room_number` VARCHAR(40) DEFAULT NULL,
+            `status` ENUM('collected','in_wash','ready','delivered') NOT NULL DEFAULT 'collected',
+            `charge` DECIMAL(14,2) DEFAULT NULL,
+            `notes` VARCHAR(255) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Minibar (PMS Phase 3 #26): per-property catalogue + room postings -------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_minibar_items` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `name` VARCHAR(120) NOT NULL,
+            `price` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Fixed assets (PMS Phase 3 #28) -----------------------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_assets` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `name` VARCHAR(191) NOT NULL,
+            `category` VARCHAR(80) DEFAULT NULL,
+            `location` VARCHAR(120) DEFAULT NULL,
+            `serial_no` VARCHAR(120) DEFAULT NULL,
+            `purchase_date` DATE DEFAULT NULL,
+            `purchase_cost` DECIMAL(14,2) DEFAULT NULL,
+            `condition_status` ENUM('in_service','maintenance','retired') NOT NULL DEFAULT 'in_service',
+            `notes` VARCHAR(500) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`,`condition_status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- reservations (PMS completion #04): waitlist ----------------------------
+        // A waitlisted request holds NO inventory — it is a lead the front desk can
+        // convert to a walk-in booking when space frees up. See
+        // app/lib/supplier_reservation_ops.php (resv_waitlist_add/_set_status).
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_waitlist` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `room_id` INT(11) DEFAULT NULL,
+            `guest_name` VARCHAR(120) NOT NULL,
+            `email` VARCHAR(191) DEFAULT NULL,
+            `phone` VARCHAR(40) DEFAULT NULL,
+            `checkin` DATE NOT NULL,
+            `checkout` DATE NOT NULL,
+            `pax` INT(11) NOT NULL DEFAULT 1,
+            `status` ENUM('waiting','converted','cancelled') NOT NULL DEFAULT 'waiting',
+            `notes` VARCHAR(1000) DEFAULT NULL,
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`),
+            KEY `idx_dates` (`stay_id`,`checkin`,`checkout`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
         $db->query("CREATE TABLE IF NOT EXISTS `stays_ooo_blocks` (
@@ -7992,6 +8405,7 @@ function ensureSupplierStaysSchema($db): void
             `status` ENUM('open','settled','void') NOT NULL DEFAULT 'open',
             `currency` CHAR(3) NOT NULL DEFAULT 'USD',
             `server_id` VARCHAR(155) DEFAULT NULL,
+            `void_reason` VARCHAR(191) DEFAULT NULL,
             `settled_at` DATETIME DEFAULT NULL,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
@@ -7999,6 +8413,12 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay_status` (`stay_id`,`status`),
             KEY `idx_outlet` (`outlet_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #30): POS void reason. Guarded ALTER.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `pos_orders` LIKE 'void_reason'")->fetch()) {
+                $db->query("ALTER TABLE `pos_orders` ADD COLUMN `void_reason` VARCHAR(191) DEFAULT NULL AFTER `server_id`");
+            }
+        } catch (\Throwable $e) { error_log('pos void_reason col: ' . $e->getMessage()); }
 
         $db->query("CREATE TABLE IF NOT EXISTS `pos_order_items` (
             `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
@@ -8117,12 +8537,21 @@ function ensureSupplierStaysSchema($db): void
             `rating` TINYINT(1) NOT NULL DEFAULT 5,
             `comment` TEXT DEFAULT NULL,
             `status` ENUM('pending','published','hidden') NOT NULL DEFAULT 'pending',
+            `owner_reply` TEXT DEFAULT NULL,
+            `owner_reply_at` DATETIME DEFAULT NULL,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
             PRIMARY KEY (`id`),
             UNIQUE KEY `uq_stay_invoice` (`stay_id`,`invoice_id`),
             KEY `idx_stay_status` (`stay_id`,`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #23): public owner reply to a review. Guarded ALTERs.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `stays_reviews` LIKE 'owner_reply'")->fetch()) {
+                $db->query("ALTER TABLE `stays_reviews` ADD COLUMN `owner_reply` TEXT DEFAULT NULL AFTER `status`");
+                $db->query("ALTER TABLE `stays_reviews` ADD COLUMN `owner_reply_at` DATETIME DEFAULT NULL AFTER `owner_reply`");
+            }
+        } catch (\Throwable $e) { error_log('review owner_reply col: ' . $e->getMessage()); }
         // stays.rating_count: alongside the existing stays.rating (public avg), so the
         // rollup can show "x reviews". Additive, nullable-safe.
         if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'rating_count'")->fetch()) {
@@ -8254,11 +8683,22 @@ function ensureSupplierStaysSchema($db): void
             `phone` VARCHAR(40) DEFAULT NULL,
             `bank_code` VARCHAR(20) DEFAULT NULL,
             `account_number` VARCHAR(40) DEFAULT NULL,
+            `verified` TINYINT(1) NOT NULL DEFAULT 0,
+            `payment_terms` VARCHAR(120) DEFAULT NULL,
+            `notes` VARCHAR(500) DEFAULT NULL,
             `status` TINYINT(1) NOT NULL DEFAULT 1,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
             PRIMARY KEY (`id`), KEY `idx_org` (`org_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #43): vendor verification + terms + notes. Guarded ALTERs.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `stays_vendors` LIKE 'verified'")->fetch()) {
+                $db->query("ALTER TABLE `stays_vendors` ADD COLUMN `verified` TINYINT(1) NOT NULL DEFAULT 0 AFTER `account_number`");
+                $db->query("ALTER TABLE `stays_vendors` ADD COLUMN `payment_terms` VARCHAR(120) DEFAULT NULL AFTER `verified`");
+                $db->query("ALTER TABLE `stays_vendors` ADD COLUMN `notes` VARCHAR(500) DEFAULT NULL AFTER `payment_terms`");
+            }
+        } catch (\Throwable $e) { error_log('vendor verify cols: ' . $e->getMessage()); }
 
         $db->query("CREATE TABLE IF NOT EXISTS `stays_stock_items` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,
@@ -8271,6 +8711,24 @@ function ensureSupplierStaysSchema($db): void
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
             PRIMARY KEY (`id`), KEY `idx_org` (`org_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // Stock moves (PMS #42): an append-only ledger of manual stock adjustments /
+        // issues (consumption, wastage, count corrections) — the audit trail behind
+        // on_hand changes that are NOT goods-receipts. GRN increments stay on the PO.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_stock_moves` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `item_id` INT(11) NOT NULL,
+            `move_type` ENUM('adjust','issue','wastage','count') NOT NULL DEFAULT 'adjust',
+            `delta` DECIMAL(14,3) NOT NULL,
+            `on_hand_after` DECIMAL(14,3) NOT NULL DEFAULT 0.000,
+            `reason` VARCHAR(255) DEFAULT NULL,
+            `actor` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_org_item` (`org_id`,`item_id`),
+            KEY `idx_created` (`created_at`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
         $db->query("CREATE TABLE IF NOT EXISTS `stays_purchase_orders` (
@@ -8309,10 +8767,18 @@ function ensureSupplierStaysSchema($db): void
             `org_id` INT(11) NOT NULL,
             `enabled` TINYINT(1) NOT NULL DEFAULT 0,
             `points_per_currency` DECIMAL(10,4) NOT NULL DEFAULT 1.0000,
+            `redeem_value_per_point` DECIMAL(10,4) NOT NULL DEFAULT 0.0000,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
             PRIMARY KEY (`org_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #22): the cash value of one point when redeemed against a folio.
+        // 0 = points have no cash value (the pre-existing behaviour). Guarded ALTER.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `stays_loyalty_config` LIKE 'redeem_value_per_point'")->fetch()) {
+                $db->query("ALTER TABLE `stays_loyalty_config` ADD COLUMN `redeem_value_per_point` DECIMAL(10,4) NOT NULL DEFAULT 0.0000 AFTER `points_per_currency`");
+            }
+        } catch (\Throwable $e) { error_log('loyalty redeem_value col: ' . $e->getMessage()); }
 
         $db->query("CREATE TABLE IF NOT EXISTS `stays_loyalty_ledger` (
             `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
@@ -8339,12 +8805,19 @@ function ensureSupplierStaysSchema($db): void
             `vip` TINYINT(1) NOT NULL DEFAULT 0,
             `note` TEXT DEFAULT NULL,
             `tags` VARCHAR(191) DEFAULT NULL,
+            `preferences` VARCHAR(500) DEFAULT NULL,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
             PRIMARY KEY (`id`),
             UNIQUE KEY `uq_org_email` (`org_id`,`email`),
             KEY `idx_org` (`org_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #18): guest preferences / demographics free-text. Guarded ALTER.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `stays_guest_profiles` LIKE 'preferences'")->fetch()) {
+                $db->query("ALTER TABLE `stays_guest_profiles` ADD COLUMN `preferences` VARCHAR(500) DEFAULT NULL AFTER `tags`");
+            }
+        } catch (\Throwable $e) { error_log('guest preferences col: ' . $e->getMessage()); }
 
         $db->query("CREATE TABLE IF NOT EXISTS `stays_owner_statements` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,
@@ -8362,12 +8835,21 @@ function ensureSupplierStaysSchema($db): void
             `owner_payout` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
             `status` ENUM('generated','paid') NOT NULL DEFAULT 'generated',
             `generated_by` VARCHAR(155) DEFAULT NULL,
+            `paid_at` DATETIME DEFAULT NULL,
+            `payment_reference` VARCHAR(191) DEFAULT NULL,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
             PRIMARY KEY (`id`),
             KEY `idx_stay` (`stay_id`),
             KEY `idx_owner` (`owner_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #48): owner-statement payout settlement fields. Guarded ALTERs.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `stays_owner_statements` LIKE 'paid_at'")->fetch()) {
+                $db->query("ALTER TABLE `stays_owner_statements` ADD COLUMN `paid_at` DATETIME DEFAULT NULL AFTER `generated_by`");
+                $db->query("ALTER TABLE `stays_owner_statements` ADD COLUMN `payment_reference` VARCHAR(191) DEFAULT NULL AFTER `paid_at`");
+            }
+        } catch (\Throwable $e) { error_log('owner statement paid cols: ' . $e->getMessage()); }
 
         // stays hierarchy keys + operating model. Nullable/defaulted so existing rows
         // are untouched; each guarded by SHOW COLUMNS (idempotent).
@@ -8417,6 +8899,12 @@ function ensureSupplierStaysSchema($db): void
             // resort). Distinct from the existing `stay_type` (a stays_settings FK).
             // Default 'hotel' so existing + new rows have a sane model.
             $db->query("ALTER TABLE `stays` ADD COLUMN `accommodation_type` VARCHAR(32) NOT NULL DEFAULT 'hotel'");
+        }
+        // Additive (PMS #47): short-let / apartment disclosed fees. Stored + displayed
+        // (not auto-charged into the total yet — that path is price-integrity sensitive).
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'cleaning_fee'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `cleaning_fee` DECIMAL(14,2) DEFAULT NULL");
+            $db->query("ALTER TABLE `stays` ADD COLUMN `security_deposit` DECIMAL(14,2) DEFAULT NULL");
         }
     } catch (\Throwable $e) {
         // Never break the page over a migration (e.g. a DB user without ALTER).

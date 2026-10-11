@@ -162,9 +162,11 @@ endif;
           <select name="closed" id="cal-closed" class="input text-sm"><option value="0">Open</option><option value="1">Closed</option></select>
         </div>
         <div><label class="block text-xs text-gray-600 mb-1">Min stay (nights)</label><input type="number" name="min_stay" id="cal-min" min="1" class="input text-sm w-24" placeholder="none"></div>
+        <div><label class="block text-xs text-gray-600 mb-1">Reason (optional)</label><input type="text" name="reason" id="cal-reason" class="input text-sm w-44" placeholder="e.g. maintenance, owner use"></div>
         <button type="submit" class="btn emerald text-sm">Apply</button>
       </form>
-      <p class="text-xs text-gray-400 mt-2">Applies to every night in the range. Availability can't be set below rooms already committed on a night.</p>
+      <p class="text-xs text-gray-400 mt-2">Applies to every night in the range. Availability can't be set below rooms already committed on a night. A reason on a stop-sell is recorded as an owner block in the
+        <a href="<?= root ?>supplier/stays/<?= (int) ($stay['id'] ?? 0) ?>/inventory-audit" class="text-violet-600 hover:underline">availability log</a>.</p>
     </div>
     <script>
     function calEdit(btn) {

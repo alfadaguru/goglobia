@@ -24,7 +24,7 @@ $router->get('/supplier/housekeeping', function () use ($SECURE, $db) {
         $scope = $stayFilter > 0 ? [$stayFilter] : $stayIds;
         try {
             $rooms = $db->select('stays_physical_rooms',
-                ['id', 'stay_id', 'room_id', 'room_number', 'floor', 'hk_status', 'active'],
+                ['id', 'stay_id', 'room_id', 'room_number', 'floor', 'hk_status', 'hk_assigned_to', 'active'],
                 ['stay_id' => $scope, 'ORDER' => ['stay_id' => 'ASC', 'room_number' => 'ASC']]) ?: [];
         } catch (\Throwable $e) { error_log('hk board: ' . $e->getMessage()); }
     }
@@ -65,6 +65,21 @@ $router->post('/supplier/housekeeping/status', function () use ($SECURE, $db) {
     if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('hk_room_set_status') && hk_room_set_status($db, $prid, $stayId, $to, (string) ($_SESSION['user_id'] ?? ''));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Room status updated.' : 'Could not update that room (invalid transition?).'];
+    header('Location: ' . $back); exit;
+});
+
+// POST /supplier/housekeeping/assign — assign an attendant to a room (PMS #24)
+$router->post('/supplier/housekeeping/assign', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $prid = (int) ($_POST['physical_room_id'] ?? 0);
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $back = root . 'supplier/housekeeping' . ($stayId > 0 ? '?stay_id=' . $stayId : '');
+    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $ok = function_exists('hk_assign_attendant') && hk_assign_attendant($db, $prid, $stayId, (string) ($_POST['attendant'] ?? ''));
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Attendant updated.' : 'Could not assign.'];
     header('Location: ' . $back); exit;
 });
 
@@ -138,7 +153,7 @@ $router->get('/supplier/maintenance', function () use ($SECURE, $db) {
         $scope = $stayFilter > 0 ? [$stayFilter] : $stayIds;
         try {
             $orders = $db->select('stays_work_orders',
-                ['id', 'stay_id', 'title', 'area', 'priority', 'status', 'created_at'],
+                ['id', 'stay_id', 'title', 'area', 'priority', 'status', 'assigned_to', 'created_at'],
                 ['stay_id' => $scope, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 200]) ?: [];
             $oooBlocks = $db->select('stays_ooo_blocks',
                 ['id', 'stay_id', 'physical_room_id', 'date_from', 'date_to', 'reason', 'eta', 'state'],
@@ -207,6 +222,21 @@ $router->post('/supplier/maintenance/work-order/status', function () use ($SECUR
     header('Location: ' . $back); exit;
 });
 
+// POST /supplier/maintenance/assign — assign a technician to a work order (PMS #27)
+$router->post('/supplier/maintenance/assign', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $woId = (int) ($_POST['work_order_id'] ?? 0);
+    $back = root . 'supplier/maintenance' . ($stayId > 0 ? '?stay_id=' . $stayId : '');
+    if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $ok = function_exists('wo_assign') && wo_assign($db, $woId, $stayId, (string) ($_POST['technician'] ?? ''));
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Technician updated.' : 'Could not assign.'];
+    header('Location: ' . $back); exit;
+});
+
 // POST /supplier/maintenance/ooo — put a physical room out of order (touches inventory)
 $router->post('/supplier/maintenance/ooo', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
@@ -269,6 +299,8 @@ $router->get('/supplier/night-audit', function () use ($SECURE, $db) {
     $bizDates = [];
     foreach ($stayIds as $sid) { if (function_exists('na_business_date')) { $bizDates[$sid] = na_business_date($db, $sid); } }
     $history = ($stayFilter > 0 && function_exists('night_audit_history')) ? night_audit_history($db, $stayFilter) : [];
+    // Pre-close exceptions for the selected property (PMS #10).
+    $exceptions = ($stayFilter > 0 && function_exists('night_audit_exceptions')) ? night_audit_exceptions($db, $stayFilter) : ['count' => 0];
     $canRun = supplier_can($db, 'reservations', 'edit');
 
     $title = 'Night audit'; $description = ''; $header = true; $footer = true;

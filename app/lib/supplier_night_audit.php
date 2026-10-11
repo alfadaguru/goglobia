@@ -225,6 +225,57 @@ if (!function_exists('night_audit_run')) {
     }
 }
 
+if (!function_exists('night_audit_exceptions')) {
+    /**
+     * FOLIO / STATE EXCEPTIONS for the current business date (PMS completion #10). A
+     * pre-close report of reservations needing attention:
+     *   - 'arrival_not_in'  : checks in on/before biz date, still 'confirmed' (not yet
+     *                         checked in and not a no-show) — a late/missed arrival.
+     *   - 'depart_not_out'  : checks out on/before biz date, still 'checked_in' — an
+     *                         overdue departure (should check out).
+     *   - 'balance_due'     : checked-in with an OPEN folio carrying a positive balance.
+     * Returns ['arrival_not_in'=>[...], 'depart_not_out'=>[...], 'balance_due'=>[...],
+     *          'count'=>int] — each entry ['invoice_id','guest','amount'?].
+     */
+    function night_audit_exceptions($db, int $stayId): array
+    {
+        $out = ['arrival_not_in' => [], 'depart_not_out' => [], 'balance_due' => [], 'count' => 0];
+        if ($stayId <= 0) { return $out; }
+        $bizDate = na_business_date($db, $stayId);
+        $bookings = na_property_bookings($db, $stayId);
+        foreach ($bookings as $b) {
+            $bd = $b['bd'];
+            $status = strtolower((string) ($b['booking_status'] ?? ''));
+            if ($status === 'cancelled') { continue; }
+            $state = (string) ($bd['pms_stay_state'] ?? 'confirmed');
+            $checkin  = (string) ($bd['checkin'] ?? '');
+            $checkout = (string) ($bd['checkout'] ?? '');
+            $inv = (string) $b['invoice_id'];
+            $guest = trim((string) ($bd['guest_name'] ?? '')) ?: $inv;
+
+            if ($state === 'confirmed' && $checkin !== '' && $checkin <= $bizDate && empty($bd['pms_no_show'])) {
+                $out['arrival_not_in'][] = ['invoice_id' => $inv, 'guest' => $guest, 'checkin' => $checkin];
+            }
+            if ($state === 'checked_in' && $checkout !== '' && $checkout <= $bizDate) {
+                $out['depart_not_out'][] = ['invoice_id' => $inv, 'guest' => $guest, 'checkout' => $checkout];
+            }
+            if ($state === 'checked_in' && function_exists('folio_get_or_create') && function_exists('folio_totals')) {
+                try {
+                    $fid = (int) $db->get('stays_folios', 'id', ['invoice_id' => $inv]); // read-only; don't create here
+                    if ($fid > 0) {
+                        $tot = folio_totals($db, $fid);
+                        if (round((float) ($tot['balance'] ?? 0), 2) > 0) {
+                            $out['balance_due'][] = ['invoice_id' => $inv, 'guest' => $guest, 'amount' => round((float) $tot['balance'], 2)];
+                        }
+                    }
+                } catch (\Throwable $e) { /* non-fatal */ }
+            }
+        }
+        $out['count'] = count($out['arrival_not_in']) + count($out['depart_not_out']) + count($out['balance_due']);
+        return $out;
+    }
+}
+
 if (!function_exists('night_audit_history')) {
     /** Recent audit snapshots for a property (read-only). */
     function night_audit_history($db, int $stayId, int $limit = 60): array

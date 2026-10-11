@@ -175,3 +175,23 @@ $router->post('/supplier/pos/order/settle', function () use ($SECURE, $db) {
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Done.'];
     header('Location: ' . $back); exit;
 });
+
+// POST /supplier/pos/order/void — void an open order (PMS #30)
+$router->post('/supplier/pos/order/void', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $outletId = (int) ($_POST['outlet_id'] ?? 0);
+    $outlet = _pos_outlet_owned($db, $outletId, $owner);
+    $back = root . 'supplier/pos/outlet/' . $outletId;
+    if (!$outlet || !supplier_can($db, 'rooms', 'edit', (int) $outlet['stay_id'])) { _supplier_stays_deny('Not your outlet.'); }
+    $orderId = (int) ($_POST['order_id'] ?? 0);
+    $ord = $db->get('pos_orders', ['id'], ['id' => $orderId, 'outlet_id' => $outletId]);
+    if (!$ord) { _supplier_stays_deny('Order not found for this outlet.'); }
+    $res = function_exists('pos_order_void')
+        ? pos_order_void($db, $orderId, (int) $outlet['stay_id'], (string) ($_POST['reason'] ?? ''))
+        : ['ok' => false, 'message' => 'Unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Done.'];
+    header('Location: ' . $back); exit;
+});

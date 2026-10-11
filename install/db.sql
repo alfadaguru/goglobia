@@ -28115,6 +28115,8 @@ CREATE TABLE `stays` (
   `org_id` int(11) DEFAULT NULL,
   `brand_id` int(11) DEFAULT NULL,
   `accommodation_type` varchar(32) NOT NULL DEFAULT 'hotel',
+  `cleaning_fee` decimal(14,2) DEFAULT NULL,
+  `security_deposit` decimal(14,2) DEFAULT NULL,
   `listing_status` enum('draft','submitted','approved','queried','rejected') NOT NULL DEFAULT 'draft',
   `review_comment` varchar(255) DEFAULT NULL,
   `reviewed_by` varchar(255) DEFAULT NULL,
@@ -28885,6 +28887,7 @@ CREATE TABLE `stays_physical_rooms` (
   `floor` varchar(40) DEFAULT NULL,
   `hk_status` enum('clean','dirty','inspected','out_of_order') NOT NULL DEFAULT 'clean',
   `hk_updated_by` varchar(155) DEFAULT NULL,
+  `hk_assigned_to` varchar(155) DEFAULT NULL,
   `notes` varchar(255) DEFAULT NULL,
   `active` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
@@ -28911,12 +28914,495 @@ CREATE TABLE `stays_work_orders` (
   `priority` enum('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
   `status` enum('open','in_progress','resolved') NOT NULL DEFAULT 'open',
   `reported_by` varchar(155) DEFAULT NULL,
+  `assigned_to` varchar(155) DEFAULT NULL,
   `resolved_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_stay_status` (`stay_id`,`status`),
   KEY `idx_room` (`physical_room_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Inventory audit (PMS completion #05). One row per stays_inventory_set() change —
+-- availability / stop-sell / min-stay / owner block — recording who/when/range/why.
+-- See app/lib/stays_calendar.php.
+--
+CREATE TABLE `stays_inventory_audit` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `room_id` int(11) NOT NULL,
+  `option_id` int(11) NOT NULL,
+  `date_from` date NOT NULL,
+  `date_to` date NOT NULL,
+  `change_type` enum('availability','stop_sell','min_stay','owner_block','mixed') NOT NULL DEFAULT 'mixed',
+  `detail` varchar(500) DEFAULT NULL,
+  `reason` varchar(255) DEFAULT NULL,
+  `actor` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_created` (`stay_id`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Lost & found (PMS Phase 3 #29).
+--
+CREATE TABLE `stays_lost_found` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `item` varchar(191) NOT NULL,
+  `found_location` varchar(191) DEFAULT NULL,
+  `found_date` date DEFAULT NULL,
+  `guest_name` varchar(120) DEFAULT NULL,
+  `status` enum('stored','claimed','returned','disposed') NOT NULL DEFAULT 'stored',
+  `notes` varchar(500) DEFAULT NULL,
+  `logged_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Integration config (PMS Phase 3 #12/#14/#57 external-edge stubs). Per-org config for
+-- channel manager / RMS / AI — persisted internally; the vendor adapter is a stub.
+--
+CREATE TABLE `stays_integration_config` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `integration` varchar(40) NOT NULL,
+  `enabled` tinyint(1) NOT NULL DEFAULT 0,
+  `config_json` text DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_org_integration` (`org_id`,`integration`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Packages (#17): bundled offerings.
+--
+CREATE TABLE `stays_packages` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(191) NOT NULL,
+  `description` varchar(500) DEFAULT NULL,
+  `inclusions` varchar(1000) DEFAULT NULL,
+  `price` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `nights` int(11) DEFAULT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Incident register (#52-55 safety & compliance).
+--
+CREATE TABLE `stays_incidents` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `kind` enum('safety','security','medical','damage','other') NOT NULL DEFAULT 'other',
+  `occurred_at` datetime DEFAULT NULL,
+  `location` varchar(120) DEFAULT NULL,
+  `summary` varchar(191) NOT NULL,
+  `detail` text DEFAULT NULL,
+  `severity` enum('low','medium','high') NOT NULL DEFAULT 'low',
+  `status` enum('open','investigating','closed') NOT NULL DEFAULT 'open',
+  `reported_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Visitor register (#52-55).
+--
+CREATE TABLE `stays_visitors` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `visitor_name` varchar(120) NOT NULL,
+  `visiting` varchar(120) DEFAULT NULL,
+  `purpose` varchar(120) DEFAULT NULL,
+  `checked_in_at` datetime DEFAULT NULL,
+  `checked_out_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Document / compliance register (#52-55).
+--
+CREATE TABLE `stays_documents` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `title` varchar(191) NOT NULL,
+  `doc_type` enum('licence','insurance','certificate','contract','other') NOT NULL DEFAULT 'other',
+  `reference` varchar(120) DEFAULT NULL,
+  `expires_on` date DEFAULT NULL,
+  `notes` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`),
+  KEY `idx_expires` (`expires_on`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Bookable services: spa/wellness (#32) + generic resources (#33).
+--
+CREATE TABLE `stays_services` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `kind` enum('spa','wellness','recreation','transfer','equipment','other') NOT NULL DEFAULT 'other',
+  `name` varchar(191) NOT NULL,
+  `duration_min` int(11) DEFAULT NULL,
+  `price` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Service bookings (#32/#33).
+--
+CREATE TABLE `stays_service_bookings` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `service_id` int(11) NOT NULL,
+  `guest_name` varchar(120) DEFAULT NULL,
+  `invoice_id` varchar(255) DEFAULT NULL,
+  `scheduled_at` datetime DEFAULT NULL,
+  `status` enum('booked','completed','cancelled') NOT NULL DEFAULT 'booked',
+  `price` decimal(14,2) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`),
+  KEY `idx_service` (`service_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Recipes / food-cost (#31).
+--
+CREATE TABLE `stays_recipes` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(191) NOT NULL,
+  `yield_qty` int(11) NOT NULL DEFAULT 1,
+  `food_cost` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `sell_price` decimal(14,2) DEFAULT NULL,
+  `notes` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Corporate / agent accounts (PMS Phase 3 #15).
+--
+CREATE TABLE `stays_corporate_accounts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `type` enum('company','agent') NOT NULL DEFAULT 'company',
+  `name` varchar(191) NOT NULL,
+  `contact_name` varchar(120) DEFAULT NULL,
+  `email` varchar(191) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `negotiated_discount_pct` decimal(5,2) DEFAULT NULL,
+  `credit_limit` decimal(14,2) DEFAULT NULL,
+  `status` enum('active','suspended') NOT NULL DEFAULT 'active',
+  `notes` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org_status` (`org_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Trust / client-money ledger (PMS Phase 3 #50). Money held on behalf of third
+-- parties, separate from platform funds. Signed append-only entries.
+--
+CREATE TABLE `stays_trust_ledger` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `party` varchar(191) NOT NULL,
+  `entry_type` enum('receipt','disbursement','adjustment') NOT NULL DEFAULT 'receipt',
+  `amount` decimal(14,2) NOT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `reference` varchar(120) DEFAULT NULL,
+  `memo` varchar(255) DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_org_party` (`org_id`,`party`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Lease & long-stay (PMS Phase 3 #49).
+--
+CREATE TABLE `stays_leases` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `unit_label` varchar(80) DEFAULT NULL,
+  `tenant_name` varchar(120) NOT NULL,
+  `tenant_email` varchar(191) DEFAULT NULL,
+  `tenant_phone` varchar(40) DEFAULT NULL,
+  `rent_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `rent_cycle` enum('monthly','weekly','quarterly','yearly') NOT NULL DEFAULT 'monthly',
+  `deposit` decimal(14,2) DEFAULT NULL,
+  `start_date` date DEFAULT NULL,
+  `end_date` date DEFAULT NULL,
+  `status` enum('active','ended','terminated') NOT NULL DEFAULT 'active',
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `notes` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Utilities / meter readings (PMS Phase 3 #51).
+--
+CREATE TABLE `stays_utility_readings` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `lease_id` int(11) DEFAULT NULL,
+  `utility` enum('electricity','water','gas','internet','other') NOT NULL DEFAULT 'electricity',
+  `reading_date` date NOT NULL,
+  `previous_reading` decimal(14,3) DEFAULT NULL,
+  `current_reading` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `unit_rate` decimal(14,4) DEFAULT NULL,
+  `amount` decimal(14,2) DEFAULT NULL,
+  `notes` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`),
+  KEY `idx_lease` (`lease_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- HR / workforce (PMS Phase 3 #44): employees + leave.
+--
+CREATE TABLE `stays_employees` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) DEFAULT NULL,
+  `name` varchar(120) NOT NULL,
+  `role_title` varchar(120) DEFAULT NULL,
+  `department` varchar(80) DEFAULT NULL,
+  `email` varchar(191) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `employment_type` enum('full_time','part_time','casual','contract') NOT NULL DEFAULT 'full_time',
+  `pay_rate` decimal(14,2) DEFAULT NULL,
+  `status` enum('active','on_leave','terminated') NOT NULL DEFAULT 'active',
+  `started_on` date DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org_status` (`org_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Staff leave (PMS Phase 3 #44).
+--
+CREATE TABLE `stays_leave` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `employee_id` int(11) NOT NULL,
+  `kind` enum('annual','sick','unpaid','other') NOT NULL DEFAULT 'annual',
+  `from_date` date NOT NULL,
+  `to_date` date NOT NULL,
+  `status` enum('requested','approved','rejected') NOT NULL DEFAULT 'requested',
+  `notes` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_emp` (`employee_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Guest service tickets / complaints (PMS Phase 3 #21).
+--
+CREATE TABLE `stays_service_tickets` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `invoice_id` varchar(255) DEFAULT NULL,
+  `guest_name` varchar(120) DEFAULT NULL,
+  `category` enum('complaint','request','maintenance','other') NOT NULL DEFAULT 'request',
+  `priority` enum('low','normal','high') NOT NULL DEFAULT 'normal',
+  `subject` varchar(191) NOT NULL,
+  `detail` text DEFAULT NULL,
+  `status` enum('open','in_progress','resolved','closed') NOT NULL DEFAULT 'open',
+  `assigned_to` varchar(155) DEFAULT NULL,
+  `resolution` varchar(500) DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Guest communication log (PMS Phase 3 #19).
+--
+CREATE TABLE `stays_guest_messages` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `invoice_id` varchar(255) DEFAULT NULL,
+  `guest_email` varchar(191) DEFAULT NULL,
+  `channel` enum('note','email','phone','whatsapp','sms') NOT NULL DEFAULT 'note',
+  `direction` enum('in','out') NOT NULL DEFAULT 'out',
+  `body` text NOT NULL,
+  `logged_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`),
+  KEY `idx_invoice` (`invoice_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Laundry & linen (PMS Phase 3 #25).
+--
+CREATE TABLE `stays_laundry` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `item` varchar(120) NOT NULL,
+  `qty` int(11) NOT NULL DEFAULT 1,
+  `kind` enum('guest','house') NOT NULL DEFAULT 'house',
+  `room_number` varchar(40) DEFAULT NULL,
+  `status` enum('collected','in_wash','ready','delivered') NOT NULL DEFAULT 'collected',
+  `charge` decimal(14,2) DEFAULT NULL,
+  `notes` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Minibar catalogue (PMS Phase 3 #26). Consumption is charged via the folio.
+--
+CREATE TABLE `stays_minibar_items` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `price` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Fixed assets (PMS Phase 3 #28).
+--
+CREATE TABLE `stays_assets` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(191) NOT NULL,
+  `category` varchar(80) DEFAULT NULL,
+  `location` varchar(120) DEFAULT NULL,
+  `serial_no` varchar(120) DEFAULT NULL,
+  `purchase_date` date DEFAULT NULL,
+  `purchase_cost` decimal(14,2) DEFAULT NULL,
+  `condition_status` enum('in_service','maintenance','retired') NOT NULL DEFAULT 'in_service',
+  `notes` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`,`condition_status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Reservation waitlist (PMS completion #04). Holds NO inventory — a lead the front
+-- desk converts to a walk-in when space frees up. See app/lib/supplier_reservation_ops.php.
+--
+CREATE TABLE `stays_waitlist` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `room_id` int(11) DEFAULT NULL,
+  `guest_name` varchar(120) NOT NULL,
+  `email` varchar(191) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `checkin` date NOT NULL,
+  `checkout` date NOT NULL,
+  `pax` int(11) NOT NULL DEFAULT 1,
+  `status` enum('waiting','converted','cancelled') NOT NULL DEFAULT 'waiting',
+  `notes` varchar(1000) DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`),
+  KEY `idx_dates` (`stay_id`,`checkin`,`checkout`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -28990,6 +29476,7 @@ CREATE TABLE `pos_orders` (
   `status` enum('open','settled','void') NOT NULL DEFAULT 'open',
   `currency` char(3) NOT NULL DEFAULT 'USD',
   `server_id` varchar(155) DEFAULT NULL,
+  `void_reason` varchar(191) DEFAULT NULL,
   `settled_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
@@ -29270,6 +29757,9 @@ CREATE TABLE `stays_vendors` (
   `phone` varchar(40) DEFAULT NULL,
   `bank_code` varchar(20) DEFAULT NULL,
   `account_number` varchar(40) DEFAULT NULL,
+  `verified` tinyint(1) NOT NULL DEFAULT 0,
+  `payment_terms` varchar(120) DEFAULT NULL,
+  `notes` varchar(500) DEFAULT NULL,
   `status` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
@@ -29291,6 +29781,28 @@ CREATE TABLE `stays_stock_items` (
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_org` (`org_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Stock moves (PMS #42): append-only ledger of manual stock adjustments / issues
+-- (consumption, wastage, count corrections) behind on_hand changes. See
+-- app/lib/supplier_procurement.php (proc_stock_adjust).
+--
+CREATE TABLE `stays_stock_moves` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `item_id` int(11) NOT NULL,
+  `move_type` enum('adjust','issue','wastage','count') NOT NULL DEFAULT 'adjust',
+  `delta` decimal(14,3) NOT NULL,
+  `on_hand_after` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `reason` varchar(255) DEFAULT NULL,
+  `actor` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_org_item` (`org_id`,`item_id`),
+  KEY `idx_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -29343,6 +29855,8 @@ CREATE TABLE `stays_reviews` (
   `rating` tinyint(1) NOT NULL DEFAULT 5,
   `comment` text DEFAULT NULL,
   `status` enum('pending','published','hidden') NOT NULL DEFAULT 'pending',
+  `owner_reply` text DEFAULT NULL,
+  `owner_reply_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -29360,6 +29874,7 @@ CREATE TABLE `stays_loyalty_config` (
   `org_id` int(11) NOT NULL,
   `enabled` tinyint(1) NOT NULL DEFAULT 0,
   `points_per_currency` decimal(10,4) NOT NULL DEFAULT 1.0000,
+  `redeem_value_per_point` decimal(10,4) NOT NULL DEFAULT 0.0000,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`org_id`)
@@ -29395,6 +29910,7 @@ CREATE TABLE `stays_guest_profiles` (
   `vip` tinyint(1) NOT NULL DEFAULT 0,
   `note` text DEFAULT NULL,
   `tags` varchar(191) DEFAULT NULL,
+  `preferences` varchar(500) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -29444,6 +29960,8 @@ CREATE TABLE `stays_owner_statements` (
   `owner_payout` decimal(14,2) NOT NULL DEFAULT 0.00,
   `status` enum('generated','paid') NOT NULL DEFAULT 'generated',
   `generated_by` varchar(155) DEFAULT NULL,
+  `paid_at` datetime DEFAULT NULL,
+  `payment_reference` varchar(191) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),

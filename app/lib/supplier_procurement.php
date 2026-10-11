@@ -24,10 +24,65 @@ if (!function_exists('proc_vendor_create')) {
                 'phone' => trim((string) ($d['phone'] ?? '')) ?: null,
                 'bank_code' => trim((string) ($d['bank_code'] ?? '')) ?: null,
                 'account_number' => trim((string) ($d['account_number'] ?? '')) ?: null,
+                'payment_terms' => trim((string) ($d['payment_terms'] ?? '')) ?: null,
+                'notes' => substr(trim((string) ($d['notes'] ?? '')), 0, 500) ?: null,
                 'status' => 1, 'created_at' => date('Y-m-d H:i:s'),
             ]);
             return (int) $db->id();
         } catch (\Throwable $e) { error_log('proc_vendor_create: ' . $e->getMessage()); return 0; }
+    }
+}
+
+if (!function_exists('ap_summary')) {
+    /**
+     * ACCOUNTS PAYABLE summary (PMS #36): what the property owes vendors. Derived from
+     * RECEIVED purchase orders (a GRN posts DR expense / CR AP, so a received PO is an
+     * amount owed). The platform does not yet record vendor payments, so this is the
+     * gross owed per vendor. Returns ['vendors'=>[['vendor_id','name','owed','pos']...],
+     * 'total'=>float, 'currency'=>string]. Read-only.
+     */
+    function ap_summary($db, int $orgId): array
+    {
+        $out = ['vendors' => [], 'total' => 0.0, 'currency' => 'USD'];
+        if ($orgId <= 0) { return $out; }
+        try {
+            $pos = $db->select('stays_purchase_orders', ['vendor_id', 'total', 'currency'],
+                ['org_id' => $orgId, 'status' => 'received']) ?: [];
+            if (empty($pos)) { return $out; }
+            $vendorNames = [];
+            foreach ($db->select('stays_vendors', ['id', 'name'], ['org_id' => $orgId]) ?: [] as $v) {
+                $vendorNames[(int) $v['id']] = (string) $v['name'];
+            }
+            $byVendor = [];
+            foreach ($pos as $po) {
+                $vid = (int) $po['vendor_id'];
+                if (!isset($byVendor[$vid])) { $byVendor[$vid] = ['vendor_id' => $vid, 'name' => $vendorNames[$vid] ?? ('#' . $vid), 'owed' => 0.0, 'pos' => 0]; }
+                $byVendor[$vid]['owed'] += (float) $po['total'];
+                $byVendor[$vid]['pos']++;
+                $out['total'] += (float) $po['total'];
+                if (!empty($po['currency'])) { $out['currency'] = strtoupper((string) $po['currency']); }
+            }
+            foreach ($byVendor as &$v) { $v['owed'] = round($v['owed'], 2); } unset($v);
+            // Highest owed first.
+            usort($byVendor, fn($a, $b) => $b['owed'] <=> $a['owed']);
+            $out['vendors'] = array_values($byVendor);
+            $out['total'] = round($out['total'], 2);
+        } catch (\Throwable $e) { error_log('ap_summary: ' . $e->getMessage()); }
+        return $out;
+    }
+}
+
+if (!function_exists('proc_vendor_verify')) {
+    /** Toggle a vendor's verified flag (PMS #43). Org-scoped. Returns bool. */
+    function proc_vendor_verify($db, int $orgId, int $vendorId, bool $verified): bool
+    {
+        if ($orgId <= 0 || $vendorId <= 0) { return false; }
+        try {
+            if (!$db->has('stays_vendors', ['id' => $vendorId, 'org_id' => $orgId])) { return false; }
+            $db->update('stays_vendors', ['verified' => $verified ? 1 : 0, 'updated_at' => date('Y-m-d H:i:s')],
+                ['id' => $vendorId, 'org_id' => $orgId]);
+            return true;
+        } catch (\Throwable $e) { error_log('proc_vendor_verify: ' . $e->getMessage()); return false; }
     }
 }
 
@@ -46,6 +101,56 @@ if (!function_exists('proc_item_create')) {
             ]);
             return (int) $db->id();
         } catch (\Throwable $e) { error_log('proc_item_create: ' . $e->getMessage()); return 0; }
+    }
+}
+
+if (!function_exists('proc_stock_move_types')) {
+    function proc_stock_move_types(): array
+    {
+        return ['adjust' => 'Adjustment', 'issue' => 'Issue / consumption', 'wastage' => 'Wastage', 'count' => 'Count correction'];
+    }
+}
+
+if (!function_exists('proc_stock_adjust')) {
+    /**
+     * Manually move stock (PMS #42): adjust/issue/wastage/count. $delta is the SIGNED
+     * change (negative to reduce). Atomic: locks the item, applies the delta floored at
+     * 0, and appends a stays_stock_moves ledger row. Returns ['ok','on_hand','message'].
+     */
+    function proc_stock_adjust($db, int $orgId, int $itemId, string $type, float $delta, string $reason = ''): array
+    {
+        if ($orgId <= 0 || $itemId <= 0) { return ['ok' => false, 'message' => 'Bad input']; }
+        if (!isset(proc_stock_move_types()[$type])) { $type = 'adjust'; }
+        if (abs($delta) < 0.0001) { return ['ok' => false, 'message' => 'Enter a non-zero quantity.']; }
+        $delta = round($delta, 3);
+
+        $result = ['ok' => false, 'message' => 'Could not adjust stock'];
+        try {
+            $db->action(function ($db) use ($orgId, $itemId, $type, $delta, $reason, &$result) {
+                $locked = $db->query('SELECT on_hand FROM stays_stock_items WHERE id=:i AND org_id=:o FOR UPDATE',
+                    [':i' => $itemId, ':o' => $orgId]);
+                $row = $locked ? $locked->fetch(\PDO::FETCH_ASSOC) : null;
+                if (!$row) { $result = ['ok' => false, 'message' => 'Stock item not found.']; return false; }
+                $cur = (float) $row['on_hand'];
+                $after = round(max(0.0, $cur + $delta), 3); // never below zero
+                $applied = round($after - $cur, 3);         // the delta actually applied (floor-aware)
+                $db->update('stays_stock_items', ['on_hand' => $after, 'updated_at' => date('Y-m-d H:i:s')],
+                    ['id' => $itemId, 'org_id' => $orgId]);
+                $db->insert('stays_stock_moves', [
+                    'org_id' => $orgId, 'item_id' => $itemId, 'move_type' => $type,
+                    'delta' => $applied, 'on_hand_after' => $after,
+                    'reason' => substr(trim($reason), 0, 255) ?: null,
+                    'actor' => (string) ($_SESSION['user_id'] ?? '') ?: null,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+                $result = ['ok' => true, 'on_hand' => $after, 'message' => 'Stock updated — on hand now ' . rtrim(rtrim(number_format($after, 3), '0'), '.') . '.'];
+                return true;
+            });
+        } catch (\Throwable $e) {
+            error_log('proc_stock_adjust: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not adjust stock.'];
+        }
+        return $result;
     }
 }
 
@@ -117,6 +222,25 @@ if (!function_exists('proc_po_order')) {
     }
 }
 
+if (!function_exists('proc_po_cancel')) {
+    /**
+     * Cancel a PO that has NOT been received (PMS #41) — draft or ordered → cancelled.
+     * A received PO has stock + GL postings and must not be cancelled here (reverse it
+     * with a credit/return flow instead — out of scope). State-guarded. Returns bool.
+     */
+    function proc_po_cancel($db, int $orgId, int $poId): bool
+    {
+        try {
+            $po = $db->get('stays_purchase_orders', ['id', 'status'], ['id' => $poId, 'org_id' => $orgId]);
+            if (!$po || !in_array($po['status'], ['draft', 'ordered'], true)) { return false; }
+            $upd = $db->update('stays_purchase_orders',
+                ['status' => 'cancelled', 'updated_at' => date('Y-m-d H:i:s')],
+                ['id' => $poId, 'org_id' => $orgId, 'status' => $po['status']]);
+            return $upd && $upd->rowCount() === 1;
+        } catch (\Throwable $e) { error_log('proc_po_cancel: ' . $e->getMessage()); return false; }
+    }
+}
+
 if (!function_exists('proc_po_receive')) {
     /**
      * GOODS RECEIPT (GRN): receive an 'ordered' PO. Idempotently (status guard) —
@@ -156,13 +280,21 @@ if (!function_exists('proc_po_receive')) {
                 }
 
                 // 2) Post the balanced GL entry (DR expense / CR AP) for the total.
+                //    FAIL-HARD: a failed GL post rolls back the WHOLE receive — including
+                //    the stock increment in step 1 above — so a PO is never marked
+                //    'received' with stock bumped but no expense/AP booked. gl_post is
+                //    idempotent on (org,source,reference) so a retry re-posts cleanly.
                 if ($total > 0 && function_exists('gl_post')) {
                     $gl = gl_post($db, $orgId, [
                         ['code' => '6000', 'debit' => $total],   // Operating expense (cost recognised)
                         ['code' => '2000', 'credit' => $total],  // Accounts payable (owed to vendor)
                     ], ['source' => 'grn', 'reference' => (string) $po['reference'], 'currency' => $currency,
                         'memo' => 'Goods received ' . $po['reference']]);
-                    if (empty($gl['ok'])) { error_log('proc_po_receive GL: ' . ($gl['message'] ?? '?')); }
+                    if (empty($gl['ok'])) {
+                        error_log('proc_po_receive GL: ' . ($gl['message'] ?? '?'));
+                        $result = ['ok' => false, 'message' => 'Could not post goods-received to the ledger; nothing changed.'];
+                        return false; // rollback the whole $db->action()
+                    }
                 }
 
                 // 3) Mark received.

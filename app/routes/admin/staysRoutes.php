@@ -247,6 +247,11 @@ $router->post(admin.'/stays/add', function () use ($SECURE,$db) {
         'amenity_ids' => $amenity_ids,
         'img' => !empty($images) ? json_encode($images) : null,
         'status' => 1,
+        // Admin IS the listing authority — an admin-created stay is self-approved so
+        // it is immediately public. (Supplier-created stays start 'draft' and must be
+        // admin-approved; the public sell path filters listing_status='approved'.)
+        // Without this an admin stay would default to 'draft' and never appear.
+        'listing_status' => 'approved',
         'created_at' => date('Y-m-d H:i:s'),
         'translations' => !empty($translations) ? json_encode($translations) : null
     ];
@@ -395,6 +400,7 @@ $router->get(admin.'/stays/edit/(.*)', function ($id) use ($SECURE,$db) {
 $router->post(admin.'/stays/edit/(.*)', function ($id) use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    CSRF::guard();
 
     $hotel_id = intval($id);
 
@@ -1564,6 +1570,7 @@ $router->post('/admin/stays/rooms/options/save', function() use ($db) {
     // room options. Every sibling handler in this file calls ADMIN_AUTH(); this
     // one (and its /delete pair) were missed.
     ADMIN_AUTH();
+    CSRF::guard(); // accepts the X-CSRF-TOKEN header the admin JS interceptor sends
     // Check if it's AJAX request
     if (!isset($_SERVER['HTTP_X_REQUESTED_WITH']) || strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) !== 'xmlhttprequest') {
         die(json_encode(['success' => false, 'message' => 'Invalid request']));
@@ -1652,6 +1659,7 @@ $router->post('/admin/stays/rooms/options/delete', function() use ($db) {
     // ADMIN AUTH CHECK — deletes a hotel room option. Was guarded only by a
     // forgeable X-Requested-With header (not authentication). See the /save pair.
     ADMIN_AUTH();
+    CSRF::guard(); // accepts the X-CSRF-TOKEN header the admin JS interceptor sends
     // Check if it's AJAX request
     if (!isset($_SERVER['HTTP_X_REQUESTED_WITH']) || strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) !== 'xmlhttprequest') {
         die(json_encode(['success' => false, 'message' => 'Invalid request']));

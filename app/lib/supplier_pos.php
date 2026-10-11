@@ -90,6 +90,34 @@ if (!function_exists('pos_order_add_item')) {
     }
 }
 
+if (!function_exists('pos_order_void')) {
+    /**
+     * VOID an OPEN order (PMS #30) — e.g. mis-punched / abandoned. Only an 'open' order
+     * can be voided (a settled order has money + possibly a room charge and must be
+     * refunded instead). State-guarded via a conditional UPDATE so a concurrent settle
+     * can't race it. Property-scoped by the caller. Returns ['ok','message'].
+     */
+    function pos_order_void($db, int $orderId, int $stayId, string $reason = ''): array
+    {
+        if ($orderId <= 0) { return ['ok' => false, 'message' => 'Bad input']; }
+        try {
+            $order = $db->get('pos_orders', ['id', 'status'], ['id' => $orderId, 'stay_id' => $stayId]);
+            if (!$order) { return ['ok' => false, 'message' => 'Order not found.']; }
+            if ($order['status'] !== 'open') { return ['ok' => false, 'message' => 'Only an open order can be voided (' . $order['status'] . ').']; }
+            $upd = $db->update('pos_orders', [
+                'status' => 'void',
+                'void_reason' => substr(trim($reason), 0, 191) ?: null,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ], ['id' => $orderId, 'stay_id' => $stayId, 'status' => 'open']);
+            if (!$upd || $upd->rowCount() !== 1) { return ['ok' => false, 'message' => 'The order was just settled or voided.']; }
+            return ['ok' => true, 'message' => 'Order voided.'];
+        } catch (\Throwable $e) {
+            error_log('pos_order_void: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not void the order.'];
+        }
+    }
+}
+
 if (!function_exists('pos_order_settle_cash')) {
     /** Settle an open order as CASH. Records a tender + marks the order settled.
      *  Server-computed amount. Returns ['ok'=>,'amount'=>,'message'=>]. */

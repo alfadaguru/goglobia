@@ -207,6 +207,10 @@ if (!function_exists('stays_inventory_set')) {
         $setMin    = array_key_exists('min_stay', $fields);
         $newMin    = $setMin ? (($fields['min_stay'] === null || $fields['min_stay'] === '') ? null : max(1, (int) $fields['min_stay'])) : null;
         if (!$setCount && !$setClosed && !$setMin) { return ['ok' => false, 'message' => 'Nothing to change']; }
+        // Optional audit context (PMS completion #05). A reason marks an "owner block"
+        // (e.g. a stop-sell for maintenance / owner use) and is logged, not stored on
+        // the night row.
+        $auditReason = trim((string) ($fields['reason'] ?? ''));
 
         // Seed ceiling for brand-new inventory rows from the option default (bridge).
         $options = stays_room_option_ids($db, $roomId, $stayId);
@@ -268,7 +272,59 @@ if (!function_exists('stays_inventory_set')) {
             error_log('stays_inventory_set: ' . $e->getMessage());
             return ['ok' => false, 'message' => 'Could not update availability.'];
         }
+
+        // AUDIT LOG (PMS completion #05) — one row describing this change. Non-fatal:
+        // a logging failure never undoes a successful availability change.
+        if (!empty($result['ok'])) {
+            try {
+                $parts = [];
+                if ($setCount)  { $parts[] = 'availability=' . $newCount; }
+                if ($setClosed) { $parts[] = $newClosed ? 'stop-sell ON' : 'stop-sell OFF'; }
+                if ($setMin)    { $parts[] = 'min-stay=' . ($newMin === null ? 'none' : $newMin); }
+                // Classify: a stop-sell WITH a reason is an "owner block"; otherwise by
+                // the single field changed, else 'mixed'.
+                $changedCount = ($setCount ? 1 : 0) + ($setClosed ? 1 : 0) + ($setMin ? 1 : 0);
+                if ($setClosed && $newClosed === 1 && $auditReason !== '') {
+                    $type = 'owner_block';
+                } elseif ($changedCount === 1) {
+                    $type = $setCount ? 'availability' : ($setClosed ? 'stop_sell' : 'min_stay');
+                } else {
+                    $type = 'mixed';
+                }
+                $orgId = function_exists('supplier_property_org') ? supplier_property_org($db, $stayId) : 0;
+                $db->insert('stays_inventory_audit', [
+                    'org_id'      => $orgId > 0 ? $orgId : null,
+                    'stay_id'     => $stayId,
+                    'room_id'     => $roomId,
+                    'option_id'   => $optionId,
+                    'date_from'   => $dates[0],
+                    'date_to'     => $dates[count($dates) - 1],
+                    'change_type' => $type,
+                    'detail'      => substr(implode('; ', $parts), 0, 500) ?: null,
+                    'reason'      => $auditReason !== '' ? substr($auditReason, 0, 255) : null,
+                    'actor'       => (string) ($_SESSION['user_id'] ?? '') ?: null,
+                    'created_at'  => $now,
+                ]);
+            } catch (\Throwable $e) {
+                error_log('stays_inventory_set audit: ' . $e->getMessage());
+            }
+        }
         return $result;
+    }
+}
+
+if (!function_exists('stays_inventory_audit_list')) {
+    /** Recent inventory-change audit entries for a property (read-only). */
+    function stays_inventory_audit_list($db, int $stayId, int $limit = 100): array
+    {
+        if ($stayId <= 0) { return []; }
+        try {
+            return $db->select('stays_inventory_audit', '*',
+                ['stay_id' => $stayId, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => max(1, $limit)]) ?: [];
+        } catch (\Throwable $e) {
+            error_log('stays_inventory_audit_list: ' . $e->getMessage());
+            return [];
+        }
     }
 }
 

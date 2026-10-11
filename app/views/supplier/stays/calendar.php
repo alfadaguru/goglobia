@@ -39,6 +39,50 @@ $calBase = $base . '/' . $roomId . '/calendar';
     <?php unset($_SESSION['message']); ?>
   <?php endif; ?>
 
+  <?php if ($canEdit && !empty($options)): ?>
+  <!-- Bulk / seasonal pricing (PMS completion #06). Writes per-night prices into the
+       calendar the live booking path reads — flat, weekday/weekend split, or a
+       seasonal % adjustment over a date range. -->
+  <details class="card p-4">
+    <summary class="cursor-pointer text-sm font-semibold text-gray-900">Bulk &amp; seasonal pricing</summary>
+    <form action="<?= root ?>supplier/stays/<?= $stayId ?>/rooms/<?= $roomId ?>/bulk-price" method="POST" class="mt-3 flex flex-wrap items-end gap-2">
+      <?= CSRF::tokenField() ?>
+      <div><label class="block text-xs text-gray-600 mb-1">Rate</label>
+        <select name="option_id" class="input text-sm" required>
+          <?php foreach ($options as $i => $o): $oid = (int) ($o['option_id'] ?? ($i + 1)); ?>
+            <option value="<?= $oid ?>">Rate #<?= $oid ?><?= isset($o['price']) ? ' · ' . $currency . ' ' . number_format((float) $o['price'], 2) : '' ?></option>
+          <?php endforeach; ?>
+        </select></div>
+      <div><label class="block text-xs text-gray-600 mb-1">From</label><input type="date" name="date_from" class="input text-sm" required></div>
+      <div><label class="block text-xs text-gray-600 mb-1">To (incl.)</label><input type="date" name="date_to" class="input text-sm" required></div>
+      <div><label class="block text-xs text-gray-600 mb-1">Mode</label>
+        <select name="mode" id="bulkMode" class="input text-sm">
+          <option value="flat">Flat price</option>
+          <option value="split">Weekday / weekend</option>
+          <option value="adjust">Adjust existing by %</option>
+        </select></div>
+      <div class="bulk-price-field"><label class="block text-xs text-gray-600 mb-1"><span id="wdLabel">Price</span> (<?= $currency ?>)</label><input type="number" step="0.01" min="0" name="weekday_price" class="input text-sm w-28"></div>
+      <div class="bulk-price-field bulk-weekend hidden"><label class="block text-xs text-gray-600 mb-1">Weekend (<?= $currency ?>)</label><input type="number" step="0.01" min="0" name="weekend_price" class="input text-sm w-28"></div>
+      <div class="bulk-pct-field hidden"><label class="block text-xs text-gray-600 mb-1">Adjust %</label><input type="number" step="0.01" name="percent" class="input text-sm w-24" placeholder="e.g. 15 or -10"></div>
+      <button type="submit" class="btn emerald text-sm">Apply pricing</button>
+    </form>
+    <p class="text-xs text-gray-400 mt-2">Weekend = Fri/Sat/Sun. "Adjust %" multiplies each night's current price (or the rate's base when a night has no override). Prices write to the live booking calendar immediately.</p>
+  </details>
+  <script>
+  (function () {
+    var mode = document.getElementById('bulkMode'); if (!mode) { return; }
+    function upd() {
+      var m = mode.value;
+      document.querySelectorAll('.bulk-weekend').forEach(function(e){ e.classList.toggle('hidden', m !== 'split'); });
+      document.querySelectorAll('.bulk-pct-field').forEach(function(e){ e.classList.toggle('hidden', m !== 'adjust'); });
+      document.querySelectorAll('.bulk-price-field:not(.bulk-weekend)').forEach(function(e){ e.classList.toggle('hidden', m === 'adjust'); });
+      var wd = document.getElementById('wdLabel'); if (wd) { wd.textContent = (m === 'split') ? 'Weekday' : 'Price'; }
+    }
+    mode.addEventListener('change', upd); upd();
+  })();
+  </script>
+  <?php endif; ?>
+
   <!-- Header + month nav -->
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
     <div>
