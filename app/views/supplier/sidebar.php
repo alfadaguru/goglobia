@@ -118,6 +118,7 @@ if ($activeStay > 0) {
     if ($isOwner) {
         $groups[] = ['label' => 'Finance & stores', 'items' => [
             ['name' => 'Finance',         'icon' => 'account_balance_wallet', 'url' => 'supplier/finance', 'show' => true],
+            ['name' => 'Cashier',         'icon' => 'point_of_sale',    'url' => 'supplier/cashier', 'show' => true],
             ['name' => 'Payouts',         'icon' => 'account_balance',  'url' => 'supplier/payouts', 'show' => true],
             ['name' => 'Property owners', 'icon' => 'real_estate_agent','url' => 'supplier/owners', 'show' => true],
             ['name' => 'Procurement',     'icon' => 'inventory_2',      'url' => 'supplier/procurement', 'show' => true],

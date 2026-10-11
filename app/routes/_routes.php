@@ -53,6 +53,7 @@ require_once 'app/routes/users/supplierProcurementRoutes.php'; // procurement â€
 require_once 'app/routes/users/supplierEventsRoutes.php'; // events / MICE â€” spaces + event bookings + folio (inc S33)
 require_once 'app/routes/users/supplierGroupsRoutes.php'; // group & block reservations (inc S38)
 require_once 'app/routes/users/supplierFinanceRoutes.php'; // GL trial balance + P&L + balance sheet (PMS #34)
+require_once 'app/routes/users/supplierCashierRoutes.php'; // cashier shifts + cash movements (PMS Phase 2)
 require_once 'app/routes/users/supplierCalendarRoutes.php'; // reservation calendar / tape-chart (inc S39)
 require_once 'app/routes/users/supplierRequestRoutes.php'; // post-approval service/quota request flow (inc S34)
 require_once 'app/routes/users/supplierRolesRoutes.php'; // supplier-defined roles + property scope (inc 4)

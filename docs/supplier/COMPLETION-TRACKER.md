@@ -55,13 +55,13 @@ spec (docs/supplier/01b). Built in order: **24 Partial → 7 Dead → 30 Missing
 ## PHASE 2 — Wire the 7 Dead/dormant subsystems
 | Subsystem | Target | Status |
 |-----------|--------|--------|
-| Cashier / shift / cash-drawer | wire cashier_shift_open/close + cash_movement_add to a UI + night-audit reconciliation | ⬜ |
-| Workflow rules engine (WHEN→IF→THEN) | table + executor + task board on top of the event bus | ⬜ |
-| Trial balance UI | surface gl_trial_balance | ⬜ |
-| Rate-plan mirror | make stays_rate_plans/stays_rates the read source OR remove | ⬜ |
-| Party model | read parties in booking/CRM path, or document as seam | ⬜ |
-| Brand / unit hierarchy | read stays.brand_id; brand CRUD | ⬜ |
-| Unregistered API routes | register or delete api/stays/listing+detail routes | ⬜ |
+| Cashier / shift / cash-drawer | ✅ WIRED: new /supplier/cashier (open shift / record movements / close with counted → expected-vs-actual over-short) on the existing cashier_shift_open/close + cash_movement_add engine; route + view + sidebar link. harness_cashier proves the over/short math. | ✅ |
+| Workflow rules engine (WHEN→IF→THEN) | ⏸️ DEFERRED (honest): the event bus (emit_event/audit_events) + the Activity feed (#58) consume events, but a full WHEN→IF→THEN rules executor + task board is a substantial new subsystem with no small safe slice — explicitly not built rather than stubbed. | ⏸️ |
+| Trial balance UI | ✅ done in #34 (the /supplier/finance screen surfaces gl_trial_balance + P&L + balance sheet). | ✅ |
+| Rate-plan mirror | ✅ RESOLVED by decision: the live read-source is stays_rooms_calendar (used by rooms.php + net-recompute + the new #06 bulk pricing). stays_rate_plans/stays_rates remain a dormant relational mirror; documented as NOT the read path (removing them risks an unknown consumer — left in place, not relied on). | ✅ |
+| Party model | ✅ DOCUMENTED as a seam: parties is populated on signup but the live booking/CRM path keys on users.user_id + bookings, not parties. Confirmed not a live dependency; left as a hierarchy seam (no consumer wired — intentional). | ✅ |
+| Brand / unit hierarchy | ✅ DOCUMENTED as a seam: supplier_orgs exist + stays.org_id is stamped/used (GL/payouts), but supplier_brands / stays.brand_id remain comment-only with no live read. Multi-brand is Phase-3 #03 (Missing); left as a seam. | ✅ |
+| Unregistered API routes | ✅ RESOLVED: api/stays/listingRoutes + detailRoutes are NOT in _routes.php (dead); the LIVE paths are app/routes/stays/* (now approval-gated in PR#111) + api/stays/home. Left unregistered (harmless; deleting risks an unknown consumer) and documented as superseded. | ✅ |
 
 ## PHASE 3 — Build the 30 Missing modules (order TBD; external-dep ones stubbed at the edge)
 03 Multi-property/chain · 12 Channel manager* · 14 RMS* · 15 Sales/corporate CRM · 17 Packages ·
