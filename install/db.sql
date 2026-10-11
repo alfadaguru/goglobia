@@ -29348,6 +29348,28 @@ CREATE TABLE `stays_stock_items` (
 
 -- --------------------------------------------------------
 
+--
+-- Stock moves (PMS #42): append-only ledger of manual stock adjustments / issues
+-- (consumption, wastage, count corrections) behind on_hand changes. See
+-- app/lib/supplier_procurement.php (proc_stock_adjust).
+--
+CREATE TABLE `stays_stock_moves` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `item_id` int(11) NOT NULL,
+  `move_type` enum('adjust','issue','wastage','count') NOT NULL DEFAULT 'adjust',
+  `delta` decimal(14,3) NOT NULL,
+  `on_hand_after` decimal(14,3) NOT NULL DEFAULT 0.000,
+  `reason` varchar(255) DEFAULT NULL,
+  `actor` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_org_item` (`org_id`,`item_id`),
+  KEY `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
 CREATE TABLE `stays_purchase_orders` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `org_id` int(11) NOT NULL,

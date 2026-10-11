@@ -8345,6 +8345,24 @@ function ensureSupplierStaysSchema($db): void
             PRIMARY KEY (`id`), KEY `idx_org` (`org_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // Stock moves (PMS #42): an append-only ledger of manual stock adjustments /
+        // issues (consumption, wastage, count corrections) — the audit trail behind
+        // on_hand changes that are NOT goods-receipts. GRN increments stay on the PO.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_stock_moves` (
+            `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `item_id` INT(11) NOT NULL,
+            `move_type` ENUM('adjust','issue','wastage','count') NOT NULL DEFAULT 'adjust',
+            `delta` DECIMAL(14,3) NOT NULL,
+            `on_hand_after` DECIMAL(14,3) NOT NULL DEFAULT 0.000,
+            `reason` VARCHAR(255) DEFAULT NULL,
+            `actor` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_org_item` (`org_id`,`item_id`),
+            KEY `idx_created` (`created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         $db->query("CREATE TABLE IF NOT EXISTS `stays_purchase_orders` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,
             `org_id` INT(11) NOT NULL,

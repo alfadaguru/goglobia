@@ -49,6 +49,56 @@ if (!function_exists('proc_item_create')) {
     }
 }
 
+if (!function_exists('proc_stock_move_types')) {
+    function proc_stock_move_types(): array
+    {
+        return ['adjust' => 'Adjustment', 'issue' => 'Issue / consumption', 'wastage' => 'Wastage', 'count' => 'Count correction'];
+    }
+}
+
+if (!function_exists('proc_stock_adjust')) {
+    /**
+     * Manually move stock (PMS #42): adjust/issue/wastage/count. $delta is the SIGNED
+     * change (negative to reduce). Atomic: locks the item, applies the delta floored at
+     * 0, and appends a stays_stock_moves ledger row. Returns ['ok','on_hand','message'].
+     */
+    function proc_stock_adjust($db, int $orgId, int $itemId, string $type, float $delta, string $reason = ''): array
+    {
+        if ($orgId <= 0 || $itemId <= 0) { return ['ok' => false, 'message' => 'Bad input']; }
+        if (!isset(proc_stock_move_types()[$type])) { $type = 'adjust'; }
+        if (abs($delta) < 0.0001) { return ['ok' => false, 'message' => 'Enter a non-zero quantity.']; }
+        $delta = round($delta, 3);
+
+        $result = ['ok' => false, 'message' => 'Could not adjust stock'];
+        try {
+            $db->action(function ($db) use ($orgId, $itemId, $type, $delta, $reason, &$result) {
+                $locked = $db->query('SELECT on_hand FROM stays_stock_items WHERE id=:i AND org_id=:o FOR UPDATE',
+                    [':i' => $itemId, ':o' => $orgId]);
+                $row = $locked ? $locked->fetch(\PDO::FETCH_ASSOC) : null;
+                if (!$row) { $result = ['ok' => false, 'message' => 'Stock item not found.']; return false; }
+                $cur = (float) $row['on_hand'];
+                $after = round(max(0.0, $cur + $delta), 3); // never below zero
+                $applied = round($after - $cur, 3);         // the delta actually applied (floor-aware)
+                $db->update('stays_stock_items', ['on_hand' => $after, 'updated_at' => date('Y-m-d H:i:s')],
+                    ['id' => $itemId, 'org_id' => $orgId]);
+                $db->insert('stays_stock_moves', [
+                    'org_id' => $orgId, 'item_id' => $itemId, 'move_type' => $type,
+                    'delta' => $applied, 'on_hand_after' => $after,
+                    'reason' => substr(trim($reason), 0, 255) ?: null,
+                    'actor' => (string) ($_SESSION['user_id'] ?? '') ?: null,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+                $result = ['ok' => true, 'on_hand' => $after, 'message' => 'Stock updated — on hand now ' . rtrim(rtrim(number_format($after, 3), '0'), '.') . '.'];
+                return true;
+            });
+        } catch (\Throwable $e) {
+            error_log('proc_stock_adjust: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not adjust stock.'];
+        }
+        return $result;
+    }
+}
+
 if (!function_exists('proc_po_total')) {
     /** Server-side PO total from its line unit costs × qty. */
     function proc_po_total($db, int $poId): float

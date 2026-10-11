@@ -64,6 +64,21 @@ $router->post('/supplier/procurement/item', function () use ($SECURE, $db) {
     header('Location: ' . $back); exit;
 });
 
+// POST stock adjust / issue / wastage / count (PMS #42)
+$router->post('/supplier/procurement/stock-adjust', function () use ($SECURE, $db) {
+    SUPPLIER_AUTH(); CSRF::guard();
+    $orgId = _proc_org($db); $back = root . 'supplier/procurement';
+    if ($orgId <= 0) { _supplier_stays_deny('Only the owner can manage procurement.'); }
+    $itemId = (int) ($_POST['item_id'] ?? 0);
+    $type = strtolower(trim((string) ($_POST['move_type'] ?? 'adjust')));
+    $qty = (float) ($_POST['qty'] ?? 0);
+    // 'issue'/'wastage' reduce stock; 'adjust'/'count' use the signed qty as entered.
+    $delta = in_array($type, ['issue', 'wastage'], true) ? -abs($qty) : $qty;
+    $res = function_exists('proc_stock_adjust') ? proc_stock_adjust($db, $orgId, $itemId, $type, $delta, (string) ($_POST['reason'] ?? '')) : ['ok' => false, 'message' => 'Unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not adjust stock.'];
+    header('Location: ' . $back); exit;
+});
+
 // POST PO create (draft)
 $router->post('/supplier/procurement/po', function () use ($SECURE, $db) {
     SUPPLIER_AUTH(); CSRF::guard();

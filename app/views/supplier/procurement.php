@@ -68,6 +68,24 @@ $stColor = ['draft'=>'bg-gray-100 text-gray-600','ordered'=>'bg-blue-50 text-blu
         <input type="number" name="reorder_level" step="0.001" min="0" class="input text-sm w-20" placeholder="reorder">
         <button type="submit" class="btn secondary text-sm">Add item</button>
       </form>
+
+      <!-- Stock adjust / issue / wastage / count (PMS #42) -->
+      <?php if (!empty($items)): ?>
+      <form action="<?= $base ?>/stock-adjust" method="POST" class="flex flex-wrap items-end gap-2 border-t border-gray-100 pt-3 mt-3">
+        <?= CSRF::tokenField() ?>
+        <select name="item_id" class="input text-sm" required><?php foreach ($items as $it): ?><option value="<?= (int) $it['id'] ?>"><?= htmlspecialchars((string) $it['name']) ?></option><?php endforeach; ?></select>
+        <select name="move_type" class="input text-sm">
+          <option value="issue">Issue / consume</option>
+          <option value="wastage">Wastage</option>
+          <option value="adjust">Adjust (+/−)</option>
+          <option value="count">Count correction (+/−)</option>
+        </select>
+        <input type="number" name="qty" step="0.001" class="input text-sm w-24" placeholder="qty" required>
+        <input type="text" name="reason" class="input text-sm w-32" placeholder="reason">
+        <button type="submit" class="btn secondary text-sm">Apply</button>
+      </form>
+      <p class="text-xs text-gray-400 mt-1">Issue/Wastage reduce stock; Adjust/Count take the quantity as entered (use a negative to reduce). Stock never goes below zero.</p>
+      <?php endif; ?>
     </div>
   </div>
 
