@@ -384,6 +384,30 @@ if (!function_exists('stays_hold_release')) {
     }
 }
 
+if (!function_exists('stays_hold_supersede_ref')) {
+    /**
+     * Release EVERY still-active hold (both 'held' AND 'consumed') for a booking
+     * reference — used when a reservation's dates or room CHANGE, so the old nights
+     * are freed before the new ones are held. Unlike stays_hold_release (which only
+     * touches 'held', preserving a paid booking's permanent hold), this also frees a
+     * 'consumed' hold because the booking is being re-held elsewhere in the SAME
+     * transaction. MUST be called inside a transaction that then re-creates the hold,
+     * or the seat is left un-held. Returns rows affected.
+     */
+    function stays_hold_supersede_ref($db, string $ref): int
+    {
+        if ($ref === '') { return 0; }
+        try {
+            $stmt = $db->update('stays_holds', ['state' => 'released'],
+                ['ref' => $ref, 'state' => ['held', 'consumed']]);
+            return $stmt ? (int) $stmt->rowCount() : 0;
+        } catch (\Throwable $e) {
+            error_log('stays_hold_supersede_ref: ' . $e->getMessage());
+            return 0;
+        }
+    }
+}
+
 if (!function_exists('stays_holds_expire_sweep')) {
     /** Mark expired holds (state=held, past expires_at) as 'expired'. Cron-friendly. */
     function stays_holds_expire_sweep($db): int

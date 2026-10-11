@@ -22,7 +22,7 @@ spec (docs/supplier/01b). Built in order: **24 Partial → 7 Dead → 30 Missing
 | # | Module | Target gaps to close (from report) | Status |
 |---|--------|-------------------------------------|--------|
 | 02 | Property setup & config | ✅ amenity picker (real checkboxes, JSON-synced, e2e to public detail); ✅ gallery delete + set-main (honored by public detail `default===true`). Deferred: timezone (new col, low value) → folds into #07; tax-profile → folds into #38 finance; physical-room registry already exists (stays_physical_rooms) surfaced in #07 front-desk | ✅ |
-| 04 | Reservation mgmt | create (walk-in/phone/online), modify, extend, shorten, transfer, split, merge, waitlist, source tracking | ⬜ |
+| 04 | Reservation mgmt | 🔨 ENGINE built + harnessed (supplier_reservation_ops.php): walk-in create (server-priced+hold), modify-dates (extend/shorten/move), transfer-room, waitlist (new stays_waitlist table in both schema sources), source tagging — atomic re-hold proven by harness_resv_rehold.php. STILL TO WIRE: routes + views (inbox "New reservation" form, modify/transfer/waitlist UI). split/merge deferred (noted). | 🔨 |
 | 05 | Room & unit inventory | owner blocks, room mapping, forecasting, inventory audit, enforce min_stay in hold engine | ⬜ |
 | 06 | Rates, pricing & rate plans | make rate_plans/rates READ (not dead mirror); seasonal, weekday/weekend, LOS, early-bird, last-minute, advance-window, bulk price, CTA/CTD | ⬜ |
 | 07 | Front desk ops | walk-ins, room changes, early/late, express checkout, registration cards, ID verify, VIP, traces, wake-up, shift handover, manifests | ⬜ |

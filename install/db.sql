@@ -28922,6 +28922,33 @@ CREATE TABLE `stays_work_orders` (
 -- --------------------------------------------------------
 
 --
+-- Reservation waitlist (PMS completion #04). Holds NO inventory — a lead the front
+-- desk converts to a walk-in when space frees up. See app/lib/supplier_reservation_ops.php.
+--
+CREATE TABLE `stays_waitlist` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `room_id` int(11) DEFAULT NULL,
+  `guest_name` varchar(120) NOT NULL,
+  `email` varchar(191) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `checkin` date NOT NULL,
+  `checkout` date NOT NULL,
+  `pax` int(11) NOT NULL DEFAULT 1,
+  `status` enum('waiting','converted','cancelled') NOT NULL DEFAULT 'waiting',
+  `notes` varchar(1000) DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`),
+  KEY `idx_dates` (`stay_id`,`checkin`,`checkout`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Out-of-order blocks (inc S23). An active block decrements pooled stays_inventory
 -- by 1 per option/date for the room's type; clearing restores +1. Reversible,
 -- state-guarded. Managed by app/lib/supplier_maintenance.php.

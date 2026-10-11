@@ -7935,6 +7935,31 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_room` (`physical_room_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- reservations (PMS completion #04): waitlist ----------------------------
+        // A waitlisted request holds NO inventory — it is a lead the front desk can
+        // convert to a walk-in booking when space frees up. See
+        // app/lib/supplier_reservation_ops.php (resv_waitlist_add/_set_status).
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_waitlist` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `room_id` INT(11) DEFAULT NULL,
+            `guest_name` VARCHAR(120) NOT NULL,
+            `email` VARCHAR(191) DEFAULT NULL,
+            `phone` VARCHAR(40) DEFAULT NULL,
+            `checkin` DATE NOT NULL,
+            `checkout` DATE NOT NULL,
+            `pax` INT(11) NOT NULL DEFAULT 1,
+            `status` ENUM('waiting','converted','cancelled') NOT NULL DEFAULT 'waiting',
+            `notes` VARCHAR(1000) DEFAULT NULL,
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`),
+            KEY `idx_dates` (`stay_id`,`checkin`,`checkout`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         $db->query("CREATE TABLE IF NOT EXISTS `stays_ooo_blocks` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,
             `stay_id` INT(11) NOT NULL,
