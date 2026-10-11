@@ -8396,12 +8396,19 @@ function ensureSupplierStaysSchema($db): void
             `vip` TINYINT(1) NOT NULL DEFAULT 0,
             `note` TEXT DEFAULT NULL,
             `tags` VARCHAR(191) DEFAULT NULL,
+            `preferences` VARCHAR(500) DEFAULT NULL,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
             PRIMARY KEY (`id`),
             UNIQUE KEY `uq_org_email` (`org_id`,`email`),
             KEY `idx_org` (`org_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #18): guest preferences / demographics free-text. Guarded ALTER.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `stays_guest_profiles` LIKE 'preferences'")->fetch()) {
+                $db->query("ALTER TABLE `stays_guest_profiles` ADD COLUMN `preferences` VARCHAR(500) DEFAULT NULL AFTER `tags`");
+            }
+        } catch (\Throwable $e) { error_log('guest preferences col: ' . $e->getMessage()); }
 
         $db->query("CREATE TABLE IF NOT EXISTS `stays_owner_statements` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,

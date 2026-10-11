@@ -50,7 +50,8 @@ $stBadge = ['confirmed'=>'bg-green-50 text-green-700','pending'=>'bg-amber-50 te
       <?= CSRF::tokenField() ?>
       <label class="inline-flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" name="vip" value="1" class="checkbox-input" <?= !empty($meta['vip']) ? 'checked' : '' ?>> Mark as VIP</label>
       <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Tags</label><input type="text" name="tags" class="input text-sm" value="<?= htmlspecialchars((string) $meta['tags']) ?>" placeholder="e.g. corporate, allergy:nuts"></div>
-      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Notes &amp; preferences</label><textarea name="note" rows="3" class="input text-sm"><?= htmlspecialchars((string) $meta['note']) ?></textarea></div>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Preferences / demographics</label><input type="text" name="preferences" class="input text-sm" value="<?= htmlspecialchars((string) ($meta['preferences'] ?? '')) ?>" placeholder="e.g. high floor, feather-free, Spanish-speaking"></div>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Notes</label><textarea name="note" rows="3" class="input text-sm"><?= htmlspecialchars((string) $meta['note']) ?></textarea></div>
       <button type="submit" class="btn secondary text-sm">Save profile</button>
     </form>
   </div>

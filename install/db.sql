@@ -29447,6 +29447,7 @@ CREATE TABLE `stays_guest_profiles` (
   `vip` tinyint(1) NOT NULL DEFAULT 0,
   `note` text DEFAULT NULL,
   `tags` varchar(191) DEFAULT NULL,
+  `preferences` varchar(500) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),

@@ -100,6 +100,7 @@ $router->post('/supplier/guests/([A-Za-z0-9_-]+)/note', function ($token) use ($
 
     $ok = function_exists('guest_profile_save') && guest_profile_save($db, $c['org'], $email, [
         'vip' => isset($_POST['vip']), 'note' => $_POST['note'] ?? '', 'tags' => $_POST['tags'] ?? '',
+        'preferences' => $_POST['preferences'] ?? '',
     ]);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Guest profile saved.' : 'Could not save.'];
     header('Location: ' . $back); exit;
