@@ -8906,6 +8906,42 @@ function ensureSupplierStaysSchema($db): void
             $db->query("ALTER TABLE `stays` ADD COLUMN `cleaning_fee` DECIMAL(14,2) DEFAULT NULL");
             $db->query("ALTER TABLE `stays` ADD COLUMN `security_deposit` DECIMAL(14,2) DEFAULT NULL");
         }
+
+        // --- MODULE 02 (property setup → 360): structured house rules + per-property
+        //     timezone + a first-class buildings/blocks & floors/wings registry. ----------
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'house_rules'")->fetch()) {
+            // Structured house rules (JSON: smoking, pets, parties, quiet_hours,
+            // children_allowed, extra free-text) — distinct from the cancellation/privacy
+            // policy free-text already present.
+            $db->query("ALTER TABLE `stays` ADD COLUMN `house_rules` TEXT DEFAULT NULL");
+        }
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'timezone'")->fetch()) {
+            // Per-property IANA timezone (e.g. 'Africa/Lagos'). Night audit / front desk
+            // read it for the property's local business day. Null → platform default.
+            $db->query("ALTER TABLE `stays` ADD COLUMN `timezone` VARCHAR(64) DEFAULT NULL");
+        }
+        // Buildings / blocks, each carrying its floors/wings. A physical room belongs to
+        // one building (optional) and names its wing. First-class so large properties can
+        // model structure; small ones ignore it (physical rooms keep working with null).
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_buildings` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `name` VARCHAR(120) NOT NULL,
+            `kind` ENUM('building','block','wing','tower') NOT NULL DEFAULT 'building',
+            `floors` VARCHAR(255) DEFAULT NULL,
+            `sort` INT(11) NOT NULL DEFAULT 0,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Link a physical room to a building + wing (both optional / additive).
+        if (!$db->query("SHOW COLUMNS FROM `stays_physical_rooms` LIKE 'building_id'")->fetch()) {
+            $db->query("ALTER TABLE `stays_physical_rooms` ADD COLUMN `building_id` INT(11) DEFAULT NULL");
+            $db->query("ALTER TABLE `stays_physical_rooms` ADD COLUMN `wing` VARCHAR(60) DEFAULT NULL");
+        }
     } catch (\Throwable $e) {
         // Never break the page over a migration (e.g. a DB user without ALTER).
         error_log('ensureSupplierStaysSchema: ' . $e->getMessage());

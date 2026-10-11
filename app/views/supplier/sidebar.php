@@ -71,6 +71,7 @@ if ($activeStay > 0) {
     $pmItems = [
         ['name' => 'Overview',      'icon' => 'dashboard',        'url' => 'supplier/stays/' . $sid, 'show' => true],
         ['name' => 'Rooms & rates', 'icon' => 'bed',              'url' => 'supplier/stays/' . $sid . '/rooms', 'show' => $can('rooms', 'view', $sid)],
+        ['name' => 'Buildings',     'icon' => 'apartment',        'url' => 'supplier/stays/' . $sid . '/buildings', 'show' => $can('hotels', 'view', $sid)],
         ['name' => 'Calendar',      'icon' => 'calendar_month',   'url' => 'supplier/calendar' . $q, 'show' => $can('rates', 'view', $sid)],
         ['name' => 'Reservations',  'icon' => 'receipt_long',     'url' => 'supplier/reservations' . $q, 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Groups & blocks','icon' => 'groups_3',        'url' => 'supplier/groups' . $q, 'show' => $can('reservations', 'view', $sid)],

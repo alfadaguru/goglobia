@@ -156,6 +156,40 @@
       <textarea name="cancellation_policy" rows="2" class="input"><?= htmlspecialchars($s['cancellation_policy'] ?? '') ?></textarea>
     </div>
 
+    <?php
+      // MODULE 02: per-property timezone + structured house rules.
+      $hr = function_exists('house_rules_decode') ? house_rules_decode($s['house_rules'] ?? null) : ['smoking_allowed'=>false,'pets_allowed'=>false,'parties_allowed'=>false,'children_allowed'=>true,'quiet_hours'=>'','additional'=>''];
+      $tzList = function_exists('timezone_identifiers_list') ? timezone_identifiers_list() : [];
+      $curTz = (string) ($s['timezone'] ?? '');
+    ?>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="form-control">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
+        <select name="timezone" class="input">
+          <option value="">— platform default —</option>
+          <?php foreach ($tzList as $tz): ?>
+            <option value="<?= htmlspecialchars($tz) ?>" <?= $curTz === $tz ? 'selected' : '' ?>><?= htmlspecialchars($tz) ?></option>
+          <?php endforeach; ?>
+        </select>
+        <p class="text-xs text-gray-500 mt-1">Used for the property's local business day (night audit, front desk).</p>
+      </div>
+      <div class="form-control">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Quiet hours</label>
+        <input type="text" name="quiet_hours" class="input" value="<?= htmlspecialchars($hr['quiet_hours']) ?>" placeholder="e.g. 22:00–07:00">
+      </div>
+    </div>
+
+    <div class="form-control">
+      <label class="block text-sm font-medium text-gray-700 mb-2">House rules</label>
+      <div class="flex flex-wrap gap-4">
+        <label class="inline-flex items-center gap-1.5 text-sm text-gray-700"><input type="checkbox" name="smoking_allowed" value="1" class="checkbox-input" <?= $hr['smoking_allowed'] ? 'checked' : '' ?>> Smoking allowed</label>
+        <label class="inline-flex items-center gap-1.5 text-sm text-gray-700"><input type="checkbox" name="pets_allowed" value="1" class="checkbox-input" <?= $hr['pets_allowed'] ? 'checked' : '' ?>> Pets allowed</label>
+        <label class="inline-flex items-center gap-1.5 text-sm text-gray-700"><input type="checkbox" name="parties_allowed" value="1" class="checkbox-input" <?= $hr['parties_allowed'] ? 'checked' : '' ?>> Parties / events</label>
+        <label class="inline-flex items-center gap-1.5 text-sm text-gray-700"><input type="checkbox" name="children_allowed" value="1" class="checkbox-input" <?= $hr['children_allowed'] ? 'checked' : '' ?>> Children welcome</label>
+      </div>
+      <textarea name="additional" rows="2" class="input mt-2" placeholder="Additional house rules (free text)"><?= htmlspecialchars($hr['additional']) ?></textarea>
+    </div>
+
     <div class="form-control">
       <label class="block text-sm font-medium text-gray-700 mb-1">Photos<?= $isEdit ? ' (add more)' : '' ?></label>
       <input type="file" name="hotel_images[]" multiple accept="image/*" class="input">

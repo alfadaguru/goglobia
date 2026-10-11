@@ -198,6 +198,8 @@ $router->post('/supplier/stays/add', function () use ($SECURE, $db) {
         'refundable'      => isset($_POST['refundable']) ? 1 : 0,
         'amenity_ids'     => trim($_POST['amenity_ids'] ?? '[]'),
         'cancellation_policy' => trim($_POST['cancellation_policy'] ?? '') ?: null,
+        'house_rules'     => function_exists('house_rules_normalize') ? house_rules_normalize($_POST) : null,
+        'timezone'        => (function_exists('property_timezone_valid') && property_timezone_valid((string) ($_POST['timezone'] ?? ''))) ? (trim((string) ($_POST['timezone'] ?? '')) ?: null) : null,
         'img'             => !empty($images) ? json_encode($images) : null,
         // Supplier-created listings start OFFLINE + DRAFT: not live (status 0) and
         // pending per-listing approval (listing_status draft). Admin create used 1;
@@ -408,6 +410,8 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
         'refundable'      => isset($_POST['refundable']) ? 1 : 0,
         'amenity_ids'     => trim($_POST['amenity_ids'] ?? '[]'),
         'cancellation_policy' => trim($_POST['cancellation_policy'] ?? '') ?: null,
+        'house_rules'     => function_exists('house_rules_normalize') ? house_rules_normalize($_POST) : null,
+        'timezone'        => (function_exists('property_timezone_valid') && property_timezone_valid((string) ($_POST['timezone'] ?? ''))) ? (trim((string) ($_POST['timezone'] ?? '')) ?: null) : null,
         'updated_at'      => date('Y-m-d H:i:s'),
     ];
     // Only rewrite img when the gallery actually changed (delete/add/default), so a
@@ -1196,4 +1200,55 @@ $router->post('/supplier/stays/site/([0-9]+)', function ($id) use ($SECURE, $db)
     }
     header('Location: ' . $back);
     exit;
+});
+
+// ============================================================================
+// MODULE 02 — BUILDINGS / BLOCKS / WINGS registry (property structure)
+// GET  /supplier/stays/{id}/buildings      — manage a property's buildings
+// POST /supplier/stays/buildings/add|update|delete
+// Owner/staff gated + supplier_can('hotels', …) on the property.
+// ============================================================================
+$router->get('/supplier/stays/([0-9]+)/buildings', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'hotels', 'view', (int) $id)) { _supplier_stays_deny('That property is not yours.'); }
+    $stay = $db->get('stays', ['id', 'name'], ['id' => (int) $id]);
+    if (!$stay) { _supplier_stays_deny('Property not found.'); }
+    $buildings = function_exists('building_list') ? building_list($db, (int) $id) : [];
+    $canEdit = supplier_can($db, 'hotels', 'edit', (int) $id);
+    $stayId = (int) $id;
+    $title = ($stay['name'] ?? 'Property') . ' — Buildings'; $description = '';
+    $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/stays/buildings.php";
+    require_once views . "includes/footer.php";
+});
+$router->post('/supplier/stays/buildings/add', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/stays/' . $stayId . '/buildings';
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $org = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $stayId) : 0;
+    $ok = function_exists('building_add') && building_add($db, $org, $stayId, $_POST) > 0;
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Building added.' : 'Could not add (name required).'];
+    header('Location: ' . $back); exit;
+});
+$router->post('/supplier/stays/buildings/update', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/stays/' . $stayId . '/buildings';
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $ok = function_exists('building_update') && building_update($db, $stayId, (int) ($_POST['building_id'] ?? 0), $_POST);
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Building updated.' : 'Could not update.'];
+    header('Location: ' . $back); exit;
+});
+$router->post('/supplier/stays/buildings/delete', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/stays/' . $stayId . '/buildings';
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $ok = function_exists('building_delete') && building_delete($db, $stayId, (int) ($_POST['building_id'] ?? 0));
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Building deleted.' : 'Could not delete.'];
+    header('Location: ' . $back); exit;
 });

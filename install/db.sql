@@ -28117,6 +28117,8 @@ CREATE TABLE `stays` (
   `accommodation_type` varchar(32) NOT NULL DEFAULT 'hotel',
   `cleaning_fee` decimal(14,2) DEFAULT NULL,
   `security_deposit` decimal(14,2) DEFAULT NULL,
+  `house_rules` text DEFAULT NULL,
+  `timezone` varchar(64) DEFAULT NULL,
   `listing_status` enum('draft','submitted','approved','queried','rejected') NOT NULL DEFAULT 'draft',
   `review_comment` varchar(255) DEFAULT NULL,
   `reviewed_by` varchar(255) DEFAULT NULL,
@@ -28885,6 +28887,8 @@ CREATE TABLE `stays_physical_rooms` (
   `room_id` int(11) NOT NULL,
   `room_number` varchar(40) NOT NULL,
   `floor` varchar(40) DEFAULT NULL,
+  `building_id` int(11) DEFAULT NULL,
+  `wing` varchar(60) DEFAULT NULL,
   `hk_status` enum('clean','dirty','inspected','out_of_order') NOT NULL DEFAULT 'clean',
   `hk_updated_by` varchar(155) DEFAULT NULL,
   `hk_assigned_to` varchar(155) DEFAULT NULL,
@@ -28896,6 +28900,27 @@ CREATE TABLE `stays_physical_rooms` (
   UNIQUE KEY `uq_stay_number` (`stay_id`,`room_number`),
   KEY `idx_stay_room` (`stay_id`,`room_id`),
   KEY `idx_status` (`stay_id`,`hk_status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Buildings / blocks / wings for a property (PMS module 02 — property structure).
+-- A physical room optionally references one (stays_physical_rooms.building_id).
+--
+CREATE TABLE `stays_buildings` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `kind` enum('building','block','wing','tower') NOT NULL DEFAULT 'building',
+  `floors` varchar(255) DEFAULT NULL,
+  `sort` int(11) NOT NULL DEFAULT 0,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------

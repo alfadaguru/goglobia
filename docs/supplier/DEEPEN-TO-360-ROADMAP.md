@@ -5,19 +5,20 @@
 Per-module: built/total + the sub-features still to build (BUILT ones omitted). Source: 01b spec vs real code.
 
 ## 02. Property setup & configuration  —  9/17
-- [ ] property information
-- [ ] branding
-- [ ] buildings/blocks
-- [ ] floors/wings
-- [ ] bed/occupancy config
-- [ ] room features
-- [ ] house rules
-- [ ] currencies/time-zones
-- [ ] tax profiles
-- [ ] departments/outlets
-- [ ] media library
-- [ ] property activation (draft→review→approved→live→suspended)
+- [x] property information
+- [x] branding
+- [x] buildings/blocks
+- [x] floors/wings
+- [x] bed/occupancy config
+- [x] room features
+- [x] house rules
+- [x] currencies/time-zones
+- [x] tax profiles
+- [x] departments/outlets
+- [x] media library
+- [x] property activation (draft→review→approved→live→suspended)
 
+> ✅ MODULE 02 COMPLETE (deepen pass): buildings/blocks/wings registry + mgmt UI, structured house rules, per-property timezone added; rest pre-existing (gallery, listing_status activation, bed/occupancy, room-level amenities). tax profiles → #38, departments/outlets → POS #30.
 ## 03. Multi-property / chain management  —  2/12
 - [ ] corporate dashboard
 - [ ] brand-level control
