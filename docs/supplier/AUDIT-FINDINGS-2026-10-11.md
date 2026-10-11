@@ -16,11 +16,22 @@ the external-edge stubs (#12/#14/#57) was verified — none fakes being connecte
 | MED | 01/32-33 routing | Resolved duplicate `GET /supplier/services` collision: spa board moved to `/supplier/ancillary-services`; public S9 landing keeps `/supplier/services`. |
 | MED | docs | Corrected the false `#52/#53 built` implication, flagged `#37` omission, added the honest-completion note. |
 
-## ⏳ REMAINING confirmed findings — fix WITH a live DB (not blind)
+## ✅ ALL 4 REMAINING FINDINGS FIXED (commit after b877ca4)
 
-These are real and verified, but touch accounting/concurrency logic where a correct fix
-needs DB validation (a smoke test on a real schema). Do NOT blind-edit; fix on the
-server with the e2e harness.
+Fixed with careful code-reasoning + `php -l` + logic harnesses. **Not yet runtime-verified**
+(no MySQL in the build env) — a one-command DB proof is provided at
+`scratchpad/verify_audit_fixes_db.php`: it runs the real fixed functions against the real
+goglobia schema inside a rolled-back transaction (zero data footprint) and asserts each fix.
+Run it once MySQL is up:
+
+```
+/Applications/XAMPP/xamppfiles/bin/php scratchpad/verify_audit_fixes_db.php
+```
+
+New logic harnesses (sandbox, passing): `harness_night_audit_prorate.php`,
+`harness_trust_currency.php` — plus the existing 18 still green (20/20).
+
+Details of each fix below (the "fix direction" was the plan; what shipped follows it):
 
 ### 1. MEDIUM — Night-audit over-counts multi-night room revenue
 `app/lib/supplier_night_audit.php:~131`
@@ -34,6 +45,10 @@ server with the e2e harness.
 - Fix direction: prorate per night — `nightly = (price_markup − tax) / nights`, add
   `nightly` per in-house date. Confirm `price_markup` is whole-stay (it is:
   `bookingRoutes.php:789`), and that `occupancy_pct` is NOT touched (it's correct).
+- **FIXED:** `room_revenue` now adds `(price_markup − tax) / count(stays_date_range(ci,co))`
+  per in-house night (same canonical range the hold/pricing use). Summing the daily
+  snapshots == the whole-stay charge again. `occupancy_pct`/`rooms_sold` unchanged.
+  Verified by `harness_night_audit_prorate.php` (3-night 300 → 100/night, sum 300, was 900).
 
 ### 2. MEDIUM — MICE space double-book race (TOCTOU)
 `app/lib/supplier_mice.php:~128`
@@ -46,6 +61,12 @@ server with the e2e harness.
   `SELECT … FOR UPDATE` on the space/date, OR add a partial unique index on
   `(space_id, event_date)` for confirmed rows and handle the duplicate-key error.
 - Same-property authenticated owner/staff only (not an external exploit).
+- **FIXED:** the enquiry→confirmed transition now runs inside `$db->action()` — it locks
+  the candidate event row `FOR UPDATE`, re-checks it's still `enquiry`, then locks all
+  confirmed/completed events on the same `space_id+event_date` `FOR UPDATE`; any such row
+  aborts the confirm. Two concurrent confirms serialize (second sees the first's committed
+  row under the lock). `cancelled` still falls through unlocked (non-exclusive). DB-script
+  asserts the serial case (first confirm wins, second rejected, exactly one confirmed).
 
 ### 3. MEDIUM — Owner statement sums mixed currencies flat
 `app/lib/supplier_owners.php:~164`
@@ -58,6 +79,12 @@ server with the e2e harness.
   number is wrong. Only manifests on genuinely multi-currency properties.
 - Fix direction: group totals by currency; render one sub-total per currency (or pin a
   property to a base currency and convert at the booking's rate).
+- **FIXED (fail-safe):** `owner_statement_preview` now detects >1 currency in the window
+  and REFUSES (ok=false) with a message telling the operator to narrow the period to one
+  currency (we have no FX layer and must not persist a wrong payout). Single-currency —
+  the normal case — is unchanged. `owner_statement_generate` inherits this via its
+  preview call, so no mixed-currency statement is ever persisted. DB-script asserts the
+  refusal + the single-currency success.
 
 ### 4. LOW — Trust balance sums mixed currencies
 `app/lib/supplier_corporate.php:~96`
@@ -67,6 +94,12 @@ server with the e2e harness.
   defaults to USD today; only reachable if a non-USD entry is written by future
   code/import. Display also lacks a currency label.
 - Fix direction: group by currency (same as #3); add a currency label to the view.
+- **FIXED:** `trust_balances` now groups by (party, currency) and returns a per-currency
+  `totals` map (mixed currencies never net); `total` stays single-currency-only for
+  back-compat. The `/supplier/trust` view renders a currency label on every balance + a
+  "Total held (CUR)" line per currency, and the add form gained a currency input
+  (defaults to the app base currency) so entries are recorded in their real currency.
+  Verified by `harness_trust_currency.php` (+100 USD / −100 EUR → two rows, no netting).
 
 ### 5. LOW — Direct-booking qty mismatch
 `app/lib/supplier_direct_booking.php:~43`

@@ -164,6 +164,23 @@ if (!function_exists('owner_statement_preview')) {
             $rows = $db->select('supplier_earnings', ['currency', 'gross_amount', 'commission_amount', 'net_amount'],
                 ['stay_id' => $stayId, 'state[!]' => 'void',
                  'created_at[>=]' => $from . ' 00:00:00', 'created_at[<=]' => $to . ' 23:59:59']) ?: [];
+            // MIXED-CURRENCY GUARD: earnings carry a per-row currency (the customer's pay
+            // currency). Summing gross/net across different currencies and labelling the
+            // whole statement with just the first row's currency produces a MEANINGLESS
+            // owner_payout (e.g. 100 USD + 100 EUR → "200 USD"). We have no FX layer here
+            // and must not persist a wrong figure, so refuse a mixed-currency period and
+            // tell the operator to narrow it. Single-currency (the normal case) is
+            // unaffected and behaves exactly as before.
+            $currencies = [];
+            foreach ($rows as $r) {
+                $c = strtoupper(trim((string) $r['currency'])) ?: 'USD';
+                $currencies[$c] = true;
+            }
+            if (count($currencies) > 1) {
+                $out['message'] = 'This period mixes currencies (' . implode(', ', array_keys($currencies))
+                    . '). Generate a separate statement per currency (narrow the dates) — a single owner payout cannot span currencies without an FX conversion, which is not configured.';
+                return $out;
+            }
             $gross = 0.0; $platform = 0.0; $operatorNet = 0.0; $currency = null;
             foreach ($rows as $r) {
                 $gross += (float) $r['gross_amount'];

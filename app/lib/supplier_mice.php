@@ -125,14 +125,34 @@ if (!function_exists('mice_event_set_status')) {
             // only ONE event may be CONFIRMED (or already completed) on a given space
             // for a given date. Checked at the enquiry→confirmed transition. mice_event_create
             // intentionally does NOT block here (enquiries are non-exclusive).
+            //
+            // ATOMIC: the check + the confirm run inside ONE transaction with the
+            // space/date rows locked FOR UPDATE. A plain read-then-write let two
+            // concurrent enquiry→confirmed transitions for the same space+date both pass
+            // the clash check and both commit (TOCTOU → double-booked space). Locking the
+            // candidate row and all confirmed/completed rows on that space+date serializes
+            // the two confirms: the first commits a 'confirmed' row, the second sees it
+            // under the lock and aborts.
             if ($to === 'confirmed') {
-                $clash = $db->get('stays_events', ['id'], [
-                    'space_id'  => (int) $ev['space_id'],
-                    'event_date'=> (string) $ev['event_date'],
-                    'status'    => ['confirmed', 'completed'],
-                    'id[!]'     => $eventId,
-                ]);
-                if ($clash) { return false; }
+                $ok = false;
+                $db->action(function ($db) use ($eventId, $stayId, $ev, $from, &$ok) {
+                    // Lock the candidate event + re-check its status is still 'enquiry'.
+                    $self = $db->query('SELECT status FROM stays_events WHERE id=:e FOR UPDATE', [':e' => $eventId]);
+                    $selfRow = $self ? $self->fetch(\PDO::FETCH_ASSOC) : null;
+                    if (!$selfRow || $selfRow['status'] !== $from) { $ok = false; return false; } // already transitioned
+                    // Lock any confirmed/completed event on the same space+date. Any row
+                    // here means the space is taken → abort.
+                    $clash = $db->query(
+                        'SELECT id FROM stays_events WHERE space_id=:sp AND event_date=:d AND status IN (:c,:cm) AND id<>:e FOR UPDATE',
+                        [':sp' => (int) $ev['space_id'], ':d' => (string) $ev['event_date'], ':c' => 'confirmed', ':cm' => 'completed', ':e' => $eventId]
+                    );
+                    if ($clash && $clash->fetch(\PDO::FETCH_ASSOC)) { $ok = false; return false; }
+                    // Commit the confirm (status-guarded so it can only fire once).
+                    $db->update('stays_events', ['status' => 'confirmed', 'updated_at' => date('Y-m-d H:i:s')],
+                        ['id' => $eventId, 'status' => $from]);
+                    $ok = true; return true;
+                });
+                return !empty($ok);
             }
 
             if ($to === 'completed') {

@@ -127,10 +127,22 @@ if (!function_exists('night_audit_run')) {
             if ($stayState === 'checked_in' && $withinStay) {
                 $inHouse++;
                 $roomsSold++;
-                // Room revenue = guest room charge (price_markup − tax), server-stored.
+                // Room revenue for THIS night = the night's PRORATED portion of the
+                // guest room charge, NOT the whole-stay charge. price_markup is the
+                // WHOLE-STAY guest total (bookingRoutes.php:789 = finalTotalWithTaxBase;
+                // net = per-night × nights × qty). Adding the full (price_markup − tax)
+                // on every in-house night over-counted a multi-night stay once per night
+                // (a 3-night/300 stay reported 300 on each of 3 nights → 900, and ADR/
+                // RevPAR inflated ~N-fold). Divide by the stay's night count — the same
+                // canonical range stays_hold_create/pricing use — so each night carries
+                // 1/nights of the room charge and summing the daily snapshots == the stay.
                 $gross = (float) ($b['price_markup'] ?? 0);
                 $tax = (float) ($b['tax'] ?? 0);
-                $roomRevenue += max(0, $gross - $tax);
+                $roomCharge = max(0, $gross - $tax);
+                $nightsCount = function_exists('stays_date_range')
+                    ? max(1, count(stays_date_range($checkin, $checkout)))
+                    : 1;
+                $roomRevenue += $roomCharge / $nightsCount;
             }
 
             // No-show: still 'confirmed' (never checked in / out) with a check-in on or

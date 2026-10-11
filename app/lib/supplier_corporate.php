@@ -87,17 +87,42 @@ if (!function_exists('trust_add')) {
     }
 }
 if (!function_exists('trust_balances')) {
-    /** Trust balance per party (signed sum). Returns [['party','balance'],...] + total. */
+    /**
+     * Trust balance per party, SEGREGATED BY CURRENCY (client money must never net
+     * one currency against another). Each ledger entry carries its own currency
+     * (stays_trust_ledger.currency, default 'USD'). Previously this summed amount per
+     * party ignoring currency and reported a single unlabelled 'total', so a +100 USD
+     * receipt and a -100 EUR disbursement for one party netted to a misleading 0.
+     *
+     * Returns:
+     *   'parties' => [ ['party','currency','balance'], ... ]  (one row per party×currency)
+     *   'totals'  => [ 'USD' => float, 'EUR' => float, ... ]  (held per currency)
+     *   'total'   => float   (kept for back-compat: the single-currency total when the
+     *                         org holds exactly one currency, else 0.0 — do not use it
+     *                         for a mixed-currency org; read 'totals' instead)
+     */
     function trust_balances($db, int $orgId): array
     {
-        $out = ['parties' => [], 'total' => 0.0];
+        $out = ['parties' => [], 'totals' => [], 'total' => 0.0];
         if ($orgId <= 0) { return $out; }
         try {
-            $rows = $db->select('stays_trust_ledger', ['party', 'amount'], ['org_id' => $orgId]) ?: [];
-            $by = [];
-            foreach ($rows as $r) { $p = (string) $r['party']; $by[$p] = round(($by[$p] ?? 0) + (float) $r['amount'], 2); $out['total'] += (float) $r['amount']; }
-            foreach ($by as $p => $bal) { $out['parties'][] = ['party' => $p, 'balance' => $bal]; }
-            $out['total'] = round($out['total'], 2);
+            $rows = $db->select('stays_trust_ledger', ['party', 'currency', 'amount'], ['org_id' => $orgId]) ?: [];
+            $by = [];      // "party\0CUR" => balance
+            $totals = [];  // CUR => sum
+            foreach ($rows as $r) {
+                $p = (string) $r['party'];
+                $cur = strtoupper(trim((string) ($r['currency'] ?? ''))) ?: 'USD';
+                $amt = (float) $r['amount'];
+                $key = $p . "\0" . $cur;
+                $by[$key] = round(($by[$key] ?? 0) + $amt, 2);
+                $totals[$cur] = round(($totals[$cur] ?? 0) + $amt, 2);
+            }
+            foreach ($by as $key => $bal) {
+                [$p, $cur] = explode("\0", $key, 2);
+                $out['parties'][] = ['party' => $p, 'currency' => $cur, 'balance' => $bal];
+            }
+            $out['totals'] = $totals;
+            $out['total'] = count($totals) === 1 ? (float) reset($totals) : 0.0;
         } catch (\Throwable $e) { error_log('trust_balances: ' . $e->getMessage()); }
         return $out;
     }

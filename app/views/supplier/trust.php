@@ -1,6 +1,7 @@
 <?php @$SECURE or die('Access Denied!'); ?>
 <?php
-  $balances = (isset($balances) && is_array($balances)) ? $balances : ['parties'=>[],'total'=>0];
+  $balances = (isset($balances) && is_array($balances)) ? $balances : ['parties'=>[],'totals'=>[],'total'=>0];
+  $balTotals = (isset($balances['totals']) && is_array($balances['totals'])) ? $balances['totals'] : [];
   $entries = (isset($entries) && is_array($entries)) ? $entries : [];
   $base = root . 'supplier/trust';
   $etLabel = ['receipt'=>'Receipt','disbursement'=>'Disbursement','adjustment'=>'Adjustment'];
@@ -21,11 +22,15 @@
         <p class="text-sm text-gray-500">Nothing held.</p>
       <?php else: ?>
         <ul class="text-sm divide-y divide-gray-50">
-          <?php foreach ($balances['parties'] as $b): ?>
-            <li class="py-1.5 flex justify-between"><span class="text-gray-700"><?= htmlspecialchars((string) $b['party']) ?></span><span class="tabular-nums <?= (float) $b['balance'] < 0 ? 'text-red-600' : '' ?>"><?= number_format((float) $b['balance'], 2) ?></span></li>
+          <?php foreach ($balances['parties'] as $b): $cur = htmlspecialchars((string) ($b['currency'] ?? 'USD')); ?>
+            <li class="py-1.5 flex justify-between"><span class="text-gray-700"><?= htmlspecialchars((string) $b['party']) ?></span><span class="tabular-nums <?= (float) $b['balance'] < 0 ? 'text-red-600' : '' ?>"><?= $cur ?> <?= number_format((float) $b['balance'], 2) ?></span></li>
           <?php endforeach; ?>
         </ul>
-        <div class="flex justify-between border-t border-gray-100 pt-1.5 mt-1.5 text-sm font-semibold"><span>Total held</span><span class="tabular-nums"><?= number_format((float) $balances['total'], 2) ?></span></div>
+        <div class="border-t border-gray-100 pt-1.5 mt-1.5 text-sm font-semibold space-y-0.5">
+          <?php foreach ($balTotals as $cur => $amt): ?>
+            <div class="flex justify-between"><span>Total held (<?= htmlspecialchars((string) $cur) ?>)</span><span class="tabular-nums"><?= htmlspecialchars((string) $cur) ?> <?= number_format((float) $amt, 2) ?></span></div>
+          <?php endforeach; ?>
+        </div>
       <?php endif; ?>
     </div>
     <div class="card p-5">
@@ -35,7 +40,8 @@
         <input type="text" name="party" class="input text-sm w-full" placeholder="Party (owner / client) *" required>
         <div class="flex gap-2">
           <select name="entry_type" class="input text-sm"><option value="receipt">Receipt</option><option value="disbursement">Disbursement</option><option value="adjustment">Adjustment</option></select>
-          <input type="number" name="amount" step="0.01" class="input text-sm w-28" placeholder="amount" required>
+          <input type="number" name="amount" step="0.01" class="input text-sm w-24" placeholder="amount" required>
+          <input type="text" name="currency" maxlength="3" class="input text-sm w-20 uppercase" placeholder="CUR" value="<?= htmlspecialchars(strtoupper((string) ($GLOBALS['app']['default_currency'] ?? 'USD'))) ?>" title="Currency (ISO code) — client money is held separately per currency">
         </div>
         <input type="text" name="reference" class="input text-sm w-full" placeholder="Reference">
         <input type="text" name="memo" class="input text-sm w-full" placeholder="Memo">
