@@ -7973,6 +7973,43 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay_created` (`stay_id`,`created_at`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- Lost & found (PMS Phase 3 #29) -----------------------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_lost_found` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `item` VARCHAR(191) NOT NULL,
+            `found_location` VARCHAR(191) DEFAULT NULL,
+            `found_date` DATE DEFAULT NULL,
+            `guest_name` VARCHAR(120) DEFAULT NULL,
+            `status` ENUM('stored','claimed','returned','disposed') NOT NULL DEFAULT 'stored',
+            `notes` VARCHAR(500) DEFAULT NULL,
+            `logged_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_status` (`stay_id`,`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // --- Fixed assets (PMS Phase 3 #28) -----------------------------------------
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_assets` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `name` VARCHAR(191) NOT NULL,
+            `category` VARCHAR(80) DEFAULT NULL,
+            `location` VARCHAR(120) DEFAULT NULL,
+            `serial_no` VARCHAR(120) DEFAULT NULL,
+            `purchase_date` DATE DEFAULT NULL,
+            `purchase_cost` DECIMAL(14,2) DEFAULT NULL,
+            `condition_status` ENUM('in_service','maintenance','retired') NOT NULL DEFAULT 'in_service',
+            `notes` VARCHAR(500) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`,`condition_status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- reservations (PMS completion #04): waitlist ----------------------------
         // A waitlisted request holds NO inventory — it is a lead the front desk can
         // convert to a walk-in booking when space frees up. See

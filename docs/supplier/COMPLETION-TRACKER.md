@@ -72,6 +72,10 @@ spec (docs/supplier/01b). Built in order: **24 Partial → 7 Dead → 30 Missing
 57 AI & automation* · (others as they surface)
 (* = external-dependency edge, built internal + stubbed adapter)
 
+### Phase-3 build log (append-only)
+- ✅ #29 Lost & found + #28 Fixed assets — per-property registers (new stays_lost_found + stays_assets tables both schemas; supplier_facilities.php lib; routes + views + sidebar links). Real CRUD, owner/staff gated, property-scoped.
+
+
 ---
 
 ## Build log (append-only; newest last)

@@ -76,6 +76,8 @@ if ($activeStay > 0) {
         ['name' => 'Groups & blocks','icon' => 'groups_3',        'url' => 'supplier/groups' . $q, 'show' => $can('reservations', 'view', $sid)],
         ['name' => 'Housekeeping',  'icon' => 'cleaning_services','url' => 'supplier/housekeeping' . $q, 'show' => $can('rooms', 'view', $sid)],
         ['name' => 'Maintenance',   'icon' => 'build',            'url' => 'supplier/maintenance' . $q, 'show' => $can('rooms', 'edit', $sid)],
+        ['name' => 'Lost & found',  'icon' => 'inventory',        'url' => 'supplier/lost-found', 'show' => $can('rooms', 'view', $sid)],
+        ['name' => 'Assets',        'icon' => 'chair',            'url' => 'supplier/assets', 'show' => $can('rooms', 'view', $sid)],
         ['name' => 'F&B / POS',     'icon' => 'restaurant',       'url' => 'supplier/pos', 'show' => $can('reservations', 'edit', $sid)],
         ['name' => 'Events',        'icon' => 'celebration',      'url' => 'supplier/events' . $q, 'show' => $can('reservations', 'edit', $sid)],
         ['name' => 'Night audit',   'icon' => 'nightlight',       'url' => 'supplier/night-audit' . $q, 'show' => $can('reservations', 'edit', $sid)],

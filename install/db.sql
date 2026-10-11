@@ -28950,6 +28950,51 @@ CREATE TABLE `stays_inventory_audit` (
 -- --------------------------------------------------------
 
 --
+-- Lost & found (PMS Phase 3 #29).
+--
+CREATE TABLE `stays_lost_found` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `item` varchar(191) NOT NULL,
+  `found_location` varchar(191) DEFAULT NULL,
+  `found_date` date DEFAULT NULL,
+  `guest_name` varchar(120) DEFAULT NULL,
+  `status` enum('stored','claimed','returned','disposed') NOT NULL DEFAULT 'stored',
+  `notes` varchar(500) DEFAULT NULL,
+  `logged_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_status` (`stay_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Fixed assets (PMS Phase 3 #28).
+--
+CREATE TABLE `stays_assets` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `name` varchar(191) NOT NULL,
+  `category` varchar(80) DEFAULT NULL,
+  `location` varchar(120) DEFAULT NULL,
+  `serial_no` varchar(120) DEFAULT NULL,
+  `purchase_date` date DEFAULT NULL,
+  `purchase_cost` decimal(14,2) DEFAULT NULL,
+  `condition_status` enum('in_service','maintenance','retired') NOT NULL DEFAULT 'in_service',
+  `notes` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`,`condition_status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Reservation waitlist (PMS completion #04). Holds NO inventory — a lead the front
 -- desk converts to a walk-in when space frees up. See app/lib/supplier_reservation_ops.php.
 --
