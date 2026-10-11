@@ -76,6 +76,80 @@ if (!function_exists('stays_option_default_quantity')) {
     }
 }
 
+if (!function_exists('stays_recompute_net')) {
+    /**
+     * SERVER-AUTHORITATIVE NET for an own-inventory ('hotels'/'stays') booking.
+     *
+     * The booking submit paths must NOT trust the client-supplied net
+     * (actual_amount) — a client could post actual_amount=1 and pay ~1. This
+     * recomputes the net from the single source of truth the public rooms API and
+     * the hold engine already use: stays_rooms.room_options[].price, overlaid with
+     * the per-night stays_rooms_calendar rate when present, summed across every
+     * night in [checkin, checkout) and multiplied by the booked quantity, for each
+     * selected room/option. The result is in the HOTEL'S BASE CURRENCY (same basis
+     * as room_options.price) — exactly what the rooms API sums BEFORE markup.
+     *
+     * Mirrors modules/stays/hotels/rooms.php:216-230 (the $totalRaw accumulation)
+     * so the figure equals what the customer was shown, pre-markup.
+     *
+     * @param array $selectedRooms each: ['room_id'=>int, 'quantity'=>int,
+     *              'option'=>['option_id'=>int], ...] (as stored in the draft)
+     * @return array ['ok'=>bool, 'net'=>float, 'lines'=>array, 'message'=>?string]
+     *               ok=false when a selected room/option cannot be resolved (caller
+     *               should refuse rather than fall back to the client value).
+     */
+    function stays_recompute_net($db, int $stayId, array $selectedRooms, string $checkin, string $checkout): array
+    {
+        if ($stayId <= 0) { return ['ok' => false, 'net' => 0.0, 'message' => 'No property']; }
+        $nights = stays_date_range($checkin, $checkout);
+        $nightCount = count($nights);
+        if ($nightCount < 1) { return ['ok' => false, 'net' => 0.0, 'message' => 'Invalid dates']; }
+
+        // Per-date calendar rates for this property, keyed room_option_date.
+        $calendarRates = [];
+        try {
+            $calRows = $db->select('stays_rooms_calendar', ['room_id', 'option_id', 'date', 'price'],
+                ['stay_id' => $stayId, 'date' => $nights]) ?: [];
+            foreach ($calRows as $cr) {
+                $calendarRates[$cr['room_id'] . '_' . $cr['option_id'] . '_' . $cr['date']] = (float) $cr['price'];
+            }
+        } catch (\Throwable $e) { $calendarRates = []; } // calendar optional → base price
+
+        $net = 0.0;
+        $lines = [];
+        foreach ($selectedRooms as $sr) {
+            $roomId   = (int) ($sr['room_id'] ?? 0);
+            $optionId = (int) ($sr['option']['option_id'] ?? ($sr['option_id'] ?? 0));
+            $qty      = max(1, (int) ($sr['quantity'] ?? ($sr['qty'] ?? ($sr['rooms'] ?? 1))));
+            if ($roomId <= 0 || $optionId <= 0) {
+                return ['ok' => false, 'net' => 0.0, 'message' => 'Unpriceable room selection'];
+            }
+            // Resolve the option's base price from the authoritative room_options JSON.
+            $options = stays_room_option_ids($db, $roomId, $stayId);
+            $basePrice = null;
+            foreach ($options as $o) {
+                if ((int) ($o['option_id'] ?? 0) === $optionId) {
+                    $basePrice = isset($o['price']) ? (float) $o['price'] : null;
+                    break;
+                }
+            }
+            if ($basePrice === null || $basePrice <= 0) {
+                return ['ok' => false, 'net' => 0.0, 'message' => 'Room option no longer available'];
+            }
+            // Sum per-night (calendar overrides base), × qty. Matches rooms.php $totalRaw.
+            $roomNet = 0.0;
+            foreach ($nights as $d) {
+                $k = $roomId . '_' . $optionId . '_' . $d;
+                $roomNet += isset($calendarRates[$k]) ? $calendarRates[$k] : $basePrice;
+            }
+            $roomNet *= $qty;
+            $net += $roomNet;
+            $lines[] = ['room_id' => $roomId, 'option_id' => $optionId, 'qty' => $qty, 'net' => round($roomNet, 2)];
+        }
+        return ['ok' => true, 'net' => round($net, 2), 'lines' => $lines];
+    }
+}
+
 if (!function_exists('stays_date_range')) {
     /** All occupied nights between check-in (inclusive) and check-out (exclusive). */
     function stays_date_range(string $checkin, string $checkout): array

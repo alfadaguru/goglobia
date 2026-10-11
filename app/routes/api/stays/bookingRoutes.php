@@ -452,6 +452,38 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
         );
         $currency = $bookingData['currency'] ?? 'USD';
 
+        // PRICE INTEGRITY (own-inventory): recompute the NET server-side from
+        // stays_rooms.room_options + the per-night calendar — never trust the client
+        // draft's actual_amount. (Matches the web path fix; integration suppliers keep
+        // their own CheckRate net.) A failed recompute REFUSES rather than falling back.
+        $apiSupplierLc = strtolower(trim((string) ($bookingData['supplier'] ?? 'hotels')));
+        if (in_array($apiSupplierLc, ['stays', 'hotels'], true)) {
+            if (!function_exists('stays_recompute_net')) {
+                $invLib = dirname(__DIR__, 3) . '/lib/stays_inventory.php';
+                if (is_file($invLib)) { require_once $invLib; }
+            }
+            if (function_exists('stays_recompute_net')) {
+                $selForNet = $bookingData['selected_rooms'] ?? ($input['selected_rooms'] ?? []);
+                $hotelIdForNet = (int) ($input['hotel_id'] ?? ($bookingData['hotel_id'] ?? 0));
+                $ciForNet = (string) ($bookingData['checkin'] ?? '');
+                $coForNet = (string) ($bookingData['checkout'] ?? '');
+                if ($hotelIdForNet > 0 && is_array($selForNet) && !empty($selForNet) && $ciForNet !== '' && $coForNet !== '') {
+                    $netRes = stays_recompute_net($db, $hotelIdForNet, $selForNet, $ciForNet, $coForNet);
+                    if (empty($netRes['ok'])) {
+                        http_response_code(409);
+                        echo json_encode(['success' => false, 'message' => $netRes['message'] ?? 'This room is no longer available at the displayed price. Please search again.']);
+                        exit;
+                    }
+                    $actualPrice = (float) $netRes['net'];
+                    $bookingData['actual_amount'] = $actualPrice;
+                } else {
+                    http_response_code(409);
+                    echo json_encode(['success' => false, 'message' => 'Could not verify room pricing. Please search again.']);
+                    exit;
+                }
+            }
+        }
+
         // Set session user context for MARKUP() calculation
         if ($userId) {
             $_SESSION['user_id'] = $userId;

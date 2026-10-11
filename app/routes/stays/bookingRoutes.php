@@ -480,11 +480,50 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
         $markupPrice = $bookingData['total_amount'] ?? 0;
         $currency = $bookingData['currency'] ?? 'USD';
 
+        // ============================================================================
+        // PRICE INTEGRITY (own-inventory): the NET must be recomputed server-side from
+        // stays_rooms.room_options + the per-night calendar — NEVER trusted from the
+        // client draft. Previously $actualPrice came straight from the browser
+        // (bookingData['actual_amount']) and MARKUP only added margin on top, so a
+        // client could post actual_amount=1 and pay ~1. We re-derive the authoritative
+        // net here for our OWN-INVENTORY stays only (integration suppliers —
+        // hotelbeds/ratehawk/… — carry a real supplier net via their own CheckRate
+        // flow and are left untouched). A failed recompute REFUSES the booking rather
+        // than falling back to the client value.
+        $staysSupplierLc = strtolower(trim((string) ($bookingData['supplier'] ?? 'hotels')));
+        $isOwnInventoryStay = in_array($staysSupplierLc, ['stays', 'hotels'], true);
+        if ($isOwnInventoryStay) {
+            if (!function_exists('stays_recompute_net')) {
+                $invLib = dirname(__DIR__, 2) . '/lib/stays_inventory.php';
+                if (is_file($invLib)) { require_once $invLib; }
+            }
+            if (function_exists('stays_recompute_net')) {
+                $selForNet = $bookingData['selected_rooms'] ?? ($input['selected_rooms'] ?? []);
+                $hotelIdForNet = (int) ($bookingData['hotel_id'] ?? ($input['hotel_id'] ?? 0));
+                $ciForNet = (string) ($bookingData['checkin'] ?? '');
+                $coForNet = (string) ($bookingData['checkout'] ?? '');
+                if ($hotelIdForNet > 0 && is_array($selForNet) && !empty($selForNet) && $ciForNet !== '' && $coForNet !== '') {
+                    $netRes = stays_recompute_net($db, $hotelIdForNet, $selForNet, $ciForNet, $coForNet);
+                    if (empty($netRes['ok'])) {
+                        throw new Exception($netRes['message'] ?? 'This room is no longer available at the displayed price. Please search again.');
+                    }
+                    // Server net is authoritative (hotel base currency, same basis as
+                    // room_options.price and the client draft's base_currency).
+                    $actualPrice = (float) $netRes['net'];
+                    $bookingData['actual_amount'] = $actualPrice;
+                } else {
+                    // Own-inventory booking we cannot re-price (no selected_rooms / dates)
+                    // must not fall through to the client net — refuse.
+                    throw new Exception('Could not verify room pricing. Please search again.');
+                }
+            }
+        }
+
         // MARKUP NORMALISATION (docs/MONEY-WALLET-AUDIT.md §C.4 step 6): re-derive
         // the sell price SERVER-SIDE via MARKUP() from the trusted supplier net
-        // ($actualPrice from the server draft), so the agent's b2b rate + member-
-        // tier discount + any custom user markup are honoured at checkout instead
-        // of trusting the search-time total_amount. Only when we have a real net.
+        // ($actualPrice — for own inventory this is now the recomputed figure above),
+        // so the agent's b2b rate + member-tier discount + any custom user markup are
+        // honoured at checkout instead of trusting the search-time total_amount.
         if ((float)$actualPrice > 0) {
             if (!function_exists('MARKUP')) {
                 require_once dirname(__DIR__, 3) . '/modules/helpers.php';
@@ -564,10 +603,12 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
         $taxInfo = calculateTax($subtotal, $supplier, $db);
         $calculatedTaxAmount = $taxInfo['tax_amount'] ?? 0;
 
-        // USE TAX AMOUNT FROM FRONTEND IF PROVIDED
-        if ($taxAmount == 0) {
-            $taxAmount = $calculatedTaxAmount;
-        }
+        // PRICE INTEGRITY: tax is ALWAYS the server-computed amount on the server
+        // subtotal — never the client-supplied tax_amount. Previously a nonzero client
+        // tax_amount overrode calculateTax() (only tax_amount==0 triggered recompute),
+        // so a client could set tax_amount=0.01 and pay almost no tax. Client value
+        // discarded for pricing.
+        $taxAmount = $calculatedTaxAmount;
 
         // CALCULATE COMMISSION (MARKUP MINUS ACTUAL PRICE)
         $commission = round($markupPrice - $actualPrice, 2);
