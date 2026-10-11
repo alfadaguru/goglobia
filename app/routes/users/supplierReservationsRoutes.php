@@ -244,6 +244,33 @@ $router->get('/supplier/reservations/([A-Za-z0-9_-]+)', function ($invoiceId) us
     require_once views . "includes/footer.php";
 });
 
+// FOLIO INVOICE / RECEIPT — GET /supplier/reservations/{invoiceId}/folio-invoice (PMS #09)
+// A printable itemized folio: room/tax/extra/charge lines, payments, balance.
+$router->get('/supplier/reservations/([A-Za-z0-9_-]+)/folio-invoice', function ($invoiceId) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
+    if (!$booking) { _supplier_stays_deny('Reservation not found.'); }
+    $hid = supplier_reservation_hotel_id($booking['booking_data'] ?? null);
+    if ($hid <= 0 || !supplier_can($db, 'reservations', 'view', $hid)) {
+        _supplier_stays_deny('That reservation is not for one of your properties.');
+    }
+    $bd = json_decode((string) ($booking['booking_data'] ?? ''), true);
+    $booking['_bd'] = is_array($bd) ? $bd : [];
+    $property = $db->get('stays', ['id', 'name', 'location', 'address', 'currency', 'email', 'phone'], ['id' => $hid]);
+    $folio = null; $folioItems = []; $folioTotals = ['charges' => 0, 'payments' => 0, 'balance' => 0];
+    if (function_exists('folio_get_or_create')) {
+        $fid = folio_get_or_create($db, $invoiceId);
+        if ($fid > 0) {
+            $folio = $db->get('stays_folios', '*', ['id' => $fid]);
+            $folioItems = $db->select('stays_folio_items', ['type', 'description', 'amount', 'created_at'], ['folio_id' => $fid, 'ORDER' => ['id' => 'ASC']]) ?: [];
+            if (function_exists('folio_totals')) { $folioTotals = folio_totals($db, $fid); }
+        }
+    }
+    require_once views . "supplier/reservations/folio-invoice.php";
+});
+
 // REGISTRATION CARD — GET /supplier/reservations/{invoiceId}/reg-card (PMS #07)
 // A printable guest + stay summary the front desk prints at check-in.
 $router->get('/supplier/reservations/([A-Za-z0-9_-]+)/reg-card', function ($invoiceId) use ($SECURE, $db) {

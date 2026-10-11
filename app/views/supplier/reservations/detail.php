@@ -112,7 +112,12 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
   <div class="card p-5">
     <div class="flex items-center justify-between mb-3">
       <h2 class="text-sm font-semibold text-gray-900 flex items-center gap-2"><span class="material-symbols-outlined text-violet-600 text-base">concierge</span> Front desk &amp; folio</h2>
-      <span class="px-2 py-0.5 rounded text-xs font-medium <?= $ssColor ?>"><?= htmlspecialchars($ssLabel) ?></span>
+      <div class="flex items-center gap-2">
+        <a href="<?= $base ?>/<?= rawurlencode($inv) ?>/folio-invoice" target="_blank" class="btn secondary text-xs">
+          <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">receipt_long</span> Invoice</span>
+        </a>
+        <span class="px-2 py-0.5 rounded text-xs font-medium <?= $ssColor ?>"><?= htmlspecialchars($ssLabel) ?></span>
+      </div>
     </div>
 
     <?php
