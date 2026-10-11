@@ -8089,6 +8089,22 @@ function ensureSupplierStaysSchema($db): void
         // (Promo codes for stays reuse the platform `promo_codes` table + validatePromoCode
         // with per-property targeting — see supplier_rates.php note; no parallel table.)
 
+        // --- MODULE 15 (sales & corporate → 360): pipeline stage + sales activity log ---
+        if (!$db->query("SHOW COLUMNS FROM `stays_corporate_accounts` LIKE 'pipeline_stage'")->fetch()) {
+            $db->query("ALTER TABLE `stays_corporate_accounts` ADD COLUMN `pipeline_stage` ENUM('lead','prospect','negotiation','won','lost') NOT NULL DEFAULT 'won'");
+        }
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_sales_activities` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `account_id` INT(11) NOT NULL,
+            `kind` ENUM('note','call','email','meeting','quote') NOT NULL DEFAULT 'note',
+            `detail` VARCHAR(500) DEFAULT NULL,
+            `created_by` VARCHAR(155) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_account` (`account_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- MODULE 12 (channel manager → 360): iCal feed token + channel map ---------
         // The ONE channel that needs no OTA vendor account: a standards-compliant iCal
         // export of a property's booked dates that Airbnb / Booking.com / Google Calendar

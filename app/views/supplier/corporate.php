@@ -25,21 +25,32 @@
 
   <div class="card overflow-x-auto">
     <table class="w-full text-sm">
-      <thead><tr class="text-left text-gray-500 border-b border-gray-100"><th class="px-4 py-2 font-medium">Account</th><th class="px-4 py-2 font-medium">Type</th><th class="px-4 py-2 font-medium text-right">Discount</th><th class="px-4 py-2 font-medium text-right">Credit</th><th class="px-4 py-2 font-medium">Status</th><th class="px-4 py-2 font-medium">Set</th></tr></thead>
+      <thead><tr class="text-left text-gray-500 border-b border-gray-100"><th class="px-4 py-2 font-medium">Account</th><th class="px-4 py-2 font-medium">Type</th><th class="px-4 py-2 font-medium text-right">Discount</th><th class="px-4 py-2 font-medium text-right">Credit</th><th class="px-4 py-2 font-medium">Pipeline</th><th class="px-4 py-2 font-medium">Status</th><th class="px-4 py-2 font-medium">Set</th></tr></thead>
       <tbody class="divide-y divide-gray-50">
+        <?php $stages = ['lead'=>'Lead','prospect'=>'Prospect','negotiation'=>'Negotiation','won'=>'Won','lost'=>'Lost']; ?>
         <?php if (empty($accounts)): ?>
-          <tr><td colspan="6" class="px-4 py-6 text-center text-gray-400">No corporate accounts.</td></tr>
-        <?php else: foreach ($accounts as $a): $st = (string) $a['status']; ?>
+          <tr><td colspan="7" class="px-4 py-6 text-center text-gray-400">No corporate accounts.</td></tr>
+        <?php else: foreach ($accounts as $a): $st = (string) $a['status']; $ps = (string) ($a['pipeline_stage'] ?? 'won'); ?>
           <tr class="<?= $st === 'suspended' ? 'opacity-60' : '' ?>">
             <td class="px-4 py-2 text-gray-900"><?= htmlspecialchars((string) $a['name']) ?><?php if (!empty($a['contact_name'])): ?><span class="text-xs text-gray-400"> · <?= htmlspecialchars((string) $a['contact_name']) ?></span><?php endif; ?></td>
             <td class="px-4 py-2 text-gray-500 text-xs"><?= htmlspecialchars(ucfirst((string) $a['type'])) ?></td>
             <td class="px-4 py-2 text-right tabular-nums"><?= $a['negotiated_discount_pct'] !== null ? rtrim(rtrim(number_format((float) $a['negotiated_discount_pct'], 2), '0'), '.') . '%' : '—' ?></td>
             <td class="px-4 py-2 text-right tabular-nums"><?= $a['credit_limit'] !== null ? number_format((float) $a['credit_limit'], 2) : '—' ?></td>
-            <td class="px-4 py-2"><span class="px-2 py-0.5 rounded text-xs font-medium <?= $st === 'active' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500' ?>"><?= htmlspecialchars(ucfirst($st)) ?></span></td>
             <td class="px-4 py-2">
+              <form action="<?= $base ?>/pipeline" method="POST" class="inline-flex items-center gap-1">
+                <?= CSRF::tokenField() ?><input type="hidden" name="account_id" value="<?= (int) $a['id'] ?>">
+                <select name="stage" class="input text-xs py-0.5" onchange="this.form.submit()"><?php foreach ($stages as $k => $lbl): ?><option value="<?= $k ?>" <?= $ps === $k ? 'selected' : '' ?>><?= $lbl ?></option><?php endforeach; ?></select>
+              </form>
+            </td>
+            <td class="px-4 py-2"><span class="px-2 py-0.5 rounded text-xs font-medium <?= $st === 'active' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500' ?>"><?= htmlspecialchars(ucfirst($st)) ?></span></td>
+            <td class="px-4 py-2 whitespace-nowrap">
               <form action="<?= $base ?>/status" method="POST" class="inline">
                 <?= CSRF::tokenField() ?><input type="hidden" name="id" value="<?= (int) $a['id'] ?>"><input type="hidden" name="status" value="<?= $st === 'active' ? 'suspended' : 'active' ?>">
                 <button type="submit" class="text-xs text-violet-600 hover:underline"><?= $st === 'active' ? 'Suspend' : 'Activate' ?></button>
+              </form>
+              <form action="<?= $base ?>/activity" method="POST" class="inline-flex items-center gap-1 ml-2">
+                <?= CSRF::tokenField() ?><input type="hidden" name="account_id" value="<?= (int) $a['id'] ?>"><input type="hidden" name="kind" value="note">
+                <input type="text" name="detail" class="input text-xs py-0.5 w-28" placeholder="log note"><button type="submit" class="text-xs text-violet-600 hover:underline">Log</button>
               </form>
             </td>
           </tr>

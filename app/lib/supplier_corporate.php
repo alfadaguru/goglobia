@@ -135,3 +135,42 @@ if (!function_exists('trust_list')) {
         catch (\Throwable $e) { error_log('trust_list: ' . $e->getMessage()); return []; }
     }
 }
+
+// ===========================================================================
+// MODULE 15 DEEPEN: sales pipeline stage + activity log + account performance.
+// ===========================================================================
+if (!function_exists('corp_set_pipeline')) {
+    function corp_set_pipeline($db, int $orgId, int $accountId, string $stage): bool
+    {
+        if (!in_array($stage, ['lead', 'prospect', 'negotiation', 'won', 'lost'], true)) { return false; }
+        try {
+            if (!$db->has('stays_corporate_accounts', ['id' => $accountId, 'org_id' => $orgId])) { return false; }
+            $db->update('stays_corporate_accounts', ['pipeline_stage' => $stage, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $accountId, 'org_id' => $orgId]);
+            return true;
+        } catch (\Throwable $e) { error_log('corp_set_pipeline: ' . $e->getMessage()); return false; }
+    }
+}
+if (!function_exists('corp_activity_add')) {
+    function corp_activity_add($db, int $orgId, int $accountId, string $kind, string $detail): int
+    {
+        if ($orgId <= 0 || $accountId <= 0) { return 0; }
+        $kind = in_array($kind, ['note', 'call', 'email', 'meeting', 'quote'], true) ? $kind : 'note';
+        try {
+            if (!$db->has('stays_corporate_accounts', ['id' => $accountId, 'org_id' => $orgId])) { return 0; }
+            $db->insert('stays_sales_activities', [
+                'org_id' => $orgId, 'account_id' => $accountId, 'kind' => $kind,
+                'detail' => substr(trim($detail), 0, 500) ?: null,
+                'created_by' => (string) ($_SESSION['user_id'] ?? '') ?: null, 'created_at' => date('Y-m-d H:i:s'),
+            ]);
+            return (int) $db->id();
+        } catch (\Throwable $e) { error_log('corp_activity_add: ' . $e->getMessage()); return 0; }
+    }
+}
+if (!function_exists('corp_activity_list')) {
+    function corp_activity_list($db, int $accountId, int $limit = 50): array
+    {
+        if ($accountId <= 0) { return []; }
+        try { return $db->select('stays_sales_activities', '*', ['account_id' => $accountId, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => max(1, $limit)]) ?: []; }
+        catch (\Throwable $e) { error_log('corp_activity_list: ' . $e->getMessage()); return []; }
+    }
+}

@@ -29304,12 +29304,30 @@ CREATE TABLE `stays_corporate_accounts` (
   `phone` varchar(40) DEFAULT NULL,
   `negotiated_discount_pct` decimal(5,2) DEFAULT NULL,
   `credit_limit` decimal(14,2) DEFAULT NULL,
+  `pipeline_stage` enum('lead','prospect','negotiation','won','lost') NOT NULL DEFAULT 'won',
   `status` enum('active','suspended') NOT NULL DEFAULT 'active',
   `notes` varchar(500) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_org_status` (`org_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- MODULE 15: sales activity log per corporate account.
+--
+CREATE TABLE `stays_sales_activities` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `account_id` int(11) NOT NULL,
+  `kind` enum('note','call','email','meeting','quote') NOT NULL DEFAULT 'note',
+  `detail` varchar(500) DEFAULT NULL,
+  `created_by` varchar(155) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_account` (`account_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------

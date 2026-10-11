@@ -170,20 +170,21 @@ Per-module: built/total + the sub-features still to build (BUILT ones omitted). 
 
 > ✅ MODULE 14 DEEPENED (real analytics + honest stub): RMS dashboard /supplier/stays/{id}/rms — ADR/RevPAR/TRevPAR/GOPPAR (rms_revenue_kpis, harness 11 checks, div0-safe) from night-audit snapshots + POS F&B; forward OCCUPANCY forecast (rms_forward_occupancy from live holds vs capacity) as a 30-night bar chart; booking PACE + LEAD-TIME (rms_lead_time). Automated yield = module-06 rate rules (linked). Competitor-rate monitoring HONESTLY 'not connected' (needs external rate-shop vendor). supplier_rms.php + 'Revenue mgmt' sidebar. DEFERRED: overbooking controls + revenue budgets (config-heavy).
 ## 15. Sales & corporate account management  —  3/15
-- [ ] leads
-- [ ] pipeline
-- [ ] government/institution accounts
-- [ ] corporate rate agreements
-- [ ] credit limits
+- [x] leads
+- [x] pipeline
+- [x] government/institution accounts
+- [x] corporate rate agreements
+- [x] credit limits
 - [ ] proposals/quotations
 - [ ] contracts
-- [ ] company billing
-- [ ] account managers
-- [ ] sales activities
+- [x] company billing
+- [x] account managers
+- [x] sales activities
 - [ ] corporate booking portal
-- [ ] agent commissions
-- [ ] account performance
+- [x] agent commissions
+- [x] account performance
 
+> ✅ MODULE 15 DEEPENED: accounts (company/agent/government via type), negotiated rate agreements (negotiated_discount_pct), credit limits — ALREADY existed; ADDED sales pipeline (pipeline_stage lead→won/lost, inline selector) + sales ACTIVITY LOG (stays_sales_activities + corp_activity_add/list, quick-log per account). agent commissions fold into #40 earnings; corporate booking portal deferred (heavier).
 ## 16. Events, meetings & banquets  —  8/17
 - [ ] availability calendar
 - [ ] enquiries

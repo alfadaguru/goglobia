@@ -61,3 +61,21 @@ $router->post('/supplier/trust/add', function () use ($SECURE, $db) {
     $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Entry recorded.' : 'Could not record (party + non-zero amount required).'];
     header('Location: ' . $back); exit;
 });
+
+// MODULE 15: sales pipeline stage + activity log (owner-scoped).
+$router->post('/supplier/corporate/pipeline', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $orgId = _corp_org($db); $back = root . 'supplier/corporate';
+    if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
+    $ok = function_exists('corp_set_pipeline') && corp_set_pipeline($db, $orgId, (int) ($_POST['account_id'] ?? 0), strtolower((string) ($_POST['stage'] ?? '')));
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Pipeline stage updated.' : 'Could not update.'];
+    header('Location: ' . $back); exit;
+});
+$router->post('/supplier/corporate/activity', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $orgId = _corp_org($db); $back = root . 'supplier/corporate';
+    if ($orgId <= 0) { _supplier_stays_deny('Not authorised.'); }
+    $id = function_exists('corp_activity_add') ? corp_activity_add($db, $orgId, (int) ($_POST['account_id'] ?? 0), (string) ($_POST['kind'] ?? 'note'), (string) ($_POST['detail'] ?? '')) : 0;
+    $_SESSION['message'] = ['type' => $id > 0 ? 'success' : 'error', 'text' => $id > 0 ? 'Activity logged.' : 'Could not log.'];
+    header('Location: ' . $back); exit;
+});
