@@ -28513,12 +28513,33 @@ CREATE TABLE `stays_site` (
   `custom_domain` varchar(191) DEFAULT NULL,
   `domain_status` enum('none','pending','verified','active') NOT NULL DEFAULT 'none',
   `verify_token` varchar(255) DEFAULT NULL,
+  `ical_token` varchar(48) DEFAULT NULL,
   `theme` longtext DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`stay_id`),
   UNIQUE KEY `uq_hostname` (`hostname`),
   UNIQUE KEY `uq_custom_domain` (`custom_domain`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- MODULE 12: per-property OTA channel mappings (push/pull is a stubbed adapter).
+--
+CREATE TABLE `stays_channel_map` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `channel` varchar(40) NOT NULL,
+  `room_id` int(11) DEFAULT NULL,
+  `remote_room_id` varchar(120) DEFAULT NULL,
+  `ical_import_url` varchar(500) DEFAULT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay_channel` (`stay_id`,`channel`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------

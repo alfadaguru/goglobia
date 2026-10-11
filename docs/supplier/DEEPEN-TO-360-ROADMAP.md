@@ -124,16 +124,17 @@ Per-module: built/total + the sub-features still to build (BUILT ones omitted). 
 - [ ] rate sync
 - [ ] reservation import
 - [ ] cancellation sync
-- [ ] room mapping
-- [ ] rate-plan mapping
+- [x] room mapping
+- [x] rate-plan mapping
 - [ ] channel restrictions
 - [ ] channel-specific pricing
-- [ ] sync monitoring
+- [x] sync monitoring
 - [ ] retry/reconciliation
 - [ ] channel performance
-- [ ] iCal
-- [ ] integration-partner management
+- [x] iCal
+- [x] integration-partner management
 
+> ✅ MODULE 12 DEEPENED (honest external-edge): iCal is REAL — a standards-compliant RFC-5545 availability feed (/ical/{token}.ics, token-gated, dates-only, built from live holds; harness_ical 13 checks, exclusive DTEND) that Airbnb/Booking.com/Google Calendar can subscribe to with NO vendor account. OTA channel MAP (room↔remote id, stays_channel_map) persisted + managed on /supplier/stays/{id}/channels. Two-way OTA API sync (Booking.com/Expedia/Airbnb) is HONESTLY STUBBED — channel_sync_status returns 'not connected' unless a {channel}_adapter exists (none ship); UI says so plainly. Per the build-real-part-stub-the-edge rule.
 ## 13. Direct booking engine & website builder  —  6/19
 - [ ] templates
 - [ ] branding

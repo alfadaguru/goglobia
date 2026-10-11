@@ -8089,6 +8089,30 @@ function ensureSupplierStaysSchema($db): void
         // (Promo codes for stays reuse the platform `promo_codes` table + validatePromoCode
         // with per-property targeting — see supplier_rates.php note; no parallel table.)
 
+        // --- MODULE 12 (channel manager → 360): iCal feed token + channel map ---------
+        // The ONE channel that needs no OTA vendor account: a standards-compliant iCal
+        // export of a property's booked dates that Airbnb / Booking.com / Google Calendar
+        // can SUBSCRIBE to. Token-gated + read-only (dates only, no guest PII). Real.
+        if (!$db->query("SHOW COLUMNS FROM `stays_site` LIKE 'ical_token'")->fetch()) {
+            $db->query("ALTER TABLE `stays_site` ADD COLUMN `ical_token` VARCHAR(48) DEFAULT NULL");
+        }
+        // Per-property OTA channel mappings (room-type ↔ OTA room id). Persisted now; the
+        // actual push/pull is the stubbed external adapter (honest 'not connected').
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_channel_map` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `channel` VARCHAR(40) NOT NULL,
+            `room_id` INT(11) DEFAULT NULL,
+            `remote_room_id` VARCHAR(120) DEFAULT NULL,
+            `ical_import_url` VARCHAR(500) DEFAULT NULL,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay_channel` (`stay_id`,`channel`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- MODULE 10 (night audit → 360): reopen controls + audit of closes --------
         // A night-audit close is normally immutable; a reopen is an owner-only, logged
         // exception (e.g. a late charge discovered after close). We mark the snapshot

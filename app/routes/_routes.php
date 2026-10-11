@@ -64,6 +64,7 @@ require_once 'app/routes/users/supplierSafetyRoutes.php'; // packages + safety/c
 require_once 'app/routes/users/supplierGrowthRoutes.php'; // brands (#03) + integrations channel-mgr/RMS/AI config stubs (PMS Phase 3 #12/#14/#57)
 require_once 'app/routes/users/supplierChainRoutes.php'; // multi-property / chain portfolio dashboard (PMS #03 deepen)
 require_once 'app/routes/users/supplierMarketplaceRoutes.php'; // marketplace performance scorecard (PMS 11 deepen)
+require_once 'app/routes/users/supplierChannelRoutes.php'; // channel manager: real iCal feed + OTA map stubs (PMS 12 deepen)
 require_once 'app/routes/users/supplierRatesRoutes.php'; // yield rate-rules + booking restrictions (PMS #06 deepen)
 require_once 'app/routes/users/supplierCalendarRoutes.php'; // reservation calendar / tape-chart (inc S39)
 require_once 'app/routes/users/supplierRequestRoutes.php'; // post-approval service/quota request flow (inc S34)
