@@ -64,23 +64,28 @@ $pickRooms = $stayFilter > 0 ? ($physRooms[$stayFilter] ?? []) : [];
           </form>
         </div>
         <div class="card p-5">
-          <h2 class="text-sm font-semibold text-gray-900 mb-3">Mark room out of order</h2>
+          <h2 class="text-sm font-semibold text-gray-900 mb-3">Take a room out of inventory</h2>
           <?php if (empty($pickRooms)): ?>
             <p class="text-sm text-gray-500">Add physical rooms first (on the property's Rooms page).</p>
           <?php else: ?>
           <form action="<?= $base ?>/ooo" method="POST" class="space-y-3"
-                onsubmit="return confirm('Take this room out of order? It will reduce sellable inventory for those dates.');">
+                onsubmit="return confirm('Take this room out of inventory? It will reduce sellable availability for those dates.');">
             <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $stayFilter ?>">
             <select name="physical_room_id" class="input text-sm w-full">
               <?php foreach ($pickRooms as $r): ?><option value="<?= (int) $r['id'] ?>">#<?= htmlspecialchars((string) $r['room_number']) ?></option><?php endforeach; ?>
             </select>
             <div class="flex flex-wrap gap-2">
+              <div><label class="block text-xs text-gray-600 mb-1">Type</label>
+                <select name="kind" class="input text-sm">
+                  <option value="ooo">Out of order (faulty)</option>
+                  <option value="oos">Out of service (deep clean / staff / renovation)</option>
+                </select></div>
               <div><label class="block text-xs text-gray-600 mb-1">From</label><input type="date" name="date_from" class="input text-sm" required></div>
               <div><label class="block text-xs text-gray-600 mb-1">To (exclusive)</label><input type="date" name="date_to" class="input text-sm" required></div>
               <div><label class="block text-xs text-gray-600 mb-1">ETA back</label><input type="date" name="eta" class="input text-sm"></div>
             </div>
-            <input type="text" name="reason" class="input text-sm" placeholder="Reason (e.g. plumbing)">
-            <button type="submit" class="btn rose text-sm">Mark out of order</button>
+            <input type="text" name="reason" class="input text-sm" placeholder="Reason (e.g. plumbing, deep clean)">
+            <button type="submit" class="btn rose text-sm">Take out of inventory</button>
           </form>
           <?php endif; ?>
         </div>
@@ -91,13 +96,14 @@ $pickRooms = $stayFilter > 0 ? ($physRooms[$stayFilter] ?? []) : [];
   <!-- Active OOO blocks -->
   <?php if (!empty($oooBlocks)): ?>
   <div class="card p-5">
-    <h2 class="text-sm font-semibold text-gray-900 mb-3">Active out-of-order rooms</h2>
+    <h2 class="text-sm font-semibold text-gray-900 mb-3">Rooms out of inventory</h2>
     <div class="overflow-x-auto"><table class="w-full text-sm">
-      <thead><tr class="text-left text-gray-500 border-b border-gray-100"><th class="px-2 py-2 font-medium">Property</th><th class="px-2 py-2 font-medium">Dates</th><th class="px-2 py-2 font-medium">Reason</th><th class="px-2 py-2 font-medium">ETA</th><th class="px-2 py-2 font-medium"></th></tr></thead>
+      <thead><tr class="text-left text-gray-500 border-b border-gray-100"><th class="px-2 py-2 font-medium">Property</th><th class="px-2 py-2 font-medium">Type</th><th class="px-2 py-2 font-medium">Dates</th><th class="px-2 py-2 font-medium">Reason</th><th class="px-2 py-2 font-medium">ETA</th><th class="px-2 py-2 font-medium"></th></tr></thead>
       <tbody class="divide-y divide-gray-50">
-        <?php foreach ($oooBlocks as $b): ?>
+        <?php foreach ($oooBlocks as $b): $k = (string) ($b['kind'] ?? 'ooo'); ?>
           <tr>
             <td class="px-2 py-1.5 text-gray-600 text-xs"><?= htmlspecialchars($propMap[(int) $b['stay_id']] ?? ('#' . $b['stay_id'])) ?></td>
+            <td class="px-2 py-1.5"><span class="px-2 py-0.5 rounded text-xs font-medium <?= $k === 'oos' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700' ?>"><?= $k === 'oos' ? 'Out of service' : 'Out of order' ?></span></td>
             <td class="px-2 py-1.5 text-gray-700 text-xs"><?= htmlspecialchars((string) $b['date_from']) ?> → <?= htmlspecialchars((string) $b['date_to']) ?></td>
             <td class="px-2 py-1.5 text-gray-600"><?= htmlspecialchars((string) ($b['reason'] ?? '')) ?: '—' ?></td>
             <td class="px-2 py-1.5 text-gray-500 text-xs"><?= htmlspecialchars((string) ($b['eta'] ?? '')) ?: '—' ?></td>

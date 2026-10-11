@@ -128,6 +128,22 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
       <p class="text-xs text-gray-600 mb-3">Assigned room: <span class="font-semibold text-gray-900">#<?= htmlspecialchars((string) $assigned['room_number']) ?></span><?= !empty($assigned['floor']) ? ' · floor ' . htmlspecialchars((string) $assigned['floor']) : '' ?></p>
     <?php endif; ?>
 
+    <?php // ROOM MAPPING (PMS #05): assign/reassign the physical room independently of check-in. ?>
+    <?php if ($canEdit && !$isCancelled && !empty($assignable)): ?>
+      <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="flex flex-wrap items-end gap-2 mb-3">
+        <?= CSRF::tokenField() ?><input type="hidden" name="action" value="assign_room">
+        <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Assign / move to room</label>
+          <select name="physical_room_id" class="input text-sm">
+            <option value="0">— unassigned —</option>
+            <?php foreach ($assignable as $pr): ?>
+              <option value="<?= (int) $pr['id'] ?>" <?= $assigned && (int) $assigned['id'] === (int) $pr['id'] ? 'selected' : '' ?>>#<?= htmlspecialchars((string) $pr['room_number']) ?> (<?= htmlspecialchars((string) $pr['hk_status']) ?>)</option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <button type="submit" class="btn secondary text-sm">Save room</button>
+      </form>
+    <?php endif; ?>
+
     <?php if ($canEdit && !$isCancelled): ?>
       <div class="flex flex-wrap items-center gap-3 mb-4">
         <?php if ($ss === 'confirmed'): ?>

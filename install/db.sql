@@ -29444,6 +29444,7 @@ CREATE TABLE `stays_ooo_blocks` (
   `room_id` int(11) NOT NULL,
   `date_from` date NOT NULL,
   `date_to` date NOT NULL,
+  `kind` enum('ooo','oos') NOT NULL DEFAULT 'ooo',
   `reason` varchar(255) DEFAULT NULL,
   `eta` date DEFAULT NULL,
   `state` enum('active','cleared') NOT NULL DEFAULT 'active',

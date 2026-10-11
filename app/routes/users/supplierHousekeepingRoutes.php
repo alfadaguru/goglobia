@@ -156,7 +156,7 @@ $router->get('/supplier/maintenance', function () use ($SECURE, $db) {
                 ['id', 'stay_id', 'title', 'area', 'priority', 'status', 'assigned_to', 'created_at'],
                 ['stay_id' => $scope, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 200]) ?: [];
             $oooBlocks = $db->select('stays_ooo_blocks',
-                ['id', 'stay_id', 'physical_room_id', 'date_from', 'date_to', 'reason', 'eta', 'state'],
+                ['id', 'stay_id', 'physical_room_id', 'date_from', 'date_to', 'kind', 'reason', 'eta', 'state'],
                 ['stay_id' => $scope, 'state' => 'active', 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 200]) ?: [];
         } catch (\Throwable $e) { error_log('maintenance list: ' . $e->getMessage()); }
     }
@@ -250,12 +250,14 @@ $router->post('/supplier/maintenance/ooo', function () use ($SECURE, $db) {
     $to = trim((string) ($_POST['date_to'] ?? ''));
     $reason = trim((string) ($_POST['reason'] ?? ''));
     $eta = trim((string) ($_POST['eta'] ?? '')) ?: null;
+    $kind = in_array(($_POST['kind'] ?? 'ooo'), ['ooo', 'oos'], true) ? $_POST['kind'] : 'ooo';
     $back = root . 'supplier/maintenance' . ($stayId > 0 ? '?stay_id=' . $stayId : '');
     if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
 
     if (!function_exists('ooo_block_create')) { $_SESSION['message'] = ['type' => 'error', 'text' => 'Unavailable.']; header('Location: ' . $back); exit; }
-    $res = ooo_block_create($db, $prid, $stayId, $from, $to, $reason, $eta);
-    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => !empty($res['ok']) ? 'Room marked out of order; inventory reduced for those dates.' : ($res['message'] ?? 'Could not mark out of order.')];
+    $res = ooo_block_create($db, $prid, $stayId, $from, $to, $reason, $eta, $kind);
+    $label = $kind === 'oos' ? 'out of service' : 'out of order';
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => !empty($res['ok']) ? "Room marked $label; inventory reduced for those dates." : ($res['message'] ?? "Could not mark $label.")];
     header('Location: ' . $back); exit;
 });
 

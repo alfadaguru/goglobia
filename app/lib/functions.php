@@ -8355,6 +8355,7 @@ function ensureSupplierStaysSchema($db): void
             `room_id` INT(11) NOT NULL,
             `date_from` DATE NOT NULL,
             `date_to` DATE NOT NULL,
+            `kind` ENUM('ooo','oos') NOT NULL DEFAULT 'ooo',
             `reason` VARCHAR(255) DEFAULT NULL,
             `eta` DATE DEFAULT NULL,
             `state` ENUM('active','cleared') NOT NULL DEFAULT 'active',
@@ -8365,6 +8366,11 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay_state` (`stay_id`,`state`),
             KEY `idx_room` (`physical_room_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // MODULE 05: distinguish OUT-OF-SERVICE (oos — soft block: deep clean, staff use,
+        // minor repair; still removed from sale) from OUT-OF-ORDER (ooo — faulty/unsellable).
+        if (!$db->query("SHOW COLUMNS FROM `stays_ooo_blocks` LIKE 'kind'")->fetch()) {
+            $db->query("ALTER TABLE `stays_ooo_blocks` ADD COLUMN `kind` ENUM('ooo','oos') NOT NULL DEFAULT 'ooo' AFTER `date_to`");
+        }
 
         // --- F&B / POS (inc S24; docs 01 §5) ----------------------------------------
         // Outlets → menu items → orders → order items → payments. Settlement by cash or

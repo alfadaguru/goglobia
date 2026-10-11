@@ -48,11 +48,12 @@ Per-module: built/total + the sub-features still to build (BUILT ones omitted). 
 
 > ✅ MODULE 04 DEEPENED: front-desk dashboard (arrivals/departures/in-house/stayover for a business date, /supplier/front-desk), room rack / TAPE CHART (physical rooms × nights grid, /supplier/stays/{id}/tape-chart), REPEAT/clone a reservation onto new dates (server-priced + held, action=repeat). create email/online already via resv_create_walkin source tags. STILL OPEN (noted, higher-risk/niche): instant-book vs request-to-book approval flow; split / merge-link folios (tracker-deferred as highest-risk); true multi-room-TYPE single reservation (single-type multi-qty works today).
 ## 05. Room & unit inventory  —  12/15
-- [ ] out-of-service (OOS, sellable-later distinct from OOO)
+- [x] out-of-service (OOS, sellable-later distinct from OOO)
 - [ ] group allotments
-- [ ] room mapping
+- [x] room mapping
 - [ ] forecasting
 
+> ✅ MODULE 05 DEEPENED: OOS (out-of-service, kind='oos' on stays_ooo_blocks — reuses the atomic inventory-block path, distinct badge/label from OOO) + ROOM MAPPING (standalone assign/reassign physical room on the reservation detail via canonical hk_assign_room_to_booking → pms_physical_room_id; surfaced in the tape chart). FOLDS: group allotments→#08 group blocks; forecasting→#14 RMS/#56 BI.
 ## 06. Rates, pricing & rate plans  —  9/20
 - [ ] derived rates
 - [ ] occupancy-based pricing

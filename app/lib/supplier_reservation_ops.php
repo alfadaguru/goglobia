@@ -690,7 +690,7 @@ if (!function_exists('resv_tape_chart')) {
      * Room rack / tape chart for one property over a date window: a grid of physical
      * rooms (rows) × dates (cols), each cell marked occupied when a non-cancelled
      * reservation for that room covers that night. Reservations are matched to a physical
-     * room by booking_data.physical_room_id when present; otherwise listed in an
+     * room by booking_data.pms_physical_room_id when present; otherwise listed in an
      * "unassigned" lane so the desk can still see demand. Read-only.
      * Returns ['dates'=>[...], 'rows'=>[ ['room'=>.., 'cells'=>[date=>resv|null] ] ],
      *          'unassigned'=>[ ['label','checkin','checkout','invoice'] ] ].
@@ -717,7 +717,7 @@ if (!function_exists('resv_tape_chart')) {
             $ci = (string) ($r['_checkin'] ?? ''); $co = (string) ($r['_checkout'] ?? '');
             if ($ci === '' || $co === '' || $co <= $from || $ci > $end) { continue; }
             $bd = json_decode((string) ($r['booking_data'] ?? ''), true);
-            $prid = is_array($bd) ? (int) ($bd['physical_room_id'] ?? 0) : 0;
+            $prid = is_array($bd) ? (int) ($bd['pms_physical_room_id'] ?? 0) : 0;
             $label = trim((string) ($r['first_name'] ?? '') . ' ' . (string) ($r['last_name'] ?? '')) ?: (string) $r['invoice_id'];
             if ($prid > 0 && isset($cellsByRoom[$prid])) {
                 foreach ($dates as $d) { if ($ci <= $d && $d < $co) { $cellsByRoom[$prid]['cells'][$d] = ['label' => $label, 'invoice' => (string) $r['invoice_id']]; } }
@@ -760,5 +760,27 @@ if (!function_exists('resv_clone')) {
             'adults' => (int) $b['adults'], 'children' => (int) $b['childs'],
             'source' => 'repeat', 'mark_paid' => false,
         ]);
+    }
+}
+
+if (!function_exists('resv_unassign_physical_room')) {
+    /**
+     * ROOM MAPPING (PMS #05): clear a reservation's physical-room assignment. The ASSIGN
+     * side is the canonical hk_assign_room_to_booking() (supplier_housekeeping.php), which
+     * validates the room is active/assignable/not-in-use and stores the SAME key
+     * (pms_physical_room_id) the check-in picker + tape chart use. This unassign is its
+     * missing inverse so the desk can reassign before check-in. Returns bool.
+     */
+    function resv_unassign_physical_room($db, string $invoiceId): bool
+    {
+        try {
+            $b = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
+            if (!$b) { return false; }
+            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
+            if (!is_array($bd)) { $bd = []; }
+            unset($bd['pms_physical_room_id']);
+            $db->update('bookings', ['booking_data' => json_encode($bd), 'updated_at' => date('Y-m-d H:i:s')], ['invoice_id' => $invoiceId]);
+            return true;
+        } catch (\Throwable $e) { error_log('resv_unassign_physical_room: ' . $e->getMessage()); return false; }
     }
 }

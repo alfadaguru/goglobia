@@ -492,6 +492,18 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                 $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error',
                     'text' => $res['message'] ?? 'Could not transfer the room.'];
             }
+        } elseif ($action === 'assign_room') {
+            // Room mapping (PMS #05): assign/unassign the physical room for this stay,
+            // using the CANONICAL hk_assign_room_to_booking (validates active/assignable/
+            // not-in-use, stores pms_physical_room_id — the key check-in + tape chart use).
+            $prid = (int) ($_POST['physical_room_id'] ?? 0);
+            if ($prid > 0) {
+                $ok = function_exists('hk_assign_room_to_booking') && hk_assign_room_to_booking($db, $invoiceId, $prid, $hid);
+                $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Room assigned.' : 'Could not assign (room not available / not assignable?).'];
+            } else {
+                $ok = function_exists('resv_unassign_physical_room') && resv_unassign_physical_room($db, $invoiceId);
+                $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Room assignment cleared.' : 'Could not clear the assignment.'];
+            }
         } elseif ($action === 'set_source') {
             $src = (string) ($_POST['booking_source'] ?? '');
             $ok = function_exists('resv_set_source') && resv_set_source($db, $invoiceId, $src);

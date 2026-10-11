@@ -126,9 +126,10 @@ if (!function_exists('ooo_block_create')) {
      * Returns ['ok'=>bool,'block_id'=>?,'message'=>?]. Also flips the physical room's
      * hk_status to out_of_order.
      */
-    function ooo_block_create($db, int $physicalRoomId, int $stayId, string $from, string $to, string $reason = '', ?string $eta = null): array
+    function ooo_block_create($db, int $physicalRoomId, int $stayId, string $from, string $to, string $reason = '', ?string $eta = null, string $kind = 'ooo'): array
     {
         if ($physicalRoomId <= 0 || $stayId <= 0) { return ['ok' => false, 'message' => 'Bad input']; }
+        $kind = in_array($kind, ['ooo', 'oos'], true) ? $kind : 'ooo';
         $nights = function_exists('stays_date_range') ? stays_date_range($from, $to) : [];
         if (empty($nights)) { return ['ok' => false, 'message' => 'Invalid date range']; }
 
@@ -139,7 +140,7 @@ if (!function_exists('ooo_block_create')) {
             $optionIds = _ooo_option_ids_for_room($db, $stayId, $roomTypeId);
 
             $result = ['ok' => false, 'message' => 'Could not create OOO block'];
-            $db->action(function ($db) use ($physicalRoomId, $stayId, $roomTypeId, $optionIds, $nights, $from, $to, $reason, $eta, &$result) {
+            $db->action(function ($db) use ($physicalRoomId, $stayId, $roomTypeId, $optionIds, $nights, $from, $to, $reason, $eta, $kind, &$result) {
                 $now = date('Y-m-d H:i:s');
                 // GUARD (MEDIUM audit): refuse if an active OOO block already overlaps this
                 // physical room's date range. Without this, double-submitting decrements
@@ -160,6 +161,7 @@ if (!function_exists('ooo_block_create')) {
                     'room_id'          => $roomTypeId,
                     'date_from'        => $nights[0],
                     'date_to'          => $to,
+                    'kind'             => $kind,
                     'reason'           => $reason !== '' ? substr($reason, 0, 255) : null,
                     'eta'              => $eta ?: null,
                     'state'            => 'active',
