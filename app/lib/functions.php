@@ -7991,6 +7991,22 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_stay_status` (`stay_id`,`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- Integration config (PMS Phase 3 #12/#14/#57 external-edge STUBS) --------
+        // Stores per-org config for external integrations that are NOT wired to a vendor
+        // yet (channel manager, RMS, AI). Having the config persisted is the honest
+        // internal half; the adapter that would USE it is a documented stub.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_integration_config` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `integration` VARCHAR(40) NOT NULL,
+            `enabled` TINYINT(1) NOT NULL DEFAULT 0,
+            `config_json` TEXT DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_org_integration` (`org_id`,`integration`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- Packages (#17): bundled offerings -------------------------------------
         $db->query("CREATE TABLE IF NOT EXISTS `stays_packages` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,

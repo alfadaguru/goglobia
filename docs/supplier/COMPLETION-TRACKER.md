@@ -73,7 +73,19 @@ spec (docs/supplier/01b). Built in order: **24 Partial → 7 Dead → 30 Missing
 (* = external-dependency edge, built internal + stubbed adapter)
 
 ### Phase-3 build log (append-only)
-- ✅ #29 Lost & found + #28 Fixed assets — per-property registers (new stays_lost_found + stays_assets tables both schemas; supplier_facilities.php lib; routes + views + sidebar links). Real CRUD, owner/staff gated, property-scoped.
+- ✅ #28/#29 Fixed assets + Lost & found — per-property registers (stays_assets + stays_lost_found; supplier_facilities.php; routes + views + sidebar). Real CRUD, owner/staff gated, property-scoped.
+- ✅ #25/#26 Laundry & linen + Minibar catalogue — stays_laundry + stays_minibar_items; supplier_facilities.php; routes + views + sidebar.
+- ✅ #21/#19 Guest service tickets/complaints + guest communication log — stays_service_tickets + stays_guest_messages; supplier_guestservice.php; CRM sidebar group.
+- ✅ #35/#38 AR subledger + Tax payable — added to the finance screen (trial-balance/P&L already there from #34). supplier_finance.
+- ✅ #44 HR / workforce — employee register + leave (stays_employees + stays_leave); supplier_hr.php; Team sidebar.
+- ✅ #49/#51 Leases & long-stay + Utilities / meter readings — stays_leases + stays_utility_readings; supplier_lease.php (utility_amount harness: max(0,cur-prev)*rate).
+- ✅ #15/#50 Corporate & agent accounts + Trust / client-money ledger — stays_corporate_accounts + stays_trust_ledger; supplier_corporate.php (trust signed-balance harness). Owner-only.
+- ✅ #31/#32/#33 Services (spa/wellness/generic) + Recipes/food-cost — stays_services + stays_service_bookings + stays_recipes; supplier_ancillary.php (recipe-margin harness).
+- ✅ #17/#52-55 Packages + Safety & compliance — stays_packages + stays_incidents + stays_visitors + stays_documents; supplier_safety.php; routes + views + sidebar.
+- ✅ #20 Digital guest journey — online check-in on the public branded path (/stay-checkin/{invoice}); brandedSiteRoutes.php.
+- ✅ #03 Multi-property / brands (REAL) + #12/#14/#57 Channel manager / RMS / AI (external-edge STUBS) — supplier_growth.php: brand CRUD + property→brand assignment on supplier_brands/stays.brand_id; integration config persisted to stays_integration_config but integration_status() honestly reports 'off'/'stub'/'connected' — only 'connected' when a real `{key}_adapter` fn exists (none ship), so the UI shows "Configured — not connected" and never fakes a live sync. /supplier/growth route + growth.php view + Team sidebar link. Owner-only.
+
+**Phase 3 (Missing modules): 24/24 built.** Every module is code-complete, php-l clean, schema mirrored in both ensureSupplierStaysSchema() and install/db.sql, and owner/staff/scope gated. **NOT runtime-verified** — no MySQL in this sandbox; owner smoke-tests on the server.
 
 
 ---

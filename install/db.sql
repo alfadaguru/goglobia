@@ -28972,6 +28972,24 @@ CREATE TABLE `stays_lost_found` (
 -- --------------------------------------------------------
 
 --
+-- Integration config (PMS Phase 3 #12/#14/#57 external-edge stubs). Per-org config for
+-- channel manager / RMS / AI — persisted internally; the vendor adapter is a stub.
+--
+CREATE TABLE `stays_integration_config` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `integration` varchar(40) NOT NULL,
+  `enabled` tinyint(1) NOT NULL DEFAULT 0,
+  `config_json` text DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_org_integration` (`org_id`,`integration`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Packages (#17): bundled offerings.
 --
 CREATE TABLE `stays_packages` (

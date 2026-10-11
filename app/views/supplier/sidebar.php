@@ -142,6 +142,7 @@ if ($activeStay > 0) {
             ['name' => 'Roles', 'icon' => 'badge', 'url' => 'supplier/roles', 'show' => true],
             ['name' => 'HR & workforce', 'icon' => 'badge', 'url' => 'supplier/hr', 'show' => true],
             ['name' => 'Integrations', 'icon' => 'hub', 'url' => 'supplier/integrations', 'show' => true],
+            ['name' => 'Growth & brands', 'icon' => 'hub', 'url' => 'supplier/growth', 'show' => true],
         ]];
     }
 
