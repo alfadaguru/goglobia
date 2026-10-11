@@ -468,13 +468,15 @@ if (!function_exists('supplier_service_quota')) {
      */
     function supplier_service_quota($db, string $owner, string $service): array
     {
-        $out = ['max' => null, 'used' => 0, 'approved' => false];
+        $out = ['max' => null, 'used' => 0, 'approved' => false, 'commission_pct' => null];
         try {
-            $svc = $db->get('supplier_services', ['status', 'max_listings'],
+            $svc = $db->get('supplier_services', ['status', 'max_listings', 'commission_pct'],
                 ['user_id' => $owner, 'service' => $service]);
             if ($svc) {
                 $out['approved'] = ($svc['status'] === 'approved');
                 $out['max'] = isset($svc['max_listings']) ? (int) $svc['max_listings'] : null;
+                $out['commission_pct'] = ($svc['commission_pct'] !== null && $svc['commission_pct'] !== '')
+                    ? (float) $svc['commission_pct'] : null;
             }
             // Count existing owned listings in the service's own-inventory table.
             $table = in_array($service, ['stays', 'flights', 'tours', 'cars', 'bus'], true) ? $service : null;
