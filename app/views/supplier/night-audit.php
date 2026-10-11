@@ -57,6 +57,49 @@ $base = root . 'supplier/night-audit';
       <?php endif; ?>
     </div>
 
+    <!-- Pre-close exceptions (PMS #10): reservations needing attention before the close -->
+    <?php $exc = (isset($exceptions) && is_array($exceptions)) ? $exceptions : ['count'=>0]; ?>
+    <div class="card p-5">
+      <h2 class="text-sm font-semibold text-gray-900 mb-2">Pre-close exceptions</h2>
+      <?php if (($exc['count'] ?? 0) === 0): ?>
+        <p class="text-sm text-green-700 flex items-center gap-1.5"><span class="material-symbols-outlined text-base">check_circle</span> Nothing outstanding — clear to close.</p>
+      <?php else: ?>
+        <div class="space-y-3 text-sm">
+          <?php if (!empty($exc['arrival_not_in'])): ?>
+            <div>
+              <div class="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">Expected arrivals not checked in (<?= count($exc['arrival_not_in']) ?>)</div>
+              <ul class="space-y-0.5">
+                <?php foreach ($exc['arrival_not_in'] as $e): ?>
+                  <li class="flex justify-between"><a href="<?= root ?>supplier/reservations/<?= rawurlencode((string) $e['invoice_id']) ?>" class="text-violet-600 hover:underline"><?= htmlspecialchars((string) $e['guest']) ?></a><span class="text-gray-400 text-xs tabular-nums"><?= htmlspecialchars((string) ($e['checkin'] ?? '')) ?></span></li>
+                <?php endforeach; ?>
+              </ul>
+            </div>
+          <?php endif; ?>
+          <?php if (!empty($exc['depart_not_out'])): ?>
+            <div>
+              <div class="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">Overdue departures not checked out (<?= count($exc['depart_not_out']) ?>)</div>
+              <ul class="space-y-0.5">
+                <?php foreach ($exc['depart_not_out'] as $e): ?>
+                  <li class="flex justify-between"><a href="<?= root ?>supplier/reservations/<?= rawurlencode((string) $e['invoice_id']) ?>" class="text-violet-600 hover:underline"><?= htmlspecialchars((string) $e['guest']) ?></a><span class="text-gray-400 text-xs tabular-nums"><?= htmlspecialchars((string) ($e['checkout'] ?? '')) ?></span></li>
+                <?php endforeach; ?>
+              </ul>
+            </div>
+          <?php endif; ?>
+          <?php if (!empty($exc['balance_due'])): ?>
+            <div>
+              <div class="text-xs font-semibold text-red-700 uppercase tracking-wide mb-1">In-house with balance due (<?= count($exc['balance_due']) ?>)</div>
+              <ul class="space-y-0.5">
+                <?php foreach ($exc['balance_due'] as $e): ?>
+                  <li class="flex justify-between"><a href="<?= root ?>supplier/reservations/<?= rawurlencode((string) $e['invoice_id']) ?>" class="text-violet-600 hover:underline"><?= htmlspecialchars((string) $e['guest']) ?></a><span class="text-red-600 text-xs tabular-nums"><?= number_format((float) ($e['amount'] ?? 0), 2) ?></span></li>
+                <?php endforeach; ?>
+              </ul>
+            </div>
+          <?php endif; ?>
+          <p class="text-xs text-gray-400">These don't block the close, but are worth resolving first.</p>
+        </div>
+      <?php endif; ?>
+    </div>
+
     <div class="card overflow-x-auto">
       <h2 class="text-sm font-semibold text-gray-900 px-4 pt-4">History</h2>
       <table class="w-full text-sm mt-2">

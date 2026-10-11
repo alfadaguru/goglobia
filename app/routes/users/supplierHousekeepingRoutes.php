@@ -269,6 +269,8 @@ $router->get('/supplier/night-audit', function () use ($SECURE, $db) {
     $bizDates = [];
     foreach ($stayIds as $sid) { if (function_exists('na_business_date')) { $bizDates[$sid] = na_business_date($db, $sid); } }
     $history = ($stayFilter > 0 && function_exists('night_audit_history')) ? night_audit_history($db, $stayFilter) : [];
+    // Pre-close exceptions for the selected property (PMS #10).
+    $exceptions = ($stayFilter > 0 && function_exists('night_audit_exceptions')) ? night_audit_exceptions($db, $stayFilter) : ['count' => 0];
     $canRun = supplier_can($db, 'reservations', 'edit');
 
     $title = 'Night audit'; $description = ''; $header = true; $footer = true;
