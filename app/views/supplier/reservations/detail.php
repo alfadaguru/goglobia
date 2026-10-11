@@ -204,6 +204,76 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
     <?php endif; ?>
   </div>
 
+  <!-- Modify (PMS completion #04): change dates, transfer room, set source. Each
+       re-holds inventory + re-prices server-side. Hidden once cancelled. -->
+  <?php
+    $rp = (isset($roomPicker) && is_array($roomPicker)) ? $roomPicker : [];
+    $srcList = (isset($bookingSources) && is_array($bookingSources)) ? $bookingSources : [];
+    $curCheckin  = (string) ($booking['_bd']['checkin'] ?? '');
+    $curCheckout = (string) ($booking['_bd']['checkout'] ?? '');
+    $curSource   = (string) ($booking['_bd']['booking_source'] ?? '');
+  ?>
+  <?php if ($canEdit && !$isCancelled): ?>
+  <div class="card p-5 space-y-4">
+    <h2 class="text-sm font-semibold text-gray-900">Modify reservation</h2>
+    <p class="text-xs text-gray-500">Changing the dates or room re-checks availability and recalculates the price from your rates. If the new dates/room are full, the change is refused and the original booking is kept.</p>
+
+    <!-- Change dates -->
+    <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="flex flex-wrap items-end gap-2">
+      <?= CSRF::tokenField() ?><input type="hidden" name="action" value="modify_dates">
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">New check-in</label>
+        <input type="date" name="new_checkin" value="<?= htmlspecialchars($curCheckin) ?>" required class="input text-sm"></div>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">New check-out</label>
+        <input type="date" name="new_checkout" value="<?= htmlspecialchars($curCheckout) ?>" required class="input text-sm"></div>
+      <button type="submit" class="btn secondary text-sm">Update dates</button>
+    </form>
+
+    <!-- Transfer room -->
+    <?php if (!empty($rp)): ?>
+    <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="flex flex-wrap items-end gap-2 border-t border-gray-100 pt-3">
+      <?= CSRF::tokenField() ?><input type="hidden" name="action" value="transfer_room">
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Move to room</label>
+        <select name="new_room_id" id="xferRoom" required class="input text-sm">
+          <option value="">Select…</option>
+          <?php foreach ($rp as $p): ?><option value="<?= (int) $p['room_id'] ?>"><?= htmlspecialchars((string) $p['room_name']) ?></option><?php endforeach; ?>
+        </select></div>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Rate</label>
+        <select name="new_option_id" id="xferOption" required class="input text-sm"><option value="">Select a room…</option></select></div>
+      <button type="submit" class="btn secondary text-sm">Transfer</button>
+    </form>
+    <?php endif; ?>
+
+    <!-- Booking source -->
+    <?php if (!empty($srcList)): ?>
+    <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="flex flex-wrap items-end gap-2 border-t border-gray-100 pt-3">
+      <?= CSRF::tokenField() ?><input type="hidden" name="action" value="set_source">
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Booking source</label>
+        <select name="booking_source" class="input text-sm">
+          <?php foreach ($srcList as $val => $label): ?>
+            <option value="<?= htmlspecialchars((string) $val) ?>" <?= $curSource === (string) $val ? 'selected' : '' ?>><?= htmlspecialchars((string) $label) ?></option>
+          <?php endforeach; ?>
+        </select></div>
+      <button type="submit" class="btn secondary text-sm">Save source</button>
+    </form>
+    <?php endif; ?>
+  </div>
+
+  <script>
+  (function () {
+    var byRoom = <?= json_encode(array_column($rp, 'options', 'room_id')) ?>;
+    var rs = document.getElementById('xferRoom'), os = document.getElementById('xferOption');
+    if (!rs || !os) { return; }
+    rs.addEventListener('change', function () {
+      os.innerHTML = '';
+      (byRoom[rs.value] || []).forEach(function (op) {
+        var o = document.createElement('option'); o.value = op.option_id; o.textContent = op.label; os.appendChild(o);
+      });
+      if (!os.children.length) { var o=document.createElement('option'); o.value=''; o.textContent='Select a room…'; os.appendChild(o); }
+    });
+  })();
+  </script>
+  <?php endif; ?>
+
   <!-- Actions -->
   <?php if ($canEdit): ?>
   <div class="card p-5">

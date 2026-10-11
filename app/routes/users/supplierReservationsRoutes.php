@@ -231,6 +231,11 @@ $router->get('/supplier/reservations/([A-Za-z0-9_-]+)', function ($invoiceId) us
         }
     }
 
+    // Room/rate picker (for the "transfer room" control) + booking sources (for the
+    // source selector) — PMS completion #04. Only needed when the operator can edit.
+    $roomPicker = $canEdit ? _supplier_resv_room_picker($db, $hid) : [];
+    $bookingSources = function_exists('resv_booking_sources') ? resv_booking_sources() : [];
+
     $title = 'Reservation ' . $invoiceId;
     $description = '';
     $header = true; $footer = true;
@@ -349,6 +354,35 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                     'text' => $ok ? 'Folio updated.' : 'Could not add the folio line (is the folio closed?).',
                 ];
             }
+        } elseif ($action === 'modify_dates') {
+            // Change check-in/out (move / extend / shorten). The engine re-holds
+            // inventory atomically + re-prices. (PMS completion #04.)
+            $ci = trim((string) ($_POST['new_checkin'] ?? ''));
+            $co = trim((string) ($_POST['new_checkout'] ?? ''));
+            if (!function_exists('resv_modify_dates')) {
+                $_SESSION['message'] = ['type' => 'error', 'text' => 'Reservation engine unavailable.'];
+            } else {
+                $res = resv_modify_dates($db, $invoiceId, $ci, $co);
+                $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error',
+                    'text' => $res['message'] ?? 'Could not change the dates.'];
+            }
+        } elseif ($action === 'transfer_room') {
+            // Move to a different room/option (same property). Re-holds + re-prices.
+            $nr = (int) ($_POST['new_room_id'] ?? 0);
+            $no = (int) ($_POST['new_option_id'] ?? 0);
+            $nq = ($v = (int) ($_POST['new_qty'] ?? 0)) > 0 ? $v : null;
+            if (!function_exists('resv_transfer_room')) {
+                $_SESSION['message'] = ['type' => 'error', 'text' => 'Reservation engine unavailable.'];
+            } else {
+                $res = resv_transfer_room($db, $invoiceId, $nr, $no, $nq);
+                $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error',
+                    'text' => $res['message'] ?? 'Could not transfer the room.'];
+            }
+        } elseif ($action === 'set_source') {
+            $src = (string) ($_POST['booking_source'] ?? '');
+            $ok = function_exists('resv_set_source') && resv_set_source($db, $invoiceId, $src);
+            $_SESSION['message'] = ['type' => $ok ? 'success' : 'error',
+                'text' => $ok ? 'Booking source updated.' : 'Could not update the source.'];
         } else {
             $_SESSION['message'] = ['type' => 'error', 'text' => 'Unknown action.'];
         }
@@ -357,5 +391,170 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not update the reservation.'];
     }
     header('Location: ' . $back);
+    exit;
+});
+
+// ============================================================================
+// WALK-IN / NEW RESERVATION + WAITLIST (PMS completion #04)
+// ============================================================================
+
+if (!function_exists('_supplier_resv_room_picker')) {
+    /** Rooms of a property with their stable option ids + prices, for a booking picker.
+     *  Returns [ ['room_id','room_name','options'=>[['option_id','label','price'],...]], ... ]. */
+    function _supplier_resv_room_picker($db, int $stayId): array
+    {
+        $out = [];
+        try {
+            $rooms = $db->select('stays_rooms', ['id', 'room_type_id', 'room_options'], ['stay_id' => $stayId, 'status' => 1]) ?: [];
+            $roomTypes = [];
+            try { foreach ($db->select('stays_settings', ['id', 'name'], ['setting_type' => 'room_type']) ?: [] as $rt) { $roomTypes[(int) $rt['id']] = $rt['name']; } } catch (\Throwable $e) {}
+            foreach ($rooms as $r) {
+                $rid = (int) $r['id'];
+                $opts = function_exists('stays_room_option_ids') ? stays_room_option_ids($db, $rid, $stayId) : (json_decode((string) $r['room_options'], true) ?: []);
+                $optOut = [];
+                foreach ((array) $opts as $i => $o) {
+                    $oid = (int) ($o['option_id'] ?? ($i + 1));
+                    $price = (float) ($o['price'] ?? 0);
+                    if ($price <= 0) { continue; }
+                    $label = 'Rate #' . $oid . ' · ' . number_format($price, 2)
+                        . (!empty($o['breakfast_included']) ? ' · breakfast' : '')
+                        . (!empty($o['refundable']) ? ' · refundable' : '');
+                    $optOut[] = ['option_id' => $oid, 'label' => $label, 'price' => $price];
+                }
+                if (empty($optOut)) { continue; }
+                $out[] = [
+                    'room_id'   => $rid,
+                    'room_name' => $roomTypes[(int) $r['room_type_id']] ?? ('Room type ' . (int) $r['room_type_id']),
+                    'options'   => $optOut,
+                ];
+            }
+        } catch (\Throwable $e) { error_log('_supplier_resv_room_picker: ' . $e->getMessage()); }
+        return $out;
+    }
+}
+
+// NEW RESERVATION FORM — GET /supplier/stays/{id}/reservations/new
+$router->get('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) $id;
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) {
+        _supplier_stays_deny('You are not authorised to create reservations for that property.');
+    }
+    $stay = $db->get('stays', ['id', 'name', 'currency'], ['id' => $stayId]);
+    if (!$stay) { _supplier_stays_deny('Property not found.'); }
+
+    $roomPicker = _supplier_resv_room_picker($db, $stayId);
+    $sources = function_exists('resv_booking_sources') ? resv_booking_sources() : [];
+    $title = 'New reservation — ' . ($stay['name'] ?? ''); $description = '';
+    $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/reservations/new.php";
+    require_once views . "includes/footer.php";
+});
+
+// CREATE — POST /supplier/stays/{id}/reservations/new
+$router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) $id;
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) {
+        _supplier_stays_deny('You are not authorised to create reservations for that property.');
+    }
+    $back = root . 'supplier/stays/' . $stayId . '/reservations/new';
+    if (!function_exists('resv_create_walkin')) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Reservation engine unavailable.'];
+        header('Location: ' . $back); exit;
+    }
+    $res = resv_create_walkin($db, $stayId, [
+        'room_id'    => (int) ($_POST['room_id'] ?? 0),
+        'option_id'  => (int) ($_POST['option_id'] ?? 0),
+        'qty'        => (int) ($_POST['qty'] ?? 1),
+        'checkin'    => (string) ($_POST['checkin'] ?? ''),
+        'checkout'   => (string) ($_POST['checkout'] ?? ''),
+        'first_name' => (string) ($_POST['first_name'] ?? ''),
+        'last_name'  => (string) ($_POST['last_name'] ?? ''),
+        'email'      => (string) ($_POST['email'] ?? ''),
+        'phone'      => (string) ($_POST['phone'] ?? ''),
+        'adults'     => (int) ($_POST['adults'] ?? 1),
+        'children'   => (int) ($_POST['children'] ?? 0),
+        'source'     => (string) ($_POST['source'] ?? 'walk_in'),
+        'mark_paid'  => !empty($_POST['mark_paid']),
+        'notes'      => (string) ($_POST['notes'] ?? ''),
+    ]);
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not create the reservation.'];
+    if (!empty($res['ok']) && !empty($res['invoice_id'])) {
+        header('Location: ' . root . 'supplier/reservations/' . rawurlencode($res['invoice_id']));
+    } else {
+        header('Location: ' . $back);
+    }
+    exit;
+});
+
+// WAITLIST — GET /supplier/stays/{id}/waitlist
+$router->get('/supplier/stays/([0-9]+)/waitlist', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) $id;
+    if (!supplier_can($db, 'reservations', 'view', $stayId)) {
+        _supplier_stays_deny('You are not authorised to view that property.');
+    }
+    $stay = $db->get('stays', ['id', 'name'], ['id' => $stayId]);
+    if (!$stay) { _supplier_stays_deny('Property not found.'); }
+    $waitlist = [];
+    try { $waitlist = $db->select('stays_waitlist', '*', ['stay_id' => $stayId, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 200]) ?: []; }
+    catch (\Throwable $e) { error_log('waitlist list: ' . $e->getMessage()); }
+    $canEdit = supplier_can($db, 'reservations', 'edit', $stayId);
+    $title = 'Waitlist — ' . ($stay['name'] ?? ''); $description = '';
+    $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/reservations/waitlist.php";
+    require_once views . "includes/footer.php";
+});
+
+// WAITLIST ADD — POST /supplier/stays/{id}/waitlist
+$router->post('/supplier/stays/([0-9]+)/waitlist', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) $id;
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) {
+        _supplier_stays_deny('You are not authorised to edit that property.');
+    }
+    $back = root . 'supplier/stays/' . $stayId . '/waitlist';
+    $res = function_exists('resv_waitlist_add') ? resv_waitlist_add($db, $stayId, [
+        'guest_name' => (string) ($_POST['guest_name'] ?? ''),
+        'email'      => (string) ($_POST['email'] ?? ''),
+        'phone'      => (string) ($_POST['phone'] ?? ''),
+        'room_id'    => (int) ($_POST['room_id'] ?? 0),
+        'checkin'    => (string) ($_POST['checkin'] ?? ''),
+        'checkout'   => (string) ($_POST['checkout'] ?? ''),
+        'pax'        => (int) ($_POST['pax'] ?? 1),
+        'notes'      => (string) ($_POST['notes'] ?? ''),
+    ]) : ['ok' => false, 'message' => 'Waitlist engine unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not add to the waitlist.'];
+    header('Location: ' . $back);
+    exit;
+});
+
+// WAITLIST STATUS — POST /supplier/stays/{id}/waitlist/{waitId}/status
+$router->post('/supplier/stays/([0-9]+)/waitlist/([0-9]+)/status', function ($id, $waitId) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) $id;
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) {
+        _supplier_stays_deny('You are not authorised to edit that property.');
+    }
+    $status = strtolower(trim((string) ($_POST['status'] ?? '')));
+    $ok = function_exists('resv_waitlist_set_status') && resv_waitlist_set_status($db, (int) $waitId, $stayId, $status);
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Waitlist updated.' : 'Could not update the waitlist entry.'];
+    header('Location: ' . root . 'supplier/stays/' . $stayId . '/waitlist');
     exit;
 });
