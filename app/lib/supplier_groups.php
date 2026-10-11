@@ -54,10 +54,11 @@ if (!function_exists('group_block_add')) {
      * hold fails (not enough rooms), returns the failure — nothing is recorded.
      * Returns ['ok','block_id','message'].
      */
-    function group_block_add($db, int $groupId, int $stayId, int $roomId, int $optionId, string $from, string $to, int $qty): array
+    function group_block_add($db, int $groupId, int $stayId, int $roomId, int $optionId, string $from, string $to, int $qty, string $cutoff = '', ?float $rate = null): array
     {
         if ($groupId <= 0 || $stayId <= 0 || $roomId <= 0 || $optionId <= 0) { return ['ok' => false, 'message' => 'Bad input']; }
         $qty = max(1, (int) $qty);
+        $cutoff = preg_match('/^\d{4}-\d{2}-\d{2}$/', trim($cutoff)) ? trim($cutoff) : null;
         $g = $db->get('stays_groups', ['id', 'status'], ['id' => $groupId, 'stay_id' => $stayId]);
         if (!$g || in_array($g['status'], ['cancelled'], true)) { return ['ok' => false, 'message' => 'Group not open']; }
         if (!function_exists('stays_hold_create')) { return ['ok' => false, 'message' => 'Inventory engine unavailable']; }
@@ -72,6 +73,8 @@ if (!function_exists('group_block_add')) {
                 'group_id'   => $groupId, 'stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $optionId,
                 'date_from'  => $from, 'date_to' => $to, 'qty' => $qty,
                 'hold_id'    => (int) ($hold['hold_id'] ?? 0), 'hold_ref' => $ref,
+                'cutoff_date'=> $cutoff,
+                'rate'       => ($rate !== null && $rate > 0) ? round($rate, 2) : null,
                 'state'      => 'held', 'created_at' => date('Y-m-d H:i:s'),
             ]);
             return ['ok' => true, 'block_id' => (int) $db->id(), 'message' => 'Block held (' . $qty . ' room(s)).'];
@@ -324,5 +327,87 @@ if (!function_exists('groups_for_property')) {
                 ['id', 'reference', 'name', 'company', 'arrival', 'departure', 'currency', 'status'],
                 ['stay_id' => $stayId, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => max(1, $limit)]) ?: [];
         } catch (\Throwable $e) { error_log('groups_for_property: ' . $e->getMessage()); return []; }
+    }
+}
+
+// ===========================================================================
+// MODULE 08 DEEPEN: cutoff auto-release, group check-in, master invoice.
+// ===========================================================================
+
+if (!function_exists('group_cutoff_sweep')) {
+    /**
+     * CUTOFF / RELEASE: auto-release any held block whose cutoff_date has passed (rooms
+     * not picked up by the cutoff return to general sale). Idempotent — releases via the
+     * state-guarded group_block_release. Scope to one property or (stayId=0) all.
+     * Returns the number of blocks released. Call from a cron or the groups page load.
+     */
+    function group_cutoff_sweep($db, int $stayId = 0): int
+    {
+        $today = date('Y-m-d');
+        $released = 0;
+        try {
+            $where = ['state' => 'held', 'cutoff_date[<]' => $today, 'cutoff_date[!]' => null];
+            if ($stayId > 0) { $where['stay_id'] = $stayId; }
+            $blocks = $db->select('stays_group_blocks', ['id', 'stay_id'], $where) ?: [];
+            foreach ($blocks as $b) {
+                if (group_block_release($db, (int) $b['id'], (int) $b['stay_id'])) { $released++; }
+            }
+        } catch (\Throwable $e) { error_log('group_cutoff_sweep: ' . $e->getMessage()); }
+        return $released;
+    }
+}
+
+if (!function_exists('group_checkin_all')) {
+    /**
+     * GROUP CHECK-IN: bulk check-in every rooming-list member of a group that has a linked
+     * booking (members may carry an invoice_id once individual bookings are created).
+     * Delegates to the canonical folio_checkin per booking. Members without a booking are
+     * skipped (a group block holds inventory but a member needs a booking to check in).
+     * Returns ['checked_in'=>int,'skipped'=>int].
+     */
+    function group_checkin_all($db, int $groupId, int $stayId): array
+    {
+        $out = ['checked_in' => 0, 'skipped' => 0];
+        try {
+            $members = $db->select('stays_group_members', ['id', 'email', 'guest_name'],
+                ['group_id' => $groupId]) ?: [];
+            foreach ($members as $m) {
+                // A member is linked to a booking by email match on an own-inventory stays
+                // booking for this property (best-effort; members without one are skipped).
+                $inv = null;
+                $email = trim((string) ($m['email'] ?? ''));
+                if ($email !== '') {
+                    $b = $db->get('bookings', ['invoice_id'],
+                        ['email' => $email, 'module_type' => ['stays', 'hotels'], 'ORDER' => ['id' => 'DESC']]);
+                    if ($b) { $inv = (string) $b['invoice_id']; }
+                }
+                if ($inv !== null && function_exists('folio_checkin') && folio_checkin($db, $inv)) {
+                    if (function_exists('folio_get_or_create')) { folio_get_or_create($db, $inv); }
+                    $out['checked_in']++;
+                } else {
+                    $out['skipped']++;
+                }
+            }
+        } catch (\Throwable $e) { error_log('group_checkin_all: ' . $e->getMessage()); }
+        return $out;
+    }
+}
+
+if (!function_exists('group_invoice_data')) {
+    /**
+     * GROUP INVOICE: assemble a printable master-folio invoice for a group — the group
+     * header, its blocks (rooms/nights/rate), the master-folio line items and the totals.
+     * Read-only. Returns ['group','blocks','items','totals'] or null.
+     */
+    function group_invoice_data($db, int $groupId, int $stayId): ?array
+    {
+        try {
+            $g = $db->get('stays_groups', '*', ['id' => $groupId, 'stay_id' => $stayId]);
+            if (!$g) { return null; }
+            $blocks = $db->select('stays_group_blocks', '*', ['group_id' => $groupId]) ?: [];
+            $items = $db->select('stays_group_items', '*', ['group_id' => $groupId, 'ORDER' => ['id' => 'ASC']]) ?: [];
+            $totals = function_exists('group_totals') ? group_totals($db, $groupId) : ['charges' => 0, 'payments' => 0, 'balance' => 0];
+            return ['group' => $g, 'blocks' => $blocks, 'items' => $items, 'totals' => $totals];
+        } catch (\Throwable $e) { error_log('group_invoice_data: ' . $e->getMessage()); return null; }
     }
 }

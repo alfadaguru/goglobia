@@ -21,6 +21,9 @@ $router->get('/supplier/groups', function () use ($SECURE, $db) {
         header('Location: ' . root . 'supplier/stays'); exit;
     }
 
+    // MODULE 08: auto-release blocks past their cutoff (self-healing on page load).
+    if (function_exists('group_cutoff_sweep')) { group_cutoff_sweep($db, $stayId); }
+
     $stay = $db->get('stays', ['id', 'name', 'currency'], ['id' => $stayId]);
     $groups = function_exists('groups_for_property') ? groups_for_property($db, $stayId) : [];
     // Per-group: totals + blocks + rooming + folio for the open ones.
@@ -28,7 +31,7 @@ $router->get('/supplier/groups', function () use ($SECURE, $db) {
     foreach ($groups as $g) {
         $gid = (int) $g['id'];
         $gTotals[$gid] = function_exists('group_totals') ? group_totals($db, $gid) : ['charges'=>0,'payments'=>0,'balance'=>0];
-        $gBlocks[$gid] = $db->select('stays_group_blocks', ['id', 'room_id', 'option_id', 'date_from', 'date_to', 'qty', 'state'], ['group_id' => $gid, 'ORDER' => ['id' => 'ASC']]) ?: [];
+        $gBlocks[$gid] = $db->select('stays_group_blocks', ['id', 'room_id', 'option_id', 'date_from', 'date_to', 'qty', 'cutoff_date', 'rate', 'state'], ['group_id' => $gid, 'ORDER' => ['id' => 'ASC']]) ?: [];
         $gItems[$gid]  = $db->select('stays_group_items', ['type', 'description', 'amount'], ['group_id' => $gid, 'ORDER' => ['id' => 'ASC']]) ?: [];
         $gMembers[$gid]= (int) $db->count('stays_group_members', ['group_id' => $gid]);
         $gPickup[$gid] = function_exists('group_pickup_summary') ? group_pickup_summary($db, $gid, $stayId) : ['held_total'=>0,'members_total'=>0,'pickup_pct'=>0,'blocks'=>[]];
@@ -80,7 +83,8 @@ $router->post('/supplier/groups/block', function () use ($SECURE, $db) {
     if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $res = function_exists('group_block_add') ? group_block_add($db, (int) ($_POST['group_id'] ?? 0), $stayId,
         (int) ($_POST['room_id'] ?? 0), (int) ($_POST['option_id'] ?? 0),
-        (string) ($_POST['date_from'] ?? ''), (string) ($_POST['date_to'] ?? ''), (int) ($_POST['qty'] ?? 1)) : ['ok' => false, 'message' => 'Unavailable'];
+        (string) ($_POST['date_from'] ?? ''), (string) ($_POST['date_to'] ?? ''), (int) ($_POST['qty'] ?? 1),
+        (string) ($_POST['cutoff_date'] ?? ''), $_POST['rate'] !== '' && isset($_POST['rate']) ? (float) $_POST['rate'] : null) : ['ok' => false, 'message' => 'Unavailable'];
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Done.'];
     header('Location: ' . $back); exit;
 });
@@ -152,4 +156,32 @@ $router->post('/supplier/groups/status', function () use ($SECURE, $db) {
     $ok = function_exists('group_set_status') && group_set_status($db, (int) ($_POST['group_id'] ?? 0), $stayId, strtolower(trim((string) ($_POST['to'] ?? ''))));
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Group updated.' : 'Could not update the group.'];
     header('Location: ' . $back); exit;
+});
+
+// POST /supplier/groups/checkin-all — bulk check-in a group's rooming list (PMS #08)
+$router->post('/supplier/groups/checkin-all', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/groups?stay_id=' . $stayId;
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $res = function_exists('group_checkin_all') ? group_checkin_all($db, (int) ($_POST['group_id'] ?? 0), $stayId) : ['checked_in' => 0, 'skipped' => 0];
+    $_SESSION['message'] = ['type' => 'success', 'text' => 'Group check-in: ' . (int) $res['checked_in'] . ' checked in, ' . (int) $res['skipped'] . ' skipped (no linked booking).'];
+    header('Location: ' . $back); exit;
+});
+
+// GET /supplier/groups/{id}/invoice — printable master-folio invoice (PMS #08)
+$router->get('/supplier/groups/([0-9]+)/invoice', function ($gid) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    // Resolve the group's property, then authorize via supplier_can on that stay.
+    $g = $db->get('stays_groups', ['stay_id'], ['id' => (int) $gid]);
+    if (!$g) { _supplier_stays_deny('Group not found.'); }
+    $stayId = (int) $g['stay_id'];
+    if (!supplier_can($db, 'reservations', 'view', $stayId)) { _supplier_stays_deny('That group is not yours.'); }
+    $inv = function_exists('group_invoice_data') ? group_invoice_data($db, (int) $gid, $stayId) : null;
+    if ($inv === null) { _supplier_stays_deny('Could not build the invoice.'); }
+    $stay = $db->get('stays', ['name', 'currency', 'address'], ['id' => $stayId]);
+    $title = 'Group invoice'; $description = '';
+    require_once views . "supplier/groups/invoice.php"; // standalone print view
+    exit;
 });

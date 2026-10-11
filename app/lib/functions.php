@@ -8677,6 +8677,8 @@ function ensureSupplierStaysSchema($db): void
             `qty` INT(11) NOT NULL DEFAULT 1,
             `hold_id` INT(11) DEFAULT NULL,
             `hold_ref` VARCHAR(191) DEFAULT NULL,
+            `cutoff_date` DATE DEFAULT NULL,
+            `rate` DECIMAL(12,2) DEFAULT NULL,
             `state` ENUM('held','released') NOT NULL DEFAULT 'held',
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
@@ -8684,6 +8686,11 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_group` (`group_id`),
             KEY `idx_stay` (`stay_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // MODULE 08: cutoff date (auto-release unsold rooms) + negotiated group rate.
+        if (!$db->query("SHOW COLUMNS FROM `stays_group_blocks` LIKE 'cutoff_date'")->fetch()) {
+            $db->query("ALTER TABLE `stays_group_blocks` ADD COLUMN `cutoff_date` DATE DEFAULT NULL AFTER `hold_ref`");
+            $db->query("ALTER TABLE `stays_group_blocks` ADD COLUMN `rate` DECIMAL(12,2) DEFAULT NULL AFTER `cutoff_date`");
+        }
 
         $db->query("CREATE TABLE IF NOT EXISTS `stays_group_members` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,

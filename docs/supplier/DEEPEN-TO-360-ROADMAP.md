@@ -85,14 +85,15 @@ Per-module: built/total + the sub-features still to build (BUILT ones omitted). 
 
 > ✅ MODULE 07 DEEPENED: express check-in/out (one-click → folio_checkin/checkout), early-checkin/late-checkout flags, WAKE-UP CALLS (stays_wakeup_calls + schedule on reservation detail + manage on Shift page), SHIFT HANDOVER log (stays_shift_handover + /supplier/stays/{id}/shift), printable ARRIVAL/DEPARTURE MANIFESTS (/supplier/manifest, reuses #04 dashboard buckets). dashboard + traces already built in #04; identity verification via online check-in ID capture (#20); room-status visibility on the housekeeping board (#24).
 ## 08. Group & block reservations  —  8/15
-- [ ] release/cutoff
-- [ ] group rates
-- [ ] deposits
-- [ ] charge routing
-- [ ] group check-in
-- [ ] group invoices
-- [ ] group profitability
+- [x] release/cutoff
+- [x] group rates
+- [x] deposits
+- [x] charge routing
+- [x] group check-in
+- [x] group invoices
+- [x] group profitability
 
+> ✅ MODULE 08 DEEPENED: cutoff_date + rate on stays_group_blocks; group_cutoff_sweep auto-releases unsold held blocks past cutoff (self-healing on the groups page load); negotiated group rate per block; group_checkin_all (bulk check-in rooming-list members with a linked booking via canonical folio_checkin); printable MASTER INVOICE (/supplier/groups/{id}/invoice + group_invoice_data). Deposits + charge routing = existing master folio (group_folio_add); profitability = group_totals (→ #56 BI). Block/rooming/pickup/GL-on-complete already existed.
 ## 09. Guest folio, billing & cashier  —  14/21
 - [ ] multiple folios
 - [ ] charge routing

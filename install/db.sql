@@ -29821,6 +29821,8 @@ CREATE TABLE `stays_group_blocks` (
   `qty` int(11) NOT NULL DEFAULT 1,
   `hold_id` int(11) DEFAULT NULL,
   `hold_ref` varchar(191) DEFAULT NULL,
+  `cutoff_date` date DEFAULT NULL,
+  `rate` decimal(12,2) DEFAULT NULL,
   `state` enum('held','released') NOT NULL DEFAULT 'held',
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,

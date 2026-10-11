@@ -125,6 +125,7 @@ foreach ($rooms as $r) {
             <input type="hidden" name="room_id" value="<?= (int) explode(':', (string) array_key_first($roomOpts))[0] ?>">
             <input type="hidden" name="option_id" value="<?= (int) explode(':', (string) array_key_first($roomOpts))[1] ?>">
             <div class="flex gap-1.5"><input type="date" name="date_from" class="input text-xs" required><input type="date" name="date_to" class="input text-xs" required><input type="number" name="qty" min="1" value="1" class="input text-xs w-16" required></div>
+            <div class="flex gap-1.5"><input type="date" name="cutoff_date" class="input text-xs" title="Cutoff — unsold rooms auto-release after this date"><input type="number" name="rate" step="0.01" min="0" class="input text-xs w-24" placeholder="group rate /night"></div>
             <button type="submit" class="btn secondary text-xs">Hold block</button>
           </form>
           <?php endif; ?>
@@ -167,6 +168,17 @@ foreach ($rooms as $r) {
           </form>
         </div>
       <?php endif; ?>
+
+      <!-- Group ops: bulk check-in + printable master invoice (PMS #08) -->
+      <div class="flex items-center gap-2 border-t border-gray-100 pt-3 flex-wrap">
+        <?php if ($canEdit && in_array($st, ['confirmed', 'completed'], true)): ?>
+          <form action="<?= $base ?>/checkin-all" method="POST" class="inline" onsubmit="return confirm('Check in all rooming-list guests with a linked booking?');">
+            <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid ?>"><input type="hidden" name="group_id" value="<?= $gid ?>">
+            <button type="submit" class="btn secondary text-xs">Group check-in</button>
+          </form>
+        <?php endif; ?>
+        <a href="<?= $base ?>/<?= $gid ?>/invoice" target="_blank" class="btn secondary text-xs">Master invoice</a>
+      </div>
 
       <!-- Status transitions -->
       <?php if ($canEdit && !empty($stNext[$st])): ?>
