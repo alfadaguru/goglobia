@@ -260,6 +260,47 @@ if (!function_exists('gl_trial_balance')) {
     }
 }
 
+if (!function_exists('gl_financial_summary')) {
+    /**
+     * Derive a P&L + balance-sheet summary from the trial balance (PMS completion #34).
+     * Read-only. Returns:
+     *   ['accounts'=>[trial balance rows], 'tb_debit','tb_credit','balanced'=>bool,
+     *    'pl'=>['revenue','expense','net_income'],
+     *    'bs'=>['assets','liabilities','equity','equity_plus_income','balanced'=>bool]].
+     * net_income flows into equity for the balance-sheet identity
+     * (assets == liabilities + equity + net_income).
+     */
+    function gl_financial_summary($db, int $orgId): array
+    {
+        $tb = gl_trial_balance($db, $orgId);
+        $revenue = 0.0; $expense = 0.0; $assets = 0.0; $liabilities = 0.0; $equity = 0.0;
+        $tbDebit = 0.0; $tbCredit = 0.0;
+        foreach ($tb as $row) {
+            $tbDebit += (float) $row['debit']; $tbCredit += (float) $row['credit'];
+            $bal = (float) $row['balance'];
+            switch ((string) $row['type']) {
+                case 'revenue':   $revenue += $bal; break;
+                case 'expense':   $expense += $bal; break;
+                case 'asset':     $assets += $bal; break;
+                case 'liability': $liabilities += $bal; break;
+                case 'equity':    $equity += $bal; break;
+            }
+        }
+        $netIncome = round($revenue - $expense, 2);
+        return [
+            'accounts' => $tb,
+            'tb_debit' => round($tbDebit, 2), 'tb_credit' => round($tbCredit, 2),
+            'balanced' => abs($tbDebit - $tbCredit) < 0.01,
+            'pl' => ['revenue' => round($revenue, 2), 'expense' => round($expense, 2), 'net_income' => $netIncome],
+            'bs' => [
+                'assets' => round($assets, 2), 'liabilities' => round($liabilities, 2),
+                'equity' => round($equity, 2), 'equity_plus_income' => round($equity + $netIncome, 2),
+                'balanced' => abs($assets - ($liabilities + $equity + $netIncome)) < 0.01,
+            ],
+        ];
+    }
+}
+
 // ---------------------------------------------------------------------------
 // CASHIER SHIFTS (01a §3) — front-desk / POS cash, feeds night audit + GL.
 // ---------------------------------------------------------------------------
