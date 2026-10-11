@@ -112,11 +112,11 @@ $base = root . 'supplier/owners';
     <table class="w-full text-sm mt-2">
       <thead><tr class="text-left text-gray-500 border-b border-gray-100">
         <th class="px-4 py-2 font-medium">Property</th><th class="px-4 py-2 font-medium">Owner</th><th class="px-4 py-2 font-medium">Period</th>
-        <th class="px-4 py-2 font-medium text-right">Gross</th><th class="px-4 py-2 font-medium text-right">Owner payout</th><th class="px-4 py-2 font-medium">Status</th>
+        <th class="px-4 py-2 font-medium text-right">Gross</th><th class="px-4 py-2 font-medium text-right">Owner payout</th><th class="px-4 py-2 font-medium">Status</th><th class="px-4 py-2 font-medium"></th>
       </tr></thead>
       <tbody class="divide-y divide-gray-50">
         <?php if (empty($statements)): ?>
-          <tr><td colspan="6" class="px-4 py-6 text-center text-gray-400 text-sm">No statements yet.</td></tr>
+          <tr><td colspan="7" class="px-4 py-6 text-center text-gray-400 text-sm">No statements yet.</td></tr>
         <?php else: foreach ($statements as $s): ?>
           <tr>
             <td class="px-4 py-2 text-gray-700"><?= htmlspecialchars($propNames[(int) $s['stay_id']] ?? ('#' . $s['stay_id'])) ?></td>
@@ -125,6 +125,16 @@ $base = root . 'supplier/owners';
             <td class="px-4 py-2 text-right tabular-nums"><?= htmlspecialchars((string) $s['currency']) ?> <?= number_format((float) $s['gross'], 2) ?></td>
             <td class="px-4 py-2 text-right tabular-nums font-semibold"><?= htmlspecialchars((string) $s['currency']) ?> <?= number_format((float) $s['owner_payout'], 2) ?></td>
             <td class="px-4 py-2"><span class="px-2 py-0.5 rounded text-xs font-medium <?= $s['status'] === 'paid' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-700' ?>"><?= htmlspecialchars(ucfirst((string) $s['status'])) ?></span></td>
+            <td class="px-4 py-2 text-right">
+              <?php if ($s['status'] === 'generated'): ?>
+                <form action="<?= $base ?>/statement/pay" method="POST" class="inline flex items-center gap-1 justify-end"
+                      onsubmit="return confirm('Mark this owner statement as paid? Record it once the payout has been sent to the owner.');">
+                  <?= CSRF::tokenField() ?><input type="hidden" name="statement_id" value="<?= (int) $s['id'] ?>">
+                  <input type="text" name="reference" class="input text-xs w-24" placeholder="ref">
+                  <button type="submit" class="text-xs text-violet-600 hover:underline">Mark paid</button>
+                </form>
+              <?php else: ?><span class="text-xs text-gray-300">—</span><?php endif; ?>
+            </td>
           </tr>
         <?php endforeach; endif; ?>
       </tbody>

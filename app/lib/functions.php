@@ -8485,12 +8485,21 @@ function ensureSupplierStaysSchema($db): void
             `owner_payout` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
             `status` ENUM('generated','paid') NOT NULL DEFAULT 'generated',
             `generated_by` VARCHAR(155) DEFAULT NULL,
+            `paid_at` DATETIME DEFAULT NULL,
+            `payment_reference` VARCHAR(191) DEFAULT NULL,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             `updated_at` DATETIME DEFAULT NULL,
             PRIMARY KEY (`id`),
             KEY `idx_stay` (`stay_id`),
             KEY `idx_owner` (`owner_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Additive (PMS #48): owner-statement payout settlement fields. Guarded ALTERs.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `stays_owner_statements` LIKE 'paid_at'")->fetch()) {
+                $db->query("ALTER TABLE `stays_owner_statements` ADD COLUMN `paid_at` DATETIME DEFAULT NULL AFTER `generated_by`");
+                $db->query("ALTER TABLE `stays_owner_statements` ADD COLUMN `payment_reference` VARCHAR(191) DEFAULT NULL AFTER `paid_at`");
+            }
+        } catch (\Throwable $e) { error_log('owner statement paid cols: ' . $e->getMessage()); }
 
         // stays hierarchy keys + operating model. Nullable/defaulted so existing rows
         // are untouched; each guarded by SHOW COLUMNS (idempotent).

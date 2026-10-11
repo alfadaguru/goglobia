@@ -107,3 +107,16 @@ $router->post('/supplier/owners/statement', function () use ($SECURE, $db) {
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => !empty($res['ok']) ? 'Owner statement generated.' : ($res['message'] ?? 'Could not generate statement.')];
     header('Location: ' . $back); exit;
 });
+
+// POST /supplier/owners/statement/pay — mark a generated statement as paid (PMS #48)
+$router->post('/supplier/owners/statement/pay', function () use ($SECURE, $db) {
+    SUPPLIER_AUTH(); CSRF::guard();
+    $orgId = _owners_org($db);
+    $back = root . 'supplier/owners';
+    if ($orgId <= 0) { _supplier_stays_deny('Only the owner can settle statements.'); }
+    $res = function_exists('owner_statement_mark_paid')
+        ? owner_statement_mark_paid($db, $orgId, (int) ($_POST['statement_id'] ?? 0), (string) ($_POST['reference'] ?? ''))
+        : ['ok' => false, 'message' => 'Unavailable'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not update the statement.'];
+    header('Location: ' . $back); exit;
+});

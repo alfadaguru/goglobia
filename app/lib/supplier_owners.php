@@ -84,6 +84,35 @@ if (!function_exists('owner_agreement_set')) {
     }
 }
 
+if (!function_exists('owner_statement_mark_paid')) {
+    /**
+     * Mark a GENERATED owner statement as PAID (PMS #48) — records that the owner payout
+     * was settled (outside the platform spine; this is the owner-money ledger, not the
+     * customer wallet). State-guarded conditional UPDATE: only 'generated' → 'paid',
+     * exactly once. Optional reference (bank txn). Org-scoped. Returns ['ok','message'].
+     * Needs stays_owner_statements.paid_at / payment_reference (added via ensure-fn).
+     */
+    function owner_statement_mark_paid($db, int $orgId, int $statementId, string $reference = ''): array
+    {
+        if ($orgId <= 0 || $statementId <= 0) { return ['ok' => false, 'message' => 'Bad input']; }
+        try {
+            $st = $db->get('stays_owner_statements', ['id', 'status'], ['id' => $statementId, 'org_id' => $orgId]);
+            if (!$st) { return ['ok' => false, 'message' => 'Statement not found.']; }
+            if ($st['status'] !== 'generated') { return ['ok' => false, 'message' => 'Statement is already ' . $st['status'] . '.']; }
+            $upd = $db->update('stays_owner_statements', [
+                'status'            => 'paid',
+                'paid_at'           => date('Y-m-d H:i:s'),
+                'payment_reference' => substr(trim($reference), 0, 191) ?: null,
+            ], ['id' => $statementId, 'org_id' => $orgId, 'status' => 'generated']);
+            if (!$upd || $upd->rowCount() !== 1) { return ['ok' => false, 'message' => 'Statement was already paid.']; }
+            return ['ok' => true, 'message' => 'Statement marked paid.'];
+        } catch (\Throwable $e) {
+            error_log('owner_statement_mark_paid: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not mark the statement paid.'];
+        }
+    }
+}
+
 if (!function_exists('owner_expense_add')) {
     /** Record an owner-charged expense against a property (cleaning/repairs/etc.) in a
      *  currency, dated. Deducted on the owner statement. Returns bool. */

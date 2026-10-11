@@ -29527,6 +29527,8 @@ CREATE TABLE `stays_owner_statements` (
   `owner_payout` decimal(14,2) NOT NULL DEFAULT 0.00,
   `status` enum('generated','paid') NOT NULL DEFAULT 'generated',
   `generated_by` varchar(155) DEFAULT NULL,
+  `paid_at` datetime DEFAULT NULL,
+  `payment_reference` varchar(191) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
