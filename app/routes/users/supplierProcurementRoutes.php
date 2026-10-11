@@ -123,6 +123,9 @@ $router->post('/supplier/procurement/po/transition', function () use ($SECURE, $
     } elseif ($to === 'received') {
         $res = function_exists('proc_po_receive') ? proc_po_receive($db, $orgId, $poId) : ['ok' => false, 'message' => 'Unavailable'];
         $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Done.'];
+    } elseif ($to === 'cancelled') {
+        $ok = function_exists('proc_po_cancel') && proc_po_cancel($db, $orgId, $poId);
+        $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Purchase order cancelled.' : 'Could not cancel (a received PO cannot be cancelled).'];
     } else {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Unknown action.'];
     }

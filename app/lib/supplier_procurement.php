@@ -222,6 +222,25 @@ if (!function_exists('proc_po_order')) {
     }
 }
 
+if (!function_exists('proc_po_cancel')) {
+    /**
+     * Cancel a PO that has NOT been received (PMS #41) — draft or ordered → cancelled.
+     * A received PO has stock + GL postings and must not be cancelled here (reverse it
+     * with a credit/return flow instead — out of scope). State-guarded. Returns bool.
+     */
+    function proc_po_cancel($db, int $orgId, int $poId): bool
+    {
+        try {
+            $po = $db->get('stays_purchase_orders', ['id', 'status'], ['id' => $poId, 'org_id' => $orgId]);
+            if (!$po || !in_array($po['status'], ['draft', 'ordered'], true)) { return false; }
+            $upd = $db->update('stays_purchase_orders',
+                ['status' => 'cancelled', 'updated_at' => date('Y-m-d H:i:s')],
+                ['id' => $poId, 'org_id' => $orgId, 'status' => $po['status']]);
+            return $upd && $upd->rowCount() === 1;
+        } catch (\Throwable $e) { error_log('proc_po_cancel: ' . $e->getMessage()); return false; }
+    }
+}
+
 if (!function_exists('proc_po_receive')) {
     /**
      * GOODS RECEIPT (GRN): receive an 'ordered' PO. Idempotently (status guard) —

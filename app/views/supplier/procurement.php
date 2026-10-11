@@ -160,6 +160,14 @@ $stColor = ['draft'=>'bg-gray-100 text-gray-600','ordered'=>'bg-blue-50 text-blu
             <button type="submit" class="btn emerald text-xs">Receive goods (GRN)</button>
           </form>
         <?php endif; ?>
+        <?php if (in_array($st, ['draft', 'ordered'], true)): ?>
+          <!-- Cancel a not-yet-received PO (PMS #41). -->
+          <form action="<?= $base ?>/po/transition" method="POST" class="inline mt-2"
+                onsubmit="return confirm('Cancel this purchase order?');">
+            <?= CSRF::tokenField() ?><input type="hidden" name="po_id" value="<?= $pid ?>"><input type="hidden" name="to" value="cancelled">
+            <button type="submit" class="text-xs text-rose-600 hover:underline">Cancel PO</button>
+          </form>
+        <?php endif; ?>
       </div>
     <?php endforeach; endif; ?>
   </div>
