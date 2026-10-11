@@ -292,6 +292,69 @@ if (!function_exists('resv_waitlist_set_status')) {
     }
 }
 
+if (!function_exists('resv_set_vip')) {
+    /** Flag/unflag a reservation as VIP (stored in booking_data). (PMS #07 front desk.) */
+    function resv_set_vip($db, string $invoiceId, bool $vip): bool
+    {
+        try {
+            $b = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
+            if (!$b) { return false; }
+            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
+            if (!is_array($bd)) { $bd = []; }
+            if ($vip) { $bd['vip'] = true; $bd['vip_at'] = date('Y-m-d H:i:s'); }
+            else { unset($bd['vip'], $bd['vip_at']); }
+            $db->update('bookings', ['booking_data' => json_encode($bd), 'updated_at' => date('Y-m-d H:i:s')], ['invoice_id' => $invoiceId]);
+            return true;
+        } catch (\Throwable $e) { error_log('resv_set_vip: ' . $e->getMessage()); return false; }
+    }
+}
+
+if (!function_exists('resv_add_trace')) {
+    /**
+     * Add a front-desk TRACE (an operational note/reminder for a date — housekeeping,
+     * guest-service, follow-up). Stored as an array in booking_data.traces. (PMS #07.)
+     * @return bool
+     */
+    function resv_add_trace($db, string $invoiceId, string $note, string $forDate = ''): bool
+    {
+        $note = trim($note);
+        if ($note === '') { return false; }
+        try {
+            $b = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
+            if (!$b) { return false; }
+            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
+            if (!is_array($bd)) { $bd = []; }
+            if (!isset($bd['traces']) || !is_array($bd['traces'])) { $bd['traces'] = []; }
+            $bd['traces'][] = [
+                'note'     => substr($note, 0, 500),
+                'for_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $forDate) ? $forDate : null,
+                'by'       => (string) ($_SESSION['user_id'] ?? ''),
+                'at'       => date('Y-m-d H:i:s'),
+                'done'     => false,
+            ];
+            $db->update('bookings', ['booking_data' => json_encode($bd), 'updated_at' => date('Y-m-d H:i:s')], ['invoice_id' => $invoiceId]);
+            return true;
+        } catch (\Throwable $e) { error_log('resv_add_trace: ' . $e->getMessage()); return false; }
+    }
+}
+
+if (!function_exists('resv_resolve_trace')) {
+    /** Mark the Nth trace (0-based index) resolved. (PMS #07.) */
+    function resv_resolve_trace($db, string $invoiceId, int $index): bool
+    {
+        try {
+            $b = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
+            if (!$b) { return false; }
+            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
+            if (!is_array($bd) || !isset($bd['traces'][$index])) { return false; }
+            $bd['traces'][$index]['done'] = true;
+            $bd['traces'][$index]['done_at'] = date('Y-m-d H:i:s');
+            $db->update('bookings', ['booking_data' => json_encode($bd), 'updated_at' => date('Y-m-d H:i:s')], ['invoice_id' => $invoiceId]);
+            return true;
+        } catch (\Throwable $e) { error_log('resv_resolve_trace: ' . $e->getMessage()); return false; }
+    }
+}
+
 if (!function_exists('_resv_load_for_reprice')) {
     /**
      * Internal: load a reservation's repricing context from booking_data. Returns

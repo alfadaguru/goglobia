@@ -244,6 +244,25 @@ $router->get('/supplier/reservations/([A-Za-z0-9_-]+)', function ($invoiceId) us
     require_once views . "includes/footer.php";
 });
 
+// REGISTRATION CARD — GET /supplier/reservations/{invoiceId}/reg-card (PMS #07)
+// A printable guest + stay summary the front desk prints at check-in.
+$router->get('/supplier/reservations/([A-Za-z0-9_-]+)/reg-card', function ($invoiceId) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
+    if (!$booking) { _supplier_stays_deny('Reservation not found.'); }
+    $hid = supplier_reservation_hotel_id($booking['booking_data'] ?? null);
+    if ($hid <= 0 || !supplier_can($db, 'reservations', 'view', $hid)) {
+        _supplier_stays_deny('That reservation is not for one of your properties.');
+    }
+    $bd = json_decode((string) ($booking['booking_data'] ?? ''), true);
+    $booking['_bd'] = is_array($bd) ? $bd : [];
+    $property = $db->get('stays', ['id', 'name', 'location', 'address', 'currency', 'checkin_time', 'checkout_time'], ['id' => $hid]);
+    // Standalone printable — no header/footer chrome.
+    require_once views . "supplier/reservations/reg-card.php";
+});
+
 // ============================================================================
 // ACTION — POST /supplier/reservations/{invoiceId}/action
 // Operational status only (cancel, no-show, un-no-show). NO money movement.
@@ -383,6 +402,15 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
             $ok = function_exists('resv_set_source') && resv_set_source($db, $invoiceId, $src);
             $_SESSION['message'] = ['type' => $ok ? 'success' : 'error',
                 'text' => $ok ? 'Booking source updated.' : 'Could not update the source.'];
+        } elseif ($action === 'set_vip') {
+            $ok = function_exists('resv_set_vip') && resv_set_vip($db, $invoiceId, (string) ($_POST['vip'] ?? '0') === '1');
+            $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'VIP status updated.' : 'Could not update VIP status.'];
+        } elseif ($action === 'add_trace') {
+            $ok = function_exists('resv_add_trace') && resv_add_trace($db, $invoiceId, (string) ($_POST['trace_note'] ?? ''), (string) ($_POST['trace_date'] ?? ''));
+            $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Trace added.' : 'Could not add the trace (empty note?).'];
+        } elseif ($action === 'resolve_trace') {
+            $ok = function_exists('resv_resolve_trace') && resv_resolve_trace($db, $invoiceId, (int) ($_POST['trace_index'] ?? -1));
+            $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Trace resolved.' : 'Could not resolve the trace.'];
         } else {
             $_SESSION['message'] = ['type' => 'error', 'text' => 'Unknown action.'];
         }

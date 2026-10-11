@@ -274,6 +274,58 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
   </script>
   <?php endif; ?>
 
+  <!-- Guest services (PMS #07): VIP flag + front-desk traces + registration card. -->
+  <?php
+    $isVip = !empty($booking['_bd']['vip']);
+    $traces = (isset($booking['_bd']['traces']) && is_array($booking['_bd']['traces'])) ? $booking['_bd']['traces'] : [];
+  ?>
+  <div class="card p-5 space-y-4">
+    <div class="flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-gray-900">Guest services <?= $isVip ? '<span class="ml-1 px-2 py-0.5 rounded text-xs font-medium bg-red-50 text-red-700">VIP</span>' : '' ?></h2>
+      <a href="<?= $base ?>/<?= rawurlencode($inv) ?>/reg-card" target="_blank" class="btn secondary text-xs">
+        <span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm">print</span> Registration card</span>
+      </a>
+    </div>
+
+    <?php if ($canEdit): ?>
+      <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="inline">
+        <?= CSRF::tokenField() ?><input type="hidden" name="action" value="set_vip">
+        <input type="hidden" name="vip" value="<?= $isVip ? '0' : '1' ?>">
+        <button type="submit" class="btn secondary text-sm"><?= $isVip ? 'Remove VIP' : 'Mark VIP' ?></button>
+      </form>
+    <?php endif; ?>
+
+    <!-- Traces -->
+    <div>
+      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Traces</h3>
+      <?php if (empty($traces)): ?>
+        <p class="text-xs text-gray-400 mb-2">No traces.</p>
+      <?php else: ?>
+        <ul class="space-y-1 mb-2">
+          <?php foreach ($traces as $ti => $tr): $done = !empty($tr['done']); ?>
+            <li class="flex items-center justify-between text-sm <?= $done ? 'text-gray-400 line-through' : 'text-gray-700' ?>">
+              <span><?= htmlspecialchars((string) ($tr['note'] ?? '')) ?><?= !empty($tr['for_date']) ? ' <span class="text-xs text-gray-400">(' . htmlspecialchars((string) $tr['for_date']) . ')</span>' : '' ?></span>
+              <?php if ($canEdit && !$done): ?>
+                <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="inline">
+                  <?= CSRF::tokenField() ?><input type="hidden" name="action" value="resolve_trace"><input type="hidden" name="trace_index" value="<?= (int) $ti ?>">
+                  <button type="submit" class="text-xs text-violet-600 hover:underline">Resolve</button>
+                </form>
+              <?php endif; ?>
+            </li>
+          <?php endforeach; ?>
+        </ul>
+      <?php endif; ?>
+      <?php if ($canEdit): ?>
+        <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="flex flex-wrap items-end gap-2">
+          <?= CSRF::tokenField() ?><input type="hidden" name="action" value="add_trace">
+          <input type="text" name="trace_note" placeholder="Add a trace / reminder" class="input text-sm flex-1 min-w-[180px]" required>
+          <input type="date" name="trace_date" class="input text-sm">
+          <button type="submit" class="btn secondary text-sm">Add trace</button>
+        </form>
+      <?php endif; ?>
+    </div>
+  </div>
+
   <!-- Actions -->
   <?php if ($canEdit): ?>
   <div class="card p-5">
