@@ -16,6 +16,25 @@
 // Modeled on umrah_hold_create() (app/lib/umrah/services.php:362) — the proven
 // FOR-UPDATE capacity-hold precedent. All functions are defensive/non-fatal.
 
+if (!function_exists('stays_hold_ttl_minutes')) {
+    /**
+     * Lifetime (minutes) of a booking availability hold between submit and payment.
+     * Default 60 so realistic payment flows (3DS, redirect gateways) finish inside the
+     * window — the old 20 left a wide expired-hold oversell gap. Operator-overridable
+     * via settings.stays_hold_ttl_minutes (clamped 5..360). A re-check backstop at
+     * payment-consume still covers anything that slips past this.
+     */
+    function stays_hold_ttl_minutes(): int
+    {
+        $v = 60;
+        if (isset($GLOBALS['app']['stays_hold_ttl_minutes']) && $GLOBALS['app']['stays_hold_ttl_minutes'] !== null
+            && is_numeric($GLOBALS['app']['stays_hold_ttl_minutes'])) {
+            $v = (int) $GLOBALS['app']['stays_hold_ttl_minutes'];
+        }
+        return max(5, min(360, $v));
+    }
+}
+
 if (!function_exists('stays_room_option_ids')) {
     /**
      * Ensure every option in a room's room_options JSON has a stable integer
@@ -257,9 +276,11 @@ if (!function_exists('stays_hold_create')) {
      * Inventory rows are created on demand from the option's available_quantity
      * (the compatibility bridge) the first time a date is touched.
      */
-    function stays_hold_create($db, int $stayId, int $roomId, int $optionId, string $checkin, string $checkout, int $qty = 1, ?string $ref = null, int $holdMinutes = 20): array
+    function stays_hold_create($db, int $stayId, int $roomId, int $optionId, string $checkin, string $checkout, int $qty = 1, ?string $ref = null, ?int $holdMinutes = null): array
     {
         if ($qty < 1) { $qty = 1; }
+        // Default to the configurable TTL (60 min) when the caller doesn't specify one.
+        if ($holdMinutes === null) { $holdMinutes = function_exists('stays_hold_ttl_minutes') ? stays_hold_ttl_minutes() : 60; }
         $nights = stays_date_range($checkin, $checkout);
         if (empty($nights)) {
             return ['ok' => false, 'message' => 'Invalid date range'];
@@ -399,6 +420,116 @@ if (!function_exists('stays_hold_consume_ref')) {
             error_log('stays_hold_consume_ref: ' . $e->getMessage());
             return 0;
         }
+    }
+}
+
+if (!function_exists('stays_hold_consume_or_reserve')) {
+    /**
+     * Payment-success reservation for OWN-INVENTORY stays, with an expired-hold backstop.
+     *
+     * Normal case: flips the invoice's still-'held' holds to 'consumed' (permanent).
+     * Backstop: if NO held rows remain (the hold expired before a slow payment, or the
+     * expire-sweep already flipped it), re-derive the booking's rooms/dates and, inside a
+     * FOR-UPDATE transaction, re-reserve them directly as 'consumed' when the nights are
+     * still free — so a paid guest keeps a real seat. If a night is genuinely full now,
+     * the paid booking is NOT silently oversold nor auto-cancelled: it is flagged on
+     * bookings.error_response for staff to relocate/refund, and logged.
+     *
+     * ONLY acts for own inventory (booking.module in stays/hotels). For API/marketplace
+     * suppliers (hotelbeds, ratehawk, …) it is a no-op — they own their stock. Idempotent.
+     *
+     * @return array ['consumed'=>int, 'reserved'=>int, 'oversold'=>int]
+     */
+    function stays_hold_consume_or_reserve($db, string $invoiceId): array
+    {
+        $out = ['consumed' => 0, 'reserved' => 0, 'oversold' => 0];
+        if ($invoiceId === '') { return $out; }
+
+        // 1) Normal consume of any still-held rows.
+        $out['consumed'] = function_exists('stays_hold_consume_ref') ? stays_hold_consume_ref($db, $invoiceId) : 0;
+        if ($out['consumed'] > 0) { return $out; } // hold was live — done, no backstop needed.
+
+        // 2) Backstop only for OWN-INVENTORY bookings.
+        try {
+            $booking = $db->get('bookings', ['module', 'module_type', 'booking_data', 'error_response'], ['invoice_id' => $invoiceId]);
+        } catch (\Throwable $e) { return $out; }
+        if (!$booking) { return $out; }
+        $supplier = strtolower(trim((string) ($booking['module'] ?? '')));
+        $moduleType = strtolower(trim((string) ($booking['module_type'] ?? '')));
+        $ownInventory = in_array($moduleType, ['stays', 'hotels'], true) && in_array($supplier, ['stays', 'hotels', ''], true);
+        if (!$ownInventory) { return $out; } // API supplier — they manage their own stock.
+
+        $bd = json_decode((string) ($booking['booking_data'] ?? ''), true);
+        if (!is_array($bd)) { return $out; }
+        $hotelId  = (int) ($bd['hotel_id'] ?? 0);
+        $checkin  = (string) ($bd['checkin'] ?? '');
+        $checkout = (string) ($bd['checkout'] ?? '');
+        $sel = $bd['selected_rooms'] ?? [];
+        if ($hotelId <= 0 || $checkin === '' || $checkout === '' || !is_array($sel) || empty($sel)) { return $out; }
+
+        $nights = stays_date_range($checkin, $checkout);
+        if (empty($nights)) { return $out; }
+
+        $oversoldNotes = [];
+        foreach ($sel as $sr) {
+            $roomId = (int) ($sr['room_id'] ?? 0);
+            $optionId = (int) ($sr['option']['option_id'] ?? ($sr['option_id'] ?? 0));
+            $qty = max(1, (int) ($sr['quantity'] ?? ($sr['qty'] ?? ($sr['rooms'] ?? 1))));
+            if ($roomId <= 0 || $optionId <= 0) { continue; }
+
+            $options = stays_room_option_ids($db, $roomId, $hotelId);
+            $defaultQty = stays_option_default_quantity($options, $optionId);
+            $now = date('Y-m-d H:i:s');
+
+            // Atomic re-reserve: lock every night, confirm free, insert a 'consumed' hold.
+            $reserved = false;
+            try {
+                $db->action(function ($db) use ($hotelId, $roomId, $optionId, $nights, $qty, $defaultQty, $checkout, $invoiceId, $now, &$reserved) {
+                    foreach ($nights as $date) {
+                        $locked = $db->query(
+                            "SELECT available_count, closed FROM stays_inventory
+                             WHERE stay_id = :s AND room_id = :r AND option_id = :o AND date = :d FOR UPDATE",
+                            [':s' => $hotelId, ':r' => $roomId, ':o' => $optionId, ':d' => $date]
+                        );
+                        $row = $locked ? $locked->fetch(\PDO::FETCH_ASSOC) : null;
+                        $base = $row ? (int) $row['available_count'] : (int) $defaultQty;
+                        if ($row && (int) ($row['closed'] ?? 0) === 1) { $reserved = false; return false; }
+                        $held = (int) $db->sum('stays_holds', 'qty', [
+                            'stay_id' => $hotelId, 'room_id' => $roomId, 'option_id' => $optionId,
+                            'state' => 'held', 'expires_at[>]' => $now, 'date_from[<=]' => $date, 'date_to[>]' => $date,
+                        ]);
+                        $consumed = (int) $db->sum('stays_holds', 'qty', [
+                            'stay_id' => $hotelId, 'room_id' => $roomId, 'option_id' => $optionId,
+                            'state' => 'consumed', 'date_from[<=]' => $date, 'date_to[>]' => $date,
+                        ]);
+                        if ($qty > ($base - $held - $consumed)) { $reserved = false; return false; } // genuinely full
+                    }
+                    // Seed any missing inventory rows + write the consumed reservation.
+                    $db->insert('stays_holds', [
+                        'stay_id' => $hotelId, 'room_id' => $roomId, 'option_id' => $optionId,
+                        'date_from' => $nights[0], 'date_to' => $checkout, 'qty' => $qty,
+                        'state' => 'consumed', 'ref' => $invoiceId, 'expires_at' => null, 'created_at' => $now,
+                    ]);
+                    $reserved = true;
+                    return true;
+                });
+            } catch (\Throwable $e) { error_log('stays_hold_consume_or_reserve reserve: ' . $e->getMessage()); $reserved = false; }
+
+            if ($reserved) { $out['reserved']++; }
+            else { $out['oversold']++; $oversoldNotes[] = "room {$roomId}/opt {$optionId} x{$qty}"; }
+        }
+
+        // Flag any genuinely-oversold paid booking for staff (never silent, never auto-cancel).
+        if (!empty($oversoldNotes)) {
+            $flag = 'OVERSELL: paid booking could not reserve ' . implode('; ', $oversoldNotes)
+                . ' at ' . date('c') . ' — hold expired before payment; relocate/upgrade or refund.';
+            error_log('stays_hold_consume_or_reserve: ' . $invoiceId . ' ' . $flag);
+            try {
+                $prev = (string) ($booking['error_response'] ?? '');
+                $db->update('bookings', ['error_response' => trim($prev . "\n" . $flag)], ['invoice_id' => $invoiceId]);
+            } catch (\Throwable $e) { error_log('oversell flag write: ' . $e->getMessage()); }
+        }
+        return $out;
     }
 }
 

@@ -784,7 +784,12 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
                     $placedHoldIds[] = (int) $hold['hold_id'];
                 }
             } else {
-                error_log('stays web booking: own-inventory stay without resolvable room_id/option_id (invoice ' . $invoiceId . ', hotel ' . $holdHotelId . ') — proceeding WITHOUT a hold.');
+                // OWN inventory with no resolvable room_id/option_id → we cannot place the
+                // no-oversell hold, so we REFUSE rather than book unprotected (which could
+                // silently oversell). The guest re-searches to get a valid selection.
+                // (Integration suppliers never reach here — they are not own-inventory.)
+                error_log('stays web booking: own-inventory stay without resolvable room_id/option_id (invoice ' . $invoiceId . ', hotel ' . $holdHotelId . ') — REFUSING to book without a hold.');
+                throw new Exception('We could not confirm room availability for this selection. Please search again and reselect your room.');
             }
         }
 

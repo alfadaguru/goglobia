@@ -7481,6 +7481,11 @@ function ensureSupplierStaysSchema($db): void
         if (!$db->query("SHOW COLUMNS FROM `settings` LIKE 'supplier_site_ip'")->fetch()) {
             $db->query("ALTER TABLE `settings` ADD COLUMN `supplier_site_ip` VARCHAR(45) DEFAULT NULL");
         }
+        // settings.stays_hold_ttl_minutes: lifetime of an own-inventory availability hold
+        // between booking submit and payment (default 60; read by stays_hold_ttl_minutes()).
+        if (!$db->query("SHOW COLUMNS FROM `settings` LIKE 'stays_hold_ttl_minutes'")->fetch()) {
+            $db->query("ALTER TABLE `settings` ADD COLUMN `stays_hold_ttl_minutes` INT(11) DEFAULT NULL");
+        }
 
         // --- stays.logo: a property's brand logo (separate from the img gallery). Used
         // on the white-label branded site header, invoices, and listing cards. Nullable

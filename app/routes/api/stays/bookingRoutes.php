@@ -717,7 +717,16 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
                     $staysHoldIds[] = (int) $hold['hold_id'];
                 }
             } else {
-                error_log('stays booking: own-inventory stay without resolvable room_id/option_id (invoice ' . $invoiceId . ', hotel ' . $hotelId . ') — proceeding WITHOUT a hold. Check that the rooms API emits option_id and the client sends selected_rooms.');
+                // OWN inventory with no resolvable room_id/option_id → REFUSE rather than
+                // book unprotected (parity with the web path; prevents silent oversell).
+                // Integration suppliers never reach here ($isManualStay gate above).
+                error_log('stays booking: own-inventory stay without resolvable room_id/option_id (invoice ' . $invoiceId . ', hotel ' . $hotelId . ') — REFUSING to book without a hold.');
+                http_response_code(409);
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'We could not confirm room availability for this selection. Please search again and reselect your room.',
+                ]);
+                exit;
             }
         }
 
