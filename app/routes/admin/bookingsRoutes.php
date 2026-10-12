@@ -186,6 +186,23 @@ $router->post(admin.'/bookings/edit/(.*)', function ($invoice_id) use ($SECURE,$
             ]);
         }
 
+        // OWN-INVENTORY stays: when this edit cancels the booking, free the availability
+        // hold/reservation (so the night can be resold) and void the supplier's
+        // not-yet-paid-out earning. The generic edit form previously did neither, so an
+        // admin cancelling here lost the room + still paid the supplier. Idempotent;
+        // no-op for API suppliers. (Money refund is the separate refund action.)
+        $wasCancelledNow = strtolower((string) ($data['booking_status'] ?? '')) === 'cancelled'
+            && strtolower((string) ($booking['booking_status'] ?? '')) !== 'cancelled';
+        if ($wasCancelledNow && in_array(strtolower((string) ($booking['module_type'] ?? '')), ['stays', 'hotels'], true)) {
+            if (!function_exists('stays_on_cancelled')) {
+                $invLib = dirname(__DIR__, 2) . '/lib/stays_inventory.php';
+                if (is_file($invLib)) { require_once $invLib; }
+            }
+            if (function_exists('stays_on_cancelled')) {
+                stays_on_cancelled($db, (string) $invoice_id);
+            }
+        }
+
         $_SESSION['message'] = [
             'type' => 'success',
             'text' => 'Booking updated successfully'

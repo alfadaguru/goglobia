@@ -568,15 +568,55 @@ if (!function_exists('stays_on_paid')) {
     }
 }
 
+if (!function_exists('stays_on_cancelled')) {
+    /**
+     * Single entry point for "a stays booking was CANCELLED" — called from every admin
+     * cancel/refund path. Own-inventory only; idempotent; never throws. Does two things
+     * the cancel/refund actions previously skipped (so a cancelled booking left its seat
+     * permanently consumed = lost inventory, and left the supplier earning intact =
+     * supplier paid for a cancelled stay):
+     *   1. Release the availability hold/reservation for the invoice (held OR consumed)
+     *      so the night can be resold — stays_hold_release(ref).
+     *   2. Void the supplier earning if it has not been paid out yet —
+     *      supplier_earning_void_for_booking() (which itself refuses to void a paid
+     *      earning, so an already-paid-out supplier is never clawed back here).
+     * For API/marketplace suppliers both are safe no-ops (no local hold; no local earning).
+     */
+    function stays_on_cancelled($db, string $invoiceId): void
+    {
+        if ($invoiceId === '') { return; }
+        try {
+            if (function_exists('stays_hold_release')) {
+                stays_hold_release($db, $invoiceId); // by ref = invoice id (held or consumed)
+            }
+        } catch (\Throwable $e) { error_log('stays_on_cancelled release: ' . $e->getMessage()); }
+        try {
+            if (!function_exists('supplier_earning_void_for_booking')) {
+                $lib = __DIR__ . '/supplier_earnings.php';
+                if (is_file($lib)) { require_once $lib; }
+            }
+            if (function_exists('supplier_earning_void_for_booking')) {
+                supplier_earning_void_for_booking($db, $invoiceId);
+            }
+        } catch (\Throwable $e) { error_log('stays_on_cancelled void: ' . $e->getMessage()); }
+    }
+}
+
 if (!function_exists('stays_hold_release')) {
     /** Release a hold (abandoned/failed). Idempotent; frees the seats immediately. */
     function stays_hold_release($db, $holdIdOrRef): bool
     {
         try {
             if (is_int($holdIdOrRef) || ctype_digit((string) $holdIdOrRef)) {
+                // By numeric hold id: narrow — only an unconfirmed 'held' hold (abandoned
+                // booking rollback). A 'consumed' (paid) seat is never freed by id.
                 $db->update('stays_holds', ['state' => 'released'], ['id' => (int) $holdIdOrRef, 'state' => 'held']);
             } else {
-                $db->update('stays_holds', ['state' => 'released'], ['ref' => (string) $holdIdOrRef, 'state' => 'held']);
+                // By invoice ref (a CANCELLATION): free BOTH the unconfirmed 'held' AND the
+                // 'consumed' (paid) reservation, so a cancelled paid booking's night can be
+                // resold instead of being lost forever. 'released'/'expired' rows untouched.
+                $db->update('stays_holds', ['state' => 'released'],
+                    ['ref' => (string) $holdIdOrRef, 'state' => ['held', 'consumed']]);
             }
             return true;
         } catch (\Throwable $e) {

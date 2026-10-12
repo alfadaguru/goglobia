@@ -59,6 +59,15 @@ $router->post('/stays/hotels/refund', function() use ($db) {
                 'cancellation_response' => 'Gateway refund ' . ($refund['reference'] ?? '') . ' on ' . date('Y-m-d H:i:s'),
                 'error_response'        => null,
             ], ['invoice_id' => $invoice_id]);
+            // Free the room + void the (unpaid-out) supplier earning. Idempotent — safe
+            // even if the prior cancel already did it. No-op for API suppliers.
+            if (!function_exists('stays_on_cancelled')) {
+                $invLib = dirname(__DIR__, 4) . '/app/lib/stays_inventory.php';
+                if (is_file($invLib)) { require_once $invLib; }
+            }
+            if (function_exists('stays_on_cancelled')) {
+                stays_on_cancelled($db, (string) $invoice_id);
+            }
         } else {
             // Money did NOT move — do NOT mark 'refunded'. Flag for manual action.
             $db->update('bookings', [

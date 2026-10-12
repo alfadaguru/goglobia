@@ -33,6 +33,17 @@ $updated = $db->update('bookings', [
 ], ['invoice_id' => $invoice_id]);
 
     if ($updated) {
+        // OWN-INVENTORY cleanup: free the availability hold/reservation so the night can
+        // be resold, and void the supplier's (not-yet-paid-out) earning — neither of
+        // which this action did before, so a cancelled booking used to permanently lose
+        // the room AND still pay the supplier. Idempotent; no-op for API suppliers.
+        if (!function_exists('stays_on_cancelled')) {
+            $invLib = dirname(__DIR__, 4) . '/app/lib/stays_inventory.php';
+            if (is_file($invLib)) { require_once $invLib; }
+        }
+        if (function_exists('stays_on_cancelled')) {
+            stays_on_cancelled($db, (string) $invoice_id);
+        }
         echo json_encode(['status' => true, 'message' => 'Booking cancelled successfully']);
     } else {
         echo json_encode(['status' => false, 'message' => 'Failed to cancel booking']);
