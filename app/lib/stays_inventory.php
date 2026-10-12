@@ -459,6 +459,24 @@ if (!function_exists('stays_hold_consume_or_reserve')) {
         $ownInventory = in_array($moduleType, ['stays', 'hotels'], true) && in_array($supplier, ['stays', 'hotels', ''], true);
         if (!$ownInventory) { return $out; } // API supplier — they manage their own stock.
 
+        // IDEMPOTENCY + CANCELLATION GUARD (regression fix). The backstop exists to
+        // recover the seat when a hold EXPIRED before a slow payment settled (it is then
+        // 'expired' via the cron sweep, or simply gone) — that case MUST still re-reserve.
+        // But it must NOT re-reserve when:
+        //   - a 'consumed' row already exists → the booking was already reserved (a payment
+        //     retry / concurrent callback); re-reserving would DUPLICATE the seat (bug #1/#3);
+        //   - a 'released' row exists → the hold was deliberately freed by an admin cancel
+        //     before this late payment settled; re-reserving would RESURRECT a seat for a
+        //     cancelled booking (bug #2).
+        // 'expired' (or no row at all) is the genuine recovery case → fall through.
+        try {
+            $blocked = $db->get('stays_holds', ['id'],
+                ['ref' => $invoiceId, 'state' => ['consumed', 'released'], 'LIMIT' => 1]);
+            if ($blocked) {
+                return $out; // already reserved (idempotent) or deliberately released (cancelled) → no-op
+            }
+        } catch (\Throwable $e) { return $out; } // on doubt, do not re-reserve
+
         $bd = json_decode((string) ($booking['booking_data'] ?? ''), true);
         if (!is_array($bd)) { return $out; }
         $hotelId  = (int) ($bd['hotel_id'] ?? 0);
