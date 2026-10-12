@@ -9191,6 +9191,29 @@ function ensureSupplierStaysSchema($db): void
             $db->query("ALTER TABLE `stays_physical_rooms` ADD COLUMN `building_id` INT(11) DEFAULT NULL");
             $db->query("ALTER TABLE `stays_physical_rooms` ADD COLUMN `wing` VARCHAR(60) DEFAULT NULL");
         }
+        // First-class FLOORS under a building (full hierarchy). A floor is a named level
+        // (e.g. 'Ground', 'Mezzanine', 'Rooftop', '1'..'N') belonging to one building.
+        // Physical rooms optionally attach to a floor via floor_id. Additive — small
+        // properties ignore it (floor_id stays NULL and the legacy free-text `floor`
+        // column still works unchanged).
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_floors` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) DEFAULT NULL,
+            `stay_id` INT(11) NOT NULL,
+            `building_id` INT(11) NOT NULL,
+            `name` VARCHAR(60) NOT NULL,
+            `sort` INT(11) NOT NULL DEFAULT 0,
+            `active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_stay` (`stay_id`),
+            KEY `idx_building` (`building_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        // Attach a physical room to a first-class floor record (optional / additive).
+        if (!$db->query("SHOW COLUMNS FROM `stays_physical_rooms` LIKE 'floor_id'")->fetch()) {
+            $db->query("ALTER TABLE `stays_physical_rooms` ADD COLUMN `floor_id` INT(11) DEFAULT NULL AFTER `floor`");
+        }
         // === BATCH-1 DEEPEN (modules 16-33): additive tables + guarded columns ===
         $db->query("CREATE TABLE IF NOT EXISTS `stays_event_quotes` (
   `id` int(11) NOT NULL AUTO_INCREMENT,

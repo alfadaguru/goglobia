@@ -127,10 +127,86 @@ if (!function_exists('building_delete')) {
         try {
             if (!$db->has('stays_buildings', ['id' => $buildingId, 'stay_id' => $stayId])) { return false; }
             $db->action(function ($db) use ($stayId, $buildingId) {
+                // Detach physical rooms from this building AND its floors.
+                $floorIds = $db->select('stays_floors', ['id'], ['stay_id' => $stayId, 'building_id' => $buildingId]);
+                $floorIds = is_array($floorIds) ? array_map('intval', array_column($floorIds, 'id')) : [];
+                if (!empty($floorIds)) {
+                    $db->update('stays_physical_rooms', ['floor_id' => null], ['stay_id' => $stayId, 'floor_id' => $floorIds]);
+                }
                 $db->update('stays_physical_rooms', ['building_id' => null], ['stay_id' => $stayId, 'building_id' => $buildingId]);
+                $db->delete('stays_floors', ['stay_id' => $stayId, 'building_id' => $buildingId]);
                 $db->delete('stays_buildings', ['id' => $buildingId, 'stay_id' => $stayId]);
             });
             return true;
         } catch (\Throwable $e) { error_log('building_delete: ' . $e->getMessage()); return false; }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FLOORS — first-class levels under a building. All ops scoped by stay_id (the
+// route layer proves ownership via supplier_can before calling these).
+// ---------------------------------------------------------------------------
+if (!function_exists('floor_add')) {
+    /** Add a floor under a building. Returns new id, or 0 on failure/validation. */
+    function floor_add($db, int $orgId, int $stayId, int $buildingId, array $in): int
+    {
+        $name = trim((string) ($in['name'] ?? ''));
+        if ($stayId <= 0 || $buildingId <= 0 || $name === '') { return 0; }
+        try {
+            // The building must belong to this property.
+            if (!$db->has('stays_buildings', ['id' => $buildingId, 'stay_id' => $stayId])) { return 0; }
+            $db->insert('stays_floors', [
+                'org_id'      => $orgId > 0 ? $orgId : null,
+                'stay_id'     => $stayId,
+                'building_id' => $buildingId,
+                'name'        => substr($name, 0, 60),
+                'sort'        => (int) ($in['sort'] ?? 0),
+                'active'      => 1,
+                'created_at'  => date('Y-m-d H:i:s'),
+            ]);
+            return (int) $db->id();
+        } catch (\Throwable $e) { error_log('floor_add: ' . $e->getMessage()); return 0; }
+    }
+}
+if (!function_exists('floor_list')) {
+    /** Floors for a property (optionally one building), ordered. */
+    function floor_list($db, int $stayId, int $buildingId = 0): array
+    {
+        if ($stayId <= 0) { return []; }
+        $where = ['stay_id' => $stayId];
+        if ($buildingId > 0) { $where['building_id'] = $buildingId; }
+        $where['ORDER'] = ['sort' => 'ASC', 'id' => 'ASC'];
+        try { return $db->select('stays_floors', '*', $where) ?: []; }
+        catch (\Throwable $e) { error_log('floor_list: ' . $e->getMessage()); return []; }
+    }
+}
+if (!function_exists('floor_update')) {
+    function floor_update($db, int $stayId, int $floorId, array $in): bool
+    {
+        if ($stayId <= 0 || $floorId <= 0) { return false; }
+        try {
+            if (!$db->has('stays_floors', ['id' => $floorId, 'stay_id' => $stayId])) { return false; }
+            $fields = ['updated_at' => date('Y-m-d H:i:s')];
+            if (isset($in['name']) && trim((string) $in['name']) !== '') { $fields['name'] = substr(trim((string) $in['name']), 0, 60); }
+            if (isset($in['sort'])) { $fields['sort'] = (int) $in['sort']; }
+            if (isset($in['active'])) { $fields['active'] = !empty($in['active']) ? 1 : 0; }
+            $db->update('stays_floors', $fields, ['id' => $floorId, 'stay_id' => $stayId]);
+            return true;
+        } catch (\Throwable $e) { error_log('floor_update: ' . $e->getMessage()); return false; }
+    }
+}
+if (!function_exists('floor_delete')) {
+    /** Delete a floor; detaches any physical rooms (floor_id → null). */
+    function floor_delete($db, int $stayId, int $floorId): bool
+    {
+        if ($stayId <= 0 || $floorId <= 0) { return false; }
+        try {
+            if (!$db->has('stays_floors', ['id' => $floorId, 'stay_id' => $stayId])) { return false; }
+            $db->action(function ($db) use ($stayId, $floorId) {
+                $db->update('stays_physical_rooms', ['floor_id' => null], ['stay_id' => $stayId, 'floor_id' => $floorId]);
+                $db->delete('stays_floors', ['id' => $floorId, 'stay_id' => $stayId]);
+            });
+            return true;
+        } catch (\Throwable $e) { error_log('floor_delete: ' . $e->getMessage()); return false; }
     }
 }

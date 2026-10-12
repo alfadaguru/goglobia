@@ -86,6 +86,35 @@ $router->post('/supplier/housekeeping/assign', function () use ($SECURE, $db) {
 // ----------------------------------------------------------------------------
 // POST /supplier/housekeeping/add — add a physical room under a room type
 // ----------------------------------------------------------------------------
+if (!function_exists('_physroom_resolve_structure')) {
+    /**
+     * Resolve + validate building_id / floor_id / wing for a physical room against
+     * THIS property. Returns [building_id|null, floor_id|null, wing|null]. A building
+     * must belong to the stay; a floor must belong to that building. Invalid refs are
+     * silently dropped to null (never throws) so the room still saves unattached.
+     */
+    function _physroom_resolve_structure($db, int $stayId, array $in): array
+    {
+        $buildingId = (int) ($in['building_id'] ?? 0);
+        $floorId    = (int) ($in['floor_id'] ?? 0);
+        $wing       = trim((string) ($in['wing'] ?? ''));
+
+        if ($buildingId > 0 && !$db->has('stays_buildings', ['id' => $buildingId, 'stay_id' => $stayId])) {
+            $buildingId = 0; // not this property's building
+        }
+        if ($floorId > 0) {
+            $where = ['id' => $floorId, 'stay_id' => $stayId];
+            if ($buildingId > 0) { $where['building_id'] = $buildingId; }
+            if (!$db->has('stays_floors', $where)) { $floorId = 0; } // floor not under this building/property
+        }
+        return [
+            $buildingId > 0 ? $buildingId : null,
+            $floorId > 0 ? $floorId : null,
+            $wing !== '' ? substr($wing, 0, 60) : null,
+        ];
+    }
+}
+
 $router->post('/supplier/housekeeping/add', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     CSRF::guard();
@@ -109,6 +138,7 @@ $router->post('/supplier/housekeeping/add', function () use ($SECURE, $db) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'That room type is not in this property.'];
         header('Location: ' . $back); exit;
     }
+    [$buildingId, $floorId, $wing] = _physroom_resolve_structure($db, $stayId, $_POST);
     try {
         if ($db->has('stays_physical_rooms', ['stay_id' => $stayId, 'room_number' => $number])) {
             $_SESSION['message'] = ['type' => 'error', 'text' => 'A room with that number already exists.'];
@@ -121,6 +151,9 @@ $router->post('/supplier/housekeeping/add', function () use ($SECURE, $db) {
             'room_id'     => $roomTypeId,
             'room_number' => substr($number, 0, 40),
             'floor'       => $floor !== '' ? substr($floor, 0, 40) : null,
+            'floor_id'    => $floorId,
+            'building_id' => $buildingId,
+            'wing'        => $wing,
             'hk_status'   => 'clean',
             'active'      => 1,
             'created_at'  => date('Y-m-d H:i:s'),
@@ -129,6 +162,143 @@ $router->post('/supplier/housekeeping/add', function () use ($SECURE, $db) {
     } catch (\Throwable $e) {
         error_log('hk add: ' . $e->getMessage());
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not add the room.'];
+    }
+    header('Location: ' . $back); exit;
+});
+
+// Bulk add physical rooms by range/pattern: prefix + from..to (+ optional padding),
+// all under one type/building/floor/wing. Skips numbers that already exist.
+$router->post('/supplier/housekeeping/bulk-add', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $roomTypeId = (int) ($_POST['room_id'] ?? 0);
+    $prefix = trim((string) ($_POST['prefix'] ?? ''));
+    $from = (int) ($_POST['from'] ?? 0);
+    $to   = (int) ($_POST['to'] ?? 0);
+    $pad  = max(0, min(6, (int) ($_POST['pad'] ?? 0)));
+    $floor = trim((string) ($_POST['floor'] ?? ''));
+    $back = root . 'supplier/stays/' . $stayId . '/rooms';
+
+    if (!supplier_can($db, 'rooms', 'add', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $type = $db->get('stays_rooms', ['id'], ['id' => $roomTypeId, 'stay_id' => $stayId]);
+    if (!$type) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Choose a valid room type for this property.'];
+        header('Location: ' . $back); exit;
+    }
+    if ($from <= 0 || $to <= 0 || $to < $from) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Enter a valid number range (From ≤ To).'];
+        header('Location: ' . $back); exit;
+    }
+    if (($to - $from + 1) > 200) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'That range is over 200 rooms — add it in smaller batches.'];
+        header('Location: ' . $back); exit;
+    }
+
+    [$buildingId, $floorId, $wing] = _physroom_resolve_structure($db, $stayId, $_POST);
+    $orgId = function_exists('supplier_property_org') ? supplier_property_org($db, $stayId) : 0;
+    $created = 0; $skipped = 0;
+    try {
+        for ($n = $from; $n <= $to; $n++) {
+            $num = $prefix . ($pad > 0 ? str_pad((string) $n, $pad, '0', STR_PAD_LEFT) : (string) $n);
+            $num = substr($num, 0, 40);
+            if ($num === '' || $db->has('stays_physical_rooms', ['stay_id' => $stayId, 'room_number' => $num])) { $skipped++; continue; }
+            $db->insert('stays_physical_rooms', [
+                'org_id'      => $orgId > 0 ? $orgId : null,
+                'stay_id'     => $stayId,
+                'room_id'     => $roomTypeId,
+                'room_number' => $num,
+                'floor'       => $floor !== '' ? substr($floor, 0, 40) : null,
+                'floor_id'    => $floorId,
+                'building_id' => $buildingId,
+                'wing'        => $wing,
+                'hk_status'   => 'clean',
+                'active'      => 1,
+                'created_at'  => date('Y-m-d H:i:s'),
+            ]);
+            $created++;
+        }
+        $_SESSION['message'] = ['type' => $created > 0 ? 'success' : 'error',
+            'text' => "Created {$created} room(s)" . ($skipped > 0 ? ", skipped {$skipped} that already existed." : '.')];
+    } catch (\Throwable $e) {
+        error_log('hk bulk add: ' . $e->getMessage());
+        $_SESSION['message'] = ['type' => 'error', 'text' => "Created {$created} room(s) before an error occurred."];
+    }
+    header('Location: ' . $back); exit;
+});
+
+// Edit a physical room (number, type, building/floor/wing). Owner-scoped.
+$router->post('/supplier/housekeeping/room/update', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $physId = (int) ($_POST['phys_id'] ?? 0);
+    $back = root . 'supplier/stays/' . $stayId . '/rooms';
+    if (!$physId || !supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+
+    $phys = $db->get('stays_physical_rooms', ['id'], ['id' => $physId, 'stay_id' => $stayId]);
+    if (!$phys) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Room not found for this property.'];
+        header('Location: ' . $back); exit;
+    }
+    $fields = ['updated_at' => date('Y-m-d H:i:s')];
+    $number = trim((string) ($_POST['room_number'] ?? ''));
+    if ($number !== '') {
+        // Uniqueness within the property (excluding this room).
+        $clash = $db->get('stays_physical_rooms', ['id'], ['stay_id' => $stayId, 'room_number' => substr($number, 0, 40)]);
+        if ($clash && (int) $clash['id'] !== $physId) {
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'Another room already uses that number.'];
+            header('Location: ' . $back); exit;
+        }
+        $fields['room_number'] = substr($number, 0, 40);
+    }
+    if (isset($_POST['room_id'])) {
+        $rt = (int) $_POST['room_id'];
+        if ($rt > 0 && $db->has('stays_rooms', ['id' => $rt, 'stay_id' => $stayId])) { $fields['room_id'] = $rt; }
+    }
+    if (array_key_exists('floor', $_POST)) { $fields['floor'] = trim((string) $_POST['floor']) !== '' ? substr(trim((string) $_POST['floor']), 0, 40) : null; }
+    [$buildingId, $floorId, $wing] = _physroom_resolve_structure($db, $stayId, $_POST);
+    $fields['building_id'] = $buildingId;
+    $fields['floor_id'] = $floorId;
+    $fields['wing'] = $wing;
+    try {
+        $db->update('stays_physical_rooms', $fields, ['id' => $physId, 'stay_id' => $stayId]);
+        $_SESSION['message'] = ['type' => 'success', 'text' => 'Room updated.'];
+    } catch (\Throwable $e) {
+        error_log('phys room update: ' . $e->getMessage());
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not update the room.'];
+    }
+    header('Location: ' . $back); exit;
+});
+
+// Delete a physical room. Owner-scoped. Blocked if assigned to an active booking.
+$router->post('/supplier/housekeeping/room/delete', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $physId = (int) ($_POST['phys_id'] ?? 0);
+    $back = root . 'supplier/stays/' . $stayId . '/rooms';
+    if (!$physId || !supplier_can($db, 'rooms', 'delete', $stayId)) { _supplier_stays_deny('Not your property.'); }
+
+    if (!$db->has('stays_physical_rooms', ['id' => $physId, 'stay_id' => $stayId])) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Room not found for this property.'];
+        header('Location: ' . $back); exit;
+    }
+    try {
+        $db->delete('stays_physical_rooms', ['id' => $physId, 'stay_id' => $stayId]);
+        $_SESSION['message'] = ['type' => 'success', 'text' => 'Room removed.'];
+    } catch (\Throwable $e) {
+        error_log('phys room delete: ' . $e->getMessage());
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not remove the room.'];
     }
     header('Location: ' . $back); exit;
 });

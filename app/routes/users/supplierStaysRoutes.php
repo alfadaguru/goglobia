@@ -795,6 +795,20 @@ $router->get('/supplier/stays/([0-9]+)/rooms', function ($id) use ($SECURE, $db)
     $canAddRoom    = supplier_can($db, 'rooms', 'add', (int) $id);
     $canDeleteRoom = supplier_can($db, 'rooms', 'delete', (int) $id);
 
+    // Property structure for the physical-room manager: buildings, floors (grouped by
+    // building), and the existing physical rooms (with their structure labels).
+    $buildings = function_exists('building_list') ? building_list($db, (int) $id) : [];
+    $floorsByBuilding = [];
+    if (function_exists('floor_list')) {
+        foreach (floor_list($db, (int) $id) as $fl) { $floorsByBuilding[(int) $fl['building_id']][] = $fl; }
+    }
+    $physicalRooms = [];
+    try {
+        $physicalRooms = $db->select('stays_physical_rooms',
+            ['id', 'room_id', 'room_number', 'floor', 'floor_id', 'building_id', 'wing', 'hk_status', 'active'],
+            ['stay_id' => (int) $id, 'ORDER' => ['building_id' => 'ASC', 'room_number' => 'ASC']]) ?: [];
+    } catch (\Throwable $e) { error_log('rooms physical list: ' . $e->getMessage()); }
+
     $title = 'Rooms — ' . ($stay['name'] ?? 'Property');
     $description = '';
     $header = true; $footer = true;
@@ -1459,6 +1473,13 @@ $router->get('/supplier/stays/([0-9]+)/buildings', function ($id) use ($SECURE, 
     $stay = $db->get('stays', ['id', 'name'], ['id' => (int) $id]);
     if (!$stay) { _supplier_stays_deny('Property not found.'); }
     $buildings = function_exists('building_list') ? building_list($db, (int) $id) : [];
+    // Floors grouped by building_id for the hierarchy view.
+    $floorsByBuilding = [];
+    if (function_exists('floor_list')) {
+        foreach (floor_list($db, (int) $id) as $fl) {
+            $floorsByBuilding[(int) $fl['building_id']][] = $fl;
+        }
+    }
     $canEdit = supplier_can($db, 'hotels', 'edit', (int) $id);
     $stayId = (int) $id;
     $title = ($stay['name'] ?? 'Property') . ' — Buildings'; $description = '';
@@ -1492,6 +1513,36 @@ $router->post('/supplier/stays/buildings/delete', function () use ($SECURE, $db)
     $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/stays/' . $stayId . '/buildings';
     if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('building_delete') && building_delete($db, $stayId, (int) ($_POST['building_id'] ?? 0));
-    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Building deleted.' : 'Could not delete.'];
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Building deleted (floors + room links removed).' : 'Could not delete.'];
+    header('Location: ' . $back); exit;
+});
+
+// --- FLOORS (first-class levels under a building) --------------------------------
+$router->post('/supplier/stays/floors/add', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/stays/' . $stayId . '/buildings';
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $org = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $stayId) : 0;
+    $ok = function_exists('floor_add') && floor_add($db, $org, $stayId, (int) ($_POST['building_id'] ?? 0), $_POST) > 0;
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Floor added.' : 'Could not add floor (name + building required).'];
+    header('Location: ' . $back); exit;
+});
+$router->post('/supplier/stays/floors/update', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/stays/' . $stayId . '/buildings';
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $ok = function_exists('floor_update') && floor_update($db, $stayId, (int) ($_POST['floor_id'] ?? 0), $_POST);
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Floor updated.' : 'Could not update.'];
+    header('Location: ' . $back); exit;
+});
+$router->post('/supplier/stays/floors/delete', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0); $back = root . 'supplier/stays/' . $stayId . '/buildings';
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $ok = function_exists('floor_delete') && floor_delete($db, $stayId, (int) ($_POST['floor_id'] ?? 0));
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Floor deleted (room links removed).' : 'Could not delete.'];
     header('Location: ' . $back); exit;
 });

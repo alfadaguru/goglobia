@@ -28940,6 +28940,7 @@ CREATE TABLE `stays_physical_rooms` (
   `room_id` int(11) NOT NULL,
   `room_number` varchar(40) NOT NULL,
   `floor` varchar(40) DEFAULT NULL,
+  `floor_id` int(11) DEFAULT NULL,
   `building_id` int(11) DEFAULT NULL,
   `wing` varchar(60) DEFAULT NULL,
   `hk_status` enum('clean','dirty','inspected','out_of_order') NOT NULL DEFAULT 'clean',
@@ -28974,6 +28975,27 @@ CREATE TABLE `stays_buildings` (
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Floors (first-class levels) under a building. A physical room optionally
+-- references one (stays_physical_rooms.floor_id). PMS module 02 — property structure.
+--
+CREATE TABLE `stays_floors` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `stay_id` int(11) NOT NULL,
+  `building_id` int(11) NOT NULL,
+  `name` varchar(60) NOT NULL,
+  `sort` int(11) NOT NULL DEFAULT 0,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_stay` (`stay_id`),
+  KEY `idx_building` (`building_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
