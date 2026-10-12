@@ -10657,6 +10657,9 @@ CREATE TABLE IF NOT EXISTS `supplier_webhook_endpoints` (
         if (!$db->query("SHOW COLUMNS FROM `stays_documents` LIKE 'owner_scope'")->fetch()) { $db->query("ALTER TABLE `stays_documents` ADD COLUMN `owner_scope` ENUM('property'"); }
 
 
+        // Supplier lifecycle email templates (idempotent, insert-if-absent) so the
+        // signup/approval/rejection emails are operator-editable like every other email.
+        if (function_exists('ensureSupplierCommsTemplates')) { ensureSupplierCommsTemplates($db); }
     } catch (\Throwable $e) {
         // Never break the page over a migration (e.g. a DB user without ALTER).
         error_log('ensureSupplierStaysSchema: ' . $e->getMessage());

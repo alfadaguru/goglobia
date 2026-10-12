@@ -27,15 +27,28 @@ $router->get('/verify-email', function () use ($SECURE, $db) {
     }
 
     try {
-        $db->update('users', [
+        // ROLE-AWARE activation: verifying email normally activates the account, BUT a
+        // supplier has a SECOND gate (admin approval). A pending supplier must verify
+        // their email yet STAY 'pending' — verification must never flip a supplier to
+        // 'active' and let them bypass approval. Only non-pending-supplier users activate.
+        $isPendingSupplier = (($user['role'] ?? '') === 'supplier')
+            && (($user['status'] ?? '') === 'pending');
+
+        $updateData = [
             'email_verified' => 1,
-            'status' => 'active',
             'reset_token' => null,
             'reset_token_expires' => null,
-            'updated_at' => date('Y-m-d H:i:s')
-        ], ['id' => $user['id']]);
+            'updated_at' => date('Y-m-d H:i:s'),
+        ];
+        if (!$isPendingSupplier) {
+            $updateData['status'] = 'active'; // customers/agents activate on verification
+        }
+        $db->update('users', $updateData, ['id' => $user['id']]);
 
-        logUserActivity($db, $user['id'], 'email_verified', 'Email address verified successfully');
+        logUserActivity($db, $user['id'], 'email_verified',
+            $isPendingSupplier
+                ? 'Supplier email verified — still pending admin approval'
+                : 'Email address verified successfully');
 
         // Trigger email verification webhook
         $signupTime = strtotime($user['created_at'] ?? 'now');
@@ -50,9 +63,15 @@ $router->get('/verify-email', function () use ($SECURE, $db) {
             'time_to_verify' => $verifyTime - $signupTime
         ]);
 
-        sendNotification($user['id'], 'email_verified', []);
-
-        $_SESSION['login_success'] = 'verified';
+        // A pending supplier shouldn't get the generic "email verified" (which implies
+        // "you can log in now") — they still await approval. Send it only to users who
+        // are actually activated; show the supplier an approval-pending message.
+        if (!$isPendingSupplier) {
+            sendNotification($user['id'], 'email_verified', []);
+            $_SESSION['login_success'] = 'verified';
+        } else {
+            $_SESSION['supplier_signup_success'] = 'verified_pending';
+        }
         header('Location: ' . root . 'login');
         exit;
     } catch (Exception $e) {

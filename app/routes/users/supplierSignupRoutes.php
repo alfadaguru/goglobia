@@ -180,10 +180,13 @@ $router->post('/supplier-signup', function () use ($SECURE, $db) {
     $default_curr  = $db->get('currencies', 'name', ['default' => 1]);
     $user_currency = $default_curr ?? 'USD';
 
-    // A supplier starts PENDING. email_verified = 1 because the gate here is admin
-    // approval, not email verification — we do not want a second gate. The
-    // company name is kept in `title` (a free-text column on users) so we don't
-    // need a new column for a first build.
+    // A supplier starts PENDING + UNVERIFIED. Email verification is the FIRST gate
+    // (confirms the address is real, like customers), then ADMIN APPROVAL is the second
+    // gate (confirms the business). The verify-email route is role-aware: verifying a
+    // supplier sets email_verified=1 but KEEPS status='pending' so approval is still
+    // required (it never flips a pending supplier to 'active'). The company name is kept
+    // in `title` (a free-text users column). A 24h single-use verification token.
+    $verificationToken = bin2hex(random_bytes(32));
     $insert_data = [
         'user_id'            => $custom_user_id,
         'title'              => $company,
@@ -197,7 +200,9 @@ $router->post('/supplier-signup', function () use ($SECURE, $db) {
         'role'               => 'supplier',
         'status'             => 'pending',
         'banned'             => 0,
-        'email_verified'     => 1,
+        'email_verified'     => 0,
+        'reset_token'        => $verificationToken,
+        'reset_token_expires'=> date('Y-m-d H:i:s', time() + (24 * 3600)),
         'login_attempts'     => 0,
         'locked_until'       => null,
         'created_at'         => date('Y-m-d H:i:s'),
@@ -264,54 +269,63 @@ $router->post('/supplier-signup', function () use ($SECURE, $db) {
             ]);
         }
 
-        // Confirmation email to the supplier + alert to the site admin. We use
-        // SENDEMAIL() directly (as notify.php/quick-login do) rather than a
-        // template dir, since there is no generic 'users' notification template.
+        // Confirmation email to the supplier + alert to the site admin, via the platform
+        // notification_templates engine (operator-editable in admin) — seeded by
+        // ensureSupplierCommsTemplates(). sendNotification() auto-fills {$users.*} from the
+        // user row and {$settings.*} from settings. Falls back to inline SENDEMAIL only if
+        // the template path is unavailable, so an email always goes out.
         $supplierName = trim($first_name . ' ' . $last_name);
         $companyName  = $GLOBALS['app']['business_name'] ?? ($GLOBALS['app']['app_name'] ?? 'Our Platform');
-        if (function_exists('SENDEMAIL')) {
+
+        // 1) Applicant — "application received".
+        $applicantSent = false;
+        if (function_exists('sendNotification')) {
             try {
-                SENDEMAIL(
-                    $email,
-                    $supplierName,
-                    'Your supplier application has been received',
+                $res = sendNotification($newId, 'supplier_application_received', []);
+                $applicantSent = !empty($res['email']);
+            } catch (\Throwable $e) { error_log('Supplier signup: applicant notify failed — ' . $e->getMessage()); }
+        }
+        if (!$applicantSent && function_exists('SENDEMAIL')) {
+            try {
+                SENDEMAIL($email, $supplierName, 'Your supplier application has been received',
                     '<p>Hi ' . htmlspecialchars($supplierName) . ',</p>'
                     . '<p>Thank you for applying to become a supplier on ' . htmlspecialchars($companyName) . '. '
-                    . 'Your application is now <strong>pending review</strong> by our team. '
-                    . 'You will receive an email as soon as a decision is made, and you can log in once your account is approved.</p>'
-                    . '<p>— ' . htmlspecialchars($companyName) . '</p>',
-                    null
-                );
-            } catch (\Throwable $e) {
-                error_log('Supplier signup: applicant email failed — ' . $e->getMessage());
-            }
+                    . 'Your application is now <strong>pending review</strong>. You will receive an email once a decision is made.</p>'
+                    . '<p>— ' . htmlspecialchars($companyName) . '</p>', null);
+            } catch (\Throwable $e) { error_log('Supplier signup: applicant email fallback failed — ' . $e->getMessage()); }
+        }
 
-            // Notify the first admin (best-effort).
-            try {
-                $adminEmail = $GLOBALS['app']['contact_email'] ?? '';
-                if (empty($adminEmail)) {
-                    $adminRow = $db->get('users', ['email'], ['role' => 'admin', 'ORDER' => ['id' => 'ASC']]);
-                    $adminEmail = $adminRow['email'] ?? '';
-                }
-                if (!empty($adminEmail)) {
-                    SENDEMAIL(
-                        $adminEmail,
-                        'Administrator',
-                        'New supplier application pending approval',
-                        '<p>A new supplier has registered and is awaiting approval:</p>'
-                        . '<ul>'
+        // 2) Admin alert. The template targets a USER row, but the admin may not be the
+        //    signing-up user — so resolve the admin recipient and render the template body
+        //    for THIS applicant, sending directly. (Falls back to inline if no template.)
+        try {
+            $adminEmail = $GLOBALS['app']['contact_email'] ?? '';
+            if (empty($adminEmail)) {
+                $adminRow = $db->get('users', ['email'], ['role' => 'admin', 'ORDER' => ['id' => 'ASC']]);
+                $adminEmail = $adminRow['email'] ?? '';
+            }
+            if (!empty($adminEmail) && function_exists('SENDEMAIL')) {
+                $tplRow = function_exists('renderEmailTemplate')
+                    ? $db->get('notification_templates', ['subject', 'body', 'name', 'type'], ['name' => 'supplier_pending_admin', 'type' => 'email', 'status' => 1])
+                    : null;
+                if ($tplRow) {
+                    $rendered = renderEmailTemplate($tplRow, [
+                        'first_name' => $first_name, 'last_name' => $last_name,
+                        'title' => $company, 'email' => $email, 'phone' => $phone,
+                    ]);
+                    SENDEMAIL($adminEmail, 'Administrator', $rendered['subject'] ?? 'New supplier application', $rendered['body'] ?? '', null);
+                } else {
+                    SENDEMAIL($adminEmail, 'Administrator', 'New supplier application pending approval',
+                        '<p>A new supplier has registered and is awaiting approval:</p><ul>'
                         . '<li><strong>Name:</strong> ' . htmlspecialchars($supplierName) . '</li>'
                         . '<li><strong>Company:</strong> ' . htmlspecialchars($company !== '' ? $company : '—') . '</li>'
                         . '<li><strong>Email:</strong> ' . htmlspecialchars($email) . '</li>'
-                        . '<li><strong>Phone:</strong> ' . htmlspecialchars($phone) . '</li>'
-                        . '</ul>'
-                        . '<p><a href="' . root . 'admin/suppliers">Review pending suppliers</a></p>',
-                        null
-                    );
+                        . '<li><strong>Phone:</strong> ' . htmlspecialchars($phone) . '</li></ul>'
+                        . '<p><a href="' . root . 'admin/suppliers">Review pending suppliers</a></p>', null);
                 }
-            } catch (\Throwable $e) {
-                error_log('Supplier signup: admin alert failed — ' . $e->getMessage());
             }
+        } catch (\Throwable $e) {
+            error_log('Supplier signup: admin alert failed — ' . $e->getMessage());
         }
 
         unset($_SESSION['supplier_form_data']);

@@ -102,8 +102,14 @@ $router->post(admin . '/suppliers/approve/(.+)', function ($user_id) use ($SECUR
         error_log('Supplier approve: service/quota update failed: ' . $e->getMessage());
     }
 
-    // Notify the supplier they can now sign in.
-    if (function_exists('SENDEMAIL') && !empty($supplier['email'])) {
+    // Notify the supplier they can now sign in — via the operator-editable template
+    // (supplier_approved), with an inline fallback so an email always goes out.
+    $apprSent = false;
+    if (function_exists('sendNotification') && !empty($supplier['id'])) {
+        try { $r = sendNotification((int) $supplier['id'], 'supplier_approved', []); $apprSent = !empty($r['email']); }
+        catch (\Throwable $e) { error_log('Supplier approve notify failed: ' . $e->getMessage()); }
+    }
+    if (!$apprSent && function_exists('SENDEMAIL') && !empty($supplier['email'])) {
         try {
             $name = trim(($supplier['first_name'] ?? '') . ' ' . ($supplier['last_name'] ?? ''));
             $companyName = $GLOBALS['app']['business_name'] ?? ($GLOBALS['app']['app_name'] ?? 'Our Platform');
@@ -119,7 +125,7 @@ $router->post(admin . '/suppliers/approve/(.+)', function ($user_id) use ($SECUR
                 null
             );
         } catch (\Throwable $e) {
-            error_log('Supplier approve email failed: ' . $e->getMessage());
+            error_log('Supplier approve email fallback failed: ' . $e->getMessage());
         }
     }
 
@@ -155,7 +161,15 @@ $router->post(admin . '/suppliers/reject/(.+)', function ($user_id) use ($SECURE
         'updated_at'               => date('Y-m-d H:i:s'),
     ], ['user_id' => $user_id]);
 
-    if (function_exists('SENDEMAIL') && !empty($supplier['email'])) {
+    // Notify via the operator-editable template (supplier_rejected). The reason was just
+    // persisted on the user row above, so {$users.supplier_rejected_reason} resolves.
+    // Inline fallback guarantees delivery if the template path is unavailable.
+    $rejSent = false;
+    if (function_exists('sendNotification') && !empty($supplier['id'])) {
+        try { $r = sendNotification((int) $supplier['id'], 'supplier_rejected', []); $rejSent = !empty($r['email']); }
+        catch (\Throwable $e) { error_log('Supplier reject notify failed: ' . $e->getMessage()); }
+    }
+    if (!$rejSent && function_exists('SENDEMAIL') && !empty($supplier['email'])) {
         try {
             $name = trim(($supplier['first_name'] ?? '') . ' ' . ($supplier['last_name'] ?? ''));
             $companyName = $GLOBALS['app']['business_name'] ?? ($GLOBALS['app']['app_name'] ?? 'Our Platform');
@@ -171,7 +185,7 @@ $router->post(admin . '/suppliers/reject/(.+)', function ($user_id) use ($SECURE
                 null
             );
         } catch (\Throwable $e) {
-            error_log('Supplier reject email failed: ' . $e->getMessage());
+            error_log('Supplier reject email fallback failed: ' . $e->getMessage());
         }
     }
 

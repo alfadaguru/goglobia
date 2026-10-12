@@ -726,6 +726,13 @@ if (!empty($activeCurrencyRow)) {
                     <span class="material-symbols-outlined !text-[18px] text-primary">business_center</span>
                     <span class="font-medium"><?= T::agent ?> <?= T::signup ?></span>
                   </a>
+                  <?php // Supplier signup — only when the operator has opened registration. ?>
+                  <?php if (($GLOBALS['app']['supplier_registration'] ?? '0') === '1'): ?>
+                  <a href="<?=root?>supplier-signup" class="flex items-center gap-3 px-4 py-3 text-gray-700 hover:text-primary hover:bg-primary/5 rounded-xl transition-all duration-150">
+                    <span class="material-symbols-outlined !text-[18px] text-primary">storefront</span>
+                    <span class="font-medium">Become a Supplier</span>
+                  </a>
+                  <?php endif; ?>
                 </div>
               </div>
             </div>
@@ -1005,6 +1012,12 @@ if (!empty($activeCurrencyRow)) {
                       <span class="material-symbols-outlined !text-[16px]">business_center</span>
                       <span><?= T::agent ?> <?= T::signup ?></span>
                     </a>
+                    <?php if (($GLOBALS['app']['supplier_registration'] ?? '0') === '1'): ?>
+                    <a href="<?=root?>supplier-signup" class="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-primary hover:bg-primary/5 rounded-lg transition-colors">
+                      <span class="material-symbols-outlined !text-[16px]">storefront</span>
+                      <span>Become a Supplier</span>
+                    </a>
+                    <?php endif; ?>
                   </div>
                 </div>
                 <?php else: ?>

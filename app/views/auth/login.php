@@ -93,11 +93,15 @@ $licenseBlocked = !empty($_SESSION['lic_err']);
             ?>
         <?php endif; ?>
 
-        <!-- Supplier application submitted -->
+        <!-- Supplier application status -->
         <?php if (isset($_SESSION['supplier_signup_success'])): ?>
             <div class="alert-success">
                 <span class="material-symbols-outlined">check_circle</span>
-                <p>Thanks! Your supplier application has been submitted and is pending review. We'll email you once it's approved.</p>
+                <?php if ($_SESSION['supplier_signup_success'] === 'verified_pending'): ?>
+                    <p>Email confirmed. Your supplier application is now pending review — we'll email you once it's approved.</p>
+                <?php else: ?>
+                    <p>Thanks! Check your inbox to confirm your email, then your supplier application goes to our team for approval. We'll email you once it's approved.</p>
+                <?php endif; ?>
             </div>
             <?php unset($_SESSION['supplier_signup_success']); ?>
         <?php endif; ?>
