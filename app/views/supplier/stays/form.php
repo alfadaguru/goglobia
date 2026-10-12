@@ -132,8 +132,27 @@
           <input type="number" name="stars" min="0" max="5" class="input" value="<?= (int) ($s['stars'] ?? 0) ?>">
         </div>
         <div class="form-control">
-          <label class="block text-sm font-medium text-gray-700 mb-1">Currency</label>
-          <input type="text" name="currency" maxlength="3" class="input" value="<?= htmlspecialchars($s['currency'] ?? 'USD') ?>">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Default currency</label>
+          <?php
+            $enabledCurrencies = (isset($GLOBALS['currencies']) && is_array($GLOBALS['currencies'])) ? $GLOBALS['currencies'] : [];
+            // Current value: the saved one on edit, else the system default (first in the
+            // list, ordered default DESC), else USD.
+            $curCurrency = (string) ($s['currency'] ?? '');
+            if ($curCurrency === '' && !empty($enabledCurrencies)) { $curCurrency = (string) ($enabledCurrencies[0]['name'] ?? 'USD'); }
+            if ($curCurrency === '') { $curCurrency = 'USD'; }
+          ?>
+          <?php if (!empty($enabledCurrencies)): ?>
+            <select name="currency" class="input">
+              <?php foreach ($enabledCurrencies as $curr): $code = (string) ($curr['name'] ?? ''); if ($code === '') { continue; } ?>
+                <option value="<?= htmlspecialchars($code) ?>" <?= $curCurrency === $code ? 'selected' : '' ?>>
+                  <?= htmlspecialchars($code) ?><?= !empty($curr['country_name']) ? ' — ' . htmlspecialchars((string) $curr['country_name']) : '' ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+            <p class="text-xs text-gray-500 mt-1">Prices for this property are shown in this currency.</p>
+          <?php else: ?>
+            <input type="text" name="currency" maxlength="3" class="input" value="<?= htmlspecialchars($curCurrency) ?>">
+          <?php endif; ?>
         </div>
         <div class="form-control">
           <label class="block text-sm font-medium text-gray-700 mb-1">Discount %</label>

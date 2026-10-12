@@ -55,6 +55,27 @@ if (!function_exists('_supplier_stay_amenities')) {
     }
 }
 
+if (!function_exists('_supplier_stays_currency')) {
+    /**
+     * Resolve the submitted currency to one of the system's ENABLED currencies.
+     * Prevents a hand-crafted POST from storing an unsupported code. Falls back to
+     * the system default (first in $GLOBALS['currencies'], ordered default DESC),
+     * then 'USD'. Returns the 3-char currency code to store on stays.currency.
+     */
+    function _supplier_stays_currency(?string $submitted): string
+    {
+        $submitted = strtoupper(trim((string) $submitted));
+        $list = (isset($GLOBALS['currencies']) && is_array($GLOBALS['currencies'])) ? $GLOBALS['currencies'] : [];
+        $codes = [];
+        foreach ($list as $c) {
+            $code = strtoupper((string) ($c['name'] ?? ''));
+            if ($code !== '') { $codes[] = $code; }
+        }
+        if ($submitted !== '' && in_array($submitted, $codes, true)) { return $submitted; }
+        return $codes[0] ?? 'USD'; // system default (default DESC) or USD
+    }
+}
+
 if (!function_exists('_supplier_stays_handle_logo')) {
     /**
      * Handle the optional property-logo upload (POST field `hotel_logo`). Validates
@@ -233,7 +254,7 @@ $router->post('/supplier/stays/add', function () use ($SECURE, $db) {
         'location_coords' => ($lat !== '' && $lng !== '') ? ($lat . ',' . $lng) : null,
         'address'         => trim($_POST['address'] ?? ''),
         'stars'           => ($v = intval($_POST['stars'] ?? 0)) > 0 ? $v : null,
-        'currency'        => trim($_POST['currency'] ?? 'USD'),
+        'currency'        => _supplier_stays_currency($_POST['currency'] ?? null),
         'discount'        => ($v = intval($_POST['discount'] ?? 0)) > 0 ? $v : null,
         'email'           => trim($_POST['email'] ?? '') ?: null,
         'phone'           => trim($_POST['phone'] ?? '') ?: null,
@@ -449,7 +470,7 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
         'location_coords' => ($lat !== '' && $lng !== '') ? ($lat . ',' . $lng) : null,
         'address'         => trim($_POST['address'] ?? ''),
         'stars'           => ($v = intval($_POST['stars'] ?? 0)) > 0 ? $v : null,
-        'currency'        => trim($_POST['currency'] ?? 'USD'),
+        'currency'        => _supplier_stays_currency($_POST['currency'] ?? null),
         'discount'        => ($v = intval($_POST['discount'] ?? 0)) > 0 ? $v : null,
         'email'           => trim($_POST['email'] ?? '') ?: null,
         'phone'           => trim($_POST['phone'] ?? '') ?: null,
