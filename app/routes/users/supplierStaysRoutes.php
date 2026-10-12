@@ -1019,6 +1019,19 @@ $router->post('/supplier/stays/([0-9]+)/rooms/([0-9]+)/options/save', function (
     ];
     if ($fields['price'] < 0) { $fields['price'] = 0; }
 
+    // board_id must be a real 'board' taxonomy id (0 = none). Reject an arbitrary FK
+    // so public pages / rate-plan joins never dereference a bogus board.
+    if ($fields['board_id'] > 0 && !$db->has('stays_settings', ['id' => $fields['board_id'], 'setting_type' => 'board'])) {
+        $fields['board_id'] = 0;
+    }
+
+    // A rate cannot be ACTIVE while unsellable (no price or no stock) — otherwise it
+    // shows "active" to the supplier but the hold engine rejects every booking. Force it
+    // off and tell them, keeping the UI and the sell path consistent (matches the submit
+    // sellability guard which requires an active rate priced > 0).
+    $rateUnsellable = ($fields['status'] === 1 && ($fields['price'] <= 0 || $fields['available_quantity'] <= 0));
+    if ($rateUnsellable) { $fields['status'] = 0; }
+
     // Find the target option by STABLE option_id (not position).
     $foundIndex = -1;
     if ($optionId > 0) {
@@ -1051,7 +1064,12 @@ $router->post('/supplier/stays/([0-9]+)/rooms/([0-9]+)/options/save', function (
         // Mirror into the normalized rate-plan tables (inc S12). Non-fatal; the live
         // path still reads room_options — this only keeps the relational mirror current.
         if (function_exists('stays_rate_plan_sync')) { stays_rate_plan_sync($db, $stayId, $roomId); }
-        $_SESSION['message'] = ['type' => 'success', 'text' => $msg];
+        if ($rateUnsellable) {
+            $msg .= ' Note: it was saved as INACTIVE because it has no ' . ($fields['price'] <= 0 ? 'price' : 'availability') . ' — set that, then activate it.';
+            $_SESSION['message'] = ['type' => 'error', 'text' => $msg];
+        } else {
+            $_SESSION['message'] = ['type' => 'success', 'text' => $msg];
+        }
     } catch (\Throwable $e) {
         error_log('supplier option save: ' . $e->getMessage());
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not save the rate.'];

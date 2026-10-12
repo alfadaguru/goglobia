@@ -533,6 +533,41 @@ if (!function_exists('stays_hold_consume_or_reserve')) {
     }
 }
 
+if (!function_exists('stays_on_paid')) {
+    /**
+     * Single entry point for "a stays booking just became PAID", called from every
+     * payment-success path (payment-gateway.php, adyen.php). Does two things, both
+     * idempotent and both own-inventory-only:
+     *   1. Reserve the seat permanently (consume the live hold, or the expired-hold
+     *      backstop) — stays_hold_consume_or_reserve().
+     *   2. Accrue the supplier earning for own inventory — supplier_earning_accrue_for_booking()
+     *      (previously only triggered lazily when the supplier opened their inbox, so a
+     *      paid booking's earning never appeared and payout balance read zero).
+     * For API/marketplace suppliers both are safe no-ops (no hold; the accrual resolves
+     * no local owner and skips). Never throws.
+     */
+    function stays_on_paid($db, string $invoiceId): void
+    {
+        if ($invoiceId === '') { return; }
+        try {
+            if (function_exists('stays_hold_consume_or_reserve')) {
+                stays_hold_consume_or_reserve($db, $invoiceId);
+            } elseif (function_exists('stays_hold_consume_ref')) {
+                stays_hold_consume_ref($db, $invoiceId);
+            }
+        } catch (\Throwable $e) { error_log('stays_on_paid consume: ' . $e->getMessage()); }
+        try {
+            if (!function_exists('supplier_earning_accrue_for_booking')) {
+                $lib = __DIR__ . '/supplier_earnings.php';
+                if (is_file($lib)) { require_once $lib; }
+            }
+            if (function_exists('supplier_earning_accrue_for_booking')) {
+                supplier_earning_accrue_for_booking($db, $invoiceId);
+            }
+        } catch (\Throwable $e) { error_log('stays_on_paid accrue: ' . $e->getMessage()); }
+    }
+}
+
 if (!function_exists('stays_hold_release')) {
     /** Release a hold (abandoned/failed). Idempotent; frees the seats immediately. */
     function stays_hold_release($db, $holdIdOrRef): bool

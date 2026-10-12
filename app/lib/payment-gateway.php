@@ -469,12 +469,12 @@ function handle_payment_callback($token, $action, $data = [])
                         // same as the main path below. Money was collected, booking is
                         // confirmed. Idempotent by invoice ref.
                         if (in_array(strtolower((string) ($booking['module_type'] ?? '')), ['stays', 'hotels'], true)) {
-                            if (!function_exists('stays_hold_consume_or_reserve')) {
+                            if (!function_exists('stays_on_paid')) {
                                 $invLib = __DIR__ . '/stays_inventory.php';
                                 if (is_file($invLib)) { require_once $invLib; }
                             }
-                            if (function_exists('stays_hold_consume_or_reserve')) {
-                                stays_hold_consume_or_reserve($db, (string) $tokenData['invoice_id']);
+                            if (function_exists('stays_on_paid')) {
+                                stays_on_paid($db, (string) $tokenData['invoice_id']);
                             } elseif (function_exists('stays_hold_consume_ref')) {
                                 stays_hold_consume_ref($db, (string) $tokenData['invoice_id']);
                             }
@@ -977,15 +977,15 @@ function handle_payment_callback($token, $action, $data = [])
             // Closes the long-term oversell gap. Idempotent by invoice ref.
             // ============================================================
             if (in_array(strtolower((string) ($booking['module_type'] ?? '')), ['stays', 'hotels'], true)) {
-                if (!function_exists('stays_hold_consume_or_reserve')) {
+                if (!function_exists('stays_on_paid')) {
                     $invLib = __DIR__ . '/stays_inventory.php';
                     if (is_file($invLib)) { require_once $invLib; }
                 }
-                if (function_exists('stays_hold_consume_or_reserve')) {
-                    // Consume the live hold; if it expired before this (late) payment,
-                    // the backstop re-reserves own-inventory seats when still free, else
-                    // flags the paid booking for staff. No-op for API suppliers.
-                    stays_hold_consume_or_reserve($db, (string) $tokenData['invoice_id']);
+                if (function_exists('stays_on_paid')) {
+                    // Reserve the seat permanently (consume/backstop) AND accrue the
+                    // supplier earning. Both idempotent + own-inventory-only. No-op for
+                    // API suppliers.
+                    stays_on_paid($db, (string) $tokenData['invoice_id']);
                 } elseif (function_exists('stays_hold_consume_ref')) {
                     stays_hold_consume_ref($db, (string) $tokenData['invoice_id']);
                 }
