@@ -383,6 +383,43 @@ $messageSuccess = false;
                     </div>
                 </div>
 
+                <!-- White-label supplier/hotel sites -->
+                <div class="section mt-4">
+                    <div class="flex items-center mb-3">
+                        <div class="w-6 h-6 bg-indigo-50 rounded flex items-center justify-center mr-2">
+                            <span class="material-symbols-outlined text-indigo-600 text-sm">public</span>
+                        </div>
+                        <h3 class="text-base font-medium text-gray-900">White-label hotel sites</h3>
+                    </div>
+                    <p class="text-xs text-gray-500 mb-3">
+                        Lets each approved hotel get its own branded booking page on
+                        <code>&lt;slug&gt;.&lt;your-domain&gt;</code> (and optionally their own custom domain).
+                        Leave both blank to keep the feature off — it stays completely inert until set.
+                    </p>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div class="form-control">
+                            <label>Supplier branded domain root</label>
+                            <input type="text" name="supplier_site_domain" class="input"
+                                value="<?= htmlspecialchars(getSetting($settingsData, 'supplier_site_domain', '')) ?>"
+                                placeholder="goglobia.com">
+                            <p class="text-xs text-gray-500 mt-1">
+                                Root domain for hotel sites. Needs a wildcard <code>*.&lt;domain&gt;</code>
+                                A-record pointing at this server.
+                            </p>
+                        </div>
+                        <div class="form-control">
+                            <label>Supplier site server IP</label>
+                            <input type="text" name="supplier_site_ip" class="input"
+                                value="<?= htmlspecialchars(getSetting($settingsData, 'supplier_site_ip', '')) ?>"
+                                placeholder="65.181.116.249">
+                            <p class="text-xs text-gray-500 mt-1">
+                                This server's public IP — shown to hotels as the <code>A</code>-record target
+                                when they point a root custom domain here.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="my-4 flex justify-start">
                     <button type="submit" form="settings-form"
                         class="btn bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl transition-all duration-200 flex items-center space-x-2 px-6 py-3 rounded-lg">
@@ -865,32 +902,6 @@ $messageSuccess = false;
                             <div class="default-warning <?= needswarnStyle(getSetting($settingsData, 'email_sender_email', 'noreply@example.com')) ? '' : 'hidden' ?>">
                                 <p class="text-xs text-yellow-600 mt-1"><?=T::please_change_this_default_value?></p>
                             </div>
-                        </div>
-
-                        <!-- White-label supplier sites: branded root domain + operator IP -->
-                        <div class="form-control">
-                            <label>Supplier branded domain root</label>
-                            <input type="text" name="supplier_site_domain" class="input"
-                                value="<?= htmlspecialchars(getSetting($settingsData, 'supplier_site_domain', '')) ?>"
-                                placeholder="goglobia.com">
-                            <p class="text-xs text-gray-500 mt-1">
-                                Root domain for hotel white-label sites. Each approved property gets
-                                <code>&lt;slug&gt;.&lt;this-domain&gt;</code> automatically (requires a wildcard
-                                <code>*.&lt;domain&gt;</code> A-record pointing at this server). Leave blank to disable branded sites.
-                            </p>
-                        </div>
-
-                        <!-- Supplier site operator IP (for custom-domain A records) -->
-                        <div class="form-control">
-                            <label>Supplier site server IP</label>
-                            <input type="text" name="supplier_site_ip" class="input"
-                                value="<?= htmlspecialchars(getSetting($settingsData, 'supplier_site_ip', '')) ?>"
-                                placeholder="65.181.116.249">
-                            <p class="text-xs text-gray-500 mt-1">
-                                Public IP of this server. Shown to suppliers as the <code>A</code>-record target when
-                                they point a root custom domain (e.g. <code>yourhotel.com</code>) at the platform.
-                                Subdomains use the CNAME target <code>sites.&lt;branded domain&gt;</code>.
-                            </p>
                         </div>
 
                         <!-- Booking Notification Email -->
