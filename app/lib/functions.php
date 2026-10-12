@@ -294,7 +294,19 @@ if (!function_exists('supplier_acting_context')) {
             return ['owner' => '', 'actor' => $actor, 'is_owner' => false, 'role_id' => null, 'is_admin' => true];
         }
         if (($_SESSION['user_role'] ?? '') === 'supplier') {
-            return ['owner' => $actor, 'actor' => $actor, 'is_owner' => true, 'role_id' => null, 'is_admin' => false];
+            // Resolve whether this owner's account is ACTIVE (approved). A 'pending'
+            // supplier is now allowed to LOG IN (so they can see their dashboard +
+            // request services), but must not perform consequential writes until an
+            // admin approves them — supplier_can() denies non-view actions when
+            // owner_active is false. Fail-safe: if the status can't be read, treat as
+            // not-active (deny writes).
+            $ownerActive = false;
+            try {
+                $row = $db->get('users', ['status'], ['user_id' => $actor]);
+                $ownerActive = $row && ($row['status'] ?? '') === 'active';
+            } catch (\Throwable $e) { $ownerActive = false; }
+            return ['owner' => $actor, 'actor' => $actor, 'is_owner' => true, 'role_id' => null,
+                    'is_admin' => false, 'owner_active' => $ownerActive];
         }
         // (increment 5) staff resolution hook:
         if (function_exists('supplier_staff_context')) {
@@ -441,6 +453,15 @@ if (!function_exists('supplier_can')) {
         }
         if (!empty($ctx['is_admin'])) {
             return true; // admin bypass
+        }
+        // PENDING-OWNER GUARD: a not-yet-approved supplier owner (owner_active === false)
+        // may only READ ('view'). Every consequential action (add/edit/delete/…) is
+        // denied until an admin approves them (status → active). This keeps "pending
+        // suppliers can log in" safe — they can see their area + request access, but
+        // cannot create/manage anything. Staff contexts already require an active owner
+        // upstream, so owner_active is only set (and only false) for a supplier owner.
+        if (array_key_exists('owner_active', $ctx) && $ctx['owner_active'] === false && $action !== 'view') {
+            return false;
         }
         // Ownership: when a specific property is named, it MUST belong to the owner.
         if ($stayId !== null) {
