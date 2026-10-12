@@ -12,7 +12,10 @@
 @$SECURE or die('Access Denied!');
 
 // ====================================
-// SUPPLIER SIGNUP — FORM
+// SUPPLIER SIGNUP — MARKETING LANDING  (/supplier-signup)
+// A convincing, well-designed landing (hero + value props + how-it-works + services
+// showcase) with a "Get Started" CTA that leads to the actual application form at
+// /supplier-signup/apply. Gated on settings.supplier_registration like the form.
 // ====================================
 $router->get('/supplier-signup', function () use ($SECURE, $db) {
     // Already logged in → send to the right home.
@@ -22,28 +25,55 @@ $router->get('/supplier-signup', function () use ($SECURE, $db) {
         exit;
     }
 
-    // Supplier signups are gated by settings.supplier_registration ("Allow
-    // suppliers to register and list their services"). It ships DEFAULT '0'
-    // (closed), so signups are open only when it is explicitly '1' — an admin
-    // turns the feature on in Settings.
+    // Supplier signups are gated by settings.supplier_registration ("Allow suppliers to
+    // register and list their services"). Ships DEFAULT '0' (closed) → open only at '1'.
     if (($GLOBALS['app']['supplier_registration'] ?? '0') !== '1') {
         $_SESSION['login_error'] = 'supplier_registration_disabled';
         header('Location: ' . root . 'login');
         exit;
     }
 
-    // Generate a fresh CAPTCHA (same mechanism as /signup).
-    $captchaData = Captcha::generate();
-    $_SESSION['captcha_data'] = $captchaData;
-
-    // Services the supplier can offer — the FULL active system catalogue (inc S37),
-    // not just the stays-focused set, so a new supplier can declare any live service
-    // at signup. The view renders a checkbox + count field per service.
+    // Services to showcase on the landing (icons + labels).
     $supplierServices = function_exists('supplier_all_services')
         ? supplier_all_services($db)
         : supplier_first_class_services($db);
 
     $title = 'Become a Supplier';
+    $description = 'Partner with us — list your hotels, tours, cars, flights and more. Reach new customers with a full property-management + booking platform.';
+    $header = true;
+    $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "auth/supplier-landing.php";
+    require_once views . "includes/footer.php";
+});
+
+// ====================================
+// SUPPLIER SIGNUP — APPLICATION FORM  (/supplier-signup/apply)
+// The full form: contact details + service selection with per-service counts.
+// Posts to POST /supplier-signup (unchanged).
+// ====================================
+$router->get('/supplier-signup/apply', function () use ($SECURE, $db) {
+    if (isset($_SESSION['user_id']) && !empty($_SESSION['user_id'])) {
+        $dest = (($_SESSION['user_role'] ?? '') === 'supplier') ? 'supplier/dashboard' : 'dashboard';
+        header('Location: ' . root . $dest);
+        exit;
+    }
+    if (($GLOBALS['app']['supplier_registration'] ?? '0') !== '1') {
+        $_SESSION['login_error'] = 'supplier_registration_disabled';
+        header('Location: ' . root . 'login');
+        exit;
+    }
+
+    // Fresh CAPTCHA (same mechanism as /signup).
+    $captchaData = Captcha::generate();
+    $_SESSION['captcha_data'] = $captchaData;
+
+    // Full active service catalogue — checkbox + count field per service.
+    $supplierServices = function_exists('supplier_all_services')
+        ? supplier_all_services($db)
+        : supplier_first_class_services($db);
+
+    $title = 'Supplier application';
     $description = 'Register as a supplier and list your travel services.';
     $header = true;
     $footer = true;

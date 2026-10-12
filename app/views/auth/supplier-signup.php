@@ -3,6 +3,11 @@
 <div class="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-gray-50">
   <div class="max-w-lg w-full space-y-8">
 
+    <!-- Back to the supplier overview -->
+    <a href="<?= root ?>supplier-signup" class="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-primary">
+      <span class="material-symbols-outlined !text-[18px]">arrow_back</span> Back to supplier overview
+    </a>
+
     <!-- Error Messages -->
     <?php if (isset($_SESSION['supplier_signup_error'])): ?>
       <div class="alert-error">
@@ -31,7 +36,7 @@
     <?php endif; ?>
 
     <!-- Supplier notice -->
-    <div class="bg-gradient-to-r from-violet-50 to-indigo-50 border border-violet-200 rounded-lg p-4 shadow-sm">
+    <div class="bg-gradient-to-r from-indigo-50 to-indigo-50 border border-violet-200 rounded-lg p-4 shadow-sm">
       <div class="flex items-start gap-3">
         <div class="w-12 h-12 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0">
           <span class="material-symbols-outlined text-violet-600 text-2xl">storefront</span>
