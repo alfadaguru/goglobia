@@ -165,13 +165,15 @@ $router->post('/login', function () use ($SECURE, $db) {
             'last_login' => date('Y-m-d H:i:s')
         ], ['id' => $userId]);
 
-        if ($user['status'] !== 'active') {
-            // A pending/rejected supplier gets a specific message (the approval
-            // gate) instead of a generic "invalid credentials". Any other
-            // non-active account keeps the existing generic error.
-            if (($user['role'] ?? '') === 'supplier' && $user['status'] === 'pending') {
-                $_SESSION['login_error'] = 'supplier_pending';
-            } elseif (($user['role'] ?? '') === 'supplier' && $user['status'] === 'rejected') {
+        // PENDING-SUPPLIER LOGIN (owner decision): a 'pending' supplier is allowed to log
+        // in so they can see their dashboard and submit service requests. They CANNOT
+        // create or manage anything until an admin approves them — that is enforced at the
+        // RBAC core (supplier_acting_context sets owner_active=false; supplier_can denies
+        // every non-'view' action for a pending owner). Rejected suppliers, and any other
+        // non-active account (customer/agent), remain blocked here.
+        $pendingSupplierOk = (($user['role'] ?? '') === 'supplier' && $user['status'] === 'pending');
+        if ($user['status'] !== 'active' && !$pendingSupplierOk) {
+            if (($user['role'] ?? '') === 'supplier' && $user['status'] === 'rejected') {
                 $_SESSION['login_error'] = 'supplier_rejected';
                 $_SESSION['supplier_rejected_reason'] = (string) ($user['supplier_rejected_reason'] ?? '');
             } else {
@@ -179,6 +181,10 @@ $router->post('/login', function () use ($SECURE, $db) {
             }
             header('Location: ' . root . 'login');
             exit;
+        }
+        // Flag a pending supplier so the dashboard can show an "awaiting approval" banner.
+        if ($pendingSupplierOk) {
+            $_SESSION['supplier_approval_pending'] = true;
         }
         if ($user['banned']) {
             $_SESSION['login_error'] = 'banned';
