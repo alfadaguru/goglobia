@@ -183,7 +183,7 @@ if (!function_exists('_supplier_stays_process_gallery')) {
         $files = $_FILES['hotel_images'];
         $count = count($files['name']);
         $maxCount = defined('SUPPLIER_IMG_MAX_COUNT') ? SUPPLIER_IMG_MAX_COUNT : 10;
-        $maxBytes = defined('SUPPLIER_IMG_MAX_BYTES') ? SUPPLIER_IMG_MAX_BYTES : (2 * 1024 * 1024);
+        $maxBytes = function_exists('supplier_effective_img_max') ? supplier_effective_img_max() : (defined('SUPPLIER_IMG_MAX_BYTES') ? SUPPLIER_IMG_MAX_BYTES : (5 * 1024 * 1024));
         $exts = array_filter(array_map('trim', explode(',', defined('SUPPLIER_IMG_EXTS') ? SUPPLIER_IMG_EXTS : 'jpg,jpeg,png,webp,gif')));
 
         // How many non-empty slots were actually submitted?
@@ -234,7 +234,7 @@ if (!function_exists('_supplier_stays_handle_logo')) {
         if (empty($_FILES['hotel_logo']['name']) || ($_FILES['hotel_logo']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
             return [$existing, '']; // nothing uploaded this request
         }
-        $maxBytes = defined('SUPPLIER_LOGO_MAX_BYTES') ? SUPPLIER_LOGO_MAX_BYTES : (1 * 1024 * 1024);
+        $maxBytes = function_exists('supplier_effective_logo_max') ? supplier_effective_logo_max() : (defined('SUPPLIER_LOGO_MAX_BYTES') ? SUPPLIER_LOGO_MAX_BYTES : (2 * 1024 * 1024));
         $exts = array_filter(array_map('trim', explode(',', defined('SUPPLIER_LOGO_EXTS') ? SUPPLIER_LOGO_EXTS : 'jpg,jpeg,png,webp')));
         $f = $_FILES['hotel_logo'];
         $slice = ['name' => $f['name'], 'tmp_name' => $f['tmp_name'] ?? '', 'size' => $f['size'] ?? 0, 'error' => $f['error'] ?? UPLOAD_ERR_NO_FILE];

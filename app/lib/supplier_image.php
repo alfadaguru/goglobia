@@ -19,14 +19,65 @@ if (!defined('SUPPLIER_IMG_THUMB_EDGE')) { define('SUPPLIER_IMG_THUMB_EDGE', 400
 if (!defined('SUPPLIER_IMG_QUALITY'))   { define('SUPPLIER_IMG_QUALITY', 82); }      // jpeg/webp quality
 
 // ---- Application upload limits (single source of truth for the UI + the handlers) --
-// Deliberately set WELL UNDER typical PHP defaults (upload_max_filesize 2M /
-// post_max_size 8M) so a valid batch is NEVER silently dropped by PHP: we validate
-// and reject with a specific message before that can happen. No server config needed.
-if (!defined('SUPPLIER_IMG_MAX_BYTES'))   { define('SUPPLIER_IMG_MAX_BYTES', 2 * 1024 * 1024); } // 2 MB per photo
-if (!defined('SUPPLIER_LOGO_MAX_BYTES'))  { define('SUPPLIER_LOGO_MAX_BYTES', 1 * 1024 * 1024); } // 1 MB per logo
+// These are the DESIRED app caps. The EFFECTIVE cap the UI shows and the handlers
+// enforce is min(app cap, PHP upload_max_filesize) — see supplier_effective_*() below.
+// That way the limit shown to a hotel is always one PHP can actually honour: if PHP
+// allows less than the app cap, we advertise + enforce the lower number instead of
+// promising a size the server would silently drop.
+if (!defined('SUPPLIER_IMG_MAX_BYTES'))   { define('SUPPLIER_IMG_MAX_BYTES', 5 * 1024 * 1024); } // 5 MB per photo (desired)
+if (!defined('SUPPLIER_LOGO_MAX_BYTES'))  { define('SUPPLIER_LOGO_MAX_BYTES', 2 * 1024 * 1024); } // 2 MB per logo (desired)
 if (!defined('SUPPLIER_IMG_MAX_COUNT'))   { define('SUPPLIER_IMG_MAX_COUNT', 10); }                // photos per upload batch
 if (!defined('SUPPLIER_IMG_EXTS'))        { define('SUPPLIER_IMG_EXTS', 'jpg,jpeg,png,webp,gif'); } // accepted photo types
 if (!defined('SUPPLIER_LOGO_EXTS'))       { define('SUPPLIER_LOGO_EXTS', 'jpg,jpeg,png,webp'); }    // accepted logo types
+
+if (!function_exists('supplier_ini_bytes')) {
+    /** Parse a php.ini shorthand size ("2M", "512K", "1G", "8388608") to bytes. 0/'' => 0. */
+    function supplier_ini_bytes($val): int
+    {
+        $val = trim((string) $val);
+        if ($val === '') { return 0; }
+        $unit = strtolower($val[strlen($val) - 1]);
+        $num = (int) $val;
+        switch ($unit) {
+            case 'g': $num *= 1024; // fall through
+            case 'm': $num *= 1024; // fall through
+            case 'k': $num *= 1024;
+        }
+        return max(0, $num);
+    }
+}
+
+if (!function_exists('supplier_php_upload_cap')) {
+    /** The hard per-file ceiling PHP enforces = min(upload_max_filesize, post_max_size).
+     *  A 0 (unlimited) value is ignored. Returns 0 only if both are unset/unlimited. */
+    function supplier_php_upload_cap(): int
+    {
+        $u = supplier_ini_bytes(ini_get('upload_max_filesize'));
+        $p = supplier_ini_bytes(ini_get('post_max_size'));
+        $caps = array_filter([$u, $p], function ($b) { return $b > 0; });
+        return empty($caps) ? 0 : (int) min($caps);
+    }
+}
+
+if (!function_exists('supplier_effective_img_max')) {
+    /** Effective per-photo cap: the app cap, clamped down to what PHP can accept. */
+    function supplier_effective_img_max(): int
+    {
+        $app = (int) (defined('SUPPLIER_IMG_MAX_BYTES') ? SUPPLIER_IMG_MAX_BYTES : 5 * 1024 * 1024);
+        $php = supplier_php_upload_cap();
+        return $php > 0 ? min($app, $php) : $app;
+    }
+}
+
+if (!function_exists('supplier_effective_logo_max')) {
+    /** Effective per-logo cap: the app cap, clamped down to what PHP can accept. */
+    function supplier_effective_logo_max(): int
+    {
+        $app = (int) (defined('SUPPLIER_LOGO_MAX_BYTES') ? SUPPLIER_LOGO_MAX_BYTES : 2 * 1024 * 1024);
+        $php = supplier_php_upload_cap();
+        return $php > 0 ? min($app, $php) : $app;
+    }
+}
 
 if (!function_exists('supplier_human_bytes')) {
     /** Format a byte count as a short human string, e.g. 2097152 -> "2 MB", 1572864 -> "1.5 MB". */

@@ -277,8 +277,8 @@
 
       <?php
         // App-level limits (single source of truth = supplier_image.php constants).
-        $imgMax   = defined('SUPPLIER_IMG_MAX_BYTES')  ? SUPPLIER_IMG_MAX_BYTES  : 2 * 1024 * 1024;
-        $logoMax  = defined('SUPPLIER_LOGO_MAX_BYTES') ? SUPPLIER_LOGO_MAX_BYTES : 1 * 1024 * 1024;
+        $imgMax   = function_exists('supplier_effective_img_max')  ? supplier_effective_img_max()  : (defined('SUPPLIER_IMG_MAX_BYTES')  ? SUPPLIER_IMG_MAX_BYTES  : 5 * 1024 * 1024);
+        $logoMax  = function_exists('supplier_effective_logo_max') ? supplier_effective_logo_max() : (defined('SUPPLIER_LOGO_MAX_BYTES') ? SUPPLIER_LOGO_MAX_BYTES : 2 * 1024 * 1024);
         $imgCount = defined('SUPPLIER_IMG_MAX_COUNT')  ? SUPPLIER_IMG_MAX_COUNT  : 10;
         $imgExts  = defined('SUPPLIER_IMG_EXTS')  ? SUPPLIER_IMG_EXTS  : 'jpg,jpeg,png,webp,gif';
         $logoExts = defined('SUPPLIER_LOGO_EXTS') ? SUPPLIER_LOGO_EXTS : 'jpg,jpeg,png,webp';
