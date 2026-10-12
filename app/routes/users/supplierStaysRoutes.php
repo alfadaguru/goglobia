@@ -55,6 +55,43 @@ if (!function_exists('_supplier_stay_amenities')) {
     }
 }
 
+if (!function_exists('_supplier_stays_handle_logo')) {
+    /**
+     * Handle the optional property-logo upload (POST field `hotel_logo`). Validates
+     * via secureUploadCheck, moves into /uploads/hotels/logos/, then downscales it.
+     * Returns the public URL to store on stays.logo, or $existing when no new file
+     * was uploaded (so an edit that doesn't re-upload keeps the current logo).
+     */
+    function _supplier_stays_handle_logo($db, ?string $existing): ?string
+    {
+        if (empty($_FILES['hotel_logo']['name']) || ($_FILES['hotel_logo']['error'] ?? 1) !== UPLOAD_ERR_OK) {
+            return $existing; // nothing uploaded this request
+        }
+        $project_root = realpath(__DIR__ . '/../../../');
+        if ($project_root === false) { return $existing; }
+        $dir = $project_root . '/uploads/hotels/logos/';
+        if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
+        $f = $_FILES['hotel_logo'];
+        $chk = secureUploadCheck(
+            ['name' => $f['name'], 'tmp_name' => $f['tmp_name'], 'size' => $f['size'], 'error' => UPLOAD_ERR_OK],
+            ['jpg', 'jpeg', 'png', 'webp'], 3 * 1024 * 1024
+        );
+        if (!$chk['ok']) {
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'Logo rejected: ' . ($chk['error'] ?? 'invalid image') . ' (JPG/PNG/WEBP, max 3MB).'];
+            return $existing;
+        }
+        $fn = 'logo_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $chk['ext'];
+        if (!move_uploaded_file($f['tmp_name'], $dir . $fn)) { return $existing; }
+        @chmod($dir . $fn, 0644);
+        $url = '/uploads/hotels/logos/' . $fn;
+        if (function_exists('supplier_image_process')) {
+            $proc = supplier_image_process($dir . $fn, $url);
+            $url = $proc['url'] ?? $url;
+        }
+        return $url;
+    }
+}
+
 // ============================================================================
 // LIST — GET /supplier/stays  (only the acting supplier's own properties)
 // ============================================================================
@@ -159,10 +196,18 @@ $router->post('/supplier/stays/add', function () use ($SECURE, $db) {
             $fn = 'hotel_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $chk['ext'];
             if (move_uploaded_file($files['tmp_name'][$i], $upload_dir . $fn)) {
                 @chmod($upload_dir . $fn, 0644);
-                $images[] = ['url' => '/uploads/hotels/gallery/' . $fn, 'default' => $i === 0];
+                // Downscale + thumbnail (non-fatal — original kept on any failure).
+                $proc = function_exists('supplier_image_process')
+                    ? supplier_image_process($upload_dir . $fn, '/uploads/hotels/gallery/' . $fn)
+                    : ['url' => '/uploads/hotels/gallery/' . $fn, 'thumb' => '/uploads/hotels/gallery/' . $fn];
+                $images[] = ['url' => $proc['url'], 'thumb' => $proc['thumb'] ?? $proc['url'], 'default' => $i === 0];
             }
         }
     }
+
+    // LOGO upload (single image; optional). Resized to the standard cap + stored on
+    // stays.logo. Separate dir so gallery logic never picks it up.
+    $logoUrl = _supplier_stays_handle_logo($db, null);
 
     $slug = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $name)));
     $lat = trim($_POST['latitude'] ?? ''); $lng = trim($_POST['longitude'] ?? '');
@@ -201,6 +246,7 @@ $router->post('/supplier/stays/add', function () use ($SECURE, $db) {
         'house_rules'     => function_exists('house_rules_normalize') ? house_rules_normalize($_POST) : null,
         'timezone'        => (function_exists('property_timezone_valid') && property_timezone_valid((string) ($_POST['timezone'] ?? ''))) ? (trim((string) ($_POST['timezone'] ?? '')) ?: null) : null,
         'img'             => !empty($images) ? json_encode($images) : null,
+        'logo'            => $logoUrl,
         // Supplier-created listings start OFFLINE + DRAFT: not live (status 0) and
         // pending per-listing approval (listing_status draft). Admin create used 1;
         // suppliers must be reviewed first.
@@ -367,7 +413,10 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
             $fn = 'hotel_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $chk['ext'];
             if (move_uploaded_file($files['tmp_name'][$i], $uploadDir . $fn)) {
                 @chmod($uploadDir . $fn, 0644);
-                $gallery[] = ['url' => '/uploads/hotels/gallery/' . $fn, 'default' => false];
+                $proc = function_exists('supplier_image_process')
+                    ? supplier_image_process($uploadDir . $fn, '/uploads/hotels/gallery/' . $fn)
+                    : ['url' => '/uploads/hotels/gallery/' . $fn, 'thumb' => '/uploads/hotels/gallery/' . $fn];
+                $gallery[] = ['url' => $proc['url'], 'thumb' => $proc['thumb'] ?? $proc['url'], 'default' => false];
                 $galleryChanged = true;
             }
         }
@@ -418,6 +467,13 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
     // plain text edit never touches the stored images.
     if ($galleryChanged) {
         $data['img'] = !empty($gallery) ? json_encode(array_values($gallery)) : null;
+    }
+    // LOGO — only touch stays.logo when a new logo file was uploaded this request;
+    // otherwise leave the column as-is (a text edit must not clear the logo).
+    $existingLogo = $db->get('stays', 'logo', ['id' => (int) $id, 'user_id' => $owner]);
+    $newLogo = _supplier_stays_handle_logo($db, is_string($existingLogo) ? $existingLogo : null);
+    if ($newLogo !== (is_string($existingLogo) ? $existingLogo : null)) {
+        $data['logo'] = $newLogo;
     }
 
     try {

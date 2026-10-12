@@ -28142,6 +28142,7 @@ CREATE TABLE `stays` (
   `location_coords` varchar(255) DEFAULT NULL,
   `address` text DEFAULT NULL,
   `img` longtext DEFAULT NULL,
+  `logo` varchar(255) DEFAULT NULL,
   `currency` char(3) NOT NULL DEFAULT 'USD',
   `discount` tinyint(3) UNSIGNED DEFAULT NULL,
   `refundable` tinyint(1) DEFAULT 0,

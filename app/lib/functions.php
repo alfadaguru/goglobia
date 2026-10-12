@@ -7482,6 +7482,50 @@ function ensureSupplierStaysSchema($db): void
             $db->query("ALTER TABLE `settings` ADD COLUMN `supplier_site_ip` VARCHAR(45) DEFAULT NULL");
         }
 
+        // --- stays.logo: a property's brand logo (separate from the img gallery). Used
+        // on the white-label branded site header, invoices, and listing cards. Nullable
+        // varchar holding the public upload URL. The gallery stays in stays.img (JSON).
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'logo'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `logo` VARCHAR(255) DEFAULT NULL AFTER `img`");
+        }
+
+        // --- Canonical property amenities (setting_type='stay_amenity') -------------
+        // The supplier + admin property forms read this list. If it is EMPTY (fresh or
+        // pre-seed install), the picker would hide entirely and look "not selectable".
+        // Seed a complete canonical hotel list ONCE when the table has none. Idempotent:
+        // only runs when count == 0, so operator edits/additions are never overwritten.
+        try {
+            $amenityCount = (int) $db->count('stays_settings', ['setting_type' => 'stay_amenity']);
+            if ($amenityCount === 0) {
+                $canonicalAmenities = [
+                    // Connectivity
+                    'Free WiFi', 'EV charging station',
+                    // Food & drink
+                    'Restaurant', 'Bar/Lounge', 'Breakfast available', 'Room service', 'Electric kettle', 'Minibar',
+                    // Wellness & leisure
+                    'Swimming pool', 'Gym/Fitness center', 'Spa', 'Sauna', 'Hot tub', 'Garden', 'Terrace', 'BBQ facilities',
+                    // Services
+                    '24-hour front desk', 'Concierge service', 'Daily housekeeping', 'Laundry service',
+                    'Airport shuttle', 'Free parking', 'Business center', 'Meeting/Conference rooms',
+                    'Currency exchange', 'Luggage storage',
+                    // Room comfort
+                    'Air conditioning', 'Heating', 'In-room safe', 'Kitchenette', 'Balcony', 'Elevator/Lift',
+                    // Family & accessibility
+                    'Family rooms', 'Kids club', 'Babysitting service', 'Pet-friendly',
+                    'Wheelchair accessible', 'Beach access', 'Non-smoking rooms', 'Smoke-free property',
+                ];
+                foreach ($canonicalAmenities as $amenityName) {
+                    $db->insert('stays_settings', [
+                        'setting_type' => 'stay_amenity',
+                        'name'         => $amenityName,
+                        'status'       => 1,
+                    ]);
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('ensureSupplierStaysSchema amenity seed: ' . $e->getMessage());
+        }
+
         // --- stays_rate_plans / stays_rates (inc S12) -------------------------------
         // A NORMALIZATION LAYER over room_options, NOT a replacement. The live
         // booking/detail/listing path keeps reading stays_rooms.room_options (the

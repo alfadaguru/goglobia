@@ -385,9 +385,21 @@
         @apply relative flex items-center;
     }
 
-    /* Hide default checkbox but keep it accessible */
-    .checkbox-input {
+    /* Hide the native checkbox ONLY when a visible .checkbox-custom sibling draws it
+       (the login/signup pattern). A standalone .checkbox-input (e.g. supplier stays
+       forms) must stay visible — otherwise it reads as un-clickable label text. */
+    .checkbox-input:has(+ .checkbox-custom) {
         @apply sr-only;
+    }
+
+    /* Standalone .checkbox-input (no .checkbox-custom sibling): render a real, visible,
+       accent-coloured checkbox so pickers like Amenities / House rules are selectable. */
+    .checkbox-input:not(:has(+ .checkbox-custom)) {
+        width: 1rem;
+        height: 1rem;
+        flex: none;
+        cursor: pointer;
+        accent-color: var(--checkbox-background-checked, #10b981);
     }
 
     /* Custom checkbox appearance */
