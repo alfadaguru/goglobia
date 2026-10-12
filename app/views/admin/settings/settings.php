@@ -867,6 +867,32 @@ $messageSuccess = false;
                             </div>
                         </div>
 
+                        <!-- White-label supplier sites: branded root domain + operator IP -->
+                        <div class="form-control">
+                            <label>Supplier branded domain root</label>
+                            <input type="text" name="supplier_site_domain" class="input"
+                                value="<?= htmlspecialchars(getSetting($settingsData, 'supplier_site_domain', '')) ?>"
+                                placeholder="goglobia.com">
+                            <p class="text-xs text-gray-500 mt-1">
+                                Root domain for hotel white-label sites. Each approved property gets
+                                <code>&lt;slug&gt;.&lt;this-domain&gt;</code> automatically (requires a wildcard
+                                <code>*.&lt;domain&gt;</code> A-record pointing at this server). Leave blank to disable branded sites.
+                            </p>
+                        </div>
+
+                        <!-- Supplier site operator IP (for custom-domain A records) -->
+                        <div class="form-control">
+                            <label>Supplier site server IP</label>
+                            <input type="text" name="supplier_site_ip" class="input"
+                                value="<?= htmlspecialchars(getSetting($settingsData, 'supplier_site_ip', '')) ?>"
+                                placeholder="65.181.116.249">
+                            <p class="text-xs text-gray-500 mt-1">
+                                Public IP of this server. Shown to suppliers as the <code>A</code>-record target when
+                                they point a root custom domain (e.g. <code>yourhotel.com</code>) at the platform.
+                                Subdomains use the CNAME target <code>sites.&lt;branded domain&gt;</code>.
+                            </p>
+                        </div>
+
                         <!-- Booking Notification Email -->
                         <div class="form-control">
                             <label><?= T::booking_notification_email ?? 'Booking Notification Email' ?></label>

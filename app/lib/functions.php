@@ -7078,8 +7078,10 @@ if (!function_exists('stays_site_resolve_host')) {
         $host = strtolower(trim($host));
         if ($host === '') { return null; }
         try {
+            // A custom domain serves once DNS is proven ('verified') — 'active' is the
+            // stronger "TLS cert issued" marker, also served. 'pending'/'none' do not serve.
             $row = $db->get('stays_site', ['stay_id'],
-                ['custom_domain' => $host, 'domain_status' => 'active']);
+                ['custom_domain' => $host, 'domain_status' => ['verified', 'active']]);
             if ($row) { return (int) $row['stay_id']; }
             $row = $db->get('stays_site', ['stay_id'], ['hostname' => $host]);
             if ($row) { return (int) $row['stay_id']; }
@@ -7472,6 +7474,12 @@ function ensureSupplierStaysSchema($db): void
         // sets it. Nullable varchar on the single settings row.
         if (!$db->query("SHOW COLUMNS FROM `settings` LIKE 'supplier_site_domain'")->fetch()) {
             $db->query("ALTER TABLE `settings` ADD COLUMN `supplier_site_domain` VARCHAR(191) DEFAULT NULL");
+        }
+        // --- settings.supplier_site_ip: the operator's public IP, shown to hotels for an
+        // APEX A-record (when their DNS can't CNAME the root) + used by the apex branch of
+        // supplier_site_verify_domain(). Nullable; feature degrades gracefully if empty.
+        if (!$db->query("SHOW COLUMNS FROM `settings` LIKE 'supplier_site_ip'")->fetch()) {
+            $db->query("ALTER TABLE `settings` ADD COLUMN `supplier_site_ip` VARCHAR(45) DEFAULT NULL");
         }
 
         // --- stays_rate_plans / stays_rates (inc S12) -------------------------------

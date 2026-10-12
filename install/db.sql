@@ -28055,6 +28055,7 @@ CREATE TABLE `settings` (
   `user_registration` enum('1','0') DEFAULT '1',
   `supplier_registration` enum('1','0') NOT NULL DEFAULT '0',
   `supplier_site_domain` varchar(191) DEFAULT NULL,
+  `supplier_site_ip` varchar(45) DEFAULT NULL,
   `supplier_payouts_live` varchar(1) NOT NULL DEFAULT '0',
   `agent_registration` enum('1','0') NOT NULL DEFAULT '0',
   `guest_booking` enum('0','1') NOT NULL DEFAULT '0',

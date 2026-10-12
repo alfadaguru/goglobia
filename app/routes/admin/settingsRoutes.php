@@ -379,6 +379,8 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
             'gtm_head' => $_POST['gtm_head'] ?? ($existingSettings['gtm_head'] ?? ''),
             'gtm_body' => $_POST['gtm_body'] ?? ($existingSettings['gtm_body'] ?? ''),
             'custom_tracking' => $_POST['custom_tracking'] ?? ($existingSettings['custom_tracking'] ?? ''),
+            'supplier_site_domain' => isset($_POST['supplier_site_domain']) ? strtolower(trim(preg_replace('#^https?://#', '', (string) $_POST['supplier_site_domain']))) : ($existingSettings['supplier_site_domain'] ?? ''),
+            'supplier_site_ip' => isset($_POST['supplier_site_ip']) ? trim((string) $_POST['supplier_site_ip']) : ($existingSettings['supplier_site_ip'] ?? ''),
             'email_provider' => $_POST['email_provider'] ?? ($existingSettings['email_provider'] ?? 'smtp'),
             'whatsapp_provider' => $_POST['whatsapp_provider'] ?? ($existingSettings['whatsapp_provider'] ?? 'official'),
             'sms_provider' => $_POST['sms_provider'] ?? ($existingSettings['sms_provider'] ?? 'twilio'),

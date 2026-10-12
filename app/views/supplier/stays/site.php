@@ -111,18 +111,33 @@
           </span>
           <code class="text-xs"><?= htmlspecialchars($custom) ?></code>
         </div>
+        <?php $operatorIp = trim((string) ($GLOBALS['app']['supplier_site_ip'] ?? '')); ?>
         <?php if ($status === 'pending'): ?>
-          <p class="text-gray-600">Add these DNS records at your domain provider, then verification completes automatically:</p>
+          <p class="text-gray-600">Add these DNS records at your domain provider, then click <strong>Verify now</strong>:</p>
           <div class="overflow-x-auto">
             <table class="w-full text-xs border border-gray-200 rounded">
-              <thead><tr class="bg-gray-50 text-gray-500 text-left"><th class="px-2 py-1">Type</th><th class="px-2 py-1">Name</th><th class="px-2 py-1">Value</th></tr></thead>
+              <thead><tr class="bg-gray-50 text-gray-500 text-left"><th class="px-2 py-1">Type</th><th class="px-2 py-1">Name / Host</th><th class="px-2 py-1">Value</th></tr></thead>
               <tbody class="font-mono">
                 <tr class="border-t border-gray-100"><td class="px-2 py-1">CNAME</td><td class="px-2 py-1"><?= htmlspecialchars($custom) ?></td><td class="px-2 py-1"><?= htmlspecialchars($cnameTarget) ?></td></tr>
+                <?php if ($operatorIp !== ''): ?>
+                <tr class="border-t border-gray-100"><td class="px-2 py-1">A <span class="text-gray-400">(root domains only)</span></td><td class="px-2 py-1"><?= htmlspecialchars($custom) ?></td><td class="px-2 py-1"><?= htmlspecialchars($operatorIp) ?></td></tr>
+                <?php endif; ?>
                 <tr class="border-t border-gray-100"><td class="px-2 py-1">TXT</td><td class="px-2 py-1"><?= htmlspecialchars($custom) ?></td><td class="px-2 py-1"><?= htmlspecialchars($token) ?></td></tr>
               </tbody>
             </table>
           </div>
-          <p class="text-xs text-gray-400">Secure certificates are issued automatically once DNS is verified. (This last step is handled by the platform operator.)</p>
+          <p class="text-xs text-gray-500">Use the <strong>CNAME</strong> for a subdomain like <code>book.yourhotel.com</code>. For a root domain (<code>yourhotel.com</code>) use your provider's ALIAS/ANAME to the same target, or the <strong>A</strong> record above. Always add the <strong>TXT</strong> record too.</p>
+          <form action="<?= root ?>supplier/stays/site/<?= (int) ($stay['id'] ?? 0) ?>/verify-domain" method="POST" class="pt-1">
+            <?= CSRF::tokenField() ?>
+            <button type="submit" class="btn secondary text-sm">Verify now</button>
+          </form>
+          <p class="text-xs text-gray-400">DNS changes can take a few minutes to propagate. Once verified, the platform issues the HTTPS certificate and your domain goes live.</p>
+        <?php elseif ($status === 'verified'): ?>
+          <p class="text-sm text-blue-700">DNS verified ✓ — your domain is live at
+            <a href="http://<?= htmlspecialchars($custom) ?>" target="_blank" rel="noopener" class="underline">http://<?= htmlspecialchars($custom) ?></a>.
+            HTTPS turns on automatically once the platform issues its certificate.</p>
+        <?php elseif ($status === 'active'): ?>
+          <p class="text-sm text-green-700">Live ✓ — <a href="https://<?= htmlspecialchars($custom) ?>" target="_blank" rel="noopener" class="underline">https://<?= htmlspecialchars($custom) ?></a></p>
         <?php endif; ?>
       </div>
     <?php endif; ?>

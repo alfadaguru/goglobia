@@ -91,6 +91,7 @@ require_once 'app/lib/supplier_chain.php';
 require_once 'app/lib/supplier_marketplace.php';
 require_once 'app/lib/supplier_channel.php';
 require_once 'app/lib/supplier_sitebuilder.php';
+require_once 'app/lib/supplier_site_host.php'; // white-label host serving + DNS verification
 require_once 'app/lib/supplier_rms.php';
 require_once 'app/lib/supplier_comms_templates.php';
 // === BATCH-1 DEEPEN libs (modules 16-33) ===

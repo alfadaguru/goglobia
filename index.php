@@ -263,6 +263,18 @@ enforceUserRestriction();
 require_once 'app/routes/_routes.php';
 
 // ==================================================
+// WHITE-LABEL HOST SERVING (supplier hotel sites)
+// ==================================================
+// If the request arrives on a tenant hotel's host (its auto subdomain or a VERIFIED
+// custom domain) AND targets the site root, render that hotel's branded page and exit.
+// Fail-safe: no-op for the primary host, unknown hosts, sub-paths (/api,/admin,/stay,
+// assets), POSTs, or when no branded root is configured — so normal routing is never
+// affected. Runs AFTER _routes.php so _branded_render_stay() is defined.
+if (function_exists('supplier_site_maybe_serve')) {
+    try { supplier_site_maybe_serve($db); } catch (\Throwable $e) { error_log('supplier_site_maybe_serve: ' . $e->getMessage()); }
+}
+
+// ==================================================
 // ROUTE DISPATCH & ERROR HANDLING
 // ==================================================
 
