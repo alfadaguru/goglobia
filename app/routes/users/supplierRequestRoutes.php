@@ -25,6 +25,9 @@ $router->get('/supplier/request-access', function () use ($SECURE, $db) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Only the supplier account owner can request services.'];
         header('Location: ' . root . 'supplier/dashboard'); exit;
     }
+    // NOTE: a PENDING supplier IS allowed to request services here — that is the whole
+    // purpose of letting them log in while awaiting approval. (They still cannot create
+    // or manage inventory until approved; that is enforced in supplier_can.)
     // ALL system services (inc S36) + this owner's grant status for each.
     $catalogue = function_exists('supplier_all_services') ? supplier_all_services($db) : [];
     $granted   = function_exists('supplier_granted_services') ? supplier_granted_services($db, $c['owner'], false) : [];
@@ -42,6 +45,8 @@ $router->post('/supplier/request-access', function () use ($SECURE, $db) {
     $c = _req_ctx($db);
     $back = root . 'supplier/request-access';
     if ($c === null) { _supplier_stays_deny('Only the owner can request services.'); }
+    // A pending supplier MAY submit service requests (the intended flow); creation/
+    // management of inventory stays blocked until approval (supplier_can).
     $res = function_exists('supplier_request_create')
         ? supplier_request_create($db, $c['owner'], $c['org'], (string) ($_POST['service'] ?? ''), (int) ($_POST['count'] ?? 1))
         : ['ok' => false, 'message' => 'Unavailable'];
