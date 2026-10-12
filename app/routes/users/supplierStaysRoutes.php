@@ -462,6 +462,50 @@ $router->get('/supplier/stays/([0-9]+)', function ($id) use ($SECURE, $db) {
     try { $hub['physical_rooms'] = (int) $db->count('stays_physical_rooms', ['stay_id' => (int) $id, 'active' => 1]); } catch (\Throwable $e) {}
     try { $hub['open_work_orders'] = (int) $db->count('stays_work_orders', ['stay_id' => (int) $id, 'status' => 'open']); } catch (\Throwable $e) {}
 
+    // ---- GUIDED SETUP STATE (per property) — real data, never faked. Drives the
+    // "Set up your property" checklist on the hub so the supplier always sees what's
+    // done and what's next, in order. Each step: done + count + a short status line.
+    $sidI = (int) $id;
+    $buildingsN = 0; $floorsN = 0; $sellableRooms = 0; $photosN = 0;
+    try { $buildingsN = function_exists('building_list') ? count(building_list($db, $sidI)) : (int) $db->count('stays_buildings', ['stay_id' => $sidI]); } catch (\Throwable $e) {}
+    try { $floorsN = function_exists('floor_list') ? count(floor_list($db, $sidI)) : (int) $db->count('stays_floors', ['stay_id' => $sidI]); } catch (\Throwable $e) {}
+    try {
+        // "Sellable" = an active room with an active, priced rate (mirrors the submit guard).
+        $rrows = $db->select('stays_rooms', ['room_options'], ['stay_id' => $sidI, 'status' => 1]) ?: [];
+        foreach ($rrows as $rr) {
+            $oo = json_decode((string) ($rr['room_options'] ?? ''), true);
+            if (!is_array($oo)) { continue; }
+            foreach ($oo as $o) { if ((int) ($o['status'] ?? 0) === 1 && (float) ($o['price'] ?? 0) > 0) { $sellableRooms++; break; } }
+        }
+    } catch (\Throwable $e) {}
+    try { $imgs = json_decode((string) ($stay['img'] ?? ''), true); $photosN = is_array($imgs) ? count($imgs) : 0; } catch (\Throwable $e) {}
+
+    $basicsDone = trim((string) ($stay['name'] ?? '')) !== '' && trim((string) ($stay['location'] ?? '')) !== '';
+    $ls = (string) ($stay['listing_status'] ?? 'draft');
+    $setup = [
+        ['n' => 1, 'key' => 'basics',   'label' => 'Property basics',    'icon' => 'apartment',
+         'done' => $basicsDone, 'status' => $basicsDone ? 'Name & location set' : 'Add name, location, description',
+         'url' => root . 'supplier/stays/edit/' . $sidI, 'cta' => 'Edit basics'],
+        ['n' => 2, 'key' => 'structure', 'label' => 'Buildings & floors', 'icon' => 'domain',
+         'done' => $buildingsN > 0, 'status' => $buildingsN > 0 ? ($buildingsN . ' building(s), ' . $floorsN . ' floor(s)') : 'Optional — add structure for larger properties',
+         'optional' => true, 'url' => root . 'supplier/stays/' . $sidI . '/buildings', 'cta' => 'Manage structure'],
+        ['n' => 3, 'key' => 'rooms',    'label' => 'Rooms & rates',      'icon' => 'bed',
+         'done' => $sellableRooms > 0, 'status' => $sellableRooms > 0 ? ($sellableRooms . ' sellable room type(s)') : 'Add a room type with a priced rate',
+         'url' => root . 'supplier/stays/' . $sidI . '/rooms', 'cta' => 'Manage rooms & rates'],
+        ['n' => 4, 'key' => 'physical', 'label' => 'Physical rooms',     'icon' => 'meeting_room',
+         'done' => (int) $hub['physical_rooms'] > 0, 'status' => (int) $hub['physical_rooms'] > 0 ? ((int) $hub['physical_rooms'] . ' room(s) numbered') : 'Optional — number individual units for front desk & housekeeping',
+         'optional' => true, 'url' => root . 'supplier/stays/' . $sidI . '/rooms', 'cta' => 'Add physical rooms'],
+        ['n' => 5, 'key' => 'photos',   'label' => 'Photos & logo',      'icon' => 'photo_library',
+         'done' => $photosN > 0, 'status' => $photosN > 0 ? ($photosN . ' photo(s) uploaded') : 'Add photos so guests can see the property',
+         'url' => root . 'supplier/stays/edit/' . $sidI . '#media', 'cta' => 'Add photos'],
+        ['n' => 6, 'key' => 'golive',   'label' => 'Submit for approval', 'icon' => 'rocket_launch',
+         'done' => in_array($ls, ['submitted', 'approved'], true),
+         'status' => ['draft' => 'Ready? Submit for admin review', 'submitted' => 'Submitted — awaiting admin review', 'queried' => 'Admin has a query — see your email', 'rejected' => 'Not approved — review the note', 'approved' => 'Approved & live'][$ls] ?? 'Submit for admin review',
+         'url' => root . 'supplier/stays/edit/' . $sidI, 'cta' => $ls === 'approved' ? 'View property' : 'Review & submit'],
+    ];
+    $setupDone = 0; $setupTotal = 0;
+    foreach ($setup as $st) { if (empty($st['optional'])) { $setupTotal++; if (!empty($st['done'])) { $setupDone++; } } }
+
     $title = ($stay['name'] ?? 'Property'); $description = '';
     $header = true; $footer = true;
     require_once views . "includes/header.php";
