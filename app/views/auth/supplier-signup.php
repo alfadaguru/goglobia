@@ -53,169 +53,213 @@
     </div>
 
     <!-- Signup Card -->
-    <div class="card max-w-lg p-5">
-      <div class="text-center block py-5">
-        <div class="w-16 h-16 bg-violet-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <span class="material-symbols-outlined text-2xl text-violet-600">add_business</span>
+    <?php
+      $svcOffered  = $supplierServices ?? [];
+      $svcSelected = $_SESSION['supplier_form_data']['services'] ?? []; // [service => count]
+      $preSelected = array_keys($svcSelected);
+    ?>
+    <div class="card max-w-3xl mx-auto overflow-hidden">
+      <!-- Card header band -->
+      <div class="bg-gradient-to-br from-primary to-indigo-600 px-6 sm:px-10 py-8 text-white">
+        <div class="flex items-center gap-4">
+          <div class="w-14 h-14 bg-white/10 backdrop-blur rounded-xl flex items-center justify-center flex-shrink-0">
+            <span class="material-symbols-outlined text-3xl">add_business</span>
+          </div>
+          <div>
+            <h2 class="text-2xl font-bold">Supplier application</h2>
+            <p class="text-white/80 text-sm">Tell us about your business and the services you offer. Approval usually takes under 48 hours.</p>
+          </div>
         </div>
-        <h2 class="text-2xl font-bold text-gray-900">Become a Supplier</h2>
-        <p class="text-gray-600 text-sm">Create your supplier account</p>
       </div>
 
-      <div class="card-body">
+      <div class="card-body px-6 sm:px-10 py-8">
         <form action="<?= root ?>supplier-signup" method="POST"
-          class="space-y-6"
+          class="space-y-10"
           x-data="{ showPassword:false, showConfirmPassword:false, passwordsMatch:true, isSubmitting:false,
+            selected: <?= htmlspecialchars(json_encode($preSelected), ENT_QUOTES) ?>,
+            toggle(k){ const i=this.selected.indexOf(k); if(i>-1){ this.selected.splice(i,1); } else { this.selected.push(k); } },
+            has(k){ return this.selected.includes(k); },
+            get serviceCount(){ return this.selected.length; },
             checkPasswordMatch(){ const p=document.getElementById('password')?.value||''; const c=document.getElementById('confirm_password')?.value||''; this.passwordsMatch = p===c || c===''; } }"
           @submit="isSubmitting = true">
 
           <?= CSRF::tokenField() ?>
 
-          <!-- Name -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="form-control">
-              <label for="first_name" class="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
-              <input type="text" id="first_name" name="first_name" required class="input"
-                placeholder="First name"
-                value="<?= htmlspecialchars($_SESSION['supplier_form_data']['first_name'] ?? '') ?>">
+          <!-- ===== SECTION: Your details ===== -->
+          <section class="space-y-5">
+            <div class="flex items-center gap-2 pb-2 border-b border-gray-100">
+              <span class="material-symbols-outlined text-primary">person</span>
+              <h3 class="text-base font-semibold text-gray-900">Your details</h3>
             </div>
-            <div class="form-control">
-              <label for="last_name" class="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
-              <input type="text" id="last_name" name="last_name" required class="input"
-                placeholder="Last name"
-                value="<?= htmlspecialchars($_SESSION['supplier_form_data']['last_name'] ?? '') ?>">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div class="form-control">
+                <label for="first_name" class="block text-sm font-medium text-gray-700 mb-1">First name *</label>
+                <input type="text" id="first_name" name="first_name" required class="input" placeholder="First name"
+                  value="<?= htmlspecialchars($_SESSION['supplier_form_data']['first_name'] ?? '') ?>">
+              </div>
+              <div class="form-control">
+                <label for="last_name" class="block text-sm font-medium text-gray-700 mb-1">Last name *</label>
+                <input type="text" id="last_name" name="last_name" required class="input" placeholder="Last name"
+                  value="<?= htmlspecialchars($_SESSION['supplier_form_data']['last_name'] ?? '') ?>">
+              </div>
+              <div class="form-control">
+                <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email address *</label>
+                <div class="input-group">
+                  <span class="input-icon-left material-symbols-outlined">email</span>
+                  <input type="email" id="email" name="email" required class="input-with-icon" placeholder="you@company.com"
+                    value="<?= htmlspecialchars($_SESSION['supplier_form_data']['email'] ?? '') ?>">
+                </div>
+              </div>
+              <div class="form-control">
+                <label for="phone" class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                <div class="input-group">
+                  <span class="input-icon-left material-symbols-outlined">call</span>
+                  <input type="text" id="phone" name="phone" class="input-with-icon" placeholder="Phone number"
+                    value="<?= htmlspecialchars($_SESSION['supplier_form_data']['phone'] ?? '') ?>">
+                </div>
+              </div>
             </div>
-          </div>
+          </section>
 
-          <!-- Company -->
-          <div class="form-control">
-            <label for="company" class="block text-sm font-medium text-gray-700 mb-1">Company / Business Name</label>
-            <div class="input-group">
-              <span class="input-icon-left material-symbols-outlined">business</span>
-              <input type="text" id="company" name="company" class="input-with-icon"
-                placeholder="Your business name"
-                value="<?= htmlspecialchars($_SESSION['supplier_form_data']['company'] ?? '') ?>">
+          <!-- ===== SECTION: Your business ===== -->
+          <section class="space-y-5">
+            <div class="flex items-center gap-2 pb-2 border-b border-gray-100">
+              <span class="material-symbols-outlined text-primary">business</span>
+              <h3 class="text-base font-semibold text-gray-900">Your business</h3>
             </div>
-          </div>
+            <div class="form-control">
+              <label for="company" class="block text-sm font-medium text-gray-700 mb-1">Company / business name</label>
+              <div class="input-group">
+                <span class="input-icon-left material-symbols-outlined">storefront</span>
+                <input type="text" id="company" name="company" class="input-with-icon" placeholder="Your business name"
+                  value="<?= htmlspecialchars($_SESSION['supplier_form_data']['company'] ?? '') ?>">
+              </div>
+            </div>
+          </section>
 
-          <!-- Services offered + counts -->
-          <?php
-          $svcOffered  = $supplierServices ?? [];
-          $svcSelected = $_SESSION['supplier_form_data']['services'] ?? []; // [service => count]
-          ?>
+          <!-- ===== SECTION: Services you offer (REQUIRED — at least one) ===== -->
           <?php if (!empty($svcOffered)): ?>
-          <div class="form-control">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Services you offer *</label>
-            <p class="text-xs text-gray-500 mb-2">
-              Pick the services you provide and how many of each you have. An administrator reviews and approves these.
-              <a href="<?= root ?>supplier/services" target="_blank" rel="noopener" class="text-violet-600 hover:underline">Learn about each service</a>.
+          <section class="space-y-4">
+            <div class="flex items-center justify-between gap-2 pb-2 border-b border-gray-100">
+              <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-primary">category</span>
+                <h3 class="text-base font-semibold text-gray-900">Services you offer *</h3>
+              </div>
+              <span class="text-xs font-medium px-2.5 py-1 rounded-full"
+                    :class="serviceCount > 0 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'"
+                    x-text="serviceCount > 0 ? serviceCount + ' selected' : 'Select at least one'"></span>
+            </div>
+            <p class="text-sm text-gray-500">
+              Pick everything you provide and how many of each you have. An administrator reviews and sets your approved quota.
+              <a href="<?= root ?>supplier/services" target="_blank" rel="noopener" class="text-primary hover:underline">Learn about each service</a>.
             </p>
-            <div class="space-y-2">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <?php foreach ($svcOffered as $key => $meta): ?>
                 <?php
                   $isChecked = array_key_exists($key, $svcSelected);
                   $countVal  = $isChecked ? (int) $svcSelected[$key] : 1;
+                  $k = htmlspecialchars($key);
                 ?>
-                <div class="flex items-center gap-3 border border-gray-200 rounded-lg p-2.5"
-                     x-data="{ on: <?= $isChecked ? 'true' : 'false' ?> }">
-                  <label class="flex items-center gap-2 flex-1 cursor-pointer">
-                    <input type="checkbox" name="services[]" value="<?= htmlspecialchars($key) ?>"
-                           class="checkbox-input" x-model="on" <?= $isChecked ? 'checked' : '' ?>>
-                    <span class="material-symbols-outlined text-violet-600 text-xl"><?= htmlspecialchars($meta['icon']) ?></span>
-                    <span class="text-sm text-gray-800"><?= htmlspecialchars($meta['label']) ?></span>
+                <div class="rounded-xl border-2 transition-colors p-3"
+                     :class="has('<?= $k ?>') ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'">
+                  <label class="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox" name="services[]" value="<?= $k ?>" class="checkbox-input"
+                           @change="toggle('<?= $k ?>')" <?= $isChecked ? 'checked' : '' ?>>
+                    <span class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+                          :class="has('<?= $k ?>') ? 'bg-primary text-white' : 'bg-gray-100 text-gray-500'">
+                      <span class="material-symbols-outlined"><?= htmlspecialchars($meta['icon']) ?></span>
+                    </span>
+                    <span class="flex-1 min-w-0">
+                      <span class="block text-sm font-medium text-gray-800 truncate"><?= htmlspecialchars($meta['label']) ?></span>
+                      <a href="<?= root ?>supplier/services/<?= $k ?>" target="_blank" rel="noopener"
+                         @click.stop class="text-xs text-primary hover:underline">Read more</a>
+                    </span>
                   </label>
-                  <a href="<?= root ?>supplier/services/<?= htmlspecialchars($key) ?>" target="_blank" rel="noopener"
-                     class="text-xs text-violet-600 hover:underline flex-shrink-0" title="Read more about <?= htmlspecialchars($meta['label']) ?>">Read more</a>
-                  <div class="flex items-center gap-1.5" x-show="on">
-                    <label class="text-xs text-gray-500" for="count_<?= htmlspecialchars($key) ?>">How many?</label>
-                    <input type="number" min="1" max="500" id="count_<?= htmlspecialchars($key) ?>"
-                           name="service_count[<?= htmlspecialchars($key) ?>]"
-                           value="<?= (int) $countVal ?>"
-                           class="input w-20 text-sm py-1 px-2">
+                  <div class="flex items-center gap-2 mt-2" x-show="has('<?= $k ?>')" x-cloak style="padding-left:3.25rem;">
+                    <label class="text-xs text-gray-500" for="count_<?= $k ?>">How many?</label>
+                    <input type="number" min="1" max="500" id="count_<?= $k ?>"
+                           name="service_count[<?= $k ?>]" value="<?= (int) $countVal ?>"
+                           class="input w-24 text-sm py-1 px-2">
                   </div>
                 </div>
               <?php endforeach; ?>
             </div>
-          </div>
+            <p class="text-xs text-amber-700 flex items-center gap-1" x-show="serviceCount === 0">
+              <span class="material-symbols-outlined !text-[16px]">info</span> Select at least one service to continue.
+            </p>
+          </section>
           <?php endif; ?>
 
-          <!-- Email -->
-          <div class="form-control">
-            <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email Address *</label>
-            <div class="input-group">
-              <span class="input-icon-left material-symbols-outlined">email</span>
-              <input type="email" id="email" name="email" required class="input-with-icon"
-                placeholder="you@company.com"
-                value="<?= htmlspecialchars($_SESSION['supplier_form_data']['email'] ?? '') ?>">
+          <!-- ===== SECTION: Account & security ===== -->
+          <section class="space-y-5">
+            <div class="flex items-center gap-2 pb-2 border-b border-gray-100">
+              <span class="material-symbols-outlined text-primary">lock</span>
+              <h3 class="text-base font-semibold text-gray-900">Account &amp; security</h3>
             </div>
-          </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
 
-          <!-- Phone -->
-          <div class="form-control">
-            <label for="phone" class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-            <div class="input-group">
-              <span class="input-icon-left material-symbols-outlined">call</span>
-              <input type="text" id="phone" name="phone" class="input-with-icon"
-                placeholder="Phone number"
-                value="<?= htmlspecialchars($_SESSION['supplier_form_data']['phone'] ?? '') ?>">
+              <!-- Password -->
+              <div class="form-control">
+                <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+                <div class="input-group">
+                  <input :type="showPassword ? 'text' : 'password'" id="password" name="password"
+                    required minlength="6" class="input-with-icon-right"
+                    placeholder="Create a password" autocomplete="new-password">
+                  <span @click="showPassword = !showPassword" class="input-icon-right material-symbols-outlined cursor-pointer" x-text="showPassword ? 'visibility_off' : 'visibility'"></span>
+                </div>
+                <p class="mt-1 text-xs text-gray-500">At least 6 characters.</p>
+              </div>
+
+              <!-- Confirm Password -->
+              <div class="form-control">
+                <label for="confirm_password" class="block text-sm font-medium text-gray-700 mb-1">Confirm password *</label>
+                <div class="input-group">
+                  <input :type="showConfirmPassword ? 'text' : 'password'" id="confirm_password" name="confirm_password"
+                    @input="checkPasswordMatch()" required minlength="6"
+                    :class="!passwordsMatch ? 'border-red-300 focus-visible:border-red-500' : ''"
+                    class="input-with-icon-right" placeholder="Re-enter your password" autocomplete="new-password">
+                  <span @click="showConfirmPassword = !showConfirmPassword" class="input-icon-right material-symbols-outlined cursor-pointer" x-text="showConfirmPassword ? 'visibility_off' : 'visibility'"></span>
+                </div>
+                <p class="mt-1 text-xs text-red-600" x-show="!passwordsMatch && document.getElementById('confirm_password')?.value !== ''">Passwords do not match.</p>
+              </div>
             </div>
-          </div>
 
-          <!-- Password -->
-          <div class="form-control">
-            <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password *</label>
-            <div class="input-group">
-              <input :type="showPassword ? 'text' : 'password'" id="password" name="password"
-                required minlength="6" class="input-with-icon-right"
-                placeholder="Create a password" autocomplete="new-password">
-              <span @click="showPassword = !showPassword" class="input-icon-right material-symbols-outlined cursor-pointer" x-text="showPassword ? 'visibility_off' : 'visibility'"></span>
-            </div>
-            <p class="mt-1 text-xs text-gray-500">At least 6 characters.</p>
-          </div>
-
-          <!-- Confirm Password -->
-          <div class="form-control">
-            <label for="confirm_password" class="block text-sm font-medium text-gray-700 mb-1">Confirm Password *</label>
-            <div class="input-group">
-              <input :type="showConfirmPassword ? 'text' : 'password'" id="confirm_password" name="confirm_password"
-                @input="checkPasswordMatch()" required minlength="6"
-                :class="!passwordsMatch ? 'border-red-300 focus-visible:border-red-500' : ''"
-                class="input-with-icon-right" placeholder="Re-enter your password" autocomplete="new-password">
-              <span @click="showConfirmPassword = !showConfirmPassword" class="input-icon-right material-symbols-outlined cursor-pointer" x-text="showConfirmPassword ? 'visibility_off' : 'visibility'"></span>
-            </div>
-            <p class="mt-1 text-xs text-red-600" x-show="!passwordsMatch && document.getElementById('confirm_password')?.value !== ''">Passwords do not match.</p>
-          </div>
-
-          <!-- CAPTCHA -->
+            <!-- CAPTCHA -->
           <?php
           $captchaData = $_SESSION['captcha_data'] ?? Captcha::generate();
           echo Captcha::renderField($captchaData);
           ?>
 
-          <!-- Terms -->
-          <div class="form-control">
-            <div class="flex items-start gap-3">
-              <div class="checkbox-container mt-0.5">
-                <input id="terms" name="terms" type="checkbox" required class="checkbox-input">
-                <div class="checkbox-custom">
-                  <span class="material-symbols-outlined text-white text-xs checkbox-icon">check</span>
+            <!-- Terms -->
+            <div class="form-control">
+              <div class="flex items-start gap-3">
+                <div class="checkbox-container mt-0.5">
+                  <input id="terms" name="terms" type="checkbox" required class="checkbox-input">
+                  <div class="checkbox-custom">
+                    <span class="material-symbols-outlined text-white text-xs checkbox-icon">check</span>
+                  </div>
                 </div>
+                <label for="terms" class="cursor-pointer text-sm text-gray-700 leading-relaxed flex-wrap">
+                  I agree to the
+                  <a href="<?= root ?>page/terms-of-use" class="text-blue-600 hover:underline font-medium">Terms of Service</a>
+                  and
+                  <a href="<?= root ?>page/privacy-policy" class="text-blue-600 hover:underline font-medium">Privacy Policy</a>
+                </label>
               </div>
-              <label for="terms" class="cursor-pointer text-sm text-gray-700 leading-relaxed flex-wrap">
-                I agree to the
-                <a href="<?= root ?>page/terms-of-use" class="text-blue-600 hover:underline font-medium">Terms of Service</a>
-                and
-                <a href="<?= root ?>page/privacy-policy" class="text-blue-600 hover:underline font-medium">Privacy Policy</a>
-              </label>
             </div>
-          </div>
+          </section>
 
-          <!-- Submit -->
-          <div class="card-actions">
-            <button type="submit" class="btn emerald w-full relative" :disabled="isSubmitting">
+          <!-- Submit — blocked until at least one service is selected (when services exist) -->
+          <?php $svcRequired = !empty($svcOffered); ?>
+          <div class="card-actions pt-2">
+            <button type="submit" class="btn emerald w-full relative"
+              :disabled="isSubmitting <?= $svcRequired ? '|| serviceCount === 0' : '' ?>"
+              :class="(<?= $svcRequired ? 'serviceCount === 0' : 'false' ?>) ? 'opacity-50 cursor-not-allowed' : ''"
+              @click="if (<?= $svcRequired ? 'serviceCount === 0' : 'false' ?>) { $event.preventDefault(); }"
+              x-bind:title="(<?= $svcRequired ? 'serviceCount === 0' : 'false' ?>) ? 'Select at least one service first' : ''">
               <span class="flex items-center justify-center gap-2" x-show="!isSubmitting">
                 <span class="material-symbols-outlined text-sm">add_business</span>
-                Submit Application
+                <span x-text="(<?= $svcRequired ? 'serviceCount === 0' : 'false' ?>) ? 'Select a service to continue' : 'Submit application'"></span>
               </span>
               <span class="flex items-center justify-center gap-2" x-show="isSubmitting" x-cloak>
                 <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
