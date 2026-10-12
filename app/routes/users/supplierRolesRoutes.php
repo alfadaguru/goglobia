@@ -6,10 +6,12 @@
 // assigned these roles in increment 5; supplier_role_allows() (functions.php)
 // enforces them.
 //
-// Security: owner-only. SUPPLIER_AUTH() + supplier_can('staff', <action>) gate every
-// handler, so only an owner (or a staff member whose role grants 'staff') manages
-// roles. Every role/row is scoped to the acting owner — a supplier can never read,
-// edit, delete, or scope another supplier's role or property.
+// Security: OWNER-ONLY. SUPPLIER_AUTH() requires user_role === 'supplier' exactly, so a
+// STAFF member can NEVER reach role management (their session role is not 'supplier' —
+// staffness is only the supplier_staff link). This is deliberate: staff cannot create or
+// edit roles, which prevents privilege escalation. supplier_can('staff', <action>) is an
+// additional gate. Every role/row is scoped to the acting owner — a supplier can never
+// read, edit, delete, or scope another supplier's role or property.
 
 @$SECURE or die('Access Denied!');
 
