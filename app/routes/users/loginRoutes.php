@@ -16,7 +16,10 @@ $router->get('/login', function () use ($SECURE, $db) {
         if ($redirectTo !== '' && $redirHost && $rootHost && strcasecmp((string)$redirHost, (string)$rootHost) === 0) {
             header('Location: ' . $redirectTo);
         } else {
-            header('Location: ' . root . 'dashboard');
+            // Role-aware home: a supplier goes to their own area, not /dashboard (the
+            // customer dashboard). /dashboard itself also re-routes suppliers as a backstop.
+            $dest = (strtolower((string)($_SESSION['user_role'] ?? '')) === 'supplier') ? 'supplier/dashboard' : 'dashboard';
+            header('Location: ' . root . $dest);
         }
         exit;
     }
@@ -62,6 +65,11 @@ $router->get('/login', function () use ($SECURE, $db) {
                         if ($remembered['role'] === 'admin') {
                             $_SESSION['admin_logged_in'] = true;
                             header('Location: ' . root . 'admin/dashboard');
+                        } elseif (($remembered['role'] ?? '') === 'supplier') {
+                            // Remember-me for a supplier must land in the supplier area —
+                            // previously it fell to /dashboard (the customer dashboard),
+                            // which is the reported "supplier sees normal user dashboard" bug.
+                            header('Location: ' . root . 'supplier/dashboard');
                         } else {
                             header('Location: ' . root . 'dashboard');
                         }

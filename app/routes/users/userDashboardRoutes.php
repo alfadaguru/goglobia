@@ -16,12 +16,33 @@ $router->get('/dashboard', function () use ($SECURE,$db) {
         exit;
     }
 
-    // CHECK AGENT AND REDRECTION IF NOT COMPLETED
-    CHECK_AGENT($db);
-    
     // Get user data
     $user_id = $_SESSION['user_id'];
     $user = $db->get('users', '*', ['user_id' => $user_id]);
+
+    // ROLE RE-ROUTE: /dashboard is the CUSTOMER dashboard. A supplier (or an active
+    // supplier-staff member) landing here — via remember-me auto-login, an
+    // already-logged-in hit, or a stale link — must be sent to their own area, not shown
+    // the customer dashboard. (Only the fresh POST-login routed suppliers correctly, so
+    // suppliers who were remembered/already-signed-in were wrongly dropped on /dashboard.)
+    // Checked against the DB role (authoritative), not just the session.
+    $effRole = strtolower((string) ($user['role'] ?? $_SESSION['user_role'] ?? ''));
+    if ($effRole === 'supplier') {
+        header('Location: ' . root . 'supplier/dashboard');
+        exit;
+    }
+    // Non-supplier, non-agent user who is actually active supplier STAFF → supplier area.
+    if ($effRole !== 'agent' && $effRole !== 'admin') {
+        try {
+            if ($db->has('supplier_staff', ['staff_user_id' => $user_id, 'status' => 'active'])) {
+                header('Location: ' . root . 'supplier/dashboard');
+                exit;
+            }
+        } catch (\Throwable $e) { /* table absent → ignore, fall through as normal user */ }
+    }
+
+    // CHECK AGENT AND REDRECTION IF NOT COMPLETED
+    CHECK_AGENT($db);
 
     // Fetch user bookings
     $allBookings = $db->select('bookings', '*', [
