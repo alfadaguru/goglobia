@@ -169,18 +169,23 @@ if (!function_exists('_supplier_stays_validate_image')) {
 
 if (!function_exists('_supplier_stays_process_gallery')) {
     /**
-     * Validate + store a batch of gallery images from $_FILES['hotel_images'].
-     * Enforces the app limits (per-file size/type, max count) with a SPECIFIC message
-     * per rejected file — nothing is silently skipped. Valid files are moved, resized
-     * and thumbnailed. Returns ['images'=>[{url,thumb,default}], 'errors'=>[string]].
-     * $markFirstDefault flags the first stored image as the default (used on create).
+     * Validate + store a batch of images from a $_FILES[$field] multi-upload, applying
+     * the app limits (per-file size/type, max count) with a SPECIFIC message per
+     * rejected file — nothing is silently skipped. Valid files are moved into
+     * uploads/hotels/$subdir/, resized and thumbnailed.
+     * Returns ['images'=>[{url,thumb,default}], 'errors'=>[string]].
+     *
+     * @param bool   $markFirstDefault flag the first stored image as default (create)
+     * @param string $field  the $_FILES key (default 'hotel_images'; rooms use 'room_images')
+     * @param string $subdir subfolder under uploads/hotels/ (default 'gallery')
+     * @param string $prefix stored-filename prefix (default 'hotel')
      */
-    function _supplier_stays_process_gallery(bool $markFirstDefault): array
+    function _supplier_stays_process_gallery(bool $markFirstDefault, string $field = 'hotel_images', string $subdir = 'gallery', string $prefix = 'hotel'): array
     {
         $images = []; $errors = [];
-        if (empty($_FILES['hotel_images']['name'][0])) { return ['images' => $images, 'errors' => $errors]; }
+        if (empty($_FILES[$field]['name'][0])) { return ['images' => $images, 'errors' => $errors]; }
 
-        $files = $_FILES['hotel_images'];
+        $files = $_FILES[$field];
         $count = count($files['name']);
         $maxCount = defined('SUPPLIER_IMG_MAX_COUNT') ? SUPPLIER_IMG_MAX_COUNT : 10;
         $maxBytes = function_exists('supplier_effective_img_max') ? supplier_effective_img_max() : (defined('SUPPLIER_IMG_MAX_BYTES') ? SUPPLIER_IMG_MAX_BYTES : (5 * 1024 * 1024));
@@ -194,8 +199,11 @@ if (!function_exists('_supplier_stays_process_gallery')) {
             return ['images' => $images, 'errors' => $errors]; // reject the whole batch so the user chooses which to keep
         }
 
+        $subdir = preg_replace('/[^a-z0-9_]/', '', strtolower($subdir)) ?: 'gallery';
+        $prefix = preg_replace('/[^a-z0-9_]/', '', strtolower($prefix)) ?: 'img';
         $project_root = realpath(__DIR__ . '/../../../');
-        $upload_dir = $project_root . '/uploads/hotels/gallery/';
+        $urlBase = '/uploads/hotels/' . $subdir . '/';
+        $upload_dir = $project_root . $urlBase;
         if (!is_dir($upload_dir)) { @mkdir($upload_dir, 0755, true); }
 
         for ($i = 0; $i < $count; $i++) {
@@ -205,12 +213,12 @@ if (!function_exists('_supplier_stays_process_gallery')) {
             if ($msg !== '') { $errors[] = $msg; continue; }
 
             $ext = strtolower((string) pathinfo((string) $files['name'][$i], PATHINFO_EXTENSION));
-            $fn = 'hotel_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $ext;
+            $fn = $prefix . '_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $ext;
             if (move_uploaded_file($files['tmp_name'][$i], $upload_dir . $fn)) {
                 @chmod($upload_dir . $fn, 0644);
                 $proc = function_exists('supplier_image_process')
-                    ? supplier_image_process($upload_dir . $fn, '/uploads/hotels/gallery/' . $fn)
-                    : ['url' => '/uploads/hotels/gallery/' . $fn, 'thumb' => '/uploads/hotels/gallery/' . $fn];
+                    ? supplier_image_process($upload_dir . $fn, $urlBase . $fn)
+                    : ['url' => $urlBase . $fn, 'thumb' => $urlBase . $fn];
                 $images[] = ['url' => $proc['url'], 'thumb' => $proc['thumb'] ?? $proc['url'], 'default' => false];
             } else {
                 $errors[] = '“' . $files['name'][$i] . '” could not be saved — please try again.';
@@ -845,26 +853,14 @@ $router->post('/supplier/stays/([0-9]+)/rooms/save', function ($id) use ($SECURE
         $decoded = json_decode((string) $existing['room_images'], true);
         if (is_array($decoded)) { $roomImages = $decoded; }
     }
-    if (isset($_FILES['room_images']) && !empty($_FILES['room_images']['name'][0])) {
-        $projectRoot = realpath(__DIR__ . '/../../../');
-        $uploadDir = $projectRoot . '/uploads/hotels/rooms/';
-        if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0755, true); }
-        $files = $_FILES['room_images'];
-        $count = count($files['name']);
-        for ($i = 0; $i < $count; $i++) {
-            if (($files['error'][$i] ?? 1) !== UPLOAD_ERR_OK) { continue; }
-            $chk = secureUploadCheck(
-                ['name' => $files['name'][$i], 'tmp_name' => $files['tmp_name'][$i], 'size' => $files['size'][$i], 'error' => UPLOAD_ERR_OK],
-                ['jpg', 'jpeg', 'png', 'gif', 'webp'], 5 * 1024 * 1024
-            );
-            if (!$chk['ok']) { continue; }
-            $fn = 'room_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $chk['ext'];
-            if (move_uploaded_file($files['tmp_name'][$i], $uploadDir . $fn)) {
-                @chmod($uploadDir . $fn, 0644);
-                $roomImages[] = ['url' => '/uploads/hotels/rooms/' . $fn, 'default' => empty($roomImages)];
-            }
-        }
+    // Room photos through the hardened helper (app limits + resize + specific errors).
+    // Flag the first as default only when the room has none yet.
+    $roomBatch = _supplier_stays_process_gallery(empty($roomImages), 'room_images', 'rooms', 'room');
+    if (!empty($roomBatch['images'])) {
+        foreach ($roomBatch['images'] as $im) { $roomImages[] = $im; }
     }
+    // Don't lose the room save over a rejected photo — append the reasons to the result.
+    $roomImgErrSuffix = !empty($roomBatch['errors']) ? ' Some photos were not added: ' . implode(' ', $roomBatch['errors']) : '';
 
     $data = [
         'stay_id'      => $stayId,                         // FORCED to this property
@@ -879,12 +875,12 @@ $router->post('/supplier/stays/([0-9]+)/rooms/save', function ($id) use ($SECURE
         if ($isEdit) {
             // Preserve room_options (managed by the options endpoints, not here).
             $db->update('stays_rooms', $data, ['id' => $roomId, 'stay_id' => $stayId]);
-            $_SESSION['message'] = ['type' => 'success', 'text' => 'Room updated.'];
+            $_SESSION['message'] = ['type' => $roomImgErrSuffix ? 'error' : 'success', 'text' => 'Room updated.' . $roomImgErrSuffix];
         } else {
             $data['room_options'] = null;
             $data['created_at'] = date('Y-m-d H:i:s');
             $db->insert('stays_rooms', $data);
-            $_SESSION['message'] = ['type' => 'success', 'text' => 'Room added. Now add a rate/option so it can sell.'];
+            $_SESSION['message'] = ['type' => $roomImgErrSuffix ? 'error' : 'success', 'text' => 'Room added. Now add a rate/option so it can sell.' . $roomImgErrSuffix];
         }
     } catch (\Throwable $e) {
         error_log('supplier room save: ' . $e->getMessage());

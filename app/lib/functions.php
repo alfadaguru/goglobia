@@ -7526,6 +7526,29 @@ function ensureSupplierStaysSchema($db): void
             error_log('ensureSupplierStaysSchema amenity seed: ' . $e->getMessage());
         }
 
+        // --- Canonical room types + board (meal) plans (stays_settings) -------------
+        // The supplier room form's "Room type" + rate "Board" dropdowns read these.
+        // If a list is EMPTY the supplier literally can't add a room (type is required),
+        // so seed a canonical set ONCE per type when none exist. Idempotent (count==0).
+        try {
+            $seedSets = [
+                'room_type' => ['Single Room', 'Double Room', 'Twin Room', 'Triple Room',
+                                 'Quadruple Room', 'Family Room', 'Suite', 'Junior Suite',
+                                 'Studio', 'Deluxe Room', 'Executive Room'],
+                'board'     => ['Room Only', 'Bed & Breakfast', 'Half Board', 'Full Board',
+                                'All Inclusive', 'Self Catering'],
+            ];
+            foreach ($seedSets as $stype => $names) {
+                if ((int) $db->count('stays_settings', ['setting_type' => $stype]) === 0) {
+                    foreach ($names as $n) {
+                        $db->insert('stays_settings', ['setting_type' => $stype, 'name' => $n, 'status' => 1]);
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('ensureSupplierStaysSchema room/board seed: ' . $e->getMessage());
+        }
+
         // --- stays_rate_plans / stays_rates (inc S12) -------------------------------
         // A NORMALIZATION LAYER over room_options, NOT a replacement. The live
         // booking/detail/listing path keeps reading stays_rooms.room_options (the

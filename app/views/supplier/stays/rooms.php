@@ -58,10 +58,10 @@ $base          = root . 'supplier/stays/' . $stayId . '/rooms';
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div class="form-control">
           <label class="block text-sm font-medium text-gray-700 mb-1">Room type *</label>
-          <select name="room_type_id" required class="input" x-model="editRoom && editRoom.room_type_id">
+          <select name="room_type_id" required class="input">
             <option value="">Select a room type…</option>
             <?php foreach ($roomTypes as $rid => $rname): ?>
-              <option value="<?= (int) $rid ?>"><?= htmlspecialchars($rname) ?></option>
+              <option value="<?= (int) $rid ?>" :selected="editRoom && String(editRoom.room_type_id) === '<?= (int) $rid ?>'"><?= htmlspecialchars($rname) ?></option>
             <?php endforeach; ?>
           </select>
           <?php if (empty($roomTypes)): ?>
@@ -79,8 +79,12 @@ $base          = root . 'supplier/stays/' . $stayId . '/rooms';
 
       <div class="form-control">
         <label class="block text-sm font-medium text-gray-700 mb-1">Room photos</label>
+        <?php
+          $roomImgMaxH = function_exists('supplier_effective_img_max') ? supplier_human_bytes(supplier_effective_img_max()) : '5 MB';
+          $roomImgCount = defined('SUPPLIER_IMG_MAX_COUNT') ? SUPPLIER_IMG_MAX_COUNT : 10;
+        ?>
         <input type="file" name="room_images[]" accept="image/*" multiple class="input">
-        <p class="mt-1 text-xs text-gray-500">JPG, PNG, GIF or WEBP, up to 5&nbsp;MB each. New uploads are added to any existing photos.</p>
+        <p class="mt-1 text-xs text-gray-500">JPG, PNG, GIF or WEBP, up to <strong><?= htmlspecialchars($roomImgMaxH) ?></strong> each, <strong><?= (int) $roomImgCount ?></strong> per upload. New uploads are added to any existing photos; they're auto-resized &amp; optimised.</p>
       </div>
 
       <div class="flex items-center gap-3">
@@ -246,10 +250,10 @@ $base          = root . 'supplier/stays/' . $stayId . '/rooms';
           </div>
           <div class="form-control">
             <label class="block text-xs font-medium text-gray-700 mb-1">Board</label>
-            <select name="board_id" class="input" x-model="editOption && editOption.board_id">
-              <option value="0">—</option>
+            <select name="board_id" class="input">
+              <option value="0" :selected="!editOption || !editOption.board_id || String(editOption.board_id) === '0'">—</option>
               <?php foreach ($boards as $bid => $bname): ?>
-                <option value="<?= (int) $bid ?>"><?= htmlspecialchars($bname) ?></option>
+                <option value="<?= (int) $bid ?>" :selected="editOption && String(editOption.board_id) === '<?= (int) $bid ?>'"><?= htmlspecialchars($bname) ?></option>
               <?php endforeach; ?>
             </select>
           </div>
