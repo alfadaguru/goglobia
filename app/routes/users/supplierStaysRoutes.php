@@ -112,40 +112,149 @@ if (!function_exists('_supplier_stays_post_too_large')) {
     }
 }
 
+if (!function_exists('_supplier_stays_validate_image')) {
+    /**
+     * Validate ONE uploaded image slice against the app limits and return a specific,
+     * human error ('' = valid). $maxBytes / $exts are the app-level caps (see the
+     * SUPPLIER_IMG_* constants) — deliberately under PHP's own limits. Covers every
+     * PHP upload-error code with a plain-English reason, plus the size/type/content
+     * checks (the latter via secureUploadCheck once the slice is known uploadable).
+     *
+     * @param array  $slice ['name','tmp_name','size','error'] for a single file
+     * @param string $label what to call it in messages (e.g. the filename, or 'Logo')
+     * @return string empty if valid; otherwise the reason to show the user
+     */
+    function _supplier_stays_validate_image(array $slice, int $maxBytes, array $exts, string $label): string
+    {
+        $name = trim((string) ($slice['name'] ?? ''));
+        $disp = $name !== '' ? '“' . $name . '”' : $label;
+        $err  = (int) ($slice['error'] ?? UPLOAD_ERR_NO_FILE);
+
+        switch ($err) {
+            case UPLOAD_ERR_OK: break;
+            case UPLOAD_ERR_INI_SIZE:
+            case UPLOAD_ERR_FORM_SIZE:
+                return $disp . ' is larger than the ' . supplier_human_bytes($maxBytes) . ' limit.';
+            case UPLOAD_ERR_PARTIAL:
+                return $disp . ' only uploaded partially — please try again.';
+            case UPLOAD_ERR_NO_FILE:
+                return ''; // empty slot — not an error
+            case UPLOAD_ERR_NO_TMP_DIR:
+            case UPLOAD_ERR_CANT_WRITE:
+            case UPLOAD_ERR_EXTENSION:
+                return $disp . ' could not be saved on the server — please try again.';
+            default:
+                return $disp . ' could not be uploaded (error ' . $err . ').';
+        }
+
+        $size = (int) ($slice['size'] ?? 0);
+        if ($size <= 0)        { return $disp . ' is empty.'; }
+        if ($size > $maxBytes) { return $disp . ' is ' . supplier_human_bytes($size) . ' — the limit is ' . supplier_human_bytes($maxBytes) . ' per image.'; }
+
+        // Deep check: real MIME, extension match, no embedded PHP (polyglot).
+        $chk = secureUploadCheck(
+            ['name' => $name, 'tmp_name' => $slice['tmp_name'] ?? '', 'size' => $size, 'error' => UPLOAD_ERR_OK],
+            $exts, $maxBytes
+        );
+        if (!$chk['ok']) {
+            $reason = (string) ($chk['error'] ?? 'invalid image');
+            if (stripos($reason, 'type') !== false || stripos($reason, 'content') !== false) {
+                return $disp . ' is not a supported image — use ' . strtoupper(implode('/', $exts)) . '.';
+            }
+            return $disp . ': ' . $reason;
+        }
+        return '';
+    }
+}
+
+if (!function_exists('_supplier_stays_process_gallery')) {
+    /**
+     * Validate + store a batch of gallery images from $_FILES['hotel_images'].
+     * Enforces the app limits (per-file size/type, max count) with a SPECIFIC message
+     * per rejected file — nothing is silently skipped. Valid files are moved, resized
+     * and thumbnailed. Returns ['images'=>[{url,thumb,default}], 'errors'=>[string]].
+     * $markFirstDefault flags the first stored image as the default (used on create).
+     */
+    function _supplier_stays_process_gallery(bool $markFirstDefault): array
+    {
+        $images = []; $errors = [];
+        if (empty($_FILES['hotel_images']['name'][0])) { return ['images' => $images, 'errors' => $errors]; }
+
+        $files = $_FILES['hotel_images'];
+        $count = count($files['name']);
+        $maxCount = defined('SUPPLIER_IMG_MAX_COUNT') ? SUPPLIER_IMG_MAX_COUNT : 10;
+        $maxBytes = defined('SUPPLIER_IMG_MAX_BYTES') ? SUPPLIER_IMG_MAX_BYTES : (2 * 1024 * 1024);
+        $exts = array_filter(array_map('trim', explode(',', defined('SUPPLIER_IMG_EXTS') ? SUPPLIER_IMG_EXTS : 'jpg,jpeg,png,webp,gif')));
+
+        // How many non-empty slots were actually submitted?
+        $submitted = 0;
+        for ($i = 0; $i < $count; $i++) { if (!empty($files['name'][$i])) { $submitted++; } }
+        if ($submitted > $maxCount) {
+            $errors[] = 'You selected ' . $submitted . ' photos, but you can upload at most ' . $maxCount . ' per batch. Remove ' . ($submitted - $maxCount) . ' and try again — you can add more after saving.';
+            return ['images' => $images, 'errors' => $errors]; // reject the whole batch so the user chooses which to keep
+        }
+
+        $project_root = realpath(__DIR__ . '/../../../');
+        $upload_dir = $project_root . '/uploads/hotels/gallery/';
+        if (!is_dir($upload_dir)) { @mkdir($upload_dir, 0755, true); }
+
+        for ($i = 0; $i < $count; $i++) {
+            if (empty($files['name'][$i])) { continue; } // empty slot
+            $slice = ['name' => $files['name'][$i], 'tmp_name' => $files['tmp_name'][$i], 'size' => $files['size'][$i], 'error' => $files['error'][$i]];
+            $msg = _supplier_stays_validate_image($slice, $maxBytes, $exts, 'A photo');
+            if ($msg !== '') { $errors[] = $msg; continue; }
+
+            $ext = strtolower((string) pathinfo((string) $files['name'][$i], PATHINFO_EXTENSION));
+            $fn = 'hotel_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $ext;
+            if (move_uploaded_file($files['tmp_name'][$i], $upload_dir . $fn)) {
+                @chmod($upload_dir . $fn, 0644);
+                $proc = function_exists('supplier_image_process')
+                    ? supplier_image_process($upload_dir . $fn, '/uploads/hotels/gallery/' . $fn)
+                    : ['url' => '/uploads/hotels/gallery/' . $fn, 'thumb' => '/uploads/hotels/gallery/' . $fn];
+                $images[] = ['url' => $proc['url'], 'thumb' => $proc['thumb'] ?? $proc['url'], 'default' => false];
+            } else {
+                $errors[] = '“' . $files['name'][$i] . '” could not be saved — please try again.';
+            }
+        }
+        if ($markFirstDefault && !empty($images)) { $images[0]['default'] = true; }
+        return ['images' => $images, 'errors' => $errors];
+    }
+}
+
 if (!function_exists('_supplier_stays_handle_logo')) {
     /**
      * Handle the optional property-logo upload (POST field `hotel_logo`). Validates
-     * via secureUploadCheck, moves into /uploads/hotels/logos/, then downscales it.
-     * Returns the public URL to store on stays.logo, or $existing when no new file
-     * was uploaded (so an edit that doesn't re-upload keeps the current logo).
+     * against the app logo limits with a specific error message, moves into
+     * /uploads/hotels/logos/, then downscales it. Returns [url|null, error-string].
+     * On no upload returns [$existing, ''] so an edit that doesn't re-upload keeps the
+     * current logo. On a rejected upload returns [$existing, '<specific reason>'].
      */
-    function _supplier_stays_handle_logo($db, ?string $existing): ?string
+    function _supplier_stays_handle_logo($db, ?string $existing): array
     {
-        if (empty($_FILES['hotel_logo']['name']) || ($_FILES['hotel_logo']['error'] ?? 1) !== UPLOAD_ERR_OK) {
-            return $existing; // nothing uploaded this request
+        if (empty($_FILES['hotel_logo']['name']) || ($_FILES['hotel_logo']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            return [$existing, '']; // nothing uploaded this request
         }
+        $maxBytes = defined('SUPPLIER_LOGO_MAX_BYTES') ? SUPPLIER_LOGO_MAX_BYTES : (1 * 1024 * 1024);
+        $exts = array_filter(array_map('trim', explode(',', defined('SUPPLIER_LOGO_EXTS') ? SUPPLIER_LOGO_EXTS : 'jpg,jpeg,png,webp')));
+        $f = $_FILES['hotel_logo'];
+        $slice = ['name' => $f['name'], 'tmp_name' => $f['tmp_name'] ?? '', 'size' => $f['size'] ?? 0, 'error' => $f['error'] ?? UPLOAD_ERR_NO_FILE];
+        $msg = _supplier_stays_validate_image($slice, $maxBytes, $exts, 'Logo');
+        if ($msg !== '') { return [$existing, 'Logo: ' . $msg]; }
+
         $project_root = realpath(__DIR__ . '/../../../');
-        if ($project_root === false) { return $existing; }
+        if ($project_root === false) { return [$existing, '']; }
         $dir = $project_root . '/uploads/hotels/logos/';
         if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
-        $f = $_FILES['hotel_logo'];
-        $chk = secureUploadCheck(
-            ['name' => $f['name'], 'tmp_name' => $f['tmp_name'], 'size' => $f['size'], 'error' => UPLOAD_ERR_OK],
-            ['jpg', 'jpeg', 'png', 'webp'], 3 * 1024 * 1024
-        );
-        if (!$chk['ok']) {
-            $_SESSION['message'] = ['type' => 'error', 'text' => 'Logo rejected: ' . ($chk['error'] ?? 'invalid image') . ' (JPG/PNG/WEBP, max 3MB).'];
-            return $existing;
-        }
-        $fn = 'logo_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $chk['ext'];
-        if (!move_uploaded_file($f['tmp_name'], $dir . $fn)) { return $existing; }
+        $ext = strtolower((string) pathinfo((string) $f['name'], PATHINFO_EXTENSION));
+        $fn = 'logo_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+        if (!move_uploaded_file($f['tmp_name'], $dir . $fn)) { return [$existing, 'Logo could not be saved — please try again.']; }
         @chmod($dir . $fn, 0644);
         $url = '/uploads/hotels/logos/' . $fn;
         if (function_exists('supplier_image_process')) {
             $proc = supplier_image_process($dir . $fn, $url);
             $url = $proc['url'] ?? $url;
         }
-        return $url;
+        return [$url, ''];
     }
 }
 
@@ -243,36 +352,19 @@ $router->post('/supplier/stays/add', function () use ($SECURE, $db) {
         _supplier_stays_deny('You have reached your approved property limit.');
     }
 
-    // Gallery upload — identical secure path as admin (secureUploadCheck).
-    $images = [];
-    if (isset($_FILES['hotel_images']) && !empty($_FILES['hotel_images']['name'][0])) {
-        $project_root = realpath(__DIR__ . '/../../../');
-        $upload_dir = $project_root . '/uploads/hotels/gallery/';
-        if (!is_dir($upload_dir)) { @mkdir($upload_dir, 0755, true); }
-        $files = $_FILES['hotel_images'];
-        $count = count($files['name']);
-        for ($i = 0; $i < $count; $i++) {
-            if (($files['error'][$i] ?? 1) !== UPLOAD_ERR_OK) { continue; }
-            $chk = secureUploadCheck(
-                ['name' => $files['name'][$i], 'tmp_name' => $files['tmp_name'][$i], 'size' => $files['size'][$i], 'error' => UPLOAD_ERR_OK],
-                ['jpg', 'jpeg', 'png', 'gif', 'webp'], 5 * 1024 * 1024
-            );
-            if (!$chk['ok']) { continue; }
-            $fn = 'hotel_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $chk['ext'];
-            if (move_uploaded_file($files['tmp_name'][$i], $upload_dir . $fn)) {
-                @chmod($upload_dir . $fn, 0644);
-                // Downscale + thumbnail (non-fatal — original kept on any failure).
-                $proc = function_exists('supplier_image_process')
-                    ? supplier_image_process($upload_dir . $fn, '/uploads/hotels/gallery/' . $fn)
-                    : ['url' => '/uploads/hotels/gallery/' . $fn, 'thumb' => '/uploads/hotels/gallery/' . $fn];
-                $images[] = ['url' => $proc['url'], 'thumb' => $proc['thumb'] ?? $proc['url'], 'default' => $i === 0];
-            }
-        }
+    // Gallery + logo: validate against the APP limits with specific per-file messages.
+    // If ANY image is rejected, stop and show exactly why — don't create a property
+    // minus the photos the user expected on it.
+    $gallery = _supplier_stays_process_gallery(true);     // mark first as default (create)
+    [$logoUrl, $logoErr] = _supplier_stays_handle_logo($db, null);
+    $uploadErrors = $gallery['errors'];
+    if ($logoErr !== '') { $uploadErrors[] = $logoErr; }
+    if (!empty($uploadErrors)) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => implode(' ', $uploadErrors)];
+        header('Location: ' . root . 'supplier/stays/add');
+        exit;
     }
-
-    // LOGO upload (single image; optional). Resized to the standard cap + stored on
-    // stays.logo. Separate dir so gallery logic never picks it up.
-    $logoUrl = _supplier_stays_handle_logo($db, null);
+    $images = $gallery['images'];
 
     $slug = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $name)));
     $lat = trim($_POST['latitude'] ?? ''); $lng = trim($_POST['longitude'] ?? '');
@@ -470,31 +562,16 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
         }
         $gallery = array_values($kept);
     }
-    // 2) New uploads — append (same secure path as add).
-    if (isset($_FILES['hotel_images']) && !empty($_FILES['hotel_images']['name'][0])) {
-        $projectRoot = $projectRoot ?? realpath(__DIR__ . '/../../../');
-        $uploadDir = $projectRoot . '/uploads/hotels/gallery/';
-        if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0755, true); }
-        $files = $_FILES['hotel_images'];
-        $count = count($files['name']);
-        for ($i = 0; $i < $count; $i++) {
-            if (($files['error'][$i] ?? 1) !== UPLOAD_ERR_OK) { continue; }
-            $chk = secureUploadCheck(
-                ['name' => $files['name'][$i], 'tmp_name' => $files['tmp_name'][$i], 'size' => $files['size'][$i], 'error' => UPLOAD_ERR_OK],
-                ['jpg', 'jpeg', 'png', 'gif', 'webp'], 5 * 1024 * 1024
-            );
-            if (!$chk['ok']) { continue; }
-            $fn = 'hotel_' . time() . '_' . bin2hex(random_bytes(6)) . '_' . $i . '.' . $chk['ext'];
-            if (move_uploaded_file($files['tmp_name'][$i], $uploadDir . $fn)) {
-                @chmod($uploadDir . $fn, 0644);
-                $proc = function_exists('supplier_image_process')
-                    ? supplier_image_process($uploadDir . $fn, '/uploads/hotels/gallery/' . $fn)
-                    : ['url' => '/uploads/hotels/gallery/' . $fn, 'thumb' => '/uploads/hotels/gallery/' . $fn];
-                $gallery[] = ['url' => $proc['url'], 'thumb' => $proc['thumb'] ?? $proc['url'], 'default' => false];
-                $galleryChanged = true;
-            }
-        }
+    // 2) New uploads — validate against the app limits (specific per-file messages),
+    //    append the valid ones. Any rejections are surfaced after the save so the
+    //    supplier's other edits (deletes, text) are not lost.
+    $uploadErrors = [];
+    $newBatch = _supplier_stays_process_gallery(false); // don't auto-default (edit decides below)
+    if (!empty($newBatch['images'])) {
+        foreach ($newBatch['images'] as $im) { $gallery[] = $im; }
+        $galleryChanged = true;
     }
+    if (!empty($newBatch['errors'])) { $uploadErrors = $newBatch['errors']; }
     // 3) Default image — flag by the URL resolved above (survives the re-indexing).
     //    If the chosen default was itself deleted, or none chosen, fall back to first.
     if (!empty($gallery)) {
@@ -547,16 +624,21 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
     // by the column check so an un-migrated install never throws here.
     if (_supplier_stays_col_exists($db, 'stays', 'logo')) {
         $existingLogo = $db->get('stays', 'logo', ['id' => (int) $id, 'user_id' => $owner]);
-        $newLogo = _supplier_stays_handle_logo($db, is_string($existingLogo) ? $existingLogo : null);
-        if ($newLogo !== (is_string($existingLogo) ? $existingLogo : null)) {
-            $data['logo'] = $newLogo;
-        }
+        $exLogo = is_string($existingLogo) ? $existingLogo : null;
+        [$newLogo, $logoErr] = _supplier_stays_handle_logo($db, $exLogo);
+        if ($logoErr !== '') { $uploadErrors[] = $logoErr; }
+        if ($newLogo !== $exLogo) { $data['logo'] = $newLogo; }
     }
 
     try {
         // Scope the UPDATE by both id AND owner — defense in depth behind supplier_can.
         $db->update('stays', $data, ['id' => (int) $id, 'user_id' => $owner]);
-        $_SESSION['message'] = ['type' => 'success', 'text' => 'Property updated.'];
+        if (!empty($uploadErrors)) {
+            // Text/deletes saved, but some uploads were rejected — say both, clearly.
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'Property saved, but some images were not added: ' . implode(' ', $uploadErrors)];
+        } else {
+            $_SESSION['message'] = ['type' => 'success', 'text' => 'Property updated.'];
+        }
     } catch (\Throwable $e) {
         error_log('supplier stays edit: ' . $e->getMessage());
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not save changes.'];

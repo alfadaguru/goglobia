@@ -18,6 +18,31 @@ if (!defined('SUPPLIER_IMG_MAX_EDGE'))  { define('SUPPLIER_IMG_MAX_EDGE', 1600);
 if (!defined('SUPPLIER_IMG_THUMB_EDGE')) { define('SUPPLIER_IMG_THUMB_EDGE', 400); } // long edge of the thumbnail
 if (!defined('SUPPLIER_IMG_QUALITY'))   { define('SUPPLIER_IMG_QUALITY', 82); }      // jpeg/webp quality
 
+// ---- Application upload limits (single source of truth for the UI + the handlers) --
+// Deliberately set WELL UNDER typical PHP defaults (upload_max_filesize 2M /
+// post_max_size 8M) so a valid batch is NEVER silently dropped by PHP: we validate
+// and reject with a specific message before that can happen. No server config needed.
+if (!defined('SUPPLIER_IMG_MAX_BYTES'))   { define('SUPPLIER_IMG_MAX_BYTES', 2 * 1024 * 1024); } // 2 MB per photo
+if (!defined('SUPPLIER_LOGO_MAX_BYTES'))  { define('SUPPLIER_LOGO_MAX_BYTES', 1 * 1024 * 1024); } // 1 MB per logo
+if (!defined('SUPPLIER_IMG_MAX_COUNT'))   { define('SUPPLIER_IMG_MAX_COUNT', 10); }                // photos per upload batch
+if (!defined('SUPPLIER_IMG_EXTS'))        { define('SUPPLIER_IMG_EXTS', 'jpg,jpeg,png,webp,gif'); } // accepted photo types
+if (!defined('SUPPLIER_LOGO_EXTS'))       { define('SUPPLIER_LOGO_EXTS', 'jpg,jpeg,png,webp'); }    // accepted logo types
+
+if (!function_exists('supplier_human_bytes')) {
+    /** Format a byte count as a short human string, e.g. 2097152 -> "2 MB", 1572864 -> "1.5 MB". */
+    function supplier_human_bytes(int $bytes): string
+    {
+        if ($bytes >= 1024 * 1024) {
+            $mb = $bytes / (1024 * 1024);
+            return rtrim(rtrim(number_format($mb, 1), '0'), '.') . ' MB';
+        }
+        if ($bytes >= 1024) {
+            return rtrim(rtrim(number_format($bytes / 1024, 1), '0'), '.') . ' KB';
+        }
+        return $bytes . ' B';
+    }
+}
+
 if (!function_exists('supplier_image_gd_ready')) {
     /** True when GD + the codecs we rely on are present. */
     function supplier_image_gd_ready(): bool

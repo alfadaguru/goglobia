@@ -275,6 +275,17 @@
       <h2 class="text-lg font-semibold text-gray-900 mb-1">Photos &amp; logo</h2>
       <p class="text-sm text-gray-500 mb-4">A logo for your branded site, and photos of the property. Images are automatically resized &amp; optimised on upload — just upload the best quality you have.</p>
 
+      <?php
+        // App-level limits (single source of truth = supplier_image.php constants).
+        $imgMax   = defined('SUPPLIER_IMG_MAX_BYTES')  ? SUPPLIER_IMG_MAX_BYTES  : 2 * 1024 * 1024;
+        $logoMax  = defined('SUPPLIER_LOGO_MAX_BYTES') ? SUPPLIER_LOGO_MAX_BYTES : 1 * 1024 * 1024;
+        $imgCount = defined('SUPPLIER_IMG_MAX_COUNT')  ? SUPPLIER_IMG_MAX_COUNT  : 10;
+        $imgExts  = defined('SUPPLIER_IMG_EXTS')  ? SUPPLIER_IMG_EXTS  : 'jpg,jpeg,png,webp,gif';
+        $logoExts = defined('SUPPLIER_LOGO_EXTS') ? SUPPLIER_LOGO_EXTS : 'jpg,jpeg,png,webp';
+        $imgMaxH  = function_exists('supplier_human_bytes') ? supplier_human_bytes((int) $imgMax)  : '2 MB';
+        $logoMaxH = function_exists('supplier_human_bytes') ? supplier_human_bytes((int) $logoMax) : '1 MB';
+      ?>
+
       <!-- LOGO -->
       <div class="form-control">
         <label class="block text-sm font-medium text-gray-700 mb-1">Property logo</label>
@@ -284,11 +295,13 @@
                  class="w-16 h-16 object-contain rounded border border-gray-200 bg-white p-1">
           <?php endif; ?>
           <div class="flex-1">
-            <input type="file" name="hotel_logo" accept="image/png,image/jpeg,image/webp" class="input">
+            <input type="file" name="hotel_logo" accept="image/png,image/jpeg,image/webp" class="input"
+                   data-maxbytes="<?= (int) $logoMax ?>" data-exts="<?= htmlspecialchars($logoExts) ?>" data-kind="logo">
             <p class="text-xs text-gray-500 mt-1">
               Square works best (e.g. 400×400). PNG with a transparent background looks cleanest on your
-              branded site header &amp; invoices. JPG/PNG/WEBP, up to 3MB.<?= $curLogo !== '' ? ' Upload a new file to replace the current logo.' : '' ?>
+              branded site header &amp; invoices. JPG/PNG/WEBP, up to <strong><?= htmlspecialchars($logoMaxH) ?></strong>.<?= $curLogo !== '' ? ' Upload a new file to replace the current logo.' : '' ?>
             </p>
+            <p class="text-xs text-red-600 mt-1 hidden upload-err" data-for="logo"></p>
           </div>
         </div>
       </div>
@@ -296,18 +309,15 @@
       <!-- GALLERY -->
       <div class="form-control mt-5">
         <label class="block text-sm font-medium text-gray-700 mb-1">Property photos<?= $isEdit ? ' (add more)' : '' ?></label>
-        <input type="file" name="hotel_images[]" multiple accept="image/*" class="input">
-        <?php
-          // Reflect the ACTUAL server limits so the hint can't promise more than PHP allows.
-          $uMax = ini_get('upload_max_filesize') ?: '2M';
-          $pMax = ini_get('post_max_size') ?: '8M';
-        ?>
+        <input type="file" name="hotel_images[]" multiple accept="image/*" class="input"
+               data-maxbytes="<?= (int) $imgMax ?>" data-maxcount="<?= (int) $imgCount ?>" data-exts="<?= htmlspecialchars($imgExts) ?>" data-kind="gallery">
         <p class="text-xs text-gray-500 mt-1">
           Wide, landscape shots look best (recommended 1600×900). Add several — exterior, lobby, rooms, views.
-          The one you mark <strong>Main</strong> becomes your cover image. JPG/PNG/WEBP/GIF.
-          Limits: up to <strong><?= htmlspecialchars($uMax) ?></strong> per image and
-          <strong><?= htmlspecialchars($pMax) ?></strong> total per upload — if you have many photos, add them in smaller batches (you can come back and add more).
+          The one you mark <strong>Main</strong> becomes your cover image. JPG/PNG/WEBP/GIF,
+          up to <strong><?= htmlspecialchars($imgMaxH) ?></strong> each, <strong><?= (int) $imgCount ?></strong> per upload.
+          Have more? Add them in batches — you can come back and add more after saving.
         </p>
+        <p class="text-xs text-red-600 mt-1 hidden upload-err" data-for="gallery"></p>
         <?php if (!empty($imgs)): ?>
           <p class="text-xs text-gray-500 mt-3 mb-1">Current photos — pick the main one, or tick to remove on save.</p>
           <div class="flex flex-wrap gap-3 mt-1">
@@ -479,6 +489,72 @@
       e.preventDefault();
       show(badStep);
       firstBad.reportValidity();
+    }
+  });
+
+  // ---- Client-side upload validation (mirrors the server limits exactly) ----
+  // Gives instant, specific feedback and blocks submit BEFORE a bad/oversized batch
+  // is ever uploaded. The server re-checks identically — this is UX, not the gate.
+  var MEDIA_STEP = 3; // the "Photos & logo" panel index
+  function humanBytes(b) {
+    if (b >= 1048576) { return (Math.round((b / 1048576) * 10) / 10).toString().replace(/\.0$/, '') + ' MB'; }
+    if (b >= 1024) { return Math.round(b / 1024) + ' KB'; }
+    return b + ' B';
+  }
+  function extOf(name) {
+    var m = String(name).toLowerCase().match(/\.([a-z0-9]+)$/);
+    return m ? m[1] : '';
+  }
+  function showErr(kind, msg) {
+    var el = form.querySelector('.upload-err[data-for="' + kind + '"]');
+    if (!el) { return; }
+    if (msg) { el.textContent = msg; el.classList.remove('hidden'); }
+    else { el.textContent = ''; el.classList.add('hidden'); }
+  }
+  // Returns '' if valid, else a specific message. Also paints the inline error.
+  function checkInput(input) {
+    if (!input) { return ''; }
+    var kind = input.getAttribute('data-kind') || 'gallery';
+    var maxBytes = parseInt(input.getAttribute('data-maxbytes'), 10) || 0;
+    var maxCount = parseInt(input.getAttribute('data-maxcount'), 10) || 0;
+    var exts = (input.getAttribute('data-exts') || '').split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean);
+    var files = input.files ? Array.prototype.slice.call(input.files) : [];
+    if (!files.length) { showErr(kind, ''); return ''; }
+
+    if (maxCount && files.length > maxCount) {
+      var m = 'You selected ' + files.length + ' photos — the maximum is ' + maxCount + ' per upload. Remove ' + (files.length - maxCount) + ' and try again (you can add more after saving).';
+      showErr(kind, m); return m;
+    }
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      var ex = extOf(f.name);
+      if (exts.length && exts.indexOf(ex) === -1) {
+        var mt = '“' + f.name + '” is not a supported image — use ' + exts.join('/').toUpperCase() + '.';
+        showErr(kind, mt); return mt;
+      }
+      if (maxBytes && f.size > maxBytes) {
+        var ms = '“' + f.name + '” is ' + humanBytes(f.size) + ' — the limit is ' + humanBytes(maxBytes) + (kind === 'gallery' ? ' per image.' : '.');
+        showErr(kind, ms); return ms;
+      }
+    }
+    showErr(kind, '');
+    return '';
+  }
+  var fileInputs = Array.prototype.slice.call(form.querySelectorAll('input[type="file"][data-kind]'));
+  fileInputs.forEach(function (inp) {
+    inp.addEventListener('change', function () { checkInput(inp); });
+  });
+  // Block submit if any upload is invalid; jump to the media step and show why.
+  form.addEventListener('submit', function (e) {
+    var firstMsg = '';
+    for (var i = 0; i < fileInputs.length; i++) {
+      var msg = checkInput(fileInputs[i]);
+      if (msg && !firstMsg) { firstMsg = msg; }
+    }
+    if (firstMsg) {
+      e.preventDefault();
+      e.stopImmediatePropagation(); // don't also run the earlier required-field handler
+      show(MEDIA_STEP);
     }
   });
 
