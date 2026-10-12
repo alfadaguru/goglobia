@@ -15,9 +15,15 @@ $router->get('/api/stay/([0-9]+)', function ($id) use ($db) {
         $baseUrl = rtrim(root, '/');
 
         // ================= FETCH STAY =================
+        // PUBLIC detail endpoint: a listing is only visible once LIVE (status=1) AND
+        // admin-APPROVED. Without the approval filter this leaked a draft/submitted/
+        // queried/rejected own-inventory property's full rooms + room_options pricing
+        // to the public (the supplier's own preview uses the separate owner-gated
+        // /supplier/stays/site/{id}/preview route, not this endpoint).
         $stay = $db->get('stays', '*', [
             'id' => $id,
-            'status' => 1
+            'status' => 1,
+            'listing_status' => 'approved'
         ]);
 
         if (!$stay) {
