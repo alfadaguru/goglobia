@@ -144,7 +144,10 @@ $router->post('stays/hotels/rooms', function() use ($db) {
                 'setting_type' => 'room_type',
                 'status' => 1
             ]);
-            $roomName = $roomTypeData ? $roomTypeData : 'Room Type ' . $room['room_type_id'];
+            // Prefer the supplier's guest-facing display name; fall back to the category.
+            $roomDisplay = trim((string) ($room['room_name'] ?? ''));
+            $roomName = $roomDisplay !== '' ? $roomDisplay
+                : ($roomTypeData ? $roomTypeData : 'Room Type ' . $room['room_type_id']);
 
             // Parse room images
             $roomImages = [];

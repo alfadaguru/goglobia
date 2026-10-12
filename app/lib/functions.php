@@ -7494,6 +7494,13 @@ function ensureSupplierStaysSchema($db): void
             $db->query("ALTER TABLE `stays` ADD COLUMN `logo` VARCHAR(255) DEFAULT NULL AFTER `img`");
         }
 
+        // --- stays_rooms.room_name: the guest-facing DISPLAY name for a room (e.g.
+        // "Presidential Suite"), separate from room_type_id (the category used for
+        // search/consistency). Public pages prefer room_name when set, else the category.
+        if (!$db->query("SHOW COLUMNS FROM `stays_rooms` LIKE 'room_name'")->fetch()) {
+            $db->query("ALTER TABLE `stays_rooms` ADD COLUMN `room_name` VARCHAR(120) DEFAULT NULL AFTER `room_type_id`");
+        }
+
         // --- Canonical property amenities (setting_type='stay_amenity') -------------
         // The supplier + admin property forms read this list. If it is EMPTY (fresh or
         // pre-seed install), the picker would hide entirely and look "not selectable".
@@ -7539,7 +7546,15 @@ function ensureSupplierStaysSchema($db): void
             $seedSets = [
                 'room_type' => ['Single Room', 'Double Room', 'Twin Room', 'Triple Room',
                                  'Quadruple Room', 'Family Room', 'Suite', 'Junior Suite',
-                                 'Studio', 'Deluxe Room', 'Executive Room'],
+                                 'Studio', 'Deluxe Room', 'Executive Room',
+                                 // Expanded to cover the common hotel/stay categories:
+                                 'Standard Room', 'Superior Room', 'Queen Room', 'King Room',
+                                 'Double-Double Room', 'Presidential Suite', 'Penthouse',
+                                 'Apartment', 'Studio Apartment', 'Villa', 'Bungalow',
+                                 'Chalet', 'Cottage', 'Cabin', 'Dormitory / Shared', 'Capsule',
+                                 'Accessible Room', 'Connecting Rooms', 'Duplex',
+                                 'Garden Room', 'Pool View Room', 'Sea View Room',
+                                 'Mountain View Room', 'Tent / Glamping'],
                 'board'     => ['Room Only', 'Bed & Breakfast', 'Half Board', 'Full Board',
                                 'All Inclusive', 'Self Catering'],
             ];

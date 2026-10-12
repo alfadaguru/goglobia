@@ -800,8 +800,9 @@ $router->get('/supplier/stays/([0-9]+)/rooms', function ($id) use ($SECURE, $db)
     if (!$stay) { _supplier_stays_deny('Property not found.'); }
 
     // Rooms for this property (owner already proven by supplier_can + scoped fetch).
-    $rooms = $db->select('stays_rooms',
-        ['id', 'room_type_id', 'room_images', 'amenities', 'status', 'room_options'],
+    // Select * so a not-yet-migrated room_name column never breaks the query; the view
+    // reads room_name defensively.
+    $rooms = $db->select('stays_rooms', '*',
         ['stay_id' => (int) $id, 'ORDER' => ['id' => 'ASC']]) ?: [];
 
     // Ensure every option carries a stable option_id (idempotent; persists lazily).
@@ -904,6 +905,12 @@ $router->post('/supplier/stays/([0-9]+)/rooms/save', function ($id) use ($SECURE
         'room_images'  => !empty($roomImages) ? json_encode($roomImages) : null,
         'updated_at'   => date('Y-m-d H:i:s'),
     ];
+    // Guest-facing display name (optional) — only write when the column exists, so an
+    // un-migrated DB never errors. Empty display name falls back to the category name.
+    if (function_exists('_supplier_stays_col_exists') && _supplier_stays_col_exists($db, 'stays_rooms', 'room_name')) {
+        $rn = trim((string) ($_POST['room_name'] ?? ''));
+        $data['room_name'] = $rn !== '' ? mb_substr($rn, 0, 120) : null;
+    }
 
     try {
         if ($isEdit) {

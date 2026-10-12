@@ -57,24 +57,32 @@ $base          = root . 'supplier/stays/' . $stayId . '/rooms';
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div class="form-control">
-          <label class="block text-sm font-medium text-gray-700 mb-1">Room type *</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Room category *</label>
           <select name="room_type_id" required class="input">
-            <option value="">Select a room type…</option>
+            <option value="">Choose a category…</option>
             <?php foreach ($roomTypes as $rid => $rname): ?>
               <option value="<?= (int) $rid ?>" :selected="editRoom && String(editRoom.room_type_id) === '<?= (int) $rid ?>'"><?= htmlspecialchars($rname) ?></option>
             <?php endforeach; ?>
           </select>
+          <p class="mt-1 text-xs text-gray-500">The standard category — used for search &amp; filtering.</p>
           <?php if (empty($roomTypes)): ?>
-            <p class="mt-1 text-xs text-amber-600">No room types are configured yet. Ask the administrator to add room types.</p>
+            <p class="mt-1 text-xs text-amber-600">No categories yet — reload the page once (they seed automatically) or ask the administrator.</p>
           <?php endif; ?>
         </div>
         <div class="form-control">
-          <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
-          <label class="flex items-center gap-2 mt-2 text-sm text-gray-700">
-            <input type="checkbox" name="room_status" value="1" class="checkbox-input" checked>
-            Active (bookable once the property is approved &amp; live)
-          </label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Display name</label>
+          <input type="text" name="room_name" class="input" maxlength="120"
+                 :value="editRoom ? (editRoom.room_name || '') : ''"
+                 placeholder="e.g. Presidential Suite, Garden Villa #2">
+          <p class="mt-1 text-xs text-gray-500">What guests see. Leave blank to use the category name.</p>
         </div>
+      </div>
+
+      <div class="form-control">
+        <label class="flex items-center gap-2 text-sm text-gray-700">
+          <input type="checkbox" name="room_status" value="1" class="checkbox-input" :checked="!editRoom || editRoom.status == 1" <?= '' ?>>
+          Active (bookable once the property is approved &amp; live)
+        </label>
       </div>
 
       <div class="form-control">
@@ -105,7 +113,9 @@ $base          = root . 'supplier/stays/' . $stayId . '/rooms';
     <?php foreach ($rooms as $room): ?>
       <?php
         $rid = (int) $room['id'];
-        $rtName = $roomTypes[(int) ($room['room_type_id'] ?? 0)] ?? ('Room #' . $rid);
+        $categoryName = $roomTypes[(int) ($room['room_type_id'] ?? 0)] ?? ('Room #' . $rid);
+        $displayName = trim((string) ($room['room_name'] ?? ''));
+        $rtName = $displayName !== '' ? $displayName : $categoryName;
         $opts = is_array($room['_options'] ?? null) ? $room['_options'] : [];
         $active = (int) ($room['status'] ?? 0) === 1;
       ?>
@@ -113,6 +123,9 @@ $base          = root . 'supplier/stays/' . $stayId . '/rooms';
         <div class="flex items-start justify-between gap-3">
           <div>
             <h3 class="text-base font-semibold text-gray-900"><?= htmlspecialchars($rtName) ?></h3>
+            <?php if ($displayName !== '' && $displayName !== $categoryName): ?>
+              <span class="text-xs text-gray-400"><?= htmlspecialchars($categoryName) ?></span> ·
+            <?php endif; ?>
             <span class="text-xs <?= $active ? 'text-green-700' : 'text-gray-500' ?>">
               <?= $active ? 'Active' : 'Inactive' ?> · <?= count($opts) ?> rate<?= count($opts) === 1 ? '' : 's' ?>
             </span>
@@ -120,7 +133,12 @@ $base          = root . 'supplier/stays/' . $stayId . '/rooms';
           <div class="flex items-center gap-3 text-xs font-medium">
             <?php if ($canEdit): ?>
               <button type="button" class="text-blue-600 hover:underline"
-                      @click='editRoom = <?= htmlspecialchars(json_encode(["id"=>$rid,"room_type_id"=>(int)($room["room_type_id"]??0)]), ENT_QUOTES) ?>; roomForm = true'>Edit room</button>
+                      @click='editRoom = <?= htmlspecialchars(json_encode([
+                        "id" => $rid,
+                        "room_type_id" => (int) ($room["room_type_id"] ?? 0),
+                        "room_name" => (string) ($room["room_name"] ?? ""),
+                        "status" => (int) ($room["status"] ?? 0),
+                      ]), ENT_QUOTES) ?>; roomForm = true'>Edit room</button>
             <?php endif; ?>
             <?php if ($canDeleteRoom): ?>
               <form action="<?= $base ?>/delete" method="POST" class="inline"

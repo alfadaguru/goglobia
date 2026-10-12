@@ -194,7 +194,10 @@ $router->get('/api/stay/([0-9]+)', function ($id) use ($db) {
                 'id' => $room['id'],
                 'room_id' => $room['id'],
                 'room_type_id' => $room['room_type_id'],
-                'room_name' => $map['room_type'][$room['room_type_id']] ?? null, 
+                // Prefer the supplier's guest-facing display name; fall back to category.
+                'room_name' => (trim((string) ($room['room_name'] ?? '')) !== '')
+                    ? $room['room_name']
+                    : ($map['room_type'][$room['room_type_id']] ?? null),
                 'room_images' => $roomImages,
                 'amenities' => $roomAmenityNames,
                 'room_options' => $options

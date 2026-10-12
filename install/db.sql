@@ -28221,6 +28221,7 @@ CREATE TABLE `stays_rooms` (
   `id` int(10) UNSIGNED NOT NULL,
   `stay_id` int(10) UNSIGNED NOT NULL,
   `room_type_id` int(11) NOT NULL,
+  `room_name` varchar(120) DEFAULT NULL,
   `room_images` text DEFAULT NULL,
   `amenities` text DEFAULT NULL,
   `status` tinyint(1) NOT NULL DEFAULT 1,
