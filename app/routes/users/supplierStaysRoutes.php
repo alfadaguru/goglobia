@@ -709,6 +709,26 @@ $router->post('/supplier/stays/submit/([0-9]+)', function ($id) use ($SECURE, $d
     if (!supplier_can($db, 'hotels', 'edit', (int) $id)) {
         _supplier_stays_deny('That property is not yours.');
     }
+
+    // SELLABILITY GUARD: don't let an empty/unsellable listing go to admin review.
+    // Require at least one ACTIVE room with at least one ACTIVE rate option priced > 0.
+    $sellable = false;
+    try {
+        $rooms = $db->select('stays_rooms', ['id', 'room_options'], ['stay_id' => (int) $id, 'status' => 1]) ?: [];
+        foreach ($rooms as $r) {
+            $opts = json_decode((string) ($r['room_options'] ?? ''), true);
+            if (!is_array($opts)) { continue; }
+            foreach ($opts as $o) {
+                if ((int) ($o['status'] ?? 0) === 1 && (float) ($o['price'] ?? 0) > 0) { $sellable = true; break 2; }
+            }
+        }
+    } catch (\Throwable $e) { error_log('submit sellability check: ' . $e->getMessage()); }
+    if (!$sellable) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Add at least one active room with a priced, active rate before submitting for approval.'];
+        header('Location: ' . root . 'supplier/stays/' . (int) $id . '/rooms');
+        exit;
+    }
+
     try {
         $db->update('stays',
             ['listing_status' => 'submitted', 'updated_at' => date('Y-m-d H:i:s')],

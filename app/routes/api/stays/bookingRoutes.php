@@ -458,6 +458,16 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
         // their own CheckRate net.) A failed recompute REFUSES rather than falling back.
         $apiSupplierLc = strtolower(trim((string) ($bookingData['supplier'] ?? 'hotels')));
         if (in_array($apiSupplierLc, ['stays', 'hotels'], true)) {
+            // MODERATION GATE (parity with web submit): own-inventory public bookings
+            // only against a LIVE, ADMIN-APPROVED property. Blocks a hand-crafted POST
+            // from pricing/holding a draft/queried/rejected listing. Owner/front-desk
+            // walk-in uses the separate direct_booking path and is unaffected.
+            $gateHotelId = (int) ($input['hotel_id'] ?? ($bookingData['hotel_id'] ?? 0));
+            if ($gateHotelId > 0 && !$db->get('stays', ['id'], ['id' => $gateHotelId, 'status' => '1', 'listing_status' => 'approved'])) {
+                http_response_code(409);
+                echo json_encode(['success' => false, 'message' => 'This property is not available for booking right now. Please search again.']);
+                exit;
+            }
             if (!function_exists('stays_recompute_net')) {
                 $invLib = dirname(__DIR__, 3) . '/lib/stays_inventory.php';
                 if (is_file($invLib)) { require_once $invLib; }

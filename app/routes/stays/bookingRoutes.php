@@ -493,6 +493,19 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
         $staysSupplierLc = strtolower(trim((string) ($bookingData['supplier'] ?? 'hotels')));
         $isOwnInventoryStay = in_array($staysSupplierLc, ['stays', 'hotels'], true);
         if ($isOwnInventoryStay) {
+            // MODERATION GATE: a public customer booking may only be placed against a
+            // LIVE, ADMIN-APPROVED own-inventory property. The public search/detail/rooms
+            // paths already filter this, but a hand-crafted POST straight to submit would
+            // otherwise price + hold a draft/queried/rejected listing. (Owner/front-desk
+            // walk-in bookings use the separate direct_booking path, which intentionally
+            // allows pre-live properties and is owner-gated — not affected here.)
+            $gateHotelId = (int) ($bookingData['hotel_id'] ?? ($input['hotel_id'] ?? 0));
+            if ($gateHotelId > 0) {
+                $liveStay = $db->get('stays', ['id'], ['id' => $gateHotelId, 'status' => '1', 'listing_status' => 'approved']);
+                if (!$liveStay) {
+                    throw new Exception('This property is not available for booking right now. Please search again.');
+                }
+            }
             if (!function_exists('stays_recompute_net')) {
                 $invLib = dirname(__DIR__, 2) . '/lib/stays_inventory.php';
                 if (is_file($invLib)) { require_once $invLib; }
