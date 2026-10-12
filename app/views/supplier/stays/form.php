@@ -297,9 +297,16 @@
       <div class="form-control mt-5">
         <label class="block text-sm font-medium text-gray-700 mb-1">Property photos<?= $isEdit ? ' (add more)' : '' ?></label>
         <input type="file" name="hotel_images[]" multiple accept="image/*" class="input">
+        <?php
+          // Reflect the ACTUAL server limits so the hint can't promise more than PHP allows.
+          $uMax = ini_get('upload_max_filesize') ?: '2M';
+          $pMax = ini_get('post_max_size') ?: '8M';
+        ?>
         <p class="text-xs text-gray-500 mt-1">
           Wide, landscape shots look best (recommended 1600×900). Add several — exterior, lobby, rooms, views.
-          The one you mark <strong>Main</strong> becomes your cover image. JPG/PNG/WEBP/GIF, up to 5MB each.
+          The one you mark <strong>Main</strong> becomes your cover image. JPG/PNG/WEBP/GIF.
+          Limits: up to <strong><?= htmlspecialchars($uMax) ?></strong> per image and
+          <strong><?= htmlspecialchars($pMax) ?></strong> total per upload — if you have many photos, add them in smaller batches (you can come back and add more).
         </p>
         <?php if (!empty($imgs)): ?>
           <p class="text-xs text-gray-500 mt-3 mb-1">Current photos — pick the main one, or tick to remove on save.</p>

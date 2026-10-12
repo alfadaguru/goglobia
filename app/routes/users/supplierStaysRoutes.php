@@ -76,6 +76,42 @@ if (!function_exists('_supplier_stays_currency')) {
     }
 }
 
+if (!function_exists('_supplier_stays_col_exists')) {
+    /**
+     * True if a column exists on a table. Cached per request. Used so a property
+     * INSERT/UPDATE never references a column the live DB hasn't migrated yet (e.g.
+     * stays.logo on an install where the ALTER couldn't run) — which would otherwise
+     * throw and bounce the user back to the form with no saved property.
+     */
+    function _supplier_stays_col_exists($db, string $table, string $col): bool
+    {
+        static $cache = [];
+        $key = $table . '.' . $col;
+        if (isset($cache[$key])) { return $cache[$key]; }
+        try {
+            $row = $db->query("SHOW COLUMNS FROM `" . preg_replace('/[^a-zA-Z0-9_]/', '', $table) . "` LIKE " . $db->quote($col))->fetch();
+            return $cache[$key] = (bool) $row;
+        } catch (\Throwable $e) {
+            return $cache[$key] = false;
+        }
+    }
+}
+
+if (!function_exists('_supplier_stays_post_too_large')) {
+    /**
+     * Detect a POST that PHP discarded because it exceeded post_max_size: the request
+     * method is POST and Content-Length > 0, yet $_POST AND $_FILES are both empty.
+     * In that case our CSRF token + all fields are gone, so we must report the real
+     * cause (too many / too large photos) instead of a misleading "name required".
+     */
+    function _supplier_stays_post_too_large(): bool
+    {
+        if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? '')) !== 'POST') { return false; }
+        $len = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+        return $len > 0 && empty($_POST) && empty($_FILES);
+    }
+}
+
 if (!function_exists('_supplier_stays_handle_logo')) {
     /**
      * Handle the optional property-logo upload (POST field `hotel_logo`). Validates
@@ -172,6 +208,14 @@ $router->get('/supplier/stays/add', function () use ($SECURE, $db) {
 // ============================================================================
 $router->post('/supplier/stays/add', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
+    // If PHP dropped the whole POST for exceeding post_max_size, the CSRF token and all
+    // fields are gone — report the true cause (photos too large) BEFORE CSRF::guard,
+    // which would otherwise 403 with a misleading message.
+    if (_supplier_stays_post_too_large()) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Your photos were too large to upload in one go. Each image must be within the server limit (' . ini_get('upload_max_filesize') . ' each, ' . ini_get('post_max_size') . ' total). Add fewer or smaller photos and try again.'];
+        header('Location: ' . root . 'supplier/stays/add');
+        exit;
+    }
     CSRF::guard();
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
@@ -267,7 +311,6 @@ $router->post('/supplier/stays/add', function () use ($SECURE, $db) {
         'house_rules'     => function_exists('house_rules_normalize') ? house_rules_normalize($_POST) : null,
         'timezone'        => (function_exists('property_timezone_valid') && property_timezone_valid((string) ($_POST['timezone'] ?? ''))) ? (trim((string) ($_POST['timezone'] ?? '')) ?: null) : null,
         'img'             => !empty($images) ? json_encode($images) : null,
-        'logo'            => $logoUrl,
         // Supplier-created listings start OFFLINE + DRAFT: not live (status 0) and
         // pending per-listing approval (listing_status draft). Admin create used 1;
         // suppliers must be reviewed first.
@@ -275,6 +318,11 @@ $router->post('/supplier/stays/add', function () use ($SECURE, $db) {
         'listing_status'  => 'draft',
         'created_at'      => date('Y-m-d H:i:s'),
     ];
+    // Only write stays.logo when the column exists — on an install where the ALTER
+    // hasn't run, including it would throw and block property creation entirely.
+    if ($logoUrl !== null && _supplier_stays_col_exists($db, 'stays', 'logo')) {
+        $data['logo'] = $logoUrl;
+    }
 
     try {
         $ok = $db->insert('stays', $data);
@@ -353,6 +401,11 @@ $router->get('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db) 
 // ============================================================================
 $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
+    if (_supplier_stays_post_too_large()) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Your photos were too large to upload in one go. Each image must be within the server limit (' . ini_get('upload_max_filesize') . ' each, ' . ini_get('post_max_size') . ' total). Add fewer or smaller photos and try again.'];
+        header('Location: ' . root . 'supplier/stays/edit/' . (int) $id);
+        exit;
+    }
     CSRF::guard();
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
@@ -490,11 +543,14 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
         $data['img'] = !empty($gallery) ? json_encode(array_values($gallery)) : null;
     }
     // LOGO — only touch stays.logo when a new logo file was uploaded this request;
-    // otherwise leave the column as-is (a text edit must not clear the logo).
-    $existingLogo = $db->get('stays', 'logo', ['id' => (int) $id, 'user_id' => $owner]);
-    $newLogo = _supplier_stays_handle_logo($db, is_string($existingLogo) ? $existingLogo : null);
-    if ($newLogo !== (is_string($existingLogo) ? $existingLogo : null)) {
-        $data['logo'] = $newLogo;
+    // otherwise leave the column as-is (a text edit must not clear the logo). Guarded
+    // by the column check so an un-migrated install never throws here.
+    if (_supplier_stays_col_exists($db, 'stays', 'logo')) {
+        $existingLogo = $db->get('stays', 'logo', ['id' => (int) $id, 'user_id' => $owner]);
+        $newLogo = _supplier_stays_handle_logo($db, is_string($existingLogo) ? $existingLogo : null);
+        if ($newLogo !== (is_string($existingLogo) ? $existingLogo : null)) {
+            $data['logo'] = $newLogo;
+        }
     }
 
     try {
