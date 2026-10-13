@@ -1635,38 +1635,3 @@ $router->post('/supplier/stays/floors/delete', function () use ($SECURE, $db) {
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Floor deleted (room links removed).' : 'Could not delete.'];
     header('Location: ' . $back); exit;
 });
-
-// POST /supplier/stays/site-theme — Save all website builder configuration
-$router->post('/supplier/stays/site-theme', function () use ($SECURE, $db) {
-    SUPPLIER_OR_STAFF_AUTH($db);
-    $owner = _supplier_stays_owner($db);
-    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
-    
-    $stayId = (int) ($_POST['stay_id'] ?? 0);
-    if ($stayId <= 0) {
-        $_SESSION['message'] = ['type' => 'error', 'text' => 'Invalid property'];
-        header('Location: ' . root . 'supplier/stays');
-        exit;
-    }
-    
-    if (!supplier_can($db, 'hotels', 'edit', $stayId)) {
-        $_SESSION['message'] = ['type' => 'error', 'text' => 'You do not have permission to edit this property'];
-        header('Location: ' . root . 'supplier/stays');
-        exit;
-    }
-    
-    if (function_exists('sitebuilder_save_extended')) {
-        $success = sitebuilder_save_extended($db, $stayId, $_POST);
-        if ($success) {
-            $_SESSION['message'] = ['type' => 'success', 'text' => 'Website configuration saved successfully!'];
-        } else {
-            $_SESSION['message'] = ['type' => 'error', 'text' => 'Failed to save configuration. Please try again.'];
-        }
-    } else {
-        $_SESSION['message'] = ['type' => 'error', 'text' => 'Website builder functions not available'];
-    }
-    
-    header('Location: ' . root . 'supplier/stays/site/' . $stayId);
-    exit;
-});
-

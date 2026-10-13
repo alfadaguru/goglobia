@@ -12675,39 +12675,3 @@ if (!function_exists('_reconcile_block')) {
         return ['ok' => false, 'reason' => $reason, 'paid' => $paid, 'supplier' => $supplier, 'delta_pct' => round($deltaPct, 2)];
     }
 }
-
-        // --- stays.social_media: Social media links for branded website --------
-        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'social_media'")->fetch()) {
-            $db->query("ALTER TABLE `stays` ADD COLUMN `social_media` LONGTEXT DEFAULT NULL AFTER `logo`");
-        }
-
-        // --- stays.booking_phone: Dedicated phone for reservations/bookings -----
-        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'booking_phone'")->fetch()) {
-            $db->query("ALTER TABLE `stays` ADD COLUMN `booking_phone` VARCHAR(20) DEFAULT NULL AFTER `phone`");
-        }
-
-        // --- stays.booking_email: Dedicated email for reservations/bookings -----
-        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'booking_email'")->fetch()) {
-            $db->query("ALTER TABLE `stays` ADD COLUMN `booking_email` VARCHAR(120) DEFAULT NULL AFTER `email`");
-        }
-
-        // --- stays.show_contact: Toggle visibility of contact section on website --
-        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'show_contact'")->fetch()) {
-            $db->query("ALTER TABLE `stays` ADD COLUMN `show_contact` TINYINT(1) NOT NULL DEFAULT 1 AFTER `email`");
-        }
-
-        // --- stays.show_amenities: Toggle visibility of amenities section -------
-        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'show_amenities'")->fetch()) {
-            $db->query("ALTER TABLE `stays` ADD COLUMN `show_amenities` TINYINT(1) NOT NULL DEFAULT 1");
-        }
-
-        // --- stays.show_policies: Toggle visibility of house rules/policies ------
-        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'show_policies'")->fetch()) {
-            $db->query("ALTER TABLE `stays` ADD COLUMN `show_policies` TINYINT(1) NOT NULL DEFAULT 1");
-        }
-
-        // --- stays.gallery_style: Control how photo gallery displays on website ---
-        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'gallery_style'")->fetch()) {
-            $db->query("ALTER TABLE `stays` ADD COLUMN `gallery_style` VARCHAR(20) NOT NULL DEFAULT 'grid' AFTER `img`");
-        }
-
