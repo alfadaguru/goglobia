@@ -46,7 +46,8 @@ if (!function_exists('_branded_render_stay')) {
 // handshake to decide whether to obtain a Let's Encrypt cert for the inbound Host. We reply
 // 200 only for hosts that are genuine, DNS-verified, approved+live tenants (so the edge
 // never issues certs for domains we don't serve — closing the open-issuer abuse vector).
-// Any other host → 404, which tells Caddy "do not issue". Responds to GET and HEAD.
+// Any other host → 404, which tells Caddy "do not issue". GET only — Caddy's on-demand
+// ask uses GET, and this Router dispatches by exact method (no HEAD→GET fallback).
 $router->get('/tls/authorize', function () use ($SECURE, $db) {
     $host = (string) ($_GET['domain'] ?? '');
     $ok = function_exists('supplier_site_tls_authorize') && supplier_site_tls_authorize($db, $host);
