@@ -1,39 +1,14 @@
-<?php @$SECURE or die('Access Denied!'); 
-
-// Load defaults for fallback domain generation
-if (!function_exists('stays_get_effective_domain_root')) {
-    require_once 'app/lib/stays_site_defaults.php';
-}
-
-$s = (isset($site) && is_array($site)) ? $site : [];
-$stayName = $stay['name'] ?? 'Property';
-$hostname = $s['hostname'] ?? '';
-$custom = $s['custom_domain'] ?? '';
-$tempDomain = $s['temp_domain'] ?? '';
-$status = $s['domain_status'] ?? 'none';
-$slug = (string) ($stay['slug'] ?? '');
-$stayId = (int) ($stay['id'] ?? 0);
-$isLive = (int) ($stay['status'] ?? 0) === 1 && (string) ($stay['listing_status'] ?? '') === 'approved';
-
-// If hostname is empty, generate one using fallback logic
-if ($hostname === '' && $slug !== '') {
-    $hostname = stays_generate_default_hostname($slug);
-}
-
-// Current active domain (whichever one is primary)
-$activeDomain = null;
-$activeDomainType = null;
-
-if ($custom !== '' && in_array($status, ['verified', 'active'])) {
-    $activeDomain = $custom;
-    $activeDomainType = 'custom';
-} elseif ($hostname !== '') {
-    $activeDomain = $hostname;
-    $activeDomainType = 'branded';
-} elseif ($tempDomain !== '') {
-    $activeDomain = $tempDomain;
-    $activeDomainType = 'temporary';
-}
+<?php @$SECURE or die('Access Denied!'); ?>
+<?php
+  $s = (isset($site) && is_array($site)) ? $site : [];
+  $stayName = $stay['name'] ?? 'Property';
+  $hostname = $s['hostname'] ?? '';
+  $custom   = $s['custom_domain'] ?? '';
+  $status   = $s['domain_status'] ?? 'none';
+  $token    = $s['verify_token'] ?? '';
+  $root     = $brandedRoot ?? '';
+  // The CNAME target the supplier points at (operator-controlled edge host).
+  $cnameTarget = $root !== '' ? ('sites.' . $root) : 'sites.yourbrand.com';
 ?>
 
 <div class="max-w-3xl mx-auto px-4 py-8 space-y-6">
@@ -49,12 +24,12 @@ if ($custom !== '' && in_array($status, ['verified', 'active'])) {
 
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-bold text-gray-900">Site &amp; Domain</h1>
-    <a href="<?= root ?>supplier/stays/edit/<?= $stayId ?>" class="text-sm text-blue-600 hover:underline">&larr; Back to property</a>
+    <a href="<?= root ?>supplier/stays/edit/<?= (int) ($stay['id'] ?? 0) ?>" class="text-sm text-blue-600 hover:underline">&larr; Back to property</a>
   </div>
-  <p class="text-sm text-gray-600"><?= htmlspecialchars($stayName) ?> has its own branded booking website.</p>
+  <p class="text-sm text-gray-600"><?= htmlspecialchars($stayName) ?> has its own branded booking page.</p>
 
   <!-- MODULE 13: site-builder design (branding / banner / custom about / SEO / analytics) -->
-  <?php $theme = function_exists('sitebuilder_decode') ? sitebuilder_decode($s['theme'] ?? null) : []; $sid13 = $stayId; ?>
+  <?php $theme = function_exists('sitebuilder_decode') ? sitebuilder_decode($s['theme'] ?? null) : []; $sid13 = (int) ($stay['id'] ?? 0); ?>
   <div class="card p-5 space-y-3">
     <h2 class="text-sm font-semibold text-gray-800">Design &amp; content</h2>
     <form action="<?= root ?>supplier/stays/site-theme" method="POST" class="space-y-3">
@@ -100,166 +75,93 @@ if ($custom !== '' && in_array($status, ['verified', 'active'])) {
     </form>
   </div>
 
-  <!-- ============================================================================
-       DOMAIN MANAGEMENT - THREE OPTIONS (No error messages, all functional)
-       ============================================================================ -->
-  <div class="card p-5 space-y-4">
-    <h2 class="text-sm font-semibold text-gray-800">Your Booking Website</h2>
-    
-    <!-- ACTIVE DOMAIN DISPLAY -->
-    <?php if ($activeDomain): ?>
-    <div class="p-3 bg-green-50 border border-green-200 rounded flex items-start gap-3">
-      <span class="material-symbols-outlined text-green-600 flex-shrink-0">check_circle</span>
-      <div class="flex-1 min-w-0">
-        <p class="text-sm font-medium text-green-800">Your website is live</p>
-        <div class="mt-2 flex items-center gap-2 flex-wrap">
-          <code class="text-sm font-mono bg-white border border-green-300 rounded px-2 py-1">
-            https://<?= htmlspecialchars($activeDomain) ?>
-          </code>
-          <a href="https://<?= htmlspecialchars($activeDomain) ?>" target="_blank" 
-             class="text-green-600 hover:underline text-sm font-semibold">Visit Website →</a>
-        </div>
+  <!-- Branded (built-in) address -->
+  <div class="card p-5 space-y-2">
+    <h2 class="text-sm font-semibold text-gray-800">Your branded address</h2>
+    <?php if ($hostname !== ''): ?>
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-violet-600">public</span>
+        <code class="text-sm bg-gray-50 border border-gray-200 rounded px-2 py-1"><?= htmlspecialchars($hostname) ?></code>
       </div>
-    </div>
+      <p class="text-xs text-gray-500">This address is created for you automatically.</p>
+    <?php else: ?>
+      <p class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
+        A branded address isn't configured yet. The administrator needs to set the platform's branded domain in Settings before per-property addresses are issued.
+      </p>
     <?php endif; ?>
-
-    <!-- DOMAIN OPTIONS -->
-    <div class="space-y-3">
-      
-      <!-- OPTION 1: BRANDED DOMAIN -->
-      <?php if ($hostname !== ''): ?>
-      <div class="border rounded p-3 bg-blue-50">
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <h3 class="text-sm font-semibold text-gray-800 flex items-center gap-2">
-              <span class="material-symbols-outlined text-sm text-blue-600">domain</span>
-              Branded Domain
-            </h3>
-            <code class="text-xs font-mono bg-white border border-blue-200 px-2 py-1 rounded inline-block mt-2">
-              https://<?= htmlspecialchars($hostname) ?>
-            </code>
-            <p class="text-xs text-blue-700 mt-2">Platform-provided domain (ready to use)</p>
-          </div>
-          <a href="https://<?= htmlspecialchars($hostname) ?>" target="_blank" 
-             class="text-blue-600 hover:underline text-sm font-semibold whitespace-nowrap">Visit →</a>
-        </div>
+    <?php $slug = (string) ($stay['slug'] ?? ''); $isLive = (int) ($stay['status'] ?? 0) === 1 && (string) ($stay['listing_status'] ?? '') === 'approved'; ?>
+    <?php if ($slug !== ''): ?>
+      <div class="flex items-center gap-2 pt-1">
+        <span class="material-symbols-outlined text-violet-600">link</span>
+        <code class="text-sm bg-gray-50 border border-gray-200 rounded px-2 py-1"><?= htmlspecialchars(rtrim(root, '/') . '/book/' . $slug) ?></code>
       </div>
-      <?php endif; ?>
+      <p class="text-xs <?= $isLive ? 'text-gray-500' : 'text-amber-700' ?>">
+        <?= $isLive
+          ? 'Your live public booking page — share this link. Guests book through the main checkout.'
+          : 'This public link goes live once the property is approved and switched on.' ?>
+      </p>
+    <?php endif; ?>
+    <div>
+      <a href="<?= root ?>supplier/stays/site/<?= (int) ($stay['id'] ?? 0) ?>/preview" target="_blank"
+         class="text-sm text-blue-600 hover:underline">Preview your page &rarr;</a>
+    </div>
+  </div>
 
-      <!-- OPTION 2: TEMPORARY DOMAIN -->
-      <div class="border rounded p-3">
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <h3 class="text-sm font-semibold text-gray-800 flex items-center gap-2">
-              <span class="material-symbols-outlined text-sm text-orange-600">schedule</span>
-              Temporary Domain
-            </h3>
-            <?php if ($tempDomain !== ''): ?>
-              <code class="text-xs font-mono bg-gray-50 border border-gray-300 px-2 py-1 rounded inline-block mt-2">
-                https://<?= htmlspecialchars($tempDomain) ?>
-              </code>
-              <p class="text-xs text-gray-600 mt-2">✓ Active immediately</p>
-              <a href="https://<?= htmlspecialchars($tempDomain) ?>" target="_blank" 
-                 class="text-blue-600 hover:underline text-sm inline-block mt-2">Visit Website →</a>
-            <?php else: ?>
-              <p class="text-xs text-gray-600 mt-2">Get a working booking domain instantly, no setup needed</p>
-              <button type="button" id="btnGenerateTempDomain" 
-                      class="btn primary text-xs mt-2"
-                      data-stay-id="<?= $stayId ?>">
-                <span class="material-symbols-outlined text-sm inline">add</span>
-                Generate Domain Now
-              </button>
-            <?php endif; ?>
-          </div>
-        </div>
-      </div>
-
-      <!-- OPTION 3: CUSTOM DOMAIN -->
-      <div class="border rounded p-3">
-        <div>
-          <h3 class="text-sm font-semibold text-gray-800 flex items-center gap-2">
-            <span class="material-symbols-outlined text-sm text-purple-600">language</span>
-            Your Own Domain
-          </h3>
-          <p class="text-xs text-gray-600 mt-1">Point your custom domain (e.g., book.yourhotel.com) to your booking site</p>
-          
-          <form action="<?= root ?>supplier/stays/site/<?= $stayId ?>" method="POST" class="flex flex-col sm:flex-row gap-2 mt-2">
-            <?= CSRF::tokenField() ?>
-            <input type="text" name="custom_domain" class="input text-sm flex-1" 
-                   placeholder="book.yourhotel.com"
-                   value="<?= htmlspecialchars($custom) ?>"
-                   pattern="^[a-zA-Z0-9][a-zA-Z0-9-\.]*[a-zA-Z0-9]$">
-            <button type="submit" class="btn secondary text-sm whitespace-nowrap">Add Domain</button>
-          </form>
-          
-          <?php if ($custom !== ''): ?>
-          <div class="mt-2 p-2 bg-blue-50 rounded border border-blue-200">
-            <p class="text-xs text-blue-700"><strong>Status:</strong> <?= ucfirst($status) ?></p>
-            <?php if ($status === 'none'): ?>
-              <p class="text-xs text-blue-600 mt-1">
-                ⚙️ Add CNAME record to your domain registrar:<br>
-                <code class="bg-white px-1 rounded">sites.<?= stays_get_effective_domain_root() ?></code>
-              </p>
-            <?php elseif ($status === 'pending'): ?>
-              <p class="text-xs text-blue-600 mt-1">⏱️ Verifying DNS configuration...</p>
-            <?php elseif ($status === 'verified'): ?>
-              <p class="text-xs text-green-600 mt-1">✓ DNS verified, setting up SSL certificate...</p>
-            <?php elseif ($status === 'active'): ?>
-              <p class="text-xs text-green-600 mt-1">✓ Live and ready to use</p>
-            <?php endif; ?>
-          </div>
-          <?php endif; ?>
-        </div>
-      </div>
-
+  <!-- Custom domain (CNAME) -->
+  <div class="card p-5 space-y-4">
+    <div>
+      <h2 class="text-sm font-semibold text-gray-800">Use your own domain</h2>
+      <p class="text-xs text-gray-500">Point your own domain (e.g. <code>book.yourhotel.com</code>) at your page.</p>
     </div>
 
-  </div>
+    <form action="<?= root ?>supplier/stays/site/<?= (int) ($stay['id'] ?? 0) ?>" method="POST" class="flex flex-col sm:flex-row gap-2 sm:items-end">
+      <?= CSRF::tokenField() ?>
+      <div class="form-control flex-1">
+        <label class="block text-xs font-medium text-gray-600 mb-1">Custom domain</label>
+        <input type="text" name="custom_domain" class="input" placeholder="book.yourhotel.com"
+               value="<?= htmlspecialchars($custom) ?>">
+      </div>
+      <button type="submit" class="btn emerald">Save domain</button>
+    </form>
 
-  <!-- Preview Button (CLEAN - no structure exposure) -->
-  <div class="card p-5 text-center">
-    <p class="text-sm text-gray-600 mb-3">Preview your booking website before sharing with guests</p>
-    <a href="<?= root ?>supplier/stays/site/<?= $stayId ?>/preview" target="_blank"
-       class="btn primary">
-      <span class="material-symbols-outlined inline text-base">visibility</span>
-      Preview Website
-    </a>
+    <?php if ($custom !== '' && $status !== 'none'): ?>
+      <div class="border border-gray-200 rounded-lg p-4 space-y-2 text-sm">
+        <div class="flex items-center gap-2">
+          <span class="px-2 py-0.5 rounded text-xs font-medium
+            <?= $status === 'active' ? 'bg-green-50 text-green-700' : ($status === 'verified' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700') ?>">
+            <?= htmlspecialchars(ucfirst($status)) ?>
+          </span>
+          <code class="text-xs"><?= htmlspecialchars($custom) ?></code>
+        </div>
+        <?php $operatorIp = trim((string) ($GLOBALS['app']['supplier_site_ip'] ?? '')); ?>
+        <?php if ($status === 'pending'): ?>
+          <p class="text-gray-600">Add these DNS records at your domain provider, then click <strong>Verify now</strong>:</p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs border border-gray-200 rounded">
+              <thead><tr class="bg-gray-50 text-gray-500 text-left"><th class="px-2 py-1">Type</th><th class="px-2 py-1">Name / Host</th><th class="px-2 py-1">Value</th></tr></thead>
+              <tbody class="font-mono">
+                <tr class="border-t border-gray-100"><td class="px-2 py-1">CNAME</td><td class="px-2 py-1"><?= htmlspecialchars($custom) ?></td><td class="px-2 py-1"><?= htmlspecialchars($cnameTarget) ?></td></tr>
+                <?php if ($operatorIp !== ''): ?>
+                <tr class="border-t border-gray-100"><td class="px-2 py-1">A <span class="text-gray-400">(root domains only)</span></td><td class="px-2 py-1"><?= htmlspecialchars($custom) ?></td><td class="px-2 py-1"><?= htmlspecialchars($operatorIp) ?></td></tr>
+                <?php endif; ?>
+                <tr class="border-t border-gray-100"><td class="px-2 py-1">TXT</td><td class="px-2 py-1"><?= htmlspecialchars($custom) ?></td><td class="px-2 py-1"><?= htmlspecialchars($token) ?></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="text-xs text-gray-500">Use the <strong>CNAME</strong> for a subdomain like <code>book.yourhotel.com</code>. For a root domain (<code>yourhotel.com</code>) use your provider's ALIAS/ANAME to the same target, or the <strong>A</strong> record above. Always add the <strong>TXT</strong> record too.</p>
+          <form action="<?= root ?>supplier/stays/site/<?= (int) ($stay['id'] ?? 0) ?>/verify-domain" method="POST" class="pt-1">
+            <?= CSRF::tokenField() ?>
+            <button type="submit" class="btn secondary text-sm">Verify now</button>
+          </form>
+          <p class="text-xs text-gray-400">DNS changes can take a few minutes to propagate. Once verified, the platform issues the HTTPS certificate and your domain goes live.</p>
+        <?php elseif ($status === 'verified'): ?>
+          <p class="text-sm text-blue-700">DNS verified ✓ — your domain is live at
+            <a href="http://<?= htmlspecialchars($custom) ?>" target="_blank" rel="noopener" class="underline">http://<?= htmlspecialchars($custom) ?></a>.
+            HTTPS turns on automatically once the platform issues its certificate.</p>
+        <?php elseif ($status === 'active'): ?>
+          <p class="text-sm text-green-700">Live ✓ — <a href="https://<?= htmlspecialchars($custom) ?>" target="_blank" rel="noopener" class="underline">https://<?= htmlspecialchars($custom) ?></a></p>
+        <?php endif; ?>
+      </div>
+    <?php endif; ?>
   </div>
-
 </div>
-
-<!-- JAVASCRIPT: Generate Temp Domain -->
-<script>
-document.getElementById('btnGenerateTempDomain')?.addEventListener('click', async function() {
-  const stayId = this.dataset.stayId;
-  const btn = this;
-  
-  btn.disabled = true;
-  btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-sm">hourglass_empty</span> Generating...';
-  
-  try {
-    const response = await fetch('<?= root ?>supplier/stays/' + stayId + '/generate-temp-domain', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-    });
-    
-    const data = await response.json();
-    
-    if (data.ok) {
-      alert('Domain generated: ' + data.domain + '\n\nReloading page...');
-      window.location.reload();
-    } else {
-      alert('Error: ' + data.message);
-      btn.disabled = false;
-      btn.innerHTML = '<span class="material-symbols-outlined text-sm">add</span> Generate Domain Now';
-    }
-  } catch (err) {
-    alert('Error: ' + err.message);
-    btn.disabled = false;
-    btn.innerHTML = '<span class="material-symbols-outlined text-sm">add</span> Generate Domain Now';
-  }
-});
-</script>
