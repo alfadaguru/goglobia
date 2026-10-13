@@ -1393,8 +1393,8 @@ $router->get('/supplier/stays/site/([0-9]+)', function ($id) use ($SECURE, $db) 
 });
 
 // GET /supplier/stays/site/{id}/preview — render the property's branded booking
-// page (owner-scoped). Demonstrates the branded site; host-based serving on the
-// custom domain is the deferred edge step.
+// page (owner-scoped). Host-based serving on the branded subdomain / verified custom
+// domain is live via supplier_site_maybe_serve() + the TLS edge (deploy/Caddyfile).
 $router->get('/supplier/stays/site/([0-9]+)/preview', function ($id) use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
     $owner = _supplier_stays_owner($db);
@@ -1539,9 +1539,22 @@ $router->post('/supplier/stays/site/([0-9]+)', function ($id) use ($SECURE, $db)
         header('Location: ' . $back); exit;
     }
 
-    // Record the request: status 'pending' + a verification token. Actual DNS
-    // verification + TLS issuance is the edge/infra step (docs §7.2) — this stores
-    // the intent + the TXT value the supplier must publish.
+    // IDEMPOTENCY GUARD: re-saving the SAME domain that is already verified/active must
+    // NOT knock it back to 'pending' with a fresh token — that would take a live HTTPS
+    // site offline until re-verification, for no reason (e.g. a double-click, or editing
+    // an unrelated field and resubmitting). Only a genuine CHANGE (or a first set / reset
+    // from a not-yet-verified state) mints a new token and resets to 'pending'.
+    $current = $db->get('stays_site', ['custom_domain', 'domain_status'], ['stay_id' => (int) $id]);
+    $sameDomain  = $current && strtolower((string) ($current['custom_domain'] ?? '')) === $domain;
+    $alreadyLive = in_array((string) ($current['domain_status'] ?? 'none'), ['verified', 'active'], true);
+    if ($sameDomain && $alreadyLive) {
+        $_SESSION['message'] = ['type' => 'success', 'text' => 'That domain is already set up and verified — no changes made.'];
+        header('Location: ' . $back); exit;
+    }
+
+    // Record the request: status 'pending' + a verification token. DNS verification runs
+    // next (Verify now); TLS issuance is the edge step (deploy/Caddyfile). This stores the
+    // intent + the TXT value the supplier must publish.
     $token = 'goglobia-verify=' . bin2hex(random_bytes(16));
     try {
         $db->update('stays_site', [
