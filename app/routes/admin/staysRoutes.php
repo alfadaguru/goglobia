@@ -695,6 +695,15 @@ $router->post(admin.'/stays/edit/(.*)', function ($id) use ($SECURE,$db) {
         // UPDATE STAYS TABLE
         $result = $db->update('stays', $hotel_data, ['id' => $hotel_id]);
 
+        // Keep the branded <slug>.<root> hostname in lockstep with the (possibly renamed)
+        // slug — but ONLY if this property already has a stays_site row (i.e. the branded
+        // site was opted into). An admin rename must not leave a stale host resolving to the
+        // renamed property, nor provision a hostname for an admin-only hotel that never had
+        // one. Guarded + non-fatal.
+        if (function_exists('supplier_site_sync_hostname') && $db->has('stays_site', ['stay_id' => $hotel_id])) {
+            supplier_site_sync_hostname($db, (int) $hotel_id, (string) $slug);
+        }
+
         $_SESSION['message'] = [
             'type' => 'success',
             'text' => T::hotel_updated_successfully
