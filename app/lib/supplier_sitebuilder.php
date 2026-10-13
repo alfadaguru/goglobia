@@ -27,7 +27,43 @@ if (!function_exists('sitebuilder_decode')) {
             'meta_title'  => (string) ($d['meta_title'] ?? ''),     // SEO
             'meta_desc'   => (string) ($d['meta_desc'] ?? ''),
             'analytics_id'=> (preg_match('/^[A-Za-z0-9\-]{0,40}$/', (string) ($d['analytics_id'] ?? '')) ? (string) ($d['analytics_id'] ?? '') : ''),
+            // Per-property social links (stored in the theme JSON — no new column).
+            // Each value is a URL the supplier pastes; empty = not shown.
+            'social'      => sitebuilder_social_clean(is_array($d['social'] ?? null) ? $d['social'] : []),
         ];
+    }
+}
+
+if (!function_exists('sitebuilder_social_platforms')) {
+    /** The social platforms a hotel can link (key => [label, icon-ish]). Single source. */
+    function sitebuilder_social_platforms(): array
+    {
+        return [
+            'facebook'  => 'Facebook',
+            'instagram' => 'Instagram',
+            'tiktok'    => 'TikTok',
+            'twitter'   => 'X / Twitter',
+            'linkedin'  => 'LinkedIn',
+            'youtube'   => 'YouTube',
+            'whatsapp'  => 'WhatsApp',
+        ];
+    }
+}
+
+if (!function_exists('sitebuilder_social_clean')) {
+    /** Keep only known platforms with a plausible http(s) URL (or tel/wa link). */
+    function sitebuilder_social_clean(array $in): array
+    {
+        $out = [];
+        foreach (sitebuilder_social_platforms() as $key => $_label) {
+            $v = trim((string) ($in[$key] ?? ''));
+            if ($v === '') { continue; }
+            // Accept http(s) URLs only (length-capped). Anything else is dropped.
+            if (preg_match('#^https?://[^\s<>"]{3,250}$#i', $v)) {
+                $out[$key] = $v;
+            }
+        }
+        return $out;
     }
 }
 
@@ -48,6 +84,7 @@ if (!function_exists('sitebuilder_normalize')) {
             'meta_title'   => substr(trim((string) ($in['meta_title'] ?? '')), 0, 120),
             'meta_desc'    => substr(trim((string) ($in['meta_desc'] ?? '')), 0, 300),
             'analytics_id' => $analytics,
+            'social'       => sitebuilder_social_clean(is_array($in['social'] ?? null) ? $in['social'] : []),
         ]);
     }
 }

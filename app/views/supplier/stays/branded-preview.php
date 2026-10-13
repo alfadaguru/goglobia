@@ -53,9 +53,13 @@
     <?php endif; ?>
   </div>
 
-  <!-- Title -->
+  <!-- Title (with logo if the hotel uploaded one) -->
   <div>
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-3">
+      <?php $logo = trim((string) ($s['logo'] ?? '')); if ($logo !== ''): ?>
+        <img src="<?= htmlspecialchars(root . ltrim($logo, '/')) ?>" alt="<?= htmlspecialchars($s['name'] ?? '') ?> logo"
+             class="w-14 h-14 rounded-lg object-contain bg-white border border-gray-200 p-1 flex-none">
+      <?php endif; ?>
       <h1 class="text-3xl font-bold text-gray-900"><?= htmlspecialchars($s['name'] ?? '') ?></h1>
       <?php if ($stars > 0): ?>
         <span class="text-amber-500 text-lg"><?= str_repeat('★', $stars) ?></span>
@@ -174,4 +178,100 @@
       <style>[x-cloak]{display:none!important}</style>
     <?php endif; ?>
   </div>
+
+  <!-- Amenities (what the hotel actually offers — decoded from the property's amenity_ids) -->
+  <?php
+    $amenityNames = [];
+    $rawAmen = $s['amenity_ids'] ?? '';
+    if (!empty($rawAmen) && isset($db)) {
+        $ids = json_decode((string) $rawAmen, true);
+        if (!is_array($ids)) { $ids = array_filter(array_map('intval', array_map('trim', explode(',', trim((string) $rawAmen, '[]'))))); }
+        $ids = array_values(array_filter(array_map('intval', $ids)));
+        if (!empty($ids)) {
+            try {
+                foreach ($db->select('stays_settings', ['name'], ['id' => $ids, 'setting_type' => 'stay_amenity', 'status' => 1]) ?: [] as $a) {
+                    $n = trim((string) ($a['name'] ?? '')); if ($n !== '') { $amenityNames[] = $n; }
+                }
+            } catch (\Throwable $e) {}
+        }
+    }
+  ?>
+  <?php if (!empty($amenityNames)): ?>
+    <div class="card p-5">
+      <h2 class="text-sm font-semibold text-gray-900 mb-3">Amenities</h2>
+      <div class="flex flex-wrap gap-2">
+        <?php foreach ($amenityNames as $an): ?>
+          <span class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1 text-sm text-gray-700">
+            <span class="material-symbols-outlined text-sm text-gray-400">check_circle</span><?= htmlspecialchars($an) ?>
+          </span>
+        <?php endforeach; ?>
+      </div>
+    </div>
+  <?php endif; ?>
+
+  <!-- Good-to-know: check-in/out + cancellation policy (shown when set) -->
+  <?php
+    $ci = substr((string) ($s['checkin_time'] ?? ''), 0, 5);
+    $co = substr((string) ($s['checkout_time'] ?? ''), 0, 5);
+    $policy = trim((string) ($s['cancellation_policy'] ?? ''));
+  ?>
+  <?php if ($ci !== '' || $co !== '' || $policy !== ''): ?>
+    <div class="card p-5 space-y-2 text-sm text-gray-700">
+      <h2 class="text-sm font-semibold text-gray-900">Good to know</h2>
+      <?php if ($ci !== '' || $co !== ''): ?>
+        <div class="flex gap-6">
+          <?php if ($ci !== ''): ?><div><span class="text-gray-500">Check-in</span> <span class="font-medium tabular-nums"><?= htmlspecialchars($ci) ?></span></div><?php endif; ?>
+          <?php if ($co !== ''): ?><div><span class="text-gray-500">Check-out</span> <span class="font-medium tabular-nums"><?= htmlspecialchars($co) ?></span></div><?php endif; ?>
+        </div>
+      <?php endif; ?>
+      <?php if ($policy !== ''): ?>
+        <div><div class="text-gray-500 mb-0.5">Cancellation policy</div><div class="whitespace-pre-line"><?= nl2br(htmlspecialchars($policy, ENT_QUOTES, 'UTF-8')) ?></div></div>
+      <?php endif; ?>
+    </div>
+  <?php endif; ?>
+
+  <!-- Contact footer — the hotel's own contact details + social links -->
+  <?php
+    $cPhone = trim((string) ($s['phone'] ?? ''));
+    $cEmail = trim((string) ($s['email'] ?? ''));
+    $cWeb   = trim((string) ($s['website'] ?? ''));
+    $cAddr  = trim((string) ($s['address'] ?? '')) ?: trim((string) ($s['location'] ?? ''));
+    $social = (isset($theme['social']) && is_array($theme['social'])) ? $theme['social'] : [];
+    $socialLabels = function_exists('sitebuilder_social_platforms') ? sitebuilder_social_platforms() : [];
+    $hasContact = $cPhone !== '' || $cEmail !== '' || $cWeb !== '' || $cAddr !== '' || !empty($social);
+  ?>
+  <?php if ($hasContact): ?>
+    <footer class="card p-5 sm:p-6 mt-2">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <div>
+          <h2 class="text-sm font-semibold text-gray-900 mb-2">Contact <?= htmlspecialchars($s['name'] ?? 'us') ?></h2>
+          <ul class="space-y-1.5 text-sm text-gray-700">
+            <?php if ($cAddr !== ''): ?><li class="flex items-start gap-2"><span class="material-symbols-outlined text-base text-gray-400">location_on</span><span><?= htmlspecialchars($cAddr) ?></span></li><?php endif; ?>
+            <?php if ($cPhone !== ''): ?><li class="flex items-center gap-2"><span class="material-symbols-outlined text-base text-gray-400">call</span><a href="tel:<?= htmlspecialchars(preg_replace('/[^0-9+]/', '', $cPhone)) ?>" class="hover:underline"><?= htmlspecialchars($cPhone) ?></a></li><?php endif; ?>
+            <?php if ($cEmail !== ''): ?><li class="flex items-center gap-2"><span class="material-symbols-outlined text-base text-gray-400">mail</span><a href="mailto:<?= htmlspecialchars($cEmail) ?>" class="hover:underline"><?= htmlspecialchars($cEmail) ?></a></li><?php endif; ?>
+            <?php if ($cWeb !== ''): $webUrl = preg_match('#^https?://#i', $cWeb) ? $cWeb : ('https://' . $cWeb); ?>
+              <li class="flex items-center gap-2"><span class="material-symbols-outlined text-base text-gray-400">language</span><a href="<?= htmlspecialchars($webUrl) ?>" target="_blank" rel="noopener" class="hover:underline"><?= htmlspecialchars($cWeb) ?></a></li>
+            <?php endif; ?>
+          </ul>
+        </div>
+        <?php if (!empty($social)): ?>
+          <div>
+            <h2 class="text-sm font-semibold text-gray-900 mb-2">Follow us</h2>
+            <div class="flex flex-wrap gap-2">
+              <?php foreach ($social as $key => $url): ?>
+                <a href="<?= htmlspecialchars($url) ?>" target="_blank" rel="noopener"
+                   class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:border-gray-300"
+                   style="border-color: <?= htmlspecialchars($accent) ?>22;">
+                  <?= htmlspecialchars($socialLabels[$key] ?? ucfirst((string) $key)) ?>
+                </a>
+              <?php endforeach; ?>
+            </div>
+          </div>
+        <?php endif; ?>
+      </div>
+      <div class="mt-4 pt-3 border-t border-gray-100 text-xs text-gray-400">
+        &copy; <?= (int) date('Y') ?> <?= htmlspecialchars($s['name'] ?? '') ?>. Powered by <?= htmlspecialchars($GLOBALS['app']['business_name'] ?? 'our booking platform') ?>.
+      </div>
+    </footer>
+  <?php endif; ?>
 </div>
