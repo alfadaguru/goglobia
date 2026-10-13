@@ -1635,3 +1635,91 @@ $router->post('/supplier/stays/floors/delete', function () use ($SECURE, $db) {
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Floor deleted (room links removed).' : 'Could not delete.'];
     header('Location: ' . $back); exit;
 });
+
+// ============================================================================
+// GUEST BOOKING MANAGEMENT - Supplier Routes
+// ============================================================================
+
+$router->get('/supplier/stays/([0-9]+)/bookings', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'hotels', 'view', (int) $id)) { _supplier_stays_deny('That property is not yours.'); }
+    
+    $stay = $db->get('stays', ['id', 'name'], ['id' => (int) $id]);
+    if (!$stay) { _supplier_stays_deny('Property not found.'); }
+    
+    $stayId = (int) $id;
+    $title = ($stay['name'] ?? 'Property') . ' — Guest Bookings';
+    $header = true;
+    $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/stays/bookings-management.php";
+    require_once views . "includes/footer.php";
+});
+
+$router->get('/supplier/stays/booking-details/([0-9]+)', function ($bookingId) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    
+    $booking = booking_get_by_id($db, (int) $bookingId);
+    if (!$booking) { _supplier_stays_deny('Booking not found.'); }
+    
+    $stay = $db->get('stays', '*', ['id' => (int) $booking['stay_id']]);
+    if (!$stay || !supplier_can($db, 'hotels', 'view', (int) $booking['stay_id'])) {
+        _supplier_stays_deny('Not your property.');
+    }
+    
+    $title = 'Booking ' . htmlspecialchars($booking['booking_reference']);
+    $header = true;
+    $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/stays/booking-details.php";
+    require_once views . "includes/footer.php";
+});
+
+$router->get('/supplier/stays/booking-settings/([0-9]+)', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'hotels', 'edit', (int) $id)) { _supplier_stays_deny('That property is not yours.'); }
+    
+    $stay = $db->get('stays', '*', ['id' => (int) $id]);
+    if (!$stay) { _supplier_stays_deny('Property not found.'); }
+    
+    $settings = booking_get_settings($db, (int) $id);
+    $stayId = (int) $id;
+    
+    $title = ($stay['name'] ?? 'Property') . ' — Booking Settings';
+    $header = true;
+    $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/stays/booking-settings.php";
+    require_once views . "includes/footer.php";
+});
+
+$router->post('/supplier/stays/booking-settings-save', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    if ($stayId <= 0 || !supplier_can($db, 'hotels', 'edit', $stayId)) {
+        _supplier_stays_deny('Not your property.');
+    }
+    
+    $settings = [
+        'allow_guest_bookings' => !empty($_POST['allow_guest_bookings']),
+        'guest_contact_email' => $_POST['guest_contact_email'] ?? '',
+        'guest_contact_phone' => $_POST['guest_contact_phone'] ?? '',
+        'checkin_instructions' => $_POST['checkin_instructions'] ?? '',
+        'cancellation_policy_text' => $_POST['cancellation_policy_text'] ?? '',
+    ];
+    
+    $ok = booking_save_settings($db, $stayId, $settings);
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Settings saved.' : 'Error saving settings.'];
+    header('Location: ' . root . 'supplier/stays/booking-settings/' . $stayId);
+    exit;
+});
