@@ -1,167 +1,34 @@
 <?php @$SECURE or die('Access Denied!'); ?>
-<?php
-  $s = (isset($site) && is_array($site)) ? $site : [];
-  $stayName = $stay['name'] ?? 'Property';
-  $hostname = $s['hostname'] ?? '';
-  $custom   = $s['custom_domain'] ?? '';
-  $status   = $s['domain_status'] ?? 'none';
-  $token    = $s['verify_token'] ?? '';
-  $root     = $brandedRoot ?? '';
-  // The CNAME target the supplier points at (operator-controlled edge host).
-  $cnameTarget = $root !== '' ? ('sites.' . $root) : 'sites.yourbrand.com';
-?>
-
-<div class="max-w-3xl mx-auto px-4 py-8 space-y-6">
-
-  <?php if (!empty($_SESSION['message'])): ?>
-    <?php $__m = $_SESSION['message']; $__t = is_array($__m) ? ($__m['type'] ?? 'info') : 'info'; $__x = is_array($__m) ? ($__m['text'] ?? '') : (string) $__m; ?>
-    <div class="<?= $__t === 'error' ? 'alert-error' : 'alert-success' ?>">
-      <span class="material-symbols-outlined"><?= $__t === 'error' ? 'error' : 'check_circle' ?></span>
-      <p class="text-sm"><?= htmlspecialchars($__x) ?></p>
-    </div>
-    <?php unset($_SESSION['message']); ?>
-  <?php endif; ?>
-
-  <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-bold text-gray-900">Site &amp; Domain</h1>
-    <a href="<?= root ?>supplier/stays/edit/<?= (int) ($stay['id'] ?? 0) ?>" class="text-sm text-blue-600 hover:underline">&larr; Back to property</a>
-  </div>
-  <p class="text-sm text-gray-600"><?= htmlspecialchars($stayName) ?> has its own branded booking page.</p>
-
-  <!-- MODULE 13: site-builder design (branding / banner / custom about / SEO / analytics) -->
-  <?php $theme = function_exists('sitebuilder_decode') ? sitebuilder_decode($s['theme'] ?? null) : []; $sid13 = (int) ($stay['id'] ?? 0); ?>
-  <div class="card p-5 space-y-3">
-    <h2 class="text-sm font-semibold text-gray-800">Design &amp; content</h2>
-    <form action="<?= root ?>supplier/stays/site-theme" method="POST" class="space-y-3">
-      <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid13 ?>">
-      <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <div><label class="block text-xs text-gray-600 mb-1">Accent colour</label><input type="color" name="accent" value="<?= htmlspecialchars((string) ($theme['accent'] ?? '#7c3aed')) ?>" class="input h-9 p-1"></div>
-        <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Tagline</label><input type="text" name="tagline" value="<?= htmlspecialchars((string) ($theme['tagline'] ?? '')) ?>" class="input text-sm" placeholder="Your stay, your way"></div>
-      </div>
-      <div>
-        <label class="inline-flex items-center gap-1.5 text-xs text-gray-700 mb-1"><input type="checkbox" name="banner_on" value="1" class="checkbox-input" <?= !empty($theme['banner_on']) ? 'checked' : '' ?>> Show promotion banner</label>
-        <input type="text" name="banner" value="<?= htmlspecialchars((string) ($theme['banner'] ?? '')) ?>" class="input text-sm" placeholder="Book direct & save 10% — no OTA fees">
-      </div>
-      <div><label class="block text-xs text-gray-600 mb-1">About this property (custom page text)</label>
-        <textarea name="about" rows="3" class="input text-sm" placeholder="Tell guests what makes your property special…"><?= htmlspecialchars((string) ($theme['about'] ?? '')) ?></textarea></div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div><label class="block text-xs text-gray-600 mb-1">SEO title</label><input type="text" name="meta_title" value="<?= htmlspecialchars((string) ($theme['meta_title'] ?? '')) ?>" class="input text-sm"></div>
-        <div><label class="block text-xs text-gray-600 mb-1">Analytics ID</label><input type="text" name="analytics_id" value="<?= htmlspecialchars((string) ($theme['analytics_id'] ?? '')) ?>" class="input text-sm" placeholder="G-XXXXXXX / UA-…"></div>
-      </div>
-      <div><label class="block text-xs text-gray-600 mb-1">SEO description</label><input type="text" name="meta_desc" value="<?= htmlspecialchars((string) ($theme['meta_desc'] ?? '')) ?>" class="input text-sm"></div>
-
-      <!-- Social links (shown in your site footer). Paste full URLs; blanks are ignored. -->
-      <?php
-        $socialPlatforms = function_exists('sitebuilder_social_platforms') ? sitebuilder_social_platforms() : [];
-        $socialVals = (isset($theme['social']) && is_array($theme['social'])) ? $theme['social'] : [];
-      ?>
-      <?php if (!empty($socialPlatforms)): ?>
-      <div>
-        <label class="block text-xs font-medium text-gray-700 mb-1">Social links</label>
-        <p class="text-xs text-gray-500 mb-2">Shown in your website footer. Paste the full URL (e.g. <code>https://instagram.com/yourhotel</code>). Leave blank to hide.</p>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <?php foreach ($socialPlatforms as $key => $label): ?>
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-gray-500 w-20 flex-none"><?= htmlspecialchars($label) ?></span>
-              <input type="url" name="social[<?= htmlspecialchars($key) ?>]" value="<?= htmlspecialchars((string) ($socialVals[$key] ?? '')) ?>"
-                     class="input text-sm flex-1" placeholder="https://…">
-            </div>
-          <?php endforeach; ?>
-        </div>
-      </div>
-      <?php endif; ?>
-
-      <button type="submit" class="btn secondary text-sm">Save design</button>
-    </form>
-  </div>
-
-  <!-- Branded (built-in) address -->
-  <div class="card p-5 space-y-2">
-    <h2 class="text-sm font-semibold text-gray-800">Your branded address</h2>
-    <?php if ($hostname !== ''): ?>
-      <div class="flex items-center gap-2">
-        <span class="material-symbols-outlined text-violet-600">public</span>
-        <code class="text-sm bg-gray-50 border border-gray-200 rounded px-2 py-1"><?= htmlspecialchars($hostname) ?></code>
-      </div>
-      <p class="text-xs text-gray-500">This address is created for you automatically.</p>
-    <?php else: ?>
-      <p class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
-        A branded address isn't configured yet. The administrator needs to set the platform's branded domain in Settings before per-property addresses are issued.
-      </p>
-    <?php endif; ?>
-    <?php $slug = (string) ($stay['slug'] ?? ''); $isLive = (int) ($stay['status'] ?? 0) === 1 && (string) ($stay['listing_status'] ?? '') === 'approved'; ?>
-    <?php if ($slug !== ''): ?>
-      <div class="flex items-center gap-2 pt-1">
-        <span class="material-symbols-outlined text-violet-600">link</span>
-        <code class="text-sm bg-gray-50 border border-gray-200 rounded px-2 py-1"><?= htmlspecialchars(rtrim(root, '/') . '/book/' . $slug) ?></code>
-      </div>
-      <p class="text-xs <?= $isLive ? 'text-gray-500' : 'text-amber-700' ?>">
-        <?= $isLive
-          ? 'Your live public booking page — share this link. Guests book through the main checkout.'
-          : 'This public link goes live once the property is approved and switched on.' ?>
-      </p>
-    <?php endif; ?>
-    <div>
-      <a href="<?= root ?>supplier/stays/site/<?= (int) ($stay['id'] ?? 0) ?>/preview" target="_blank"
-         class="text-sm text-blue-600 hover:underline">Preview your page &rarr;</a>
-    </div>
-  </div>
-
-  <!-- Custom domain (CNAME) -->
-  <div class="card p-5 space-y-4">
-    <div>
-      <h2 class="text-sm font-semibold text-gray-800">Use your own domain</h2>
-      <p class="text-xs text-gray-500">Point your own domain (e.g. <code>book.yourhotel.com</code>) at your page.</p>
-    </div>
-
-    <form action="<?= root ?>supplier/stays/site/<?= (int) ($stay['id'] ?? 0) ?>" method="POST" class="flex flex-col sm:flex-row gap-2 sm:items-end">
-      <?= CSRF::tokenField() ?>
-      <div class="form-control flex-1">
-        <label class="block text-xs font-medium text-gray-600 mb-1">Custom domain</label>
-        <input type="text" name="custom_domain" class="input" placeholder="book.yourhotel.com"
-               value="<?= htmlspecialchars($custom) ?>">
-      </div>
-      <button type="submit" class="btn emerald">Save domain</button>
-    </form>
-
-    <?php if ($custom !== '' && $status !== 'none'): ?>
-      <div class="border border-gray-200 rounded-lg p-4 space-y-2 text-sm">
-        <div class="flex items-center gap-2">
-          <span class="px-2 py-0.5 rounded text-xs font-medium
-            <?= $status === 'active' ? 'bg-green-50 text-green-700' : ($status === 'verified' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700') ?>">
-            <?= htmlspecialchars(ucfirst($status)) ?>
-          </span>
-          <code class="text-xs"><?= htmlspecialchars($custom) ?></code>
-        </div>
-        <?php $operatorIp = trim((string) ($GLOBALS['app']['supplier_site_ip'] ?? '')); ?>
-        <?php if ($status === 'pending'): ?>
-          <p class="text-gray-600">Add these DNS records at your domain provider, then click <strong>Verify now</strong>:</p>
-          <div class="overflow-x-auto">
-            <table class="w-full text-xs border border-gray-200 rounded">
-              <thead><tr class="bg-gray-50 text-gray-500 text-left"><th class="px-2 py-1">Type</th><th class="px-2 py-1">Name / Host</th><th class="px-2 py-1">Value</th></tr></thead>
-              <tbody class="font-mono">
-                <tr class="border-t border-gray-100"><td class="px-2 py-1">CNAME</td><td class="px-2 py-1"><?= htmlspecialchars($custom) ?></td><td class="px-2 py-1"><?= htmlspecialchars($cnameTarget) ?></td></tr>
-                <?php if ($operatorIp !== ''): ?>
-                <tr class="border-t border-gray-100"><td class="px-2 py-1">A <span class="text-gray-400">(root domains only)</span></td><td class="px-2 py-1"><?= htmlspecialchars($custom) ?></td><td class="px-2 py-1"><?= htmlspecialchars($operatorIp) ?></td></tr>
-                <?php endif; ?>
-                <tr class="border-t border-gray-100"><td class="px-2 py-1">TXT</td><td class="px-2 py-1"><?= htmlspecialchars($custom) ?></td><td class="px-2 py-1"><?= htmlspecialchars($token) ?></td></tr>
-              </tbody>
-            </table>
-          </div>
-          <p class="text-xs text-gray-500">Use the <strong>CNAME</strong> for a subdomain like <code>book.yourhotel.com</code>. For a root domain (<code>yourhotel.com</code>) use your provider's ALIAS/ANAME to the same target, or the <strong>A</strong> record above. Always add the <strong>TXT</strong> record too.</p>
-          <form action="<?= root ?>supplier/stays/site/<?= (int) ($stay['id'] ?? 0) ?>/verify-domain" method="POST" class="pt-1">
-            <?= CSRF::tokenField() ?>
-            <button type="submit" class="btn secondary text-sm">Verify now</button>
-          </form>
-          <p class="text-xs text-gray-400">DNS changes can take a few minutes to propagate. Once verified, the platform issues the HTTPS certificate and your domain goes live.</p>
-        <?php elseif ($status === 'verified'): ?>
-          <p class="text-sm text-blue-700">DNS verified ✓ — your domain is live at
-            <a href="http://<?= htmlspecialchars($custom) ?>" target="_blank" rel="noopener" class="underline">http://<?= htmlspecialchars($custom) ?></a>.
-            HTTPS turns on automatically once the platform issues its certificate.</p>
-        <?php elseif ($status === 'active'): ?>
-          <p class="text-sm text-green-700">Live ✓ — <a href="https://<?= htmlspecialchars($custom) ?>" target="_blank" rel="noopener" class="underline">https://<?= htmlspecialchars($custom) ?></a></p>
-        <?php endif; ?>
-      </div>
-    <?php endif; ?>
-  </div>
+<?php $s = (isset($site) && is_array($site)) ? $site : []; $stayName = $stay['name'] ?? 'Property'; $hostname = $s['hostname'] ?? ''; $custom = $s['custom_domain'] ?? ''; $status = $s['domain_status'] ?? 'none'; $token = $s['verify_token'] ?? ''; $root = $brandedRoot ?? ''; $cnameTarget = $root !== '' ? ('sites.' . $root) : 'sites.yourbrand.com'; $config = function_exists('website_builder_get_config') ? website_builder_get_config($GLOBALS['db'] ?? null, (int) ($stay['id'] ?? 0)) : []; ?>
+<div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+  <?php if (!empty($_SESSION['message'])): ?><?php $__m = $_SESSION['message']; $__t = is_array($__m) ? ($__m['type'] ?? 'info') : 'info'; $__x = is_array($__m) ? ($__m['text'] ?? '') : (string) $__m; ?><div class="<?= $__t === 'error' ? 'alert-error' : 'alert-success' ?>"><span class="material-symbols-outlined"><?= $__t === 'error' ? 'error' : 'check_circle' ?></span><p class="text-sm"><?= htmlspecialchars($__x) ?></p></div><?php unset($_SESSION['message']); ?><?php endif; ?>
+  <div class="flex items-center justify-between"><h1 class="text-2xl font-bold text-gray-900">Website Builder</h1><a href="<?= root ?>supplier/stays/edit/<?= (int) ($stay['id'] ?? 0) ?>" class="text-sm text-blue-600 hover:underline">&larr; Back to property</a></div>
+  <p class="text-sm text-gray-600">Configure your complete branded hotel website</p>
+  <div class="card p-0"><div class="flex gap-0 border-b border-gray-200 overflow-x-auto"><button class="tab-btn active px-4 py-3 text-sm font-medium text-gray-700 border-b-2 border-indigo-600 whitespace-nowrap" data-tab="identity"><span class="material-symbols-outlined text-base align-middle mr-1">branding_watermark</span> Identity</button><button class="tab-btn px-4 py-3 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-700 whitespace-nowrap" data-tab="contact"><span class="material-symbols-outlined text-base align-middle mr-1">phone</span> Contact</button><button class="tab-btn px-4 py-3 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-700 whitespace-nowrap" data-tab="social"><span class="material-symbols-outlined text-base align-middle mr-1">share</span> Social Media</button><button class="tab-btn px-4 py-3 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-700 whitespace-nowrap" data-tab="gallery"><span class="material-symbols-outlined text-base align-middle mr-1">image</span> Gallery</button><button class="tab-btn px-4 py-3 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-700 whitespace-nowrap" data-tab="info"><span class="material-symbols-outlined text-base align-middle mr-1">info</span> Information</button><button class="tab-btn px-4 py-3 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-700 whitespace-nowrap" data-tab="seo"><span class="material-symbols-outlined text-base align-middle mr-1">search</span> SEO</button><button class="tab-btn px-4 py-3 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-700 whitespace-nowrap" data-tab="domain"><span class="material-symbols-outlined text-base align-middle mr-1">language</span> Domain</button></div></div>
+  <form id="websiteBuilderForm" action="<?= root ?>supplier/stays/site-theme" method="POST" enctype="multipart/form-data" class="space-y-4"><?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= (int) ($stay['id'] ?? 0) ?>">
+    <div class="tab-content active card p-6 space-y-5" id="tab-identity"><h2 class="text-lg font-semibold text-gray-900">Website Identity</h2><p class="text-sm text-gray-600">Logo, colors, and first impression</p><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-2">Logo</label><?php if (!empty($config['property']['logo'])): ?><img src="<?= htmlspecialchars(root . ltrim($config['property']['logo'], '/')) ?>" alt="Logo" class="w-32 h-32 object-contain rounded border border-gray-200 mb-2"><?php endif; ?><input type="file" name="hotel_logo" accept="image/png,image/jpeg,image/webp" class="input text-sm"><p class="text-xs text-gray-500 mt-1">PNG, JPG, WebP (max 2MB) - Displayed in website header</p></div><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-2">Accent Color</label><input type="color" name="accent" value="<?= htmlspecialchars($config['branding']['accent'] ?? '#7c3aed') ?>" class="input h-10 p-1"><p class="text-xs text-gray-500 mt-1">Primary color for buttons and highlights</p></div></div><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Tagline</label><input type="text" name="tagline" value="<?= htmlspecialchars($config['branding']['tagline'] ?? '') ?>" class="input" placeholder="e.g., Your perfect getaway awaits"><p class="text-xs text-gray-500 mt-1">Short motto displayed under hotel name</p></div><div class="form-control"><label class="inline-flex items-center gap-2 text-sm text-gray-700 mb-2"><input type="checkbox" name="banner_on" value="1" class="checkbox-input" <?= !empty($config['branding']['banner_on']) ? 'checked' : '' ?>><span>Show promotion banner</span></label><input type="text" name="banner" value="<?= htmlspecialchars($config['branding']['banner'] ?? '') ?>" class="input" placeholder="e.g., Book direct & save 10%"><p class="text-xs text-gray-500 mt-1">Optional promotional message displayed at top of website</p></div></div>
+    <div class="tab-content card p-6 space-y-5" id="tab-contact"><h2 class="text-lg font-semibold text-gray-900">Contact Information</h2><p class="text-sm text-gray-600">How guests can reach you</p><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label><input type="text" name="booking_phone" value="<?= htmlspecialchars($config['contact']['booking_phone'] ?? '') ?>" class="input" placeholder="+1 (555) 123-4567"><p class="text-xs text-gray-500 mt-1">Displayed on contact section</p></div><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Email Address</label><input type="email" name="booking_email" value="<?= htmlspecialchars($config['contact']['booking_email'] ?? '') ?>" class="input" placeholder="bookings@hotel.com"><p class="text-xs text-gray-500 mt-1">Displayed on contact section</p></div></div><div class="form-control"><label class="inline-flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" name="show_contact" value="1" class="checkbox-input" <?= !empty($config['display']['show_contact']) ? 'checked' : '' ?>><span>Show contact section on website</span></label><p class="text-xs text-gray-500 mt-1">Guests can see your phone, email, and contact form</p></div></div>
+    <div class="tab-content card p-6 space-y-4" id="tab-social"><h2 class="text-lg font-semibold text-gray-900">Social Media</h2><p class="text-sm text-gray-600">Connect your social profiles</p><div class="space-y-3"><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Facebook</label><input type="url" name="social_facebook" value="<?= htmlspecialchars($config['social_media']['facebook'] ?? '') ?>" class="input" placeholder="https://facebook.com/yourpage"></div><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Instagram</label><input type="url" name="social_instagram" value="<?= htmlspecialchars($config['social_media']['instagram'] ?? '') ?>" class="input" placeholder="https://instagram.com/yourprofile"></div><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">TikTok</label><input type="url" name="social_tiktok" value="<?= htmlspecialchars($config['social_media']['tiktok'] ?? '') ?>" class="input" placeholder="https://tiktok.com/@yourprofile"></div><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Twitter/X</label><input type="url" name="social_twitter" value="<?= htmlspecialchars($config['social_media']['twitter'] ?? '') ?>" class="input" placeholder="https://twitter.com/yourprofile"></div><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">LinkedIn</label><input type="url" name="social_linkedin" value="<?= htmlspecialchars($config['social_media']['linkedin'] ?? '') ?>" class="input" placeholder="https://linkedin.com/company/yourcompany"></div><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">YouTube</label><input type="url" name="social_youtube" value="<?= htmlspecialchars($config['social_media']['youtube'] ?? '') ?>" class="input" placeholder="https://youtube.com/@yourchannel"></div><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">WhatsApp</label><input type="text" name="social_whatsapp" value="<?= htmlspecialchars($config['social_media']['whatsapp'] ?? '') ?>" class="input" placeholder="+1 (555) 123-4567"><p class="text-xs text-gray-500 mt-1">Just the phone number - we'll create the WhatsApp link</p></div></div></div>
+    <div class="tab-content card p-6 space-y-5" id="tab-gallery"><h2 class="text-lg font-semibold text-gray-900">Photo Gallery</h2><p class="text-sm text-gray-600">Manage your property photos</p><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-2">Gallery Display Style</label><select name="gallery_style" class="input"><option value="grid" <?= ($config['display']['gallery_style'] ?? 'grid') === 'grid' ? 'selected' : '' ?>>Grid Layout (recommended)</option><option value="carousel" <?= ($config['display']['gallery_style'] ?? 'grid') === 'carousel' ? 'selected' : '' ?>>Carousel / Slider</option><option value="masonry" <?= ($config['display']['gallery_style'] ?? 'grid') === 'masonry' ? 'selected' : '' ?>>Masonry Layout</option></select><p class="text-xs text-gray-500 mt-1">How photos appear on your website</p></div><div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700"><span class="material-symbols-outlined text-base align-middle mr-1">info</span>To upload and arrange photos, use the property form. Your uploaded gallery will appear on the website in the selected layout.</div></div>
+    <div class="tab-content card p-6 space-y-5" id="tab-info"><h2 class="text-lg font-semibold text-gray-900">Website Information</h2><p class="text-sm text-gray-600">What your guests see about your property</p><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">About Your Property</label><textarea name="about" rows="4" class="input" placeholder="Tell guests what makes your property special..."><?= htmlspecialchars($config['content']['about'] ?? '') ?></textarea><p class="text-xs text-gray-500 mt-1">Displayed in the "About" section (max 4000 characters)</p></div><div class="space-y-3 border-t border-gray-200 pt-4"><h3 class="text-sm font-medium text-gray-900">Show These Sections on Website</h3><label class="inline-flex items-center gap-2"><input type="checkbox" name="show_amenities" value="1" class="checkbox-input" <?= !empty($config['display']['show_amenities']) ? 'checked' : '' ?>><span class="text-sm text-gray-700">Amenities list</span></label><label class="inline-flex items-center gap-2"><input type="checkbox" name="show_policies" value="1" class="checkbox-input" <?= !empty($config['display']['show_policies']) ? 'checked' : '' ?>><span class="text-sm text-gray-700">House rules & cancellation policy</span></label></div></div>
+    <div class="tab-content card p-6 space-y-5" id="tab-seo"><h2 class="text-lg font-semibold text-gray-900">SEO & Analytics</h2><p class="text-sm text-gray-600">Help guests find your website and track visitors</p><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Website Title (SEO)</label><input type="text" name="meta_title" value="<?= htmlspecialchars($config['seo']['meta_title'] ?? '') ?>" class="input" placeholder="Best Hotel in [City]"><p class="text-xs text-gray-500 mt-1">Appears in search results and browser tab</p></div><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Description (SEO)</label><input type="text" name="meta_desc" value="<?= htmlspecialchars($config['seo']['meta_desc'] ?? '') ?>" class="input" placeholder="Luxury accommodation with stunning views..."><p class="text-xs text-gray-500 mt-1">Appears under title in search results</p></div><div class="form-control"><label class="block text-sm font-medium text-gray-700 mb-1">Analytics Tracking ID</label><input type="text" name="analytics_id" value="<?= htmlspecialchars($config['seo']['analytics_id'] ?? '') ?>" class="input" placeholder="G-XXXXXXXXXX or UA-..."><p class="text-xs text-gray-500 mt-1">Google Analytics or similar tracking code</p></div></div>
+    <div class="tab-content card p-6 space-y-5" id="tab-domain"><h2 class="text-lg font-semibold text-gray-900">Domain & Hosting</h2><p class="text-sm text-gray-600">Your website address</p><div class="bg-gray-50 rounded-lg p-4 space-y-2"><h3 class="text-sm font-medium text-gray-900">Your Branded Address</h3><?php if ($hostname !== ''): ?><div class="flex items-center gap-2"><span class="material-symbols-outlined text-green-600">check_circle</span><code class="text-sm bg-white border border-gray-200 rounded px-3 py-2"><?= htmlspecialchars($hostname) ?></code></div><p class="text-xs text-gray-600">Your website is live at this address</p><?php else: ?><p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">Admin has not configured the branded domain yet. Contact your administrator.</p><?php endif; ?></div><div class="border-t border-gray-200 pt-4"><h3 class="text-sm font-medium text-gray-900 mb-3">Custom Domain (Optional)</h3><form action="<?= root ?>supplier/stays/site/<?= (int) ($stay['id'] ?? 0) ?>" method="POST" class="space-y-3"><?= CSRF::tokenField() ?><div><label class="block text-xs font-medium text-gray-600 mb-1">Your own domain</label><input type="text" name="custom_domain" class="input" placeholder="book.yourhotel.com" value="<?= htmlspecialchars($custom) ?>"></div><button type="submit" class="btn emerald text-sm">Save Custom Domain</button></form><?php if ($custom !== '' && $status !== 'none'): ?><div class="mt-4 border border-gray-200 rounded-lg p-3 space-y-2 text-sm"><div class="flex items-center gap-2"><span class="px-2 py-1 rounded text-xs font-medium <?= $status === 'active' ? 'bg-green-50 text-green-700' : ($status === 'verified' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700') ?>"><?= htmlspecialchars(ucfirst($status)) ?></span><code class="text-xs"><?= htmlspecialchars($custom) ?></code></div><?php if ($status === 'pending'): ?><p class="text-gray-600 text-xs">DNS setup instructions would go here</p><?php endif; ?></div><?php endif; ?></div></div>
+    <div class="card p-4 flex gap-2"><button type="submit" class="btn indigo text-sm flex-1">Save All Changes</button><a href="<?= root ?>supplier/stays/site/<?= (int) ($stay['id'] ?? 0) ?>/preview" target="_blank" class="btn secondary text-sm flex-1">Preview Website</a></div>
+  </form>
 </div>
+<script>
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const tabName = this.dataset.tab;
+    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('text-gray-700', 'border-indigo-600'); b.classList.add('text-gray-500', 'border-transparent'); });
+    document.getElementById('tab-' + tabName).classList.add('active');
+    this.classList.remove('text-gray-500', 'border-transparent');
+    this.classList.add('text-gray-700', 'border-indigo-600');
+  });
+});
+</script>
+<style>
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+</style>
