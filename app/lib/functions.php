@@ -7490,6 +7490,26 @@ function ensureSupplierStaysSchema($db): void
             UNIQUE KEY `uq_custom_domain` (`custom_domain`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- stays_site_pages: supplier-authored custom pages (About / Contact / Policies /
+        // FAQ / arbitrary) shown on the branded site at /book/{slug}/{page_slug}. Content is
+        // stored RAW and ALWAYS rendered through htmlspecialchars by the public view — we
+        // never emit supplier HTML (same XSS posture as the rest of the site-builder). The
+        // (stay_id, slug) pair is unique so a property can't shadow its own page.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_site_pages` (
+            `id` INT(11) NOT NULL AUTO_INCREMENT,
+            `stay_id` INT(11) NOT NULL,
+            `slug` VARCHAR(60) NOT NULL,
+            `title` VARCHAR(160) NOT NULL,
+            `body` LONGTEXT DEFAULT NULL,
+            `sort` INT(11) NOT NULL DEFAULT 0,
+            `published` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_stay_slug` (`stay_id`,`slug`),
+            KEY `idx_stay` (`stay_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- settings.supplier_site_domain: the branded root (e.g. 'goglobia.com') --
         // Empty by default → the branded-site feature is inert until an operator
         // sets it. Nullable varchar on the single settings row.

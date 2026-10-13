@@ -75,6 +75,137 @@
     </form>
   </div>
 
+  <!-- MODULE 13: custom pages (About / Contact / Policies / FAQ …) -->
+  <?php
+    $pages = (isset($sitePages) && is_array($sitePages)) ? $sitePages : [];
+    $bookSlug = trim((string) ($stay['slug'] ?? ''));
+    // Starter titles a hotel typically wants — offered as quick "add" buttons.
+    $starters = ['About', 'Contact', 'Policies', 'FAQ'];
+    $existingTitles = array_map(function ($p) { return strtolower(trim((string) ($p['title'] ?? ''))); }, $pages);
+  ?>
+  <div class="card p-5 space-y-4" x-data="{ editId: 0, open: false }">
+    <div class="flex items-center justify-between gap-3">
+      <div>
+        <h2 class="text-sm font-semibold text-gray-800">Custom pages</h2>
+        <p class="text-xs text-gray-500">About, contact, policies, FAQ — shown on your branded site.</p>
+      </div>
+      <button type="button" class="btn secondary text-sm"
+              @click="editId = 0; open = true; $nextTick(() => document.getElementById('sp-title').focus())">
+        + Add page
+      </button>
+    </div>
+
+    <!-- existing pages -->
+    <?php if (!empty($pages)): ?>
+      <ul class="divide-y divide-gray-100 border border-gray-100 rounded-lg">
+        <?php foreach ($pages as $p):
+          $pid = (int) ($p['id'] ?? 0);
+          $pTitle = (string) ($p['title'] ?? '');
+          $pSlug  = (string) ($p['slug'] ?? '');
+          $pBody  = (string) ($p['body'] ?? '');
+          $pSort  = (int) ($p['sort'] ?? 0);
+          $pPub   = (int) ($p['published'] ?? 1) === 1;
+        ?>
+          <li class="flex items-center gap-3 p-3">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-medium text-gray-900"><?= htmlspecialchars($pTitle) ?></span>
+                <?php if (!$pPub): ?><span class="text-xs uppercase tracking-wide text-gray-400 border border-gray-200 rounded px-1.5 py-0.5">Draft</span><?php endif; ?>
+              </div>
+              <div class="text-xs text-gray-500 truncate">
+                <?php if ($bookSlug !== ''): ?>
+                  <a href="<?= root ?>book/<?= htmlspecialchars($bookSlug) ?>/<?= htmlspecialchars($pSlug) ?>" target="_blank" rel="noopener" class="hover:underline">/book/<?= htmlspecialchars($bookSlug) ?>/<?= htmlspecialchars($pSlug) ?></a>
+                <?php else: ?>
+                  /<?= htmlspecialchars($pSlug) ?>
+                <?php endif; ?>
+              </div>
+            </div>
+            <button type="button" class="text-sm font-medium text-violet-600 hover:underline flex-none"
+                    @click='editId = <?= $pid ?>; open = true;
+                            $nextTick(() => {
+                              document.getElementById("sp-id").value = <?= $pid ?>;
+                              document.getElementById("sp-title").value = <?= htmlspecialchars(json_encode($pTitle), ENT_QUOTES) ?>;
+                              document.getElementById("sp-slug").value = <?= htmlspecialchars(json_encode($pSlug), ENT_QUOTES) ?>;
+                              document.getElementById("sp-body").value = <?= htmlspecialchars(json_encode($pBody), ENT_QUOTES) ?>;
+                              document.getElementById("sp-sort").value = <?= $pSort ?>;
+                              document.getElementById("sp-pub").checked = <?= $pPub ? 'true' : 'false' ?>;
+                              document.getElementById("sp-title").focus();
+                            })'>
+              Edit
+            </button>
+            <form action="<?= root ?>supplier/stays/site-page/delete" method="POST" class="flex-none"
+                  onsubmit="return confirm('Delete this page? This cannot be undone.');">
+              <?= CSRF::tokenField() ?>
+              <input type="hidden" name="stay_id" value="<?= $sid13 ?>">
+              <input type="hidden" name="page_id" value="<?= $pid ?>">
+              <button type="submit" class="text-sm text-red-600 hover:underline">Delete</button>
+            </form>
+          </li>
+        <?php endforeach; ?>
+      </ul>
+    <?php else: ?>
+      <p class="text-xs text-gray-400">No custom pages yet.</p>
+    <?php endif; ?>
+
+    <!-- quick starters (only those not already added) -->
+    <div class="flex flex-wrap gap-2">
+      <?php foreach ($starters as $starter):
+        if (in_array(strtolower($starter), $existingTitles, true)) { continue; } ?>
+        <button type="button" class="text-xs px-2.5 py-1 rounded-full border border-gray-200 text-gray-600 hover:border-violet-300 hover:text-violet-700 transition"
+                @click='editId = 0; open = true;
+                        $nextTick(() => {
+                          document.getElementById("sp-id").value = 0;
+                          document.getElementById("sp-title").value = <?= htmlspecialchars(json_encode($starter), ENT_QUOTES) ?>;
+                          document.getElementById("sp-slug").value = "";
+                          document.getElementById("sp-body").value = "";
+                          document.getElementById("sp-sort").value = 0;
+                          document.getElementById("sp-pub").checked = true;
+                          document.getElementById("sp-title").focus();
+                        })'>
+          + <?= htmlspecialchars($starter) ?>
+        </button>
+      <?php endforeach; ?>
+    </div>
+
+    <!-- create/edit form (toggled) -->
+    <form action="<?= root ?>supplier/stays/site-page" method="POST" class="space-y-3 border-t border-gray-100 pt-4" x-show="open" x-cloak>
+      <?= CSRF::tokenField() ?>
+      <input type="hidden" name="stay_id" value="<?= $sid13 ?>">
+      <input type="hidden" name="id" id="sp-id" value="0">
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div class="sm:col-span-2">
+          <label class="block text-xs text-gray-600 mb-1">Page title</label>
+          <input type="text" name="title" id="sp-title" class="input text-sm" maxlength="160" placeholder="About us" required>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600 mb-1">Address (optional)</label>
+          <input type="text" name="slug" id="sp-slug" class="input text-sm" maxlength="60" placeholder="about-us">
+          <p class="text-xs text-gray-400 mt-1">Leave blank to auto-generate.</p>
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">Content</label>
+        <textarea name="body" id="sp-body" rows="8" class="input text-sm" maxlength="20000" placeholder="Write your page content here. Line breaks are preserved."></textarea>
+        <p class="text-xs text-gray-400 mt-1">Plain text only — formatting tags are shown as text, not applied.</p>
+      </div>
+      <div class="flex items-center gap-4">
+        <div>
+          <label class="block text-xs text-gray-600 mb-1">Order</label>
+          <input type="number" name="sort" id="sp-sort" value="0" min="0" max="9999" class="input text-sm w-24">
+        </div>
+        <label class="flex items-center gap-2 text-sm text-gray-700 mt-5">
+          <input type="hidden" name="published_submitted" value="1">
+          <input type="checkbox" name="published" id="sp-pub" value="1" checked class="rounded border-gray-300">
+          Published
+        </label>
+      </div>
+      <div class="flex items-center gap-2">
+        <button type="submit" class="btn secondary text-sm">Save page</button>
+        <button type="button" class="text-sm text-gray-500 hover:text-gray-700" @click="open = false">Cancel</button>
+      </div>
+    </form>
+  </div>
+
   <!-- Branded (built-in) address -->
   <div class="card p-5 space-y-2">
     <h2 class="text-sm font-semibold text-gray-800">Your branded address</h2>
@@ -165,3 +296,4 @@
     <?php endif; ?>
   </div>
 </div>
+<style>[x-cloak]{display:none!important}</style>

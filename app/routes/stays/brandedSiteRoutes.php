@@ -28,6 +28,8 @@ if (!function_exists('_branded_render_stay')) {
         $canBook = false;
         $publicBooking = true;             // tells the view to show "Book" links to /stay
         $stay['_slug'] = (string) ($stay['slug'] ?? '');
+        // Published custom pages (About/Contact/Policies/FAQ) — for the branded nav links.
+        $sitePages = function_exists('sitepages_list') ? sitepages_list($db, $stayId, true) : [];
 
         $title = ($stay['name'] ?? 'Property') . ' — Book direct';
         $description = (string) ($stay['desc'] ?? '');
@@ -55,6 +57,34 @@ $router->post('/stay-checkin/([A-Z0-9]{6,})', function ($invoiceId) use ($SECURE
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Error'];
     header('Location: ' . root . 'stay-checkin/' . rawurlencode($invoiceId));
     exit;
+});
+
+// Public branded CUSTOM PAGE: /book/{slug}/{page} — About / Contact / Policies / FAQ.
+// MUST be registered BEFORE the bare /book/{slug} route so the two-segment path matches
+// first. Only approved+live properties and PUBLISHED pages are served; content is emitted
+// through htmlspecialchars by the view (no supplier HTML).
+$router->get('/book/([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9-]*)', function ($slug, $pageSlug) use ($SECURE, $db) {
+    $stay = $db->get('stays', ['id', 'name', 'slug', 'desc'], ['slug' => $slug, 'status' => '1', 'listing_status' => 'approved']);
+    $page = ($stay && function_exists('sitepages_get'))
+        ? sitepages_get($db, (int) $stay['id'], $pageSlug, true)
+        : null;
+    if ($stay && $page) {
+        $stay['_slug'] = (string) ($stay['slug'] ?? '');
+        $site      = $db->get('stays_site', '*', ['stay_id' => (int) $stay['id']]);
+        $sitePages = function_exists('sitepages_list') ? sitepages_list($db, (int) $stay['id'], true) : [];
+        $title = (string) $page['title'] . ' — ' . (string) ($stay['name'] ?? '');
+        $description = '';
+        $header = true; $footer = true;
+        require_once views . "includes/header.php";
+        require_once views . "supplier/stays/branded-page.php";
+        require_once views . "includes/footer.php";
+        exit;
+    }
+    // Not found / not live → app 404.
+    http_response_code(404);
+    require_once views . "includes/header.php";
+    require_once views . "404.php";
+    require_once views . "includes/footer.php";
 });
 
 // Public branded page by SLUG: /book/{slug}

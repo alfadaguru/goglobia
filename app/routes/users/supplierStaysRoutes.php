@@ -1382,6 +1382,8 @@ $router->get('/supplier/stays/site/([0-9]+)', function ($id) use ($SECURE, $db) 
     }
 
     $brandedRoot = supplier_site_branded_root();
+    // Custom branded-site pages (About/Contact/Policies/FAQ…) — owner editor sees drafts too.
+    $sitePages = function_exists('sitepages_list') ? sitepages_list($db, (int) $id, false) : [];
     $title = 'Site & Domain';
     $description = '';
     $header = true; $footer = true;
@@ -1433,6 +1435,34 @@ $router->post('/supplier/stays/site-theme', function () use ($SECURE, $db) {
     if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('sitebuilder_save') && sitebuilder_save($db, $stayId, $_POST);
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Site design saved.' : 'Could not save.'];
+    header('Location: ' . $back); exit;
+});
+
+// POST /supplier/stays/site-page — create/update a custom branded-site page (MODULE 13).
+// Literal path (no numeric collision with /site/{id}); stay_id carried in the body.
+$router->post('/supplier/stays/site-page', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $back = root . 'supplier/stays/site/' . $stayId;
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $res = function_exists('sitepages_save')
+        ? sitepages_save($db, $stayId, $_POST)
+        : ['ok' => false, 'message' => 'Pages unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Error'];
+    header('Location: ' . $back); exit;
+});
+
+// POST /supplier/stays/site-page/delete — remove a custom page (scoped to the property).
+$router->post('/supplier/stays/site-page/delete', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $pageId = (int) ($_POST['page_id'] ?? 0);
+    $back = root . 'supplier/stays/site/' . $stayId;
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $ok = function_exists('sitepages_delete') && sitepages_delete($db, $stayId, $pageId);
+    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Page deleted.' : 'Could not delete.'];
     header('Location: ' . $back); exit;
 });
 

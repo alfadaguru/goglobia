@@ -91,6 +91,7 @@ require_once 'app/lib/supplier_chain.php';
 require_once 'app/lib/supplier_marketplace.php';
 require_once 'app/lib/supplier_channel.php';
 require_once 'app/lib/supplier_sitebuilder.php';
+require_once 'app/lib/supplier_sitepages.php'; // white-label supplier-authored custom pages
 require_once 'app/lib/supplier_site_host.php'; // white-label host serving + DNS verification
 require_once 'app/lib/supplier_image.php';     // GD resize + thumbnail for hotel uploads
 require_once 'app/lib/supplier_rms.php';

@@ -74,6 +74,23 @@
     </p>
   </div>
 
+  <?php
+    // Custom-page navigation — links to this property's branded pages (/book/{slug}/{page}).
+    // $sitePages is passed by the public + preview routes; empty on legacy callers.
+    $__pages = (isset($sitePages) && is_array($sitePages)) ? $sitePages : [];
+    $__bslug = trim((string) ($s['_slug'] ?? ($s['slug'] ?? '')));
+  ?>
+  <?php if (!empty($__pages) && $__bslug !== ''): ?>
+    <nav class="flex flex-wrap items-center gap-2 border-y border-gray-100 py-3">
+      <?php foreach ($__pages as $__p): ?>
+        <a href="<?= root ?>book/<?= htmlspecialchars($__bslug) ?>/<?= htmlspecialchars((string) $__p['slug']) ?>"
+           class="text-sm font-medium px-3 py-1 rounded-full border border-gray-200 text-gray-700 hover:border-gray-300 transition">
+          <?= htmlspecialchars((string) $__p['title']) ?>
+        </a>
+      <?php endforeach; ?>
+    </nav>
+  <?php endif; ?>
+
   <?php if (trim((string) ($theme['about'] ?? '')) !== ''): ?>
     <div class="card p-5">
       <h2 class="text-sm font-semibold text-gray-900 mb-2">About</h2>

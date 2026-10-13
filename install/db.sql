@@ -28536,6 +28536,27 @@ CREATE TABLE `stays_site` (
 -- --------------------------------------------------------
 
 --
+-- MODULE 13: supplier-authored custom pages for the branded site (About/Contact/
+-- Policies/FAQ). Rendered through htmlspecialchars by the public view (no raw HTML).
+--
+CREATE TABLE `stays_site_pages` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `stay_id` int(11) NOT NULL,
+  `slug` varchar(60) NOT NULL,
+  `title` varchar(160) NOT NULL,
+  `body` longtext DEFAULT NULL,
+  `sort` int(11) NOT NULL DEFAULT 0,
+  `published` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_stay_slug` (`stay_id`,`slug`),
+  KEY `idx_stay` (`stay_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- MODULE 12: per-property OTA channel mappings (push/pull is a stubbed adapter).
 --
 CREATE TABLE `stays_channel_map` (
