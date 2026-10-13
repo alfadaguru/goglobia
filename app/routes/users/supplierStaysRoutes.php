@@ -1635,3 +1635,55 @@ $router->post('/supplier/stays/floors/delete', function () use ($SECURE, $db) {
     $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Floor deleted (room links removed).' : 'Could not delete.'];
     header('Location: ' . $back); exit;
 });
+
+// GET /supplier/stays/booking-settings/{id} — Guest booking configuration page
+$router->get('/supplier/stays/booking-settings/([0-9]+)', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    
+    $stayId = (int) $id;
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'You do not have permission to edit this property'];
+        header('Location: ' . root . 'supplier/stays');
+        exit;
+    }
+    
+    $stay = $db->get('stays', ['id', 'name', 'slug'], ['id' => $stayId]);
+    if (!$stay) { header('Location: ' . root . 'supplier/stays'); exit; }
+    
+    $site = $db->get('stays_site', '*', ['stay_id' => $stayId]);
+    
+    $title = 'Guest Booking Settings';
+    $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/stays/booking-settings.php";
+    require_once views . "includes/footer.php";
+});
+
+// POST /supplier/stays/booking-settings-save — Save booking configuration
+$router->post('/supplier/stays/booking-settings-save', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    if ($stayId <= 0) { $_SESSION['message'] = ['type' => 'error', 'text' => 'Invalid property']; header('Location: ' . root . 'supplier/stays'); exit; }
+    
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Permission denied'];
+        header('Location: ' . root . 'supplier/stays');
+        exit;
+    }
+    
+    if (function_exists('booking_save_settings')) {
+        $success = booking_save_settings($db, $stayId, $_POST);
+        $_SESSION['message'] = $success ? 
+            ['type' => 'success', 'text' => 'Booking settings saved!'] :
+            ['type' => 'error', 'text' => 'Failed to save settings'];
+    }
+    
+    header('Location: ' . root . 'supplier/stays/booking-settings/' . $stayId);
+    exit;
+});
+

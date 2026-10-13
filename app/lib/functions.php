@@ -12675,3 +12675,91 @@ if (!function_exists('_reconcile_block')) {
         return ['ok' => false, 'reason' => $reason, 'paid' => $paid, 'supplier' => $supplier, 'delta_pct' => round($deltaPct, 2)];
     }
 }
+
+        // --- stays_guest_bookings: Store guest bookings without account requirement ----
+        if (!$db->query("SHOW TABLES LIKE 'stays_guest_bookings'")->fetch()) {
+            $db->query("CREATE TABLE IF NOT EXISTS `stays_guest_bookings` (
+                `id` INT(11) NOT NULL AUTO_INCREMENT,
+                `stay_id` INT(11) NOT NULL,
+                `booking_reference` VARCHAR(20) NOT NULL UNIQUE,
+                `guest_first_name` VARCHAR(100) NOT NULL,
+                `guest_last_name` VARCHAR(100) NOT NULL,
+                `guest_email` VARCHAR(120) NOT NULL,
+                `guest_phone` VARCHAR(20),
+                `checkin_date` DATE NOT NULL,
+                `checkout_date` DATE NOT NULL,
+                `num_adults` INT(2) DEFAULT 1,
+                `num_children` INT(2) DEFAULT 0,
+                `room_id` INT(11),
+                `rate_option_id` INT(11),
+                `total_price` DECIMAL(14,2) NOT NULL,
+                `currency` VARCHAR(3) DEFAULT 'USD',
+                `special_requests` TEXT,
+                `payment_status` ENUM('pending','completed','failed','refunded') DEFAULT 'pending',
+                `payment_id` VARCHAR(255),
+                `booking_status` ENUM('confirmed','cancelled','pending','modified') DEFAULT 'confirmed',
+                `cancellation_reason` VARCHAR(255),
+                `cancellation_refund_amount` DECIMAL(14,2),
+                `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` DATETIME DEFAULT NULL,
+                `cancelled_at` DATETIME DEFAULT NULL,
+                `last_modified_at` DATETIME DEFAULT NULL,
+                `last_retrieved_at` DATETIME DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_booking_ref` (`booking_reference`),
+                KEY `idx_stay_id` (`stay_id`),
+                KEY `idx_guest_email` (`guest_email`),
+                KEY `idx_status` (`booking_status`),
+                KEY `idx_created` (`created_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        }
+
+        // --- stays_booking_otps: OTP tokens for guest booking retrieval ----
+        if (!$db->query("SHOW TABLES LIKE 'stays_booking_otps'")->fetch()) {
+            $db->query("CREATE TABLE IF NOT EXISTS `stays_booking_otps` (
+                `id` INT(11) NOT NULL AUTO_INCREMENT,
+                `booking_id` INT(11) NOT NULL,
+                `guest_email` VARCHAR(120) NOT NULL,
+                `otp_token` VARCHAR(6) NOT NULL,
+                `otp_attempts` INT(2) DEFAULT 0,
+                `otp_sent_at` DATETIME NOT NULL,
+                `otp_expires_at` DATETIME NOT NULL,
+                `otp_verified_at` DATETIME DEFAULT NULL,
+                `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                KEY `idx_booking` (`booking_id`),
+                KEY `idx_email` (`guest_email`),
+                KEY `idx_expires` (`otp_expires_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        }
+
+        // --- stays.booking_settings: Configuration for booking system per hotel ----
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'booking_settings'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `booking_settings` LONGTEXT DEFAULT NULL AFTER `gallery_style`");
+        }
+
+        // --- stays.allow_guest_bookings: Enable/disable guest bookings for this hotel ----
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'allow_guest_bookings'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `allow_guest_bookings` TINYINT(1) NOT NULL DEFAULT 1 AFTER `booking_settings`");
+        }
+
+        // --- stays.guest_contact_email: Where to send booking confirmations ----
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'guest_contact_email'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `guest_contact_email` VARCHAR(120) DEFAULT NULL AFTER `allow_guest_bookings`");
+        }
+
+        // --- stays.guest_contact_phone: Phone shown to guests for booking changes ----
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'guest_contact_phone'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `guest_contact_phone` VARCHAR(20) DEFAULT NULL AFTER `guest_contact_email`");
+        }
+
+        // --- stays.checkin_instructions: What to show guests for check-in ----
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'checkin_instructions'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `checkin_instructions` LONGTEXT DEFAULT NULL AFTER `guest_contact_phone`");
+        }
+
+        // --- stays.cancellation_policy_text: Custom cancellation policy ----
+        if (!$db->query("SHOW COLUMNS FROM `stays` LIKE 'cancellation_policy_text'")->fetch()) {
+            $db->query("ALTER TABLE `stays` ADD COLUMN `cancellation_policy_text` LONGTEXT DEFAULT NULL AFTER `checkin_instructions`");
+        }
+
