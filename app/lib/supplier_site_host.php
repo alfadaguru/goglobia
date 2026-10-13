@@ -211,6 +211,106 @@ if (!function_exists('supplier_site_verify_domain')) {
 // probes real HTTPS on the domain and flips verified→active.
 // ============================================================================
 
+if (!function_exists('stays_unique_slug')) {
+    /**
+     * Build a URL slug for a property that is UNIQUE across stays.slug. Base is the name
+     * lowercased/hyphenated (same transform the create/edit paths used); on collision a
+     * numeric suffix is appended (-2, -3, …). $excludeStayId is the row being edited, so a
+     * property keeps its slug on a no-op rename instead of bumping itself to -2.
+     *
+     * Why this matters: without it two hotels named the same thing both resolve to the
+     * same /book/{slug} and the same <slug>.<root> hostname — a cross-tenant content leak
+     * and a UNIQUE(hostname) insert failure. This closes that at the source (the slug).
+     */
+    function stays_unique_slug($db, string $name, ?int $excludeStayId = null): string
+    {
+        $base = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $name)));
+        $base = trim($base, '-');
+        if ($base === '') { $base = 'property'; }
+        // Cap so "<slug>.<root>" stays inside the hostname/VARCHAR limits.
+        if (strlen($base) > 150) { $base = rtrim(substr($base, 0, 150), '-'); }
+
+        $slug = $base;
+        $n = 1;
+        try {
+            while (true) {
+                $where = ['slug' => $slug];
+                if ($excludeStayId !== null && $excludeStayId > 0) { $where['id[!]'] = $excludeStayId; }
+                if (!$db->has('stays', $where)) { break; }
+                $n++;
+                $slug = $base . '-' . $n;
+                if ($n > 1000) { $slug = $base . '-' . bin2hex(random_bytes(3)); break; } // pathological guard
+            }
+        } catch (\Throwable $e) {
+            error_log('stays_unique_slug: ' . $e->getMessage());
+            // On a lookup failure, fall back to a collision-proof suffix rather than risk a dup.
+            $slug = $base . '-' . bin2hex(random_bytes(3));
+        }
+        return $slug;
+    }
+}
+
+if (!function_exists('supplier_site_sync_hostname')) {
+    /**
+     * Keep stays_site.hostname in lockstep with the property's current slug — so a RENAME
+     * re-points the branded <slug>.<root> address instead of leaving a stale host that
+     * still resolves to this property (and a new slug that resolves to nothing).
+     *
+     * Rules:
+     *   - No branded root configured → nothing to do (feature off).
+     *   - Desired host = '<slug>.<root>'. If it already matches the stored hostname → no-op.
+     *   - If the desired host is taken by ANOTHER stay (shouldn't happen once slugs are
+     *     unique, but defend anyway) → append a short suffix so uq_hostname never collides.
+     *   - Upserts the stays_site row if absent. Custom-domain fields are untouched.
+     *   - Never throws (bootstrap/edit paths must not fatal on a hostname hiccup).
+     * Returns the hostname now stored (or '' if the feature is off / on error).
+     */
+    function supplier_site_sync_hostname($db, int $stayId, string $slug): string
+    {
+        if ($stayId <= 0) { return ''; }
+        if (!function_exists('supplier_site_default_hostname')) { return ''; }
+        $desired = supplier_site_default_hostname($slug);
+        if ($desired === '') { return ''; } // no branded root → feature inert
+
+        try {
+            $existing = $db->get('stays_site', ['stay_id', 'hostname'], ['stay_id' => $stayId]);
+            $currentHost = $existing ? strtolower((string) ($existing['hostname'] ?? '')) : '';
+
+            if ($currentHost === $desired) { return $desired; } // already correct
+
+            // Ensure the desired host isn't owned by a different property (uq_hostname).
+            $host = $desired;
+            $owner = $db->get('stays_site', ['stay_id'], ['hostname' => $host]);
+            if ($owner && (int) $owner['stay_id'] !== $stayId) {
+                // Collision with another tenant — suffix until free (bounded).
+                $root = function_exists('supplier_site_branded_root') ? supplier_site_branded_root() : '';
+                $label = $root !== '' && substr($desired, -strlen($root) - 1) === '.' . $root
+                    ? substr($desired, 0, -strlen($root) - 1) : $desired;
+                for ($i = 2; $i <= 1000; $i++) {
+                    $cand = $label . '-' . $i . ($root !== '' ? '.' . $root : '');
+                    $taken = $db->get('stays_site', ['stay_id'], ['hostname' => $cand]);
+                    if (!$taken || (int) $taken['stay_id'] === $stayId) { $host = $cand; break; }
+                }
+            }
+
+            if ($existing) {
+                $db->update('stays_site', ['hostname' => $host, 'updated_at' => date('Y-m-d H:i:s')], ['stay_id' => $stayId]);
+            } else {
+                $db->insert('stays_site', [
+                    'stay_id'       => $stayId,
+                    'hostname'      => $host,
+                    'domain_status' => 'none',
+                    'created_at'    => date('Y-m-d H:i:s'),
+                ]);
+            }
+            return $host;
+        } catch (\Throwable $e) {
+            error_log('supplier_site_sync_hostname: ' . $e->getMessage());
+            return '';
+        }
+    }
+}
+
 if (!function_exists('supplier_site_tls_authorize')) {
     /**
      * TLS on-demand authorization for the edge proxy. Returns TRUE iff $host is a host we

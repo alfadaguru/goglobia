@@ -374,7 +374,11 @@ $router->post('/supplier/stays/add', function () use ($SECURE, $db) {
     }
     $images = $gallery['images'];
 
-    $slug = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $name)));
+    // UNIQUE slug across all stays — two same-named hotels must not share a slug (that
+    // would collide their /book/{slug} page and their <slug>.<root> branded hostname).
+    $slug = function_exists('stays_unique_slug')
+        ? stays_unique_slug($db, $name, null)
+        : strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $name)));
     $lat = trim($_POST['latitude'] ?? ''); $lng = trim($_POST['longitude'] ?? '');
 
     // Hierarchy seam (inc S14): ensure the owner's org exists and stamp it on the new
@@ -641,13 +645,18 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
     // NOTE: user_id is NOT in the update set — ownership can never be reassigned
     // by a supplier. A material edit could reset listing_status to 'submitted'
     // for re-review; Phase-1 keeps the existing listing_status (approval in inc 7).
+    // UNIQUE slug across stays, excluding THIS property (a no-op rename keeps its slug;
+    // a rename that collides with another hotel gets a -2 suffix instead of clashing).
+    $newSlug = function_exists('stays_unique_slug')
+        ? stays_unique_slug($db, $name, (int) $id)
+        : strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $name)));
     $data = [
         'name'            => $name,
         'accommodation_type' => $accType,
         'cleaning_fee'    => ($_POST['cleaning_fee'] ?? '') !== '' ? max(0, round((float) $_POST['cleaning_fee'], 2)) : null,
         'security_deposit'=> ($_POST['security_deposit'] ?? '') !== '' ? max(0, round((float) $_POST['security_deposit'], 2)) : null,
         'desc'            => trim($_POST['description'] ?? '') ?: null,
-        'slug'            => strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $name))),
+        'slug'            => $newSlug,
         'location'        => $location,
         'location_coords' => ($lat !== '' && $lng !== '') ? ($lat . ',' . $lng) : null,
         'address'         => trim($_POST['address'] ?? ''),
@@ -685,6 +694,12 @@ $router->post('/supplier/stays/edit/([0-9]+)', function ($id) use ($SECURE, $db)
     try {
         // Scope the UPDATE by both id AND owner — defense in depth behind supplier_can.
         $db->update('stays', $data, ['id' => (int) $id, 'user_id' => $owner]);
+        // Keep the branded <slug>.<root> hostname in lockstep with the (possibly renamed)
+        // slug — otherwise the old host keeps resolving to this property and the new slug
+        // resolves to nothing. No-op when the slug/host is unchanged or the feature is off.
+        if (function_exists('supplier_site_sync_hostname')) {
+            supplier_site_sync_hostname($db, (int) $id, $newSlug);
+        }
         if (!empty($uploadErrors)) {
             // Text/deletes saved, but some uploads were rejected — say both, clearly.
             $_SESSION['message'] = ['type' => 'error', 'text' => 'Property saved, but some images were not added: ' . implode(' ', $uploadErrors)];
@@ -1365,21 +1380,13 @@ $router->get('/supplier/stays/site/([0-9]+)', function ($id) use ($SECURE, $db) 
     $stay = $db->get('stays', ['id', 'name', 'slug'], ['id' => (int) $id]);
     if (!$stay) { _supplier_stays_deny('Property not found.'); }
 
-    // Ensure a stays_site row exists with a default branded hostname (if a branded
-    // root is configured). Idempotent.
-    $site = $db->get('stays_site', '*', ['stay_id' => (int) $id]);
-    $defaultHost = supplier_site_default_hostname((string) ($stay['slug'] ?? ''));
-    if (!$site) {
-        try {
-            $db->insert('stays_site', [
-                'stay_id'   => (int) $id,
-                'hostname'  => $defaultHost !== '' ? $defaultHost : null,
-                'domain_status' => 'none',
-                'created_at' => date('Y-m-d H:i:s'),
-            ]);
-        } catch (\Throwable $e) { error_log('supplier stays site create: ' . $e->getMessage()); }
-        $site = $db->get('stays_site', '*', ['stay_id' => (int) $id]);
+    // Ensure a stays_site row exists AND its branded <slug>.<root> hostname matches the
+    // current slug (collision-safe, self-healing). Also repairs any row whose hostname
+    // drifted from the slug before this sync existed. Custom-domain fields are untouched.
+    if (function_exists('supplier_site_sync_hostname')) {
+        supplier_site_sync_hostname($db, (int) $id, (string) ($stay['slug'] ?? ''));
     }
+    $site = $db->get('stays_site', '*', ['stay_id' => (int) $id]);
 
     $brandedRoot = supplier_site_branded_root();
     // Custom branded-site pages (About/Contact/Policies/FAQ…) — owner editor sees drafts too.
