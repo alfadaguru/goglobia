@@ -156,8 +156,11 @@ $router->post(admin.'/stays/add', function () use ($SECURE,$db) {
         // error_log("Hotel Add - No files uploaded");
     }
 
-    // CREATE SLUG FROM NAME
-    $slug = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $name)));
+    // CREATE SLUG FROM NAME — unique across stays (a shared slug collides the public
+    // /book/{slug} page and the <slug>.<root> branded hostname). New row → no exclude.
+    $slug = function_exists('stays_unique_slug')
+        ? stays_unique_slug($db, $name, null)
+        : strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $name)));
 
     // CREATE LOCATION COORDINATES STRING
     $location_coords = '';
@@ -591,8 +594,11 @@ $router->post(admin.'/stays/edit/(.*)', function ($id) use ($SECURE,$db) {
         unset($img);
     }
 
-    // CREATE SLUG FROM NAME
-    $slug = strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $name)));
+    // CREATE SLUG FROM NAME — unique across stays, excluding THIS hotel (a no-op rename
+    // keeps its slug; a collision with another property gets a -2 suffix).
+    $slug = function_exists('stays_unique_slug')
+        ? stays_unique_slug($db, $name, $hotel_id)
+        : strtolower(trim(preg_replace('/[^A-Za-z0-9-]+/', '-', $name)));
 
     // CREATE LOCATION COORDINATES STRING
     $location_coords = '';
