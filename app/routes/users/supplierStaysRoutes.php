@@ -1573,7 +1573,34 @@ $router->post('/supplier/stays/site/([0-9]+)/verify-domain', function ($id) use 
     $res = function_exists('supplier_site_verify_domain')
         ? supplier_site_verify_domain($db, (int) $id, $operatorIp)
         : ['ok' => false, 'message' => 'Verification unavailable.'];
+    // If DNS just verified, opportunistically probe HTTPS — the edge may already have a
+    // cert (a first visit triggers on-demand issuance). If live, this flips verified→active
+    // in one step so the supplier sees "Live" without a second button press.
+    if (!empty($res['ok']) && ($res['status'] ?? '') === 'verified' && function_exists('supplier_site_activate_domain')) {
+        $act = supplier_site_activate_domain($db, (int) $id);
+        if (!empty($act['ok']) && ($act['status'] ?? '') === 'active') {
+            $res = $act;
+        }
+    }
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not verify.'];
+    header('Location: ' . $back);
+    exit;
+});
+
+// POST /supplier/stays/site/{id}/activate-domain — probe real HTTPS and flip
+// verified→active once the edge's certificate is live. Polling-friendly (idempotent).
+$router->post('/supplier/stays/site/([0-9]+)/activate-domain', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'hotels', 'edit', (int) $id)) { _supplier_stays_deny('That property is not yours.'); }
+    $back = root . 'supplier/stays/site/' . (int) $id;
+
+    $res = function_exists('supplier_site_activate_domain')
+        ? supplier_site_activate_domain($db, (int) $id)
+        : ['ok' => false, 'message' => 'Activation unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not activate.'];
     header('Location: ' . $back);
     exit;
 });

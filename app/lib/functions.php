@@ -10918,6 +10918,11 @@ function userRestrictionAllowedSegments(): array
         // Crawler / scheduled endpoints
         'sitemap.xml', 'robots.txt',
         'send_credits_reminders', 'update_currency_rates',
+        // White-label: the public branded booking pages (/book/{slug}) and the
+        // anonymous TLS on-demand authorization endpoint the edge proxy calls
+        // (/tls/authorize) must stay reachable without a login, or custom-domain
+        // sites and their HTTPS issuance would break when guest-lockout is on.
+        'book', 'tls',
     ];
 }
 

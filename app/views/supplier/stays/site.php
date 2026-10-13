@@ -286,9 +286,14 @@
           </form>
           <p class="text-xs text-gray-400">DNS changes can take a few minutes to propagate. Once verified, the platform issues the HTTPS certificate and your domain goes live.</p>
         <?php elseif ($status === 'verified'): ?>
-          <p class="text-sm text-blue-700">DNS verified ✓ — your domain is live at
+          <p class="text-sm text-blue-700">DNS verified ✓ — your domain already serves your page at
             <a href="http://<?= htmlspecialchars($custom) ?>" target="_blank" rel="noopener" class="underline">http://<?= htmlspecialchars($custom) ?></a>.
-            HTTPS turns on automatically once the platform issues its certificate.</p>
+            HTTPS turns on automatically the first time the domain is visited over <code>https://</code>; it usually takes under a minute.</p>
+          <form action="<?= root ?>supplier/stays/site/<?= (int) ($stay['id'] ?? 0) ?>/activate-domain" method="POST" class="pt-1">
+            <?= CSRF::tokenField() ?>
+            <button type="submit" class="btn secondary text-sm">Check HTTPS &amp; go live</button>
+          </form>
+          <p class="text-xs text-gray-400">Tip: open <a href="https://<?= htmlspecialchars($custom) ?>" target="_blank" rel="noopener" class="underline">https://<?= htmlspecialchars($custom) ?></a> once to trigger certificate issuance, then click the button.</p>
         <?php elseif ($status === 'active'): ?>
           <p class="text-sm text-green-700">Live ✓ — <a href="https://<?= htmlspecialchars($custom) ?>" target="_blank" rel="noopener" class="underline">https://<?= htmlspecialchars($custom) ?></a></p>
         <?php endif; ?>

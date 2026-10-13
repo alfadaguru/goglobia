@@ -197,3 +197,128 @@ if (!function_exists('supplier_site_verify_domain')) {
                 . '. DNS can take a few minutes to update; try again shortly.'];
     }
 }
+
+// ============================================================================
+// TLS EDGE STEP — automatic HTTPS for custom domains.
+//
+// PHP on shared hosting cannot mint TLS certificates itself. The edge that CAN is a
+// reverse proxy with ACME + On-Demand TLS — the committed deploy/Caddyfile does exactly
+// this. Caddy, before issuing a Let's Encrypt cert for an inbound Host it has never seen,
+// calls an AUTHORIZATION endpoint on this app (Caddy's `on_demand_tls { ask }`). We answer
+// 200 only for hosts that are genuine, DNS-verified tenants — so Caddy will only ever
+// request certs for domains we actually serve (an open on-demand issuer is a DoS/abuse
+// risk, which the ask-endpoint closes). Once the cert is live, supplier_site_activate_domain
+// probes real HTTPS on the domain and flips verified→active.
+// ============================================================================
+
+if (!function_exists('supplier_site_tls_authorize')) {
+    /**
+     * TLS on-demand authorization for the edge proxy. Returns TRUE iff $host is a host we
+     * are willing to have a certificate issued for: an approved+live tenant's AUTO branded
+     * subdomain, OR a custom domain whose DNS is already verified/active. Everything else
+     * (primary host, unknown host, pending/none custom domains) returns FALSE so the edge
+     * refuses to attempt issuance.
+     */
+    function supplier_site_tls_authorize($db, string $host): bool
+    {
+        $host = strtolower(trim($host));
+        if ($host === '') { return false; }
+        $host = explode(':', $host)[0];
+        $host = preg_replace('/^www\./', '', $host);
+        if ($host === '') { return false; }
+
+        // The primary site host is served by its own (operator-managed) cert — never issue
+        // an on-demand cert for it here.
+        if (function_exists('supplier_site_primary_host')) {
+            $primary = supplier_site_primary_host();
+            if ($primary !== '' && $host === $primary) { return false; }
+        }
+
+        // Must resolve to an approved+live tenant. stays_site_resolve_host already restricts
+        // custom domains to domain_status IN ('verified','active'); for the branded subdomain
+        // it matches the stored hostname. We additionally require the stay to be live.
+        if (!function_exists('stays_site_resolve_host')) { return false; }
+        $stayId = stays_site_resolve_host($db, $host);
+        if ($stayId === null || $stayId <= 0) { return false; }
+
+        try {
+            $live = $db->get('stays', ['id'], ['id' => $stayId, 'status' => '1', 'listing_status' => 'approved']);
+            return (bool) $live;
+        } catch (\Throwable $e) {
+            error_log('supplier_site_tls_authorize: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
+if (!function_exists('supplier_site_https_live')) {
+    /**
+     * Probe whether $domain actually serves over HTTPS with a currently-valid certificate.
+     * Uses a short, verifying TLS connection (peer cert must validate against the system CA
+     * bundle — a self-signed/expired cert fails). Returns TRUE only on a clean TLS handshake.
+     * Network-dependent and deliberately cheap (no body fetch). Never throws.
+     */
+    function supplier_site_https_live(string $domain): bool
+    {
+        $domain = strtolower(trim($domain));
+        if ($domain === '' || !preg_match('/^(?=.{1,253}$)([a-z0-9](-?[a-z0-9])*\.)+[a-z]{2,}$/', $domain)) {
+            return false;
+        }
+        // Prefer a verifying TLS stream (proves a real, CA-trusted cert — i.e. ACME succeeded).
+        $ctx = stream_context_create(['ssl' => [
+            'verify_peer' => true,
+            'verify_peer_name' => true,
+            'SNI_enabled' => true,
+            'peer_name' => $domain,
+            'capture_peer_cert' => true,
+        ]]);
+        $errno = 0; $errstr = '';
+        $fp = @stream_socket_client('ssl://' . $domain . ':443', $errno, $errstr, 6,
+            STREAM_CLIENT_CONNECT, $ctx);
+        if ($fp) {
+            $params = @stream_context_get_params($fp);
+            @fclose($fp);
+            // A verifying handshake that returns a peer cert is proof of live, trusted HTTPS.
+            if (!empty($params['options']['ssl']['peer_certificate'])) { return true; }
+        }
+        return false;
+    }
+}
+
+if (!function_exists('supplier_site_activate_domain')) {
+    /**
+     * Promote a custom domain verified→active once real, CA-trusted HTTPS is live on it
+     * (the edge has obtained its certificate). Only transitions from 'verified' (DNS proven)
+     * — never fabricates 'active' without an actual TLS probe. Returns
+     * ['ok'=>bool,'status'=>string,'message'=>string]. Safe to call repeatedly (polling).
+     */
+    function supplier_site_activate_domain($db, int $stayId): array
+    {
+        try {
+            $site = $db->get('stays_site', ['custom_domain', 'domain_status'], ['stay_id' => $stayId]);
+        } catch (\Throwable $e) { return ['ok' => false, 'status' => 'none', 'message' => 'Lookup failed.']; }
+        if (!$site || empty($site['custom_domain'])) {
+            return ['ok' => false, 'status' => 'none', 'message' => 'No custom domain on file.'];
+        }
+        $domain = (string) $site['custom_domain'];
+        $status = (string) ($site['domain_status'] ?? 'none');
+
+        if ($status === 'active') {
+            return ['ok' => true, 'status' => 'active', 'message' => 'Already live over HTTPS.'];
+        }
+        if ($status !== 'verified') {
+            return ['ok' => false, 'status' => $status,
+                'message' => 'Verify your DNS first — HTTPS activates after that.'];
+        }
+        if (supplier_site_https_live($domain)) {
+            try {
+                $db->update('stays_site', ['domain_status' => 'active', 'updated_at' => date('Y-m-d H:i:s')], ['stay_id' => $stayId]);
+            } catch (\Throwable $e) { error_log('supplier_site_activate_domain update: ' . $e->getMessage()); }
+            return ['ok' => true, 'status' => 'active',
+                'message' => 'Your custom domain is live over HTTPS.'];
+        }
+        return ['ok' => false, 'status' => 'verified',
+            'message' => 'DNS is verified; the HTTPS certificate is still being issued. '
+                . 'This is automatic and usually completes within a minute of the first visit — try again shortly.'];
+    }
+}

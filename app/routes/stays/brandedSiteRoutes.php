@@ -41,6 +41,22 @@ if (!function_exists('_branded_render_stay')) {
     }
 }
 
+// TLS ON-DEMAND AUTHORIZATION for the edge proxy (Caddy `on_demand_tls { ask }`).
+// PUBLIC + unauthenticated by design — the edge has no session; it calls this BEFORE a TLS
+// handshake to decide whether to obtain a Let's Encrypt cert for the inbound Host. We reply
+// 200 only for hosts that are genuine, DNS-verified, approved+live tenants (so the edge
+// never issues certs for domains we don't serve — closing the open-issuer abuse vector).
+// Any other host → 404, which tells Caddy "do not issue". Responds to GET and HEAD.
+$router->get('/tls/authorize', function () use ($SECURE, $db) {
+    $host = (string) ($_GET['domain'] ?? '');
+    $ok = function_exists('supplier_site_tls_authorize') && supplier_site_tls_authorize($db, $host);
+    http_response_code($ok ? 200 : 404);
+    header('Content-Type: text/plain; charset=utf-8');
+    header('Cache-Control: no-store');
+    echo $ok ? 'ok' : 'no';
+    exit;
+});
+
 // ONLINE CHECK-IN (#20 digital guest journey): /stay-checkin/{invoice}
 // Guest-facing; identity proven by the invoice id (same trust model as the invoice page).
 $router->get('/stay-checkin/([A-Z0-9]{6,})', function ($invoiceId) use ($SECURE, $db) {
