@@ -49,6 +49,28 @@
         <div><label class="block text-xs text-gray-600 mb-1">Analytics ID</label><input type="text" name="analytics_id" value="<?= htmlspecialchars((string) ($theme['analytics_id'] ?? '')) ?>" class="input text-sm" placeholder="G-XXXXXXX / UA-…"></div>
       </div>
       <div><label class="block text-xs text-gray-600 mb-1">SEO description</label><input type="text" name="meta_desc" value="<?= htmlspecialchars((string) ($theme['meta_desc'] ?? '')) ?>" class="input text-sm"></div>
+
+      <!-- Social links (shown in your site footer). Paste full URLs; blanks are ignored. -->
+      <?php
+        $socialPlatforms = function_exists('sitebuilder_social_platforms') ? sitebuilder_social_platforms() : [];
+        $socialVals = (isset($theme['social']) && is_array($theme['social'])) ? $theme['social'] : [];
+      ?>
+      <?php if (!empty($socialPlatforms)): ?>
+      <div>
+        <label class="block text-xs font-medium text-gray-700 mb-1">Social links</label>
+        <p class="text-xs text-gray-500 mb-2">Shown in your website footer. Paste the full URL (e.g. <code>https://instagram.com/yourhotel</code>). Leave blank to hide.</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <?php foreach ($socialPlatforms as $key => $label): ?>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-gray-500 w-20 flex-none"><?= htmlspecialchars($label) ?></span>
+              <input type="url" name="social[<?= htmlspecialchars($key) ?>]" value="<?= htmlspecialchars((string) ($socialVals[$key] ?? '')) ?>"
+                     class="input text-sm flex-1" placeholder="https://…">
+            </div>
+          <?php endforeach; ?>
+        </div>
+      </div>
+      <?php endif; ?>
+
       <button type="submit" class="btn secondary text-sm">Save design</button>
     </form>
   </div>
