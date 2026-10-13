@@ -207,20 +207,25 @@
   </div>
 
   <!-- Branded (built-in) address -->
+  <?php $slug = (string) ($stay['slug'] ?? ''); $isLive = (int) ($stay['status'] ?? 0) === 1 && (string) ($stay['listing_status'] ?? '') === 'approved'; ?>
   <div class="card p-5 space-y-2">
     <h2 class="text-sm font-semibold text-gray-800">Your branded address</h2>
     <?php if ($hostname !== ''): ?>
       <div class="flex items-center gap-2">
-        <span class="material-symbols-outlined text-violet-600">public</span>
+        <span class="material-symbols-outlined <?= $isLive ? 'text-violet-600' : 'text-gray-400' ?>">public</span>
         <code class="text-sm bg-gray-50 border border-gray-200 rounded px-2 py-1"><?= htmlspecialchars($hostname) ?></code>
+        <span class="px-2 py-0.5 rounded text-xs font-medium <?= $isLive ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500' ?>"><?= $isLive ? 'Live' : 'Not live yet' ?></span>
       </div>
-      <p class="text-xs text-gray-500">This address is created for you automatically.</p>
+      <p class="text-xs <?= $isLive ? 'text-gray-500' : 'text-amber-700' ?>">
+        <?= $isLive
+          ? 'Your branded subdomain. It resolves once your domain’s DNS is pointed at the platform (your administrator sets this up once for all hotels).'
+          : 'This subdomain is reserved for you, but goes live only after the property is approved and switched on — and once the platform’s DNS is configured. Until then, use the Preview link below.' ?>
+      </p>
     <?php else: ?>
       <p class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
         A branded address isn't configured yet. The administrator needs to set the platform's branded domain in Settings before per-property addresses are issued.
       </p>
     <?php endif; ?>
-    <?php $slug = (string) ($stay['slug'] ?? ''); $isLive = (int) ($stay['status'] ?? 0) === 1 && (string) ($stay['listing_status'] ?? '') === 'approved'; ?>
     <?php if ($slug !== ''): ?>
       <div class="flex items-center gap-2 pt-1">
         <span class="material-symbols-outlined text-violet-600">link</span>
