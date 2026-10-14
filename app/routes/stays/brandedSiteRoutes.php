@@ -40,6 +40,10 @@ if (!function_exists('_branded_render_stay')) {
             unset($__r);
         }
         $site = $db->get('stays_site', '*', ['stay_id' => $stayId]);
+        // TENANT CHROME (Phase 1): tell header.php/footer.php they are rendering a hotel's
+        // OWN white-label site, so they show the hotel's identity and suppress platform
+        // chrome (services nav, platform logo/name, cart, account, legal, Pusher, etc).
+        if (function_exists('wl_set_tenant_context')) { wl_set_tenant_context($db, $stay, $site); }
         // Public page: no inline desk booking. Room cards link to the main booking flow.
         $canBook = false;
         $publicBooking = true;             // tells the view to show "Book" links to /stay
@@ -106,6 +110,7 @@ $router->get('/book/([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9-]*)', function ($slug,
     if ($stay && $wlOk && $page) {
         $stay['_slug'] = (string) ($stay['slug'] ?? '');
         $site      = $db->get('stays_site', '*', ['stay_id' => (int) $stay['id']]);
+        if (function_exists('wl_set_tenant_context')) { wl_set_tenant_context($db, $stay, $site); }
         $sitePages = function_exists('sitepages_list') ? sitepages_list($db, (int) $stay['id'], true) : [];
         $title = (string) $page['title'] . ' — ' . (string) ($stay['name'] ?? '');
         $description = '';

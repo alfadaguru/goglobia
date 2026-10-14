@@ -33,6 +33,51 @@ $footer_menus = array_values(array_filter(array_map(
      ============================================================================ -->
 
     <footer class="w-full border-t" style="background-color: var(--footer-background); border-color: var(--footer-border-color);">
+    <?php
+      // WHITE-LABEL (Phase 1): on a hotel's own site, render a COMPACT HOTEL footer
+      // (hotel name, its own contact + socials, hotel copyright) and suppress the entire
+      // platform footer (platform logo/name, services columns, CMS menus, platform
+      // contact/socials, platform legal links, "Built with ♥ by GoGlobia.com").
+      $__wlFoot = function_exists('wl_is_tenant') && wl_is_tenant();
+    ?>
+    <?php if ($__wlFoot):
+      $__wlStay  = (array) wl_tenant('stay');
+      $__wlTheme = (array) wl_tenant('theme');
+      $__wlName  = (string) wl_tenant('name');
+      $__wlPhone = trim((string) ($__wlStay['phone'] ?? ''));
+      $__wlEmail = trim((string) ($__wlStay['email'] ?? ''));
+      $__wlAddr  = trim((string) ($__wlStay['address'] ?? ''));
+      $__wlWeb   = trim((string) ($__wlStay['website'] ?? ''));
+      $__wlSocial = (isset($__wlTheme['social']) && is_array($__wlTheme['social'])) ? $__wlTheme['social'] : [];
+      $__wlSocLabels = function_exists('sitebuilder_social_platforms') ? sitebuilder_social_platforms() : [];
+    ?>
+      <div class="container mx-auto px-4 py-10">
+        <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-6">
+          <div class="max-w-md">
+            <div class="text-lg font-bold text-gray-900"><?= htmlspecialchars($__wlName) ?: 'Our hotel' ?></div>
+            <?php if ($__wlAddr !== ''): ?><p class="text-sm text-gray-600 mt-1"><?= htmlspecialchars($__wlAddr) ?></p><?php endif; ?>
+            <div class="mt-3 flex flex-col gap-1 text-sm">
+              <?php if ($__wlPhone !== ''): ?><a href="tel:<?= htmlspecialchars(preg_replace('/[^0-9+]/', '', $__wlPhone)) ?>" class="text-gray-700 hover:underline"><?= htmlspecialchars($__wlPhone) ?></a><?php endif; ?>
+              <?php if ($__wlEmail !== ''): ?><a href="mailto:<?= htmlspecialchars($__wlEmail) ?>" class="text-gray-700 hover:underline"><?= htmlspecialchars($__wlEmail) ?></a><?php endif; ?>
+              <?php if ($__wlWeb !== ''): ?><a href="<?= htmlspecialchars((strpos($__wlWeb, 'http') === 0 ? $__wlWeb : 'https://' . $__wlWeb)) ?>" target="_blank" rel="noopener" class="text-gray-700 hover:underline"><?= htmlspecialchars($__wlWeb) ?></a><?php endif; ?>
+            </div>
+          </div>
+          <?php if (!empty($__wlSocial)): ?>
+          <div class="flex flex-wrap items-center gap-2">
+            <?php foreach ($__wlSocial as $__k => $__url): ?>
+              <a href="<?= htmlspecialchars((string) $__url) ?>" target="_blank" rel="noopener"
+                 class="text-sm px-3 py-1 rounded-full border border-gray-200 text-gray-700 hover:border-gray-300 transition">
+                <?= htmlspecialchars($__wlSocLabels[$__k] ?? ucfirst((string) $__k)) ?>
+              </a>
+            <?php endforeach; ?>
+          </div>
+          <?php endif; ?>
+        </div>
+        <div class="mt-8 pt-5 border-t border-gray-100 text-xs text-gray-500">
+          &copy; <?= date('Y') ?> <?= htmlspecialchars($__wlName) ?: 'This hotel' ?>. All rights reserved.
+        </div>
+      </div>
+    <?php else: ?>
 
             <!-- ================================================================
          MAIN FOOTER CONTENT SECTION
@@ -406,10 +451,16 @@ $footer_menus = array_values(array_filter(array_map(
                 })();
             </script>
 
+    <?php endif; /* $__wlFoot */ ?>
         </footer>
 <?php } ?>
 
-<?php if (isset($_SESSION['user_id']) && !empty($_SESSION['user_id'])): ?>
+<?php
+  // Platform Pusher notifications use a HARDCODED platform key and are a logged-in platform
+  // feature — never load them on a hotel's own white-label site (privacy + brand isolation).
+  $__wlFootScripts = function_exists('wl_is_tenant') && wl_is_tenant();
+?>
+<?php if (!$__wlFootScripts && isset($_SESSION['user_id']) && !empty($_SESSION['user_id'])): ?>
         <script defer src="https://js.pusher.com/8.0.1/pusher.min.js"></script>
         <script defer>
             document.addEventListener('DOMContentLoaded', function () {

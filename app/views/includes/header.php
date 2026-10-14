@@ -298,24 +298,49 @@ if (!empty($activeCurrencyRow)) {
     $seoTitle       = (isset($title) && trim((string)$title) !== '') ? $title : ($GLOBALS['app']['home_title'] ?? $seoBrand);
     $seoDescription = (isset($description) && trim((string)$description) !== '') ? $description : ($GLOBALS['app']['meta_description'] ?? '');
     $seoKeywords    = (isset($keywords) && trim((string)$keywords) !== '') ? $keywords : ($GLOBALS['app']['site_keywords'] ?? '');
+
+    // WHITE-LABEL (Phase 1): on a hotel's own branded site, identity in <head> is the
+    // HOTEL's — brand name, OG image (hotel hero/logo), per-hotel SEO meta from the theme.
+    $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
+    $wlAuthor = $GLOBALS['app']['business_name'] ?? '';
+    $wlOgImage = $ogImage ?? versionedAssetUrl('uploads/global/cover.png');
+    if ($wlTenant) {
+        $wlName  = (string) wl_tenant('name');
+        $wlTheme = (array) wl_tenant('theme');
+        $wlStay  = (array) wl_tenant('stay');
+        if ($wlName !== '') { $seoBrand = $wlName; $wlAuthor = $wlName; }
+        if (!empty($wlTheme['meta_title']) && (!isset($title) || trim((string)$title) === '')) { $seoTitle = (string) $wlTheme['meta_title']; }
+        if (!empty($wlTheme['meta_desc'])) { $seoDescription = (string) $wlTheme['meta_desc']; }
+        // OG image: hotel logo, else first gallery image, else keep platform default.
+        $wlLogo = trim((string) wl_tenant('logo'));
+        if ($wlLogo !== '') {
+            $wlOgImage = (defined('root') ? rtrim(root, '/') . '/' : '') . ltrim($wlLogo, '/');
+        } elseif (!empty($wlStay['img'])) {
+            $__g = json_decode((string) $wlStay['img'], true) ?: [];
+            $__h = '';
+            foreach ($__g as $__im) { if (!empty($__im['default']) && !empty($__im['url'])) { $__h = $__im['url']; break; } }
+            if ($__h === '' && !empty($__g[0]['url'])) { $__h = $__g[0]['url']; }
+            if ($__h !== '') { $wlOgImage = (defined('root') ? rtrim(root, '/') . '/' : '') . ltrim($__h, '/'); }
+        }
+    }
     ?>
     <title><?= htmlspecialchars($seoTitle) ?></title>
     <meta name="description" content="<?= htmlspecialchars($seoDescription) ?>">
     <meta name="keywords" content="<?= htmlspecialchars($seoKeywords) ?>">
     <link rel="canonical" href="<?= htmlspecialchars($canonical ?? ((isset($_SERVER['REQUEST_SCHEME']) ? $_SERVER['REQUEST_SCHEME'] : 'https') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'])) ?>">
-    <meta name="author" content="<?= htmlspecialchars((string) ($GLOBALS['app']['business_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
+    <meta name="author" content="<?= htmlspecialchars((string) $wlAuthor, ENT_QUOTES, 'UTF-8') ?>">
     <meta name="robots" content="<?= htmlspecialchars($robots ?? 'index, follow') ?>">
     <meta property="og:title" content="<?= htmlspecialchars($seoTitle) ?>">
     <meta property="og:description" content="<?= htmlspecialchars($seoDescription) ?>">
     <meta property="og:url" content="<?= htmlspecialchars($canonical ?? ((isset($_SERVER['REQUEST_SCHEME']) ? $_SERVER['REQUEST_SCHEME'] : 'https') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'])) ?>">
-    <meta property="og:image" content="<?= htmlspecialchars($ogImage ?? versionedAssetUrl('uploads/global/cover.png')) ?>">
-    <meta property="og:site_name" content="<?= htmlspecialchars((string) ($GLOBALS['app']['business_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>">
+    <meta property="og:image" content="<?= htmlspecialchars($wlOgImage) ?>">
+    <meta property="og:site_name" content="<?= htmlspecialchars((string) $seoBrand, ENT_QUOTES, 'UTF-8') ?>">
     <meta property="og:type" content="<?= htmlspecialchars($ogType ?? 'website') ?>">
     <meta property="og:locale" content="<?= htmlspecialchars($_SESSION['app_language'] ?? 'en') ?>">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="<?= htmlspecialchars($seoTitle) ?>">
     <meta name="twitter:description" content="<?= htmlspecialchars($seoDescription) ?>">
-    <meta name="twitter:image" content="<?= htmlspecialchars($ogImage ?? versionedAssetUrl('uploads/global/cover.png')) ?>">
+    <meta name="twitter:image" content="<?= htmlspecialchars($wlOgImage) ?>">
 
     <?php
     // -----------------------------------------------------------------------
@@ -434,15 +459,28 @@ if (!empty($activeCurrencyRow)) {
       <div class="container mx-auto">
         <div class="flex h-16 items-center justify-between">
           <!-- LOGO + NAVIGATION -->
+          <?php $__wl = function_exists('wl_is_tenant') && wl_is_tenant(); ?>
           <div class="flex items-center gap-4">
+            <?php if ($__wl):
+              $__wlLogo = trim((string) wl_tenant('logo'));
+              $__wlName = (string) wl_tenant('name'); ?>
+            <a href="<?= root ?>" class="flex items-center gap-2">
+              <?php if ($__wlLogo !== ''): ?>
+                <img src="<?= htmlspecialchars(rtrim(root, '/') . '/' . ltrim($__wlLogo, '/')) ?>" alt="<?= htmlspecialchars($__wlName) ?>" class="h-8 w-auto max-w-xs object-contain" decoding="async">
+              <?php else: ?>
+                <span class="text-lg font-bold text-gray-900"><?= htmlspecialchars($__wlName) ?: 'Home' ?></span>
+              <?php endif; ?>
+            </a>
+            <?php else: ?>
             <a href="<?=root?>" class="flex items-center">
               <img src="<?=versionedAssetUrl('uploads/global/logo.png')?>" alt="<?=$GLOBALS['app']['business_name']?>" class="h-8 w-auto" width="160" height="40" decoding="async">
             </a>
+            <?php endif; ?>
 
             <!-- DESKTOP NAVIGATION -->
             <nav class="hidden lg:flex items-center font-medium">
-            <!-- DYNAMIC SERVICES DROPDOWN -->
-            <?php if (!empty($processedServices)): ?>
+            <!-- DYNAMIC SERVICES DROPDOWN (platform only — hidden on a hotel's own site) -->
+            <?php if (!$__wl && !empty($processedServices)): ?>
             <div class="relative group">
                 <button class="nav-link flex items-center gap-1.5 px-4 py-2 rounded-full hover:bg-gray-50">
                   <?= headerNavIcon(['slug_url' => 'services']) ?>
@@ -510,6 +548,14 @@ if (!empty($activeCurrencyRow)) {
 
           <!-- CTA BUTTONS -->
           <div class="flex items-center gap-2">
+            <?php if ($__wl): ?>
+            <!-- WHITE-LABEL: hotel's own site — no platform controls. A single "Book" CTA. -->
+            <?php $__wlSlug = (string) wl_tenant('slug'); ?>
+            <a href="<?= root ?><?= $__wlSlug !== '' ? 'book/' . htmlspecialchars($__wlSlug) : '' ?>#rooms" class="hidden sm:inline-flex btn emerald !rounded-full">
+              <span class="material-symbols-outlined !text-[18px]">hotel</span>
+              <span>Book now</span>
+            </a>
+            <?php else: ?>
             <!-- DESKTOP CONTROL GROUP — ALL CONTROLS IN ONE ROUNDED-FULL PILL BAR -->
             <div class="hidden lg:flex items-center gap-1 p-1 bg-white border border-gray-200 rounded-full shadow-sm">
             <!-- COMBINED CURRENCY + LANGUAGE SWITCHER - DESKTOP ONLY -->
@@ -746,6 +792,7 @@ if (!empty($activeCurrencyRow)) {
             <?php endif; ?>
             <?php endif; ?>
             </div><!-- END DESKTOP CONTROL GROUP -->
+            <?php endif; /* $__wl */ ?>
 
             <!-- MOBILE MENU BUTTON -->
             <button @click="mobileMenuOpen = !mobileMenuOpen" class="lg:hidden inline-flex items-center justify-center p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-full border border-gray-200 transition-all duration-200">

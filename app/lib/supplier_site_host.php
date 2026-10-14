@@ -318,6 +318,54 @@ if (!function_exists('supplier_site_sync_hostname')) {
 // review pattern. State lives on stays_site.site_status (ensureSupplierStaysSchema).
 // ============================================================================
 
+// ============================================================================
+// TENANT CHROME CONTEXT (Phase 1) — when a hotel's OWN white-label site renders,
+// header.php/footer.php read this context to show the HOTEL's identity (logo, name,
+// contact, socials, favicon, SEO) and SUPPRESS platform chrome (services nav, cart,
+// account/signup, CMS menus, platform legal links, Pusher, "powered by"). Set once by
+// the branded render paths; read by the shared header/footer via wl_is_tenant()/wl_tenant().
+// ============================================================================
+
+if (!function_exists('wl_set_tenant_context')) {
+    /** Establish tenant-site context for the shared header/footer. $stay = the stays row,
+     *  $site = the stays_site row. Decodes the theme once. Safe to call repeatedly. */
+    function wl_set_tenant_context($db, array $stay, $site = null): void
+    {
+        $theme = [];
+        if (function_exists('sitebuilder_decode')) {
+            $themeJson = is_array($site) ? ($site['theme'] ?? null) : null;
+            $theme = sitebuilder_decode($themeJson);
+        }
+        $GLOBALS['__wl_tenant'] = [
+            'stay'  => $stay,
+            'site'  => is_array($site) ? $site : [],
+            'theme' => $theme,
+            'name'  => (string) ($stay['name'] ?? ''),
+            'logo'  => trim((string) ($stay['logo'] ?? '')),
+            'slug'  => (string) ($stay['slug'] ?? ($stay['_slug'] ?? '')),
+        ];
+    }
+}
+
+if (!function_exists('wl_is_tenant')) {
+    /** True when the current request is rendering a hotel's own white-label site. */
+    function wl_is_tenant(): bool
+    {
+        return !empty($GLOBALS['__wl_tenant']) && is_array($GLOBALS['__wl_tenant']);
+    }
+}
+
+if (!function_exists('wl_tenant')) {
+    /** Accessor for a tenant-context key (name|logo|slug|theme|stay|site), or the whole
+     *  array when $key is null. Returns '' / [] safely when not on a tenant site. */
+    function wl_tenant(?string $key = null)
+    {
+        $t = (!empty($GLOBALS['__wl_tenant']) && is_array($GLOBALS['__wl_tenant'])) ? $GLOBALS['__wl_tenant'] : [];
+        if ($key === null) { return $t; }
+        return $t[$key] ?? '';
+    }
+}
+
 if (!function_exists('supplier_site_status')) {
     /** Current white-label activation status for a stay: one of
      *  none|requested|approved|rejected|suspended. 'none' if no row/feature off. */
