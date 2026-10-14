@@ -83,7 +83,7 @@
   <?php if (!empty($__pages) && $__bslug !== ''): ?>
     <nav class="flex flex-wrap items-center gap-2 border-y border-gray-100 py-3">
       <?php foreach ($__pages as $__p): ?>
-        <a href="<?= root ?>book/<?= htmlspecialchars($__bslug) ?>/<?= htmlspecialchars((string) $__p['slug']) ?>"
+        <a href="<?= htmlspecialchars(function_exists('wl_page_url') ? wl_page_url($__bslug, (string) $__p['slug']) : (root . 'book/' . $__bslug . '/' . $__p['slug'])) ?>"
            class="text-sm font-medium px-3 py-1 rounded-full border border-gray-200 text-gray-700 hover:border-gray-300 transition">
           <?= htmlspecialchars((string) $__p['title']) ?>
         </a>

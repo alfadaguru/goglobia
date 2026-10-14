@@ -32,7 +32,7 @@
            class="w-10 h-10 rounded-lg object-contain bg-white border border-gray-200 p-1 flex-none">
     <?php endif; ?>
     <?php if ($bslug !== ''): ?>
-      <a href="<?= root ?>book/<?= htmlspecialchars($bslug) ?>" class="text-lg font-semibold text-gray-900 hover:underline"><?= htmlspecialchars($s['name'] ?? 'Property') ?></a>
+      <a href="<?= htmlspecialchars(function_exists('wl_home_url') ? wl_home_url($bslug) : (root . 'book/' . $bslug)) ?>" class="text-lg font-semibold text-gray-900 hover:underline"><?= htmlspecialchars($s['name'] ?? 'Property') ?></a>
     <?php else: ?>
       <span class="text-lg font-semibold text-gray-900"><?= htmlspecialchars($s['name'] ?? 'Property') ?></span>
     <?php endif; ?>
@@ -43,7 +43,7 @@
     <nav class="flex flex-wrap items-center gap-2 border-y border-gray-100 py-3">
       <?php foreach ($pages as $__p):
         $isCur = (string) $__p['slug'] === $curSlug; ?>
-        <a href="<?= root ?>book/<?= htmlspecialchars($bslug) ?>/<?= htmlspecialchars((string) $__p['slug']) ?>"
+        <a href="<?= htmlspecialchars(function_exists('wl_page_url') ? wl_page_url($bslug, (string) $__p['slug']) : (root . 'book/' . $bslug . '/' . $__p['slug'])) ?>"
            class="text-sm font-medium px-3 py-1 rounded-full border transition <?= $isCur ? 'text-white' : 'border-gray-200 text-gray-700 hover:border-gray-300' ?>"
            <?= $isCur ? 'style="background-color: ' . htmlspecialchars($accent) . '; border-color: ' . htmlspecialchars($accent) . ';"' : '' ?>>
           <?= htmlspecialchars((string) $__p['title']) ?>
@@ -60,7 +60,7 @@
 
   <?php if ($bslug !== ''): ?>
     <div>
-      <a href="<?= root ?>book/<?= htmlspecialchars($bslug) ?>" class="btn emerald btn-sm">&larr; Back to booking</a>
+      <a href="<?= htmlspecialchars(function_exists('wl_home_url') ? wl_home_url($bslug) : (root . 'book/' . $bslug)) ?>" class="btn emerald btn-sm">&larr; Back to booking</a>
     </div>
   <?php endif; ?>
 

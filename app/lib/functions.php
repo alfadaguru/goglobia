@@ -8254,6 +8254,14 @@ function ensureSupplierStaysSchema($db): void
         // so existing installs are unaffected until a supplier opts in.
         if (!$db->query("SHOW COLUMNS FROM `stays_site` LIKE 'site_status'")->fetch()) {
             $db->query("ALTER TABLE `stays_site` ADD COLUMN `site_status` ENUM('none','requested','approved','rejected','suspended') NOT NULL DEFAULT 'none'");
+            // ONE-TIME BACKFILL (runs only in the same pass that adds the column, so it
+            // executes exactly once): any property that ALREADY had a branded site provisioned
+            // (a hostname or custom_domain on its stays_site row) opted into branding before the
+            // approval gate existed — grandfather it to 'approved' so it keeps serving on deploy.
+            // Properties onboarded AFTER this go through the normal request->approve flow.
+            try {
+                $db->query("UPDATE `stays_site` SET `site_status` = 'approved' WHERE `site_status` = 'none' AND (`hostname` IS NOT NULL OR `custom_domain` IS NOT NULL)");
+            } catch (\Throwable $e) { error_log('stays_site site_status backfill: ' . $e->getMessage()); }
         }
         if (!$db->query("SHOW COLUMNS FROM `stays_site` LIKE 'site_reviewed_by'")->fetch()) {
             $db->query("ALTER TABLE `stays_site` ADD COLUMN `site_reviewed_by` VARCHAR(255) DEFAULT NULL");

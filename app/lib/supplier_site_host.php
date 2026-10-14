@@ -366,6 +366,27 @@ if (!function_exists('wl_tenant')) {
     }
 }
 
+if (!function_exists('wl_home_url')) {
+    /** URL of the branded HOME for a stay slug. On a tenant host it's the host root ('/');
+     *  on the platform it's /book/{slug}. $slug is the stay slug. */
+    function wl_home_url(string $slug): string
+    {
+        $r = defined('root') ? root : '/';
+        if (function_exists('wl_is_tenant') && wl_is_tenant()) { return $r; }
+        return $r . 'book/' . rawurlencode($slug);
+    }
+}
+
+if (!function_exists('wl_page_url')) {
+    /** URL of a custom PAGE. On a tenant host: /p/{page}; on the platform: /book/{slug}/{page}. */
+    function wl_page_url(string $slug, string $pageSlug): string
+    {
+        $r = defined('root') ? root : '/';
+        if (function_exists('wl_is_tenant') && wl_is_tenant()) { return $r . 'p/' . rawurlencode($pageSlug); }
+        return $r . 'book/' . rawurlencode($slug) . '/' . rawurlencode($pageSlug);
+    }
+}
+
 if (!function_exists('supplier_site_status')) {
     /** Current white-label activation status for a stay: one of
      *  none|requested|approved|rejected|suspended. 'none' if no row/feature off. */

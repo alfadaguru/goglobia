@@ -21,6 +21,18 @@ $__isAdminRequest   = ($__path === '/admin' || strpos($__path, '/admin/') === 0)
 $__isApiRequest     = ($__path === '/api'   || strpos($__path, '/api/')   === 0);
 $__isSitemapRequest = ($__path === '/sitemap.xml'); // public route defined in settingsRoutes
 
+// WHITE-LABEL Phase 2: when the inbound Host is an APPROVED tenant white-label site,
+// register its clean multi-page routes ('/', '/rooms', '/about', '/{page}') BEFORE the
+// primary routes so they win the router's first-match on that host. No-op (and no DB cost)
+// on the primary host — the guard early-returns. Gated on a branded root being configured.
+if (function_exists('supplier_site_branded_root') && supplier_site_branded_root() !== ''
+    && function_exists('supplier_site_request_host')) {
+    $__wlHost = supplier_site_request_host();
+    if ($__wlHost !== '' && (!function_exists('supplier_site_primary_host') || $__wlHost !== supplier_site_primary_host())) {
+        require_once 'app/routes/stays/brandedTenantRoutes.php';
+    }
+}
+
 require_once 'app/routes/mainRoutes.php';
 
 // COMPONENTS ROUTES
