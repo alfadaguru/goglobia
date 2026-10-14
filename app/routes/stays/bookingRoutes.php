@@ -68,9 +68,19 @@ $router->get('/stays/booking/([a-f0-9]{16})', function ($hash) use ($SECURE, $db
     // Render booking page
     $title = 'Complete Booking - ' . $GLOBALS['app']['home_title'];
     $description = "Complete your hotel booking";
-    require_once views."includes/header.php";
-    require_once views."modules/stays/booking/index.php";
-    require_once views."includes/footer.php";
+    // WHITE-LABEL (G1): on a tenant host booking that tenant's own approved hotel, render the
+    // booking form in the hotel's chrome. The hotel id comes from the draft booking_data.
+    $__wlHotelId = (int) ($bookingData['hotel_id'] ?? $bookingData['id'] ?? 0);
+    $__wlChrome = function_exists('wl_booking_tenant') ? wl_booking_tenant($db, $__wlHotelId) : false;
+    if ($__wlChrome) {
+        require views . "supplier/stays/site/_bookingchrome_head.php";
+        require_once views . "modules/stays/booking/index.php";
+        require views . "supplier/stays/site/_bookingchrome_foot.php";
+    } else {
+        require_once views."includes/header.php";
+        require_once views."modules/stays/booking/index.php";
+        require_once views."includes/footer.php";
+    }
 });
     
 // ============================================================================

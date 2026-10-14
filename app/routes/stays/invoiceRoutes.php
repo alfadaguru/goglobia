@@ -255,7 +255,17 @@ $router->get('/invoice/stays/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE
     $title = 'Invoice #' . $invoiceId . ' - ' . $GLOBALS['app']['home_title'];
     $description = "Booking invoice for " . $booking['first_name'] . ' ' . $booking['last_name'];
 
-    require_once views."includes/header.php";
-    require_once views."modules/stays/invoice/index.php";
-    require_once views."includes/footer.php";
+    // WHITE-LABEL (G1): on a tenant host, render the invoice in the hotel's chrome when the
+    // booking is that tenant's own approved hotel. Hotel id from the booking_data.
+    $__wlHotelId = (int) ($bookingData['hotel_id'] ?? $bookingData['id'] ?? 0);
+    $__wlChrome = function_exists('wl_booking_tenant') ? wl_booking_tenant($db, $__wlHotelId) : false;
+    if ($__wlChrome) {
+        require views . "supplier/stays/site/_bookingchrome_head.php";
+        require_once views . "modules/stays/invoice/index.php";
+        require views . "supplier/stays/site/_bookingchrome_foot.php";
+    } else {
+        require_once views."includes/header.php";
+        require_once views."modules/stays/invoice/index.php";
+        require_once views."includes/footer.php";
+    }
 });

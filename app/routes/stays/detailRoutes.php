@@ -153,28 +153,21 @@ $router->get('/stay/(.*)', function ($params) use ($SECURE,$db) {
         'referrer' => $_SERVER['HTTP_REFERER'] ?? ''
     ]);
 
-    // WHITE-LABEL Phase 3: when this booking page is reached ON a tenant host AND the hotel being
-    // booked IS that tenant's own approved property, render it in the hotel's chrome (its logo/
-    // name, no platform nav) so the on-site booking journey stays branded. Otherwise untouched.
-    if (function_exists('supplier_site_request_host') && function_exists('stays_site_resolve_host')
-        && function_exists('wl_set_tenant_context')) {
-        $__wlHost = supplier_site_request_host();
-        $__wlPrimary = function_exists('supplier_site_primary_host') ? supplier_site_primary_host() : '';
-        if ($__wlHost !== '' && $__wlHost !== $__wlPrimary) {
-            $__wlStayId = stays_site_resolve_host($db, $__wlHost);
-            if ($__wlStayId && (int) $__wlStayId === (int) $hotelId
-                && (!function_exists('supplier_site_is_approved') || supplier_site_is_approved($db, (int) $__wlStayId))) {
-                $__wlStayRow = $db->get('stays', '*', ['id' => (int) $__wlStayId]);
-                $__wlSiteRow = $db->get('stays_site', '*', ['stay_id' => (int) $__wlStayId]);
-                if ($__wlStayRow) { wl_set_tenant_context($db, $__wlStayRow, $__wlSiteRow); }
-            }
-        }
-    }
+    // WHITE-LABEL (G1): when this booking page is reached ON a tenant host AND the hotel being
+    // booked IS that tenant's own approved property, render the stay detail inside the HOTEL's
+    // booking chrome (its logo/nav/footer, no platform header) so the whole booking journey stays
+    // on the hotel's site. Presentation only — the booking view + engine are untouched.
+    $__wlChrome = function_exists('wl_booking_tenant') ? wl_booking_tenant($db, (int) $hotelId) : false;
 
-    // Render page
     $title = ucwords($hotelName) . ' - ' . $GLOBALS['app']['home_title'];
     $description = "Book " . ucwords($hotelName);
-    require_once views."includes/header.php";
-    require_once views."modules/stays/details/stay.php";
-    require_once views."includes/footer.php";
+    if ($__wlChrome) {
+        require views . "supplier/stays/site/_bookingchrome_head.php";
+        require_once views . "modules/stays/details/stay.php";
+        require views . "supplier/stays/site/_bookingchrome_foot.php";
+    } else {
+        require_once views . "includes/header.php";
+        require_once views . "modules/stays/details/stay.php";
+        require_once views . "includes/footer.php";
+    }
 });

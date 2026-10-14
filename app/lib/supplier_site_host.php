@@ -326,6 +326,38 @@ if (!function_exists('supplier_site_sync_hostname')) {
 // the branded render paths; read by the shared header/footer via wl_is_tenant()/wl_tenant().
 // ============================================================================
 
+if (!function_exists('wl_booking_tenant')) {
+    /**
+     * G1 — resolve white-label booking chrome for a stays booking VIEW. If the request is on an
+     * approved tenant host AND that host's stay matches the hotel being booked ($hotelId), set
+     * the tenant context and return TRUE (the caller then renders the tenant booking chrome
+     * instead of the platform header/footer). Otherwise returns FALSE and the platform chrome is
+     * used unchanged. PURELY presentational — does NOT touch any money/booking engine.
+     *
+     * $hotelId may be null (e.g. the booking/invoice views where the hotel id comes from the
+     * booking row); when null we trust the resolved tenant stay as the hotel.
+     */
+    function wl_booking_tenant($db, $hotelId = null): bool
+    {
+        if (!function_exists('supplier_site_request_host') || !function_exists('stays_site_resolve_host')
+            || !function_exists('wl_set_tenant_context')) { return false; }
+        $host = supplier_site_request_host();
+        if ($host === '') { return false; }
+        if (function_exists('supplier_site_primary_host') && $host === supplier_site_primary_host()) { return false; }
+        $stayId = stays_site_resolve_host($db, $host);
+        if (!$stayId || $stayId <= 0) { return false; }
+        if (function_exists('supplier_site_is_approved') && !supplier_site_is_approved($db, (int) $stayId)) { return false; }
+        // If a hotel id is supplied, the booked hotel must BE this tenant (no cross-tenant chrome).
+        if ($hotelId !== null && (int) $hotelId > 0 && (int) $hotelId !== (int) $stayId) { return false; }
+        try {
+            $stayRow = $db->get('stays', '*', ['id' => (int) $stayId]);
+            $siteRow = $db->get('stays_site', '*', ['stay_id' => (int) $stayId]);
+            if ($stayRow) { wl_set_tenant_context($db, $stayRow, $siteRow); return true; }
+        } catch (\Throwable $e) { error_log('wl_booking_tenant: ' . $e->getMessage()); }
+        return false;
+    }
+}
+
 if (!function_exists('wl_set_tenant_context')) {
     /** Establish tenant-site context for the shared header/footer. $stay = the stays row,
      *  $site = the stays_site row. Decodes the theme once. Safe to call repeatedly. */
