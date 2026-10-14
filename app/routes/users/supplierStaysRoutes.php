@@ -1450,6 +1450,14 @@ $router->get('/supplier/stays/site/([0-9]+)/preview', function ($id) use ($SECUR
     $sitePages = function_exists('sitepages_list') ? sitepages_list($db, (int) $id, true) : [];
     $theme = function_exists('sitebuilder_decode') ? sitebuilder_decode(is_array($site) ? ($site['theme'] ?? null) : null) : [];
 
+    // G6 — LIVE PREVIEW override: ?template=X renders a DIFFERENT template with the hotel's real
+    // data WITHOUT saving, so the supplier can compare templates before committing. Sanitized to a
+    // known template id; anything else is ignored (keeps the saved template).
+    $__pv = trim((string) ($_GET['template'] ?? ''));
+    if ($__pv !== '' && function_exists('wl_template_valid') && wl_template_valid($__pv)) {
+        $theme['template'] = $__pv;
+    }
+
     // Owner preview = the EXACT standalone template the public will see (no platform chrome).
     require views . "supplier/stays/site/_layout.php";
 });

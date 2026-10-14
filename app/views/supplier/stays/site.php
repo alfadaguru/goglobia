@@ -86,17 +86,32 @@
       <div>
         <label class="block text-xs font-medium text-gray-700 mb-2">Website template</label>
         <input type="hidden" name="template" :value="tpl">
-        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <?php foreach ($wlTemplates as $tk => $tv): ?>
-            <button type="button" @click="tpl = '<?= htmlspecialchars($tk) ?>'"
-              class="text-left border rounded-lg p-2.5 transition"
-              :class="tpl === '<?= htmlspecialchars($tk) ?>' ? 'border-violet-500 ring-1 ring-violet-300 bg-violet-50' : 'border-gray-200 hover:border-gray-300'">
-              <div class="h-10 rounded mb-1.5" style="background:linear-gradient(135deg,<?= htmlspecialchars($tv['primary']) ?>,<?= htmlspecialchars($tv['accent']) ?>)"></div>
-              <div class="text-xs font-semibold text-gray-800"><?= htmlspecialchars($tv['label']) ?></div>
-            </button>
+            <div class="rounded-lg border transition overflow-hidden"
+                 :class="tpl === '<?= htmlspecialchars($tk) ?>' ? 'border-violet-500 ring-1 ring-violet-300' : 'border-gray-200'">
+              <button type="button" @click="tpl = '<?= htmlspecialchars($tk) ?>'" class="block w-full text-left">
+                <div class="relative bg-gray-100 overflow-hidden" style="aspect-ratio:8/5">
+                  <img src="<?= root ?>assets/wl-templates/<?= htmlspecialchars($tk) ?>.png" alt="<?= htmlspecialchars($tv['label']) ?> template preview"
+                       class="w-full h-full object-cover" style="object-position:top" loading="lazy">
+                  <span x-show="tpl === '<?= htmlspecialchars($tk) ?>'" class="absolute top-1.5 right-1.5 bg-violet-600 text-white rounded-full w-5 h-5 grid place-items-center">
+                    <span class="material-symbols-outlined text-sm">check</span>
+                  </span>
+                </div>
+                <div class="px-2.5 py-2">
+                  <div class="text-xs font-semibold text-gray-800"><?= htmlspecialchars($tv['label']) ?></div>
+                </div>
+              </button>
+              <div class="px-2.5 pb-2">
+                <a href="<?= root ?>supplier/stays/site/<?= $sid13 ?>/preview?template=<?= htmlspecialchars($tk) ?>" target="_blank" rel="noopener"
+                   class="text-xs text-violet-600 hover:underline inline-flex items-center gap-0.5">Live preview
+                  <span class="material-symbols-outlined text-xs">open_in_new</span></a>
+              </div>
+            </div>
           <?php endforeach; ?>
         </div>
-        <p class="text-xs text-gray-500 mt-1.5" x-text="({<?php foreach ($wlTemplates as $tk => $tv): ?>'<?= htmlspecialchars($tk) ?>':<?= htmlspecialchars(json_encode($tv['blurb']), ENT_QUOTES) ?>,<?php endforeach; ?>})[tpl]"></p>
+        <p class="text-xs text-gray-500 mt-2" x-text="({<?php foreach ($wlTemplates as $tk => $tv): ?>'<?= htmlspecialchars($tk) ?>':<?= htmlspecialchars(json_encode($tv['blurb']), ENT_QUOTES) ?>,<?php endforeach; ?>})[tpl]"></p>
+        <p class="text-xs text-gray-400 mt-1">Each "Live preview" opens that template with your hotel's real content in a new tab — nothing is saved until you click Save below.</p>
       </div>
       <?php endif; ?>
 
