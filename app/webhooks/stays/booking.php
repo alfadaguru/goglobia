@@ -93,9 +93,16 @@ if ($event === 'stays.booking.confirmed') {
             'discount' => 0 // Default discount to 0
         ];
         
+        // WHITE-LABEL (G3): per-hotel email branding for an approved white-label stay. See the
+        // payment webhook for the rationale; this is the booking-received email.
+        if (function_exists('wl_email_brand')) {
+            $__wlBrand = wl_email_brand($db, (int) $hotelId);
+            if ($__wlBrand) { $notificationData = array_merge($notificationData, $__wlBrand); }
+        }
+
         // Generate PDF if not already generated
         $pdfPath = GENERATE_BOOKING_PDF($booking['invoice_id']);
-        
+
         // Send notification
         $notifyResult = NOTIFY::booking('stays', $customerData, $notificationData, $pdfPath);
     }

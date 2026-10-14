@@ -2907,6 +2907,20 @@ function GENERATE_BOOKING_PDF($invoiceId)
 
         // Get settings for company info
         $settings = $db->get('settings', '*');
+        // WHITE-LABEL (G3): for an approved white-label STAY, swap the PDF's brand identity to the
+        // HOTEL's (name/logo/contact) so the invoice PDF matches the branded email + site. Scoped
+        // to stays white-label; every other PDF is unchanged. $wlPdfLogo is read by the template.
+        $wlPdfLogo = '';
+        if (strtolower($booking['module_type'] ?? '') === 'stays' && function_exists('wl_email_brand')) {
+            $__wlHid = (int) ($bookingData['hotel_id'] ?? $bookingData['id'] ?? 0);
+            $__wlB = wl_email_brand($db, $__wlHid);
+            if ($__wlB) {
+                $settings['business_name']  = $__wlB['companyName'] ?? ($settings['business_name'] ?? '');
+                if (!empty($__wlB['supportEmail'])) { $settings['contact_email'] = $__wlB['supportEmail']; }
+                if (!empty($__wlB['supportPhone'])) { $settings['contact_phone'] = $__wlB['supportPhone']; }
+                if (!empty($__wlB['logoUrl']))      { $wlPdfLogo = (string) $__wlB['logoUrl']; }
+            }
+        }
         $businessName = getBrandName($settings);
         $businessEmail = $settings['contact_email'] ?? 'info@phptravels.com';
         $businessPhone = $settings['contact_phone'] ?? '+1234567890';

@@ -10,7 +10,9 @@
 // emails now render in the app's configured timezone (config.php / .env TIMEZONE),
 // consistent with the PHP<->MySQL alignment.
 $rootUrl = defined('root') ? root : 'http://localhost/v10/';
-$logoUrl = $rootUrl . 'uploads/global/logo.png';
+// Respect a passed-in $logoUrl (white-label per-hotel branding, G3) — only fall back to the
+// platform logo when none was provided. All non-white-label emails are unaffected.
+$logoUrl = (!empty($logoUrl) && is_string($logoUrl)) ? $logoUrl : ($rootUrl . 'uploads/global/logo.png');
 $displayBrand = $companyName ?? getBrandName($settings ?? null);
 $language = $language ?: 'en';
 ?>

@@ -326,6 +326,47 @@ if (!function_exists('supplier_site_sync_hostname')) {
 // the branded render paths; read by the shared header/footer via wl_is_tenant()/wl_tenant().
 // ============================================================================
 
+if (!function_exists('wl_email_brand')) {
+    /**
+     * G3 — resolve the per-HOTEL email/PDF branding override for a stays booking, so a
+     * white-label guest's confirmation email + invoice PDF carry the HOTEL's identity instead of
+     * the platform's. Returns an override array (merged into the NOTIFY template data) ONLY when
+     * the booking's hotel is an APPROVED white-label site; else null (platform branding unchanged).
+     * Scoped to white-label stays — cannot affect other modules or non-white-label stays.
+     *
+     * Keys match what the email header/footer + PDF read: companyName, supportEmail, supportPhone,
+     * logoUrl (absolute). $hotelId comes from the booking's booking_data.hotel_id.
+     */
+    function wl_email_brand($db, $hotelId): ?array
+    {
+        $hotelId = (int) $hotelId;
+        if ($hotelId <= 0) { return null; }
+        try {
+            $status = function_exists('supplier_site_status') ? supplier_site_status($db, $hotelId) : 'none';
+            if ($status !== 'approved') { return null; }
+            $hotel = $db->get('stays', ['name', 'logo', 'email', 'phone'], ['id' => $hotelId]);
+            if (!$hotel) { return null; }
+            $name = trim((string) ($hotel['name'] ?? ''));
+            if ($name === '') { return null; }
+            $logo = trim((string) ($hotel['logo'] ?? ''));
+            $rootUrl = defined('root') ? root : '/';
+            $out = ['companyName' => $name];
+            // Only override contact when the hotel actually has it (else keep platform support).
+            $email = trim((string) ($hotel['email'] ?? ''));
+            $phone = trim((string) ($hotel['phone'] ?? ''));
+            if ($email !== '') { $out['supportEmail'] = $email; }
+            if ($phone !== '') { $out['supportPhone'] = $phone; }
+            if ($logo !== '') {
+                $out['logoUrl'] = function_exists('wl_asset_url') ? wl_asset_url($logo) : (rtrim($rootUrl, '/') . '/' . ltrim($logo, '/'));
+            }
+            return $out;
+        } catch (\Throwable $e) {
+            error_log('wl_email_brand: ' . $e->getMessage());
+            return null;
+        }
+    }
+}
+
 if (!function_exists('wl_booking_tenant')) {
     /**
      * G1 — resolve white-label booking chrome for a stays booking VIEW. If the request is on an

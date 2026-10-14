@@ -587,8 +587,16 @@ if ($event === 'stays.payment.completed') {
             'nights' => $bookingDetails['nights'] ?? 0,
             'room_type' => $bookingDetails['room_type'] ?? 'Standard Room',
             'roomType' => $bookingDetails['room_type'] ?? 'Standard Room',
-            'discount' => 0 
+            'discount' => 0
         ];
+
+        // WHITE-LABEL (G3): if this stay is an APPROVED white-label site, swap the email branding
+        // to the HOTEL's identity (name/logo/contact). The email templates read companyName/
+        // logoUrl/supportEmail/supportPhone and auto-swap. Non-white-label + other modules untouched.
+        if (function_exists('wl_email_brand')) {
+            $__wlBrand = wl_email_brand($db, (int) $hotelId);
+            if ($__wlBrand) { $notificationData = array_merge($notificationData, $__wlBrand); }
+        }
 
         // Send payment confirmation notification (Automated to Customer, Owner, and Admins)
         NOTIFY::payment('stays', [
