@@ -13,6 +13,13 @@ if (!function_exists('_branded_render_stay')) {
     /** Render the branded page for a resolved stay id (approved+live only). */
     function _branded_render_stay($db, int $stayId): void
     {
+        // $SECURE is a file-scope var set in config.php; inside this plain function it is
+        // NOT in scope, so the views we require below (header.php, branded-preview.php,
+        // footer.php) — each guarded by `@$SECURE or die('Access Denied!')` — would die.
+        // Re-assert it locally. This function only ever renders an approved+live PUBLIC
+        // branded page (enforced just below), so the guard is satisfied legitimately.
+        $SECURE = true;
+
         if ($stayId <= 0) { return; }
         $stay = $db->get('stays', '*', ['id' => $stayId, 'status' => '1', 'listing_status' => 'approved']);
         if (!$stay) { return; } // not live/approved → fall through to 404
