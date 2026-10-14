@@ -143,14 +143,45 @@
               if (isset($o['price']) && ($minPrice === null || $o['price'] < $minPrice)) { $minPrice = (float) $o['price']; }
             }
             $rid = (int) $room['id'];
+            // Title: display name -> room-type name -> "Room #id".
+            $rtNames = (isset($roomTypeNames) && is_array($roomTypeNames)) ? $roomTypeNames : [];
+            $roomTitle = trim((string) ($room['room_name'] ?? ''));
+            if ($roomTitle === '') { $roomTitle = $rtNames[(int) ($room['room_type_id'] ?? 0)] ?? ('Room #' . $rid); }
+            // Rich fields (Phase 2b).
+            $roomGallery = function_exists('wl_gallery') ? wl_gallery($room['room_images'] ?? null) : [];
+            $roomDesc = trim((string) ($room['description'] ?? ''));
+            $roomSize = ($room['size_sqm'] ?? '') !== '' ? (float) $room['size_sqm'] : 0.0;
+            $roomBeds = function_exists('wl_bed_config_label') ? wl_bed_config_label($room['bed_config'] ?? null) : '';
+            $roomView = function_exists('wl_view_label') ? wl_view_label($room['view_type'] ?? null) : '';
+            // Per-room amenity names.
+            $ramNames = (isset($roomAmenityNames) && is_array($roomAmenityNames)) ? $roomAmenityNames : [];
+            $roomAmen = [];
+            $ramIds = json_decode((string) ($room['amenities'] ?? '[]'), true);
+            if (is_array($ramIds)) { foreach ($ramIds as $ai) { $n = $ramNames[(int) $ai] ?? ''; if ($n !== '') { $roomAmen[] = $n; } } }
+            // Specs line.
+            $specs = [];
+            if ($roomSize > 0) { $specs[] = rtrim(rtrim(number_format($roomSize, 2), '0'), '.') . ' m²'; }
+            if ($roomBeds !== '') { $specs[] = $roomBeds; }
+            if ($roomView !== '') { $specs[] = $roomView; }
           ?>
           <div class="card p-4" x-data="{ open:false }">
-            <div class="flex items-center justify-between gap-4">
-              <div>
-                <div class="font-medium text-gray-900">Room #<?= $rid ?></div>
-                <div class="text-xs text-gray-500"><?= count($opts) ?> rate option<?= count($opts) === 1 ? '' : 's' ?></div>
+            <?php if (!empty($roomGallery)): ?>
+              <div class="flex gap-2 overflow-x-auto mb-3 -mx-1 px-1">
+                <?php foreach ($roomGallery as $gi => $img): if ($gi > 5) break; ?>
+                  <img src="<?= htmlspecialchars(root . ltrim($img['thumb'], '/')) ?>" alt="<?= htmlspecialchars($img['caption'] ?: $roomTitle) ?>"
+                       class="h-24 w-32 object-cover rounded-lg flex-none" loading="lazy">
+                <?php endforeach; ?>
               </div>
-              <div class="text-right">
+            <?php endif; ?>
+            <div class="flex items-start justify-between gap-4">
+              <div class="min-w-0">
+                <div class="font-medium text-gray-900"><?= htmlspecialchars($roomTitle) ?></div>
+                <?php if (!empty($specs)): ?>
+                  <div class="text-xs text-gray-500 mt-0.5"><?= htmlspecialchars(implode(' · ', $specs)) ?></div>
+                <?php endif; ?>
+                <div class="text-xs text-gray-400 mt-0.5"><?= count($opts) ?> rate option<?= count($opts) === 1 ? '' : 's' ?></div>
+              </div>
+              <div class="text-right flex-none">
                 <?php if ($minPrice !== null): ?>
                   <div class="text-xs text-gray-500">from</div>
                   <div class="text-lg font-bold text-gray-900"><?= $cur ?> <?= number_format($minPrice, 2) ?></div>
@@ -165,6 +196,16 @@
                 <?php endif; ?>
               </div>
             </div>
+            <?php if ($roomDesc !== ''): ?>
+              <p class="text-sm text-gray-700 mt-2 whitespace-pre-line"><?= nl2br(htmlspecialchars($roomDesc, ENT_QUOTES, 'UTF-8')) ?></p>
+            <?php endif; ?>
+            <?php if (!empty($roomAmen)): ?>
+              <div class="flex flex-wrap gap-1.5 mt-2">
+                <?php foreach ($roomAmen as $ra): if ($ra === '') continue; ?>
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-gray-50 border border-gray-100 text-gray-600"><?= htmlspecialchars($ra) ?></span>
+                <?php endforeach; ?>
+              </div>
+            <?php endif; ?>
 
             <?php if ($canBook && !empty($opts)): ?>
             <form action="<?= root ?>supplier/stays/site/<?= $sid ?>/book" method="POST" class="mt-4 border-t border-gray-100 pt-4 grid grid-cols-1 sm:grid-cols-2 gap-3" x-show="open" x-cloak>

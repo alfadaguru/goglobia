@@ -33,12 +33,24 @@ if (!function_exists('_branded_render_stay')) {
             return;
         }
 
-        $rooms = $db->select('stays_rooms', ['id', 'room_type_id', 'room_images', 'room_options'],
+        $rooms = $db->select('stays_rooms', '*',
             ['stay_id' => $stayId, 'status' => 1]) ?: [];
         if (function_exists('stays_room_option_ids')) {
             foreach ($rooms as &$__r) { $__r['_options'] = stays_room_option_ids($db, (int) $__r['id'], $stayId); }
             unset($__r);
         }
+        // Room-type names (for the card title when no display name is set) + per-room amenity
+        // names — resolved once from stays_settings so the view doesn't query per room.
+        $roomTypeNames = [];
+        $roomAmenityNames = [];
+        try {
+            foreach ($db->select('stays_settings', ['id', 'name'], ['setting_type' => 'room_type', 'status' => 1]) ?: [] as $rt) {
+                $roomTypeNames[(int) $rt['id']] = (string) ($rt['name'] ?? '');
+            }
+            foreach ($db->select('stays_settings', ['id', 'name'], ['setting_type' => 'room_amenity', 'status' => 1]) ?: [] as $ra) {
+                $roomAmenityNames[(int) $ra['id']] = (string) ($ra['name'] ?? '');
+            }
+        } catch (\Throwable $e) { error_log('branded room taxonomy: ' . $e->getMessage()); }
         $site = $db->get('stays_site', '*', ['stay_id' => $stayId]);
         // TENANT CHROME (Phase 1): tell header.php/footer.php they are rendering a hotel's
         // OWN white-label site, so they show the hotel's identity and suppress platform

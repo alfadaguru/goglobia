@@ -119,6 +119,10 @@ foreach ($rooms as $r) {
                         "room_type_id" => (int) ($room["room_type_id"] ?? 0),
                         "room_name" => (string) ($room["room_name"] ?? ""),
                         "status" => (int) ($room["status"] ?? 0),
+                        "description" => (string) ($room["description"] ?? ""),
+                        "size_sqm" => ($room["size_sqm"] ?? "") !== "" ? (float) $room["size_sqm"] : "",
+                        "view_type" => (string) ($room["view_type"] ?? "none") ?: "none",
+                        "beds" => (function ($j) { $d = json_decode((string) $j, true); return (is_array($d) && isset($d["beds"]) && is_array($d["beds"])) ? $d["beds"] : []; })($room["bed_config"] ?? null),
                       ]), ENT_QUOTES) ?>; roomForm = true'>Edit</button>
             <?php endif; ?>
             <?php if ($canDeleteRoom): ?>
@@ -413,6 +417,49 @@ foreach ($rooms as $r) {
                  :value="editRoom ? (editRoom.room_name || '') : ''"
                  placeholder="e.g. Presidential Suite, Garden Villa #2">
           <p class="mt-1 text-xs text-gray-500">What guests see. Leave blank to use the category name.</p>
+        </div>
+
+        <!-- WHITE-LABEL Phase 2b: rich room fields shown on the branded site -->
+        <div class="form-control">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Room description</label>
+          <textarea name="room_description" rows="3" maxlength="2000" class="input text-sm"
+                    placeholder="A few lines about this room — what makes it special."
+                    x-text="editRoom ? (editRoom.description || '') : ''"></textarea>
+          <p class="mt-1 text-xs text-gray-500">Shown on your branded site. Plain text.</p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="form-control">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Size (m²)</label>
+            <input type="number" name="room_size_sqm" min="0" max="99999" step="0.01" class="input text-sm"
+                   :value="editRoom ? (editRoom.size_sqm || '') : ''" placeholder="e.g. 32">
+          </div>
+          <div class="form-control">
+            <label class="block text-sm font-medium text-gray-700 mb-1">View</label>
+            <select name="room_view_type" class="input text-sm">
+              <?php foreach ((function_exists('wl_view_types') ? wl_view_types() : ['none' => 'No specific view']) as $__vk => $__vl): ?>
+                <option value="<?= htmlspecialchars($__vk) ?>" :selected="(editRoom ? (editRoom.view_type || 'none') : 'none') === '<?= htmlspecialchars($__vk) ?>'"><?= htmlspecialchars($__vl) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+        </div>
+
+        <!-- Beds repeater -->
+        <div class="form-control" x-data="{ beds: (editRoom && Array.isArray(editRoom.beds) ? editRoom.beds.map(b => ({type: b.type || 'double', qty: b.qty || 1, size: b.size || ''})) : []) }">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Beds</label>
+          <template x-for="(bed, i) in beds" :key="i">
+            <div class="flex items-center gap-2 mb-2">
+              <select :name="'beds['+i+'][type]'" x-model="bed.type" class="input text-sm flex-1">
+                <?php foreach ((function_exists('wl_bed_types') ? wl_bed_types() : ['double' => 'Double']) as $__bk => $__bl): ?>
+                  <option value="<?= htmlspecialchars($__bk) ?>"><?= htmlspecialchars($__bl) ?></option>
+                <?php endforeach; ?>
+              </select>
+              <input type="number" :name="'beds['+i+'][qty]'" x-model="bed.qty" min="1" max="20" class="input text-sm w-20" placeholder="Qty">
+              <input type="text" :name="'beds['+i+'][size]'" x-model="bed.size" maxlength="40" class="input text-sm w-28" placeholder="Size (opt)">
+              <button type="button" class="text-red-600 text-sm" @click="beds.splice(i,1)">&times;</button>
+            </div>
+          </template>
+          <button type="button" class="text-sm text-violet-600 hover:underline" @click="beds.push({type:'double', qty:1, size:''})">+ Add bed</button>
         </div>
 
         <label class="flex items-center gap-2 text-sm text-gray-700">

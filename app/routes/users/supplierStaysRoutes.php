@@ -970,6 +970,25 @@ $router->post('/supplier/stays/([0-9]+)/rooms/save', function ($id) use ($SECURE
         $rn = trim((string) ($_POST['room_name'] ?? ''));
         $data['room_name'] = $rn !== '' ? mb_substr($rn, 0, 120) : null;
     }
+    // WHITE-LABEL Phase 2b — rich room fields for the branded site. Each column-guarded so an
+    // un-migrated DB never errors; all optional.
+    $ce = function_exists('_supplier_stays_col_exists');
+    if ($ce && _supplier_stays_col_exists($db, 'stays_rooms', 'description')) {
+        $rd = trim((string) ($_POST['room_description'] ?? ''));
+        $data['description'] = $rd !== '' ? mb_substr($rd, 0, 2000) : null;
+    }
+    if ($ce && _supplier_stays_col_exists($db, 'stays_rooms', 'size_sqm')) {
+        $sz = trim((string) ($_POST['room_size_sqm'] ?? ''));
+        $data['size_sqm'] = ($sz !== '' && is_numeric($sz)) ? max(0, min(99999.99, round((float) $sz, 2))) : null;
+    }
+    if ($ce && _supplier_stays_col_exists($db, 'stays_rooms', 'bed_config')) {
+        $data['bed_config'] = function_exists('wl_bed_config_normalize') ? wl_bed_config_normalize($_POST['beds'] ?? null) : null;
+    }
+    if ($ce && _supplier_stays_col_exists($db, 'stays_rooms', 'view_type')) {
+        $vt = strtolower(trim((string) ($_POST['room_view_type'] ?? '')));
+        // Accept a known key, or 'none'/'' -> null. (Open-ended but length-capped.)
+        $data['view_type'] = ($vt === '' || $vt === 'none') ? null : mb_substr(preg_replace('/[^a-z0-9_-]/', '', $vt), 0, 40);
+    }
 
     try {
         if ($isEdit) {

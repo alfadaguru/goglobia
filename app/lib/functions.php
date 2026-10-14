@@ -8275,6 +8275,24 @@ function ensureSupplierStaysSchema($db): void
         if (!$db->query("SHOW COLUMNS FROM `stays_site` LIKE 'site_review_comment'")->fetch()) {
             $db->query("ALTER TABLE `stays_site` ADD COLUMN `site_review_comment` VARCHAR(255) DEFAULT NULL");
         }
+        // --- WHITE-LABEL Phase 2b: rich room fields (rendered on the branded site). All
+        // additive + nullable so existing installs are untouched; JSON cols are LONGTEXT to
+        // match this schema's convention (room_options/img/theme are all longtext).
+        if (!$db->query("SHOW COLUMNS FROM `stays_rooms` LIKE 'description'")->fetch()) {
+            $db->query("ALTER TABLE `stays_rooms` ADD COLUMN `description` TEXT DEFAULT NULL");
+        }
+        if (!$db->query("SHOW COLUMNS FROM `stays_rooms` LIKE 'size_sqm'")->fetch()) {
+            $db->query("ALTER TABLE `stays_rooms` ADD COLUMN `size_sqm` DECIMAL(7,2) DEFAULT NULL");
+        }
+        if (!$db->query("SHOW COLUMNS FROM `stays_rooms` LIKE 'bed_config'")->fetch()) {
+            $db->query("ALTER TABLE `stays_rooms` ADD COLUMN `bed_config` LONGTEXT DEFAULT NULL");
+        }
+        if (!$db->query("SHOW COLUMNS FROM `stays_rooms` LIKE 'view_type'")->fetch()) {
+            $db->query("ALTER TABLE `stays_rooms` ADD COLUMN `view_type` VARCHAR(40) DEFAULT NULL");
+        }
+        if (!$db->query("SHOW COLUMNS FROM `stays_rooms` LIKE 'translations'")->fetch()) {
+            $db->query("ALTER TABLE `stays_rooms` ADD COLUMN `translations` LONGTEXT DEFAULT NULL");
+        }
         // Per-property OTA channel mappings (room-type ↔ OTA room id). Persisted now; the
         // actual push/pull is the stubbed external adapter (honest 'not connected').
         $db->query("CREATE TABLE IF NOT EXISTS `stays_channel_map` (
