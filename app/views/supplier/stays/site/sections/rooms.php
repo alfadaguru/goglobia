@@ -37,7 +37,8 @@
         <?php if ($r['min'] !== null): ?>
           <div class="price"><?= $wlCur ?> <?= number_format($r['min'], 2) ?><small>per night · from</small></div>
         <?php endif; ?>
-        <a href="#wl-search" class="wl-btn" style="align-self:flex-start">Reserve</a>
+        <a href="#wl-search" class="wl-btn" style="align-self:flex-start"
+           onclick="setTimeout(function(){var a=document.getElementById('wl-arrival');if(a){a.focus();}},420)">Check dates</a>
       </div>
     </div>
   <?php endforeach; ?>

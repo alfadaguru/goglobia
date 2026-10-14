@@ -73,8 +73,12 @@ $router->get('/stays/booking/([a-f0-9]{16})', function ($hash) use ($SECURE, $db
     $__wlHotelId = (int) ($bookingData['hotel_id'] ?? $bookingData['id'] ?? 0);
     $__wlChrome = function_exists('wl_booking_tenant') ? wl_booking_tenant($db, $__wlHotelId) : false;
     if ($__wlChrome) {
+        // White-label: render the BRANDED pay/guest-details view. It is a fork of
+        // modules/stays/booking/index.php with the bookingForm() component, CSRF field
+        // and every formData.travelers.* binding kept byte-identical — only the skin is
+        // branded. See app/views/supplier/stays/site/booking/pay.php.
         require views . "supplier/stays/site/_bookingchrome_head.php";
-        require_once views . "modules/stays/booking/index.php";
+        require_once views . "supplier/stays/site/booking/pay.php";
         require views . "supplier/stays/site/_bookingchrome_foot.php";
     } else {
         require_once views."includes/header.php";

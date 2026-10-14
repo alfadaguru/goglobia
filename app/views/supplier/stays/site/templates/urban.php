@@ -26,7 +26,7 @@ require $secDir . '_prep.php';
   .u-hero .bg{position:absolute;inset:0;background-size:cover;background-position:center;opacity:.7}
   .u-hero .bg::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,var(--wl-primary) 2%,rgba(20,20,22,.2) 60%)}
   .u-hero .inner{position:relative;max-width:1180px;margin:0 auto;padding:0 clamp(20px,4vw,40px) clamp(50px,7vw,90px);width:100%}
-  .u-hero h1{font-size:clamp(2.6rem,6.4vw,5.4rem);font-weight:700;line-height:1;letter-spacing:-.025em;max-width:16ch;text-wrap:balance}
+  .u-hero h1{font-size:clamp(2.1rem,6.4vw,5.4rem);font-weight:700;line-height:1;letter-spacing:-.025em;max-width:16ch;text-wrap:balance;overflow-wrap:break-word;word-break:break-word;hyphens:auto}
   .u-hero p{font-size:1.08rem;max-width:44ch;margin:18px 0 28px;opacity:.88}
   .u-sb{display:inline-flex;gap:0;border:1px solid rgba(255,255,255,.25);border-radius:4px;overflow:hidden;flex-wrap:wrap}
   .u-sb .f{padding:12px 16px;border-right:1px solid rgba(255,255,255,.18)}
@@ -60,9 +60,9 @@ require $secDir . '_prep.php';
     <?php if ($wlHeroSub !== ''): ?><p><?= htmlspecialchars(mb_substr($wlHeroSub, 0, 180)) ?></p><?php endif; ?>
     <?php if ($wlSid > 0 && $wlSlug !== ''): ?>
     <div class="u-sb" id="wl-hero-search"
-      x-data="{ ci:'', co:'', adults:2, children:0, go(){ if(!this.ci||!this.co)return; window.location.href='<?= htmlspecialchars($wlBookBase) ?>'+this.ci+'/'+this.co+'/US/1/'+this.adults+'-'+this.children } }">
-      <div class="f"><label>Arrival</label><input type="date" x-model="ci"></div>
-      <div class="f"><label>Departure</label><input type="date" x-model="co"></div>
+      x-data="{ ci:'', co:'', adults:2, children:0, go(){ if(!this.ci||!this.co)return; window.location.href='<?= htmlspecialchars($wlBookBase) ?>'+this.ci+'/'+this.co+'/NULL/1/'+this.adults+'-'+this.children } }">
+      <div class="f"><label>Arrival</label><input type="date" id="wl-arrival" x-model="ci" :min="new Date().toISOString().split('T')[0]"></div>
+      <div class="f"><label>Departure</label><input type="date" x-model="co" :min="ci || new Date().toISOString().split('T')[0]"></div>
       <div class="f"><label>Guests</label><input type="number" min="1" max="20" x-model.number="adults"></div>
       <button class="go" @click="go()">Check rates</button>
     </div>

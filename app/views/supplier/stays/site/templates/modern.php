@@ -26,7 +26,7 @@ require $secDir . '_prep.php';
   .d-hero .bg::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,rgba(10,15,30,.78),rgba(10,15,30,.35))}
   .d-hero .fallback{position:absolute;inset:0;background:linear-gradient(120deg,var(--wl-primary),color-mix(in srgb,var(--wl-primary) 60%,var(--wl-accent)))}
   .d-hero .inner{position:relative;max-width:1180px;margin:0 auto;padding:0 clamp(20px,4vw,40px);width:100%}
-  .d-hero h1{font-size:clamp(2.6rem,6vw,5rem);font-weight:700;line-height:1.02;letter-spacing:-.02em;max-width:18ch;text-wrap:balance}
+  .d-hero h1{font-size:clamp(2.1rem,6vw,5rem);font-weight:700;line-height:1.02;letter-spacing:-.02em;max-width:18ch;text-wrap:balance;overflow-wrap:break-word;word-break:break-word;hyphens:auto}
   .d-hero p{font-size:1.15rem;max-width:46ch;margin:20px 0 32px;opacity:.92}
   .d-sb{background:#fff;color:var(--wl-ink);border-radius:16px;padding:16px;box-shadow:0 24px 60px -24px rgba(0,0,0,.5);display:flex;gap:10px;flex-wrap:wrap;align-items:end;max-width:820px}
   .d-sb .f{padding:4px 10px;flex:1;min-width:120px}
@@ -60,9 +60,9 @@ require $secDir . '_prep.php';
     <?php if ($wlHeroSub !== ''): ?><p><?= htmlspecialchars(mb_substr($wlHeroSub, 0, 180)) ?></p><?php endif; ?>
     <?php if ($wlSid > 0 && $wlSlug !== ''): ?>
     <div class="d-sb" id="wl-hero-search"
-      x-data="{ ci:'', co:'', adults:2, children:0, go(){ if(!this.ci||!this.co)return; window.location.href='<?= htmlspecialchars($wlBookBase) ?>'+this.ci+'/'+this.co+'/US/1/'+this.adults+'-'+this.children } }">
-      <div class="f"><label>Check-in</label><input type="date" x-model="ci"></div>
-      <div class="f"><label>Check-out</label><input type="date" x-model="co"></div>
+      x-data="{ ci:'', co:'', adults:2, children:0, go(){ if(!this.ci||!this.co)return; window.location.href='<?= htmlspecialchars($wlBookBase) ?>'+this.ci+'/'+this.co+'/NULL/1/'+this.adults+'-'+this.children } }">
+      <div class="f"><label>Check-in</label><input type="date" id="wl-arrival" x-model="ci" :min="new Date().toISOString().split('T')[0]"></div>
+      <div class="f"><label>Check-out</label><input type="date" x-model="co" :min="ci || new Date().toISOString().split('T')[0]"></div>
       <div class="f"><label>Adults</label><input type="number" min="1" max="20" x-model.number="adults"></div>
       <div class="f"><label>Children</label><input type="number" min="0" max="20" x-model.number="children"></div>
       <button class="go" @click="go()"><?= htmlspecialchars($wlHeroCta) ?></button>

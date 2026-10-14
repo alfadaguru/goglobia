@@ -12,11 +12,11 @@
   @media(max-width:760px){.wl-search .row{grid-template-columns:1fr 1fr}.wl-search .go{grid-column:span 2;padding:18px}}
 </style>
 <section class="wl-search" id="wl-search"
-  x-data="{ ci:'', co:'', adults:2, children:0, go(){ if(!this.ci||!this.co)return; window.location.href='<?= htmlspecialchars($wlBookBase) ?>'+this.ci+'/'+this.co+'/US/1/'+this.adults+'-'+this.children } }">
+  x-data="{ ci:'', co:'', adults:2, children:0, go(){ if(!this.ci||!this.co)return; window.location.href='<?= htmlspecialchars($wlBookBase) ?>'+this.ci+'/'+this.co+'/NULL/1/'+this.adults+'-'+this.children } }">
   <div class="wl-wrap" style="padding:0;max-width:1180px">
     <div class="row">
-      <div class="cell"><label>Arrival</label><input type="date" x-model="ci"></div>
-      <div class="cell"><label>Departure</label><input type="date" x-model="co"></div>
+      <div class="cell"><label>Arrival</label><input type="date" id="wl-arrival" x-model="ci" :min="new Date().toISOString().split('T')[0]"></div>
+      <div class="cell"><label>Departure</label><input type="date" x-model="co" :min="ci || new Date().toISOString().split('T')[0]"></div>
       <div class="cell"><label>Adults</label><input type="number" min="1" max="20" x-model.number="adults"></div>
       <div class="cell"><label>Children</label><input type="number" min="0" max="20" x-model.number="children"></div>
       <button class="go" @click="go()">Check availability</button>
