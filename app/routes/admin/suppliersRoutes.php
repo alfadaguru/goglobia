@@ -375,3 +375,80 @@ $router->post(admin . '/supplier-service-requests/decide', function () use ($SEC
     }
     header('Location: ' . $back); exit;
 });
+
+// ============================================================================
+// WHITE-LABEL SITE ACTIVATION (Phase 0) — admin queue + approve/reject/suspend.
+// Mirrors the supplier-listings review pattern. State on stays_site.site_status.
+// ============================================================================
+
+// Queue: requested sites first (actionable), then recently decided for reference.
+$router->get(admin . '/white-label-requests', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    $requested = [];
+    $others = [];
+    try {
+        $requested = $db->select('stays_site',
+            ['stay_id', 'site_status', 'site_requested_at', 'hostname', 'custom_domain'],
+            ['site_status' => 'requested', 'ORDER' => ['site_requested_at' => 'ASC']]) ?: [];
+        $others = $db->select('stays_site',
+            ['stay_id', 'site_status', 'site_reviewed_at', 'site_review_comment', 'hostname', 'custom_domain'],
+            ['site_status' => ['approved', 'rejected', 'suspended'], 'ORDER' => ['site_reviewed_at' => 'DESC'], 'LIMIT' => 50]) ?: [];
+        // Attach the property name for display (small N; simple per-row lookup).
+        foreach ([&$requested, &$others] as &$__set) {
+            foreach ($__set as &$__r) {
+                $st = $db->get('stays', ['name', 'location', 'slug'], ['id' => (int) $__r['stay_id']]);
+                $__r['stay_name'] = $st['name'] ?? ('#' . $__r['stay_id']);
+                $__r['stay_location'] = $st['location'] ?? '';
+                $__r['stay_slug'] = $st['slug'] ?? '';
+            }
+            unset($__r);
+        }
+        unset($__set);
+    } catch (\Throwable $e) {
+        error_log('admin white-label-requests: ' . $e->getMessage());
+    }
+
+    $title = 'White-Label Site Requests';
+    $description = 'Approve hotels for their own branded booking site';
+    $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once "app/views/admin/suppliers/white-label.php";
+    require_once views . "includes/footer.php";
+});
+
+// Review action: approve | reject | suspend.
+$router->post(admin . '/white-label-requests/review/([0-9]+)', function ($stayId) use ($SECURE, $db) {
+    ADMIN_AUTH();
+    CSRF::guard();
+    $back = root . admin . '/white-label-requests';
+    $decision = (string) ($_POST['decision'] ?? '');
+    $comment = (string) ($_POST['comment'] ?? '');
+    $reviewer = (string) ($_SESSION['user_id'] ?? '');
+
+    $res = function_exists('supplier_site_review')
+        ? supplier_site_review($db, (int) $stayId, $decision, $reviewer, $comment)
+        : ['ok' => false, 'message' => 'Unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Done.'];
+
+    // Best-effort: notify the owning supplier of the decision.
+    if (!empty($res['ok']) && function_exists('SENDEMAIL')) {
+        try {
+            $stay = $db->get('stays', ['name', 'user_id'], ['id' => (int) $stayId]);
+            if ($stay) {
+                $u = $db->get('users', ['email', 'first_name'], ['user_id' => (string) $stay['user_id']]);
+                if ($u && !empty($u['email'])) {
+                    $brand = $GLOBALS['app']['business_name'] ?? ($GLOBALS['app']['app_name'] ?? 'Our Platform');
+                    $verb = ['approved' => 'approved and is now live', 'rejected' => 'not approved', 'suspended' => 'suspended'][$res['status']] ?? $res['status'];
+                    $cmt = mb_substr(trim($comment), 0, 255);
+                    SENDEMAIL($u['email'], (string) ($u['first_name'] ?? ''),
+                        'Your branded site for "' . ($stay['name'] ?? '') . '" has been ' . $res['status'],
+                        '<p>Your branded website for <strong>' . htmlspecialchars((string) ($stay['name'] ?? '')) . '</strong> has been ' . $verb . '.</p>'
+                        . ($cmt !== '' ? '<p><strong>Note:</strong> ' . htmlspecialchars($cmt) . '</p>' : '')
+                        . '<p>— ' . htmlspecialchars($brand) . '</p>',
+                        null);
+                }
+            }
+        } catch (\Throwable $e) { error_log('white-label notify: ' . $e->getMessage()); }
+    }
+    header('Location: ' . $back); exit;
+});

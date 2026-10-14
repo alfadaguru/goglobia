@@ -1445,6 +1445,21 @@ $router->post('/supplier/stays/site-theme', function () use ($SECURE, $db) {
     header('Location: ' . $back); exit;
 });
 
+// POST /supplier/stays/site-request — request admin activation of the white-label site
+// (Phase 0). Owner-scoped + CSRF. Moves site_status none/rejected -> requested.
+$router->post('/supplier/stays/site-request', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $back = root . 'supplier/stays/site/' . $stayId;
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+    $res = function_exists('supplier_site_request')
+        ? supplier_site_request($db, $stayId)
+        : ['ok' => false, 'message' => 'Unavailable.'];
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Error'];
+    header('Location: ' . $back); exit;
+});
+
 // POST /supplier/stays/site-page — create/update a custom branded-site page (MODULE 13).
 // Literal path (no numeric collision with /site/{id}); stay_id carried in the body.
 $router->post('/supplier/stays/site-page', function () use ($SECURE, $db) {

@@ -28,6 +28,39 @@
   </div>
   <p class="text-sm text-gray-600"><?= htmlspecialchars($stayName) ?> has its own branded booking page.</p>
 
+  <!-- WHITE-LABEL ACTIVATION (Phase 0): request -> admin approve -> live -->
+  <?php
+    $siteStatus = (string) ($s['site_status'] ?? 'none');
+    $siteComment = trim((string) ($s['site_review_comment'] ?? ''));
+    $wlMeta = [
+      'none'      => ['Not requested', 'bg-gray-100 text-gray-600', 'Your branded site is built but not yet live to the public. Request activation and an admin will review it.'],
+      'requested' => ['Pending review', 'bg-amber-50 text-amber-700', 'Your activation request is with our team. You can keep editing your site while you wait.'],
+      'approved'  => ['Active', 'bg-green-50 text-green-700', 'Your branded site is live to the public.'],
+      'rejected'  => ['Not approved', 'bg-red-50 text-red-700', 'Your activation request was not approved. You can adjust your site and request again.'],
+      'suspended' => ['Suspended', 'bg-red-50 text-red-700', 'Your branded site has been suspended. Please contact support.'],
+    ];
+    $wl = $wlMeta[$siteStatus] ?? $wlMeta['none'];
+  ?>
+  <div class="card p-5 space-y-3 border-l-4 <?= $siteStatus === 'approved' ? 'border-green-400' : ($siteStatus === 'requested' ? 'border-amber-400' : 'border-gray-300') ?>">
+    <div class="flex items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <h2 class="text-sm font-semibold text-gray-800">Branded site status</h2>
+        <span class="px-2 py-0.5 rounded text-xs font-medium <?= $wl[1] ?>"><?= htmlspecialchars($wl[0]) ?></span>
+      </div>
+      <?php if (in_array($siteStatus, ['none', 'rejected'], true)): ?>
+        <form action="<?= root ?>supplier/stays/site-request" method="POST">
+          <?= CSRF::tokenField() ?>
+          <input type="hidden" name="stay_id" value="<?= $sid13 ?>">
+          <button type="submit" class="btn emerald text-sm">Request activation</button>
+        </form>
+      <?php endif; ?>
+    </div>
+    <p class="text-xs text-gray-600"><?= htmlspecialchars($wl[2]) ?></p>
+    <?php if ($siteComment !== '' && in_array($siteStatus, ['rejected', 'suspended'], true)): ?>
+      <p class="text-xs text-red-700"><strong>Admin note:</strong> <?= htmlspecialchars($siteComment) ?></p>
+    <?php endif; ?>
+  </div>
+
   <!-- MODULE 13: site-builder design (branding / banner / custom about / SEO / analytics) -->
   <?php $theme = function_exists('sitebuilder_decode') ? sitebuilder_decode($s['theme'] ?? null) : []; $sid13 = (int) ($stay['id'] ?? 0); ?>
   <div class="card p-5 space-y-3">

@@ -311,6 +311,103 @@ if (!function_exists('supplier_site_sync_hostname')) {
     }
 }
 
+// ============================================================================
+// WHITE-LABEL ACTIVATION (Phase 0) — request -> admin-approve -> activate.
+// The branded site (home, custom pages, host-serve, TLS) only goes live when an admin
+// has APPROVED the white-label request for that property. Mirrors the listing_status
+// review pattern. State lives on stays_site.site_status (ensureSupplierStaysSchema).
+// ============================================================================
+
+if (!function_exists('supplier_site_status')) {
+    /** Current white-label activation status for a stay: one of
+     *  none|requested|approved|rejected|suspended. 'none' if no row/feature off. */
+    function supplier_site_status($db, int $stayId): string
+    {
+        if ($stayId <= 0) { return 'none'; }
+        try {
+            $row = $db->get('stays_site', ['site_status'], ['stay_id' => $stayId]);
+            $s = $row ? (string) ($row['site_status'] ?? 'none') : 'none';
+            return in_array($s, ['none', 'requested', 'approved', 'rejected', 'suspended'], true) ? $s : 'none';
+        } catch (\Throwable $e) {
+            error_log('supplier_site_status: ' . $e->getMessage());
+            return 'none';
+        }
+    }
+}
+
+if (!function_exists('supplier_site_is_approved')) {
+    /** The single gate every serve/link point calls: is the white-label site live for
+     *  this stay? True only when site_status='approved'. This is intentionally strict —
+     *  a pending/rejected/suspended/none site does NOT serve publicly. */
+    function supplier_site_is_approved($db, int $stayId): bool
+    {
+        return supplier_site_status($db, $stayId) === 'approved';
+    }
+}
+
+if (!function_exists('supplier_site_request')) {
+    /**
+     * A supplier requests white-label activation for a property they own (caller already
+     * authorized hotels.edit on $stayId). Upserts the stays_site row and moves status to
+     * 'requested' — but NOT from 'approved'/'suspended' (admin-controlled states). Returns
+     * ['ok'=>bool,'status'=>string,'message'=>string].
+     */
+    function supplier_site_request($db, int $stayId): array
+    {
+        if ($stayId <= 0) { return ['ok' => false, 'status' => 'none', 'message' => 'Invalid property.']; }
+        try {
+            $cur = supplier_site_status($db, $stayId);
+            if ($cur === 'approved') { return ['ok' => true, 'status' => 'approved', 'message' => 'Your branded site is already active.']; }
+            if ($cur === 'suspended') { return ['ok' => false, 'status' => 'suspended', 'message' => 'Your branded site is suspended — contact support.']; }
+            if ($cur === 'requested') { return ['ok' => true, 'status' => 'requested', 'message' => 'Your request is already pending review.']; }
+
+            $now = date('Y-m-d H:i:s');
+            if ($db->has('stays_site', ['stay_id' => $stayId])) {
+                $db->update('stays_site', ['site_status' => 'requested', 'site_requested_at' => $now, 'updated_at' => $now], ['stay_id' => $stayId]);
+            } else {
+                $db->insert('stays_site', ['stay_id' => $stayId, 'site_status' => 'requested', 'site_requested_at' => $now, 'domain_status' => 'none', 'created_at' => $now]);
+            }
+            return ['ok' => true, 'status' => 'requested', 'message' => 'Request submitted — an admin will review your branded site shortly.'];
+        } catch (\Throwable $e) {
+            error_log('supplier_site_request: ' . $e->getMessage());
+            return ['ok' => false, 'status' => 'none', 'message' => 'Could not submit the request.'];
+        }
+    }
+}
+
+if (!function_exists('supplier_site_review')) {
+    /**
+     * Admin decision on a white-label request. $decision ∈ approve|reject|suspend. Records
+     * reviewer + comment, sets site_status. Caller is admin-gated. Returns
+     * ['ok'=>bool,'status'=>string,'message'=>string].
+     */
+    function supplier_site_review($db, int $stayId, string $decision, string $reviewer, string $comment = ''): array
+    {
+        if ($stayId <= 0) { return ['ok' => false, 'status' => 'none', 'message' => 'Invalid property.']; }
+        $map = ['approve' => 'approved', 'reject' => 'rejected', 'suspend' => 'suspended'];
+        if (!isset($map[$decision])) { return ['ok' => false, 'status' => 'none', 'message' => 'Invalid decision.']; }
+        $new = $map[$decision];
+        $comment = mb_substr(trim($comment), 0, 255);
+        try {
+            if (!$db->has('stays_site', ['stay_id' => $stayId])) {
+                // No row yet (admin acting before a request) — create it so the decision sticks.
+                $db->insert('stays_site', ['stay_id' => $stayId, 'site_status' => $new, 'domain_status' => 'none', 'created_at' => date('Y-m-d H:i:s')]);
+            }
+            $db->update('stays_site', [
+                'site_status'         => $new,
+                'site_reviewed_by'    => mb_substr($reviewer, 0, 255),
+                'site_reviewed_at'    => date('Y-m-d H:i:s'),
+                'site_review_comment' => $comment !== '' ? $comment : null,
+                'updated_at'          => date('Y-m-d H:i:s'),
+            ], ['stay_id' => $stayId]);
+            return ['ok' => true, 'status' => $new, 'message' => 'Branded site ' . $new . '.'];
+        } catch (\Throwable $e) {
+            error_log('supplier_site_review: ' . $e->getMessage());
+            return ['ok' => false, 'status' => 'none', 'message' => 'Could not record the decision.'];
+        }
+    }
+}
+
 if (!function_exists('supplier_site_tls_authorize')) {
     /**
      * TLS on-demand authorization for the edge proxy. Returns TRUE iff $host is a host we
@@ -343,7 +440,13 @@ if (!function_exists('supplier_site_tls_authorize')) {
 
         try {
             $live = $db->get('stays', ['id'], ['id' => $stayId, 'status' => '1', 'listing_status' => 'approved']);
-            return (bool) $live;
+            if (!$live) { return false; }
+            // White-label activation gate: only mint a cert for a host whose branded site is
+            // APPROVED — so a pending/rejected request never triggers ACME issuance.
+            if (function_exists('supplier_site_is_approved') && !supplier_site_is_approved($db, $stayId)) {
+                return false;
+            }
+            return true;
         } catch (\Throwable $e) {
             error_log('supplier_site_tls_authorize: ' . $e->getMessage());
             return false;

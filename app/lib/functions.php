@@ -8248,6 +8248,25 @@ function ensureSupplierStaysSchema($db): void
         if (!$db->query("SHOW COLUMNS FROM `stays_site` LIKE 'ical_token'")->fetch()) {
             $db->query("ALTER TABLE `stays_site` ADD COLUMN `ical_token` VARCHAR(48) DEFAULT NULL");
         }
+        // --- WHITE-LABEL ACTIVATION (Phase 0): request -> admin-approve -> activate. The
+        // branded site only serves when site_status='approved'. Mirrors the listing_status
+        // review pattern (status + reviewed_by/at/comment). Default 'none' = not requested,
+        // so existing installs are unaffected until a supplier opts in.
+        if (!$db->query("SHOW COLUMNS FROM `stays_site` LIKE 'site_status'")->fetch()) {
+            $db->query("ALTER TABLE `stays_site` ADD COLUMN `site_status` ENUM('none','requested','approved','rejected','suspended') NOT NULL DEFAULT 'none'");
+        }
+        if (!$db->query("SHOW COLUMNS FROM `stays_site` LIKE 'site_reviewed_by'")->fetch()) {
+            $db->query("ALTER TABLE `stays_site` ADD COLUMN `site_reviewed_by` VARCHAR(255) DEFAULT NULL");
+        }
+        if (!$db->query("SHOW COLUMNS FROM `stays_site` LIKE 'site_reviewed_at'")->fetch()) {
+            $db->query("ALTER TABLE `stays_site` ADD COLUMN `site_reviewed_at` DATETIME DEFAULT NULL");
+        }
+        if (!$db->query("SHOW COLUMNS FROM `stays_site` LIKE 'site_requested_at'")->fetch()) {
+            $db->query("ALTER TABLE `stays_site` ADD COLUMN `site_requested_at` DATETIME DEFAULT NULL");
+        }
+        if (!$db->query("SHOW COLUMNS FROM `stays_site` LIKE 'site_review_comment'")->fetch()) {
+            $db->query("ALTER TABLE `stays_site` ADD COLUMN `site_review_comment` VARCHAR(255) DEFAULT NULL");
+        }
         // Per-property OTA channel mappings (room-type ↔ OTA room id). Persisted now; the
         // actual push/pull is the stubbed external adapter (honest 'not connected').
         $db->query("CREATE TABLE IF NOT EXISTS `stays_channel_map` (

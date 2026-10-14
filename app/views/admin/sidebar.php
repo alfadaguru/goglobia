@@ -185,6 +185,7 @@ $adminMenu = [
       ['name' => 'All suppliers', 'icon' => 'storefront', 'url' => root.admin.'/suppliers'],
       ['name' => 'Service requests', 'icon' => 'playlist_add_check', 'url' => root.admin.'/supplier-service-requests'],
       ['name' => 'Listings', 'icon' => 'fact_check', 'url' => root.admin.'/supplier-listings'],
+      ['name' => 'White-label sites', 'icon' => 'public', 'url' => root.admin.'/white-label-requests'],
       ['name' => 'Payouts', 'icon' => 'account_balance', 'url' => root.admin.'/supplier-payouts'],
     ],
   ],

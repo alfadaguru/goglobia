@@ -24,6 +24,15 @@ if (!function_exists('_branded_render_stay')) {
         $stay = $db->get('stays', '*', ['id' => $stayId, 'status' => '1', 'listing_status' => 'approved']);
         if (!$stay) { return; } // not live/approved → fall through to 404
 
+        // WHITE-LABEL ACTIVATION GATE (Phase 0): the branded site serves only when an admin
+        // has APPROVED the white-label request. A live, approved listing is NOT enough — the
+        // operator must opt the property into the branded-site feature. Not approved → fall
+        // through to 404 (this covers /book/{slug} and the host-serve hook, both of which
+        // route through here).
+        if (function_exists('supplier_site_is_approved') && !supplier_site_is_approved($db, $stayId)) {
+            return;
+        }
+
         $rooms = $db->select('stays_rooms', ['id', 'room_type_id', 'room_images', 'room_options'],
             ['stay_id' => $stayId, 'status' => 1]) ?: [];
         if (function_exists('stays_room_option_ids')) {
@@ -89,10 +98,12 @@ $router->post('/stay-checkin/([A-Z0-9]{6,})', function ($invoiceId) use ($SECURE
 // through htmlspecialchars by the view (no supplier HTML).
 $router->get('/book/([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9-]*)', function ($slug, $pageSlug) use ($SECURE, $db) {
     $stay = $db->get('stays', ['id', 'name', 'slug', 'desc'], ['slug' => $slug, 'status' => '1', 'listing_status' => 'approved']);
-    $page = ($stay && function_exists('sitepages_get'))
+    // White-label activation gate: custom pages serve only when the branded site is approved.
+    $wlOk = $stay && (!function_exists('supplier_site_is_approved') || supplier_site_is_approved($db, (int) $stay['id']));
+    $page = ($wlOk && function_exists('sitepages_get'))
         ? sitepages_get($db, (int) $stay['id'], $pageSlug, true)
         : null;
-    if ($stay && $page) {
+    if ($stay && $wlOk && $page) {
         $stay['_slug'] = (string) ($stay['slug'] ?? '');
         $site      = $db->get('stays_site', '*', ['stay_id' => (int) $stay['id']]);
         $sitePages = function_exists('sitepages_list') ? sitepages_list($db, (int) $stay['id'], true) : [];
