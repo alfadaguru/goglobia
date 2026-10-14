@@ -78,7 +78,7 @@
   ?>
   <div class="card p-5 space-y-3">
     <h2 class="text-sm font-semibold text-gray-800">Design &amp; content</h2>
-    <form action="<?= root ?>supplier/stays/site-theme" method="POST" class="space-y-4" x-data="{ tpl: '<?= htmlspecialchars($curTemplate) ?>' }">
+    <form action="<?= root ?>supplier/stays/site-theme" method="POST" enctype="multipart/form-data" class="space-y-4" x-data="{ tpl: '<?= htmlspecialchars($curTemplate) ?>' }">
       <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid13 ?>"><input type="hidden" name="prefs_submitted" value="1">
 
       <!-- TEMPLATE PICKER -->
@@ -137,6 +137,27 @@
         <div><label class="block text-xs text-gray-600 mb-1">Hero button text</label><input type="text" name="hero_cta" maxlength="40" value="<?= htmlspecialchars((string) ($theme['hero_cta'] ?? '')) ?>" class="input text-sm" placeholder="Check availability"></div>
       </div>
       <div><label class="block text-xs text-gray-600 mb-1">Hero subtext</label><input type="text" name="hero_subtext" maxlength="280" value="<?= htmlspecialchars((string) ($theme['hero_subtext'] ?? '')) ?>" class="input text-sm" placeholder="Defaults to your property description"></div>
+
+      <!-- G7: hero image + favicon uploaders -->
+      <?php $heroCur = trim((string) ($theme['hero_url'] ?? '')); $favCur = trim((string) ($theme['favicon_url'] ?? '')); ?>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-gray-600 mb-1">Hero image</label>
+          <div class="flex items-center gap-3">
+            <?php if ($heroCur !== ''): ?><img src="<?= htmlspecialchars(rtrim(root, '/') . '/' . ltrim($heroCur, '/')) ?>" alt="Current hero" class="w-20 h-12 object-cover rounded border border-gray-200 flex-none"><?php endif; ?>
+            <input type="file" name="hero_image" accept="image/jpeg,image/png,image/webp" class="input text-sm">
+          </div>
+          <p class="text-xs text-gray-400 mt-1">Large background for your homepage hero. JPG/PNG/WEBP, up to 2&nbsp;MB. Leave blank to use your main gallery photo.</p>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-600 mb-1">Favicon</label>
+          <div class="flex items-center gap-3">
+            <?php if ($favCur !== ''): ?><img src="<?= htmlspecialchars(rtrim(root, '/') . '/' . ltrim($favCur, '/')) ?>" alt="Current favicon" class="w-8 h-8 object-contain rounded border border-gray-200 flex-none bg-white"><?php endif; ?>
+            <input type="file" name="favicon_image" accept="image/png,image/x-icon,image/vnd.microsoft.icon,.ico,image/jpeg,image/webp" class="input text-sm">
+          </div>
+          <p class="text-xs text-gray-400 mt-1">The small icon in the browser tab. Square PNG or ICO (32×32), up to 2&nbsp;MB. Leave blank to use your logo.</p>
+        </div>
+      </div>
 
       <!-- SECTIONS: order + toggle -->
       <?php if (!empty($wlAllSections)): ?>

@@ -266,6 +266,51 @@ if (!function_exists('_supplier_stays_handle_logo')) {
     }
 }
 
+if (!function_exists('_supplier_stays_handle_theme_image')) {
+    /**
+     * G7 — handle an optional theme-image upload (hero / favicon) for the white-label site.
+     * Same hardened path as the logo: validate (MIME+ext+size), move into /uploads/hotels/site/,
+     * process. $field = the $_FILES key; $prefix = filename prefix; $exts = allowed extensions
+     * (favicon also allows .ico). Returns [url|null, error-string]; [null,''] when nothing uploaded.
+     */
+    function _supplier_stays_handle_theme_image(string $field, string $prefix, array $exts): array
+    {
+        if (empty($_FILES[$field]['name']) || ($_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            return [null, '']; // nothing uploaded
+        }
+        $maxBytes = 2 * 1024 * 1024;
+        $f = $_FILES[$field];
+        $slice = ['name' => $f['name'], 'tmp_name' => $f['tmp_name'] ?? '', 'size' => $f['size'] ?? 0, 'error' => $f['error'] ?? UPLOAD_ERR_NO_FILE];
+        $label = ucfirst($prefix);
+        if (function_exists('_supplier_stays_validate_image')) {
+            // .ico can't be validated as a raster image; skip the raster validator for ico.
+            $ext = strtolower((string) pathinfo((string) $f['name'], PATHINFO_EXTENSION));
+            if ($ext !== 'ico') {
+                $msg = _supplier_stays_validate_image($slice, $maxBytes, array_filter($exts, fn($e) => $e !== 'ico'), $label);
+                if ($msg !== '') { return [null, $label . ': ' . $msg]; }
+            } else {
+                if (($f['size'] ?? 0) > $maxBytes) { return [null, $label . ': file is too large.']; }
+            }
+        }
+        $ext = strtolower((string) pathinfo((string) $f['name'], PATHINFO_EXTENSION));
+        if (!in_array($ext, $exts, true)) { return [null, $label . ': unsupported file type.']; }
+        $project_root = realpath(__DIR__ . '/../../../');
+        if ($project_root === false) { return [null, '']; }
+        $dir = $project_root . '/uploads/hotels/site/';
+        if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
+        $fn = $prefix . '_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+        if (!move_uploaded_file($f['tmp_name'], $dir . $fn)) { return [null, $label . ' could not be saved — please try again.']; }
+        @chmod($dir . $fn, 0644);
+        $url = '/uploads/hotels/site/' . $fn;
+        // Hero benefits from downscale; favicon/ico kept as-is.
+        if ($prefix === 'hero' && $ext !== 'ico' && function_exists('supplier_image_process')) {
+            $proc = supplier_image_process($dir . $fn, $url);
+            $url = $proc['url'] ?? $url;
+        }
+        return [$url, ''];
+    }
+}
+
 // ============================================================================
 // LIST — GET /supplier/stays  (only the acting supplier's own properties)
 // ============================================================================
@@ -1470,8 +1515,32 @@ $router->post('/supplier/stays/site-theme', function () use ($SECURE, $db) {
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $back = root . 'supplier/stays/site/' . $stayId;
     if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+
+    // G7 — HERO + FAVICON uploads. Process any uploaded files (hardened path), then inject the
+    // resulting /uploads/ URLs into $_POST so sitebuilder_normalize persists hero_url/favicon_url.
+    // When nothing is uploaded, carry the EXISTING value forward (so a plain save doesn't clear it).
+    $uploadErr = [];
+    $curTheme = [];
+    if (function_exists('sitebuilder_decode')) {
+        $siteRow = $db->get('stays_site', ['theme'], ['stay_id' => $stayId]);
+        $curTheme = sitebuilder_decode(is_array($siteRow) ? ($siteRow['theme'] ?? null) : null);
+    }
+    if (function_exists('_supplier_stays_handle_theme_image')) {
+        [$heroUrl, $heroErr] = _supplier_stays_handle_theme_image('hero_image', 'hero', ['jpg', 'jpeg', 'png', 'webp']);
+        if ($heroErr !== '') { $uploadErr[] = $heroErr; }
+        $_POST['hero_url'] = $heroUrl !== null ? $heroUrl : (string) ($curTheme['hero_url'] ?? '');
+
+        [$favUrl, $favErr] = _supplier_stays_handle_theme_image('favicon_image', 'favicon', ['png', 'ico', 'jpg', 'jpeg', 'webp']);
+        if ($favErr !== '') { $uploadErr[] = $favErr; }
+        $_POST['favicon_url'] = $favUrl !== null ? $favUrl : (string) ($curTheme['favicon_url'] ?? '');
+    }
+
     $ok = function_exists('sitebuilder_save') && sitebuilder_save($db, $stayId, $_POST);
-    $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Site design saved.' : 'Could not save.'];
+    if (!empty($uploadErr)) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Design saved, but some images were not added: ' . implode(' ', $uploadErr)];
+    } else {
+        $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Site design saved.' : 'Could not save.'];
+    }
     header('Location: ' . $back); exit;
 });
 
