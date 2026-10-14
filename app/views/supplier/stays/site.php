@@ -9,6 +9,9 @@
   $root     = $brandedRoot ?? '';
   // The CNAME target the supplier points at (operator-controlled edge host).
   $cnameTarget = $root !== '' ? ('sites.' . $root) : 'sites.yourbrand.com';
+  // Property id — used across the status card, configurator, and page forms. Defined once here
+  // so earlier sections (e.g. the activation request form) can reference it.
+  $sid13 = (int) ($stay['id'] ?? 0);
 ?>
 
 <div class="max-w-3xl mx-auto px-4 py-8 space-y-6">
@@ -62,14 +65,105 @@
   </div>
 
   <!-- MODULE 13: site-builder design (branding / banner / custom about / SEO / analytics) -->
-  <?php $theme = function_exists('sitebuilder_decode') ? sitebuilder_decode($s['theme'] ?? null) : []; $sid13 = (int) ($stay['id'] ?? 0); ?>
+  <?php
+    $theme = function_exists('sitebuilder_decode') ? sitebuilder_decode($s['theme'] ?? null) : [];
+    $wlTemplates = function_exists('wl_templates') ? wl_templates() : [];
+    $wlFonts = function_exists('wl_fonts') ? wl_fonts() : [];
+    $wlAllSections = function_exists('wl_sections_all') ? wl_sections_all() : [];
+    $curTemplate = (string) ($theme['template'] ?? 'grand');
+    $curSections = (!empty($theme['sections']) && is_array($theme['sections'])) ? $theme['sections'] : (function_exists('wl_resolved_sections') ? wl_resolved_sections($theme) : $wlAllSections);
+    // Sections not currently in the custom order (so we can list them as "off").
+    $offSections = array_values(array_diff($wlAllSections, $curSections));
+    $sectionLabels = ['hero' => 'Hero', 'search' => 'Search widget', 'about' => 'About', 'rooms' => 'Rooms', 'gallery' => 'Gallery', 'offers' => 'Offers', 'reviews' => 'Reviews', 'location' => 'Map', 'contact' => 'Contact / Footer'];
+  ?>
   <div class="card p-5 space-y-3">
     <h2 class="text-sm font-semibold text-gray-800">Design &amp; content</h2>
-    <form action="<?= root ?>supplier/stays/site-theme" method="POST" class="space-y-3">
-      <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid13 ?>">
-      <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <div><label class="block text-xs text-gray-600 mb-1">Accent colour</label><input type="color" name="accent" value="<?= htmlspecialchars((string) ($theme['accent'] ?? '#7c3aed')) ?>" class="input h-9 p-1"></div>
-        <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Tagline</label><input type="text" name="tagline" value="<?= htmlspecialchars((string) ($theme['tagline'] ?? '')) ?>" class="input text-sm" placeholder="Your stay, your way"></div>
+    <form action="<?= root ?>supplier/stays/site-theme" method="POST" class="space-y-4" x-data="{ tpl: '<?= htmlspecialchars($curTemplate) ?>' }">
+      <?= CSRF::tokenField() ?><input type="hidden" name="stay_id" value="<?= $sid13 ?>"><input type="hidden" name="prefs_submitted" value="1">
+
+      <!-- TEMPLATE PICKER -->
+      <?php if (!empty($wlTemplates)): ?>
+      <div>
+        <label class="block text-xs font-medium text-gray-700 mb-2">Website template</label>
+        <input type="hidden" name="template" :value="tpl">
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          <?php foreach ($wlTemplates as $tk => $tv): ?>
+            <button type="button" @click="tpl = '<?= htmlspecialchars($tk) ?>'"
+              class="text-left border rounded-lg p-2.5 transition"
+              :class="tpl === '<?= htmlspecialchars($tk) ?>' ? 'border-violet-500 ring-1 ring-violet-300 bg-violet-50' : 'border-gray-200 hover:border-gray-300'">
+              <div class="h-10 rounded mb-1.5" style="background:linear-gradient(135deg,<?= htmlspecialchars($tv['primary']) ?>,<?= htmlspecialchars($tv['accent']) ?>)"></div>
+              <div class="text-xs font-semibold text-gray-800"><?= htmlspecialchars($tv['label']) ?></div>
+            </button>
+          <?php endforeach; ?>
+        </div>
+        <p class="text-xs text-gray-500 mt-1.5" x-text="({<?php foreach ($wlTemplates as $tk => $tv): ?>'<?= htmlspecialchars($tk) ?>':<?= htmlspecialchars(json_encode($tv['blurb']), ENT_QUOTES) ?>,<?php endforeach; ?>})[tpl]"></p>
+      </div>
+      <?php endif; ?>
+
+      <!-- COLOURS + FONTS -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div><label class="block text-xs text-gray-600 mb-1">Primary colour</label><input type="color" name="color_primary" value="<?= htmlspecialchars((string) ($theme['color_primary'] ?? '') ?: '#14110c') ?>" class="input h-9 p-1"></div>
+        <div><label class="block text-xs text-gray-600 mb-1">Accent colour</label><input type="color" name="color_accent" value="<?= htmlspecialchars((string) ($theme['color_accent'] ?? '') ?: '#b08d57') ?>" class="input h-9 p-1"></div>
+        <?php if (!empty($wlFonts)): ?>
+        <div><label class="block text-xs text-gray-600 mb-1">Display font</label>
+          <select name="font_display" class="input text-sm"><option value="">Template default</option>
+            <?php foreach ($wlFonts as $fn => $fv): ?><option value="<?= htmlspecialchars($fn) ?>" <?= ($theme['font_display'] ?? '') === $fn ? 'selected' : '' ?>><?= htmlspecialchars($fn) ?></option><?php endforeach; ?>
+          </select></div>
+        <div><label class="block text-xs text-gray-600 mb-1">Body font</label>
+          <select name="font_body" class="input text-sm"><option value="">Template default</option>
+            <?php foreach ($wlFonts as $fn => $fv): ?><option value="<?= htmlspecialchars($fn) ?>" <?= ($theme['font_body'] ?? '') === $fn ? 'selected' : '' ?>><?= htmlspecialchars($fn) ?></option><?php endforeach; ?>
+          </select></div>
+        <?php endif; ?>
+      </div>
+
+      <!-- HERO COPY -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div class="md:col-span-2"><label class="block text-xs text-gray-600 mb-1">Hero headline</label><input type="text" name="hero_headline" maxlength="160" value="<?= htmlspecialchars((string) ($theme['hero_headline'] ?? '')) ?>" class="input text-sm" placeholder="Defaults to your property name"></div>
+        <div><label class="block text-xs text-gray-600 mb-1">Hero button text</label><input type="text" name="hero_cta" maxlength="40" value="<?= htmlspecialchars((string) ($theme['hero_cta'] ?? '')) ?>" class="input text-sm" placeholder="Check availability"></div>
+      </div>
+      <div><label class="block text-xs text-gray-600 mb-1">Hero subtext</label><input type="text" name="hero_subtext" maxlength="280" value="<?= htmlspecialchars((string) ($theme['hero_subtext'] ?? '')) ?>" class="input text-sm" placeholder="Defaults to your property description"></div>
+
+      <!-- SECTIONS: order + toggle -->
+      <?php if (!empty($wlAllSections)): ?>
+      <div x-data="wlSections()">
+        <label class="block text-xs font-medium text-gray-700 mb-1.5">Sections (drag to reorder · uncheck to hide)</label>
+        <template x-for="(sec, idx) in order" :key="sec">
+          <div class="flex items-center gap-2 border border-gray-100 rounded-lg px-3 py-2 mb-1.5 bg-white">
+            <span class="material-symbols-outlined text-gray-300 cursor-move text-base" draggable="true"
+                  @dragstart="drag=idx" @dragover.prevent @drop="drop(idx)">drag_indicator</span>
+            <label class="flex items-center gap-2 flex-1 text-sm text-gray-700">
+              <input type="checkbox" :checked="enabled.includes(sec)" @change="toggle(sec)" class="rounded border-gray-300">
+              <span x-text="labels[sec]"></span>
+            </label>
+            <span class="text-xs text-gray-300" x-show="sec==='hero'">always first</span>
+          </div>
+        </template>
+        <!-- hidden inputs reflect the enabled order -->
+        <template x-for="sec in orderedEnabled()" :key="'in-'+sec"><input type="hidden" name="sections[]" :value="sec"></template>
+      </div>
+      <script>
+        function wlSections(){
+          const labels = <?= json_encode($sectionLabels) ?>;
+          const all = <?= json_encode($wlAllSections) ?>;
+          const cur = <?= json_encode(array_values($curSections)) ?>;
+          // order = current enabled order, then any disabled ones appended
+          const order = [...cur, ...all.filter(s=>!cur.includes(s))];
+          return {
+            labels, drag:null,
+            order,
+            enabled: [...cur],
+            toggle(s){ this.enabled.includes(s) ? this.enabled = this.enabled.filter(x=>x!==s) : this.enabled.push(s); },
+            drop(i){ if(this.drag===null||this.drag===i)return; const o=[...this.order]; const [m]=o.splice(this.drag,1); o.splice(i,0,m); this.order=o; this.drag=null; },
+            orderedEnabled(){ return this.order.filter(s=>this.enabled.includes(s)); }
+          };
+        }
+      </script>
+      <?php endif; ?>
+
+      <div class="border-t border-gray-100 pt-3"></div>
+      <div>
+        <label class="block text-xs text-gray-600 mb-1">Tagline</label>
+        <input type="text" name="tagline" value="<?= htmlspecialchars((string) ($theme['tagline'] ?? '')) ?>" class="input text-sm" placeholder="Your stay, your way">
       </div>
       <div>
         <label class="inline-flex items-center gap-1.5 text-xs text-gray-700 mb-1"><input type="checkbox" name="banner_on" value="1" class="checkbox-input" <?= !empty($theme['banner_on']) ? 'checked' : '' ?>> Show promotion banner</label>
@@ -104,25 +198,17 @@
       </div>
       <?php endif; ?>
 
-      <!-- Display options (Phase 2b) — which sections show + chrome colours + language -->
-      <div class="border-t border-gray-100 pt-3 space-y-3">
-        <input type="hidden" name="prefs_submitted" value="1">
-        <label class="block text-xs font-medium text-gray-700">Sections to show on your site</label>
-        <div class="flex flex-wrap gap-4">
-          <label class="inline-flex items-center gap-1.5 text-xs text-gray-700"><input type="checkbox" name="show_reviews" value="1" class="checkbox-input" <?= (!isset($theme['show_reviews']) || !empty($theme['show_reviews'])) ? 'checked' : '' ?>> Guest reviews</label>
-          <label class="inline-flex items-center gap-1.5 text-xs text-gray-700"><input type="checkbox" name="show_offers" value="1" class="checkbox-input" <?= (!isset($theme['show_offers']) || !empty($theme['show_offers'])) ? 'checked' : '' ?>> Special offers</label>
-          <label class="inline-flex items-center gap-1.5 text-xs text-gray-700"><input type="checkbox" name="show_map" value="1" class="checkbox-input" <?= (!isset($theme['show_map']) || !empty($theme['show_map'])) ? 'checked' : '' ?>> Location map</label>
-        </div>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div><label class="block text-xs text-gray-600 mb-1">Header colour</label><input type="color" name="header_bg" value="<?= htmlspecialchars((string) ($theme['header_bg'] ?? '') ?: '#ffffff') ?>" class="input h-9 p-1"></div>
-          <div><label class="block text-xs text-gray-600 mb-1">Footer colour</label><input type="color" name="footer_bg" value="<?= htmlspecialchars((string) ($theme['footer_bg'] ?? '') ?: '#f9fafb') ?>" class="input h-9 p-1"></div>
-          <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Default language</label>
-            <input type="text" name="default_language" value="<?= htmlspecialchars((string) ($theme['default_language'] ?? '')) ?>" class="input text-sm" maxlength="3" placeholder="en / fr / ar">
-            <p class="text-xs text-gray-400 mt-1">2–3 letter code. Blank = platform default.</p></div>
+      <!-- Language + preview -->
+      <div class="border-t border-gray-100 pt-3 grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+        <div><label class="block text-xs text-gray-600 mb-1">Default language</label>
+          <input type="text" name="default_language" value="<?= htmlspecialchars((string) ($theme['default_language'] ?? '')) ?>" class="input text-sm" maxlength="3" placeholder="en / fr / ar">
+          <p class="text-xs text-gray-400 mt-1">2–3 letter code. Blank = English.</p></div>
+        <div class="text-right">
+          <a href="<?= root ?>supplier/stays/site/<?= $sid13 ?>/preview" target="_blank" class="text-sm text-violet-600 hover:underline">Preview your site &rarr;</a>
         </div>
       </div>
 
-      <button type="submit" class="btn secondary text-sm">Save design</button>
+      <button type="submit" class="btn emerald text-sm">Save &amp; publish design</button>
     </form>
   </div>
 
