@@ -76,6 +76,36 @@
     </p>
   </div>
 
+  <!-- AVAILABILITY SEARCH (Phase 3) — public booking entry. Builds the real, price-integrity
+       /stay/{...} deep-link for THIS hotel and submits on the SAME host (booking completes
+       on-site; the money path is host-relative). Shown only on the public branded page. -->
+  <?php if (!empty($publicBooking) && $sid > 0 && !empty($s['_slug'])): ?>
+    <?php
+      // Nationality default: US (stays has no country column; the /stay detail page lets the
+      // guest correct nationality via its own country modal, then re-validates).
+      $__wlNat = 'US';
+      $__wlSlugClean = strtolower(preg_replace('/[^a-z0-9-]/', '', str_replace(' ', '-', (string) $s['_slug'])));
+    ?>
+    <div id="wl-availability" class="card p-4 sm:p-5" style="scroll-margin-top:80px;" x-data="{
+          ci: '', co: '', adults: 2, children: 0,
+          go() {
+            if (!this.ci || !this.co) { return; }
+            var nat = '<?= htmlspecialchars($__wlNat) ?>';
+            var cfg = this.adults + '-' + this.children;
+            var url = '<?= root ?>stay/<?= htmlspecialchars($__wlSlugClean) ?>/<?= $sid ?>/hotels/_/' + this.ci + '/' + this.co + '/' + nat + '/1/' + cfg;
+            window.location.href = url;
+          }
+        }">
+      <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 items-end">
+        <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Check-in</label><input type="date" x-model="ci" class="input text-sm"></div>
+        <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Check-out</label><input type="date" x-model="co" class="input text-sm"></div>
+        <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Adults</label><input type="number" x-model.number="adults" min="1" max="20" class="input text-sm"></div>
+        <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Children</label><input type="number" x-model.number="children" min="0" max="20" class="input text-sm"></div>
+        <button type="button" class="btn emerald" @click="go()">Check availability</button>
+      </div>
+    </div>
+  <?php endif; ?>
+
   <?php
     // Custom-page navigation — links to this property's branded pages (/book/{slug}/{page}).
     // $sitePages is passed by the public + preview routes; empty on legacy callers.
@@ -191,8 +221,10 @@
                 <?php if ($canBook && !empty($opts)): ?>
                   <button type="button" class="btn emerald btn-sm mt-1" @click="open = !open" x-text="open ? 'Close' : 'Book'"></button>
                 <?php elseif (!empty($publicBooking) && !empty($s['_slug'])): ?>
-                  <!-- Public branded page: book through the main, price-integrity-protected flow. -->
-                  <a href="<?= root ?>stay/<?= htmlspecialchars((string) $s['_slug']) ?>" class="btn emerald btn-sm mt-1">Book</a>
+                  <!-- Public branded page: scroll to the availability search, which builds the
+                       real price-integrity /stay/{...} deep-link and books on-site. The old bare
+                       /stay/{slug} link was broken (that route needs 8 dated params). -->
+                  <a href="#wl-availability" class="btn emerald btn-sm mt-1">Book</a>
                 <?php else: ?>
                   <button type="button" class="btn emerald btn-sm mt-1" disabled title="Booking available on the live site">Book</button>
                 <?php endif; ?>
