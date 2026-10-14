@@ -78,12 +78,8 @@ $router->get('/p/([a-z0-9][a-z0-9-]*)', function ($slug) use ($SECURE, $db) {
     $SECURE = true; // plain-closure view sentinel (same reason as _branded_render_stay)
     if (function_exists('wl_set_tenant_context')) { wl_set_tenant_context($db, $stay, $site); }
     $sitePages = function_exists('sitepages_list') ? sitepages_list($db, $stayId, true) : [];
-
-    $title = (string) $page['title'] . ' — ' . (string) ($stay['name'] ?? '');
-    $description = '';
-    $header = true; $footer = true;
-    require_once views . "includes/header.php";
-    require_once views . "supplier/stays/branded-page.php";
-    require_once views . "includes/footer.php";
+    $theme = function_exists('sitebuilder_decode') ? sitebuilder_decode(is_array($site) ? ($site['theme'] ?? null) : null) : [];
+    // Standalone branded page layout (template nav + footer), not the platform chrome.
+    require views . "supplier/stays/site/_page.php";
     exit;
 });

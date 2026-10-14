@@ -1432,25 +1432,26 @@ $router->get('/supplier/stays/site/([0-9]+)/preview', function ($id) use ($SECUR
     $stay = $db->get('stays', '*', ['id' => (int) $id]);
     if (!$stay) { _supplier_stays_deny('Property not found.'); }
     $site = $db->get('stays_site', '*', ['stay_id' => (int) $id]);
+    $stay['_slug'] = (string) ($stay['slug'] ?? '');
 
-    // Rooms for the branded page (owner's own inventory). Ensure stable option_ids so
-    // the direct-booking form can reference a concrete option.
-    $rooms = $db->select('stays_rooms', ['id', 'room_type_id', 'room_images', 'room_options'],
-        ['stay_id' => (int) $id, 'status' => 1]) ?: [];
+    // Rooms (full columns for the rich template) + stable option ids.
+    $rooms = $db->select('stays_rooms', '*', ['stay_id' => (int) $id, 'status' => 1]) ?: [];
     if (function_exists('stays_room_option_ids')) {
         foreach ($rooms as &$__r) { $__r['_options'] = stays_room_option_ids($db, (int) $__r['id'], (int) $id); }
         unset($__r);
     }
-    // Direct/walk-in booking is a desk action — gated on reservations edit for this
-    // property. (A fully public guest-facing booking needs the host-routing edge, S8.)
-    $canBook = supplier_can($db, 'reservations', 'edit', (int) $id);
+    // Room-type + amenity name maps (same as the public render).
+    $roomTypeNames = [];
+    $roomAmenityNames = [];
+    try {
+        foreach ($db->select('stays_settings', ['id', 'name'], ['setting_type' => 'room_type', 'status' => 1]) ?: [] as $rt) { $roomTypeNames[(int) $rt['id']] = (string) ($rt['name'] ?? ''); }
+        foreach ($db->select('stays_settings', ['id', 'name'], ['setting_type' => 'room_amenity', 'status' => 1]) ?: [] as $ra) { $roomAmenityNames[(int) $ra['id']] = (string) ($ra['name'] ?? ''); }
+    } catch (\Throwable $e) {}
+    $sitePages = function_exists('sitepages_list') ? sitepages_list($db, (int) $id, true) : [];
+    $theme = function_exists('sitebuilder_decode') ? sitebuilder_decode(is_array($site) ? ($site['theme'] ?? null) : null) : [];
 
-    $title = ($stay['name'] ?? 'Property') . ' — Booking';
-    $description = '';
-    $header = true; $footer = true;
-    require_once views . "includes/header.php";
-    require_once views . "supplier/stays/branded-preview.php";
-    require_once views . "includes/footer.php";
+    // Owner preview = the EXACT standalone template the public will see (no platform chrome).
+    require views . "supplier/stays/site/_layout.php";
 });
 
 // POST /supplier/stays/site-theme — save the site-builder theme (MODULE 13). Distinct

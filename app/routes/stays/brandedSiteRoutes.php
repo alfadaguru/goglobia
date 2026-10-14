@@ -14,10 +14,10 @@ if (!function_exists('_branded_render_stay')) {
     function _branded_render_stay($db, int $stayId): void
     {
         // $SECURE is a file-scope var set in config.php; inside this plain function it is
-        // NOT in scope, so the views we require below (header.php, branded-preview.php,
-        // footer.php) — each guarded by `@$SECURE or die('Access Denied!')` — would die.
-        // Re-assert it locally. This function only ever renders an approved+live PUBLIC
-        // branded page (enforced just below), so the guard is satisfied legitimately.
+        // NOT in scope, so the standalone template views we require below (site/_layout.php
+        // and its templates/sections) — each guarded by `@$SECURE or die('Access Denied!')`
+        // — would die. Re-assert it locally. This function only ever renders an approved+live
+        // PUBLIC branded page (enforced just below), so the guard is satisfied legitimately.
         $SECURE = true;
 
         if ($stayId <= 0) { return; }
@@ -63,12 +63,12 @@ if (!function_exists('_branded_render_stay')) {
         // Published custom pages (About/Contact/Policies/FAQ) — for the branded nav links.
         $sitePages = function_exists('sitepages_list') ? sitepages_list($db, $stayId, true) : [];
 
-        $title = ($stay['name'] ?? 'Property') . ' — Book direct';
-        $description = (string) ($stay['desc'] ?? '');
-        $header = true; $footer = true;
-        require_once views . "includes/header.php";
-        require_once views . "supplier/stays/branded-preview.php";
-        require_once views . "includes/footer.php";
+        // STANDALONE TEMPLATE (white-label templates): the hotel's OWN complete site — its own
+        // <head>, nav, hero, sections, footer. No platform header/footer. The chosen template +
+        // design come from the theme; all data above ($stay,$rooms,$roomTypeNames,
+        // $roomAmenityNames,$site,$sitePages,$db) is what the layout renders.
+        $theme = function_exists('sitebuilder_decode') ? sitebuilder_decode(is_array($site) ? ($site['theme'] ?? null) : null) : [];
+        require views . "supplier/stays/site/_layout.php";
         exit;
     }
 }
@@ -113,7 +113,8 @@ $router->post('/stay-checkin/([A-Z0-9]{6,})', function ($invoiceId) use ($SECURE
 // first. Only approved+live properties and PUBLISHED pages are served; content is emitted
 // through htmlspecialchars by the view (no supplier HTML).
 $router->get('/book/([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9-]*)', function ($slug, $pageSlug) use ($SECURE, $db) {
-    $stay = $db->get('stays', ['id', 'name', 'slug', 'desc'], ['slug' => $slug, 'status' => '1', 'listing_status' => 'approved']);
+    // Full row so the standalone page layout renders the hotel's nav + footer identity.
+    $stay = $db->get('stays', '*', ['slug' => $slug, 'status' => '1', 'listing_status' => 'approved']);
     // White-label activation gate: custom pages serve only when the branded site is approved.
     $wlOk = $stay && (!function_exists('supplier_site_is_approved') || supplier_site_is_approved($db, (int) $stay['id']));
     $page = ($wlOk && function_exists('sitepages_get'))
@@ -124,12 +125,9 @@ $router->get('/book/([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9-]*)', function ($slug,
         $site      = $db->get('stays_site', '*', ['stay_id' => (int) $stay['id']]);
         if (function_exists('wl_set_tenant_context')) { wl_set_tenant_context($db, $stay, $site); }
         $sitePages = function_exists('sitepages_list') ? sitepages_list($db, (int) $stay['id'], true) : [];
-        $title = (string) $page['title'] . ' — ' . (string) ($stay['name'] ?? '');
-        $description = '';
-        $header = true; $footer = true;
-        require_once views . "includes/header.php";
-        require_once views . "supplier/stays/branded-page.php";
-        require_once views . "includes/footer.php";
+        $theme = function_exists('sitebuilder_decode') ? sitebuilder_decode(is_array($site) ? ($site['theme'] ?? null) : null) : [];
+        // Standalone page layout: the template's nav + footer wrapping the page content.
+        require views . "supplier/stays/site/_page.php";
         exit;
     }
     // Not found / not live → app 404.
