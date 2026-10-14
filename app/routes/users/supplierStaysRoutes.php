@@ -1398,6 +1398,8 @@ $router->get('/supplier/stays/site/([0-9]+)', function ($id) use ($SECURE, $db) 
 
     $stay = $db->get('stays', ['id', 'name', 'slug'], ['id' => (int) $id]);
     if (!$stay) { _supplier_stays_deny('Property not found.'); }
+    // Full row for the translations editor (needs the existing translations JSON).
+    $stayFull = $db->get('stays', '*', ['id' => (int) $id]) ?: $stay;
 
     // Ensure a stays_site row exists AND its branded <slug>.<root> hostname matches the
     // current slug (collision-safe, self-healing). Also repairs any row whose hostname
@@ -1476,6 +1478,42 @@ $router->post('/supplier/stays/site-request', function () use ($SECURE, $db) {
         ? supplier_site_request($db, $stayId)
         : ['ok' => false, 'message' => 'Unavailable.'];
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Error'];
+    header('Location: ' . $back); exit;
+});
+
+// POST /supplier/stays/site-translations — save per-language translations (Phase 4).
+// Read-merge-write so it never clobbers languages/fields set elsewhere (e.g. admin). Owner +
+// CSRF gated. Shape matches the admin writer: stays.translations = {lang:{field:value}}.
+$router->post('/supplier/stays/site-translations', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db); CSRF::guard();
+    $owner = _supplier_stays_owner($db); if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+    $stayId = (int) ($_POST['stay_id'] ?? 0);
+    $back = root . 'supplier/stays/site/' . $stayId;
+    if (!supplier_can($db, 'hotels', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
+
+    $fields = function_exists('wl_lang_fields') ? wl_lang_fields() : ['name', 'desc', 'address', 'cancellation_policy', 'privacy_policy'];
+    $incomingJson = function_exists('wl_stay_translations_normalize') ? wl_stay_translations_normalize($_POST, $fields) : null;
+    $incoming = $incomingJson ? (json_decode($incomingJson, true) ?: []) : [];
+
+    try {
+        // Merge: start from what exists, overlay the submitted languages. A submitted language
+        // with no non-empty fields removes that language (supplier cleared it).
+        $existing = [];
+        $cur = $db->get('stays', ['translations'], ['id' => $stayId]);
+        if ($cur && !empty($cur['translations'])) { $existing = json_decode((string) $cur['translations'], true) ?: []; }
+        // Only the languages the form offered (non-en enabled) are under supplier control here.
+        $offered = [];
+        foreach (($GLOBALS['languages'] ?? []) as $lg) { $c = strtolower((string) ($lg['lang_code'] ?? '')); if ($c !== '' && $c !== 'en') { $offered[$c] = true; } }
+        foreach (array_keys($offered) as $lc) {
+            if (!empty($incoming[$lc])) { $existing[$lc] = $incoming[$lc]; }
+            else { unset($existing[$lc]); } // cleared
+        }
+        $db->update('stays', ['translations' => !empty($existing) ? json_encode($existing) : null, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $stayId, 'user_id' => $owner]);
+        $_SESSION['message'] = ['type' => 'success', 'text' => 'Translations saved.'];
+    } catch (\Throwable $e) {
+        error_log('supplier site-translations: ' . $e->getMessage());
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not save translations.'];
+    }
     header('Location: ' . $back); exit;
 });
 

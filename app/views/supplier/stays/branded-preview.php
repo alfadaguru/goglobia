@@ -23,8 +23,19 @@
   $accent = function_exists('sitebuilder_accent_safe') ? sitebuilder_accent_safe($theme) : '#7c3aed';
   // Hero override (Phase 2b): an explicit theme hero_url wins over the gallery default.
   if (!empty($theme['hero_url'])) { $hero = (string) $theme['hero_url']; }
+  // MULTI-LANGUAGE (Phase 4): resolve the active content language once, then overlay the
+  // translated name/desc/address onto $s so the whole page renders in that language (falling
+  // back to the base column per field when a translation is missing).
+  $wlLang = function_exists('wl_active_lang') ? wl_active_lang($theme) : 'en';
+  if (function_exists('wl_stay_field') && $wlLang !== 'en' && !empty($s['translations'])) {
+      $s['name']    = wl_stay_field($s, 'name', $wlLang);
+      $s['desc']    = wl_stay_field($s, 'desc', $wlLang);
+      $s['address'] = wl_stay_field($s, 'address', $wlLang);
+      $s['cancellation_policy'] = wl_stay_field($s, 'cancellation_policy', $wlLang);
+  }
 ?>
-<div class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+<?php $__wlRtl = (function_exists('wl_lang_is_rtl') && wl_lang_is_rtl($wlLang ?? 'en')); ?>
+<div class="max-w-5xl mx-auto px-4 py-6 space-y-6"<?= $__wlRtl ? ' dir="rtl"' : '' ?>>
 
   <?php if (!empty($theme['banner_on']) && trim((string) $theme['banner']) !== ''): ?>
     <div class="rounded-lg px-4 py-2 text-sm text-white text-center font-medium" style="background-color: <?= htmlspecialchars($accent) ?>;"><?= htmlspecialchars((string) $theme['banner']) ?></div>
@@ -123,6 +134,35 @@
     </nav>
   <?php endif; ?>
 
+  <!-- LANGUAGE SWITCHER (Phase 4) — only when this hotel actually has translated content. -->
+  <?php
+    $__wlTrans = function_exists('wl_translations_decode') ? wl_translations_decode($s['translations'] ?? null) : [];
+    if (!empty($__wlTrans)):
+      // Offer: base 'en' + every language the hotel translated into. Label from the enabled
+      // languages list where possible, else the code upper-cased.
+      $__langLabels = [];
+      foreach (($GLOBALS['languages'] ?? []) as $__lg) {
+        $__c = strtolower((string) ($__lg['lang_code'] ?? '')); if ($__c !== '') { $__langLabels[$__c] = (string) ($__lg['lang_name'] ?? $__lg['name'] ?? strtoupper($__c)); }
+      }
+      $__offer = array_values(array_unique(array_merge(['en'], array_keys($__wlTrans))));
+      if (count($__offer) > 1):
+        // Build a base URL that preserves the current path, swapping ?lang.
+        $__cur = strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
+  ?>
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-xs text-gray-400">Language:</span>
+      <?php foreach ($__offer as $__lc):
+        $__isCur = ($wlLang === $__lc) || ($wlLang === 'en' && $__lc === 'en');
+        $__lbl = $__langLabels[$__lc] ?? strtoupper($__lc); ?>
+        <a href="<?= htmlspecialchars($__cur . '?lang=' . rawurlencode($__lc)) ?>"
+           class="text-xs font-medium px-2.5 py-1 rounded-full border transition <?= $__isCur ? 'text-white' : 'border-gray-200 text-gray-700 hover:border-gray-300' ?>"
+           <?= $__isCur ? 'style="background-color: ' . htmlspecialchars($accent) . '; border-color: ' . htmlspecialchars($accent) . ';"' : '' ?>>
+          <?= htmlspecialchars($__lbl) ?>
+        </a>
+      <?php endforeach; ?>
+    </div>
+  <?php endif; endif; ?>
+
   <?php if (trim((string) ($theme['about'] ?? '')) !== ''): ?>
     <div class="card p-5">
       <h2 class="text-sm font-semibold text-gray-900 mb-2">About</h2>
@@ -179,9 +219,15 @@
             $rtNames = (isset($roomTypeNames) && is_array($roomTypeNames)) ? $roomTypeNames : [];
             $roomTitle = trim((string) ($room['room_name'] ?? ''));
             if ($roomTitle === '') { $roomTitle = $rtNames[(int) ($room['room_type_id'] ?? 0)] ?? ('Room #' . $rid); }
-            // Rich fields (Phase 2b).
+            // Rich fields (Phase 2b) + translation overlay (Phase 4).
+            if (function_exists('wl_stay_field') && ($wlLang ?? 'en') !== 'en' && !empty($room['translations'])) {
+                $__rn = wl_stay_field($room, 'room_name', $wlLang);
+                if (trim((string) $__rn) !== '') { $roomTitle = $__rn; }
+            }
             $roomGallery = function_exists('wl_gallery') ? wl_gallery($room['room_images'] ?? null) : [];
-            $roomDesc = trim((string) ($room['description'] ?? ''));
+            $roomDesc = (function_exists('wl_stay_field') && ($wlLang ?? 'en') !== 'en' && !empty($room['translations']))
+                ? trim((string) wl_stay_field($room, 'description', $wlLang))
+                : trim((string) ($room['description'] ?? ''));
             $roomSize = ($room['size_sqm'] ?? '') !== '' ? (float) $room['size_sqm'] : 0.0;
             $roomBeds = function_exists('wl_bed_config_label') ? wl_bed_config_label($room['bed_config'] ?? null) : '';
             $roomView = function_exists('wl_view_label') ? wl_view_label($room['view_type'] ?? null) : '';

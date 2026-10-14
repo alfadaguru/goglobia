@@ -126,6 +126,53 @@
     </form>
   </div>
 
+  <!-- MULTI-LANGUAGE (Phase 4): translate the key guest-facing text per language. English is
+       the base (your main property fields); add any enabled language below. -->
+  <?php
+    $__wlLangs = array_values(array_filter($GLOBALS['languages'] ?? [], function ($l) {
+      return strtolower((string) ($l['lang_code'] ?? '')) !== 'en' && (string) ($l['status'] ?? '1') !== '0';
+    }));
+    $__existingTrans = (function_exists('wl_translations_decode')) ? wl_translations_decode($stayFull['translations'] ?? ($stay['translations'] ?? null)) : [];
+    $__tFields = [
+      'name' => 'Property name',
+      'desc' => 'Description',
+      'address' => 'Address',
+      'cancellation_policy' => 'Cancellation policy',
+    ];
+  ?>
+  <?php if (!empty($__wlLangs)): ?>
+  <div class="card p-5 space-y-3" x-data="{ open: false }">
+    <div class="flex items-center justify-between gap-3">
+      <div>
+        <h2 class="text-sm font-semibold text-gray-800">Languages</h2>
+        <p class="text-xs text-gray-500">Translate your guest-facing text. Blank fields fall back to your main (English) content.</p>
+      </div>
+      <button type="button" class="btn secondary text-sm" @click="open = !open" x-text="open ? 'Close' : 'Edit translations'"></button>
+    </div>
+    <form action="<?= root ?>supplier/stays/site-translations" method="POST" class="space-y-4" x-show="open" x-cloak>
+      <?= CSRF::tokenField() ?>
+      <input type="hidden" name="stay_id" value="<?= $sid13 ?>">
+      <?php foreach ($__wlLangs as $__lg): $__lc = strtolower((string) $__lg['lang_code']); ?>
+        <div class="border border-gray-100 rounded-lg p-3 space-y-2">
+          <div class="text-xs font-semibold text-gray-700 uppercase tracking-wide"><?= htmlspecialchars((string) ($__lg['name'] ?? $__lc)) ?> (<?= htmlspecialchars($__lc) ?>)</div>
+          <?php foreach ($__tFields as $__f => $__flabel):
+            $__val = (string) ($__existingTrans[$__lc][$__f] ?? ''); ?>
+            <div>
+              <label class="block text-xs text-gray-500 mb-1"><?= htmlspecialchars($__flabel) ?></label>
+              <?php if ($__f === 'desc' || $__f === 'cancellation_policy'): ?>
+                <textarea name="<?= $__f ?>_translations[<?= htmlspecialchars($__lc) ?>]" rows="2" class="input text-sm" maxlength="4000"><?= htmlspecialchars($__val) ?></textarea>
+              <?php else: ?>
+                <input type="text" name="<?= $__f ?>_translations[<?= htmlspecialchars($__lc) ?>]" value="<?= htmlspecialchars($__val) ?>" class="input text-sm" maxlength="500">
+              <?php endif; ?>
+            </div>
+          <?php endforeach; ?>
+        </div>
+      <?php endforeach; ?>
+      <button type="submit" class="btn secondary text-sm">Save translations</button>
+    </form>
+  </div>
+  <?php endif; ?>
+
   <!-- MODULE 13: custom pages (About / Contact / Policies / FAQ …) -->
   <?php
     $pages = (isset($sitePages) && is_array($sitePages)) ? $sitePages : [];
