@@ -240,7 +240,8 @@
           <input type="text" name="default_language" value="<?= htmlspecialchars((string) ($theme['default_language'] ?? '')) ?>" class="input text-sm" maxlength="3" placeholder="en / fr / ar">
           <p class="text-xs text-gray-400 mt-1">2–3 letter code. Blank = English.</p></div>
         <div class="text-right">
-          <a href="<?= root ?>supplier/stays/site/<?= $sid13 ?>/preview" target="_blank" class="text-sm text-violet-600 hover:underline">Preview your site &rarr;</a>
+          <a href="<?= root ?>supplier/stays/site/<?= $sid13 ?>/preview" target="_blank" class="text-sm text-violet-600 hover:underline">Preview your saved site &rarr;</a>
+          <p class="text-xs text-gray-400 mt-0.5">Shows your last <strong>saved</strong> version. Save below to preview your latest edits.</p>
         </div>
       </div>
 

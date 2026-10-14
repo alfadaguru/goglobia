@@ -1,6 +1,12 @@
 <?php @$SECURE or die('Access Denied!'); ?>
 <?php require __DIR__ . '/_prep.php'; ?>
-<?php if ($wlShowReviews && ($wlRatingCount > 0 || !empty($wlReviews))): ?>
+<?php
+// G9 — only render the section when there is REAL content: either published guest reviews, OR a
+// genuine aggregate rating (rating + count). A new hotel with no reviews shows nothing (no bare
+// "What our guests say" heading). Requires an aggregate to have BOTH a rating and a count > 0.
+$wlHasAggregate = ($wlAvg > 0 && $wlRatingCount > 0);
+if ($wlShowReviews && (!empty($wlReviews) || $wlHasAggregate)):
+?>
 <style>
   .wl-rev{background:var(--wl-primary);color:#fff;padding:clamp(72px,10vw,120px) 0}
   .wl-rev .eyebrow{color:var(--wl-accent)}

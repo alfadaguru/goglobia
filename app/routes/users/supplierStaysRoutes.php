@@ -531,6 +531,15 @@ $router->get('/supplier/stays/([0-9]+)', function ($id) use ($SECURE, $db) {
 
     $basicsDone = trim((string) ($stay['name'] ?? '')) !== '' && trim((string) ($stay['location'] ?? '')) !== '';
     $ls = (string) ($stay['listing_status'] ?? 'draft');
+    // G10 — branded website status for the setup checklist.
+    $wlSiteStatus = function_exists('supplier_site_status') ? supplier_site_status($db, $sidI) : 'none';
+    $wlSiteStatusText = [
+        'none'      => 'Pick a template & design your branded site',
+        'requested' => 'Submitted — awaiting admin approval',
+        'approved'  => 'Live — your branded website is active',
+        'rejected'  => 'Not approved — see the note, then re-request',
+        'suspended' => 'Suspended — contact support',
+    ][$wlSiteStatus] ?? 'Pick a template & design your branded site';
     $setup = [
         ['n' => 1, 'key' => 'basics',   'label' => 'Property basics',    'icon' => 'apartment',
          'done' => $basicsDone, 'status' => $basicsDone ? 'Name & location set' : 'Add name, location, description',
@@ -547,7 +556,10 @@ $router->get('/supplier/stays/([0-9]+)', function ($id) use ($SECURE, $db) {
         ['n' => 5, 'key' => 'photos',   'label' => 'Photos & logo',      'icon' => 'photo_library',
          'done' => $photosN > 0, 'status' => $photosN > 0 ? ($photosN . ' photo(s) uploaded') : 'Add photos so guests can see the property',
          'url' => root . 'supplier/stays/edit/' . $sidI . '#media', 'cta' => 'Add photos'],
-        ['n' => 6, 'key' => 'golive',   'label' => 'Submit for approval', 'icon' => 'rocket_launch',
+        ['n' => 6, 'key' => 'website',  'label' => 'Your branded website', 'icon' => 'public',
+         'done' => $wlSiteStatus === 'approved', 'status' => $wlSiteStatusText,
+         'optional' => true, 'url' => root . 'supplier/stays/site/' . $sidI, 'cta' => $wlSiteStatus === 'approved' ? 'Manage site' : 'Design your website'],
+        ['n' => 7, 'key' => 'golive',   'label' => 'Submit for approval', 'icon' => 'rocket_launch',
          'done' => in_array($ls, ['submitted', 'approved'], true),
          'status' => ['draft' => 'Ready? Submit for admin review', 'submitted' => 'Submitted — awaiting admin review', 'queried' => 'Admin has a query — see your email', 'rejected' => 'Not approved — review the note', 'approved' => 'Approved & live'][$ls] ?? 'Submit for admin review',
          'url' => root . 'supplier/stays/edit/' . $sidI, 'cta' => $ls === 'approved' ? 'View property' : 'Review & submit'],
