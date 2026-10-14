@@ -90,6 +90,7 @@ require_once 'app/lib/supplier_property.php';
 require_once 'app/lib/supplier_chain.php';
 require_once 'app/lib/supplier_marketplace.php';
 require_once 'app/lib/supplier_channel.php';
+require_once 'app/lib/supplier_site_templates.php'; // white-label template registry + design tokens
 require_once 'app/lib/supplier_sitebuilder.php';
 require_once 'app/lib/supplier_sitepages.php'; // white-label supplier-authored custom pages
 require_once 'app/lib/supplier_site_render.php'; // white-label branded-site render helpers (P2b)

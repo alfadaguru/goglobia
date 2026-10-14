@@ -46,6 +46,22 @@ if (!function_exists('sitebuilder_decode')) {
             'footer_bg'     => (preg_match('/^#[0-9a-fA-F]{6}$/', (string) ($d['footer_bg'] ?? '')) ? (string) $d['footer_bg'] : ''),
             // Default content language for the branded site (Phase 4). 2–3 lowercase letters.
             'default_language' => (preg_match('/^[a-z]{2,3}$/', (string) ($d['default_language'] ?? '')) ? (string) $d['default_language'] : ''),
+            // --- TEMPLATE SYSTEM: a full standalone site theme the hotel chooses + configures ---
+            // NB: compute each value with ?? FIRST, then validate — never read $d[key] in the
+            // ternary true-branch (that re-reads an undefined key when the validator passes on
+            // empty, which it does for these optional fields -> an Undefined-key warning).
+            'template'      => ((function_exists('wl_template_valid') && wl_template_valid($__t = (string) ($d['template'] ?? ''))) ? $__t : 'grand'),
+            'color_primary' => (preg_match('/^#[0-9a-fA-F]{6}$/', $__cp = (string) ($d['color_primary'] ?? '')) ? $__cp : ''),
+            'color_accent'  => (preg_match('/^#[0-9a-fA-F]{6}$/', $__ca = (string) ($d['color_accent'] ?? '')) ? $__ca : ''),
+            'font_display'  => ((function_exists('wl_font_valid') && wl_font_valid($__fd = (string) ($d['font_display'] ?? ''))) ? $__fd : ''),
+            'font_body'     => ((function_exists('wl_font_valid') && wl_font_valid($__fb = (string) ($d['font_body'] ?? ''))) ? $__fb : ''),
+            'hero_headline' => substr((string) ($d['hero_headline'] ?? ''), 0, 160),
+            'hero_subtext'  => substr((string) ($d['hero_subtext'] ?? ''), 0, 280),
+            'hero_cta'      => substr((string) ($d['hero_cta'] ?? ''), 0, 40),
+            // Ordered + toggled sections. Cleaned to the known set; empty => template default.
+            'sections'      => (function_exists('wl_sections_clean') ? wl_sections_clean($d['sections'] ?? null) : []),
+            // Optional per-section nav label overrides {sectionKey: label}.
+            'nav_labels'    => (function_exists('wl_nav_labels_clean') ? wl_nav_labels_clean($d['nav_labels'] ?? null) : []),
         ];
     }
 }
@@ -129,6 +145,17 @@ if (!function_exists('sitebuilder_normalize')) {
             'header_bg'    => $hex('header_bg'),
             'footer_bg'    => $hex('footer_bg'),
             'default_language' => $lang,
+            // --- TEMPLATE SYSTEM ---
+            'template'      => (function_exists('wl_template_valid') && wl_template_valid((string) ($in['template'] ?? '')) ? (string) $in['template'] : 'grand'),
+            'color_primary' => $hex('color_primary'),
+            'color_accent'  => $hex('color_accent'),
+            'font_display'  => (function_exists('wl_font_valid') && wl_font_valid((string) ($in['font_display'] ?? '')) ? (string) ($in['font_display'] ?? '') : ''),
+            'font_body'     => (function_exists('wl_font_valid') && wl_font_valid((string) ($in['font_body'] ?? '')) ? (string) ($in['font_body'] ?? '') : ''),
+            'hero_headline' => substr(trim((string) ($in['hero_headline'] ?? '')), 0, 160),
+            'hero_subtext'  => substr(trim((string) ($in['hero_subtext'] ?? '')), 0, 280),
+            'hero_cta'      => substr(trim((string) ($in['hero_cta'] ?? '')), 0, 40),
+            'sections'      => (function_exists('wl_sections_clean') ? wl_sections_clean($in['sections'] ?? null) : []),
+            'nav_labels'    => (function_exists('wl_nav_labels_clean') ? wl_nav_labels_clean($in['nav_labels'] ?? null) : []),
         ]);
     }
 }
