@@ -104,6 +104,24 @@
       </div>
       <?php endif; ?>
 
+      <!-- Display options (Phase 2b) — which sections show + chrome colours + language -->
+      <div class="border-t border-gray-100 pt-3 space-y-3">
+        <input type="hidden" name="prefs_submitted" value="1">
+        <label class="block text-xs font-medium text-gray-700">Sections to show on your site</label>
+        <div class="flex flex-wrap gap-4">
+          <label class="inline-flex items-center gap-1.5 text-xs text-gray-700"><input type="checkbox" name="show_reviews" value="1" class="checkbox-input" <?= (!isset($theme['show_reviews']) || !empty($theme['show_reviews'])) ? 'checked' : '' ?>> Guest reviews</label>
+          <label class="inline-flex items-center gap-1.5 text-xs text-gray-700"><input type="checkbox" name="show_offers" value="1" class="checkbox-input" <?= (!isset($theme['show_offers']) || !empty($theme['show_offers'])) ? 'checked' : '' ?>> Special offers</label>
+          <label class="inline-flex items-center gap-1.5 text-xs text-gray-700"><input type="checkbox" name="show_map" value="1" class="checkbox-input" <?= (!isset($theme['show_map']) || !empty($theme['show_map'])) ? 'checked' : '' ?>> Location map</label>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div><label class="block text-xs text-gray-600 mb-1">Header colour</label><input type="color" name="header_bg" value="<?= htmlspecialchars((string) ($theme['header_bg'] ?? '') ?: '#ffffff') ?>" class="input h-9 p-1"></div>
+          <div><label class="block text-xs text-gray-600 mb-1">Footer colour</label><input type="color" name="footer_bg" value="<?= htmlspecialchars((string) ($theme['footer_bg'] ?? '') ?: '#f9fafb') ?>" class="input h-9 p-1"></div>
+          <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Default language</label>
+            <input type="text" name="default_language" value="<?= htmlspecialchars((string) ($theme['default_language'] ?? '')) ?>" class="input text-sm" maxlength="3" placeholder="en / fr / ar">
+            <p class="text-xs text-gray-400 mt-1">2–3 letter code. Blank = platform default.</p></div>
+        </div>
+      </div>
+
       <button type="submit" class="btn secondary text-sm">Save design</button>
     </form>
   </div>

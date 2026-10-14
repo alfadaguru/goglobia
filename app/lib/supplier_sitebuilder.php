@@ -30,6 +30,22 @@ if (!function_exists('sitebuilder_decode')) {
             // Per-property social links (stored in the theme JSON — no new column).
             // Each value is a URL the supplier pastes; empty = not shown.
             'social'      => sitebuilder_social_clean(is_array($d['social'] ?? null) ? $d['social'] : []),
+            // --- WHITE-LABEL Phase 2b: presentation extensions (all in the theme JSON) ---
+            // Section toggles default to TRUE so a hotel sees its own content without opting
+            // in; they only hide a section when a supplier explicitly turns it off (the key is
+            // then stored as 0). isset() distinguishes "never set" (show) from "set to off".
+            'show_reviews'  => !array_key_exists('show_reviews', $d)  ? true : !empty($d['show_reviews']),
+            'show_offers'   => !array_key_exists('show_offers', $d)   ? true : !empty($d['show_offers']),
+            'show_map'      => !array_key_exists('show_map', $d)      ? true : !empty($d['show_map']),
+            // Hero image: an explicit URL override (else the gallery default is used).
+            'hero_url'      => (preg_match('#^/?uploads/[^\s<>"]{1,250}$#i', (string) ($d['hero_url'] ?? '')) ? (string) $d['hero_url'] : ''),
+            // Favicon (shown in the browser tab on the tenant site).
+            'favicon_url'   => (preg_match('#^/?uploads/[^\s<>"]{1,250}$#i', (string) ($d['favicon_url'] ?? '')) ? (string) $d['favicon_url'] : ''),
+            // Header/footer colours (hex). Default to transparent/neutral = inherit platform.
+            'header_bg'     => (preg_match('/^#[0-9a-fA-F]{6}$/', (string) ($d['header_bg'] ?? '')) ? (string) $d['header_bg'] : ''),
+            'footer_bg'     => (preg_match('/^#[0-9a-fA-F]{6}$/', (string) ($d['footer_bg'] ?? '')) ? (string) $d['footer_bg'] : ''),
+            // Default content language for the branded site (Phase 4). 2–3 lowercase letters.
+            'default_language' => (preg_match('/^[a-z]{2,3}$/', (string) ($d['default_language'] ?? '')) ? (string) $d['default_language'] : ''),
         ];
     }
 }
@@ -75,6 +91,26 @@ if (!function_exists('sitebuilder_normalize')) {
         if (!preg_match('/^#[0-9a-fA-F]{6}$/', $accent)) { $accent = '#7c3aed'; }
         $analytics = (string) ($in['analytics_id'] ?? '');
         if (!preg_match('/^[A-Za-z0-9\-]{0,40}$/', $analytics)) { $analytics = ''; }
+
+        // Section toggles. When the form posts (prefs_submitted marker present), an unchecked
+        // box sends nothing -> store 0. Without the marker (a non-form/partial caller), keep
+        // them ON so we never silently hide a hotel's content.
+        $prefsSubmitted = array_key_exists('prefs_submitted', $in);
+        $boolPref = function ($key) use ($in, $prefsSubmitted) {
+            if ($prefsSubmitted) { return !empty($in[$key]) ? 1 : 0; }
+            return array_key_exists($key, $in) ? (!empty($in[$key]) ? 1 : 0) : 1;
+        };
+        $hex = function ($key) use ($in) {
+            $v = (string) ($in[$key] ?? '');
+            return preg_match('/^#[0-9a-fA-F]{6}$/', $v) ? $v : '';
+        };
+        $upath = function ($key) use ($in) {
+            $v = (string) ($in[$key] ?? '');
+            return preg_match('#^/?uploads/[^\s<>"]{1,250}$#i', $v) ? $v : '';
+        };
+        $lang = (string) ($in['default_language'] ?? '');
+        if (!preg_match('/^[a-z]{2,3}$/', $lang)) { $lang = ''; }
+
         return json_encode([
             'accent'       => $accent,
             'tagline'      => substr(trim((string) ($in['tagline'] ?? '')), 0, 160),
@@ -85,6 +121,14 @@ if (!function_exists('sitebuilder_normalize')) {
             'meta_desc'    => substr(trim((string) ($in['meta_desc'] ?? '')), 0, 300),
             'analytics_id' => $analytics,
             'social'       => sitebuilder_social_clean(is_array($in['social'] ?? null) ? $in['social'] : []),
+            'show_reviews' => $boolPref('show_reviews'),
+            'show_offers'  => $boolPref('show_offers'),
+            'show_map'     => $boolPref('show_map'),
+            'hero_url'     => $upath('hero_url'),
+            'favicon_url'  => $upath('favicon_url'),
+            'header_bg'    => $hex('header_bg'),
+            'footer_bg'    => $hex('footer_bg'),
+            'default_language' => $lang,
         ]);
     }
 }

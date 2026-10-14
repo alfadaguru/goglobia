@@ -21,6 +21,8 @@
       try { $__st = $db->get('stays_site', ['theme'], ['stay_id' => $sid]); if ($__st) { $theme = sitebuilder_decode($__st['theme'] ?? null); } } catch (\Throwable $e) {}
   }
   $accent = function_exists('sitebuilder_accent_safe') ? sitebuilder_accent_safe($theme) : '#7c3aed';
+  // Hero override (Phase 2b): an explicit theme hero_url wins over the gallery default.
+  if (!empty($theme['hero_url'])) { $hero = (string) $theme['hero_url']; }
 ?>
 <div class="max-w-5xl mx-auto px-4 py-6 space-y-6">
 
@@ -237,6 +239,81 @@
     <?php endif; ?>
   </div>
 
+  <!-- OFFERS / PACKAGES (Phase 2b) — active packages for this property -->
+  <?php
+    $showOffers = !isset($theme['show_offers']) || !empty($theme['show_offers']);
+    $offers = ($showOffers && $sid > 0 && isset($db) && function_exists('package_list')) ? package_list($db, [$sid], 20) : [];
+    $offers = array_values(array_filter($offers, fn($p) => (int) ($p['active'] ?? 0) === 1));
+  ?>
+  <?php if (!empty($offers)): ?>
+    <div>
+      <h2 class="text-lg font-semibold text-gray-900 mb-3">Special offers</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <?php foreach ($offers as $pkg): ?>
+          <div class="card p-4 border border-emerald-100" style="background-color: <?= htmlspecialchars($accent) ?>0d;">
+            <h3 class="font-semibold text-gray-900"><?= htmlspecialchars((string) ($pkg['name'] ?? '')) ?></h3>
+            <?php if (!empty($pkg['description'])): ?>
+              <p class="text-xs text-gray-600 mt-1"><?= nl2br(htmlspecialchars((string) $pkg['description'], ENT_QUOTES, 'UTF-8')) ?></p>
+            <?php endif; ?>
+            <?php if (!empty($pkg['inclusions'])): ?>
+              <p class="text-xs text-gray-700 mt-2"><span class="font-medium">Includes:</span> <?= nl2br(htmlspecialchars((string) $pkg['inclusions'], ENT_QUOTES, 'UTF-8')) ?></p>
+            <?php endif; ?>
+            <div class="mt-2 flex items-end justify-between gap-2">
+              <?php if (!empty($pkg['nights'])): ?><span class="text-xs text-gray-500"><?= (int) $pkg['nights'] ?> night<?= (int) $pkg['nights'] === 1 ? '' : 's' ?></span><?php else: ?><span></span><?php endif; ?>
+              <span class="text-lg font-bold text-gray-900"><?= $cur ?> <?= number_format((float) ($pkg['price'] ?? 0), 2) ?></span>
+            </div>
+          </div>
+        <?php endforeach; ?>
+      </div>
+    </div>
+  <?php endif; ?>
+
+  <!-- GUEST REVIEWS (Phase 2b) — published reviews + rating aggregate -->
+  <?php
+    $showReviews = !isset($theme['show_reviews']) || !empty($theme['show_reviews']);
+    $avgRating = (float) ($s['rating'] ?? 0);
+    $ratingCount = (int) ($s['rating_count'] ?? 0);
+    $reviews = ($showReviews && $sid > 0 && isset($db) && function_exists('review_list_for_org')) ? review_list_for_org($db, [$sid], 'published', 10) : [];
+  ?>
+  <?php if ($showReviews && ($ratingCount > 0 || !empty($reviews))): ?>
+    <div>
+      <h2 class="text-lg font-semibold text-gray-900 mb-3">Guest reviews</h2>
+      <?php if ($avgRating > 0): ?>
+        <div class="flex items-center gap-3 mb-4">
+          <div class="text-3xl font-bold text-gray-900 tabular-nums"><?= number_format($avgRating, 1) ?></div>
+          <div>
+            <div class="text-amber-500 text-lg leading-none"><?= str_repeat('★', (int) round($avgRating)) . str_repeat('☆', max(0, 5 - (int) round($avgRating))) ?></div>
+            <div class="text-xs text-gray-500 mt-0.5"><?= $ratingCount ?> review<?= $ratingCount === 1 ? '' : 's' ?></div>
+          </div>
+        </div>
+      <?php endif; ?>
+      <?php if (!empty($reviews)): ?>
+        <div class="space-y-3">
+          <?php foreach ($reviews as $rv): ?>
+            <div class="card p-4 border border-gray-100">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="font-medium text-gray-900 text-sm"><?= htmlspecialchars((string) ($rv['guest_name'] ?? 'Guest')) ?: 'Guest' ?></div>
+                  <?php if (!empty($rv['created_at'])): ?><div class="text-xs text-gray-400"><?= htmlspecialchars(date('M Y', strtotime((string) $rv['created_at']))) ?></div><?php endif; ?>
+                </div>
+                <div class="text-amber-500 text-sm flex-none"><?= str_repeat('★', (int) ($rv['rating'] ?? 0)) . str_repeat('☆', max(0, 5 - (int) ($rv['rating'] ?? 0))) ?></div>
+              </div>
+              <?php if (!empty($rv['comment'])): ?>
+                <p class="text-sm text-gray-700 mt-2 whitespace-pre-line"><?= nl2br(htmlspecialchars((string) $rv['comment'], ENT_QUOTES, 'UTF-8')) ?></p>
+              <?php endif; ?>
+              <?php if (!empty($rv['owner_reply'])): ?>
+                <div class="mt-3 pl-3 border-l-2 border-gray-200">
+                  <div class="text-xs font-semibold text-gray-600">Response from the host</div>
+                  <p class="text-sm text-gray-600 mt-0.5 whitespace-pre-line"><?= nl2br(htmlspecialchars((string) $rv['owner_reply'], ENT_QUOTES, 'UTF-8')) ?></p>
+                </div>
+              <?php endif; ?>
+            </div>
+          <?php endforeach; ?>
+        </div>
+      <?php endif; ?>
+    </div>
+  <?php endif; ?>
+
   <!-- Amenities (what the hotel actually offers — decoded from the property's amenity_ids) -->
   <?php
     $amenityNames = [];
@@ -285,6 +362,32 @@
       <?php if ($policy !== ''): ?>
         <div><div class="text-gray-500 mb-0.5">Cancellation policy</div><div class="whitespace-pre-line"><?= nl2br(htmlspecialchars($policy, ENT_QUOTES, 'UTF-8')) ?></div></div>
       <?php endif; ?>
+    </div>
+  <?php endif; ?>
+
+  <!-- MAP (Phase 2b) — client-free OpenStreetMap embed from location_coords (no API key) -->
+  <?php
+    $showMap = !isset($theme['show_map']) || !empty($theme['show_map']);
+    $coords = ($showMap && function_exists('wl_coords')) ? wl_coords($s['location_coords'] ?? null) : null;
+  ?>
+  <?php if ($coords !== null): ?>
+    <?php
+      [$mlat, $mlng] = $coords;
+      // A small bbox around the point for the OSM embed; marker at the exact point.
+      $d = 0.01;
+      $bbox = ($mlng - $d) . ',' . ($mlat - $d) . ',' . ($mlng + $d) . ',' . ($mlat + $d);
+      $embed = 'https://www.openstreetmap.org/export/embed.html?bbox=' . rawurlencode($bbox) . '&layer=mapnik&marker=' . rawurlencode($mlat . ',' . $mlng);
+      $directions = 'https://www.openstreetmap.org/directions?to=' . rawurlencode($mlat . ',' . $mlng);
+    ?>
+    <div>
+      <h2 class="text-lg font-semibold text-gray-900 mb-3">Where you'll be</h2>
+      <div class="rounded-xl overflow-hidden border border-gray-200">
+        <iframe src="<?= htmlspecialchars($embed) ?>" style="width:100%;height:320px;border:0;" loading="lazy" title="Property location map"></iframe>
+      </div>
+      <div class="mt-2 flex items-center gap-3 text-sm">
+        <?php if (trim((string) ($s['address'] ?? '')) !== ''): ?><span class="text-gray-600"><?= htmlspecialchars((string) $s['address']) ?></span><?php endif; ?>
+        <a href="<?= htmlspecialchars($directions) ?>" target="_blank" rel="noopener" class="text-violet-600 hover:underline">Get directions &rarr;</a>
+      </div>
     </div>
   <?php endif; ?>
 

@@ -221,7 +221,28 @@ if (!empty($activeCurrencyRow)) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light">
     <meta name="csrf-token" content="<?=CSRF::getToken()?>">
+    <?php if ($wlTenant):
+      // WHITE-LABEL Phase 2b: the hotel's own favicon + chrome colours override the platform's.
+      $__wlTheme2 = (array) wl_tenant('theme');
+      $__wlFav = trim((string) ($__wlTheme2['favicon_url'] ?? ''));
+      $__wlHdr = trim((string) ($__wlTheme2['header_bg'] ?? ''));
+      $__wlFtr = trim((string) ($__wlTheme2['footer_bg'] ?? ''));
+    ?>
+      <?php if ($__wlFav !== ''): ?>
+        <link rel="shortcut icon" href="<?= htmlspecialchars(rtrim(root, '/') . '/' . ltrim($__wlFav, '/')) ?>">
+        <link rel="icon" href="<?= htmlspecialchars(rtrim(root, '/') . '/' . ltrim($__wlFav, '/')) ?>">
+      <?php else: ?>
+        <link rel="shortcut icon" href="<?=versionedAssetUrl('uploads/global/favicon.png')?>">
+      <?php endif; ?>
+      <?php if ($__wlHdr !== '' || $__wlFtr !== ''): ?>
+        <style>
+          <?php if ($__wlHdr !== ''): ?>:root{--header-background: <?= htmlspecialchars($__wlHdr) ?>;}<?php endif; ?>
+          <?php if ($__wlFtr !== ''): ?>:root{--footer-background: <?= htmlspecialchars($__wlFtr) ?>;}<?php endif; ?>
+        </style>
+      <?php endif; ?>
+    <?php else: ?>
     <link rel="shortcut icon" href="<?=versionedAssetUrl('uploads/global/favicon.png')?>">
+    <?php endif; ?>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://cdn.jsdelivr.net">
