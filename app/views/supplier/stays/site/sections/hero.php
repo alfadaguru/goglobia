@@ -7,7 +7,7 @@
   .wl-hero .fallback{position:absolute;inset:0;background:linear-gradient(135deg,var(--wl-primary),color-mix(in srgb,var(--wl-primary) 70%,var(--wl-accent)))}
   .wl-hero .inner{position:relative;max-width:1180px;margin:0 auto;padding:0 clamp(20px,4vw,40px);width:100%}
   .wl-hero .rule{width:64px;height:1px;background:var(--wl-accent);margin:22px 0 26px}
-  .wl-hero h1{font-size:clamp(2.6rem,6.2vw,5.6rem);line-height:1.04;font-weight:500;text-wrap:balance;max-width:17ch;margin:0}
+  .wl-hero h1{font-size:clamp(2.1rem,6.2vw,5.6rem);line-height:1.04;font-weight:500;text-wrap:balance;max-width:17ch;margin:0;overflow-wrap:break-word;word-break:break-word;hyphens:auto}
   .wl-hero p{font-size:1.08rem;max-width:48ch;margin:24px 0 36px;opacity:.95}
   .wl-hero .cta{display:flex;gap:14px;flex-wrap:wrap}
   .wl-hero .cta .wl-btn{color:#fff;border-color:rgba(255,255,255,.6)}

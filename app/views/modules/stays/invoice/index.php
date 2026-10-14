@@ -24,9 +24,28 @@ foreach ($hotel_session_keys as $key) {
         unset($_SESSION[$key]);
     }
 }
-?>
 
-<div class="bg-gray-100 dark:bg-gray-900 min-h-screen py-6">
+// WHITE-LABEL: when this invoice renders inside a hotel's booking chrome, brand the
+// body with the chrome's --wl-* tokens so the confirmation matches the rest of the
+// funnel. Display-only page — no money/submit logic here; purely a scoped skin.
+$__wlInv = function_exists('wl_is_tenant') && wl_is_tenant();
+?>
+<?php if ($__wlInv): ?>
+<style>
+  .wl-inv.bg-gray-100{background:var(--wl-paper)!important}
+  .wl-inv{font-family:var(--wl-body);color:var(--wl-ink)}
+  .wl-inv h1,.wl-inv h2,.wl-inv h3,.wl-inv h4,.wl-inv .card-header h3{font-family:var(--wl-display);font-weight:500;color:var(--wl-ink)}
+  .wl-inv .card{border:1px solid var(--wl-line,rgba(0,0,0,.08))!important;border-radius:16px!important;box-shadow:0 1px 3px rgba(0,0,0,.04)!important}
+  .wl-inv .card-header{border-bottom:1px solid var(--wl-line,rgba(0,0,0,.08))}
+  .wl-inv .card-header-icon{color:var(--wl-accent)!important}
+  .wl-inv .btn{background:var(--wl-accent)!important;color:#fff!important;border:0;border-radius:999px!important}
+  .wl-inv .btn.secondary,.wl-inv .btn.light{background:#fff!important;color:var(--wl-ink)!important;border:1px solid var(--wl-line,rgba(0,0,0,.16))!important}
+  .wl-inv .text-blue-600,.wl-inv .text-blue-700,.wl-inv .text-slate-600,.wl-inv .text-indigo-600{color:var(--wl-accent)!important}
+  .wl-inv .alert-success{border-color:color-mix(in srgb,var(--wl-accent) 30%,transparent)}
+</style>
+<?php endif; ?>
+
+<div class="<?= $__wlInv ? 'wl-inv ' : '' ?>bg-gray-100 dark:bg-gray-900 min-h-screen py-6">
     <div class="container mx-auto px-4">
 
         <!-- Breadcrumb -->

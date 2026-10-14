@@ -162,8 +162,12 @@ $router->get('/stay/(.*)', function ($params) use ($SECURE,$db) {
     $title = ucwords($hotelName) . ' - ' . $GLOBALS['app']['home_title'];
     $description = "Book " . ucwords($hotelName);
     if ($__wlChrome) {
+        // White-label: render the bespoke BRANDED stay-detail view (not the platform
+        // stay.php). It carries verbatim copies of the hotelDetails/updateSearchParams/
+        // hotelRooms Alpine components, so booking/pricing/holds are identical; only the
+        // presentation is branded. See app/views/supplier/stays/site/booking/detail.php.
         require views . "supplier/stays/site/_bookingchrome_head.php";
-        require_once views . "modules/stays/details/stay.php";
+        require_once views . "supplier/stays/site/booking/detail.php";
         require views . "supplier/stays/site/_bookingchrome_foot.php";
     } else {
         require_once views . "includes/header.php";

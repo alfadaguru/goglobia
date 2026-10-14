@@ -24,7 +24,7 @@ $rootUrl = defined('root') ? root : '/';
   /* split hero */
   .m-hero{display:grid;grid-template-columns:1fr 1fr;min-height:84vh}
   .m-hero .copy{display:flex;flex-direction:column;justify-content:center;padding:clamp(40px,7vw,96px)}
-  .m-hero .copy h1{font-size:clamp(2.4rem,4.6vw,4.2rem);font-weight:400;line-height:1.08;margin:18px 0 0;text-wrap:balance}
+  .m-hero .copy h1{font-size:clamp(2rem,4.6vw,4.2rem);font-weight:400;line-height:1.08;margin:18px 0 0;text-wrap:balance;overflow-wrap:break-word;word-break:break-word;hyphens:auto}
   .m-hero .copy p{color:var(--wl-ink-soft);max-width:42ch;margin:22px 0 32px}
   .m-hero .img{background-size:cover;background-position:center;background-color:color-mix(in srgb,var(--wl-primary) 10%,#fff);min-height:360px}
   .m-mobile{position:fixed;inset:0;z-index:60;background:var(--wl-paper);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;font-size:1rem;letter-spacing:.18em;text-transform:uppercase}
