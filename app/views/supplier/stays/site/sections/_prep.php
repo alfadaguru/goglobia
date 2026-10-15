@@ -79,6 +79,41 @@ if (empty($__wlPrepped)):
         }
     }
 
+    // --- Default guest nationality for the search deep-link. ---
+    // The stays detail page forces a "select nationality" modal when nationality is
+    // NULL/invalid, so we must send a VALID ISO. There is no country column on `stays`,
+    // but the hotel's trading currency reliably implies its country — map it via
+    // currencies.country (ISO-2). Fall back to a safe valid default so the guest is
+    // never blocked. They can still change nationality on the detail page.
+    $wlNationality = 'US';
+    $wlCurCode = strtoupper(trim((string) ($s['currency'] ?? '')));
+    if ($wlCurCode !== '' && !empty($db)) {
+        try {
+            $wlCurRow = $db->get('currencies', ['country'], ['name' => $wlCurCode]);
+            $wlCountryIso = strtoupper(trim((string) ($wlCurRow['country'] ?? '')));
+            if ($wlCountryIso !== '' && $db->has('countries', ['iso' => $wlCountryIso])) {
+                $wlNationality = $wlCountryIso;
+            }
+        } catch (\Throwable $e) { /* keep default */ }
+    }
+
+    // --- Which sections will ACTUALLY render (so the nav never links to an empty
+    //     section). Each flag mirrors the guard inside the matching sections/*.php. ---
+    $wlAboutText = trim((string) ($theme['about'] ?? '')) ?: trim((string) ($s['desc'] ?? ''));
+    $wlRenderable = [
+        'about'    => $wlAboutText !== '',
+        'rooms'    => !empty($wlRooms),
+        'gallery'  => count($wlGallery) >= 2,
+        'reviews'  => $wlShowReviews && (!empty($wlReviews) || ($wlAvg > 0 && $wlRatingCount > 0)),
+        'offers'   => !empty($wlOffers),
+        'location' => $wlCoords !== null,
+        'contact'  => true, // contact/footer always renders
+    ];
+    // A section not in the map (unknown/custom) is assumed renderable.
+    $wlSectionRenders = function ($key) use ($wlRenderable) {
+        return !array_key_exists($key, $wlRenderable) || $wlRenderable[$key] === true;
+    };
+
     // --- Booking deep-link builder (Phase 3) for the search widget. ---
     $wlBookBase = $rootUrl . 'stay/' . $wlSlug . '/' . $wlSid . '/hotels/_/';
 endif;

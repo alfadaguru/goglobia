@@ -3,7 +3,11 @@
 // TEMPLATE: Resort — warm, coastal, relaxed. Rounded, sunlit, a centered hero with the search
 // floating over the image. Shares the sections/ partials.
 $secDir = __DIR__ . '/../sections/';
-$navSecs = array_values(array_filter($sections, fn($x) => !in_array($x, ['hero', 'search'], true)));
+require_once __DIR__ . '/../sections/_prep.php';
+$navSecs = array_values(array_filter($sections, function ($x) use ($wlSectionRenders) {
+    if (in_array($x, ['hero', 'search'], true)) { return false; }
+    return !isset($wlSectionRenders) || !is_callable($wlSectionRenders) ? true : $wlSectionRenders($x);
+}));
 $navLabels = (isset($theme['nav_labels']) && is_array($theme['nav_labels'])) ? $theme['nav_labels'] : [];
 $secLabel = function ($key) use ($navLabels) {
     if (!empty($navLabels[$key])) { return $navLabels[$key]; }
@@ -33,7 +37,8 @@ require $secDir . '_prep.php';
   .r-search .f{text-align:left;padding:6px 12px}
   .r-search .f label{display:block;font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;opacity:.85;margin-bottom:4px}
   .r-search .f input{background:rgba(255,255,255,.92);border:0;border-radius:8px;padding:9px 11px;color:#1a1a1a;width:140px;font-family:var(--wl-body)}
-  .r-search .go{background:var(--wl-accent);color:#fff;border:0;border-radius:10px;padding:0 26px;letter-spacing:.06em;cursor:pointer;font-family:var(--wl-body)}
+  .r-search .go{background:var(--wl-accent);color:#fff;border:0;border-radius:10px;min-width:190px;padding:16px 34px;font-size:.98rem;font-weight:600;letter-spacing:.06em;cursor:pointer;font-family:var(--wl-body);transition:filter .15s}
+  .r-search .go:hover{filter:brightness(1.08)}
   .r-burger{display:none}
   @media(max-width:860px){.r-links,.r-book{display:none}.r-burger{display:block}.r-search .f input{width:100%}.r-search{flex-direction:column;width:calc(100% - 20px)}}
   .r-mobile{position:fixed;inset:0;z-index:60;background:var(--wl-primary);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;font-size:1.05rem}
@@ -61,7 +66,7 @@ require $secDir . '_prep.php';
     <?php if ($wlHeroSub !== ''): ?><p><?= htmlspecialchars(mb_substr($wlHeroSub, 0, 200)) ?></p><?php endif; ?>
     <?php if ($wlSid > 0 && $wlSlug !== ''): ?>
     <div class="r-search" id="wl-search"
-      x-data="{ ci:'', co:'', adults:2, children:0, go(){ if(!this.ci||!this.co)return; window.location.href='<?= htmlspecialchars($wlBookBase) ?>'+this.ci+'/'+this.co+'/NULL/1/'+this.adults+'-'+this.children } }">
+      x-data="{ ci:'', co:'', adults:2, children:0, go(){ if(!this.ci||!this.co)return; window.location.href='<?= htmlspecialchars($wlBookBase) ?>'+this.ci+'/'+this.co+'/<?= htmlspecialchars($wlNationality ?? 'US') ?>/1/'+this.adults+'-'+this.children } }">
       <div class="f"><label>Arrival</label><input type="date" id="wl-arrival" x-model="ci" :min="new Date().toISOString().split('T')[0]"></div>
       <div class="f"><label>Departure</label><input type="date" x-model="co" :min="ci || new Date().toISOString().split('T')[0]"></div>
       <div class="f"><label>Adults</label><input type="number" min="1" max="20" x-model.number="adults"></div>

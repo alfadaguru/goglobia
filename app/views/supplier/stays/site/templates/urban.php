@@ -3,7 +3,11 @@
 // TEMPLATE: Urban — sleek city/business hotel. Dark, sharp, confident. A dark sticky nav, a
 // tall left-aligned hero with a compact inline search. Grotesk display.
 $secDir = __DIR__ . '/../sections/';
-$navSecs = array_values(array_filter($sections, fn($x) => !in_array($x, ['hero', 'search'], true)));
+require_once __DIR__ . '/../sections/_prep.php';
+$navSecs = array_values(array_filter($sections, function ($x) use ($wlSectionRenders) {
+    if (in_array($x, ['hero', 'search'], true)) { return false; }
+    return !isset($wlSectionRenders) || !is_callable($wlSectionRenders) ? true : $wlSectionRenders($x);
+}));
 $navLabels = (isset($theme['nav_labels']) && is_array($theme['nav_labels'])) ? $theme['nav_labels'] : [];
 $secLabel = function ($key) use ($navLabels) {
     if (!empty($navLabels[$key])) { return $navLabels[$key]; }
@@ -33,7 +37,8 @@ require $secDir . '_prep.php';
   .u-sb .f label{display:block;font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;color:var(--wl-accent);margin-bottom:4px}
   .u-sb .f input{background:transparent;border:0;color:#fff;font-family:var(--wl-body);outline:none;width:130px}
   .u-sb .f input::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.6}
-  .u-sb .go{background:var(--wl-accent);color:var(--wl-primary);border:0;padding:0 26px;font-weight:600;letter-spacing:.06em;cursor:pointer;font-family:var(--wl-body)}
+  .u-sb .go{background:var(--wl-accent);color:var(--wl-primary);border:0;min-width:190px;padding:16px 34px;font-size:.98rem;font-weight:700;letter-spacing:.06em;cursor:pointer;font-family:var(--wl-body);transition:filter .15s}
+  .u-sb .go:hover{filter:brightness(1.08)}
   .u-mobile{position:fixed;inset:0;z-index:60;background:var(--wl-primary);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;font-size:1.05rem;letter-spacing:.1em;text-transform:uppercase}
   .u-mobile a{color:#fff}
   @media(max-width:860px){.u-links,.u-book{display:none}.u-burger{display:block}.u-sb{flex-direction:column;width:100%}.u-sb .f input{width:100%}}
@@ -60,7 +65,7 @@ require $secDir . '_prep.php';
     <?php if ($wlHeroSub !== ''): ?><p><?= htmlspecialchars(mb_substr($wlHeroSub, 0, 180)) ?></p><?php endif; ?>
     <?php if ($wlSid > 0 && $wlSlug !== ''): ?>
     <div class="u-sb" id="wl-hero-search"
-      x-data="{ ci:'', co:'', adults:2, children:0, go(){ if(!this.ci||!this.co)return; window.location.href='<?= htmlspecialchars($wlBookBase) ?>'+this.ci+'/'+this.co+'/NULL/1/'+this.adults+'-'+this.children } }">
+      x-data="{ ci:'', co:'', adults:2, children:0, go(){ if(!this.ci||!this.co)return; window.location.href='<?= htmlspecialchars($wlBookBase) ?>'+this.ci+'/'+this.co+'/<?= htmlspecialchars($wlNationality ?? 'US') ?>/1/'+this.adults+'-'+this.children } }">
       <div class="f"><label>Arrival</label><input type="date" id="wl-arrival" x-model="ci" :min="new Date().toISOString().split('T')[0]"></div>
       <div class="f"><label>Departure</label><input type="date" x-model="co" :min="ci || new Date().toISOString().split('T')[0]"></div>
       <div class="f"><label>Guests</label><input type="number" min="1" max="20" x-model.number="adults"></div>

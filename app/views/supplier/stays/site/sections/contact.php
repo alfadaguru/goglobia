@@ -7,8 +7,12 @@
   $cAddr  = trim((string) ($s['address'] ?? '')) ?: trim((string) ($s['location'] ?? ''));
   $social = (isset($theme['social']) && is_array($theme['social'])) ? $theme['social'] : [];
   $socialLabels = function_exists('sitebuilder_social_platforms') ? sitebuilder_social_platforms() : [];
-  // Footer nav from the enabled sections.
-  $footSecs = array_values(array_filter($sections, fn($x) => !in_array($x, ['hero', 'search', 'contact'], true)));
+  // Footer nav from the sections that will ACTUALLY render (skip empty reviews/offers/
+  // location so the footer links never scroll to a missing section — matches the top nav).
+  $footSecs = array_values(array_filter($sections, function ($x) use ($wlSectionRenders) {
+      if (in_array($x, ['hero', 'search', 'contact'], true)) { return false; }
+      return !isset($wlSectionRenders) || !is_callable($wlSectionRenders) ? true : $wlSectionRenders($x);
+  }));
   $pages = (isset($sitePages) && is_array($sitePages)) ? $sitePages : [];
   $bslug = $wlSlug;
 ?>

@@ -105,9 +105,19 @@ $router->get('/login', function () use ($SECURE, $db) {
     $description = T::signin_description;
     $header = true;
     $footer = true;
-    require_once views."includes/header.php";
-    require_once views."auth/login.php";
-    require_once views."includes/footer.php";
+    // WHITE-LABEL: on a hotel's own branded host, render login inside the HOTEL's booking
+    // chrome (its logo/nav/footer) instead of the GoGlobia platform header/footer, so the
+    // auth page doesn't leak the platform brand onto the hotel's domain.
+    $__wlChrome = function_exists('wl_booking_tenant') ? wl_booking_tenant($db) : false;
+    if ($__wlChrome) {
+        require views . "supplier/stays/site/_bookingchrome_head.php";
+        require_once views . "auth/login.php";
+        require views . "supplier/stays/site/_bookingchrome_foot.php";
+    } else {
+        require_once views."includes/header.php";
+        require_once views."auth/login.php";
+        require_once views."includes/footer.php";
+    }
 });
 
 $router->post('/login', function () use ($SECURE, $db) {
