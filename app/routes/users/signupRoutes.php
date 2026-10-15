@@ -38,9 +38,18 @@ $router->get('/signup', function () use ($SECURE, $db) {
     $description = T::signup_description;
     $header = true;
     $footer = true;
-    require_once views."includes/header.php";
-    require_once views."auth/signup.php";
-    require_once views."includes/footer.php";
+    // WHITE-LABEL: render signup inside the hotel's booking chrome on a tenant host, so the
+    // page doesn't leak the GoGlobia platform brand onto the hotel's own domain.
+    $__wlChrome = function_exists('wl_booking_tenant') ? wl_booking_tenant($db) : false;
+    if ($__wlChrome) {
+        require views . "supplier/stays/site/_bookingchrome_head.php";
+        require_once views . "auth/signup.php";
+        require views . "supplier/stays/site/_bookingchrome_foot.php";
+    } else {
+        require_once views."includes/header.php";
+        require_once views."auth/signup.php";
+        require_once views."includes/footer.php";
+    }
 });
 
 $router->post('/signup', function () use ($SECURE, $db) {

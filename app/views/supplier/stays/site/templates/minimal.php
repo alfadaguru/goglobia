@@ -3,7 +3,11 @@
 // TEMPLATE: Minimal — quiet luxury. Restraint, whitespace, precise type. A light, airy nav
 // (not overlaying a dark hero) and a split hero. Shares the sections/ partials.
 $secDir = __DIR__ . '/../sections/';
-$navSecs = array_values(array_filter($sections, fn($x) => !in_array($x, ['hero', 'search'], true)));
+require_once __DIR__ . '/../sections/_prep.php';
+$navSecs = array_values(array_filter($sections, function ($x) use ($wlSectionRenders) {
+    if (in_array($x, ['hero', 'search'], true)) { return false; }
+    return !isset($wlSectionRenders) || !is_callable($wlSectionRenders) ? true : $wlSectionRenders($x);
+}));
 $navLabels = (isset($theme['nav_labels']) && is_array($theme['nav_labels'])) ? $theme['nav_labels'] : [];
 $secLabel = function ($key) use ($navLabels) {
     if (!empty($navLabels[$key])) { return $navLabels[$key]; }

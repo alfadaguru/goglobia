@@ -5,8 +5,16 @@
 // $primary, $siteName, $heroAbs, $wlLang, $sitePages, $roomTypeNames, $roomAmenityNames, $db).
 // Section partials under ../sections/ are required directly (they inherit this scope).
 $secDir = __DIR__ . '/../sections/';
-// Build the top-nav link set from the enabled sections (minus hero/search which aren't links).
-$navSecs = array_values(array_filter($sections, fn($x) => !in_array($x, ['hero', 'search'], true)));
+// Prep shared section data up-front (idempotent) so we know which sections will
+// actually render — the nav must not link to a section that self-hides when empty.
+require_once $secDir . '_prep.php';
+// Build the top-nav link set from the enabled sections (minus hero/search which aren't
+// links), and drop any section that won't render (e.g. reviews/offers/location with no
+// data) so every nav link lands on a real section.
+$navSecs = array_values(array_filter($sections, function ($x) use ($wlSectionRenders) {
+    if (in_array($x, ['hero', 'search'], true)) { return false; }
+    return !isset($wlSectionRenders) || !is_callable($wlSectionRenders) ? true : $wlSectionRenders($x);
+}));
 $navLabels = (isset($theme['nav_labels']) && is_array($theme['nav_labels'])) ? $theme['nav_labels'] : [];
 $secLabel = function ($key) use ($navLabels) {
     if (!empty($navLabels[$key])) { return $navLabels[$key]; }
