@@ -44,12 +44,22 @@ function _lic_host($s)
     return _lic_dom($fallback) ?: 'localhost';
 }
 
-// ── EXACT NORMALIZED DOMAIN COMPARISON — SUBDOMAINS AND PARENTS DO NOT MATCH ─
+// ── NORMALIZED DOMAIN COMPARISON ────────────────────────────────────────────
+// $a = the LICENSED/registered domain, $b = the CURRENT request host.
+// The current host matches when it is the licensed domain itself OR a true
+// subdomain of it. This is required for white-label: a single license on the
+// apex (e.g. goglobia.com) must cover the per-hotel subdomains the product
+// serves (e.g. bizarreluxuryapartments-hotel.goglobia.com). It stays strict —
+// a host only passes if it ends with ".{licensed}", so an unrelated domain
+// (goglobia.com.evil.com is NOT a subdomain: it would need to end with
+// ".goglobia.com") or a PARENT of the licensed domain never matches.
 function _lic_domok($a, $b)
 {
     $a = _lic_dom($a);
     $b = _lic_dom($b);
-    return $a !== '' && $b !== '' && $a === $b;
+    if ($a === '' || $b === '') return false;
+    if ($a === $b) return true;                       // exact match (unchanged)
+    return substr($b, -(strlen($a) + 1)) === ('.' . $a); // $b is a subdomain of $a
 }
 
 // ── CALL REMOTE LICENSE API — MULTI-STRATEGY, CAPTURES REAL ERROR FOR DIAGNOSIS ─
@@ -285,9 +295,13 @@ function _lic_check($db)
         return ['ok' => false, 'msg' => "Payment is {$ps}. Submit a ticket at app.phptravels.com to resolve payment.", 'key' => $key];
     }
 
-    // ALL 4 CHECKS PASSED — ENCRYPT AND PERSIST CACHE, EXPIRES IN 7 DAYS
+    // ALL 4 CHECKS PASSED — ENCRYPT AND PERSIST CACHE, EXPIRES IN 7 DAYS.
+    // Cache the LICENSED domain ($ad), not the current host, so the shared settings
+    // cache validates for every subdomain of the licensed domain (white-label hotel
+    // subdomains) without re-hitting the API on each host — _lic_domok($ad, host)
+    // still enforces that the host is $ad or a subdomain of it.
     $now = time();
-    $pl  = ['k' => $key, 'h' => $cd, 'v' => 1, 'at' => $now, 'exp' => $now + (7 * 86400)];
+    $pl  = ['k' => $key, 'h' => $ad, 'v' => 1, 'at' => $now, 'exp' => $now + (7 * 86400)];
     $pl['sig'] = _lic_sig($pl);
     if ($id) _lic_save($db, $id, _lic_enc($pl));
 
