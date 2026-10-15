@@ -56,6 +56,20 @@ if ($isUserLoggedIn && !empty($loggedInUser['phone_country_code'])) {
     }
 }
 
+// Sensible default for the phone COUNTRY CODE select so it doesn't fall to the first
+// alphabetical option (Afghanistan). Prefer the logged-in user's country; otherwise
+// use the booking's nationality (the country the guest searched with — on a hotel's own
+// site this is the hotel's country), as long as it is a valid ISO in the list.
+$defaultPhoneIso = $userPhoneCountryIso;
+if ($defaultPhoneIso === '') {
+    $natIso = strtoupper(trim((string) ($nationality ?? '')));
+    if ($natIso !== '' && $natIso !== 'NULL' && is_array($countries ?? null)) {
+        foreach ($countries as $country) {
+            if (strtoupper((string) ($country['iso'] ?? '')) === $natIso) { $defaultPhoneIso = $natIso; break; }
+        }
+    }
+}
+
 // ============================================================================
 // INITIALIZE BOOKING TYPE (GUEST OR LOGIN)
 // ============================================================================
@@ -312,7 +326,7 @@ $bookingType = ($isUserLoggedIn) ? 'logged_in' : ($isGuestBookingEnabled ? 'gues
                             :disabled="isUserLoggedIn && !booking_for_someone_else">
                         <?php foreach ($countries as $country): ?>
                             <option value="<?= htmlspecialchars($country['iso']) ?>"
-                                <?= ($userPhoneCountryIso !== '' && $userPhoneCountryIso === $country['iso']) ? 'selected' : '' ?>>
+                                <?= ($defaultPhoneIso !== '' && $defaultPhoneIso === $country['iso']) ? 'selected' : '' ?>>
                                 <?= htmlspecialchars($country['iso']) ?> +<?= htmlspecialchars($country['phonecode']) ?>
                             </option>
                         <?php endforeach; ?>
@@ -406,12 +420,12 @@ function bookingAuth() {
         phoneRulesByIso: <?= json_encode($phoneRulesByIso, JSON_UNESCAPED_UNICODE) ?>,
         phoneDbMax: 15,
         primary_guest: {
-            title: '',
+            title: 'Mr',
             first_name: '',
             last_name: '',
             email: '',
             phone: '',
-            country_code: ''
+            country_code: '<?= htmlspecialchars($defaultPhoneIso, ENT_QUOTES) ?>'
         },
 
         phoneRules() {
@@ -440,12 +454,14 @@ function bookingAuth() {
             this.isUserLoggedIn = isLoggedIn;
             if (isLoggedIn && userData) {
                 this.bookingType = 'logged_in';
-                this.primary_guest.title = userData.title || '';
+                // Keep the sensible defaults (title 'Mr', nationality-based country code) when
+                // the user's saved value is empty, instead of blanking the field.
+                this.primary_guest.title = userData.title || this.primary_guest.title || 'Mr';
                 this.primary_guest.first_name = userData.first_name || '';
                 this.primary_guest.last_name = userData.last_name || '';
                 this.primary_guest.email = userData.email || '';
                 this.primary_guest.phone = userData.phone || '';
-                this.primary_guest.country_code = userData.phone_country_code || '';
+                this.primary_guest.country_code = userData.phone_country_code || this.primary_guest.country_code || '';
             }
 
             this.$watch('primary_guest.country_code', () => {

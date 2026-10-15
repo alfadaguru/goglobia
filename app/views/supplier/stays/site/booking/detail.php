@@ -148,7 +148,19 @@ $wlTenantName = (string) (function_exists('wl_tenant') ? (wl_tenant('name') ?: $
   .wl-room .cap .material-symbols-outlined{font-size:17px}
   .wl-room .ramen{display:flex;flex-wrap:wrap;gap:6px}
   .wl-room .ramen span{font-size:.72rem;padding:3px 10px;border:1px solid var(--wl-line,rgba(0,0,0,.12));border-radius:999px;color:var(--wl-ink-soft)}
-  @media(max-width:620px){.wl-room .top{grid-template-columns:1fr}.wl-room .photo{height:200px}}
+  @media(max-width:620px){
+    /* Compact room cards on mobile so a 12-room list isn't an endless scroll. */
+    .wl-room{margin-bottom:14px;border-radius:14px}
+    .wl-room .top{grid-template-columns:1fr}
+    .wl-room .photo{min-height:0;height:140px}
+    .wl-room .info{padding:14px 16px}
+    .wl-room .info h3{font-size:1.15rem;margin-bottom:5px}
+    .wl-room .cap{gap:12px;font-size:.78rem;margin-bottom:8px}
+    .wl-room .ramen{display:none} /* amenity pills shown on the detail/booking step, keep list tight */
+    .wl-rate{padding:12px 16px;gap:10px}
+    /* Sticky filter bar so guests can narrow a long list without scrolling back up. */
+    .wl-filters{position:sticky;top:0;z-index:20;margin-bottom:14px}
+  }
 
   /* Rate rows (branded, card-ish, no spreadsheet) */
   .wl-rates{border-top:1px solid var(--wl-line,rgba(0,0,0,.08))}
