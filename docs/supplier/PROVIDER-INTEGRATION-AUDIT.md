@@ -49,7 +49,7 @@
 **Flight-specific findings** *(original audit; fix-status tracked in §9.3)*
 - **Kiwi — HIGH:** booked the stored `booking_token` with no live `check_flights` re-validation. **→ FIXED (§9.3):** best-effort `check_flights` gate now wired (fail-open).
 - **Sabre / PKfare:** no pre-issue reprice; rely on the supplier rejecting a stale price. *(still open)*
-- **Amadeus Enterprise `issue.php:266-274` + Kiwi:** auto-fabricated passenger DOBs when missing, onto real tickets (denied-boarding/name-change liability). **→ Amadeus Enterprise FIXED (§9.3)** (now rejects, like plain Amadeus). *(Kiwi's own passenger build still defaults DOB — see §9.5.)*
+- **Amadeus Enterprise `issue.php:266-274` + Kiwi:** auto-fabricated passenger DOBs when missing, onto real tickets (denied-boarding/name-change liability). **→ BOTH FIXED** (§9.3 / §9.5 #4): each now rejects missing DOB like plain Amadeus; Kiwi also no longer fabricates passport expiry.
 - **Travelpayouts:** action files are literal `// TODO` stubs — search-only.
 
 ---
@@ -229,7 +229,7 @@ A second, adversarial pass **re-audited the auditors** on the 17 "fully-bookable
 1. ✅ **DONE** — **Travelport-stays writeback** (CRITICAL): removed phantom columns from issue.php + symmetric cancel.php fix. *(static; pending runtime)*
 2. ✅ **DONE** — **Amadeus Enterprise DOB fabrication** (HIGH): now rejects missing DOB. *(static)*
 3. ✅ **DONE** — **Kiwi fare re-check** (HIGH): best-effort `check_flights` gate wired + `base_currency`/`issued_at` no-ops fixed in issue.php. *(static; param contract pending live confirmation)*
-4. ⬜ **OPEN** — **Kiwi passenger DOB + passport-expiry fabrication** (HIGH, same class as #2): `issue.php:197-198` defaults DOB (adult 30 / child 5 / infant 1) and `:203` defaults passport expiry (+5y) when missing, onto a real Kiwi booking. Apply the same reject-don't-fabricate fix as Amadeus Enterprise. *(surfaced during the #3 fix; not yet addressed.)*
+4. ✅ **DONE** — **Kiwi passenger DOB + passport-expiry fabrication** (HIGH, same class as #2): `issue.php` no longer defaults DOB (was adult 30 / child 5 / infant 1) or passport expiry (was +5y). It now `throw`s when DOB is missing, and requires a real expiry when a passport number is supplied (caught by the handler's `catch` → `status:false`). *(static)*
 5. ⬜ **OPEN** — **Idempotency guards** on Wanderbeds, TBO-Holidays, Travelport-stays, Sabre (uniform `if (!empty($booking['pnr'])) return success(existing);`).
 6. ⬜ **OPEN** — **Sabre / PKfare reconcile** (wire `reconcilePostPaymentPrice` like the other flight suppliers).
 7. ⬜ **OPEN** — **Travelport-stays logging-path slash** (LOW) + `refund.php` `final_total`/`base_currency` non-column reads (Kiwi, LOW).

@@ -187,20 +187,25 @@ $router->post('flights/kiwi/issue', function() use ($db) {
                 'phone' => $traveller['phone'] ?? $booking['phone'] ?? ''
             ];
             
-            // Add birthday if available
-            if (!empty($traveller['dob'])) {
-                $passenger['birthday'] = $traveller['dob'];
-            } elseif (!empty($traveller['birthday'])) {
-                $passenger['birthday'] = $traveller['birthday'];
-            } else {
-                // Default DOB based on passenger type
-                $defaultAge = ($category === 'adult') ? 30 : (($category === 'child') ? 5 : 1);
-                $passenger['birthday'] = date('Y-m-d', strtotime("-{$defaultAge} years"));
+            // Date of birth — REQUIRED. Do NOT fabricate it: a placeholder DOB
+            // (adult 30 / child 5 / infant 1) produces a real Kiwi booking with
+            // wrong passenger data (denied boarding / correction fees). Reject so
+            // the booking is completed before ticketing (matches amadeus /
+            // amadeus_enterprise validate-don't-fabricate behaviour).
+            $dob = trim((string)($traveller['dob'] ?? $traveller['birthday'] ?? ''));
+            if ($dob === '') {
+                throw new Exception('A valid date of birth is required for every passenger before this booking can be issued (missing for ' . $category . ' ' . trim($passenger['name'] . ' ' . $passenger['surname']) . ').');
             }
-            
-            // Add document info if available
+            $passenger['birthday'] = $dob;
+
+            // Add passport only when REAL data exists. Never fabricate the expiry:
+            // if a passport number is supplied, a genuine expiry must accompany it.
             if (!empty($traveller['passport_number'])) {
-                $passenger['document_expiry'] = $traveller['passport_expiry'] ?? date('Y-m-d', strtotime('+5 years'));
+                $passportExpiry = trim((string)($traveller['passport_expiry'] ?? ''));
+                if ($passportExpiry === '') {
+                    throw new Exception('A passport expiry date is required when a passport number is provided (passenger ' . trim($passenger['name'] . ' ' . $passenger['surname']) . ').');
+                }
+                $passenger['document_expiry'] = $passportExpiry;
                 $passenger['document_nr'] = $traveller['passport_number'];
             }
 
