@@ -213,6 +213,12 @@ A second, adversarial pass **re-audited the auditors** on the 17 "fully-bookable
 - **Sabre (flights) — no `reconcilePostPaymentPrice` call** (0 references). Books real PNRs with correctly-built segments (empty-PNR regression is guarded at `issue.php:279-281`), but a fare rise between search and issue would silently book at the higher price. *(Sabre already HAS an idempotency guard at `issue.php:56-66` — it was mis-listed in an earlier draft of §9.5 #5; its only open item is the reconcile below, §9.5 #6.)*
 - **PKfare (flights) — no pre-issue price verification.** `precisePricing_V6` is advertised in creds metadata but never called; `reconcilePostPaymentPrice` not invoked. Real exposure is lower than Sabre/Kiwi because PKfare locks price via `shoppingId` inside `preciseBooking_V6`, but there is no explicit reconciliation.
 
+> **§6 investigated (2026-10-16) — reconcile NOT wired for Sabre/PKfare; documented limitation, not fabricated.** A meaningful `reconcilePostPaymentPrice` call needs a *trustworthy live supplier total at a reconcilable moment*. Neither supplier exposes one statically:
+> - **Sabre** prices *inside* `CreatePassengerNameRecordRS` (the PNR already exists by then — no pre-commit moment), and the code parses that response only for PNR + ticket numbers; no priced-total field is read, and guessing its path in the RS would be fabrication. The only trustworthy total is the *search-time* `totalFare.totalPrice` already stored in `booking_data` — reconciling paid-vs-that is circular (paid ≈ marked-up stored total) and would catch nothing.
+> - **PKfare**'s `preciseBooking_V6` is the commit call; its response is parsed only for `orderNo`/`pnr` (no total read), and `precisePricing_V6` is never built anywhere — adding it would mean reconstructing an unconfirmed contract (the same blind-wire risk flagged for Kiwi `check_flights`). PKfare does lock the fare via `shoppingId` at booking, which bounds the exposure.
+>
+> Wiring either now would be either circular (false confidence) or a guessed API call. Correct closure requires a confirmed live-reprice contract (Sabre OTA_AirPrice pre-PNR; PKfare `precisePricing_V6`) against working creds — deferred rather than fabricated.
+
 **LOW / by-design (not booking-integrity defects)**
 - **Travelport (flights)** — price locked from phase-1 Air Price; no reprice before phase-2 ticketing (verified). Books correctly; graded VERIFIED with this noted.
 - **Amadeus (flights)** — validation happens at issue, so missing traveller data fails *after* payment (UX, not integrity); it correctly refuses to fabricate.
@@ -231,7 +237,7 @@ A second, adversarial pass **re-audited the auditors** on the 17 "fully-bookable
 3. ✅ **DONE** — **Kiwi fare re-check** (HIGH): best-effort `check_flights` gate wired + `base_currency`/`issued_at` no-ops fixed in issue.php. *(static; param contract pending live confirmation)*
 4. ✅ **DONE** — **Kiwi passenger DOB + passport-expiry fabrication** (HIGH, same class as #2): `issue.php` no longer defaults DOB (was adult 30 / child 5 / infant 1) or passport expiry (was +5y). It now `throw`s when DOB is missing, and requires a real expiry when a passport number is supplied (caught by the handler's `catch` → `status:false`). *(static)*
 5. ✅ **DONE** — **Idempotency guards** on Wanderbeds, TBO-Holidays, Travelport-stays (uniform `if (!empty($booking['pnr'])) { echo success; exit; }`). *(Sabre was mis-listed here — it already had a guard at `issue.php:56-66`; no change needed.)* *(static)*
-6. ⬜ **OPEN** — **Sabre / PKfare reconcile** (wire `reconcilePostPaymentPrice` like the other flight suppliers).
+6. ⛔ **CANNOT FIX STATICALLY (documented)** — **Sabre / PKfare reconcile.** Investigated 2026-10-16: neither exposes a trustworthy live total at a reconcilable point without guessing an API contract (Sabre prices inside PNR-create and the RS total path isn't parsed; PKfare's `precisePricing_V6` is never built). Reconciling against the stored search price would be circular. Needs a confirmed live-reprice call against working sandbox creds — deferred, not fabricated. See the §9.3 note above for full reasoning.
 7. ⬜ **OPEN** — **Travelport-stays logging-path slash** (LOW) + `refund.php` `final_total`/`base_currency` non-column reads (Kiwi, LOW).
 
 ---
