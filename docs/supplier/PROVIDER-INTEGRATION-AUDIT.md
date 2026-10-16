@@ -62,9 +62,9 @@
 | RateHawk | worldota v3 | A | prebook (20% tol) | ✅ form→finish→poll | ✅ +verify | ✅ gw | ✅ | Strong | ✅ **VERIFIED** |
 | Stuba | SOAP ReservWire | A | BookingCreate prepare | ✅ prepare→confirm | ✅ | gw | DB-only | Strong | ✅ **VERIFIED** |
 | Hotelston | SOAP 1.2 | A | checkavailability +re-rank | ✅ | ✅ | gw | pre-PNR local | Strong | ✅ **VERIFIED** |
-| Wanderbeds | REST Basic | A | avail (+reconcile pre-book) | ✅ +recovery | ✅ | gw | →cancel | Strong | ⚠️ **PARTIAL** (no idempotency guard) |
-| TBO-Holidays | TBO Hotel v2.1 | A | PreBook (±0.01 + hash + RRS) | ✅ +120s recovery, HCN poll | ✅ | gw | →cancel | **Strongest** | ⚠️ **PARTIAL** (no idempotency guard) |
-| Travelport | uAPI v52 SOAP | A | ❌ none (trusts rate_key) | ✅ | ✅ | stub | DB-only | **Partial** | ❌ **BROKEN** (writeback to non-existent columns) |
+| Wanderbeds | REST Basic | A | avail (+reconcile pre-book) | ✅ +recovery | ✅ | gw | →cancel | Strong | ✅ **FIXED** (idempotency guard added) |
+| TBO-Holidays | TBO Hotel v2.1 | A | PreBook (±0.01 + hash + RRS) | ✅ +120s recovery, HCN poll | ✅ | gw | →cancel | **Strongest** | ✅ **FIXED** (idempotency guard added) |
+| Travelport | uAPI v52 SOAP | A | ❌ none (trusts rate_key) | ✅ | ✅ | stub | DB-only | **Partial** | ✅ **FIXED** (writeback + idempotency; pending runtime) |
 | hotels (local) | own DB | C | admin-set | ✅ local confirm | ✅ | gw | ✅ | Local (gross-underpay floor only) | — not in scope (local) |
 | Agoda | Affiliate lt_v1 | B | — | — | — | — | — | deeplink (`landingURL`) | — n/a (search-only) |
 | Amadeus (stays) | Self-Service v3 | B/incomplete | — | — | — | — | — | search only ("TEMPORARY") | — n/a (search-only) |
@@ -208,9 +208,9 @@ A second, adversarial pass **re-audited the auditors** on the 17 "fully-bookable
 - **Amadeus Enterprise (flights) — DOB fabrication onto real GDS orders.** Was: `actions/issue.php:266-274` invented DOBs when missing (infant −1y / child −8y / adult −30y) and sent them to the live `/booking/flight-orders` call (denied-boarding / name-change liability).
   **FIX APPLIED (static):** the fabrication block is replaced with a hard reject — `$buildTravelers` now `throw`s a clear "a valid date of birth is required for every passenger" exception (caught by the handler's existing `catch (Throwable)` → `status:false` response), matching the verified plain-Amadeus validate-don't-fabricate pattern. No placeholder DOB is ever sent. Verdict moves PARTIAL → VERIFIED-pending-runtime.
 
-**MEDIUM — idempotency (duplicate-booking risk on retry)**
-- **Wanderbeds-stays & TBO-Holidays-stays — no existing-PNR guard** before the supplier Book call (`issue.php`, confirmed absent in both). A payment-layer retry or user refresh can fire a second `Book`. Mitigated only by the supplier rejecting a duplicate `client_reference` / order id — not a local fail-safe. **Fix:** add `if (!empty($booking['pnr'])) return success(existing);` at the top of each handler (the pattern Duffel/Amadeus/Mystifly/TBO-flights/Stuba/Hotelbeds already use).
-- **Sabre (flights) — no `reconcilePostPaymentPrice` call** (0 references). Books real PNRs with correctly-built segments (empty-PNR regression is guarded at `issue.php:279-281`), but a fare rise between search and issue would silently book at the higher price.
+**MEDIUM — idempotency (duplicate-booking risk on retry) → FIXED 2026-10-16 (static)**
+- **Wanderbeds-stays, TBO-Holidays-stays & Travelport-stays — no existing-PNR guard** before the supplier Book call (confirmed absent in all three). A payment-layer retry or user refresh could fire a second `Book` / reservation. **FIX APPLIED:** each `issue.php` now returns the existing PNR as idempotent success (`if (!empty($booking['pnr'])) { … exit; }`) right after the booking is fetched — the pattern Duffel/Amadeus/Mystifly/TBO-flights/Stuba/Hotelbeds/**Sabre** already use. *(static; not runtime-tested.)*
+- **Sabre (flights) — no `reconcilePostPaymentPrice` call** (0 references). Books real PNRs with correctly-built segments (empty-PNR regression is guarded at `issue.php:279-281`), but a fare rise between search and issue would silently book at the higher price. *(Sabre already HAS an idempotency guard at `issue.php:56-66` — it was mis-listed in an earlier draft of §9.5 #5; its only open item is the reconcile below, §9.5 #6.)*
 - **PKfare (flights) — no pre-issue price verification.** `precisePricing_V6` is advertised in creds metadata but never called; `reconcilePostPaymentPrice` not invoked. Real exposure is lower than Sabre/Kiwi because PKfare locks price via `shoppingId` inside `preciseBooking_V6`, but there is no explicit reconciliation.
 
 **LOW / by-design (not booking-integrity defects)**
@@ -230,7 +230,7 @@ A second, adversarial pass **re-audited the auditors** on the 17 "fully-bookable
 2. ✅ **DONE** — **Amadeus Enterprise DOB fabrication** (HIGH): now rejects missing DOB. *(static)*
 3. ✅ **DONE** — **Kiwi fare re-check** (HIGH): best-effort `check_flights` gate wired + `base_currency`/`issued_at` no-ops fixed in issue.php. *(static; param contract pending live confirmation)*
 4. ✅ **DONE** — **Kiwi passenger DOB + passport-expiry fabrication** (HIGH, same class as #2): `issue.php` no longer defaults DOB (was adult 30 / child 5 / infant 1) or passport expiry (was +5y). It now `throw`s when DOB is missing, and requires a real expiry when a passport number is supplied (caught by the handler's `catch` → `status:false`). *(static)*
-5. ⬜ **OPEN** — **Idempotency guards** on Wanderbeds, TBO-Holidays, Travelport-stays, Sabre (uniform `if (!empty($booking['pnr'])) return success(existing);`).
+5. ✅ **DONE** — **Idempotency guards** on Wanderbeds, TBO-Holidays, Travelport-stays (uniform `if (!empty($booking['pnr'])) { echo success; exit; }`). *(Sabre was mis-listed here — it already had a guard at `issue.php:56-66`; no change needed.)* *(static)*
 6. ⬜ **OPEN** — **Sabre / PKfare reconcile** (wire `reconcilePostPaymentPrice` like the other flight suppliers).
 7. ⬜ **OPEN** — **Travelport-stays logging-path slash** (LOW) + `refund.php` `final_total`/`base_currency` non-column reads (Kiwi, LOW).
 

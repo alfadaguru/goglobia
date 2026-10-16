@@ -51,6 +51,22 @@ $router->post('stays/travelport/issue', function() use ($db) {
             throw new Exception('Booking not found');
         }
 
+        // Idempotency guard: a non-empty PNR means this booking was already
+        // issued (the locator is stored in `pnr`) — return it instead of firing
+        // a SECOND HotelCreateReservationReq (a payment-layer retry or refresh
+        // would otherwise create a duplicate reservation).
+        if (!empty($booking['pnr'])) {
+            ob_clean();
+            echo json_encode([
+                'status'     => true,
+                'Prn'        => $booking['pnr'],
+                'booking_reference' => $booking['pnr'],
+                'message'    => 'Booking already issued',
+                'invoice_id' => $invoice_id,
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
         // ========================================
         // STEP 2: GET MODULE CREDENTIALS
         // ========================================

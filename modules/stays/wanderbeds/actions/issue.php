@@ -52,6 +52,21 @@ $router->post('stays/wanderbeds/issue', function () use ($db) {
             throw new Exception('Booking not found for invoice_id: ' . $invoiceId);
         }
 
+        // Idempotency guard: if this booking already has a PNR it was issued on a
+        // prior call — return the existing reference instead of firing a SECOND
+        // /hotel/book (a payment-layer retry or user refresh would otherwise
+        // double-book). Matches the pattern used by hotelbeds / tbo flights.
+        if (!empty($booking['pnr'])) {
+            ob_clean();
+            echo json_encode([
+                'status'     => true,
+                'pnr'        => $booking['pnr'],
+                'message'    => 'Booking already issued',
+                'invoice_id' => $invoiceId,
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
         $moduleData = wanderbedsGetModule($db);
         if (!$moduleData || empty($moduleData['c1']) || empty($moduleData['c2'])) {
             throw new Exception('Wanderbeds module credentials not configured');

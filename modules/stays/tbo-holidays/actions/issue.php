@@ -39,6 +39,21 @@ $router->post('stays/tbo-holidays/issue', function () use ($db) {
             throw new Exception('Booking not found for invoice_id: ' . $invoiceId);
         }
 
+        // Idempotency guard: a non-empty PNR means this booking was already
+        // issued on a prior call — return it instead of firing a SECOND PreBook/
+        // Book (a payment-layer retry or refresh would otherwise double-book).
+        // Matches the pattern used by hotelbeds / tbo flights.
+        if (!empty($booking['pnr'])) {
+            ob_clean();
+            echo json_encode([
+                'status'     => true,
+                'pnr'        => $booking['pnr'],
+                'message'    => 'Booking already issued',
+                'invoice_id' => $invoiceId,
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
         $moduleData = tboHolidaysGetModule($db);
         if (!$moduleData || empty($moduleData['c1']) || empty($moduleData['c2'])) {
             throw new Exception('TBO Holidays module credentials not configured');
