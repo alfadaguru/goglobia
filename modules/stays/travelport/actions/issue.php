@@ -329,7 +329,7 @@ $router->post('stays/travelport/issue', function() use ($db) {
         $curlError = curl_error($ch);
         // Separate request & response logs
 
-        $logDir = __DIR__ . '../logs/';
+        $logDir = __DIR__ . '/../logs/';
         
         // Create folder if not exists
         if (!is_dir($logDir)) {

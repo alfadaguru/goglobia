@@ -106,8 +106,11 @@ $router->post('flights/kiwi/refund', function() use ($db) {
         // STEP 2: GET BOOKING DETAILS
         // ========================================
         $pnr = $booking['pnr'] ?? '';
-        $totalAmount = $booking['final_total'] ?? 0;
-        
+        // The amount the customer paid lives in `price_markup` (the bookings table
+        // has no `final_total` column — the old read always fell back to 0, so the
+        // refund-log amount was wrong). Use the real paid column.
+        $totalAmount = (float) ($booking['price_markup'] ?? 0);
+
         // If no refund amount specified, use total booking amount
         if (empty($refundAmount)) {
             $refundAmount = $totalAmount;
@@ -148,7 +151,7 @@ $router->post('flights/kiwi/refund', function() use ($db) {
             'booking_id' => $bookingId,
             'refund_amount' => $refundAmount,
             'original_amount' => $totalAmount,
-            'currency' => $booking['base_currency'] ?? 'USD',
+            'currency' => ($booking['currency_markup'] ?? '') ?: 'USD',
             'refund_reason' => $refundReason,
             'requested_at' => date('Y-m-d H:i:s'),
             'status' => 'pending_manual_processing',
@@ -204,7 +207,7 @@ $router->post('flights/kiwi/refund', function() use ($db) {
             'pnr' => $pnr,
             'booking_id' => $bookingId,
             'refund_amount' => $refundAmount,
-            'currency' => $booking['base_currency'] ?? 'USD',
+            'currency' => ($booking['currency_markup'] ?? '') ?: 'USD',
             'important_notes' => [
                 'Most Kiwi.com bookings are non-refundable',
                 'Refund eligibility depends on fare conditions',

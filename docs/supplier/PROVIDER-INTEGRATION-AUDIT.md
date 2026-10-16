@@ -238,7 +238,7 @@ A second, adversarial pass **re-audited the auditors** on the 17 "fully-bookable
 4. ✅ **DONE** — **Kiwi passenger DOB + passport-expiry fabrication** (HIGH, same class as #2): `issue.php` no longer defaults DOB (was adult 30 / child 5 / infant 1) or passport expiry (was +5y). It now `throw`s when DOB is missing, and requires a real expiry when a passport number is supplied (caught by the handler's `catch` → `status:false`). *(static)*
 5. ✅ **DONE** — **Idempotency guards** on Wanderbeds, TBO-Holidays, Travelport-stays (uniform `if (!empty($booking['pnr'])) { echo success; exit; }`). *(Sabre was mis-listed here — it already had a guard at `issue.php:56-66`; no change needed.)* *(static)*
 6. ⛔ **CANNOT FIX STATICALLY (documented)** — **Sabre / PKfare reconcile.** Investigated 2026-10-16: neither exposes a trustworthy live total at a reconcilable point without guessing an API contract (Sabre prices inside PNR-create and the RS total path isn't parsed; PKfare's `precisePricing_V6` is never built). Reconciling against the stored search price would be circular. Needs a confirmed live-reprice call against working sandbox creds — deferred, not fabricated. See the §9.3 note above for full reasoning.
-7. ⬜ **OPEN** — **Travelport-stays logging-path slash** (LOW) + `refund.php` `final_total`/`base_currency` non-column reads (Kiwi, LOW).
+7. ✅ **DONE** — **Travelport-stays logging-path slash** (`issue.php` `__DIR__ . '../logs/'` → `'/../logs/'`) + **Kiwi `refund.php` non-column reads** (`final_total` → `price_markup`; `base_currency` → `currency_markup`, so the refund-log amount/currency are no longer 0/blindly-USD). *(static)*
 
 ---
 
