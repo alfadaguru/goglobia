@@ -259,18 +259,18 @@ $router->post('flights/amadeus_enterprise/issue', function () use ($db) {
                     continue;
                 }
 
-                $dob = $traveller['dob'] ?? '';
+                $dob = trim((string)($traveller['dob'] ?? ''));
                 if ($dob === '' && !empty($traveller['dob_year']) && !empty($traveller['dob_month']) && !empty($traveller['dob_day'])) {
                     $dob = sprintf('%04d-%02d-%02d', (int)$traveller['dob_year'], (int)$traveller['dob_month'], (int)$traveller['dob_day']);
                 }
+                // Do NOT fabricate a date of birth on a real GDS order. A placeholder
+                // DOB (infant -1y / child -8y / adult -30y) produces a live ticket with
+                // wrong passenger data — denied boarding and name/DOB-correction fees.
+                // Reject instead so the booking is completed before ticketing (matches
+                // the plain-amadeus module's validate-don't-fabricate behaviour).
                 if ($dob === '') {
-                    if ($isInfant) {
-                        $dob = date('Y-m-d', strtotime('-1 year'));
-                    } elseif ($isChild) {
-                        $dob = date('Y-m-d', strtotime('-8 years'));
-                    } else {
-                        $dob = date('Y-m-d', strtotime('-30 years'));
-                    }
+                    $paxLabel = $isInfant ? 'infant' : ($isChild ? 'child' : 'adult');
+                    throw new Exception('A valid date of birth is required for every passenger before this booking can be issued (missing for ' . $paxLabel . ' ' . $firstName . ' ' . $lastName . ').');
                 }
 
                 $genderRaw = strtolower(trim((string)($traveller['gender'] ?? '')));

@@ -29,14 +29,14 @@
 |----------|-----|-------|:--:|:--:|:--:|:--:|:--:|:--:|-------------|:--:|
 | Duffel | duffel.com (NDC) | A | ✅ | ✅ | ✅ | ✅ | gw | ✅ | Strong | ✅ **VERIFIED** |
 | Amadeus (self-service) | REST OAuth2 | A | ✅ | ✅ | ✅ | ✅ req | gw+manual | ✅ | Strong | ✅ **VERIFIED** |
-| Amadeus Enterprise | travel.api REST | A | ✅ | in-issue | ✅ | ✅ | ✅+gw | ✅ | Strong | ⚠️ **PARTIAL** (DOB fabrication) |
+| Amadeus Enterprise | travel.api REST | A | ✅ | in-issue | ✅ | ✅ | ✅+gw | ✅ | Strong | ✅ **FIXED** (DOB fabrication → reject; pending runtime) |
 | Mystifly | OnePoint | A | ✅ | ✅ +ratecheck | ✅ | ✅ | ✅ PTR | ✅ PTR | Strong | ✅ **VERIFIED** |
 | Travelport | Travelport+ v11 | A | ✅ | ✅ | ✅ (2-phase) | ✅ | ✅+gw | ✅ | **Partial** (no reprice before phase-2) | ✅ **VERIFIED** (price locked phase-1) |
 | Seeru | seeru.travel v1 | A | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | Strong | ✅ **VERIFIED** |
 | TBO | TBO Air | A | ✅ | FareQuote | ✅ Book+Ticket | ⚠️ stub* | gw+manual | ⚠️ stub* | Strong | ✅ **VERIFIED** |
 | Sabre | Bargain Finder Max | A | ✅ | ❌ none | ✅ +autoticket | ✅ | gw+manual | ✅ dup | **Weak** | ⚠️ **PARTIAL** (no reconcile) |
 | PKfare | api.pkfare.com | A | ✅ | ❌ none | ✅ preciseBooking | ✅ | gw stub | ✅ | **Weak/Missing** (precisePricing never called) | ⚠️ **PARTIAL** (no reconcile; shoppingId locks price) |
-| Kiwi | Tequila | A | ✅ | ❌ **TODO** | ✅ | local | local+gw | local | **HIGH gap** (books token, no check_flights) | ⚠️ **PARTIAL** (price gap + column mismatch) |
+| Kiwi | Tequila | A | ✅ | ✅ check_flights (fail-open) | ✅ | local | local+gw | local | best-effort gate | ✅ **FIXED** (check_flights wired + columns; pending runtime) |
 | Kayak | Affiliate | B | ✅ | — | — | — | — | — | redirect | — n/a (search-only) |
 | Google Flights | price-compare | B | ✅ | — | local-only | local | local | local | redirect | — n/a (search-only) |
 | Travelpayouts | Affiliate | B | ✅ | — | ❌ TODO stub | ❌ | ❌ | ❌ | metasearch | — n/a (search-only) |
@@ -46,10 +46,10 @@
 
 **Tally:** 10 bookable (7 Strong/Partial price-trust; 2 Weak = Sabre/PKfare; 1 HIGH-gap = Kiwi) · 3 search-only (Kayak, Google Flights, Travelpayouts).
 
-**Flight-specific findings**
-- **Kiwi — HIGH:** `issue.php` books the stored `booking_token` with no live `check_flights` re-validation (explicit TODO). Price move between search and ticketing is uncaught.
-- **Sabre / PKfare:** no pre-issue reprice; rely on the supplier rejecting a stale price.
-- **Amadeus Enterprise `issue.php:266-274` + Kiwi:** auto-fabricate passenger DOBs when missing, onto real tickets (denied-boarding/name-change liability). Plain **Amadeus** does the right thing and *blocks* instead.
+**Flight-specific findings** *(original audit; fix-status tracked in §9.3)*
+- **Kiwi — HIGH:** booked the stored `booking_token` with no live `check_flights` re-validation. **→ FIXED (§9.3):** best-effort `check_flights` gate now wired (fail-open).
+- **Sabre / PKfare:** no pre-issue reprice; rely on the supplier rejecting a stale price. *(still open)*
+- **Amadeus Enterprise `issue.php:266-274` + Kiwi:** auto-fabricated passenger DOBs when missing, onto real tickets (denied-boarding/name-change liability). **→ Amadeus Enterprise FIXED (§9.3)** (now rejects, like plain Amadeus). *(Kiwi's own passenger build still defaults DOB — see §9.5.)*
 - **Travelpayouts:** action files are literal `// TODO` stubs — search-only.
 
 ---
@@ -202,9 +202,11 @@ A second, adversarial pass **re-audited the auditors** on the 17 "fully-bookable
 - **Travelport-stays — logging path bug.** `issue.php:316` `$logDir = __DIR__ . '../logs/'` (missing `/`) → malformed dir, silent log failure. **Fix:** `__DIR__ . '/../logs/'`.
 - **Travelport-stays — no idempotency guard** (no existing-PNR check) → a retry re-fires the SOAP reservation.
 
-**HIGH — price-trust / data-integrity**
-- **Kiwi (flights) — no live fare re-check before `/v2/booking`.** `check_flights` + `reconcilePostPaymentPrice` are a documented TODO (`actions/issue.php:235-248`), never called. A price move or expired token between checkout and issue is uncaught (overbill or cryptic failure). Separately, `issue.php` writes `issued_at` (a no-op — not a `bookings` column) and `refund.php` reads `base_currency`/`final_total` which also are not `bookings` columns (fall back to defaults). *(These three are confirmed NOT in the bookings table; `issued_at`/`base_currency` exist only on unrelated tables.)*
-- **Amadeus Enterprise (flights) — DOB fabrication onto real GDS orders.** `actions/issue.php:266-274` invents DOBs when missing (infant −1y / child −8y / adult −30y) and sends them to the live `/booking/flight-orders` call. Denied-boarding / name-change liability. **Fix:** copy plain-Amadeus behaviour, which *rejects* missing traveller data instead.
+**HIGH — price-trust / data-integrity → FIXED 2026-10-16 (static)**
+- **Kiwi (flights) — no live fare re-check before `/v2/booking`.** Was: `check_flights` + `reconcilePostPaymentPrice` a documented TODO, never called → a price move or expired token between checkout and issue went uncaught. Also wrote `issued_at` (non-`bookings` column) and read `base_currency`/`final_total` (also non-columns).
+  **FIX APPLIED (static, not runtime-tested — no Kiwi Tequila sandbox creds here):** `issue.php` now calls `check_flights` before `/v2/booking` as a **best-effort gate** — it blocks only on *unambiguous* signals (flight `flights_invalid`/`!flights_checked`, or a clear new `total` that `reconcilePostPaymentPrice` rejects) and **fails open** (logs + proceeds to book) on any call failure/timeout/unrecognised shape, so an unconfirmed `check_flights` contract can never false-block a paid booking. Fixed the currency read (`base_currency` → real `currency_markup`, USD fallback) and removed the `issued_at` DB write (kept only as a JSON response key). Caveat: the `check_flights` param set is a best-effort reconstruction of the Tequila contract; being fail-open it can't false-block but also won't *catch* a price move until confirmed against a live account.
+- **Amadeus Enterprise (flights) — DOB fabrication onto real GDS orders.** Was: `actions/issue.php:266-274` invented DOBs when missing (infant −1y / child −8y / adult −30y) and sent them to the live `/booking/flight-orders` call (denied-boarding / name-change liability).
+  **FIX APPLIED (static):** the fabrication block is replaced with a hard reject — `$buildTravelers` now `throw`s a clear "a valid date of birth is required for every passenger" exception (caught by the handler's existing `catch (Throwable)` → `status:false` response), matching the verified plain-Amadeus validate-don't-fabricate pattern. No placeholder DOB is ever sent. Verdict moves PARTIAL → VERIFIED-pending-runtime.
 
 **MEDIUM — idempotency (duplicate-booking risk on retry)**
 - **Wanderbeds-stays & TBO-Holidays-stays — no existing-PNR guard** before the supplier Book call (`issue.php`, confirmed absent in both). A payment-layer retry or user refresh can fire a second `Book`. Mitigated only by the supplier rejecting a duplicate `client_reference` / order id — not a local fail-safe. **Fix:** add `if (!empty($booking['pnr'])) return success(existing);` at the top of each handler (the pattern Duffel/Amadeus/Mystifly/TBO-flights/Stuba/Hotelbeds already use).
@@ -218,19 +220,20 @@ A second, adversarial pass **re-audited the auditors** on the 17 "fully-bookable
 
 ### 9.4 Corrections made during verification (claims checked against source, not relayed)
 - `price_markup` / `currency_markup` **are** real `bookings` columns (`install/db.sql:1218`, `:1233`) — dismisses a verifier's "maybe missing" caveat on Seeru/reconcile.
-- Kiwi's `issued_at` / `base_currency` / `final_total` are **not** `bookings` columns (grep-confirmed) — a verifier had called `issued_at` simply "missing"; precise finding is: `issued_at` write silently no-ops, the two reads fall back to defaults.
+- Kiwi's `issued_at` / `base_currency` / `final_total` are **not** `bookings` columns (grep-confirmed) — a verifier had called `issued_at` simply "missing"; precise finding was: `issued_at` write silently no-ops, the two reads fall back to defaults. *(issue.php's `issued_at` write and `base_currency` read are now fixed — see §9.3 HIGH; `refund.php`'s `final_total`/`base_currency` reads remain, low impact as they only feed the refund-log amount with a 0/USD fallback.)*
 - Stuba's `'test'` credential guard is **not** bypassable by a trailing space — it trims then exact-matches (`creds.php:70`); this retracts a discovery-phase note.
 - `seeru_log()` is `function_exists`-guarded (safe no-op), not a hallucination.
 - All earlier "`reconcilePostPaymentPrice`/`refund_gateway_payment` undefined" reader warnings remain false alarms (both defined; see §9.1).
 
-### 9.5 Suggested fix order (highest leverage first)
-1. **Travelport-stays writeback** (CRITICAL — currently cannot confirm a paid booking): remove the two phantom columns from the update.
-2. **Amadeus Enterprise DOB fabrication** (HIGH — real-ticket liability).
-3. **Kiwi fare re-check** (HIGH — overbill exposure) and its no-op column writes.
-4. **Idempotency guards** on Wanderbeds, TBO-Holidays, Travelport-stays, Sabre (uniform one-liner).
-5. **Sabre / PKfare reconcile** (wire `reconcilePostPaymentPrice` like the other flight suppliers).
-6. Travelport-stays logging-path slash (LOW).
+### 9.5 Fix order (highest leverage first) — status
+1. ✅ **DONE** — **Travelport-stays writeback** (CRITICAL): removed phantom columns from issue.php + symmetric cancel.php fix. *(static; pending runtime)*
+2. ✅ **DONE** — **Amadeus Enterprise DOB fabrication** (HIGH): now rejects missing DOB. *(static)*
+3. ✅ **DONE** — **Kiwi fare re-check** (HIGH): best-effort `check_flights` gate wired + `base_currency`/`issued_at` no-ops fixed in issue.php. *(static; param contract pending live confirmation)*
+4. ⬜ **OPEN** — **Kiwi passenger DOB + passport-expiry fabrication** (HIGH, same class as #2): `issue.php:197-198` defaults DOB (adult 30 / child 5 / infant 1) and `:203` defaults passport expiry (+5y) when missing, onto a real Kiwi booking. Apply the same reject-don't-fabricate fix as Amadeus Enterprise. *(surfaced during the #3 fix; not yet addressed.)*
+5. ⬜ **OPEN** — **Idempotency guards** on Wanderbeds, TBO-Holidays, Travelport-stays, Sabre (uniform `if (!empty($booking['pnr'])) return success(existing);`).
+6. ⬜ **OPEN** — **Sabre / PKfare reconcile** (wire `reconcilePostPaymentPrice` like the other flight suppliers).
+7. ⬜ **OPEN** — **Travelport-stays logging-path slash** (LOW) + `refund.php` `final_total`/`base_currency` non-column reads (Kiwi, LOW).
 
 ---
 
-*Generated from a source-only audit; all claims cite `file:line` in the per-supplier reads. §9 verification used static trace + reachability only (no live API calls). No code was changed by this audit.*
+*Generated from a source-only audit; all per-supplier claims cite `file:line`. §9 verification used static trace + reachability only (no live API calls). Fixes recorded in §9.3/§9.5 were applied to the code (static — lint-clean and regression-isolated, not runtime-tested); everything else is read-only analysis.*

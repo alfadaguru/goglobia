@@ -214,11 +214,16 @@ $router->post('flights/kiwi/issue', function() use ($db) {
         // ========================================
         error_log("KIWI ISSUE: Building booking request");
 
+        // Currency: the bookings table has `currency_markup` (what the customer
+        // was charged), NOT `base_currency` — the old read silently defaulted to
+        // USD. Use the real column with a USD fallback.
+        $bookingCurrency = strtoupper(trim((string)($booking['currency_markup'] ?? ''))) ?: 'USD';
+
         $bookingPayload = [
             'booking_token' => $bookingToken,
             'passengers' => $passengers,
             'lang' => 'en',
-            'currency' => $booking['base_currency'] ?? 'USD',
+            'currency' => $bookingCurrency,
             'locale' => 'en'
         ];
         
@@ -230,22 +235,86 @@ $router->post('flights/kiwi/issue', function() use ($db) {
         error_log("KIWI ISSUE: Booking request prepared");
 
         // ========================================
+        // STEP 5b: LIVE FARE RE-CHECK (check_flights) BEFORE BOOKING
+        // ========================================
+        // Kiwi's documented pre-booking step: re-validate the stored booking_token
+        // against live inventory/price before /v2/booking. This closes the gap
+        // where a price move or sold-out flight between checkout and ticketing was
+        // booked blindly.
+        //
+        // SAFETY (why this will not false-block): it blocks ONLY on UNAMBIGUOUS
+        // signals — (a) Kiwi says the flight is no longer available
+        // (flights_invalid / flights_checked=false), or (b) a clear new total that
+        // reconcilePostPaymentPrice judges beyond tolerance. On ANY uncertainty
+        // (call fails, times out, or returns an unrecognised shape) it FAILS OPEN
+        // and proceeds to booking — so an unconfirmed check_flights contract can
+        // never block a legitimate paid booking.
+        $checkUrl = 'https://api.tequila.kiwi.com/v2/booking/check_flights?' . http_build_query([
+            'booking_token' => $bookingToken,
+            'bnum'          => 1,
+            'pnum'          => count($passengers),
+            'currency'      => $bookingCurrency,
+            'adults'        => max(1, count($passengers)),
+        ]);
+        $cfCh = curl_init($checkUrl);
+        curl_setopt($cfCh, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($cfCh, CURLOPT_HTTPHEADER, ['apikey: ' . $apiKey]);
+        curl_setopt($cfCh, CURLOPT_CONNECTTIMEOUT, 10);
+        curl_setopt($cfCh, CURLOPT_TIMEOUT, 20);
+        $cfRaw  = curl_exec($cfCh);
+        $cfHttp = (int) curl_getinfo($cfCh, CURLINFO_HTTP_CODE);
+        $cfErr  = curl_errno($cfCh);
+        curl_close($cfCh);
+
+        if (!$cfErr && $cfHttp >= 200 && $cfHttp < 300) {
+            $cf = json_decode((string) $cfRaw, true);
+            if (is_array($cf)) {
+                // (a) Unambiguous unavailability → block (safe; not a false-block).
+                $flightsInvalid = ($cf['flights_invalid'] ?? false) === true;
+                $flightsChecked = array_key_exists('flights_checked', $cf) ? ($cf['flights_checked'] === true) : true;
+                if ($flightsInvalid || !$flightsChecked) {
+                    error_log("KIWI ISSUE: check_flights reports flight no longer bookable (invalid=" . var_export($flightsInvalid, true) . ", checked=" . var_export($flightsChecked, true) . ")");
+                    $db->update('bookings', [
+                        'booking_status' => 'pending',
+                        'error_response' => json_encode(['error' => 'flight_unavailable', 'source' => 'kiwi.check_flights']),
+                    ], ['invoice_id' => $invoice_id]);
+                    ob_clean();
+                    echo json_encode([
+                        'status'     => false,
+                        'message'    => 'This flight is no longer available at the selected fare. Please search again.',
+                        'invoice_id' => $invoice_id,
+                    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                    exit;
+                }
+                // (b) Clear new total → reconcile against what the customer paid.
+                $cfTotal = isset($cf['total']) && is_numeric($cf['total']) ? (float) $cf['total'] : 0.0;
+                if ($cfTotal > 0 && function_exists('reconcilePostPaymentPrice')) {
+                    // Pass null currency so reconcile compares against the paid
+                    // currency (currency_markup) and we don't trip its currency-
+                    // mismatch guard on Kiwi's native settlement currency.
+                    $pc = reconcilePostPaymentPrice($db, $booking, $cfTotal, null);
+                    if (empty($pc['ok'])) {
+                        error_log("KIWI ISSUE: price reconcile held booking — " . ($pc['reason'] ?? 'over tolerance'));
+                        ob_clean();
+                        echo json_encode([
+                            'status'       => false,
+                            'message'      => 'Booking held for review: ' . ($pc['reason'] ?? 'fare changed since checkout'),
+                            'price_review' => $pc,
+                            'invoice_id'   => $invoice_id,
+                        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                        exit;
+                    }
+                }
+            } else {
+                error_log("KIWI ISSUE: check_flights returned unparseable body — failing open, proceeding to book");
+            }
+        } else {
+            error_log("KIWI ISSUE: check_flights unavailable (http=$cfHttp, curlerr=$cfErr) — failing open, proceeding to book");
+        }
+
+        // ========================================
         // STEP 6: CALL KIWI BOOKING API
         // ========================================
-        // TODO (price reconciliation — §8.1(2), docs/MODULES.md §13.9):
-        //   This module books the STORED booking_token without re-checking the
-        //   live fare, so a price move between checkout and ticketing is not
-        //   caught. To close the gap, call Kiwi Tequila `check_flights`
-        //   (GET https://api.tequila.kiwi.com/v2/booking/check_flights?booking_token=…&…)
-        //   here, read the returned `total`/`flights_checked` price, then:
-        //     if (function_exists('reconcilePostPaymentPrice')) {
-        //         $pc = reconcilePostPaymentPrice($db, $booking, $liveTotal, $currency);
-        //         if (empty($pc['ok'])) { echo …held for review…; return; }
-        //     }
-        //   NOT wired yet: Kiwi Tequila is invite-only and the check_flights
-        //   request/response contract must be confirmed against the live account
-        //   before use — wiring it blind would risk false review-blocks. Left as a
-        //   documented gap rather than a fabricated call.
         error_log("KIWI ISSUE: Calling Kiwi Booking API");
 
         $apiUrl = 'https://api.tequila.kiwi.com/v2/booking';
@@ -305,11 +374,13 @@ $router->post('flights/kiwi/issue', function() use ($db) {
         // ========================================
         error_log("KIWI ISSUE: Updating database");
 
+        // NB: `issued_at` is NOT a column on the bookings table (it exists only on
+        // unrelated tables) — including it risks the update being rejected. Write
+        // only real bookings columns.
         $db->update('bookings', [
             'pnr' => $pnr,
             'booking_response' => json_encode($responseData),
-            'booking_status' => 'confirmed',
-            'issued_at' => date('Y-m-d H:i:s')
+            'booking_status' => 'confirmed'
         ], [
             'invoice_id' => $invoice_id
         ]);
