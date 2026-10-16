@@ -349,9 +349,38 @@ $router->post('/login', function () use ($SECURE, $db) {
 // REQUIRES VALID ADMIN CREDENTIALS
 // NO SESSION CREATED — ONLY UPDATES DB
 // ====================================
+// SECURITY: This route cannot require a logged-in admin SESSION, because an
+// invalid license blocks all logins (see POST /login above) — so the recovery
+// path must be usable while nobody is logged in. Instead it verifies the
+// admin's email+password inline (the same credentials the license gate is
+// refusing) BEFORE overwriting the key, and creates no session. This closes
+// the previous gap where any visitor who could load /login could overwrite the
+// license key with CSRF alone.
 $router->post('/license-update', function () use ($SECURE, $db) {
     // VALIDATE CSRF TOKEN FIRST
     if (!CSRF::validateToken($_POST['csrf_token'] ?? '')) {
+        header('Location: ' . root . 'login'); exit;
+    }
+
+    // VERIFY ADMIN CREDENTIALS — no session is required/created, but the caller
+    // must prove possession of an active admin account.
+    $adminEmail    = trim($_POST['admin_email'] ?? '');
+    $adminPassword = (string)($_POST['admin_password'] ?? '');
+    if ($adminEmail === '' || $adminPassword === '') {
+        $_SESSION['lic_err'] = 'Admin email and password are required to update the license key.';
+        header('Location: ' . root . 'login'); exit;
+    }
+
+    $admin = $db->get('users', '*', ['email' => $adminEmail]);
+    // Account must exist, be an active admin, not banned, and not locked out.
+    $isAdmin = $admin
+        && ($admin['role'] ?? '') === 'admin'
+        && ($admin['status'] ?? '') === 'active'
+        && empty($admin['banned'])
+        && !(($admin['locked_until'] ?? null) && strtotime((string)$admin['locked_until']) > time());
+    if (!$isAdmin || !password_verify($adminPassword, (string)($admin['password'] ?? ''))) {
+        // Uniform error — do not reveal which factor failed.
+        $_SESSION['lic_err'] = 'Invalid admin credentials.';
         header('Location: ' . root . 'login'); exit;
     }
 
@@ -370,6 +399,10 @@ $router->post('/license-update', function () use ($SECURE, $db) {
         'license_secret' => null,
         'license_date'   => date('Y-m-d H:i:s'),
     ], ['id' => $settings['id']]);
+
+    if (function_exists('logUserActivity')) {
+        logUserActivity($db, (int)$admin['id'], 'license_update', 'License key updated via recovery form');
+    }
 
     // REDIRECT TO LOGIN — GET ROUTE WILL RUN FRESH LICENSE CHECK
     $_SESSION['success'] = 'License key updated. Validating...';

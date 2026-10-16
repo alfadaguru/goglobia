@@ -407,6 +407,13 @@ function _lic_block()
             <form id="lic-form" action="<?= $base ?>license-update" method="POST" autocomplete="off">
                 <?= $csrf ?>
                 <p style="font-size:10px;font-weight:700;color:#991b1b;margin:0 0 7px;letter-spacing:.06em;text-transform:uppercase;">Update License Key</p>
+                <?php /* SECURITY: confirm admin credentials inline — the license gate blocks login, so
+                        there is no admin session to require; instead we verify the admin's own
+                        email+password before allowing the key to be overwritten. */ ?>
+                <input type="email" name="admin_email" placeholder="Admin email" required autocomplete="off"
+                    style="width:100%;border:1px solid #fca5a5;border-radius:6px;padding:9px 12px;font-size:13px;box-sizing:border-box;background:#fff;color:#111;outline:none;margin:0 0 8px;">
+                <input type="password" name="admin_password" placeholder="Admin password" required autocomplete="new-password"
+                    style="width:100%;border:1px solid #fca5a5;border-radius:6px;padding:9px 12px;font-size:13px;box-sizing:border-box;background:#fff;color:#111;outline:none;margin:0 0 8px;">
                 <div style="display:flex;gap:8px;align-items:stretch;">
                     <input type="text" name="lic_key" id="lic-key-input" value="<?= $key ?>"
                         placeholder="Enter your license key (ORD-XXXXXXXX-XXXXX)" required

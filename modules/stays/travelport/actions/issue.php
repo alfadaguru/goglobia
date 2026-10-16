@@ -394,11 +394,21 @@ $router->post('stays/travelport/issue', function() use ($db) {
         // ========================================
         // STEP 9: UPDATE DATABASE
         // ========================================
+        // The Travelport locator (UniversalRecordLocatorCode) is the canonical
+        // supplier reference. Persist it to the real `pnr` column AND mirror it
+        // inside the booking_data JSON as travelport_locator (the house pattern
+        // used by hotelbeds/ratehawk). The previous code also wrote top-level
+        // `confirmation_number` and `supplier_reference` columns that DO NOT
+        // exist on the bookings table, which made Medoo reject the ENTIRE update
+        // — so a successful Travelport reservation was never marked confirmed and
+        // the PNR was lost. cancel.php reads the locator from pnr/booking_data.
+        $persistBookingData = is_array($bookingData) ? $bookingData : [];
+        $persistBookingData['travelport_locator'] = $confirmationNumber;
+
         $updateData = [
             'booking_status' => 'confirmed',
             'pnr' => $confirmationNumber,
-            'confirmation_number' => $confirmationNumber,
-            'supplier_reference' => $confirmationNumber,
+            'booking_data' => json_encode($persistBookingData),
             'error_response' => null
         ];
 

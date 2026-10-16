@@ -31,12 +31,17 @@ $router->post('stays/travelport/actions/cancel', function() use ($db) {
         // ============================================================================
         // GET BOOKING FROM DATABASE
         // ============================================================================
-        $booking = $db->get('bookings', '*', [
-            'OR' => [
-                'id' => $bookingId,
-                'confirmation_number' => $confirmationNumber
-            ]
-        ]);
+        // Resolve by real columns only. The locator is stored in `pnr`
+        // (issue.php), NOT in a `confirmation_number` column — that column does
+        // not exist on the bookings table, so the old OR-lookup on it errored.
+        $lookup = [];
+        if (!empty($bookingId)) {
+            $lookup['id'] = $bookingId;
+        }
+        if (!empty($confirmationNumber)) {
+            $lookup['pnr'] = $confirmationNumber;
+        }
+        $booking = $db->get('bookings', '*', count($lookup) > 1 ? ['OR' => $lookup] : $lookup);
 
         if (!$booking) {
             echo json_encode([
@@ -74,7 +79,21 @@ $router->post('stays/travelport/actions/cancel', function() use ($db) {
         // ============================================================================
         // BUILD CANCELLATION REQUEST
         // ============================================================================
-        $locatorCode = $booking['supplier_reference'] ?? $booking['confirmation_number'];
+        // Locator lives in `pnr`; fall back to booking_data.travelport_locator.
+        // (The old `supplier_reference`/`confirmation_number` columns never
+        // existed, so this always resolved to null and broke the cancel request.)
+        $locatorCode = $booking['pnr'] ?? '';
+        if (empty($locatorCode)) {
+            $cancelBookingData = json_decode((string)($booking['booking_data'] ?? ''), true);
+            $locatorCode = is_array($cancelBookingData) ? ($cancelBookingData['travelport_locator'] ?? '') : '';
+        }
+        if (empty($locatorCode)) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'No Travelport locator on this booking'
+            ]);
+            exit;
+        }
 
         $soapRequest = '<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:hot="http://www.travelport.com/schema/hotel_v52_0" xmlns:com="http://www.travelport.com/schema/common_v52_0">
