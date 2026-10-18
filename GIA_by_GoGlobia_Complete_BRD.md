@@ -1266,4 +1266,63 @@ verified present. OpenAI/Gemini branches are built to the same verified contract
 live-tested (no key supplied for those). **Phase A status: provider + agent loop proven on
 Claude; route wired. Next: owner review, then Phase B (trip composer + checkout snapshot + approval).**
 
+## 36.8 Phase B.0 — checkout/snapshot/approval audit (source-verified 2026-10-18)
+
+Before building Phase B (trip composer + immutable checkout snapshot + approval), audited the
+existing checkout/pricing/approval machinery (every claim below re-verified by direct read, not
+relayed). The BRD rule (DEC-011) is REUSE, not fork.
+
+**Already exists — GIA REUSES these (verified):**
+- **Draft store:** `logs_bookings(hash, data, user_id)` (install/db.sql). Draft hash is `bin2hex(random_bytes(8))` — RANDOM, not a content/integrity hash (bookingRoutes save-draft). Stores raw input JSON.
+- **Server-side price recompute AT SUBMIT (strong price-trust already):** `stays_recompute_net()` → throws "no longer available at the displayed price"; `MARKUP()`; `calculateTax()` (bookingRoutes submit ~523-657). The client's price is NOT trusted at submit today. So GoGlobia's gap is NOT "trust the client price" — it is the lack of a *pre-submit immutable snapshot* + an *explicit approval that invalidates on change*.
+- **AI-trip reprice primitive:** `POST /api/ai/trip/revalidate` + a 10-minute staleness re-check in `/submit` (`aiTripRevalidatePackage`, tripBookingRoutes ~639-806). GIA's `reprice_trip` reuses this.
+- **AI-trip price-trust block:** `/submit` refuses supplier lines with net=0 (tripBookingRoutes ~983). (Visa "inquiry" items at price≤0 are a deliberate exception.)
+- **Post-payment reconcile:** `reconcilePostPaymentPrice($db,$booking,$supplierTotal,$cur,$tol=2.0)` (modules/helpers.php:1645) — 2% tolerance, POST-payment flag-for-review, NOT a pre-commit gate.
+- **Payment token:** `create_payment_token()` (payment-gateway.php:1222) — binds invoice/amount/currency/gateway, 30-min expiry, session-stored, random `pay_…` id. Reused for the PAYMENT step (Phase C), not a pre-booking snapshot.
+- CSRF on the money POSTs; guest auto-account on submit.
+
+**Does NOT exist — GIA must BUILD these (verified absent: grep for snapshot_hash/approval_token/quote_hash = 0 hits):**
+1. **Immutable checkout snapshot** — a signed hash of the exact quote `{items, price_original, tax, currency, pax counts, dates}` (BRD QuoteSnapshot §11.1, PAY-002). Today the draft is freely re-editable until submit.
+2. **Scoped approval** bound to that snapshot hash (PAY-002) — not just session CSRF + the amount-only payment token.
+3. **Approval-expires-on-price-change** (PAY-003, §18.1) — re-derive the snapshot at approve/commit; if it changed beyond tolerance, invalidate the approval, show the delta, re-request. (`reconcilePostPaymentPrice` only runs post-payment.)
+
+**Phase B build (grounded, no money movement — approval is the gate Phase C will require):**
+- New lib `app/lib/ai/gia_checkout.php` (plain functions, no new hard deps): `gia_snapshot_hash($quote)` (HMAC-SHA256 over the canonical priced fields, server secret), `gia_create_checkout($db,$draft)` (freeze a draft into an immutable snapshot row), `gia_request_approval(...)` (short-lived scoped approval bound to the snapshot hash + pax + amount), `gia_verify_approval(...)` (re-derive snapshot, enforce expire-on-change). Idempotent `ensure*Schema` + install/db.sql for a `gia_checkouts` table (id, draft_hash, snapshot_hash, amount, currency, pax, status DRAFT/QUOTED/PENDING_APPROVAL/APPROVED/EXPIRED, approval_token, expires_at, user_id, created_at).
+- New GIA tools (read/controlled-WRITE but NO payment): `composeTripTool` (validate feasibility/budget over the existing draft/reprice), `createCheckoutTool` (freeze snapshot), `requestApprovalTool` (issue scoped approval). Risk ceiling raised to R2 (reversible: creating a snapshot/approval row is not a financial commitment); R3+ (pay/commit) remains forbidden until Phase C.
+- Reuses the verified recompute helpers so the snapshot reflects the SAME authoritative price the submit path would compute.
+
+## 36.9 Phase B (part 1) — immutable snapshot + scoped approval BUILT + unit-proven (2026-10-18)
+
+The money-safety core of Phase B is implemented and unit-proven. `app/lib/ai/gia_checkout.php`
+(plain procedural helpers, house style) adds the three things verified absent in §36.8:
+
+- `gia_canonical_quote($quote)` — reduces a quote to its money/identity-material fields only
+  (currency, pax, per-item module/supplier/net/markup/tax/final + dates), **money as fixed-
+  precision strings** (BRD DATA-006, never binary float), order-stable. Cosmetic fields
+  (title/image) excluded so they don't false-invalidate an approval.
+- `gia_snapshot_hash()` — HMAC-SHA256 of the canonical quote, keyed off the SAME private
+  per-install .env material the JWT secret uses (via `gia_checkout_secret()` — GIA-salted so it
+  is a distinct key domain), never a hardcoded constant. This is the immutable snapshot identity.
+- `gia_create_checkout()` → freezes a priced quote into a `gia_checkouts` row (status QUOTED);
+  refuses a zero/unpriced total (price-trust).
+- `gia_request_approval()` → issues a scoped approval bound to the exact snapshot (BRD PAY-002),
+  but only if the LIVE quote still hashes to the frozen snapshot — **expire-on-change** (PAY-003).
+- `gia_verify_approval()` → the gate Phase C's payment/commit will require: APPROVED + unexpired
+  + token-matched + live quote STILL equals the snapshot, else `PRICE_CHANGED`/`OFFER_EXPIRED`.
+- `ensureGiaCheckoutSchema()` → idempotent `CREATE TABLE IF NOT EXISTS gia_checkouts` (house
+  pattern, functions.php:792+); called lazily on first use (self-heals existing installs). Table
+  also added to `install/db.sql` next to `logs_bookings`.
+
+**Unit-proven (11/11, no real DB — in-memory stub; money logic is pure):** hash is deterministic
++ item-order-independent; **a price change (850→999) changes the hash**; a pax change changes it;
+a cosmetic title/image change does NOT; create→approve→verify succeeds on an unchanged quote;
+and critically **verify/approve REJECTS a changed price with `PRICE_CHANGED`** (the money-safety
+gate, BRD §18.1); wrong-user approval refused; zero-total checkout refused.
+
+Still NO money movement — this layer produces a snapshot + approval; it never pays, issues or
+confirms. Phase C (payment/commit, gated on `gia_verify_approval`) is separate. **Next in Phase B:
+the agent tools (compose_trip / create_checkout / request_approval) that expose these to GIA,
+raising the agent risk ceiling to R2 (reversible snapshot/approval rows; R3+ pay/commit stays
+forbidden until Phase C), then the HTTP wiring.**
+
 *Log maintained during implementation; each subsequent entry dated and source-cited.*

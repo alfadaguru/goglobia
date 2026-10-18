@@ -27217,6 +27217,40 @@ CREATE TABLE `logs_bookings` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `gia_checkouts`
+-- GIA (AI agent) immutable checkout snapshot + scoped approval. A frozen,
+-- HMAC-signed quote (snapshot_hash) and the approval bound to it; approval
+-- invalidates when the live quote no longer matches the snapshot. No money is
+-- held here — this is the gate the payment/commit step requires. Self-healing via
+-- ensureGiaCheckoutSchema() (app/lib/ai/gia_checkout.php).
+--
+
+CREATE TABLE IF NOT EXISTS `gia_checkouts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `checkout_ref` varchar(40) NOT NULL,
+  `draft_hash` varchar(255) DEFAULT NULL,
+  `snapshot_hash` varchar(64) NOT NULL,
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` varchar(10) NOT NULL DEFAULT '',
+  `adults` int(11) NOT NULL DEFAULT 0,
+  `children` int(11) NOT NULL DEFAULT 0,
+  `quote_json` longtext DEFAULT NULL,
+  `status` enum('QUOTED','PENDING_APPROVAL','APPROVED','EXPIRED','CONSUMED') NOT NULL DEFAULT 'QUOTED',
+  `approval_token` varchar(80) DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL,
+  `expires_at` datetime DEFAULT NULL,
+  `user_id` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `checkout_ref` (`checkout_ref`),
+  KEY `snapshot_hash` (`snapshot_hash`),
+  KEY `user_id` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `logs_notification`
 --
 
