@@ -109,6 +109,8 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/composeTripTool.php';
     require_once $aiDir . 'tools/createCheckoutTool.php';
     require_once $aiDir . 'tools/requestApprovalTool.php';
+    require_once $aiDir . 'tools/initiatePaymentTool.php';
+    require_once $aiDir . 'tools/getOrderStatusTool.php';
 
     // --- Conversation history (Phase A: session-scoped, bounded). ---
     $convKey = 'gia_conv';
@@ -135,6 +137,8 @@ $router->post('/api/gia/chat', function () use ($db) {
         $agent->registerTool(new \App\lib\ai\composeTripTool());
         $agent->registerTool(new \App\lib\ai\createCheckoutTool());
         $agent->registerTool(new \App\lib\ai\requestApprovalTool());
+        $agent->registerTool(new \App\lib\ai\initiatePaymentTool());
+        $agent->registerTool(new \App\lib\ai\getOrderStatusTool());
         $agent->setToolContext($toolContext);
         $result = $agent->run($message, $history);
     } catch (\Throwable $e) {
@@ -157,6 +161,8 @@ $router->post('/api/gia/chat', function () use ($db) {
     $searches = [];
     $checkout = null;   // {checkout_ref, amount, currency, expires_at} from create_checkout
     $approval = null;   // {checkout_ref, approval_token, expires_at} from request_booking_approval
+    $payment = null;    // {invoice_id, redirect_url, amount, currency} from initiate_payment
+    $orderStatus = null; // {state, invoice_id, pnr, needs_ops} from get_order_status
     foreach (($result['tool_runs'] ?? []) as $tr) {
         $name = (string) ($tr['name'] ?? '');
         $data = (isset($tr['output']['data']) && is_array($tr['output']['data'])) ? $tr['output']['data'] : [];
@@ -175,6 +181,21 @@ $router->post('/api/gia/chat', function () use ($db) {
                 'approval_token' => (string) $data['approval_token'],
                 'expires_at'     => (string) ($data['expires_at'] ?? ''),
             ];
+        } elseif ($name === 'initiate_payment' && ($tr['output']['ok'] ?? false) && !empty($data['redirect_url'])) {
+            $payment = [
+                'invoice_id'   => (string) ($data['invoice_id'] ?? ''),
+                'redirect_url' => (string) $data['redirect_url'],
+                'amount'       => (float) ($data['amount'] ?? 0),
+                'currency'     => (string) ($data['currency'] ?? ''),
+                'already_paid' => (bool) ($data['already_paid'] ?? false),
+            ];
+        } elseif ($name === 'get_order_status' && ($tr['output']['ok'] ?? false)) {
+            $orderStatus = [
+                'state'        => (string) ($data['state'] ?? ''),
+                'invoice_id'   => (string) ($data['invoice_id'] ?? ''),
+                'pnr'          => (string) ($data['pnr'] ?? ''),
+                'needs_ops'    => (bool) ($data['needs_ops'] ?? false),
+            ];
         }
     }
 
@@ -187,6 +208,8 @@ $router->post('/api/gia/chat', function () use ($db) {
         'searches'   => $searches,
         'checkout'   => $checkout,
         'approval'   => $approval,
+        'payment'    => $payment,
+        'order_status' => $orderStatus,
         // Lightweight trace for the UI / admin (no secrets, no raw payloads).
         'tool_runs'  => array_map(static function ($tr) {
             return [

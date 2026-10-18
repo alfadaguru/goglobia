@@ -1364,4 +1364,113 @@ clean. **Next: Phase C (payment orchestration + booking saga), which will be GAT
 (`payment-gateway.php:531 → modules/<svc>/<supplier>/issue`). Phase C is where money finally moves
 — it will get its own grounded audit + the strictest tests.**
 
+## 36.11 Phase C.0 — money-layer audit (source-verified 2026-10-18)
+
+Before building Phase C (payment + booking-commit), audited the real payment/issue/saga machinery.
+Load-bearing facts re-verified by DIRECT read (not relayed) — including correcting a sub-agent
+claim that contradicted the prior verified PROVIDER-INTEGRATION-AUDIT.
+
+**Verified SOLID — GIA reuses, does NOT reimplement:**
+- **Server-to-server payment verification:** `verify_gateway_payment()` (payment-gateway.php:1567)
+  independently re-verifies capture with the gateway (e.g. Paystack `transaction/verify/{ref}`)
+  using the resolved per-service creds; it does NOT trust the browser-return status (`$data` by
+  ref so the gateway-verified txn id is persisted — "audit P5"). This is the BRD PAY-008 / threat-
+  model "LLM says confirmed after timeout" protection, already real.
+- **Issue spine:** after verified payment, `handle_payment_callback` cURLs
+  `root.'modules/'.$moduleType.'/'.$module.'/issue'` with `{invoice_id,_internal_token}` (300s;
+  380s TBO). Supplier issue.php writes back `pnr` + `booking_status='confirmed'` (lines ~515-575).
+- **Issue-endpoint auth IS guarded (CORRECTED):** a sub-agent claimed the issue endpoints are
+  "open to anonymous callers / lack `_internal_token` validation". **FALSE — verified:**
+  `modules/index.php:254` calls `supplier_action_guard($invoice)` centrally for destructive
+  actions and `exit`s on failure; `supplier_action_guard()` (helpers.php) accepts admin session OR
+  a constant-time `hash_equals(supplier_internal_token($invoice), $provided)` OR a valid CSRF, and
+  denies 403 otherwise. The agent read individual issue.php files and missed the central gateway
+  guard — the exact mistake the prior audit warned about. GIA's commit routes through this signed
+  internal flow; the control is sound.
+- **Idempotency (present):** `handle_payment_callback` returns early if `payment_status==='paid'`
+  (lines 61, 307); supplier issue.php files carry `if (!empty($booking['pnr']) && confirmed) return
+  success` guards; wallet refunds idempotent per-invoice (`GWREFUND-{ref}`). The paid+confirmed
+  writeback is lines 916-941.
+
+**Verified REAL GAPS — GIA must NOT inherit these (I read the code myself):**
+1. **Multi-item partial fulfillment, NO auto-compensation (ai_trip/issue.php:352-391).** If item 1
+   (flight) issues and item 2 (hotel) fails, the parent is still set `booking_status='confirmed'`
+   when ANY PNR exists, with `error_response` noting the failure and a `partial` flag in the
+   response — the customer is fully charged but partially booked, and **nothing voids the
+   successful item or opens an ops case automatically.** (BRD ORD-004 / AC-007 want a partial state
+   + compensation + human case.) GIA must treat partial as a first-class exception, not "confirmed".
+2. **Unpriced item silent proceed (ai_trip/issue.php:~103-114).** price_base≤0 falls back to display
+   price and issues anyway; no floor at this layer (the Phase-2 AI-trip submit price-trust block
+   is earlier, in tripBookingRoutes — but this issue loop itself does not re-gate). GIA must refuse
+   a zero-priced line before commit.
+3. **Idempotency is session-token based, not DB-locked** — a concurrent duplicate callback has a
+   theoretical race before the first sets `paid`. Bounded (early-return guard), but GIA's commit
+   should add a DB idempotency guard, not rely on the session token alone.
+4. **Orphaned child rows** possible if the PHP process is killed mid-issue (cURL timeout returns
+   control and the child IS deleted per-iteration + a sweep runs on retry — so bounded, the agent
+   overstated this, but a hard process-kill can still leave one).
+
+**Phase C design (grounded) — GIA is the APPROVAL-GATED FRONT DOOR, not a new payment engine:**
+- GIA's `commit_booking` does NOT re-implement payment/verify/issue. It (a) calls
+  `gia_verify_approval()` FIRST (Phase B gate — approved + unexpired + live price still == snapshot,
+  else refuse), (b) drives the booking through the EXISTING draft→submit→pay→`handle_payment_callback`
+  path, (c) reads the authoritative `bookings` state (never asserts "paid"/"confirmed" itself), and
+  (d) **treats `partial`/missing-PNR/error_response as an explicit UNCONFIRMED/PARTIAL outcome →
+  opens an ops case, never says "all booked"** (BRD R-02 evidence-gated, AC-004/AC-007).
+- `initiate_payment` is R3 (first money-moving tool) and REQUIRES a valid approval; it returns the
+  gateway redirect/status, it does not fabricate a captured state.
+- GIA adds its OWN pre-commit guards for the two real gaps it must not inherit: refuse zero-priced
+  lines, and require evidence (PNR/supplier ref) before reporting any item confirmed.
+
+This is the riskiest layer; it gets the strictest tests, and the exact money path is presented for
+owner review before GIA executes any real payment.
+
+## 36.12 Phase C — payment + commit layer BUILT + gate-proven (2026-10-18)
+
+GIA's money layer is implemented as the APPROVAL-GATED FRONT DOOR to the existing, verified
+payment engine (it does NOT re-implement payment/verify/issue — §36.11).
+
+- `app/lib/ai/gia_commit.php`:
+  - `gia_commit_initiate_payment()` — (1) runs `gia_verify_approval()` FIRST (approved + unexpired +
+    live price still == frozen snapshot, else refuse); (2) refuses a zero-priced total (audit gap);
+    (3) idempotent on an already-paid booking; (4) marks the checkout CONSUMED so one approval
+    can't start two charges; (5) hands off to the platform's real `process_payment($invoiceId)`
+    (payment-gateway.php:49) — which applies the server-side actor/currency/credential guards and
+    gateway verification. GIA reimplements none of that.
+  - `gia_commit_order_state()` — TRUTHFUL state from the authoritative bookings row: CONFIRMED only
+    with paid+PNR; PARTIAL when any package item issue_status=failed (charged, not fully booked →
+    needs_ops); PAID_PENDING / UNPAID / FAILED otherwise. GIA never asserts success itself
+    (BRD R-02, AC-004/AC-007).
+- Tools: `initiatePaymentTool` (`initiate_payment`, R3 — the first money-moving tool) and
+  `getOrderStatusTool` (`get_order_status`, R1 read).
+- Agent: risk ceiling is now CONDITIONAL — base R0/R1/R2, and R3 is added ONLY when the trusted
+  route context carries `user_approved === true` (`effectiveRiskCeiling()`); the model cannot raise
+  its own ceiling. R4+ (issue/cancel/refund) never runs from GIA. System prompt: initiate_payment
+  starts payment but does NOT confirm; get_order_status is the ONLY source of truth for confirmed;
+  partial/failed must be reported honestly, never "all booked".
+- Route: registers the 2 tools; surfaces `payment` (redirect_url) + `order_status` to the client.
+
+**Proven (commit_test.php, 8/8; process_payment + bookings stubbed so NO real charge; the
+approval/snapshot/ceiling logic is the real code):**
+1. The AGENT BLOCKS initiate_payment (R3) when the route did not supply user_approved
+   (`AI_TOOL_FORBIDDEN`) — the model cannot start a payment on its own.
+2. With user_approved=true the ceiling raises and payment starts.
+3. The tool self-guards (defense in depth).
+4. A price change after approval BLOCKS payment (`PRICE_CHANGED`) — the snapshot gate holds to the
+   money step.
+5. get_order_status reports UNPAID → CONFIRMED (only with PNR evidence) → PARTIAL+needs_ops when an
+   item failed (never "all booked"). Phase A/B regression tests still pass.
+
+**Honest limits:** this is proven by unit tests with a STUBBED charge — I have no local MySQL or
+gateway sandbox, so NO real money moved in this environment. The live end-to-end charge (gated on
+approval the whole way) must be run by the owner on a server with a gateway sandbox. Also: GIA
+guards against inheriting the two audited gaps (refuses zero-priced lines; reports partial as
+unconfirmed) but does NOT modify the platform's existing ai_trip saga (no auto-compensation) — that
+remains a separate owner decision. Phase C still requires a real booking row to exist (created by
+the existing submit flow) before initiate_payment; wiring GIA's checkout → submit → pay as one
+server-side chain is the remaining integration step for a full hands-off commit.
+
+**Phases A–C status: BUILT + unit/gate-proven; real-DB + live-charge verification pending on a
+server.** Each phase committed on its own branch, stacked.
+
 *Log maintained during implementation; each subsequent entry dated and source-cited.*

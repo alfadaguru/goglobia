@@ -26,11 +26,13 @@ class giaAgent
     private const MAX_TOOL_CALLS = 8;   // total tool executions per user message
     private const MAX_WALL_SECONDS = 90;
 
-    /** Risk ceiling. Phase A was R0/R1 (read-only). Phase B adds R2: REVERSIBLE
-     *  controlled-writes (reprice a draft, freeze a checkout snapshot, record a
-     *  user-approved approval row) — NONE of which move money. R3+ (pay, issue,
-     *  confirm supplier, refund) remains forbidden until Phase C. */
-    private const RISK_CEILING = ['R0', 'R1', 'R2'];
+    /** Base risk ceiling (no money): R0/R1 read, R2 reversible controlled-write
+     *  (reprice, freeze snapshot, record approval). R3 (start a real payment) is
+     *  allowed ONLY when the trusted route context carries user_approved === true —
+     *  i.e. a real identity-backed approve action, never the model's say-so
+     *  (BRD §10.5). R4+ (issue/cancel/refund) stays forbidden here; GIA reads the
+     *  authoritative state rather than performing those. See effectiveRiskCeiling(). */
+    private const BASE_RISK_CEILING = ['R0', 'R1', 'R2'];
 
     private $db;
     private giaChatProvider $provider;
@@ -166,9 +168,10 @@ class giaAgent
         if ($tool === null) {
             return ['ok' => false, 'error_code' => 'AI_UNKNOWN_TOOL', 'message' => 'Unknown tool: ' . $name];
         }
-        if (!in_array($tool->riskClass(), self::RISK_CEILING, true)) {
-            // Defense in depth: a non-read-only tool can never run in Phase A.
-            return ['ok' => false, 'error_code' => 'AI_TOOL_FORBIDDEN', 'message' => 'This action is not permitted here.'];
+        if (!in_array($tool->riskClass(), $this->effectiveRiskCeiling(), true)) {
+            // Defense in depth: a tool above the current ceiling can never run — e.g.
+            // a payment (R3) is blocked unless the route supplied a real user approval.
+            return ['ok' => false, 'error_code' => 'AI_TOOL_FORBIDDEN', 'message' => 'This action is not permitted without your explicit approval.'];
         }
         $schemaError = $this->validateAgainstSchema($input, $tool->inputSchema());
         if ($schemaError !== '') {
@@ -186,6 +189,21 @@ class giaAgent
             error_log('[gia] tool ' . $name . ' threw: ' . $e->getMessage());
             return ['ok' => false, 'error_code' => 'AI_TOOL_ERROR', 'message' => 'That action failed. Please try again.'];
         }
+    }
+
+    /**
+     * The risk ceiling for THIS request. R3 (start a real payment) is permitted only
+     * when the trusted route context carries user_approved === true — a real,
+     * identity-backed approve action. The model cannot raise its own ceiling: this
+     * reads $this->toolContext (set by the route), never tool input. R4+ never.
+     */
+    private function effectiveRiskCeiling(): array
+    {
+        $ceiling = self::BASE_RISK_CEILING;
+        if (($this->toolContext['user_approved'] ?? null) === true) {
+            $ceiling[] = 'R3';
+        }
+        return $ceiling;
     }
 
     /** Minimal deterministic JSON-Schema check: required keys + top-level types. */
@@ -264,10 +282,14 @@ class giaAgent
             . "reprice so the total is current; if the price changed, show the new total clearly. "
             . "(4) CRITICAL: you may NOT approve on the traveler's behalf. Only call "
             . "request_booking_approval when the traveler has explicitly approved the exact amount via the "
-            . "interface; if they only said 'ok' in chat, ask them to tap Approve. (5) You can advise, "
-            . "search, reprice and prepare a checkout — but you CANNOT take payment or confirm a booking "
-            . "here; say so plainly. (6) Always show the exact amount, currency and what it covers before "
-            . "asking for approval. Keep replies concise and grounded in tool results.";
+            . "interface; if they only said 'ok' in chat, ask them to tap Approve. (5) initiate_payment "
+            . "starts a REAL payment and only works after a valid approval — it begins payment, it does "
+            . "NOT confirm the booking. (6) get_order_status is the ONLY source of truth for whether a "
+            . "booking is confirmed. NEVER say a booking is confirmed, ticketed or paid unless "
+            . "get_order_status returns that state with evidence (a PNR). If the status is 'partial' or "
+            . "'failed', tell the traveler clearly that part of the trip did not book and it needs "
+            . "support — never claim everything is booked. (7) Always show the exact amount, currency and "
+            . "what it covers before asking for approval. Keep replies concise and grounded in tool results.";
     }
 
     private function userFacingError(array $resp): string
