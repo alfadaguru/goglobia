@@ -17,6 +17,18 @@
 // ============================================================================
 @$SECURE or die('Access Denied!');
 
+// GET /gia — the GIA chat UI (house pattern: header + view + footer).
+$router->get('/gia', function () use ($SECURE, $db) {
+    if (!function_exists('aiTripIsEnabled') || !aiTripIsEnabled($db)) {
+        header('Location: ' . root);
+        exit;
+    }
+    $title = 'GIA — GoGlobia Intelligent Agent';
+    require_once views . 'includes/header.php';
+    require_once views . 'ai/gia.php';
+    require_once views . 'includes/footer.php';
+});
+
 $router->post('/api/gia/chat', function () use ($db) {
     header('Content-Type: application/json');
 
