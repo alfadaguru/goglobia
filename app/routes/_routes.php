@@ -384,6 +384,7 @@ require_once 'app/routes/ai/searchRoutes.php';
 require_once 'app/routes/ai/locationRoutes.php'; // reverse geocode for departure context (CSRF)
 require_once 'app/routes/ai/tripBookingRoutes.php';
 require_once 'app/routes/ai/visaListingRoutes.php'; // AI-only visa confirm card (CSRF)
+require_once 'app/routes/ai/giaRoutes.php'; // GIA agent (Phase A): POST /api/gia/chat (read-only tools)
 
 // GLOBAL ROUTES
 require_once 'app/routes/blogsRoutes.php';
