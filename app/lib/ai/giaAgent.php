@@ -26,14 +26,20 @@ class giaAgent
     private const MAX_TOOL_CALLS = 8;   // total tool executions per user message
     private const MAX_WALL_SECONDS = 90;
 
-    /** Risk ceiling for Phase A (read-only). R0/R1 only. */
-    private const RISK_CEILING = ['R0', 'R1'];
+    /** Risk ceiling. Phase A was R0/R1 (read-only). Phase B adds R2: REVERSIBLE
+     *  controlled-writes (reprice a draft, freeze a checkout snapshot, record a
+     *  user-approved approval row) — NONE of which move money. R3+ (pay, issue,
+     *  confirm supplier, refund) remains forbidden until Phase C. */
+    private const RISK_CEILING = ['R0', 'R1', 'R2'];
 
     private $db;
     private giaChatProvider $provider;
     /** @var array<string,giaToolInterface> */
     private array $tools = [];
     private string $systemPrompt;
+    /** Extra per-request context passed to every tool (account_id, user_approved, …).
+     *  Set ONLY by the trusted route layer — never by the model. */
+    private array $toolContext = [];
 
     public function __construct($db, ?giaChatProvider $provider = null)
     {
@@ -45,6 +51,12 @@ class giaAgent
     public function registerTool(giaToolInterface $tool): void
     {
         $this->tools[$tool->name()] = $tool;
+    }
+
+    /** Trusted context the route supplies (e.g. account_id, user_approved flag). */
+    public function setToolContext(array $context): void
+    {
+        $this->toolContext = $context;
     }
 
     public function setSystemPrompt(string $prompt): void
@@ -164,7 +176,11 @@ class giaAgent
         }
 
         try {
-            $out = $tool->run($input, ['db' => $this->db]);
+            // Trusted route context (account_id, user_approved, …) is merged in with
+            // db; it comes from the route, NOT the model, so a tool like
+            // request_booking_approval cannot be tricked into self-approving.
+            $ctx = array_merge($this->toolContext, ['db' => $this->db]);
+            $out = $tool->run($input, $ctx);
             return is_array($out) ? $out : ['ok' => false, 'error_code' => 'AI_TOOL_BAD_OUTPUT', 'message' => 'Tool returned no result.'];
         } catch (\Throwable $e) {
             error_log('[gia] tool ' . $name . ' threw: ' . $e->getMessage());
@@ -235,15 +251,23 @@ class giaAgent
 
     private function defaultSystemPrompt(): string
     {
-        // BRD §7 experience principles + §10.6 safety, condensed for Phase A (read-only).
-        return "You are GIA, GoGlobia's travel assistant. You help travelers plan trips by "
-            . "understanding their intent and searching live options using the tools provided. "
-            . "RULES: (1) Use the search_trip tool to find real options; never invent flights, "
-            . "hotels, prices, availability or confirmations. (2) If the request is missing "
-            . "essentials (origin, destination, dates, travelers), ask a brief clarifying "
-            . "question instead of guessing. (3) Be honest about what you can do: you can advise "
-            . "and search, but you cannot book, pay, or confirm anything in this mode. (4) Present "
-            . "options clearly with trade-offs. Keep replies concise and grounded in tool results.";
+        // BRD §7 experience principles + §10.5/§10.6 safety.
+        return "You are GIA, GoGlobia's travel assistant. You help travelers plan trips using the "
+            . "tools provided, and you prepare a checkout for their explicit approval. "
+            . "TOOLS & FLOW: (a) search_trip — find live options. (b) reprice_trip — refresh a saved "
+            . "draft's live price before checkout. (c) create_checkout — freeze the current total into "
+            . "a checkout the traveler can approve. (d) request_booking_approval — record the "
+            . "traveler's approval AFTER they approve in the interface. "
+            . "RULES: (1) Never invent flights, hotels, prices, availability, bookings or confirmations — "
+            . "only state what a tool returned. (2) If essentials are missing (origin, destination, dates, "
+            . "travelers), ask one brief clarifying question instead of guessing. (3) Before any checkout, "
+            . "reprice so the total is current; if the price changed, show the new total clearly. "
+            . "(4) CRITICAL: you may NOT approve on the traveler's behalf. Only call "
+            . "request_booking_approval when the traveler has explicitly approved the exact amount via the "
+            . "interface; if they only said 'ok' in chat, ask them to tap Approve. (5) You can advise, "
+            . "search, reprice and prepare a checkout — but you CANNOT take payment or confirm a booking "
+            . "here; say so plainly. (6) Always show the exact amount, currency and what it covers before "
+            . "asking for approval. Keep replies concise and grounded in tool results.";
     }
 
     private function userFacingError(array $resp): string

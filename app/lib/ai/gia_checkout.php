@@ -95,13 +95,18 @@ if (!function_exists('gia_canonical_quote')) {
         $items = [];
         foreach ((array) ($quote['items'] ?? []) as $it) {
             $p = (array) ($it['params'] ?? []);
+            // final_base falls back across the shapes GIA may receive: an explicitly
+            // priced line (final_base), the AI-trip package line (price_with_tax_base /
+            // price_base), or the repriced draft item (price = display sell total).
+            // net/markup/tax are optional (platform-internal split recomputed by the
+            // submit path); the SNAPSHOT binds the customer-facing total + identity.
             $items[] = [
-                'module'     => (string) ($it['module'] ?? ''),
+                'module'     => (string) ($it['module'] ?? $it['kind'] ?? ''),
                 'supplier'   => (string) ($it['supplier'] ?? ''),
-                'net_base'   => $num($it['net_base'] ?? ($it['price_base'] ?? 0)),
+                'net_base'   => $num($it['net_base'] ?? 0),
                 'markup_base'=> $num($it['markup_base'] ?? 0),
                 'tax_base'   => $num($it['tax_base'] ?? 0),
-                'final_base' => $num($it['final_base'] ?? ($it['price_with_tax_base'] ?? ($it['price_base'] ?? 0))),
+                'final_base' => $num($it['final_base'] ?? $it['price_with_tax_base'] ?? $it['price_base'] ?? $it['price'] ?? 0),
                 'checkin'    => (string) ($p['checkin'] ?? $p['check_in'] ?? ''),
                 'checkout'   => (string) ($p['checkout'] ?? $p['check_out'] ?? ''),
                 'date'       => (string) ($p['date'] ?? $p['departure'] ?? ''),
@@ -121,7 +126,7 @@ if (!function_exists('gia_canonical_quote')) {
             'currency' => strtoupper((string) ($quote['currency'] ?? '')),
             'adults'   => (int) ($quote['adults'] ?? 0),
             'children' => (int) ($quote['children'] ?? 0),
-            'final'    => $num($quote['final_base'] ?? array_sum(array_map(static fn ($i) => (float) $i['final_base'], $items))),
+            'final'    => $num($quote['final_base'] ?? $quote['total'] ?? array_sum(array_map(static fn ($i) => (float) $i['final_base'], $items))),
             'items'    => $items,
         ];
     }

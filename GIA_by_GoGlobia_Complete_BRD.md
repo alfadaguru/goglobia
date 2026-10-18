@@ -1325,4 +1325,43 @@ the agent tools (compose_trip / create_checkout / request_approval) that expose 
 raising the agent risk ceiling to R2 (reversible snapshot/approval rows; R3+ pay/commit stays
 forbidden until Phase C), then the HTTP wiring.**
 
+## 36.10 Phase B (part 2) — agent tools wired + safety-proven (2026-10-18)
+
+The checkout/approval functions are now exposed to the GIA agent as tools, and the critical
+safety properties are unit-proven at the tool level.
+
+New tools (namespace App\lib\ai, risk class R2 = reversible controlled-write; no money moves):
+- `tools/composeTripTool.php` (`reprice_trip`) — refreshes a saved draft's live price by reusing
+  the platform's authoritative reprice engine `aiTripRevalidatePackage()` (tripRevalidateHelper.php,
+  a pure helper — verified it registers 0 routes, safe to require). Does NOT re-derive pricing.
+- `tools/createCheckoutTool.php` (`create_checkout`) — freezes the repriced draft into an immutable
+  snapshot via `gia_create_checkout()`.
+- `tools/requestApprovalTool.php` (`request_booking_approval`) — records a scoped approval via
+  `gia_request_approval()`, but ONLY when the trusted route layer sets `user_approved=true`.
+
+Agent/runtime changes:
+- `giaAgent`: risk ceiling raised to R0/R1/R2 (R3+ pay/commit still forbidden); added
+  `setToolContext()` so the ROUTE (not the model) supplies account_id + the user_approved flag,
+  merged into every tool call. System prompt updated with the search→reprice→checkout→approval
+  flow and the explicit "you may not approve on the traveler's behalf" rule (BRD §10.5).
+- `giaRoutes` (`/api/gia/chat`): registers the 3 new tools, injects trusted context
+  (`user_approved = (input.approved === true)` — a real UI action, never model text), and surfaces
+  `checkout` + `approval` objects to the client.
+
+**Proven (tools_test.php, 4/4, DB-stubbed; pure logic):**
+1. `create_checkout` freezes a snapshot from a real draft (amount 1500).
+2. **The model CANNOT self-approve** — `approved:true` in the tool INPUT without the route's trusted
+   `user_approved` flag is refused (`APPROVAL_REQUIRED`). This is the BRD §10.5 guarantee in code.
+3. With a real user action (route sets `user_approved=true`), the approval records.
+4. **Price-change blocks approval** even with genuine user consent (`PRICE_CHANGED`).
+Plus the Phase A agent loop still runs end-to-end on Claude after the R2/context changes (no
+regression), and the 11/11 snapshot unit tests still pass.
+
+**Phase B status: COMPLETE** — GIA can now search → reprice → freeze an immutable checkout →
+record a genuinely user-approved, price-locked approval. Still zero money movement. All files lint
+clean. **Next: Phase C (payment orchestration + booking saga), which will be GATED on
+`gia_verify_approval()` and reuse the verified reachability spine
+(`payment-gateway.php:531 → modules/<svc>/<supplier>/issue`). Phase C is where money finally moves
+— it will get its own grounded audit + the strictest tests.**
+
 *Log maintained during implementation; each subsequent entry dated and source-cited.*

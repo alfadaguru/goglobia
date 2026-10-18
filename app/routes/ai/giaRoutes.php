@@ -106,6 +106,9 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'giaChatProvider.php';
     require_once $aiDir . 'giaAgent.php';
     require_once $aiDir . 'tools/searchTripTool.php';
+    require_once $aiDir . 'tools/composeTripTool.php';
+    require_once $aiDir . 'tools/createCheckoutTool.php';
+    require_once $aiDir . 'tools/requestApprovalTool.php';
 
     // --- Conversation history (Phase A: session-scoped, bounded). ---
     $convKey = 'gia_conv';
@@ -115,10 +118,24 @@ $router->post('/api/gia/chat', function () use ($db) {
         $history = array_slice($history, -20);
     }
 
+    // --- Trusted per-request context (set by the ROUTE, never the model). ---
+    // user_approved is TRUE only when the client sends an explicit approve action
+    // (a real UI button). The model cannot fabricate it — request_booking_approval
+    // reads this, not the conversation.
+    $toolContext = [
+        'account_id'    => (string) ($_SESSION['user_id'] ?? ''),
+        'user_approved' => ($input['approved'] ?? null) === true,
+        'currency'      => (string) ($_SESSION['app_currency'] ?? 'USD'),
+    ];
+
     // --- Run the agent. ---
     try {
         $agent = new \App\lib\ai\giaAgent($db);
         $agent->registerTool(new \App\lib\ai\searchTripTool());
+        $agent->registerTool(new \App\lib\ai\composeTripTool());
+        $agent->registerTool(new \App\lib\ai\createCheckoutTool());
+        $agent->registerTool(new \App\lib\ai\requestApprovalTool());
+        $agent->setToolContext($toolContext);
         $result = $agent->run($message, $history);
     } catch (\Throwable $e) {
         error_log('[gia] route error: ' . $e->getMessage());
@@ -136,13 +153,28 @@ $router->post('/api/gia/chat', function () use ($db) {
         $_SESSION[$convKey] = array_slice($result['messages'], -20);
     }
 
-    // --- Surface the live search intents (from tool runs) for the UI. ---
+    // --- Surface tool outputs the UI needs (search intents + checkout/approval). ---
     $searches = [];
+    $checkout = null;   // {checkout_ref, amount, currency, expires_at} from create_checkout
+    $approval = null;   // {checkout_ref, approval_token, expires_at} from request_booking_approval
     foreach (($result['tool_runs'] ?? []) as $tr) {
-        if (($tr['name'] ?? '') === 'search_trip'
-            && isset($tr['output']['data']['searches'])
-            && is_array($tr['output']['data']['searches'])) {
-            $searches = $tr['output']['data']['searches'];
+        $name = (string) ($tr['name'] ?? '');
+        $data = (isset($tr['output']['data']) && is_array($tr['output']['data'])) ? $tr['output']['data'] : [];
+        if ($name === 'search_trip' && isset($data['searches']) && is_array($data['searches'])) {
+            $searches = $data['searches'];
+        } elseif ($name === 'create_checkout' && ($tr['output']['ok'] ?? false) && !empty($data['checkout_ref'])) {
+            $checkout = [
+                'checkout_ref' => (string) $data['checkout_ref'],
+                'amount'       => (float) ($data['amount'] ?? 0),
+                'currency'     => (string) ($data['currency'] ?? ''),
+                'expires_at'   => (string) ($data['expires_at'] ?? ''),
+            ];
+        } elseif ($name === 'request_booking_approval' && ($tr['output']['ok'] ?? false) && !empty($data['approval_token'])) {
+            $approval = [
+                'checkout_ref'   => (string) ($data['checkout_ref'] ?? ''),
+                'approval_token' => (string) $data['approval_token'],
+                'expires_at'     => (string) ($data['expires_at'] ?? ''),
+            ];
         }
     }
 
@@ -153,6 +185,8 @@ $router->post('/api/gia/chat', function () use ($db) {
         'model'      => (string) ($result['model'] ?? ''),
         'error_code' => (string) ($result['error'] ?? ''),
         'searches'   => $searches,
+        'checkout'   => $checkout,
+        'approval'   => $approval,
         // Lightweight trace for the UI / admin (no secrets, no raw payloads).
         'tool_runs'  => array_map(static function ($tr) {
             return [
