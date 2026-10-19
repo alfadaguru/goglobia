@@ -142,6 +142,30 @@ $giaWCfg = json_encode([
               </div>
             </template>
 
+            <!-- Soft lead-capture card (shown once, after GIA has shown value) -->
+            <template x-if="m.lead && !leadDone">
+              <div class="mt-1.5 giaw-card p-2.5">
+                <div class="flex items-center gap-1.5 mb-1.5">
+                  <span class="material-symbols-outlined text-[16px]" style="color:var(--gia-brand)">bookmark_add</span>
+                  <span class="text-[11px] font-semibold text-slate-700">Save your trip</span>
+                  <button type="button" class="ml-auto text-slate-400 hover:text-slate-600" @click="dismissLead()" aria-label="No thanks">
+                    <span class="material-symbols-outlined" style="font-size:15px">close</span>
+                  </button>
+                </div>
+                <input x-model="leadName" type="text" placeholder="Name (optional)"
+                       class="w-full mb-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[12px] focus:outline-none focus:ring-2 focus:ring-blue-200">
+                <input x-model="leadEmail" type="email" placeholder="Email"
+                       class="w-full mb-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[12px] focus:outline-none focus:ring-2 focus:ring-blue-200">
+                <input x-model="leadPhone" type="tel" placeholder="Phone (optional)"
+                       class="w-full mb-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[12px] focus:outline-none focus:ring-2 focus:ring-blue-200">
+                <p class="text-[10px] text-red-600 mb-1" x-show="leadMsg" x-text="leadMsg"></p>
+                <div class="flex items-center gap-2">
+                  <button type="button" class="flex-1 py-1.5 rounded-lg text-white font-semibold text-[12px] disabled:opacity-60" style="background:#0058E6" :disabled="sending" @click="saveLead()">Save &amp; continue</button>
+                  <button type="button" class="text-[11px] text-slate-500 hover:text-slate-700 px-2" @click="dismissLead()">No thanks</button>
+                </div>
+              </div>
+            </template>
+
             <template x-if="m.searches && m.searches.length">
               <div class="mt-1.5 space-y-1.5">
                 <template x-for="(sr,si) in m.searches" :key="si">
@@ -253,6 +277,7 @@ function giaWidget(cfg){
     endpoint: cfg.endpoint, csrfToken: cfg.csrfToken || '', root: cfg.root || '', context: cfg.context || '',
     open:false, messages:[], draft:'', sending:false, lastUserText:'',
     teaser:'', pulse:false, greeted:false, idleTimer:null, nudged:false,
+    leadShown:false, leadDone:false, leadOpen:false, leadName:'', leadEmail:'', leadPhone:'', leadMsg:'',
     starters:['Umrah from Kano next month','Trip to Dubai from Abuja','Hotel in Zanzibar'],
     // Per-context copy so GIA opens relevantly (e.g. on /umrah it talks umrah).
     ctxCopy:{
@@ -266,6 +291,9 @@ function giaWidget(cfg){
     init(){
       const c = this.ctxCopy[this.context] || this.ctxCopy[''];
       this.starters = c.starters;
+      // Resume a persistent conversation (cross-tab / refresh / another device):
+      // pull this browser's prior transcript from the server. Fail-soft.
+      this.hydrate();
       // First-visit greeting teaser: appear shortly after load (warm, not instant),
       // once per browser session. A gentle pulse draws the eye.
       try{
@@ -276,6 +304,18 @@ function giaWidget(cfg){
       this.armIdle();
       ['click','keydown','scroll','mousemove','touchstart'].forEach(ev=>
         window.addEventListener(ev, ()=>this.armIdle(), {passive:true}));
+    },
+    async hydrate(){
+      try{
+        const res=await fetch(this.root+'api/gia/history',{headers:{'X-CSRF-TOKEN':this.csrfToken}});
+        const d=await res.json().catch(()=>({}));
+        if(d && Array.isArray(d.messages) && d.messages.length){
+          // Map stored {role:user|assistant} to the widget's bubble roles.
+          this.messages = d.messages.map(m=>({role: m.role==='user'?'user':'ai', text:m.text||''}));
+          this.greeted = true;          // already has a conversation; skip canned greeting
+          this.$nextTick(()=>this.scrollDown());
+        }
+      }catch(e){ /* fail-soft: start fresh */ }
     },
     armIdle(){
       if(this.nudged) return;
@@ -316,13 +356,41 @@ function giaWidget(cfg){
     async post(body){
       this.sending=true; this.$nextTick(()=>this.scrollDown());
       try{
-        const res=await fetch(this.endpoint,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':this.csrfToken},body:JSON.stringify(Object.assign({csrf_token:this.csrfToken},body))});
+        const res=await fetch(this.endpoint,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':this.csrfToken},body:JSON.stringify(Object.assign({csrf_token:this.csrfToken,context:this.context,surface:'widget'},body))});
         const data=await res.json().catch(()=>({}));
+        const showedValue = (Array.isArray(data.searches) && data.searches.length) || !!data.checkout;
         this.messages.push({role:'ai',text:data.reply||(res.ok?'Done.':'Sorry, something went wrong.'),
           searches:Array.isArray(data.searches)?data.searches:null,checkout:data.checkout||null,payment:data.payment||null,order_status:data.order_status||null});
+        if(showedValue) this.maybeOfferLead();
       }catch(e){ this.messages.push({role:'ai',text:'I could not reach the assistant. Please try again.'}); }
       finally{ this.sending=false; this.$nextTick(()=>this.scrollDown()); }
     },
+    // Soft, optional lead offer AFTER GIA has shown real value. Once per session,
+    // dismissible, never blocks the chat. (Warm 'save your trip' value exchange.)
+    maybeOfferLead(){
+      if(this.leadShown||this.leadDone) return;
+      this.leadShown=true;
+      this.$nextTick(()=>{
+        this.messages.push({role:'ai', text:"Want me to save these and send you the details? Pop in your email or phone and I'll keep your trip handy (and let you know if prices change).", lead:true});
+        this.scrollDown();
+      });
+    },
+    async saveLead(){
+      if(this.sending) return;
+      const email=(this.leadEmail||'').trim(), phone=(this.leadPhone||'').trim();
+      if(!email && !phone){ this.leadMsg='Please add an email or phone.'; return; }
+      this.sending=true; this.leadMsg='';
+      try{
+        const res=await fetch(this.root+'api/gia/lead',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':this.csrfToken},
+          body:JSON.stringify({csrf_token:this.csrfToken,context:this.context,surface:'widget',name:this.leadName,email:email,phone:phone})});
+        const d=await res.json().catch(()=>({}));
+        if(d && d.status){ this.leadDone=true; this.leadOpen=false;
+          this.messages.push({role:'ai', text:d.message||"Saved! I'll keep your trip details handy."});
+        } else { this.leadMsg=(d&&d.message)||'Could not save — check your details.'; }
+      }catch(e){ this.leadMsg='Could not save right now.'; }
+      finally{ this.sending=false; this.$nextTick(()=>this.scrollDown()); }
+    },
+    dismissLead(){ this.leadDone=true; this.leadOpen=false; },
     scrollDown(){ const s=this.$refs.scroll; if(s) s.scrollTop=s.scrollHeight; },
     money(a,c){ const n=Number(a||0); return (c?c+' ':'')+n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); },
     hasSummary(sr){ const s=sr&&sr.summary; if(!s||typeof s!=='object') return false; return !!(s.origin_label||s.origin_code||s.headline); },

@@ -123,11 +123,31 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/requestApprovalTool.php';
     require_once $aiDir . 'tools/initiatePaymentTool.php';
     require_once $aiDir . 'tools/getOrderStatusTool.php';
+    // CRM + analytics (persistent chat, leads, logging). Fail-soft: if these are
+    // unavailable the chat still works, just without persistence/reporting.
+    require_once $aiDir . 'gia_analytics.php';
+    require_once $aiDir . 'gia_crm.php';
 
-    // --- Conversation history (Phase A: session-scoped, bounded). ---
+    // --- Resolve the persistent conversation (cross-tab/device). The server DB is
+    //     the source of truth; the PHP session is just a fast same-session cache. ---
+    $browserId = function_exists('gia_browser_id') ? gia_browser_id() : '';
+    $userId = (string) ($_SESSION['user_id'] ?? '');
+    $surface = (string) ($input['surface'] ?? 'widget');
+    $conv = function_exists('gia_conv_get_or_create')
+        ? gia_conv_get_or_create($db, $browserId, $userId, (string) ($input['context'] ?? ''), $surface)
+        : null;
+    $convId = (int) ($conv['id'] ?? 0);
+
+    // --- Conversation history: prefer the persisted transcript (so a NEW tab /
+    //     refresh / another device resumes the same chat); fall back to session. ---
     $convKey = 'gia_conv';
-    $history = (isset($_SESSION[$convKey]) && is_array($_SESSION[$convKey])) ? $_SESSION[$convKey] : [];
-    // Bound stored history so context + session stay small.
+    $history = [];
+    if ($convId > 0 && function_exists('gia_conv_history')) {
+        $history = gia_conv_history($db, $convId, 20);
+    }
+    if ($history === [] && isset($_SESSION[$convKey]) && is_array($_SESSION[$convKey])) {
+        $history = $_SESSION[$convKey];
+    }
     if (count($history) > 20) {
         $history = array_slice($history, -20);
     }
@@ -169,6 +189,17 @@ $router->post('/api/gia/chat', function () use ($db) {
         $_SESSION[$convKey] = array_slice($result['messages'], -20);
     }
 
+    // --- Persist this turn to the DB transcript (cross-tab resume + reporting). ---
+    if ($convId > 0 && function_exists('gia_log_turn')) {
+        gia_log_turn(
+            $db,
+            $convId,
+            $message,
+            (string) ($result['reply'] ?? ''),
+            is_array($result['usage'] ?? null) ? $result['usage'] : []
+        );
+    }
+
     // --- Surface tool outputs the UI needs (search intents + checkout/approval). ---
     $searches = [];
     $checkout = null;   // {checkout_ref, amount, currency, expires_at} from create_checkout
@@ -178,8 +209,25 @@ $router->post('/api/gia/chat', function () use ($db) {
     foreach (($result['tool_runs'] ?? []) as $tr) {
         $name = (string) ($tr['name'] ?? '');
         $data = (isset($tr['output']['data']) && is_array($tr['output']['data'])) ? $tr['output']['data'] : [];
+        $logEvent = ($convId > 0 && function_exists('gia_log_event'));
         if ($name === 'search_trip' && isset($data['searches']) && is_array($data['searches'])) {
             $searches = $data['searches'];
+            if ($logEvent) {
+                // One search event per module the search touched (for the funnel).
+                $modulesSeen = [];
+                foreach ($data['searches'] as $sr) {
+                    $mod = is_array($sr) ? (string) ($sr['module'] ?? $sr['kind'] ?? '') : '';
+                    if ($mod === '' || isset($modulesSeen[$mod])) {
+                        continue;
+                    }
+                    $modulesSeen[$mod] = true;
+                    $hasCards = is_array($sr) && !empty($sr['cards']);
+                    gia_log_event($db, $convId, 'search', [
+                        'module' => $mod,
+                        'meta'   => $hasCards ? 'results' : 'intent',
+                    ]);
+                }
+            }
         } elseif ($name === 'create_checkout' && ($tr['output']['ok'] ?? false) && !empty($data['checkout_ref'])) {
             $checkout = [
                 'checkout_ref' => (string) $data['checkout_ref'],
@@ -187,12 +235,22 @@ $router->post('/api/gia/chat', function () use ($db) {
                 'currency'     => (string) ($data['currency'] ?? ''),
                 'expires_at'   => (string) ($data['expires_at'] ?? ''),
             ];
+            if ($logEvent) {
+                gia_log_event($db, $convId, 'checkout', [
+                    'ref'      => $checkout['checkout_ref'],
+                    'amount'   => $checkout['amount'],
+                    'currency' => $checkout['currency'],
+                ]);
+            }
         } elseif ($name === 'request_booking_approval' && ($tr['output']['ok'] ?? false) && !empty($data['approval_token'])) {
             $approval = [
                 'checkout_ref'   => (string) ($data['checkout_ref'] ?? ''),
                 'approval_token' => (string) $data['approval_token'],
                 'expires_at'     => (string) ($data['expires_at'] ?? ''),
             ];
+            if ($logEvent) {
+                gia_log_event($db, $convId, 'approve', ['ref' => $approval['checkout_ref']]);
+            }
         } elseif ($name === 'initiate_payment' && ($tr['output']['ok'] ?? false) && !empty($data['redirect_url'])) {
             $payment = [
                 'invoice_id'   => (string) ($data['invoice_id'] ?? ''),
@@ -201,6 +259,13 @@ $router->post('/api/gia/chat', function () use ($db) {
                 'currency'     => (string) ($data['currency'] ?? ''),
                 'already_paid' => (bool) ($data['already_paid'] ?? false),
             ];
+            if ($logEvent) {
+                gia_log_event($db, $convId, 'pay', [
+                    'ref'      => $payment['invoice_id'],
+                    'amount'   => $payment['amount'],
+                    'currency' => $payment['currency'],
+                ]);
+            }
         } elseif ($name === 'get_order_status' && ($tr['output']['ok'] ?? false)) {
             $orderStatus = [
                 'state'        => (string) ($data['state'] ?? ''),
@@ -208,6 +273,15 @@ $router->post('/api/gia/chat', function () use ($db) {
                 'pnr'          => (string) ($data['pnr'] ?? ''),
                 'needs_ops'    => (bool) ($data['needs_ops'] ?? false),
             ];
+            // A CONFIRMED order with a PNR is a real booking — the revenue-bearing event.
+            if ($logEvent && $orderStatus['state'] === 'CONFIRMED' && $orderStatus['pnr'] !== '') {
+                gia_log_event($db, $convId, 'book', [
+                    'ref'      => $orderStatus['invoice_id'] !== '' ? $orderStatus['invoice_id'] : $orderStatus['pnr'],
+                    'amount'   => isset($data['amount']) ? (float) $data['amount'] : null,
+                    'currency' => (string) ($data['currency'] ?? ''),
+                    'meta'     => $orderStatus['pnr'],
+                ]);
+            }
         }
     }
 
@@ -225,6 +299,8 @@ $router->post('/api/gia/chat', function () use ($db) {
         'approval'   => $approval,
         'payment'    => $payment,
         'order_status' => $orderStatus,
+        // Lets the client tie follow-ups to this persistent conversation.
+        'conv_key'   => (string) ($conv['conv_key'] ?? ''),
     ];
     if ($isAdmin) {
         // Admin-only diagnostics so an operator can see WHY GIA failed (e.g. the real
@@ -240,4 +316,105 @@ $router->post('/api/gia/chat', function () use ($db) {
         ];
     }
     $respond(200, $payloadOut);
+});
+
+// ============================================================================
+// GET /api/gia/history — rehydrate the persistent conversation for THIS browser
+// (and user, if logged in) so a new tab / refresh / another device resumes the
+// same chat. Read-only; no provider call; no CSRF needed (returns only this
+// browser's own transcript, which it already has client-side).
+// ============================================================================
+$router->get('/api/gia/history', function () use ($db) {
+    header('Content-Type: application/json');
+    $out = ['status' => true, 'messages' => [], 'conv_key' => ''];
+    if (!function_exists('aiTripIsEnabled') || !aiTripIsEnabled($db)) {
+        echo json_encode($out);
+        return;
+    }
+    $aiDir = dirname(__DIR__, 2) . '/lib/ai/';
+    require_once $aiDir . 'gia_analytics.php';
+    require_once $aiDir . 'gia_crm.php';
+    if (!function_exists('gia_browser_id')) {
+        echo json_encode($out);
+        return;
+    }
+    $browserId = gia_browser_id();
+    $userId = (string) ($_SESSION['user_id'] ?? '');
+    // Do NOT create a conversation on a read; only resume an existing one.
+    try {
+        $where = null;
+        if ($userId !== '') {
+            $where = ['user_id' => $userId, 'ORDER' => ['last_at' => 'DESC'], 'LIMIT' => 1];
+        } elseif ($browserId !== '') {
+            $where = ['browser_id' => $browserId, 'ORDER' => ['last_at' => 'DESC'], 'LIMIT' => 1];
+        }
+        if ($where !== null && function_exists('ensureGiaAnalyticsSchema')) {
+            ensureGiaAnalyticsSchema($db);
+            $conv = $db->get('gia_conversations', ['id', 'conv_key'], $where);
+            if (is_array($conv) && !empty($conv['id'])) {
+                $out['messages'] = gia_conv_history($db, (int) $conv['id'], 20);
+                $out['conv_key'] = (string) ($conv['conv_key'] ?? '');
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log('[gia] history route: ' . $e->getMessage());
+    }
+    echo json_encode($out);
+});
+
+// ============================================================================
+// POST /api/gia/lead — capture a visitor's name/email/phone (soft, optional).
+// Matches an existing user by email/phone (links) or creates a light lead row;
+// never creates a full account. CSRF-guarded (state-changing). Fail-soft.
+// ============================================================================
+$router->post('/api/gia/lead', function () use ($db) {
+    header('Content-Type: application/json');
+    $respond = function (int $http, array $body): void {
+        http_response_code($http);
+        echo json_encode($body);
+    };
+
+    if (!function_exists('aiTripIsEnabled') || !aiTripIsEnabled($db)) {
+        $respond(403, ['status' => false, 'message' => 'Unavailable.']);
+        return;
+    }
+
+    $raw = file_get_contents('php://input') ?: '';
+    $input = json_decode($raw, true);
+    if (!is_array($input)) {
+        $input = [];
+    }
+    $csrf = (string) ($input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''));
+    if (class_exists('CSRF') && method_exists('CSRF', 'validateToken') && !CSRF::validateToken($csrf)) {
+        $respond(403, ['status' => false, 'message' => 'Your session expired. Please refresh.']);
+        return;
+    }
+
+    $aiDir = dirname(__DIR__, 2) . '/lib/ai/';
+    require_once $aiDir . 'gia_analytics.php';
+    require_once $aiDir . 'gia_crm.php';
+    if (!function_exists('gia_lead_capture') || !function_exists('gia_browser_id')) {
+        $respond(200, ['status' => false, 'message' => 'Could not save right now.']);
+        return;
+    }
+
+    $browserId = gia_browser_id();
+    $userId = (string) ($_SESSION['user_id'] ?? '');
+    $conv = gia_conv_get_or_create($db, $browserId, $userId, (string) ($input['context'] ?? ''), (string) ($input['surface'] ?? 'widget'));
+    $convId = (int) ($conv['id'] ?? 0);
+
+    $res = gia_lead_capture($db, $convId, [
+        'name'    => (string) ($input['name'] ?? ''),
+        'email'   => (string) ($input['email'] ?? ''),
+        'phone'   => (string) ($input['phone'] ?? ''),
+        'context' => (string) ($input['context'] ?? ''),
+    ]);
+    if (empty($res['ok'])) {
+        $respond(200, ['status' => false, 'message' => 'Please share a valid email or phone.']);
+        return;
+    }
+    $respond(200, [
+        'status'  => true,
+        'message' => 'Thanks — saved! I\'ll keep your trip details handy.',
+    ]);
 });

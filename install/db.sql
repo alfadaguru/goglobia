@@ -27251,6 +27251,113 @@ CREATE TABLE IF NOT EXISTS `gia_checkouts` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `gia_leads`
+-- GIA (AI agent) CRM — captured name/email/phone leads, matched-or-created
+-- against `users` (link only; no account). Self-healing via
+-- ensureGiaAnalyticsSchema() (app/lib/ai/gia_analytics.php).
+--
+
+CREATE TABLE IF NOT EXISTS `gia_leads` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(160) DEFAULT NULL,
+  `email` varchar(255) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `user_id` varchar(255) DEFAULT NULL,
+  `status` enum('lead','linked','converted') NOT NULL DEFAULT 'lead',
+  `source` varchar(40) NOT NULL DEFAULT 'gia',
+  `context` varchar(40) DEFAULT NULL,
+  `note` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `email` (`email`),
+  KEY `phone` (`phone`),
+  KEY `user_id` (`user_id`),
+  KEY `status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `gia_conversations`
+-- GIA (AI agent) persistent chat — one row per ongoing conversation, keyed by a
+-- stable browser_id cookie and linked to a users.user_id / gia_leads row once
+-- known. Powers cross-tab/device resume + the admin GIA reports.
+--
+
+CREATE TABLE IF NOT EXISTS `gia_conversations` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `conv_key` varchar(64) NOT NULL,
+  `browser_id` varchar(64) DEFAULT NULL,
+  `user_id` varchar(255) DEFAULT NULL,
+  `lead_id` int(11) DEFAULT NULL,
+  `context` varchar(40) DEFAULT NULL,
+  `surface` varchar(20) NOT NULL DEFAULT 'widget',
+  `msg_count` int(11) NOT NULL DEFAULT 0,
+  `token_in` int(11) NOT NULL DEFAULT 0,
+  `token_out` int(11) NOT NULL DEFAULT 0,
+  `search_count` int(11) NOT NULL DEFAULT 0,
+  `booking_count` int(11) NOT NULL DEFAULT 0,
+  `revenue` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `revenue_currency` varchar(10) DEFAULT NULL,
+  `last_message` varchar(500) DEFAULT NULL,
+  `started_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `last_at` datetime DEFAULT NULL ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `conv_key` (`conv_key`),
+  KEY `browser_id` (`browser_id`),
+  KEY `user_id` (`user_id`),
+  KEY `lead_id` (`lead_id`),
+  KEY `last_at` (`last_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `gia_messages`
+-- GIA (AI agent) transcript — every user/assistant turn, for cross-tab resume
+-- and admin conversation drill-down.
+--
+
+CREATE TABLE IF NOT EXISTS `gia_messages` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `conv_id` int(11) NOT NULL,
+  `role` enum('user','assistant') NOT NULL,
+  `text` mediumtext DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `conv_id` (`conv_id`),
+  KEY `created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `gia_events`
+-- GIA (AI agent) outcome events — search / view / checkout / approve / pay /
+-- book / lead_capture — the data the admin conversion funnel + reports read.
+--
+
+CREATE TABLE IF NOT EXISTS `gia_events` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `conv_id` int(11) DEFAULT NULL,
+  `type` varchar(24) NOT NULL,
+  `module` varchar(24) DEFAULT NULL,
+  `ref` varchar(120) DEFAULT NULL,
+  `amount` decimal(14,2) DEFAULT NULL,
+  `currency` varchar(10) DEFAULT NULL,
+  `meta` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `conv_id` (`conv_id`),
+  KEY `type` (`type`),
+  KEY `module` (`module`),
+  KEY `created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `logs_notification`
 --
 
