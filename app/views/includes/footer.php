@@ -626,6 +626,18 @@ try {
         echo "<!-- Demo Modal Error: " . htmlspecialchars($e->getMessage()) . " -->";
     }
 }
+
+// GIA floating chat widget — site-wide "Ask GIA" bubble. Self-gates on the AI
+// feature flag (returns early when AI is off), and is skipped on the GIA full page
+// itself (/gia) to avoid a double chat. No-op if the view errors.
+try {
+    $__onGiaPage = isset($_GET['url']) && rtrim((string) $_GET['url'], '/') === 'gia';
+    if (!$__onGiaPage) {
+        require_once views . "ai/gia-widget.php";
+    }
+} catch (\Throwable $e) {
+    error_log('GIA widget error: ' . $e->getMessage());
+}
 ?>
 
 </body>
