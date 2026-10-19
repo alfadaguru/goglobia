@@ -3919,9 +3919,81 @@ PROMPT;
                 'currency' => $currency,
                 'date_assumed' => $dateAssumed ? '1' : '0',
             ],
+            // Structured summary for a RICH "Search flights" deep-link card. Flights
+            // are live-supplier (external ~30s calls across 14 suppliers) so GIA does
+            // NOT fetch fares inline — it hands off to the results page, which runs
+            // the supplier search with its own loading UI. The summary proves GIA
+            // understood the request (route / date / travellers / cabin).
+            'summary' => $this->flightDeepLinkSummary(
+                $originLabel,
+                $destLabel,
+                $origin,
+                $destination,
+                $tripType,
+                $departure,
+                $tripType === 'return' ? $returnDate : '',
+                $adults,
+                $children,
+                $infants,
+                $class
+            ),
             'listing_url' => $listingUrl,
             // 0 = unlimited — AI Trip must not truncate flights vs normal listing
             'items_limit' => 0,
+        ];
+    }
+
+    /**
+     * Build a compact, human-readable summary of a flight search for the GIA
+     * deep-link card. Pure formatting of ALREADY-RESOLVED values — invents
+     * nothing. Used by the chat UI to render a "Search flights" card and by the
+     * model (via options) so it can describe the trip it set up.
+     *
+     * @return array<string,mixed>
+     */
+    private function flightDeepLinkSummary(
+        string $originLabel,
+        string $destLabel,
+        string $originCode,
+        string $destCode,
+        string $tripType,
+        string $departure,
+        string $returnDate,
+        int $adults,
+        int $children,
+        int $infants,
+        string $class
+    ): array {
+        $pax = [];
+        if ($adults > 0) {
+            $pax[] = $adults . ' adult' . ($adults > 1 ? 's' : '');
+        }
+        if ($children > 0) {
+            $pax[] = $children . ' child' . ($children > 1 ? 'ren' : '');
+        }
+        if ($infants > 0) {
+            $pax[] = $infants . ' infant' . ($infants > 1 ? 's' : '');
+        }
+        $cabinLabels = [
+            'economy' => 'Economy',
+            'premium_economy' => 'Premium Economy',
+            'business' => 'Business',
+            'first' => 'First',
+        ];
+        $cabin = $cabinLabels[strtolower($class)] ?? ucfirst($class);
+        $isReturn = $tripType === 'return';
+
+        return [
+            'origin_label'  => $originLabel,
+            'destination_label' => $destLabel,
+            'origin_code'   => strtoupper($originCode),
+            'destination_code' => strtoupper($destCode),
+            'trip_type'     => $isReturn ? 'return' : 'oneway',
+            'trip_label'    => $isReturn ? 'Round trip' : 'One way',
+            'departure_date' => $departure,
+            'return_date'   => $returnDate,
+            'travellers'    => $pax !== [] ? implode(', ', $pax) : '1 adult',
+            'cabin'         => $cabin,
         ];
     }
 

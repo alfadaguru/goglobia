@@ -106,8 +106,24 @@ $giaWCfg = json_encode([
                         </template>
                       </div>
                     </template>
+                    <!-- Flights: rich deep-link card -->
+                    <template x-if="!(sr.cards && sr.cards.length) && sr.summary && sr.module==='flights'">
+                      <a :href="sr.listing_url?absUrl(sr.listing_url):'#'" target="_blank" rel="noopener"
+                         class="giaw-card block p-2.5 hover:bg-slate-50 transition">
+                        <div class="flex items-center gap-1.5 mb-1">
+                          <span class="material-symbols-outlined text-[16px]" style="color:var(--gia-brand)">flight</span>
+                          <span class="text-[12px] font-semibold text-slate-800" x-text="(sr.summary.origin_label||sr.summary.origin_code)+(sr.summary.trip_type==='return'?' ⇄ ':' → ')+(sr.summary.destination_label||sr.summary.destination_code)"></span>
+                        </div>
+                        <div class="text-[10px] text-slate-500 mb-1.5">
+                          <span x-text="sr.summary.departure_date+(sr.summary.return_date?' → '+sr.summary.return_date:'')"></span>
+                          <span x-text="' · '+sr.summary.travellers+' · '+sr.summary.cabin"></span>
+                        </div>
+                        <span class="inline-flex items-center gap-1 text-[11px] font-semibold" style="color:var(--gia-brand)">Search live flights
+                          <span class="material-symbols-outlined text-[14px]">arrow_forward</span></span>
+                      </a>
+                    </template>
                     <!-- Intent-only deep-link chip -->
-                    <template x-if="!(sr.cards && sr.cards.length)">
+                    <template x-if="!(sr.cards && sr.cards.length) && !(sr.summary && sr.module==='flights')">
                       <a :href="sr.listing_url ? absUrl(sr.listing_url) : '#'" :target="sr.listing_url?'_blank':'_self'" rel="noopener"
                          class="giaw-card px-2.5 py-1.5 flex items-center gap-1.5" :class="sr.listing_url?'hover:bg-slate-50 transition':''">
                         <span class="material-symbols-outlined text-[16px] text-slate-400" x-text="moduleIcon(sr.module||sr.kind)"></span>

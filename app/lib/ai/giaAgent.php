@@ -315,14 +315,31 @@ class giaAgent
             }
 
             if ($cards === null) {
-                // Intent-only (no real inventory fetched for this module): still tell
-                // the model what was searched so it isn't blind.
-                $out[] = array_filter([
+                // Intent-only (no inline inventory for this module — e.g. a
+                // live-supplier deep-link like flights): still tell the model what
+                // was searched so it isn't blind and can describe the hand-off.
+                $info = [
                     'module'   => $module,
                     'title'    => (string) ($entry['title'] ?? ''),
                     'subtitle' => (string) ($entry['subtitle'] ?? ''),
                     'has_results' => false,
-                ], static fn($v) => $v !== '' && $v !== null);
+                    'deep_link' => true,
+                ];
+                // A flight entry carries a structured summary of the trip GIA set up;
+                // surface its key facts so GIA can confirm them in its reply.
+                if (isset($entry['summary']) && is_array($entry['summary'])) {
+                    $s = $entry['summary'];
+                    $info['trip'] = array_filter([
+                        'route'      => trim((string) ($s['origin_label'] ?? $s['origin_code'] ?? '')
+                                        . ' → ' . (string) ($s['destination_label'] ?? $s['destination_code'] ?? '')),
+                        'trip_type'  => (string) ($s['trip_label'] ?? ''),
+                        'depart'     => (string) ($s['departure_date'] ?? ''),
+                        'return'     => (string) ($s['return_date'] ?? ''),
+                        'travellers' => (string) ($s['travellers'] ?? ''),
+                        'cabin'      => (string) ($s['cabin'] ?? ''),
+                    ], static fn($v) => $v !== '' && $v !== null);
+                }
+                $out[] = array_filter($info, static fn($v) => $v !== '' && $v !== null && $v !== []);
                 if (count($out) >= $totalCap) {
                     break;
                 }

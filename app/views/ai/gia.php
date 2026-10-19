@@ -137,8 +137,30 @@ $giaCfg = json_encode([
                         </div>
                       </template>
 
-                      <!-- Intent-only (live-supplier modules): a tappable deep-link chip -->
-                      <template x-if="!(sr.cards && sr.cards.length)">
+                      <!-- Flights: a rich "Search flights" deep-link card (live-supplier,
+                           so fares load on the results page, not inline) -->
+                      <template x-if="!(sr.cards && sr.cards.length) && sr.summary && sr.module === 'flights'">
+                        <a :href="sr.listing_url ? absUrl(sr.listing_url) : '#'" target="_blank" rel="noopener"
+                           class="gia-card block p-3 hover:bg-slate-50 transition">
+                          <div class="flex items-center gap-2 mb-1.5">
+                            <span class="material-symbols-outlined text-[18px]" style="color:var(--gia-brand)">flight</span>
+                            <span class="text-sm font-semibold text-slate-800" x-text="(sr.summary.origin_label || sr.summary.origin_code) + (sr.summary.trip_type === 'return' ? ' ⇄ ' : ' → ') + (sr.summary.destination_label || sr.summary.destination_code)"></span>
+                          </div>
+                          <div class="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500 mb-2">
+                            <span x-text="sr.summary.trip_label"></span>
+                            <span x-text="'📅 ' + sr.summary.departure_date + (sr.summary.return_date ? ' → ' + sr.summary.return_date : '')"></span>
+                            <span x-text="'👤 ' + sr.summary.travellers"></span>
+                            <span x-text="sr.summary.cabin"></span>
+                          </div>
+                          <span class="inline-flex items-center gap-1 text-xs font-semibold" style="color:var(--gia-brand)">
+                            Search live flights
+                            <span class="material-symbols-outlined text-[15px]">arrow_forward</span>
+                          </span>
+                        </a>
+                      </template>
+
+                      <!-- Intent-only (other live-supplier modules): a tappable deep-link chip -->
+                      <template x-if="!(sr.cards && sr.cards.length) && !(sr.summary && sr.module === 'flights')">
                         <a :href="sr.listing_url ? absUrl(sr.listing_url) : '#'"
                            :target="sr.listing_url ? '_blank' : '_self'" rel="noopener"
                            class="gia-card px-3 py-2 flex items-center gap-2"
