@@ -257,6 +257,7 @@ require_once 'app/routes/admin/bookingsRoutes.php';
 require_once 'app/routes/admin/gatewaysRoutes.php';
 require_once 'app/routes/admin/blogsRoutes.php';
 require_once 'app/routes/admin/reportsRoutes.php';
+require_once 'app/routes/admin/giaRoutes.php'; // GIA assistant reports (conversations/leads/funnel/cost)
 require_once 'app/routes/admin/depositRoutes.php';
 require_once 'app/routes/admin/supportticketRoutes.php';
 require_once 'app/routes/admin/promoCodesRoutes.php';
