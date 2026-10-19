@@ -74,7 +74,7 @@ class searchTripTool implements giaToolInterface
 
         // Gate exactly like the existing search route.
         if (!function_exists('aiTripIsEnabled') || !\aiTripIsEnabled($db)) {
-            return ['ok' => false, 'error_code' => 'AI_DISABLED', 'message' => 'Live trip search is currently disabled.'];
+            return ['ok' => false, 'error_code' => 'AI_DISABLED', 'message' => "I can't look up live options right now."];
         }
 
         $enabled = function_exists('aiTripEnabledModuleTypes')

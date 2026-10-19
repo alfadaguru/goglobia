@@ -82,7 +82,9 @@ class giaAgent
             ? \passportAiActiveProviderConfig($this->db)
             : null;
         if (!is_array($config) || trim((string) ($config['api_key'] ?? '')) === '') {
-            return $this->fail('GIA is not configured. An administrator must set an AI provider and API key.', 'AI_NOT_CONFIGURED');
+            // Log the real reason for operators; the traveler just hears GIA is resting.
+            error_log('[gia] not configured: no active AI provider/key resolved');
+            return $this->fail("I'm just getting set up and can't chat just yet. Please check back soon!", 'AI_NOT_CONFIGURED');
         }
 
         $messages = $history;
@@ -107,7 +109,10 @@ class giaAgent
             $usage['output_tokens'] += (int) ($resp['usage']['output_tokens'] ?? 0);
 
             if (!($resp['ok'] ?? false)) {
-                return $this->partial($messages, $toolRuns, $usage, $this->userFacingError($resp), 'AI_PROVIDER_ERROR', $provider, $model, (string) ($resp['error'] ?? ''));
+                // Raw provider detail (http + error) is logged AND carried as `debug`
+                // for the route to expose to ADMINS ONLY — travelers never see it.
+                $rawDetail = 'http=' . (int) ($resp['http'] ?? 0) . ' ' . (string) ($resp['error'] ?? '');
+                return $this->partial($messages, $toolRuns, $usage, $this->userFacingError($resp), 'AI_PROVIDER_ERROR', $provider, $model, $rawDetail);
             }
 
             // Record the assistant turn (text + any tool calls) into history.
@@ -292,16 +297,21 @@ class giaAgent
             . "what it covers before asking for approval. Keep replies concise and grounded in tool results.";
     }
 
+    /**
+     * USER-FACING copy only. GIA speaks for itself — it never mentions a provider,
+     * model, API key, settings or any internal plumbing (that would both confuse
+     * travelers and leak implementation). The real HTTP code + raw error are logged
+     * via partial()'s $rawError for operators; the traveler just hears from GIA.
+     */
     private function userFacingError(array $resp): string
     {
         $http = (int) ($resp['http'] ?? 0);
-        if ($http === 401 || $http === 403) {
-            return 'GIA could not authenticate with the AI provider. Please check the API key in AI settings.';
-        }
         if ($http === 429) {
-            return 'The AI provider is rate-limiting requests. Please wait a moment and try again.';
+            return "I'm getting a lot of requests right now — give me a moment and try again.";
         }
-        return 'GIA could not reach the AI provider right now. Please try again shortly.';
+        // Everything else (auth, network, bad request, timeout) is a momentary GIA hiccup
+        // as far as the traveler is concerned.
+        return "Sorry, I'm having a little trouble at the moment. Please try again in a few seconds.";
     }
 
     private function fail(string $message, string $code): array
@@ -322,6 +332,7 @@ class giaAgent
             'ok' => false, 'reply' => $message, 'provider' => $provider, 'model' => $model,
             'stop' => 'error', 'tool_runs' => $toolRuns, 'messages' => $messages,
             'usage' => $usage, 'error' => $code,
+            'debug' => $rawError, // admin-only; the route strips this for non-admins
         ];
     }
 }

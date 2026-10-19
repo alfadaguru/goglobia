@@ -41,7 +41,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     if (!function_exists('aiTripIsEnabled') || !aiTripIsEnabled($db)) {
         $respond(403, [
             'status' => false,
-            'reply' => 'GIA is currently disabled.',
+            'reply' => "I'm just getting set up and can't chat just yet. Please check back soon!",
             'error_code' => 'AI_DISABLED',
             'tool_runs' => [],
         ]);
@@ -211,24 +211,33 @@ $router->post('/api/gia/chat', function () use ($db) {
         }
     }
 
-    $respond(200, [
+    // To the traveler, GIA is the assistant — the underlying provider/model, token
+    // usage and raw errors are NEVER exposed. Those diagnostics go to ADMINS only.
+    $isAdmin = strtolower((string) ($_SESSION['user_role'] ?? '')) === 'admin'
+        || !empty($_SESSION['admin_logged_in']);
+
+    $payloadOut = [
         'status'     => (bool) ($result['ok'] ?? false),
         'reply'      => (string) ($result['reply'] ?? ''),
-        'provider'   => (string) ($result['provider'] ?? ''),
-        'model'      => (string) ($result['model'] ?? ''),
         'error_code' => (string) ($result['error'] ?? ''),
         'searches'   => $searches,
         'checkout'   => $checkout,
         'approval'   => $approval,
         'payment'    => $payment,
         'order_status' => $orderStatus,
-        // Lightweight trace for the UI / admin (no secrets, no raw payloads).
-        'tool_runs'  => array_map(static function ($tr) {
-            return [
-                'name' => (string) ($tr['name'] ?? ''),
-                'ok'   => (bool) ($tr['output']['ok'] ?? false),
-            ];
-        }, is_array($result['tool_runs'] ?? null) ? $result['tool_runs'] : []),
-        'usage'      => $result['usage'] ?? ['input_tokens' => 0, 'output_tokens' => 0],
-    ]);
+    ];
+    if ($isAdmin) {
+        // Admin-only diagnostics so an operator can see WHY GIA failed (e.g. the real
+        // HTTP code + provider error) without it ever reaching a customer.
+        $payloadOut['_admin'] = [
+            'provider'  => (string) ($result['provider'] ?? ''),
+            'model'     => (string) ($result['model'] ?? ''),
+            'debug'     => (string) ($result['debug'] ?? ''),
+            'usage'     => $result['usage'] ?? ['input_tokens' => 0, 'output_tokens' => 0],
+            'tool_runs' => array_map(static function ($tr) {
+                return ['name' => (string) ($tr['name'] ?? ''), 'ok' => (bool) ($tr['output']['ok'] ?? false)];
+            }, is_array($result['tool_runs'] ?? null) ? $result['tool_runs'] : []),
+        ];
+    }
+    $respond(200, $payloadOut);
 });
