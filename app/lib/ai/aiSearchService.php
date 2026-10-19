@@ -3951,6 +3951,78 @@ PROMPT;
      *
      * @return array<string,mixed>
      */
+    /**
+     * Build a uniform, human-readable deep-link summary for a LIVE-SUPPLIER module
+     * (cars / esim / rail / ferries) whose real offers come from an external API too
+     * slow to fetch inline in a chat turn. Pure formatting of already-resolved
+     * params — invents nothing. The UI renders this as a rich "See live options"
+     * card (like flights) and the model can describe what it set up.
+     *
+     * Returns {headline, line1, line2, cta} (empty strings omitted by the caller
+     * only if truly blank). $p is the builder's own params array.
+     *
+     * @param array<string,mixed> $p
+     * @return array<string,string>
+     */
+    private function genericDeepLinkSummary(string $module, array $p): array
+    {
+        $pax = static function (array $p): string {
+            $a = (int)($p['adults'] ?? 0); $c = (int)($p['children'] ?? 0);
+            $i = (int)($p['infants'] ?? ($p['infant'] ?? 0));
+            $parts = [];
+            if ($a > 0) { $parts[] = $a . ' adult' . ($a > 1 ? 's' : ''); }
+            if ($c > 0) { $parts[] = $c . ' child' . ($c > 1 ? 'ren' : ''); }
+            if ($i > 0) { $parts[] = $i . ' infant' . ($i > 1 ? 's' : ''); }
+            return $parts === [] ? '' : implode(', ', $parts);
+        };
+
+        switch ($module) {
+            case 'cars':
+                $pu = (string)($p['pickup_location'] ?? '');
+                $doff = (string)($p['dropoff_location'] ?? '');
+                $route = $pu !== '' ? ($doff !== '' && strcasecmp($doff, $pu) !== 0 ? $pu . ' → ' . $doff : $pu) : 'Car rental';
+                $dates = trim((string)($p['pickup_date'] ?? '') . (!empty($p['return_date']) ? ' → ' . $p['return_date'] : ''));
+                return [
+                    'headline' => $route,
+                    'line1' => $dates,
+                    'line2' => trim((string)($p['pickup_time'] ?? '') . (!empty($p['return_time']) ? '–' . $p['return_time'] : '')),
+                    'cta' => 'See live car options',
+                ];
+            case 'esim':
+                $country = (string)($p['country_name'] ?? $p['country'] ?? '');
+                $type = strtoupper((string)($p['package_type'] ?? ''));
+                return [
+                    'headline' => $country !== '' ? ('eSIM for ' . $country) : 'eSIM data plans',
+                    'line1' => $type !== '' && $type !== 'ALL' ? ucfirst(strtolower($type)) . ' packages' : 'All packages',
+                    'line2' => '',
+                    'cta' => 'See eSIM packages',
+                ];
+            case 'rail':
+                $from = (string)($p['from_station_name'] ?? $p['from_station'] ?? '');
+                $to = (string)($p['to_station_name'] ?? $p['to_station'] ?? '');
+                return [
+                    'headline' => ($from !== '' && $to !== '') ? ($from . ' → ' . $to) : 'Train tickets',
+                    'line1' => (string)($p['travel_date'] ?? ''),
+                    'line2' => $pax($p),
+                    'cta' => 'See live trains',
+                ];
+            case 'ferries':
+                $from = (string)($p['departure_port_name'] ?? '');
+                $to = (string)($p['destination_port_name'] ?? '');
+                $d = (string)($p['date'] ?? '');
+                $d = $d !== '' ? date('d-m-Y', strtotime($d)) : '';
+                $r = (string)($p['return_date'] ?? '');
+                $r = $r !== '' ? date('d-m-Y', strtotime($r)) : '';
+                return [
+                    'headline' => ($from !== '' && $to !== '') ? ($from . ' → ' . $to) : 'Ferry sailings',
+                    'line1' => trim($d . ($r !== '' ? ' → ' . $r : '')),
+                    'line2' => $pax($p),
+                    'cta' => 'See live sailings',
+                ];
+        }
+        return [];
+    }
+
     private function flightDeepLinkSummary(
         string $originLabel,
         string $destLabel,
@@ -4509,6 +4581,8 @@ PROMPT;
             'searchable' => $rentalSuppliers !== [],
             'suppliers' => $rentalSuppliers,
             'params' => $params,
+            // Live-supplier (external, slow) -> rich deep-link summary, not inline fetch.
+            'summary' => $this->genericDeepLinkSummary('cars', $params),
             'listing_url' => $listingUrl,
             // 0 = no artificial AI cap
             'items_limit' => 0,
@@ -4742,6 +4816,14 @@ PROMPT;
             $subtitle = 'Pick a country below to load eSIM packages.';
         }
 
+        $esimParams = [
+            'module_id' => (string) $moduleId,
+            'country' => strtoupper($countryIso),
+            'country_name' => $countryName !== '' ? $countryName : strtoupper($countryIso),
+            'package_type' => $packageType,
+            'currency' => $currency,
+        ];
+
         return [
             'module' => 'esim',
             'badge' => 'AI ESIM GUIDE',
@@ -4751,13 +4833,9 @@ PROMPT;
             'suppliers' => $esimSuppliers,
             'empty_message' => $emptyMessage,
             'empty_detail' => $emptyDetail,
-            'params' => [
-                'module_id' => (string) $moduleId,
-                'country' => strtoupper($countryIso),
-                'country_name' => $countryName !== '' ? $countryName : strtoupper($countryIso),
-                'package_type' => $packageType,
-                'currency' => $currency,
-            ],
+            'params' => $esimParams,
+            // Airalo is an external API (slow) -> rich deep-link summary, not inline.
+            'summary' => $searchable ? $this->genericDeepLinkSummary('esim', $esimParams) : [],
             'listing_url' => $listingUrl,
             // 0 = no artificial AI cap
             'items_limit' => 0,
@@ -4832,7 +4910,7 @@ PROMPT;
             $title = 'Visa — ' . $toName;
         }
 
-        return [
+        $entry = [
             'module' => 'visa',
             'badge' => 'AI VISA GUIDE',
             'title' => $title,
@@ -4861,6 +4939,26 @@ PROMPT;
             // Visa is a single confirm card; 1 is enough
             'items_limit' => 1,
         ];
+
+        // Visa is LOCAL-DB (countries + visa catalog) — attach the real priced (or
+        // inquiry) card so GIA can quote it inline, exactly like umrah. Only when we
+        // have a valid From→To; otherwise leave it as a deep-link to /visa.
+        if ($searchable) {
+            $entry['cards'] = $this->attachLocalCards('visa', [
+                'from_country'     => $fromIso,
+                'to_country'       => $toIso,
+                'travel_date'      => $entryDmY,
+                'visa_type'        => $visaType,
+                'processing_speed' => $speed,
+                'travelers'        => $travelers,
+                'currency'         => $currency,
+            ]);
+            if ($entry['cards'] !== []) {
+                $entry['result_count'] = count($entry['cards']);
+            }
+        }
+
+        return $entry;
     }
 
     /**
@@ -5010,6 +5108,7 @@ PROMPT;
             'stays' => ['stays/listing.php', 'staysListingCards'],
             'tours' => ['tours/listing.php', 'toursListingCards'],
             'bus'   => ['bus/listing.php',   'busListingCards'],
+            'visa'  => ['visa/listing.php',  'visaListingCards'],
         ];
         if (!isset($registry[$module])) {
             return [];
@@ -5135,6 +5234,22 @@ PROMPT;
             }
         }
 
+        $railParams = [
+            'journey_type' => $journeyType > 0 ? (string)$journeyType : '',
+            'from_station' => $fromCode !== '' ? $fromCode : $originRaw,
+            'to_station' => $toCode !== '' ? $toCode : $destRaw,
+            'from_station_code' => $fromCode,
+            'to_station_code' => $toCode,
+            'from_station_name' => $fromName,
+            'to_station_name' => $toName,
+            'travel_date' => $dateDmY,
+            'travel_date_ymd' => $dateYmd,
+            'adults' => (string)$adults,
+            'children' => (string)$children,
+            'infants' => (string)$infants,
+            'currency' => $currency,
+        ];
+
         return [
             'module' => 'rail',
             'badge' => 'AI RAIL',
@@ -5142,21 +5257,9 @@ PROMPT;
             'subtitle' => $subtitle,
             'searchable' => $searchable,
             'suppliers' => $railSuppliers,
-            'params' => [
-                'journey_type' => $journeyType > 0 ? (string)$journeyType : '',
-                'from_station' => $fromCode !== '' ? $fromCode : $originRaw,
-                'to_station' => $toCode !== '' ? $toCode : $destRaw,
-                'from_station_code' => $fromCode,
-                'to_station_code' => $toCode,
-                'from_station_name' => $fromName,
-                'to_station_name' => $toName,
-                'travel_date' => $dateDmY,
-                'travel_date_ymd' => $dateYmd,
-                'adults' => (string)$adults,
-                'children' => (string)$children,
-                'infants' => (string)$infants,
-                'currency' => $currency,
-            ],
+            'params' => $railParams,
+            // External train API (slow) -> rich deep-link summary, not inline.
+            'summary' => $searchable ? $this->genericDeepLinkSummary('rail', $railParams) : [],
             'listing_url' => $listingUrl,
             // 0 = no artificial AI cap
             'items_limit' => 0,
@@ -5457,6 +5560,29 @@ PROMPT;
                 . ($returnYmd !== '' ? (' · return ' . date('d-m-Y', strtotime($returnYmd))) : ''))
             : 'Name both ferry ports (from the operator catalog) to search sailings';
 
+        $ferryParams = [
+            'departure_port_id' => (string)$depId,
+            'destination_port_id' => (string)$destId,
+            'departure_port_name' => $fromName,
+            'destination_port_name' => $toName,
+            'date' => $dateYmd,
+            'return_date' => $returnYmd,
+            'trip_type' => $tripType,
+            'adults' => (string)$adults,
+            'children' => (string)$children,
+            'infant' => (string)$infants,
+            'vehicles' => (string)$vehicles,
+            'vehicle_type' => $vehicleType,
+            'pets' => (string)$pets,
+            'pet_type' => $petType,
+            'bonuses' => [],
+            'currency' => $currency,
+            'route_services' => [
+                'vehicles' => !empty($routeServices['vehicles']),
+                'pets' => !empty($routeServices['pets']),
+            ],
+        ];
+
         return [
             'module' => 'ferries',
             'badge' => 'AI FERRY',
@@ -5466,28 +5592,9 @@ PROMPT;
             'suppliers' => $ferrySuppliers,
             'empty_message' => $emptyMessage,
             'empty_detail' => $emptyDetail,
-            'params' => [
-                'departure_port_id' => (string)$depId,
-                'destination_port_id' => (string)$destId,
-                'departure_port_name' => $fromName,
-                'destination_port_name' => $toName,
-                'date' => $dateYmd,
-                'return_date' => $returnYmd,
-                'trip_type' => $tripType,
-                'adults' => (string)$adults,
-                'children' => (string)$children,
-                'infant' => (string)$infants,
-                'vehicles' => (string)$vehicles,
-                'vehicle_type' => $vehicleType,
-                'pets' => (string)$pets,
-                'pet_type' => $petType,
-                'bonuses' => [],
-                'currency' => $currency,
-                'route_services' => [
-                    'vehicles' => !empty($routeServices['vehicles']),
-                    'pets' => !empty($routeServices['pets']),
-                ],
-            ],
+            'params' => $ferryParams,
+            // External ferry API (slow) -> rich deep-link summary, not inline.
+            'summary' => $searchable ? $this->genericDeepLinkSummary('ferries', $ferryParams) : [],
             'listing_url' => $listingUrl,
             // 0 = no artificial AI cap
             'items_limit' => 0,

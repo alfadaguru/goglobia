@@ -169,24 +169,21 @@ $giaWCfg = json_encode([
                         </template>
                       </div>
                     </template>
-                    <!-- Flights: rich deep-link card -->
-                    <template x-if="!(sr.cards && sr.cards.length) && sr.summary && sr.module==='flights'">
+                    <!-- Live-supplier rich deep-link card (flights/cars/esim/rail/ferries) -->
+                    <template x-if="!(sr.cards && sr.cards.length) && hasSummary(sr)">
                       <a :href="sr.listing_url?absUrl(sr.listing_url):'#'" target="_blank" rel="noopener"
                          class="giaw-card block p-2.5 hover:bg-slate-50 transition">
                         <div class="flex items-center gap-1.5 mb-1">
-                          <span class="material-symbols-outlined text-[16px]" style="color:var(--gia-brand)">flight</span>
-                          <span class="text-[12px] font-semibold text-slate-800" x-text="(sr.summary.origin_label||sr.summary.origin_code)+(sr.summary.trip_type==='return'?' ⇄ ':' → ')+(sr.summary.destination_label||sr.summary.destination_code)"></span>
+                          <span class="material-symbols-outlined text-[16px]" style="color:var(--gia-brand)" x-text="moduleIcon(sr.module)"></span>
+                          <span class="text-[12px] font-semibold text-slate-800" x-text="summaryHeadline(sr)"></span>
                         </div>
-                        <div class="text-[10px] text-slate-500 mb-1.5">
-                          <span x-text="sr.summary.departure_date+(sr.summary.return_date?' → '+sr.summary.return_date:'')"></span>
-                          <span x-text="' · '+sr.summary.travellers+' · '+sr.summary.cabin"></span>
-                        </div>
-                        <span class="inline-flex items-center gap-1 text-[11px] font-semibold" style="color:var(--gia-brand)">Search live flights
+                        <div class="text-[10px] text-slate-500 mb-1.5" x-text="summaryLines(sr).join(' · ')"></div>
+                        <span class="inline-flex items-center gap-1 text-[11px] font-semibold" style="color:var(--gia-brand)"><span x-text="summaryCta(sr)"></span>
                           <span class="material-symbols-outlined text-[14px]">arrow_forward</span></span>
                       </a>
                     </template>
                     <!-- Intent-only deep-link chip -->
-                    <template x-if="!(sr.cards && sr.cards.length) && !(sr.summary && sr.module==='flights')">
+                    <template x-if="!(sr.cards && sr.cards.length) && !hasSummary(sr)">
                       <a :href="sr.listing_url ? absUrl(sr.listing_url) : '#'" :target="sr.listing_url?'_blank':'_self'" rel="noopener"
                          class="giaw-card px-2.5 py-1.5 flex items-center gap-1.5" :class="sr.listing_url?'hover:bg-slate-50 transition':''">
                         <span class="material-symbols-outlined text-[16px] text-slate-400" x-text="moduleIcon(sr.module||sr.kind)"></span>
@@ -328,6 +325,10 @@ function giaWidget(cfg){
     },
     scrollDown(){ const s=this.$refs.scroll; if(s) s.scrollTop=s.scrollHeight; },
     money(a,c){ const n=Number(a||0); return (c?c+' ':'')+n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); },
+    hasSummary(sr){ const s=sr&&sr.summary; if(!s||typeof s!=='object') return false; return !!(s.origin_label||s.origin_code||s.headline); },
+    summaryHeadline(sr){ const s=sr.summary||{}; if(s.headline) return s.headline; const o=s.origin_label||s.origin_code||'', d=s.destination_label||s.destination_code||'', sep=s.trip_type==='return'?' ⇄ ':' → '; return (o&&d)?(o+sep+d):(sr.title||'Options'); },
+    summaryLines(sr){ const s=sr.summary||{}; if(s.headline!==undefined){ return [s.line1,s.line2].filter(x=>x&&String(x).trim()!==''); } const out=[]; if(s.trip_label)out.push(s.trip_label); if(s.departure_date)out.push('📅 '+s.departure_date+(s.return_date?' → '+s.return_date:'')); if(s.travellers)out.push('👤 '+s.travellers); if(s.cabin)out.push(s.cabin); return out; },
+    summaryCta(sr){ const s=sr.summary||{}; if(s.cta) return s.cta; return (sr.module==='flights')?'Search live flights':'See live options'; },
     absUrl(u){ u=String(u||''); if(!u) return '#'; if(/^https?:\/\//i.test(u)) return u; return (this.root||'')+u.replace(/^\/+/,''); },
     cardUrl(sr,c){ const mod=(c&&(c.kind||c.module))||(sr&&sr.module)||''; if(mod==='umrah'&&c&&c.slug) return this.absUrl('umrah/packages/'+encodeURIComponent(c.slug)); if(sr&&sr.listing_url) return this.absUrl(sr.listing_url); return '#'; },
     moduleIcon(m){ return ({flights:'flight',stays:'hotel',tours:'tour',cars:'directions_car',visa:'badge',esim:'sim_card',ferries:'directions_boat',rail:'train',bus:'directions_bus',umrah:'mosque'})[m]||'place'; },
