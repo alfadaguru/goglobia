@@ -1185,10 +1185,24 @@ PROMPT;
             $endpoint = 'https://api.anthropic.com/v1/messages';
         }
         $model = trim((string) ($config['model'] ?? 'claude-sonnet-4-6')) ?: 'claude-sonnet-4-6';
-        // Map deprecated Claude model ids used in older settings.
+        // Map deprecated Claude model ids used in older settings, including retired
+        // ids that now 404 on /v1/messages (e.g. the old seed default 'claude-opus-4').
         $aliases = [
             'claude-sonnet-4-20250514' => 'claude-sonnet-4-6',
             'claude-sonnet-4' => 'claude-sonnet-4-6',
+            'claude-sonnet-4.0' => 'claude-sonnet-4-6',
+            'claude-3-5-sonnet-latest' => 'claude-sonnet-4-6',
+            'claude-3-5-sonnet-20241022' => 'claude-sonnet-4-6',
+            'claude-3-7-sonnet-20250219' => 'claude-sonnet-4-6',
+            'claude-sonnet-4-5-20250929' => 'claude-sonnet-4-5',
+            'claude-opus-4' => 'claude-sonnet-4-6',
+            'claude-opus-4-0' => 'claude-sonnet-4-6',
+            'claude-opus-4.0' => 'claude-sonnet-4-6',
+            'claude-opus-4-1' => 'claude-sonnet-4-6',
+            'claude-opus-4-20250514' => 'claude-sonnet-4-6',
+            'claude-3-opus-20240229' => 'claude-sonnet-4-6',
+            'claude-3-sonnet-20240229' => 'claude-sonnet-4-6',
+            'claude-3-haiku-20240307' => 'claude-sonnet-4-6',
         ];
         $model = $aliases[$model] ?? $model;
         $timeout = max(5, (int) ($config['timeout'] ?? 30));

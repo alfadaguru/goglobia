@@ -420,6 +420,17 @@ class giaChatProvider
             'claude-3-5-sonnet-20241022' => 'claude-sonnet-4-6',
             'claude-3-7-sonnet-20250219' => 'claude-sonnet-4-6',
             'claude-sonnet-4-5-20250929' => 'claude-sonnet-4-5',
+            // Retired model ids that now 404 on /v1/messages — remap to a live model so
+            // a stale admin setting (e.g. the old DB seed default 'claude-opus-4')
+            // never fails the whole chat. Verified 404 for these: 2026-10-19.
+            'claude-opus-4'            => 'claude-sonnet-4-6',
+            'claude-opus-4-0'          => 'claude-sonnet-4-6',
+            'claude-opus-4.0'          => 'claude-sonnet-4-6',
+            'claude-opus-4-1'          => 'claude-sonnet-4-6',
+            'claude-opus-4-20250514'   => 'claude-sonnet-4-6',
+            'claude-3-opus-20240229'   => 'claude-sonnet-4-6',
+            'claude-3-sonnet-20240229' => 'claude-sonnet-4-6',
+            'claude-3-haiku-20240307'  => 'claude-sonnet-4-6',
         ];
         return $aliases[$model] ?? $model;
     }
