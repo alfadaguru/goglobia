@@ -81,6 +81,19 @@ $giaWCfg = json_encode([
   /* Quick-reply chips under GIA messages */
   .giaw-qr{font-size:.72rem;font-weight:600;color:#0058E6;background:#eaf1fe;border:1px solid #d7e5fd;
     border-radius:999px;padding:4px 10px;cursor:pointer;transition:background .15s}
+  /* Side drawer: opens a result/listing page in an iframe WITHOUT leaving the chat */
+  .giaw-drawer{position:fixed;top:0;right:0;z-index:10000;height:100vh;width:min(560px,100vw);
+    background:#fff;box-shadow:-16px 0 48px rgba(0,0,0,.22);display:flex;flex-direction:column;
+    animation:giaw-slide-in .28s ease both}
+  @keyframes giaw-slide-in{from{transform:translateX(100%)}to{transform:none}}
+  .giaw-drawer-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid #eef2f7;background:#f8fafc}
+  .giaw-drawer-ttl{font-weight:700;font-size:.85rem;color:#0f172a;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .giaw-drawer-btn{border:0;background:#eef2f7;color:#334155;border-radius:8px;width:30px;height:30px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .giaw-drawer-btn:hover{background:#e2e8f0}
+  .giaw-drawer-body{flex:1;border:0;width:100%}
+  .giaw-scrim{position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.35)}
+  @media (max-width:600px){.giaw-drawer{width:100vw}}
+  @media (prefers-reduced-motion:reduce){.giaw-drawer{animation:none}}
   .giaw-qr:hover{background:#dbe8fe}
 </style>
 
@@ -174,7 +187,7 @@ $giaWCfg = json_encode([
                     <template x-if="sr.cards && sr.cards.length">
                       <div class="space-y-1.5">
                         <template x-for="(c,ci) in sr.cards.slice(0,5)" :key="ci">
-                          <a :href="cardUrl(sr,c)" target="_blank" rel="noopener" class="giaw-card block overflow-hidden hover:bg-slate-50 transition">
+                          <a :href="cardUrl(sr,c)" @click.prevent="openDrawer(cardUrl(sr,c), c.name||c.title||'Details')" class="giaw-card block overflow-hidden hover:bg-slate-50 transition cursor-pointer">
                             <div class="flex gap-2">
                               <template x-if="c.image">
                                 <img :src="c.image" :alt="c.name||c.title||''" class="w-14 h-14 object-cover shrink-0" loading="lazy" @error="$event.target.style.display='none'">
@@ -195,8 +208,8 @@ $giaWCfg = json_encode([
                     </template>
                     <!-- Live-supplier rich deep-link card (flights/cars/esim/rail/ferries) -->
                     <template x-if="!(sr.cards && sr.cards.length) && hasSummary(sr)">
-                      <a :href="sr.listing_url?absUrl(sr.listing_url):'#'" target="_blank" rel="noopener"
-                         class="giaw-card block p-2.5 hover:bg-slate-50 transition">
+                      <a :href="sr.listing_url?absUrl(sr.listing_url):'#'" @click.prevent="sr.listing_url && openDrawer(absUrl(sr.listing_url), summaryHeadline(sr))"
+                         class="giaw-card block p-2.5 hover:bg-slate-50 transition cursor-pointer">
                         <div class="flex items-center gap-1.5 mb-1">
                           <span class="material-symbols-outlined text-[16px]" style="color:var(--gia-brand)" x-text="moduleIcon(sr.module)"></span>
                           <span class="text-[12px] font-semibold text-slate-800" x-text="summaryHeadline(sr)"></span>
@@ -208,8 +221,8 @@ $giaWCfg = json_encode([
                     </template>
                     <!-- Intent-only deep-link chip -->
                     <template x-if="!(sr.cards && sr.cards.length) && !hasSummary(sr)">
-                      <a :href="sr.listing_url ? absUrl(sr.listing_url) : '#'" :target="sr.listing_url?'_blank':'_self'" rel="noopener"
-                         class="giaw-card px-2.5 py-1.5 flex items-center gap-1.5" :class="sr.listing_url?'hover:bg-slate-50 transition':''">
+                      <a :href="sr.listing_url ? absUrl(sr.listing_url) : '#'" @click.prevent="sr.listing_url && openDrawer(absUrl(sr.listing_url), sr.title||sr.module||'Details')"
+                         class="giaw-card px-2.5 py-1.5 flex items-center gap-1.5" :class="sr.listing_url?'hover:bg-slate-50 transition cursor-pointer':''">
                         <span class="material-symbols-outlined text-[16px] text-slate-400" x-text="moduleIcon(sr.module||sr.kind)"></span>
                         <span class="text-[11px] font-medium text-slate-700" x-text="sr.title||(sr.module||sr.kind||'result')"></span>
                         <span class="text-[11px] text-slate-500 truncate flex-1" x-text="sr.subtitle||sr.note||''"></span>
@@ -269,6 +282,28 @@ $giaWCfg = json_encode([
       <p class="text-[9px] text-slate-400 mt-1">AI assistant — verify prices before you pay.</p>
     </div>
   </div>
+
+  <!-- Side drawer: opens the selected result/listing page in an iframe so the
+       visitor explores + books WITHOUT leaving the conversation. -->
+  <template x-if="drawer">
+    <div>
+      <div class="giaw-scrim" @click="closeDrawer()"></div>
+      <div class="giaw-drawer" @keydown.escape.window="closeDrawer()">
+        <div class="giaw-drawer-head">
+          <span class="material-symbols-outlined" style="color:#0058E6;font-size:20px">travel_explore</span>
+          <span class="giaw-drawer-ttl" x-text="drawerTitle"></span>
+          <a :href="drawerUrl" target="_blank" rel="noopener" class="giaw-drawer-btn" title="Open in new tab">
+            <span class="material-symbols-outlined" style="font-size:18px">open_in_new</span>
+          </a>
+          <button type="button" class="giaw-drawer-btn" @click="closeDrawer()" title="Close">
+            <span class="material-symbols-outlined" style="font-size:18px">close</span>
+          </button>
+        </div>
+        <iframe class="giaw-drawer-body" :src="drawerUrl" title="Trip details"
+                referrerpolicy="same-origin" loading="lazy"></iframe>
+      </div>
+    </div>
+  </template>
 </div>
 
 <script>
@@ -278,6 +313,7 @@ function giaWidget(cfg){
     open:false, messages:[], draft:'', sending:false, lastUserText:'',
     teaser:'', pulse:false, greeted:false, idleTimer:null, nudged:false,
     leadShown:false, leadDone:false, leadOpen:false, leadName:'', leadEmail:'', leadPhone:'', leadMsg:'',
+    drawer:false, drawerUrl:'', drawerTitle:'',
     starters:['Umrah from Kano next month','Trip to Dubai from Abuja','Hotel in Zanzibar'],
     // Per-context copy so GIA opens relevantly (e.g. on /umrah it talks umrah).
     ctxCopy:{
@@ -391,6 +427,10 @@ function giaWidget(cfg){
       finally{ this.sending=false; this.$nextTick(()=>this.scrollDown()); }
     },
     dismissLead(){ this.leadDone=true; this.leadOpen=false; },
+    // Open a result/listing page INSIDE a side drawer (iframe) so the visitor
+    // never leaves the chat. Makes sure the panel is open so the drawer has a home.
+    openDrawer(url, title){ if(!url||url==='#') return; this.open=true; this.drawerUrl=url; this.drawerTitle=title||'Details'; this.drawer=true; },
+    closeDrawer(){ this.drawer=false; this.drawerUrl=''; },
     scrollDown(){ const s=this.$refs.scroll; if(s) s.scrollTop=s.scrollHeight; },
     money(a,c){ const n=Number(a||0); return (c?c+' ':'')+n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); },
     hasSummary(sr){ const s=sr&&sr.summary; if(!s||typeof s!=='object') return false; return !!(s.origin_label||s.origin_code||s.headline); },

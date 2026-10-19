@@ -24,6 +24,19 @@ $giaCfg = json_encode([
   [x-cloak]{display:none!important}
   :root{--gia-brand:#0058E6;--gia-brand-soft:#E8F0FC;--gia-ink:#0f172a}
   .gia-wrap{max-width:860px}
+  /* Side drawer: open a result/listing page in an iframe without leaving the chat */
+  .gia-drawer{position:fixed;top:0;right:0;z-index:10000;height:100vh;width:min(640px,100vw);
+    background:#fff;box-shadow:-16px 0 48px rgba(0,0,0,.22);display:flex;flex-direction:column;
+    animation:gia-slide-in .28s ease both}
+  @keyframes gia-slide-in{from{transform:translateX(100%)}to{transform:none}}
+  .gia-drawer-head{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid #eef2f7;background:#f8fafc}
+  .gia-drawer-ttl{font-weight:700;font-size:.9rem;color:#0f172a;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .gia-drawer-btn{border:0;background:#eef2f7;color:#334155;border-radius:8px;width:32px;height:32px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .gia-drawer-btn:hover{background:#e2e8f0}
+  .gia-drawer-body{flex:1;border:0;width:100%}
+  .gia-scrim{position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.35)}
+  @media (max-width:680px){.gia-drawer{width:100vw}}
+  @media (prefers-reduced-motion:reduce){.gia-drawer{animation:none}}
   .gia-scroll{scrollbar-width:thin}
   .gia-scroll::-webkit-scrollbar{width:6px}
   .gia-scroll::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
@@ -119,8 +132,8 @@ $giaCfg = json_encode([
                                       </template>
                                     </div>
                                   </template>
-                                  <a :href="cardUrl(sr, c)" target="_blank" rel="noopener"
-                                     class="inline-flex items-center gap-1 mt-2 text-xs font-semibold"
+                                  <a :href="cardUrl(sr, c)" @click.prevent="openDrawer(cardUrl(sr, c), c.name || c.title || 'Details')"
+                                     class="inline-flex items-center gap-1 mt-2 text-xs font-semibold cursor-pointer"
                                      style="color:var(--gia-brand)">
                                     View &amp; book
                                     <span class="material-symbols-outlined text-[15px]">arrow_forward</span>
@@ -131,8 +144,8 @@ $giaCfg = json_encode([
                           </template>
                           <!-- link to all results when there are more -->
                           <template x-if="sr.listing_url && sr.cards.length >= 6">
-                            <a :href="absUrl(sr.listing_url)" target="_blank" rel="noopener"
-                               class="block text-center text-xs text-slate-500 hover:text-slate-700 py-1" x-text="'See all ' + (sr.module || '') + ' options'"></a>
+                            <a :href="absUrl(sr.listing_url)" @click.prevent="openDrawer(absUrl(sr.listing_url), 'All ' + (sr.module || '') + ' options')"
+                               class="block text-center text-xs text-slate-500 hover:text-slate-700 py-1 cursor-pointer" x-text="'See all ' + (sr.module || '') + ' options'"></a>
                           </template>
                         </div>
                       </template>
@@ -141,8 +154,8 @@ $giaCfg = json_encode([
                            a rich "See live options" card — real fares load on the
                            results page (external API too slow to fetch inline). -->
                       <template x-if="!(sr.cards && sr.cards.length) && hasSummary(sr)">
-                        <a :href="sr.listing_url ? absUrl(sr.listing_url) : '#'" target="_blank" rel="noopener"
-                           class="gia-card block p-3 hover:bg-slate-50 transition">
+                        <a :href="sr.listing_url ? absUrl(sr.listing_url) : '#'" @click.prevent="sr.listing_url && openDrawer(absUrl(sr.listing_url), summaryHeadline(sr))"
+                           class="gia-card block p-3 hover:bg-slate-50 transition cursor-pointer">
                           <div class="flex items-center gap-2 mb-1.5">
                             <span class="material-symbols-outlined text-[18px]" style="color:var(--gia-brand)" x-text="moduleIcon(sr.module)"></span>
                             <span class="text-sm font-semibold text-slate-800" x-text="summaryHeadline(sr)"></span>
@@ -162,9 +175,9 @@ $giaCfg = json_encode([
                       <!-- Intent-only (no summary at all): a tappable deep-link chip -->
                       <template x-if="!(sr.cards && sr.cards.length) && !hasSummary(sr)">
                         <a :href="sr.listing_url ? absUrl(sr.listing_url) : '#'"
-                           :target="sr.listing_url ? '_blank' : '_self'" rel="noopener"
+                           @click.prevent="sr.listing_url && openDrawer(absUrl(sr.listing_url), sr.title || sr.module || 'Details')"
                            class="gia-card px-3 py-2 flex items-center gap-2"
-                           :class="sr.listing_url ? 'hover:bg-slate-50 transition' : ''">
+                           :class="sr.listing_url ? 'hover:bg-slate-50 transition cursor-pointer' : ''">
                           <span class="material-symbols-outlined text-[18px] text-slate-400" x-text="moduleIcon(sr.module || sr.kind)"></span>
                           <span class="text-xs text-slate-700 font-medium" x-text="sr.title || (sr.module || sr.kind || 'result')"></span>
                           <span class="text-xs text-slate-500 truncate flex-1" x-text="sr.subtitle || sr.note || ''"></span>
@@ -275,6 +288,27 @@ $giaCfg = json_encode([
       </div>
     </div>
   </div>
+
+  <!-- Side drawer: explore + book a result in an iframe without leaving the chat -->
+  <template x-if="drawer">
+    <div>
+      <div class="gia-scrim" @click="closeDrawer()"></div>
+      <div class="gia-drawer" @keydown.escape.window="closeDrawer()">
+        <div class="gia-drawer-head">
+          <span class="material-symbols-outlined" style="color:var(--gia-brand);font-size:20px">travel_explore</span>
+          <span class="gia-drawer-ttl" x-text="drawerTitle"></span>
+          <a :href="drawerUrl" target="_blank" rel="noopener" class="gia-drawer-btn" title="Open in new tab">
+            <span class="material-symbols-outlined" style="font-size:18px">open_in_new</span>
+          </a>
+          <button type="button" class="gia-drawer-btn" @click="closeDrawer()" title="Close">
+            <span class="material-symbols-outlined" style="font-size:18px">close</span>
+          </button>
+        </div>
+        <iframe class="gia-drawer-body" :src="drawerUrl" title="Trip details"
+                referrerpolicy="same-origin" loading="lazy"></iframe>
+      </div>
+    </div>
+  </template>
 </div>
 
 <script>
@@ -294,8 +328,13 @@ function giaChat(cfg) {
     ],
 
     leadShown: false, leadDone: false, leadName: '', leadEmail: '', leadPhone: '', leadMsg: '',
+    drawer: false, drawerUrl: '', drawerTitle: '',
 
     init() { this.hydrate(); },
+
+    // Open a result/listing page in a side drawer (iframe) — stay in the chat.
+    openDrawer(url, title) { if (!url || url === '#') return; this.drawerUrl = url; this.drawerTitle = title || 'Details'; this.drawer = true; },
+    closeDrawer() { this.drawer = false; this.drawerUrl = ''; },
 
     async hydrate() {
       try {

@@ -279,7 +279,10 @@ if ($__isLocalReq || $__envDebug) {
 // ==================================================
 
 header('X-Content-Type-Options: nosniff');
-header('X-Frame-Options: DENY');
+// SAMEORIGIN (not DENY): still blocks EXTERNAL sites from framing us (clickjacking
+// protection intact), but allows our own pages to load inside our own UI — e.g. the
+// GIA assistant's in-chat side drawer that previews a result/listing page.
+header('X-Frame-Options: SAMEORIGIN');
 header('X-XSS-Protection: 1; mode=block');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 header('X-Permitted-Cross-Domain-Policies: none');
@@ -312,7 +315,9 @@ if (!headers_sent()) {
         "frame-src 'self' https:; " .
         "object-src 'none'; " .
         "base-uri 'self'; " .
-        "frame-ancestors 'none'"
+        // 'self' (not 'none'): same-origin framing only — our own pages may frame our
+        // own pages (GIA side drawer); external clickjacking is still blocked.
+        "frame-ancestors 'self'"
     );
 }
 
