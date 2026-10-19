@@ -242,13 +242,16 @@ $giaCfg = json_encode([
               <template x-if="m.payment && m.payment.redirect_url">
                 <div class="mt-2 gia-card p-4">
                   <span class="gia-chip bg-green-50 text-green-700 mb-2 inline-block">Approved — pay securely</span>
-                  <p class="text-xs text-slate-500 mb-3">Your approval is locked in. Complete the secure payment to confirm your booking.</p>
-                  <a :href="m.payment.redirect_url"
+                  <p class="text-xs text-slate-500 mb-3">Your approval is locked in. Complete the secure payment right here to confirm your booking.</p>
+                  <!-- Pay IN-CHAT: secure payment page loads in the side drawer. -->
+                  <button type="button" @click="openPayment(m.payment.redirect_url)"
                      class="block text-center w-full py-2.5 rounded-lg text-white font-semibold text-sm"
                      style="background:#16a34a">
                     <span class="material-symbols-outlined align-middle text-[18px] mr-1">lock</span>
-                    Continue to secure payment
-                  </a>
+                    Pay securely now
+                  </button>
+                  <a :href="absUrl(m.payment.redirect_url)" target="_blank" rel="noopener"
+                     class="block text-center text-[11px] text-slate-400 mt-1.5 hover:text-slate-600">or open in a new tab</a>
                 </div>
               </template>
 
@@ -335,6 +338,15 @@ function giaChat(cfg) {
     // Open a result/listing page in a side drawer (iframe) — stay in the chat.
     openDrawer(url, title) { if (!url || url === '#') return; this.drawerUrl = url; this.drawerTitle = title || 'Details'; this.drawer = true; },
     closeDrawer() { this.drawer = false; this.drawerUrl = ''; },
+    // Same-origin payment pages load in the drawer; an external gateway URL opens
+    // in a new tab (it can't be framed).
+    openPayment(url) {
+      if (!url) return;
+      const u = this.absUrl(url);
+      let sameOrigin = false;
+      try { sameOrigin = new URL(u, window.location.href).origin === window.location.origin; } catch (e) {}
+      if (sameOrigin) { this.openDrawer(u, 'Secure payment'); } else { window.open(u, '_blank', 'noopener'); }
+    },
 
     async hydrate() {
       try {
@@ -496,10 +508,22 @@ function giaChat(cfg) {
     escapeHtml(s) {
       return String(s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
     },
+    // Safety net: the model is told not to use markdown tables, but if one slips
+    // through, degrade "| a | b |" rows to "a · b" and drop |---| separators so a
+    // table never renders as raw pipes.
+    stripTables(s) {
+      return String(s || '').split('\n').map(line => {
+        const m = line.match(/^\s*\|(.+)\|\s*$/);
+        if (!m) return line;
+        const cells = m[1].split('|').map(c => c.trim());
+        if (cells.every(c => /^:?-{2,}:?$/.test(c) || c === '')) return '';
+        return cells.filter(c => c !== '').join(' · ');
+      }).filter((l, i, a) => !(l === '' && a[i - 1] === '')).join('\n');
+    },
     // Minimal, SAFE markdown: escape first, then allow **bold**, *italic*, line breaks,
     // and bullet lines. No raw HTML from the model is ever injected.
     renderMarkdown(s) {
-      let t = this.escapeHtml(s);
+      let t = this.escapeHtml(this.stripTables(s));
       t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
       t = t.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
       t = t.replace(/^\s*[-•]\s+(.*)$/gm, '<span class="block pl-3">• $1</span>');

@@ -118,6 +118,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'giaChatProvider.php';
     require_once $aiDir . 'giaAgent.php';
     require_once $aiDir . 'tools/searchTripTool.php';
+    require_once $aiDir . 'tools/selectOptionTool.php';
     require_once $aiDir . 'tools/composeTripTool.php';
     require_once $aiDir . 'tools/createCheckoutTool.php';
     require_once $aiDir . 'tools/requestApprovalTool.php';
@@ -166,6 +167,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     try {
         $agent = new \App\lib\ai\giaAgent($db);
         $agent->registerTool(new \App\lib\ai\searchTripTool());
+        $agent->registerTool(new \App\lib\ai\selectOptionTool());
         $agent->registerTool(new \App\lib\ai\composeTripTool());
         $agent->registerTool(new \App\lib\ai\createCheckoutTool());
         $agent->registerTool(new \App\lib\ai\requestApprovalTool());

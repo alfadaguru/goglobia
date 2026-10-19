@@ -250,7 +250,15 @@ $giaWCfg = json_encode([
             <template x-if="m.payment && m.payment.redirect_url">
               <div class="mt-1.5 giaw-card p-3">
                 <span class="giaw-chip bg-green-50 text-green-700">Approved — pay securely</span>
-                <a :href="m.payment.redirect_url" class="mt-2 block text-center w-full py-2 rounded-lg text-white font-semibold text-[13px]" style="background:#16a34a">Continue to secure payment</a>
+                <p class="text-[11px] text-slate-500 mt-1.5 mb-2">Complete the secure payment right here to confirm your booking.</p>
+                <!-- Pay IN-CHAT: the secure payment page loads in the side drawer so the
+                     traveller never leaves the conversation. -->
+                <button type="button" @click="openPayment(m.payment.redirect_url)"
+                        class="block w-full py-2 rounded-lg text-white font-semibold text-[13px]" style="background:#16a34a">
+                  Pay securely now
+                </button>
+                <a :href="absUrl(m.payment.redirect_url)" target="_blank" rel="noopener"
+                   class="block text-center text-[10px] text-slate-400 mt-1 hover:text-slate-600">or open in a new tab</a>
               </div>
             </template>
 
@@ -431,6 +439,12 @@ function giaWidget(cfg){
     // never leaves the chat. Makes sure the panel is open so the drawer has a home.
     openDrawer(url, title){ if(!url||url==='#') return; this.open=true; this.drawerUrl=url; this.drawerTitle=title||'Details'; this.drawer=true; },
     closeDrawer(){ this.drawer=false; this.drawerUrl=''; },
+    // Payment: same-origin pages load in the drawer (in-chat); an EXTERNAL gateway
+    // URL (Paystack/Stripe-hosted) can't be framed, so open it in a new tab instead
+    // of flashing a blank drawer.
+    openPayment(url){ if(!url) return; const u=this.absUrl(url); let sameOrigin=false;
+      try{ sameOrigin = new URL(u, window.location.href).origin === window.location.origin; }catch(e){}
+      if(sameOrigin){ this.openDrawer(u, 'Secure payment'); } else { window.open(u, '_blank', 'noopener'); } },
     scrollDown(){ const s=this.$refs.scroll; if(s) s.scrollTop=s.scrollHeight; },
     money(a,c){ const n=Number(a||0); return (c?c+' ':'')+n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); },
     hasSummary(sr){ const s=sr&&sr.summary; if(!s||typeof s!=='object') return false; return !!(s.origin_label||s.origin_code||s.headline); },
@@ -443,7 +457,19 @@ function giaWidget(cfg){
     statusLabel(s){ return ({CONFIRMED:'Confirmed',PARTIAL:'Partially booked',PAID_PENDING:'Payment received',UNPAID:'Not paid',FAILED:'Booking failed',NOT_FOUND:'Not found'})[s]||s; },
     statusClass(s){ if(s==='CONFIRMED')return'bg-green-50 text-green-700'; if(s==='PARTIAL'||s==='FAILED')return'bg-red-50 text-red-700'; if(s==='PAID_PENDING')return'bg-amber-50 text-amber-700'; return'bg-slate-100 text-slate-600'; },
     escapeHtml(s){ return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); },
-    renderMarkdown(s){ let t=this.escapeHtml(s); t=t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>'); t=t.replace(/(^|[^*])\*([^*]+)\*/g,'$1<em>$2</em>'); t=t.replace(/^\s*[-•]\s+(.*)$/gm,'<span class="block pl-2">• $1</span>'); return t; },
+    stripTables(s){
+      // Safety net: the model is told not to use markdown tables, but if one slips
+      // through, degrade it to readable lines instead of raw pipes. Drop separator
+      // rows (|---|---|) and turn "| a | b | c |" into "a · b · c".
+      return String(s||'').split('\n').map(line=>{
+        const m=line.match(/^\s*\|(.+)\|\s*$/);
+        if(!m) return line;
+        const cells=m[1].split('|').map(c=>c.trim());
+        if(cells.every(c=>/^:?-{2,}:?$/.test(c)||c==='')) return ''; // separator row
+        return cells.filter(c=>c!=='').join(' · ');
+      }).filter((l,i,a)=>!(l===''&&a[i-1]==='')).join('\n');
+    },
+    renderMarkdown(s){ let t=this.escapeHtml(this.stripTables(s)); t=t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>'); t=t.replace(/(^|[^*])\*([^*]+)\*/g,'$1<em>$2</em>'); t=t.replace(/^\s*[-•]\s+(.*)$/gm,'<span class="block pl-2">• $1</span>'); return t; },
   };
 }
 </script>
