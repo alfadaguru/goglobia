@@ -367,7 +367,8 @@ $adminMenu = array_merge($adminMenu, [
             ['name' => T::booking.' '.T::reports, 'icon' => 'assessment', 'url' => root.admin.'/reports/bookings'],
             ['name' => T::users.' '.T::reports, 'icon' => 'people_outline', 'url' => root.admin.'/reports/users'],
             ['name' => T::transactions.' '.T::reports, 'icon' => 'receipt_long', 'url' => root.admin.'/reports/transactions'],
-            ['name' => T::deposit.' '.T::reports, 'icon' => 'receipt_long', 'url' => root.admin.'/reports/deposit']
+            ['name' => T::deposit.' '.T::reports, 'icon' => 'receipt_long', 'url' => root.admin.'/reports/deposit'],
+            ['name' => 'GIA Assistant', 'icon' => 'smart_toy', 'url' => root.admin.'/gia']
         ]
     ],
     [
