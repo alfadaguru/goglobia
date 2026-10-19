@@ -443,7 +443,19 @@ function giaWidget(cfg){
     statusLabel(s){ return ({CONFIRMED:'Confirmed',PARTIAL:'Partially booked',PAID_PENDING:'Payment received',UNPAID:'Not paid',FAILED:'Booking failed',NOT_FOUND:'Not found'})[s]||s; },
     statusClass(s){ if(s==='CONFIRMED')return'bg-green-50 text-green-700'; if(s==='PARTIAL'||s==='FAILED')return'bg-red-50 text-red-700'; if(s==='PAID_PENDING')return'bg-amber-50 text-amber-700'; return'bg-slate-100 text-slate-600'; },
     escapeHtml(s){ return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); },
-    renderMarkdown(s){ let t=this.escapeHtml(s); t=t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>'); t=t.replace(/(^|[^*])\*([^*]+)\*/g,'$1<em>$2</em>'); t=t.replace(/^\s*[-•]\s+(.*)$/gm,'<span class="block pl-2">• $1</span>'); return t; },
+    stripTables(s){
+      // Safety net: the model is told not to use markdown tables, but if one slips
+      // through, degrade it to readable lines instead of raw pipes. Drop separator
+      // rows (|---|---|) and turn "| a | b | c |" into "a · b · c".
+      return String(s||'').split('\n').map(line=>{
+        const m=line.match(/^\s*\|(.+)\|\s*$/);
+        if(!m) return line;
+        const cells=m[1].split('|').map(c=>c.trim());
+        if(cells.every(c=>/^:?-{2,}:?$/.test(c)||c==='')) return ''; // separator row
+        return cells.filter(c=>c!=='').join(' · ');
+      }).filter((l,i,a)=>!(l===''&&a[i-1]==='')).join('\n');
+    },
+    renderMarkdown(s){ let t=this.escapeHtml(this.stripTables(s)); t=t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>'); t=t.replace(/(^|[^*])\*([^*]+)\*/g,'$1<em>$2</em>'); t=t.replace(/^\s*[-•]\s+(.*)$/gm,'<span class="block pl-2">• $1</span>'); return t; },
   };
 }
 </script>

@@ -496,10 +496,22 @@ function giaChat(cfg) {
     escapeHtml(s) {
       return String(s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
     },
+    // Safety net: the model is told not to use markdown tables, but if one slips
+    // through, degrade "| a | b |" rows to "a · b" and drop |---| separators so a
+    // table never renders as raw pipes.
+    stripTables(s) {
+      return String(s || '').split('\n').map(line => {
+        const m = line.match(/^\s*\|(.+)\|\s*$/);
+        if (!m) return line;
+        const cells = m[1].split('|').map(c => c.trim());
+        if (cells.every(c => /^:?-{2,}:?$/.test(c) || c === '')) return '';
+        return cells.filter(c => c !== '').join(' · ');
+      }).filter((l, i, a) => !(l === '' && a[i - 1] === '')).join('\n');
+    },
     // Minimal, SAFE markdown: escape first, then allow **bold**, *italic*, line breaks,
     // and bullet lines. No raw HTML from the model is ever injected.
     renderMarkdown(s) {
-      let t = this.escapeHtml(s);
+      let t = this.escapeHtml(this.stripTables(s));
       t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
       t = t.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
       t = t.replace(/^\s*[-•]\s+(.*)$/gm, '<span class="block pl-3">• $1</span>');
