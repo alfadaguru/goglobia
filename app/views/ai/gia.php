@@ -137,30 +137,30 @@ $giaCfg = json_encode([
                         </div>
                       </template>
 
-                      <!-- Flights: a rich "Search flights" deep-link card (live-supplier,
-                           so fares load on the results page, not inline) -->
-                      <template x-if="!(sr.cards && sr.cards.length) && sr.summary && sr.module === 'flights'">
+                      <!-- Live-supplier deep-link card (flights/cars/esim/rail/ferries):
+                           a rich "See live options" card — real fares load on the
+                           results page (external API too slow to fetch inline). -->
+                      <template x-if="!(sr.cards && sr.cards.length) && hasSummary(sr)">
                         <a :href="sr.listing_url ? absUrl(sr.listing_url) : '#'" target="_blank" rel="noopener"
                            class="gia-card block p-3 hover:bg-slate-50 transition">
                           <div class="flex items-center gap-2 mb-1.5">
-                            <span class="material-symbols-outlined text-[18px]" style="color:var(--gia-brand)">flight</span>
-                            <span class="text-sm font-semibold text-slate-800" x-text="(sr.summary.origin_label || sr.summary.origin_code) + (sr.summary.trip_type === 'return' ? ' ⇄ ' : ' → ') + (sr.summary.destination_label || sr.summary.destination_code)"></span>
+                            <span class="material-symbols-outlined text-[18px]" style="color:var(--gia-brand)" x-text="moduleIcon(sr.module)"></span>
+                            <span class="text-sm font-semibold text-slate-800" x-text="summaryHeadline(sr)"></span>
                           </div>
                           <div class="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500 mb-2">
-                            <span x-text="sr.summary.trip_label"></span>
-                            <span x-text="'📅 ' + sr.summary.departure_date + (sr.summary.return_date ? ' → ' + sr.summary.return_date : '')"></span>
-                            <span x-text="'👤 ' + sr.summary.travellers"></span>
-                            <span x-text="sr.summary.cabin"></span>
+                            <template x-for="(ln, li) in summaryLines(sr)" :key="li">
+                              <span x-text="ln"></span>
+                            </template>
                           </div>
                           <span class="inline-flex items-center gap-1 text-xs font-semibold" style="color:var(--gia-brand)">
-                            Search live flights
+                            <span x-text="summaryCta(sr)"></span>
                             <span class="material-symbols-outlined text-[15px]">arrow_forward</span>
                           </span>
                         </a>
                       </template>
 
-                      <!-- Intent-only (other live-supplier modules): a tappable deep-link chip -->
-                      <template x-if="!(sr.cards && sr.cards.length) && !(sr.summary && sr.module === 'flights')">
+                      <!-- Intent-only (no summary at all): a tappable deep-link chip -->
+                      <template x-if="!(sr.cards && sr.cards.length) && !hasSummary(sr)">
                         <a :href="sr.listing_url ? absUrl(sr.listing_url) : '#'"
                            :target="sr.listing_url ? '_blank' : '_self'" rel="noopener"
                            class="gia-card px-3 py-2 flex items-center gap-2"
@@ -325,6 +325,41 @@ function giaChat(cfg) {
     money(amt, cur) {
       const n = Number(amt || 0);
       return (cur ? cur + ' ' : '') + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    },
+    // --- Deep-link summary helpers (flights use a rich route/date/pax/cabin shape;
+    //     cars/esim/rail/ferries use a generic headline/line1/line2/cta shape). ---
+    hasSummary(sr) {
+      const s = sr && sr.summary;
+      if (!s || typeof s !== 'object') return false;
+      return !!(s.origin_label || s.origin_code || s.headline);
+    },
+    summaryHeadline(sr) {
+      const s = sr.summary || {};
+      if (s.headline) return s.headline;
+      // flight shape
+      const o = s.origin_label || s.origin_code || '';
+      const d = s.destination_label || s.destination_code || '';
+      const sep = s.trip_type === 'return' ? ' ⇄ ' : ' → ';
+      return (o && d) ? (o + sep + d) : (sr.title || 'Options');
+    },
+    summaryLines(sr) {
+      const s = sr.summary || {};
+      if (s.headline !== undefined) {
+        // generic shape
+        return [s.line1, s.line2].filter(x => x && String(x).trim() !== '');
+      }
+      // flight shape
+      const out = [];
+      if (s.trip_label) out.push(s.trip_label);
+      if (s.departure_date) out.push('📅 ' + s.departure_date + (s.return_date ? ' → ' + s.return_date : ''));
+      if (s.travellers) out.push('👤 ' + s.travellers);
+      if (s.cabin) out.push(s.cabin);
+      return out;
+    },
+    summaryCta(sr) {
+      const s = sr.summary || {};
+      if (s.cta) return s.cta;
+      return (sr.module === 'flights') ? 'Search live flights' : 'See live options';
     },
     // Resolve a (possibly relative) listing/deep-link path against the site root.
     absUrl(u) {
