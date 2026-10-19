@@ -4124,7 +4124,7 @@ PROMPT;
         $adults = max(1, (int) ($fields['adults'] ?? 1));
         $children = max(0, (int) ($fields['children'] ?? 0));
 
-        return [
+        $entry = [
             'module' => 'tours',
             'badge' => 'AI TOUR GUIDE',
             'title' => 'Tours in ' . $destCity,
@@ -4147,6 +4147,21 @@ PROMPT;
             // 0 = no artificial AI cap
             'items_limit' => 0,
         ];
+
+        // Attach REAL, local tour cards (our own tours inventory) so GIA can suggest
+        // specifics. Local-DB lookup: fast, always available. Fails SOFT.
+        $entry['cards'] = $this->attachLocalCards('tours', [
+            'destination' => $destCity,
+            'duration'    => $duration,
+            'adults'      => $adults,
+            'children'    => $children,
+            'currency'    => $currency,
+        ]);
+        if ($entry['cards'] !== []) {
+            $entry['result_count'] = count($entry['cards']);
+        }
+
+        return $entry;
     }
 
     /**
@@ -4219,7 +4234,7 @@ PROMPT;
                 . $nationality . '/' . $rooms . '/' . $roomConfigs)
             : 'stays';
 
-        return [
+        $entry = [
             'module' => 'stays',
             'badge' => 'AI STAYS GUIDE',
             'title' => $needsDestination ? 'Stays' : ('Stays in ' . $destCity),
@@ -4252,6 +4267,21 @@ PROMPT;
             // 0 = no artificial AI cap
             'items_limit' => 0,
         ];
+
+        // Attach REAL, approved LOCAL hotel cards (our own stays inventory) so GIA
+        // can suggest specifics — regardless of whether a live supplier module is
+        // configured. Local-DB lookup: fast, always available. Fails SOFT.
+        if (!$needsDestination) {
+            $entry['cards'] = $this->attachLocalCards('stays', [
+                'destination' => $destCity,
+                'currency'    => $currency,
+            ]);
+            if ($entry['cards'] !== []) {
+                $entry['result_count'] = count($entry['cards']);
+            }
+        }
+
+        return $entry;
     }
 
     /**
@@ -4533,7 +4563,7 @@ PROMPT;
             'currency' => $currency,
         ];
 
-        return [
+        $entry = [
             'module' => 'bus',
             'badge' => 'AI BUS GUIDE',
             'title' => 'Bus ' . $originCity . ' → ' . $destCity,
@@ -4545,6 +4575,21 @@ PROMPT;
             // 0 = no artificial AI cap
             'items_limit' => 0,
         ];
+
+        // Attach REAL, local bus trip cards (our own bus inventory) so GIA can
+        // suggest specifics. Local-DB lookup: fast, always available. Fails SOFT.
+        $entry['cards'] = $this->attachLocalCards('bus', [
+            'origin'      => $originCity,
+            'destination' => $destCity,
+            'date'        => $date,
+            'passengers'  => max(1, $passengers),
+            'currency'    => $currency,
+        ]);
+        if ($entry['cards'] !== []) {
+            $entry['result_count'] = count($entry['cards']);
+        }
+
+        return $entry;
     }
 
     /**
@@ -4850,42 +4895,76 @@ PROMPT;
             'items_limit' => 0,
         ];
 
-        // Attach REAL, priced package cards (umrah reads a local DB table, so this is
-        // fast and always available — no external supplier call). This is what lets
-        // GIA talk about actual packages/prices and the UI render rich cards. Umrah is
-        // the only AI module whose offers are a local-DB lookup; live-supplier modules
-        // keep their deep-link intent. Fail SOFT: if the lookup errors we still return
-        // the intent so the chat never breaks.
-        try {
-            $helper = dirname(__DIR__) . '/umrah/listing.php';
-            if (is_file($helper)) {
-                require_once $helper;
-            }
-            if (function_exists('umrahListingCards')) {
-                $cardLimit = 6; // keep the result set tight for the chat surface
-                $built = umrahListingCards([
-                    'destination' => $destParam,
-                    'start_date'  => $startDmY,
-                    'duration'    => $durationParam,
-                    'umrah_type'  => $typeParam,
-                    'services'    => $servicesParam,
-                    'adults'      => $adults,
-                    'children'    => $children,
-                    'infants'     => $infants,
-                    'currency'    => $currency,
-                    'items_limit' => $cardLimit,
-                ], $this->db);
-                $cards = is_array($built['cards'] ?? null) ? $built['cards'] : [];
-                if ($cards !== []) {
-                    $entry['cards'] = $cards;
-                    $entry['result_count'] = count($cards);
-                }
-            }
-        } catch (\Throwable $e) {
-            error_log('[ai][umrah] card fetch failed: ' . $e->getMessage());
+        // Attach REAL, priced package cards from our local umrah inventory so GIA can
+        // talk about actual packages/prices and the UI can render rich cards.
+        $entry['cards'] = $this->attachLocalCards('umrah', [
+            'destination' => $destParam,
+            'start_date'  => $startDmY,
+            'duration'    => $durationParam,
+            'umrah_type'  => $typeParam,
+            'services'    => $servicesParam,
+            'adults'      => $adults,
+            'children'    => $children,
+            'infants'     => $infants,
+            'currency'    => $currency,
+        ]);
+        if ($entry['cards'] !== []) {
+            $entry['result_count'] = count($entry['cards']);
         }
 
         return $entry;
+    }
+
+    /**
+     * Attach REAL, bookable result cards for a LOCAL-DB module (umrah / stays /
+     * tours / bus). These modules read our own inventory tables, so the lookup is
+     * fast and always available — unlike live-supplier modules (flights / cars /
+     * rail / ferries / esim) which keep their deep-link intent to avoid a slow
+     * external call mid-chat.
+     *
+     * This is the single place the per-module card helpers are loaded + invoked.
+     * It is READ-ONLY and fails SOFT: on any error it returns [] so the search
+     * entry still carries its intent and the chat never breaks.
+     *
+     * @param string $module One of umrah|stays|tours|bus.
+     * @param array<string,mixed> $input Already-resolved params for that module.
+     * @return array<int,array<string,mixed>> Cards (possibly empty).
+     */
+    private function attachLocalCards(string $module, array $input): array
+    {
+        // Map module -> helper file + function (the only local-DB card builders).
+        static $registry = [
+            'umrah' => ['umrah/listing.php', 'umrahListingCards'],
+            'stays' => ['stays/listing.php', 'staysListingCards'],
+            'tours' => ['tours/listing.php', 'toursListingCards'],
+            'bus'   => ['bus/listing.php',   'busListingCards'],
+        ];
+        if (!isset($registry[$module])) {
+            return [];
+        }
+        [$relPath, $fn] = $registry[$module];
+
+        try {
+            if (!function_exists($fn)) {
+                $helper = dirname(__DIR__) . '/' . $relPath;
+                if (is_file($helper)) {
+                    require_once $helper;
+                }
+            }
+            if (!function_exists($fn)) {
+                return [];
+            }
+            // Keep the chat result set tight.
+            if (!array_key_exists('items_limit', $input)) {
+                $input['items_limit'] = 6;
+            }
+            $built = $fn($input, $this->db);
+            $cards = is_array($built['cards'] ?? null) ? $built['cards'] : [];
+            return $cards;
+        } catch (\Throwable $e) {
+            error_log('[ai][' . $module . '] local card fetch failed: ' . $e->getMessage());
+            return [];
+        }
     }
 
     /**
