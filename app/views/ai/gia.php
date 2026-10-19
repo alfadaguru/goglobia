@@ -178,6 +178,30 @@ $giaCfg = json_encode([
                 </div>
               </template>
 
+              <!-- Soft lead-capture card (once, after GIA has shown value) -->
+              <template x-if="m.lead && !leadDone">
+                <div class="mt-2 gia-card p-4">
+                  <div class="flex items-center gap-2 mb-2">
+                    <span class="material-symbols-outlined text-[18px]" style="color:var(--gia-brand)">bookmark_add</span>
+                    <span class="text-sm font-semibold text-slate-700">Save your trip</span>
+                    <button type="button" class="ml-auto text-slate-400 hover:text-slate-600" @click="dismissLead()" aria-label="No thanks">
+                      <span class="material-symbols-outlined text-[18px]">close</span>
+                    </button>
+                  </div>
+                  <input x-model="leadName" type="text" placeholder="Name (optional)"
+                         class="w-full mb-2 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+                  <input x-model="leadEmail" type="email" placeholder="Email"
+                         class="w-full mb-2 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+                  <input x-model="leadPhone" type="tel" placeholder="Phone (optional)"
+                         class="w-full mb-2 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+                  <p class="text-xs text-red-600 mb-1" x-show="leadMsg" x-text="leadMsg"></p>
+                  <div class="flex items-center gap-2">
+                    <button type="button" class="flex-1 py-2.5 rounded-lg text-white font-semibold text-sm disabled:opacity-60" style="background:var(--gia-brand)" :disabled="sending" @click="saveLead()">Save &amp; continue</button>
+                    <button type="button" class="text-xs text-slate-500 hover:text-slate-700 px-3" @click="dismissLead()">No thanks</button>
+                  </div>
+                </div>
+              </template>
+
               <!-- Checkout card -> Approve -->
               <template x-if="m.checkout">
                 <div class="mt-2 gia-card p-4">
@@ -269,7 +293,45 @@ function giaChat(cfg) {
       'Family-friendly hotel in Zanzibar for a week',
     ],
 
-    init() {},
+    leadShown: false, leadDone: false, leadName: '', leadEmail: '', leadPhone: '', leadMsg: '',
+
+    init() { this.hydrate(); },
+
+    async hydrate() {
+      try {
+        const res = await fetch(this.root + 'api/gia/history', { headers: { 'X-CSRF-TOKEN': this.csrfToken } });
+        const d = await res.json().catch(() => ({}));
+        if (d && Array.isArray(d.messages) && d.messages.length) {
+          this.messages = d.messages.map(m => ({ role: m.role === 'user' ? 'user' : 'ai', text: m.text || '' }));
+          this.$nextTick(() => this.scrollDown());
+        }
+      } catch (e) { /* fail-soft: fresh start */ }
+    },
+    maybeOfferLead() {
+      if (this.leadShown || this.leadDone) return;
+      this.leadShown = true;
+      this.$nextTick(() => {
+        this.messages.push({ role: 'ai', lead: true, text: "Want me to save these and send you the details? Drop your email or phone and I'll keep your trip handy — and tell you if prices change." });
+        this.scrollDown();
+      });
+    },
+    async saveLead() {
+      if (this.sending) return;
+      const email = (this.leadEmail || '').trim(), phone = (this.leadPhone || '').trim();
+      if (!email && !phone) { this.leadMsg = 'Please add an email or phone.'; return; }
+      this.sending = true; this.leadMsg = '';
+      try {
+        const res = await fetch(this.root + 'api/gia/lead', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken },
+          body: JSON.stringify({ csrf_token: this.csrfToken, surface: 'page', name: this.leadName, email, phone }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (d && d.status) { this.leadDone = true; this.messages.push({ role: 'ai', text: d.message || "Saved! I'll keep your trip handy." }); }
+        else { this.leadMsg = (d && d.message) || 'Could not save — check your details.'; }
+      } catch (e) { this.leadMsg = 'Could not save right now.'; }
+      finally { this.sending = false; this.$nextTick(() => this.scrollDown()); }
+    },
+    dismissLead() { this.leadDone = true; },
 
     autoGrow(el) {
       el.style.height = 'auto';
@@ -304,6 +366,7 @@ function giaChat(cfg) {
           body: JSON.stringify(Object.assign({ csrf_token: this.csrfToken }, body)),
         });
         const data = await res.json().catch(() => ({}));
+        const showedValue = (Array.isArray(data.searches) && data.searches.length) || !!data.checkout;
         this.messages.push({
           role: 'ai',
           text: data.reply || (res.ok ? 'Done.' : 'Sorry, something went wrong. Please try again.'),
@@ -312,6 +375,7 @@ function giaChat(cfg) {
           payment: data.payment || null,
           order_status: data.order_status || null,
         });
+        if (showedValue) this.maybeOfferLead();
       } catch (e) {
         this.messages.push({ role: 'ai', text: 'I could not reach the assistant. Please check your connection and try again.' });
       } finally {
