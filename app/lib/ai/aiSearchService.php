@@ -4824,29 +4824,68 @@ PROMPT;
             $subtitle .= ' · ' . implode('; ', $notes);
         }
 
-        return [
+        $params = [
+            'destination' => $destParam,
+            'start_date' => $startDmY,
+            'start_date_ymd' => $startYmd,
+            'duration' => $durationParam,
+            'umrah_type' => $typeParam,
+            'services' => $servicesParam,
+            'adults' => (string)$adults,
+            'children' => (string)$children,
+            'infants' => (string)$infants,
+            'currency' => $currency,
+        ];
+
+        $entry = [
             'module' => 'umrah',
             'badge' => 'AI UMRAH',
             'title' => $hasDest ? ('Umrah — ' . $dest) : 'Umrah',
             'subtitle' => $subtitle,
             'searchable' => $searchable,
             'suppliers' => $umrahSuppliers,
-            'params' => [
-                'destination' => $destParam,
-                'start_date' => $startDmY,
-                'start_date_ymd' => $startYmd,
-                'duration' => $durationParam,
-                'umrah_type' => $typeParam,
-                'services' => $servicesParam,
-                'adults' => (string)$adults,
-                'children' => (string)$children,
-                'infants' => (string)$infants,
-                'currency' => $currency,
-            ],
+            'params' => $params,
             'listing_url' => $listingUrl,
             // 0 = no artificial AI cap
             'items_limit' => 0,
         ];
+
+        // Attach REAL, priced package cards (umrah reads a local DB table, so this is
+        // fast and always available — no external supplier call). This is what lets
+        // GIA talk about actual packages/prices and the UI render rich cards. Umrah is
+        // the only AI module whose offers are a local-DB lookup; live-supplier modules
+        // keep their deep-link intent. Fail SOFT: if the lookup errors we still return
+        // the intent so the chat never breaks.
+        try {
+            $helper = dirname(__DIR__) . '/umrah/listing.php';
+            if (is_file($helper)) {
+                require_once $helper;
+            }
+            if (function_exists('umrahListingCards')) {
+                $cardLimit = 6; // keep the result set tight for the chat surface
+                $built = umrahListingCards([
+                    'destination' => $destParam,
+                    'start_date'  => $startDmY,
+                    'duration'    => $durationParam,
+                    'umrah_type'  => $typeParam,
+                    'services'    => $servicesParam,
+                    'adults'      => $adults,
+                    'children'    => $children,
+                    'infants'     => $infants,
+                    'currency'    => $currency,
+                    'items_limit' => $cardLimit,
+                ], $this->db);
+                $cards = is_array($built['cards'] ?? null) ? $built['cards'] : [];
+                if ($cards !== []) {
+                    $entry['cards'] = $cards;
+                    $entry['result_count'] = count($cards);
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('[ai][umrah] card fetch failed: ' . $e->getMessage());
+        }
+
+        return $entry;
     }
 
     /**

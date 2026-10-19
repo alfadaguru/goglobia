@@ -14,6 +14,7 @@ if (!function_exists('aiTripIsEnabled') || $giaWDb === null || !aiTripIsEnabled(
 $giaWCfg = json_encode([
     'endpoint'  => root . 'api/gia/chat',
     'csrfToken' => class_exists('CSRF') ? CSRF::getToken() : '',
+    'root'      => root,
 ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE);
 ?>
 <style>
@@ -79,12 +80,41 @@ $giaWCfg = json_encode([
                  x-html="m.role==='user' ? escapeHtml(m.text) : renderMarkdown(m.text)"></div>
 
             <template x-if="m.searches && m.searches.length">
-              <div class="mt-1.5 space-y-1">
+              <div class="mt-1.5 space-y-1.5">
                 <template x-for="(sr,si) in m.searches" :key="si">
-                  <div class="giaw-card px-2.5 py-1.5 flex items-center gap-1.5">
-                    <span class="material-symbols-outlined text-[16px] text-slate-400" x-text="moduleIcon(sr.module||sr.kind)"></span>
-                    <span class="text-[11px] font-medium text-slate-700" x-text="(sr.module||sr.kind||'result')"></span>
-                    <span class="text-[11px] text-slate-500" x-text="sr.note||sr.title||''"></span>
+                  <div>
+                    <!-- REAL priced cards -->
+                    <template x-if="sr.cards && sr.cards.length">
+                      <div class="space-y-1.5">
+                        <template x-for="(c,ci) in sr.cards.slice(0,5)" :key="ci">
+                          <a :href="cardUrl(sr,c)" target="_blank" rel="noopener" class="giaw-card block overflow-hidden hover:bg-slate-50 transition">
+                            <div class="flex gap-2">
+                              <template x-if="c.image">
+                                <img :src="c.image" :alt="c.name||c.title||''" class="w-14 h-14 object-cover shrink-0" loading="lazy" @error="$event.target.style.display='none'">
+                              </template>
+                              <div class="flex-1 min-w-0 p-2">
+                                <div class="flex items-start justify-between gap-1.5">
+                                  <div class="min-w-0">
+                                    <div class="text-[11px] font-semibold text-slate-800 truncate" x-text="c.name||c.title||'Option'"></div>
+                                    <div class="text-[10px] text-slate-500 truncate" x-text="c.subtitle||c.location||''"></div>
+                                  </div>
+                                  <div class="text-[11px] font-bold text-slate-900 shrink-0" x-text="money(c.price!=null?c.price:c.adult_price, c.currency)"></div>
+                                </div>
+                              </div>
+                            </div>
+                          </a>
+                        </template>
+                      </div>
+                    </template>
+                    <!-- Intent-only deep-link chip -->
+                    <template x-if="!(sr.cards && sr.cards.length)">
+                      <a :href="sr.listing_url ? absUrl(sr.listing_url) : '#'" :target="sr.listing_url?'_blank':'_self'" rel="noopener"
+                         class="giaw-card px-2.5 py-1.5 flex items-center gap-1.5" :class="sr.listing_url?'hover:bg-slate-50 transition':''">
+                        <span class="material-symbols-outlined text-[16px] text-slate-400" x-text="moduleIcon(sr.module||sr.kind)"></span>
+                        <span class="text-[11px] font-medium text-slate-700" x-text="sr.title||(sr.module||sr.kind||'result')"></span>
+                        <span class="text-[11px] text-slate-500 truncate flex-1" x-text="sr.subtitle||sr.note||''"></span>
+                      </a>
+                    </template>
                   </div>
                 </template>
               </div>
@@ -144,9 +174,9 @@ $giaWCfg = json_encode([
 <script>
 function giaWidget(cfg){
   return {
-    endpoint: cfg.endpoint, csrfToken: cfg.csrfToken || '',
+    endpoint: cfg.endpoint, csrfToken: cfg.csrfToken || '', root: cfg.root || '',
     open:false, messages:[], draft:'', sending:false, lastUserText:'',
-    starters:['Trip to Dubai from Abuja','Cheap flights to London','Hotel in Zanzibar'],
+    starters:['Umrah from Kano next month','Trip to Dubai from Abuja','Hotel in Zanzibar'],
     toggle(){ this.open=!this.open; if(this.open) this.$nextTick(()=>{ if(this.$refs.input) this.$refs.input.focus(); this.scrollDown(); }); },
     autoGrow(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,100)+'px'; },
     async send(preset){
@@ -169,6 +199,8 @@ function giaWidget(cfg){
     },
     scrollDown(){ const s=this.$refs.scroll; if(s) s.scrollTop=s.scrollHeight; },
     money(a,c){ const n=Number(a||0); return (c?c+' ':'')+n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); },
+    absUrl(u){ u=String(u||''); if(!u) return '#'; if(/^https?:\/\//i.test(u)) return u; return (this.root||'')+u.replace(/^\/+/,''); },
+    cardUrl(sr,c){ const mod=(c&&(c.kind||c.module))||(sr&&sr.module)||''; if(mod==='umrah'&&c&&c.slug) return this.absUrl('umrah/packages/'+encodeURIComponent(c.slug)); if(sr&&sr.listing_url) return this.absUrl(sr.listing_url); return '#'; },
     moduleIcon(m){ return ({flights:'flight',stays:'hotel',tours:'tour',cars:'directions_car',visa:'badge',esim:'sim_card',ferries:'directions_boat',rail:'train',bus:'directions_bus',umrah:'mosque'})[m]||'place'; },
     statusLabel(s){ return ({CONFIRMED:'Confirmed',PARTIAL:'Partially booked',PAID_PENDING:'Payment received',UNPAID:'Not paid',FAILED:'Booking failed',NOT_FOUND:'Not found'})[s]||s; },
     statusClass(s){ if(s==='CONFIRMED')return'bg-green-50 text-green-700'; if(s==='PARTIAL'||s==='FAILED')return'bg-red-50 text-red-700'; if(s==='PAID_PENDING')return'bg-amber-50 text-amber-700'; return'bg-slate-100 text-slate-600'; },

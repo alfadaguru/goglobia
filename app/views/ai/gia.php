@@ -17,6 +17,7 @@ $giaCfg = json_encode([
     'endpoint'  => root . 'api/gia/chat',
     'csrfToken' => class_exists('CSRF') ? CSRF::getToken() : '',
     'brand'     => '#0058E6',
+    'root'      => root,
 ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE);
 ?>
 <style>
@@ -82,12 +83,74 @@ $giaCfg = json_encode([
 
               <!-- Search results -->
               <template x-if="m.searches && m.searches.length">
-                <div class="mt-2 space-y-1.5">
+                <div class="mt-2 space-y-2">
                   <template x-for="(sr, si) in m.searches" :key="si">
-                    <div class="gia-card px-3 py-2 flex items-center gap-2">
-                      <span class="material-symbols-outlined text-[18px] text-slate-400" x-text="moduleIcon(sr.module || sr.kind)"></span>
-                      <span class="text-xs text-slate-700 font-medium" x-text="(sr.module || sr.kind || 'result')"></span>
-                      <span class="text-xs text-slate-500" x-text="sr.note || sr.title || ''"></span>
+                    <div>
+                      <!-- REAL priced option cards (e.g. umrah packages from our inventory) -->
+                      <template x-if="sr.cards && sr.cards.length">
+                        <div class="space-y-2">
+                          <template x-for="(c, ci) in sr.cards.slice(0, 6)" :key="ci">
+                            <div class="gia-card overflow-hidden">
+                              <div class="flex gap-3">
+                                <!-- thumbnail -->
+                                <template x-if="c.image">
+                                  <div class="w-20 shrink-0 bg-slate-100">
+                                    <img :src="c.image" :alt="c.name || c.title || 'Package'"
+                                         class="w-20 h-full object-cover" loading="lazy"
+                                         @error="$event.target.style.display='none'">
+                                  </div>
+                                </template>
+                                <div class="flex-1 min-w-0 p-3">
+                                  <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0">
+                                      <div class="text-sm font-semibold text-slate-800 truncate" x-text="c.name || c.title || 'Option'"></div>
+                                      <div class="text-[11px] text-slate-500 truncate" x-text="c.subtitle || c.location || ''"></div>
+                                    </div>
+                                    <div class="text-right shrink-0">
+                                      <div class="text-sm font-bold text-slate-900" x-text="money(c.price != null ? c.price : c.adult_price, c.currency)"></div>
+                                      <div class="text-[10px] text-slate-400" x-text="(c.price != null && (c.adults || c.children || c.infants)) ? 'total' : 'from'"></div>
+                                    </div>
+                                  </div>
+                                  <!-- inclusions chips -->
+                                  <template x-if="c.inclusions && c.inclusions.length">
+                                    <div class="flex flex-wrap gap-1 mt-1.5">
+                                      <template x-for="(inc, ii) in c.inclusions.slice(0, 4)" :key="ii">
+                                        <span class="text-[10px] bg-slate-100 text-slate-600 rounded-full px-2 py-0.5" x-text="inc.name"></span>
+                                      </template>
+                                    </div>
+                                  </template>
+                                  <a :href="cardUrl(sr, c)" target="_blank" rel="noopener"
+                                     class="inline-flex items-center gap-1 mt-2 text-xs font-semibold"
+                                     style="color:var(--gia-brand)">
+                                    View &amp; book
+                                    <span class="material-symbols-outlined text-[15px]">arrow_forward</span>
+                                  </a>
+                                </div>
+                              </div>
+                            </div>
+                          </template>
+                          <!-- link to all results when there are more -->
+                          <template x-if="sr.listing_url && sr.cards.length >= 6">
+                            <a :href="absUrl(sr.listing_url)" target="_blank" rel="noopener"
+                               class="block text-center text-xs text-slate-500 hover:text-slate-700 py-1" x-text="'See all ' + (sr.module || '') + ' options'"></a>
+                          </template>
+                        </div>
+                      </template>
+
+                      <!-- Intent-only (live-supplier modules): a tappable deep-link chip -->
+                      <template x-if="!(sr.cards && sr.cards.length)">
+                        <a :href="sr.listing_url ? absUrl(sr.listing_url) : '#'"
+                           :target="sr.listing_url ? '_blank' : '_self'" rel="noopener"
+                           class="gia-card px-3 py-2 flex items-center gap-2"
+                           :class="sr.listing_url ? 'hover:bg-slate-50 transition' : ''">
+                          <span class="material-symbols-outlined text-[18px] text-slate-400" x-text="moduleIcon(sr.module || sr.kind)"></span>
+                          <span class="text-xs text-slate-700 font-medium" x-text="sr.title || (sr.module || sr.kind || 'result')"></span>
+                          <span class="text-xs text-slate-500 truncate flex-1" x-text="sr.subtitle || sr.note || ''"></span>
+                          <template x-if="sr.listing_url">
+                            <span class="material-symbols-outlined text-[16px] text-slate-400">arrow_forward</span>
+                          </template>
+                        </a>
+                      </template>
                     </div>
                   </template>
                 </div>
@@ -173,13 +236,14 @@ function giaChat(cfg) {
   return {
     endpoint: cfg.endpoint,
     csrfToken: cfg.csrfToken || '',
+    root: cfg.root || '',
     messages: [],
     draft: '',
     sending: false,
     lastUserText: '',
     starters: [
+      'Umrah packages from Kano next month for 1 traveller',
       'Plan a 5-day trip to Dubai from Abuja under ₦2.5m',
-      'Cheap flights Lagos to London next month',
       'Family-friendly hotel in Zanzibar for a week',
     ],
 
@@ -239,6 +303,21 @@ function giaChat(cfg) {
     money(amt, cur) {
       const n = Number(amt || 0);
       return (cur ? cur + ' ' : '') + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    },
+    // Resolve a (possibly relative) listing/deep-link path against the site root.
+    absUrl(u) {
+      u = String(u || '');
+      if (!u) return '#';
+      if (/^https?:\/\//i.test(u)) return u;
+      return (this.root || '') + u.replace(/^\/+/, '');
+    },
+    // Best real link for a result card: an umrah package's own page when we have a
+    // slug, else the module's listing/results page. Never an invented URL.
+    cardUrl(sr, c) {
+      const mod = (c && (c.kind || c.module)) || (sr && sr.module) || '';
+      if (mod === 'umrah' && c && c.slug) return this.absUrl('umrah/packages/' + encodeURIComponent(c.slug));
+      if (sr && sr.listing_url) return this.absUrl(sr.listing_url);
+      return '#';
     },
     moduleIcon(m) {
       return ({ flights:'flight', stays:'hotel', tours:'tour', cars:'directions_car', visa:'badge',
