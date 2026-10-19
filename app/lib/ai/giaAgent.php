@@ -266,35 +266,185 @@ class giaAgent
             $compact['modules']      = array_slice(is_array($d['modules'] ?? null) ? $d['modules'] : [], 0, 12);
             $compact['hint']         = (string) ($d['hint'] ?? '');
             $compact['search_count'] = (int) ($d['search_count'] ?? 0);
-            // NOTE: the full `searches` payload is intentionally NOT sent to the model;
-            // it is returned to the HTTP caller via tool_runs for UI rendering.
+            // Give the model a SMALL, grounded slice of the REAL options so it can
+            // suggest specifics ("the 7-day package is ₦850k, best value") instead of
+            // only knowing a count. The full payload still goes to the HTTP caller for
+            // rich-card rendering; here we send at most a few items, trimmed to the
+            // fields a model needs to talk about an option. Field-tolerant: works for
+            // real result cards AND intent-only entries (which just carry title/subtitle).
+            if (isset($d['searches']) && is_array($d['searches'])) {
+                $compact['options'] = $this->modelFacingOptions($d['searches']);
+            }
         }
         return $compact;
+    }
+
+    /**
+     * Build the small, model-facing list of REAL options from the raw search
+     * payload. The model only needs enough to name an option and talk price — it
+     * does NOT need images, slugs, full descriptions or supplier internals (those
+     * stay in the full payload for the UI). We cap hard so context stays small.
+     *
+     * Each `searches[]` entry is per-module; once a module fetches real inventory
+     * it carries a `cards` (or `items`/`results`) array of bookable options. An
+     * intent-only entry has no cards — we still surface its title/subtitle so the
+     * model can at least describe what it searched. Field-tolerant by design.
+     *
+     * @param array<int,mixed> $searches
+     * @return array<int,array<string,mixed>>
+     */
+    private function modelFacingOptions(array $searches): array
+    {
+        $out = [];
+        $perModuleCap = 4;   // at most N real options per module block
+        $totalCap = 10;      // and never more than this across all modules
+
+        foreach ($searches as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $module = (string) ($entry['module'] ?? $entry['kind'] ?? '');
+
+            // Find the real result list under whichever key the module used.
+            $cards = null;
+            foreach (['cards', 'items', 'results', 'offers', 'options'] as $k) {
+                if (isset($entry[$k]) && is_array($entry[$k]) && $entry[$k] !== []) {
+                    $cards = $entry[$k];
+                    break;
+                }
+            }
+
+            if ($cards === null) {
+                // Intent-only (no inline inventory for this module — e.g. a
+                // live-supplier deep-link like flights): still tell the model what
+                // was searched so it isn't blind and can describe the hand-off.
+                $info = [
+                    'module'   => $module,
+                    'title'    => (string) ($entry['title'] ?? ''),
+                    'subtitle' => (string) ($entry['subtitle'] ?? ''),
+                    'has_results' => false,
+                    'deep_link' => true,
+                ];
+                // A flight entry carries a structured summary of the trip GIA set up;
+                // surface its key facts so GIA can confirm them in its reply.
+                if (isset($entry['summary']) && is_array($entry['summary'])) {
+                    $s = $entry['summary'];
+                    $info['trip'] = array_filter([
+                        'route'      => trim((string) ($s['origin_label'] ?? $s['origin_code'] ?? '')
+                                        . ' → ' . (string) ($s['destination_label'] ?? $s['destination_code'] ?? '')),
+                        'trip_type'  => (string) ($s['trip_label'] ?? ''),
+                        'depart'     => (string) ($s['departure_date'] ?? ''),
+                        'return'     => (string) ($s['return_date'] ?? ''),
+                        'travellers' => (string) ($s['travellers'] ?? ''),
+                        'cabin'      => (string) ($s['cabin'] ?? ''),
+                    ], static fn($v) => $v !== '' && $v !== null);
+                }
+                $out[] = array_filter($info, static fn($v) => $v !== '' && $v !== null && $v !== []);
+                if (count($out) >= $totalCap) {
+                    break;
+                }
+                continue;
+            }
+
+            $n = 0;
+            foreach ($cards as $card) {
+                if (!is_array($card)) {
+                    continue;
+                }
+                $out[] = $this->trimOption($module, $card);
+                $n++;
+                if ($n >= $perModuleCap || count($out) >= $totalCap) {
+                    break;
+                }
+            }
+            if (count($out) >= $totalCap) {
+                break;
+            }
+        }
+
+        return $out;
+    }
+
+    /** Trim one real result card to the handful of fields a model talks about. */
+    private function trimOption(string $module, array $card): array
+    {
+        $title = (string) ($card['name'] ?? $card['title'] ?? '');
+        $subtitle = (string) ($card['subtitle'] ?? $card['location'] ?? '');
+        // Price: prefer an explicit total/display price, else the lead adult price.
+        $price = $card['price']
+            ?? $card['displayTotal']
+            ?? $card['total']
+            ?? $card['adult_price']
+            ?? $card['amount']
+            ?? null;
+        $currency = (string) ($card['currency'] ?? '');
+
+        $opt = [
+            'module'      => $module,
+            'title'       => $title,
+            'has_results' => true,
+        ];
+        if ($subtitle !== '') {
+            $opt['subtitle'] = $subtitle;
+        }
+        if ($price !== null && $price !== '') {
+            $opt['price'] = is_numeric($price) ? (float) $price : (string) $price;
+        }
+        if ($currency !== '') {
+            $opt['currency'] = $currency;
+        }
+        // A stable id/slug lets the model refer to a specific option in follow-ups.
+        $ref = (string) ($card['id'] ?? $card['slug'] ?? $card['ref'] ?? '');
+        if ($ref !== '') {
+            $opt['ref'] = $ref;
+        }
+        return $opt;
     }
 
     private function defaultSystemPrompt(): string
     {
         // BRD §7 experience principles + §10.5/§10.6 safety.
-        return "You are GIA, GoGlobia's travel assistant. You help travelers plan trips using the "
-            . "tools provided, and you prepare a checkout for their explicit approval. "
-            . "TOOLS & FLOW: (a) search_trip — find live options. (b) reprice_trip — refresh a saved "
-            . "draft's live price before checkout. (c) create_checkout — freeze the current total into "
-            . "a checkout the traveler can approve. (d) request_booking_approval — record the "
-            . "traveler's approval AFTER they approve in the interface. "
-            . "RULES: (1) Never invent flights, hotels, prices, availability, bookings or confirmations — "
-            . "only state what a tool returned. (2) If essentials are missing (origin, destination, dates, "
-            . "travelers), ask one brief clarifying question instead of guessing. (3) Before any checkout, "
-            . "reprice so the total is current; if the price changed, show the new total clearly. "
-            . "(4) CRITICAL: you may NOT approve on the traveler's behalf. Only call "
-            . "request_booking_approval when the traveler has explicitly approved the exact amount via the "
-            . "interface; if they only said 'ok' in chat, ask them to tap Approve. (5) initiate_payment "
-            . "starts a REAL payment and only works after a valid approval — it begins payment, it does "
-            . "NOT confirm the booking. (6) get_order_status is the ONLY source of truth for whether a "
-            . "booking is confirmed. NEVER say a booking is confirmed, ticketed or paid unless "
-            . "get_order_status returns that state with evidence (a PNR). If the status is 'partial' or "
-            . "'failed', tell the traveler clearly that part of the trip did not book and it needs "
-            . "support — never claim everything is booked. (7) Always show the exact amount, currency and "
-            . "what it covers before asking for approval. Keep replies concise and grounded in tool results.";
+        // Tone: warm, search-first, proactive — GIA owns its own identity. The
+        // SAFETY rules below are non-negotiable and unchanged in substance.
+        return "You are GIA — GoGlobia's own travel agent. You are warm, upbeat and genuinely "
+            . "helpful, like the best human travel agent a traveler has ever had. You are GIA, by "
+            . "GoGlobia; you don't discuss what powers you under the hood — if asked which AI or model "
+            . "you are, simply say you're GIA, GoGlobia's travel assistant, built to help them plan and "
+            . "book, and get right back to helping. Keep replies short, friendly and specific. Don't "
+            . "stack emoji; at most one, and only when it fits.\n"
+            . "YOUR JOB: find the traveler a great trip and gently guide them all the way to a booking. "
+            . "Be proactive — suggest, recommend a best pick, and give them an easy next step. People "
+            . "often don't have exact dates or a fixed plan; that's fine — show them real options you "
+            . "found and help them choose. Never leave them with a dead end.\n"
+            . "SEARCH FIRST, ASK LESS: The moment you have enough to search, call search_trip — don't "
+            . "interrogate. If someone says 'umrah from Kano next month for 1 traveller', SEARCH; if "
+            . "they just say 'umrah', search what we have and show it. Use sensible defaults (e.g. the "
+            . "soonest sensible date, 1 adult) rather than asking, and mention the default so they can "
+            . "change it. Ask a short follow-up ONLY when the results are genuinely ambiguous or you "
+            . "truly cannot search without one key fact. One question at a time, never a checklist.\n"
+            . "USING RESULTS: search_trip gives you real options with names and prices. Talk about the "
+            . "actual options you got back — name the package/flight/stay, say the price and currency, "
+            . "point out a good pick and why ('this one's the best value', 'this fits your dates'). "
+            . "Then invite the next step. Make them feel confident, not pressured.\n"
+            . "TOOLS: (a) search_trip — find live, real, bookable options. (b) reprice_trip — refresh a "
+            . "saved draft's live price before checkout. (c) create_checkout — freeze the current total "
+            . "into a checkout the traveler can approve. (d) request_booking_approval — record the "
+            . "traveler's approval AFTER they approve in the interface. (e) initiate_payment — begin a "
+            . "real payment. (f) get_order_status — check the real booking state.\n"
+            . "SAFETY (never bend these): (1) Never invent flights, hotels, prices, availability, "
+            . "bookings or confirmations — only state what a tool actually returned. If a search came "
+            . "back empty, say so warmly and offer an alternative. (2) Before any checkout, reprice so "
+            . "the total is current; if the price changed, show the new total clearly. (3) You may NOT "
+            . "approve on the traveler's behalf. Only call request_booking_approval when they have "
+            . "explicitly approved the exact amount via the interface; if they just said 'ok' in chat, "
+            . "warmly ask them to tap Approve. (4) initiate_payment starts a REAL payment and only works "
+            . "after a valid approval — it begins payment, it does NOT confirm the booking. "
+            . "(5) get_order_status is the ONLY source of truth for whether a booking is confirmed. "
+            . "NEVER say a booking is confirmed, ticketed or paid unless get_order_status returns that "
+            . "state with evidence (a PNR). If the status is 'partial' or 'failed', tell the traveler "
+            . "clearly that part of the trip did not book and needs support — never claim everything is "
+            . "booked. (6) Always show the exact amount, currency and what it covers before asking for "
+            . "approval.";
     }
 
     /**

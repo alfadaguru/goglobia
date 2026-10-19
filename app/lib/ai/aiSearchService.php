@@ -3919,9 +3919,81 @@ PROMPT;
                 'currency' => $currency,
                 'date_assumed' => $dateAssumed ? '1' : '0',
             ],
+            // Structured summary for a RICH "Search flights" deep-link card. Flights
+            // are live-supplier (external ~30s calls across 14 suppliers) so GIA does
+            // NOT fetch fares inline — it hands off to the results page, which runs
+            // the supplier search with its own loading UI. The summary proves GIA
+            // understood the request (route / date / travellers / cabin).
+            'summary' => $this->flightDeepLinkSummary(
+                $originLabel,
+                $destLabel,
+                $origin,
+                $destination,
+                $tripType,
+                $departure,
+                $tripType === 'return' ? $returnDate : '',
+                $adults,
+                $children,
+                $infants,
+                $class
+            ),
             'listing_url' => $listingUrl,
             // 0 = unlimited — AI Trip must not truncate flights vs normal listing
             'items_limit' => 0,
+        ];
+    }
+
+    /**
+     * Build a compact, human-readable summary of a flight search for the GIA
+     * deep-link card. Pure formatting of ALREADY-RESOLVED values — invents
+     * nothing. Used by the chat UI to render a "Search flights" card and by the
+     * model (via options) so it can describe the trip it set up.
+     *
+     * @return array<string,mixed>
+     */
+    private function flightDeepLinkSummary(
+        string $originLabel,
+        string $destLabel,
+        string $originCode,
+        string $destCode,
+        string $tripType,
+        string $departure,
+        string $returnDate,
+        int $adults,
+        int $children,
+        int $infants,
+        string $class
+    ): array {
+        $pax = [];
+        if ($adults > 0) {
+            $pax[] = $adults . ' adult' . ($adults > 1 ? 's' : '');
+        }
+        if ($children > 0) {
+            $pax[] = $children . ' child' . ($children > 1 ? 'ren' : '');
+        }
+        if ($infants > 0) {
+            $pax[] = $infants . ' infant' . ($infants > 1 ? 's' : '');
+        }
+        $cabinLabels = [
+            'economy' => 'Economy',
+            'premium_economy' => 'Premium Economy',
+            'business' => 'Business',
+            'first' => 'First',
+        ];
+        $cabin = $cabinLabels[strtolower($class)] ?? ucfirst($class);
+        $isReturn = $tripType === 'return';
+
+        return [
+            'origin_label'  => $originLabel,
+            'destination_label' => $destLabel,
+            'origin_code'   => strtoupper($originCode),
+            'destination_code' => strtoupper($destCode),
+            'trip_type'     => $isReturn ? 'return' : 'oneway',
+            'trip_label'    => $isReturn ? 'Round trip' : 'One way',
+            'departure_date' => $departure,
+            'return_date'   => $returnDate,
+            'travellers'    => $pax !== [] ? implode(', ', $pax) : '1 adult',
+            'cabin'         => $cabin,
         ];
     }
 
@@ -4124,7 +4196,7 @@ PROMPT;
         $adults = max(1, (int) ($fields['adults'] ?? 1));
         $children = max(0, (int) ($fields['children'] ?? 0));
 
-        return [
+        $entry = [
             'module' => 'tours',
             'badge' => 'AI TOUR GUIDE',
             'title' => 'Tours in ' . $destCity,
@@ -4147,6 +4219,21 @@ PROMPT;
             // 0 = no artificial AI cap
             'items_limit' => 0,
         ];
+
+        // Attach REAL, local tour cards (our own tours inventory) so GIA can suggest
+        // specifics. Local-DB lookup: fast, always available. Fails SOFT.
+        $entry['cards'] = $this->attachLocalCards('tours', [
+            'destination' => $destCity,
+            'duration'    => $duration,
+            'adults'      => $adults,
+            'children'    => $children,
+            'currency'    => $currency,
+        ]);
+        if ($entry['cards'] !== []) {
+            $entry['result_count'] = count($entry['cards']);
+        }
+
+        return $entry;
     }
 
     /**
@@ -4219,7 +4306,7 @@ PROMPT;
                 . $nationality . '/' . $rooms . '/' . $roomConfigs)
             : 'stays';
 
-        return [
+        $entry = [
             'module' => 'stays',
             'badge' => 'AI STAYS GUIDE',
             'title' => $needsDestination ? 'Stays' : ('Stays in ' . $destCity),
@@ -4252,6 +4339,21 @@ PROMPT;
             // 0 = no artificial AI cap
             'items_limit' => 0,
         ];
+
+        // Attach REAL, approved LOCAL hotel cards (our own stays inventory) so GIA
+        // can suggest specifics — regardless of whether a live supplier module is
+        // configured. Local-DB lookup: fast, always available. Fails SOFT.
+        if (!$needsDestination) {
+            $entry['cards'] = $this->attachLocalCards('stays', [
+                'destination' => $destCity,
+                'currency'    => $currency,
+            ]);
+            if ($entry['cards'] !== []) {
+                $entry['result_count'] = count($entry['cards']);
+            }
+        }
+
+        return $entry;
     }
 
     /**
@@ -4533,7 +4635,7 @@ PROMPT;
             'currency' => $currency,
         ];
 
-        return [
+        $entry = [
             'module' => 'bus',
             'badge' => 'AI BUS GUIDE',
             'title' => 'Bus ' . $originCity . ' → ' . $destCity,
@@ -4545,6 +4647,21 @@ PROMPT;
             // 0 = no artificial AI cap
             'items_limit' => 0,
         ];
+
+        // Attach REAL, local bus trip cards (our own bus inventory) so GIA can
+        // suggest specifics. Local-DB lookup: fast, always available. Fails SOFT.
+        $entry['cards'] = $this->attachLocalCards('bus', [
+            'origin'      => $originCity,
+            'destination' => $destCity,
+            'date'        => $date,
+            'passengers'  => max(1, $passengers),
+            'currency'    => $currency,
+        ]);
+        if ($entry['cards'] !== []) {
+            $entry['result_count'] = count($entry['cards']);
+        }
+
+        return $entry;
     }
 
     /**
@@ -4824,29 +4941,102 @@ PROMPT;
             $subtitle .= ' · ' . implode('; ', $notes);
         }
 
-        return [
+        $params = [
+            'destination' => $destParam,
+            'start_date' => $startDmY,
+            'start_date_ymd' => $startYmd,
+            'duration' => $durationParam,
+            'umrah_type' => $typeParam,
+            'services' => $servicesParam,
+            'adults' => (string)$adults,
+            'children' => (string)$children,
+            'infants' => (string)$infants,
+            'currency' => $currency,
+        ];
+
+        $entry = [
             'module' => 'umrah',
             'badge' => 'AI UMRAH',
             'title' => $hasDest ? ('Umrah — ' . $dest) : 'Umrah',
             'subtitle' => $subtitle,
             'searchable' => $searchable,
             'suppliers' => $umrahSuppliers,
-            'params' => [
-                'destination' => $destParam,
-                'start_date' => $startDmY,
-                'start_date_ymd' => $startYmd,
-                'duration' => $durationParam,
-                'umrah_type' => $typeParam,
-                'services' => $servicesParam,
-                'adults' => (string)$adults,
-                'children' => (string)$children,
-                'infants' => (string)$infants,
-                'currency' => $currency,
-            ],
+            'params' => $params,
             'listing_url' => $listingUrl,
             // 0 = no artificial AI cap
             'items_limit' => 0,
         ];
+
+        // Attach REAL, priced package cards from our local umrah inventory so GIA can
+        // talk about actual packages/prices and the UI can render rich cards.
+        $entry['cards'] = $this->attachLocalCards('umrah', [
+            'destination' => $destParam,
+            'start_date'  => $startDmY,
+            'duration'    => $durationParam,
+            'umrah_type'  => $typeParam,
+            'services'    => $servicesParam,
+            'adults'      => $adults,
+            'children'    => $children,
+            'infants'     => $infants,
+            'currency'    => $currency,
+        ]);
+        if ($entry['cards'] !== []) {
+            $entry['result_count'] = count($entry['cards']);
+        }
+
+        return $entry;
+    }
+
+    /**
+     * Attach REAL, bookable result cards for a LOCAL-DB module (umrah / stays /
+     * tours / bus). These modules read our own inventory tables, so the lookup is
+     * fast and always available — unlike live-supplier modules (flights / cars /
+     * rail / ferries / esim) which keep their deep-link intent to avoid a slow
+     * external call mid-chat.
+     *
+     * This is the single place the per-module card helpers are loaded + invoked.
+     * It is READ-ONLY and fails SOFT: on any error it returns [] so the search
+     * entry still carries its intent and the chat never breaks.
+     *
+     * @param string $module One of umrah|stays|tours|bus.
+     * @param array<string,mixed> $input Already-resolved params for that module.
+     * @return array<int,array<string,mixed>> Cards (possibly empty).
+     */
+    private function attachLocalCards(string $module, array $input): array
+    {
+        // Map module -> helper file + function (the only local-DB card builders).
+        static $registry = [
+            'umrah' => ['umrah/listing.php', 'umrahListingCards'],
+            'stays' => ['stays/listing.php', 'staysListingCards'],
+            'tours' => ['tours/listing.php', 'toursListingCards'],
+            'bus'   => ['bus/listing.php',   'busListingCards'],
+        ];
+        if (!isset($registry[$module])) {
+            return [];
+        }
+        [$relPath, $fn] = $registry[$module];
+
+        try {
+            if (!function_exists($fn)) {
+                $helper = dirname(__DIR__) . '/' . $relPath;
+                if (is_file($helper)) {
+                    require_once $helper;
+                }
+            }
+            if (!function_exists($fn)) {
+                return [];
+            }
+            // Keep the chat result set tight.
+            if (!array_key_exists('items_limit', $input)) {
+                $input['items_limit'] = 6;
+            }
+            $built = $fn($input, $this->db);
+            $cards = is_array($built['cards'] ?? null) ? $built['cards'] : [];
+            return $cards;
+        } catch (\Throwable $e) {
+            error_log('[ai][' . $module . '] local card fetch failed: ' . $e->getMessage());
+            return [];
+        }
     }
 
     /**
