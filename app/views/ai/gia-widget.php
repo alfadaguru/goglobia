@@ -11,10 +11,31 @@ $giaWDb = $db ?? ($GLOBALS['db'] ?? null);
 if (!function_exists('aiTripIsEnabled') || $giaWDb === null || !aiTripIsEnabled($giaWDb)) {
     return;
 }
+
+// --- Page context: detect which service the visitor is looking at, so GIA's
+//     opening line + idle nudge are tailored (e.g. on /umrah it talks umrah).
+//     Pure read of the request path; no DB, no side effects. ---
+$giaWPath = strtolower(trim((string)($_GET['url'] ?? ''), '/'));
+$giaWFirst = $giaWPath === '' ? '' : explode('/', $giaWPath)[0];
+$giaWModuleAliases = [
+    'flights' => 'flights', 'flight' => 'flights',
+    'stays' => 'stays', 'hotels' => 'stays', 'hotel' => 'stays',
+    'tours' => 'tours', 'tour' => 'tours',
+    'cars' => 'cars', 'car' => 'cars',
+    'visa' => 'visa', 'visas' => 'visa',
+    'esim' => 'esim',
+    'ferries' => 'ferries', 'ferry' => 'ferries',
+    'rail' => 'rail', 'train' => 'rail', 'trains' => 'rail',
+    'bus' => 'bus',
+    'umrah' => 'umrah',
+];
+$giaWContext = $giaWModuleAliases[$giaWFirst] ?? '';
+
 $giaWCfg = json_encode([
     'endpoint'  => root . 'api/gia/chat',
     'csrfToken' => class_exists('CSRF') ? CSRF::getToken() : '',
     'root'      => root,
+    'context'   => $giaWContext,
 ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE);
 ?>
 <style>
@@ -42,11 +63,44 @@ $giaWCfg = json_encode([
   .giaw-foot{border-top:1px solid #eef2f7;padding:10px 12px;background:#fff}
   @media (max-width:420px){.giaw-panel{right:0;bottom:0;width:100vw;height:100vh;max-height:100vh;border-radius:0}}
   [x-cloak]{display:none!important}
+  /* Proactive teaser bubble above the FAB */
+  .giaw-teaser{position:fixed;right:20px;bottom:92px;z-index:9998;width:260px;max-width:calc(100vw - 40px);
+    background:#fff;border-radius:16px 16px 16px 4px;padding:12px 14px;cursor:pointer;
+    box-shadow:0 12px 32px rgba(0,0,0,.18);border:1px solid #eef2f7;animation:giaw-rise .35s ease both}
+  .giaw-teaser:hover{box-shadow:0 14px 38px rgba(0,88,230,.22)}
+  .giaw-teaser-av{color:#0058E6;font-size:20px;flex:none;margin-top:1px}
+  .giaw-teaser-txt{font-size:.8rem;line-height:1.35;color:#0f172a;margin:0}
+  .giaw-teaser-x{position:absolute;top:6px;right:6px;width:20px;height:20px;border:0;background:#f1f5f9;
+    border-radius:50%;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .giaw-teaser-x:hover{background:#e2e8f0}
+  @keyframes giaw-rise{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}
+  /* Gentle attention pulse on the bubble */
+  .giaw-pulse{animation:giaw-fab-pulse 2.2s ease-in-out infinite}
+  @keyframes giaw-fab-pulse{0%,100%{box-shadow:0 8px 24px rgba(0,88,230,.35)}50%{box-shadow:0 8px 24px rgba(0,88,230,.35),0 0 0 10px rgba(0,88,230,.12)}}
+  @media (prefers-reduced-motion:reduce){.giaw-pulse,.giaw-teaser{animation:none}}
+  /* Quick-reply chips under GIA messages */
+  .giaw-qr{font-size:.72rem;font-weight:600;color:#0058E6;background:#eaf1fe;border:1px solid #d7e5fd;
+    border-radius:999px;padding:4px 10px;cursor:pointer;transition:background .15s}
+  .giaw-qr:hover{background:#dbe8fe}
 </style>
 
-<div x-data='giaWidget(<?= $giaWCfg ?>)' x-cloak>
+<div x-data='giaWidget(<?= $giaWCfg ?>)' x-init="init()" x-cloak>
+  <!-- Proactive teaser: a little speech bubble GIA "says" above the FAB on first
+       visit / when idle. Tapping it opens the chat with that message prefilled. -->
+  <div class="giaw-teaser" x-show="teaser && !open" x-transition
+       @click="openFromTeaser()" x-cloak>
+    <button type="button" class="giaw-teaser-x" @click.stop="dismissTeaser()" aria-label="Dismiss">
+      <span class="material-symbols-outlined" style="font-size:15px">close</span>
+    </button>
+    <div class="flex items-start gap-2">
+      <span class="giaw-teaser-av material-symbols-outlined">travel_explore</span>
+      <p class="giaw-teaser-txt" x-text="teaser"></p>
+    </div>
+  </div>
+
   <!-- Floating bubble -->
-  <button type="button" class="giaw-fab" x-show="!open" @click="toggle()" aria-label="Ask GIA">
+  <button type="button" class="giaw-fab" x-show="!open" @click="toggle()" aria-label="Ask GIA"
+          :class="pulse && !open ? 'giaw-pulse' : ''">
     <span class="material-symbols-outlined">forum</span>
   </button>
 
@@ -78,6 +132,15 @@ $giaWCfg = json_encode([
           <div class="max-w-[88%]">
             <div class="px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap" :class="m.role==='user' ? 'giaw-u' : 'giaw-a'"
                  x-html="m.role==='user' ? escapeHtml(m.text) : renderMarkdown(m.text)"></div>
+
+            <!-- Quick-reply chips (one-tap starters under a GIA message) -->
+            <template x-if="m.role!=='user' && m.quick && m.quick.length && i===messages.length-1 && !sending">
+              <div class="mt-1.5 flex flex-wrap gap-1.5">
+                <template x-for="(q,qi) in m.quick" :key="qi">
+                  <button type="button" class="giaw-qr" @click="send(q)" x-text="q"></button>
+                </template>
+              </div>
+            </template>
 
             <template x-if="m.searches && m.searches.length">
               <div class="mt-1.5 space-y-1.5">
@@ -190,14 +253,64 @@ $giaWCfg = json_encode([
 <script>
 function giaWidget(cfg){
   return {
-    endpoint: cfg.endpoint, csrfToken: cfg.csrfToken || '', root: cfg.root || '',
+    endpoint: cfg.endpoint, csrfToken: cfg.csrfToken || '', root: cfg.root || '', context: cfg.context || '',
     open:false, messages:[], draft:'', sending:false, lastUserText:'',
+    teaser:'', pulse:false, greeted:false, idleTimer:null, nudged:false,
     starters:['Umrah from Kano next month','Trip to Dubai from Abuja','Hotel in Zanzibar'],
-    toggle(){ this.open=!this.open; if(this.open) this.$nextTick(()=>{ if(this.$refs.input) this.$refs.input.focus(); this.scrollDown(); }); },
+    // Per-context copy so GIA opens relevantly (e.g. on /umrah it talks umrah).
+    ctxCopy:{
+      umrah:  {teaser:"Planning Umrah? 🕋 I can show you our packages in seconds — want to see them?", starters:['Show me Umrah packages','Umrah for 2 adults','Cheapest Umrah option']},
+      flights:{teaser:"Looking for flights? Tell me where from and to — I'll find live fares.", starters:['Lagos to London','Abuja to Dubai next month','Cheapest flight out']},
+      stays:  {teaser:"Need a place to stay? Tell me the city and I'll pull up great hotels.", starters:['Hotels in Dubai','Family hotel in Zanzibar','Budget stay this weekend']},
+      tours:  {teaser:"Want something fun to do? I can find tours and experiences for you.", starters:['Tours in Dubai','City tour this week','Adventure day trip']},
+      bus:    {teaser:"Travelling by road? Tell me your route and date — I'll find buses.", starters:['Bus Lahore to Islamabad','Cheapest coach tomorrow']},
+      '':     {teaser:"Hi, I'm GIA 👋 Where would you like to go? I can plan and book it for you.", starters:['Umrah from Kano next month','Trip to Dubai from Abuja','Hotel in Zanzibar']}
+    },
+    init(){
+      const c = this.ctxCopy[this.context] || this.ctxCopy[''];
+      this.starters = c.starters;
+      // First-visit greeting teaser: appear shortly after load (warm, not instant),
+      // once per browser session. A gentle pulse draws the eye.
+      try{
+        if(!sessionStorage.getItem('gia_greeted')){
+          setTimeout(()=>{ if(!this.open){ this.teaser=c.teaser; this.pulse=true; sessionStorage.setItem('gia_greeted','1'); } }, 1800);
+        } else { this.pulse=false; }
+      }catch(e){ setTimeout(()=>{ if(!this.open) this.teaser=c.teaser; }, 1800); }
+      this.armIdle();
+      ['click','keydown','scroll','mousemove','touchstart'].forEach(ev=>
+        window.addEventListener(ev, ()=>this.armIdle(), {passive:true}));
+    },
+    armIdle(){
+      if(this.nudged) return;
+      clearTimeout(this.idleTimer);
+      this.idleTimer=setTimeout(()=>{
+        if(this.open||this.nudged) return;
+        const c=this.ctxCopy[this.context]||this.ctxCopy[''];
+        this.teaser = this.context==='umrah'
+          ? "Still thinking about Umrah? I've got packages ready whenever you are 🙂"
+          : "Need a hand? I can find and book your trip in a couple of minutes.";
+        this.pulse=true; this.nudged=true;
+      }, 38000);
+    },
+    openFromTeaser(){ const t=this.teaser; this.teaser=''; this.pulse=false; this.open=true;
+      this.$nextTick(()=>{ if(this.$refs.input) this.$refs.input.focus(); if(this.messages.length===0) this.showGreeting(); this.scrollDown(); }); },
+    dismissTeaser(){ this.teaser=''; this.pulse=false; },
+    showGreeting(){ if(this.greeted) return; this.greeted=true;
+      const c=this.ctxCopy[this.context]||this.ctxCopy[''];
+      const hi = this.context==='umrah'
+        ? "Assalamu alaikum 🕋 I'm GIA. Ask me about Umrah and I'll show you our packages right away — no long forms."
+        : (this.context ? c.teaser : "Hi, I'm GIA — GoGlobia's travel assistant 👋 Tell me what you're dreaming up and I'll find real options and book it with you.");
+      this.messages.push({role:'ai',text:hi, quick:c.starters});
+    },
+    toggle(){ this.open=!this.open; this.teaser=''; this.pulse=false;
+      if(this.open) this.$nextTick(()=>{ if(this.$refs.input) this.$refs.input.focus(); if(this.messages.length===0) this.showGreeting(); this.scrollDown(); }); },
     autoGrow(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,100)+'px'; },
     async send(preset){
       const text=(preset!==undefined?preset:this.draft).trim();
       if(!text||this.sending) return;
+      // Engaging = stop all proactive nudging for this session.
+      this.teaser=''; this.pulse=false; this.nudged=true; clearTimeout(this.idleTimer);
+      if(!this.open){ this.open=true; this.$nextTick(()=>this.scrollDown()); }
       this.lastUserText=text; this.messages.push({role:'user',text}); this.draft='';
       this.$nextTick(()=>{ if(this.$refs.input)this.$refs.input.style.height='auto'; this.scrollDown(); });
       await this.post({message:text});
