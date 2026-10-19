@@ -250,7 +250,15 @@ $giaWCfg = json_encode([
             <template x-if="m.payment && m.payment.redirect_url">
               <div class="mt-1.5 giaw-card p-3">
                 <span class="giaw-chip bg-green-50 text-green-700">Approved — pay securely</span>
-                <a :href="m.payment.redirect_url" class="mt-2 block text-center w-full py-2 rounded-lg text-white font-semibold text-[13px]" style="background:#16a34a">Continue to secure payment</a>
+                <p class="text-[11px] text-slate-500 mt-1.5 mb-2">Complete the secure payment right here to confirm your booking.</p>
+                <!-- Pay IN-CHAT: the secure payment page loads in the side drawer so the
+                     traveller never leaves the conversation. -->
+                <button type="button" @click="openPayment(m.payment.redirect_url)"
+                        class="block w-full py-2 rounded-lg text-white font-semibold text-[13px]" style="background:#16a34a">
+                  Pay securely now
+                </button>
+                <a :href="absUrl(m.payment.redirect_url)" target="_blank" rel="noopener"
+                   class="block text-center text-[10px] text-slate-400 mt-1 hover:text-slate-600">or open in a new tab</a>
               </div>
             </template>
 
@@ -431,6 +439,12 @@ function giaWidget(cfg){
     // never leaves the chat. Makes sure the panel is open so the drawer has a home.
     openDrawer(url, title){ if(!url||url==='#') return; this.open=true; this.drawerUrl=url; this.drawerTitle=title||'Details'; this.drawer=true; },
     closeDrawer(){ this.drawer=false; this.drawerUrl=''; },
+    // Payment: same-origin pages load in the drawer (in-chat); an EXTERNAL gateway
+    // URL (Paystack/Stripe-hosted) can't be framed, so open it in a new tab instead
+    // of flashing a blank drawer.
+    openPayment(url){ if(!url) return; const u=this.absUrl(url); let sameOrigin=false;
+      try{ sameOrigin = new URL(u, window.location.href).origin === window.location.origin; }catch(e){}
+      if(sameOrigin){ this.openDrawer(u, 'Secure payment'); } else { window.open(u, '_blank', 'noopener'); } },
     scrollDown(){ const s=this.$refs.scroll; if(s) s.scrollTop=s.scrollHeight; },
     money(a,c){ const n=Number(a||0); return (c?c+' ':'')+n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); },
     hasSummary(sr){ const s=sr&&sr.summary; if(!s||typeof s!=='object') return false; return !!(s.origin_label||s.origin_code||s.headline); },
