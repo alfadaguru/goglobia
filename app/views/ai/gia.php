@@ -322,9 +322,9 @@ function giaChat(cfg) {
     sending: false,
     lastUserText: '',
     starters: [
-      'Umrah packages from Kano next month for 1 traveller',
-      'Plan a 5-day trip to Dubai from Abuja under ₦2.5m',
+      'Flights from Abuja to Dubai next month',
       'Family-friendly hotel in Zanzibar for a week',
+      'Plan a 5-day trip to Dubai under ₦2.5m',
     ],
 
     leadShown: false, leadDone: false, leadName: '', leadEmail: '', leadPhone: '', leadMsg: '',

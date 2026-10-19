@@ -314,7 +314,7 @@ function giaWidget(cfg){
     teaser:'', pulse:false, greeted:false, idleTimer:null, nudged:false,
     leadShown:false, leadDone:false, leadOpen:false, leadName:'', leadEmail:'', leadPhone:'', leadMsg:'',
     drawer:false, drawerUrl:'', drawerTitle:'',
-    starters:['Umrah from Kano next month','Trip to Dubai from Abuja','Hotel in Zanzibar'],
+    starters:['Flights to Dubai','Hotels in Lagos','Plan a trip to Zanzibar'],
     // Per-context copy so GIA opens relevantly (e.g. on /umrah it talks umrah).
     ctxCopy:{
       umrah:  {teaser:"Planning Umrah? 🕋 I can show you our packages in seconds — want to see them?", starters:['Show me Umrah packages','Umrah for 2 adults','Cheapest Umrah option']},
@@ -322,7 +322,7 @@ function giaWidget(cfg){
       stays:  {teaser:"Need a place to stay? Tell me the city and I'll pull up great hotels.", starters:['Hotels in Dubai','Family hotel in Zanzibar','Budget stay this weekend']},
       tours:  {teaser:"Want something fun to do? I can find tours and experiences for you.", starters:['Tours in Dubai','City tour this week','Adventure day trip']},
       bus:    {teaser:"Travelling by road? Tell me your route and date — I'll find buses.", starters:['Bus Lahore to Islamabad','Cheapest coach tomorrow']},
-      '':     {teaser:"Hi, I'm GIA 👋 Where would you like to go? I can plan and book it for you.", starters:['Umrah from Kano next month','Trip to Dubai from Abuja','Hotel in Zanzibar']}
+      '':     {teaser:"Hi, I'm GIA 👋 Where would you like to go, or what can I help you book?", starters:['Flights to Dubai','Hotels in Lagos','Plan a trip to Zanzibar']}
     },
     init(){
       const c = this.ctxCopy[this.context] || this.ctxCopy[''];
