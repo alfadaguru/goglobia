@@ -85,8 +85,17 @@ if (!function_exists('supplier_payout_request')) {
      * RESERVES the covering earnings (sets payout_id) so the same money can't be
      * requested twice. Returns ['ok'=>bool,'payout_id'=>?int,'message'=>?].
      * State starts 'requested' — NO money moves here; an admin must approve.
+     *
+     * $opts (all optional — defaults preserve the original behaviour):
+     *   'account' => a supplier_bank_accounts snapshot [bank_code, account_number,
+     *                account_name, bank_name, recipient_code, id] to use as the payout
+     *                destination INSTEAD of the legacy users.payout_* columns. When
+     *                omitted, the users.payout_* columns are used (backward compatible).
+     *   'fee'     => the fee (same currency) deducted from this payout; recorded on the
+     *                row as fee_amount. Default 0. The reserved earnings = $amount (the
+     *                gross); the supplier receives $amount - fee at transfer time.
      */
-    function supplier_payout_request($db, string $owner, float $amount, string $currency): array
+    function supplier_payout_request($db, string $owner, float $amount, string $currency, array $opts = []): array
     {
         $owner = trim($owner);
         $currency = strtoupper(trim($currency)) ?: 'USD';
@@ -94,18 +103,35 @@ if (!function_exists('supplier_payout_request')) {
         if ($owner === '') { return ['ok' => false, 'message' => 'No owner']; }
         if ($amount <= 0) { return ['ok' => false, 'message' => 'Amount must be positive']; }
 
-        // Bank details must be on file before a request.
+        // Resolve the destination: a provided bank-account snapshot wins; else fall back
+        // to the legacy single account on the users row.
+        $acct = (isset($opts['account']) && is_array($opts['account'])) ? $opts['account'] : null;
         $u = $db->get('users', ['payout_bank_code', 'payout_account_number', 'payout_account_name', 'org_id'], ['user_id' => $owner]);
-        $bankCode = trim((string) ($u['payout_bank_code'] ?? ''));
-        $acctNo   = trim((string) ($u['payout_account_number'] ?? ''));
+        if ($acct !== null) {
+            $bankCode = trim((string) ($acct['bank_code'] ?? ''));
+            $acctNo   = trim((string) ($acct['account_number'] ?? ''));
+            $acctName = trim((string) ($acct['account_name'] ?? '')) ?: trim((string) ($acct['verified_name'] ?? ''));
+            $bankName = trim((string) ($acct['bank_name'] ?? ''));
+            $recipient= trim((string) ($acct['recipient_code'] ?? ''));
+            $bankAcctId = (int) ($acct['id'] ?? 0);
+        } else {
+            $bankCode = trim((string) ($u['payout_bank_code'] ?? ''));
+            $acctNo   = trim((string) ($u['payout_account_number'] ?? ''));
+            $acctName = trim((string) ($u['payout_account_name'] ?? ''));
+            $bankName = '';
+            $recipient= '';
+            $bankAcctId = 0;
+        }
         if ($bankCode === '' || $acctNo === '') {
             return ['ok' => false, 'message' => 'Add your bank details before requesting a payout.'];
         }
+        $fee = round(max(0.0, (float) ($opts['fee'] ?? 0)), 2);
+        if ($fee > $amount) { $fee = $amount; } // never exceed the gross
         $orgId = function_exists('supplier_org_for_owner') ? supplier_org_for_owner($db, $owner) : 0;
 
         $result = ['ok' => false, 'message' => 'Could not create the payout request'];
         try {
-            $db->action(function ($db) use ($owner, $amount, $currency, $bankCode, $acctNo, $u, $orgId, &$result) {
+            $db->action(function ($db) use ($owner, $amount, $currency, $bankCode, $acctNo, $acctName, $bankName, $recipient, $bankAcctId, $fee, $orgId, &$result) {
                 // Lock this owner's unreserved available earnings in this currency.
                 $locked = $db->query(
                     "SELECT id, net_amount FROM supplier_earnings
@@ -122,17 +148,24 @@ if (!function_exists('supplier_payout_request')) {
                     return false; // rollback
                 }
 
-                // Create the payout row (requested).
+                // Create the payout row (requested). The destination + fee are snapshotted
+                // here so later changes to the supplier's accounts never alter an in-flight
+                // payout. Columns fee_amount/bank_name/bank_account_id/recipient_code are
+                // ensured by supplier_payouts_ext.php (idempotent) and present in db.sql.
                 $ref = supplier_payout_reference();
                 $db->insert('supplier_payouts', [
                     'org_id'          => $orgId > 0 ? $orgId : null,
                     'owner_user_id'   => $owner,
                     'currency'        => $currency,
                     'amount'          => $amount,
+                    'fee_amount'      => $fee,
                     'state'           => 'requested',
                     'bank_code'       => $bankCode,
                     'account_number'  => $acctNo,
-                    'account_name'    => trim((string) ($u['payout_account_name'] ?? '')) ?: null,
+                    'account_name'    => $acctName !== '' ? $acctName : null,
+                    'bank_name'       => $bankName !== '' ? $bankName : null,
+                    'bank_account_id' => $bankAcctId > 0 ? $bankAcctId : null,
+                    'recipient_code'  => $recipient !== '' ? $recipient : null,
                     'reference'       => $ref,
                     'requested_at'    => date('Y-m-d H:i:s'),
                     'created_at'      => date('Y-m-d H:i:s'),
@@ -349,7 +382,10 @@ if (!function_exists('supplier_payout_approve_and_send')) {
             return ['ok' => false, 'message' => 'Paystack NGN gateway not configured for payouts.'];
         }
 
-        // 1) Ensure a transfer recipient (cache the recipient_code on the payout + user).
+        // 1) Ensure a transfer recipient. The recipient_code is snapshotted on the payout
+        //    at request time (from the chosen bank account); if absent we create one and
+        //    cache it back onto BOTH the payout and the originating bank account so future
+        //    payouts to that account reuse it.
         $recipient = trim((string) ($p['recipient_code'] ?? ''));
         if ($recipient === '') {
             $rres = paystack_dva_http('POST', 'https://api.paystack.co/transferrecipient', $secret, [
@@ -366,6 +402,15 @@ if (!function_exists('supplier_payout_approve_and_send')) {
                 return ['ok' => false, 'message' => 'Could not create transfer recipient: ' . $msg];
             }
             $db->update('supplier_payouts', ['recipient_code' => $recipient], ['id' => $payoutId]);
+            // Cache on the originating bank account (if this payout came from one).
+            $baId = (int) ($p['bank_account_id'] ?? 0);
+            if ($baId > 0) {
+                try {
+                    $db->update('supplier_bank_accounts',
+                        ['recipient_code' => $recipient, 'updated_at' => date('Y-m-d H:i:s')],
+                        ['id' => $baId]);
+                } catch (\Throwable $e) { error_log('payout recipient cache: ' . $e->getMessage()); }
+            }
         }
 
         // 1b) FLOAT PREFLIGHT (PMS #40, guard #5): check the platform's Paystack NGN
@@ -377,7 +422,23 @@ if (!function_exists('supplier_payout_approve_and_send')) {
         //     ultimate authority and will reject if truly short); we only hard-stop when
         //     we positively know the float is short. The payout stays 'approved' with
         //     its reservation intact.
-        $kobo = (int) round(((float) $p['amount']) * 100);
+        // NET to bank = gross reserved amount MINUS the fee the platform keeps (owner-
+        // chosen: fee is DEDUCTED from the supplier). The reserved earnings stay at the
+        // gross; the supplier's bank receives (amount - fee). fee_amount is a column on
+        // the payout row (0 for legacy rows / when no fee is configured).
+        $feeAmt = round(max(0.0, (float) ($p['fee_amount'] ?? 0)), 2);
+        $gross  = round((float) $p['amount'], 2);
+        if ($feeAmt > $gross) { $feeAmt = $gross; }
+        $netAmount = round($gross - $feeAmt, 2);
+        if ($netAmount <= 0) {
+            // A fee that consumes the whole payout would mean sending zero — refuse rather
+            // than fire a non-sensical transfer. Revert the claim so it can be fixed.
+            $db->update('supplier_payouts',
+                ['state' => $state, 'failure_reason' => 'fee >= amount (nothing to send)'],
+                ['id' => $payoutId, 'state' => 'approved']);
+            return ['ok' => false, 'message' => 'Payout not sent: the fee leaves nothing to transfer.'];
+        }
+        $kobo = (int) round($netAmount * 100);
         $balRes = paystack_dva_http('GET', 'https://api.paystack.co/balance', $secret, null);
         if (!empty($balRes['json']['data']) && is_array($balRes['json']['data'])) {
             $ngnAvail = null;
@@ -443,5 +504,82 @@ if (!function_exists('supplier_payout_approve_and_send')) {
             ['id' => $payoutId]);
         supplier_payout_release_reservation($db, $payoutId);
         return ['ok' => false, 'state' => 'failed', 'message' => 'Transfer failed: ' . $msg];
+    }
+}
+
+if (!function_exists('supplier_payout_finalize_transfer')) {
+    /**
+     * Apply an AUTHORITATIVE transfer outcome from Paystack (webhook event or a verify
+     * lookup) to a payout, idempotently and state-guarded. $outcome is one of:
+     *   'success'  -> debit reserved earnings 'available'->'paid', payout 'paid'
+     *   'failed'   -> payout 'failed', release the reservation (money is requestable again)
+     *   'reversed' -> a previously-accepted transfer bounced back: payout 'failed',
+     *                 and if it had already been debited to 'paid', the paid earnings are
+     *                 returned to 'available' (reservation released) so the money is not lost.
+     *
+     * Matching is by the payout row (already resolved by the caller, usually via
+     * `reference`). Safe to call repeatedly — a payout already in the target terminal
+     * state is a no-op. Returns ['ok'=>bool,'state'=>,'changed'=>bool,'message'=>].
+     *
+     * WHY this exists: approve_and_send flips pending->paid on the SYNCHRONOUS response,
+     * but Paystack's authoritative result arrives by webhook. A later 'failed'/'reversed'
+     * must be able to correct an optimistic 'paid', and a 'success' must finalise a
+     * payout still sitting in 'processing' (e.g. the sync response was 'pending').
+     */
+    function supplier_payout_finalize_transfer($db, int $payoutId, string $outcome, string $transferCode = '', string $note = ''): array
+    {
+        $outcome = strtolower(trim($outcome));
+        $p = $db->get('supplier_payouts', '*', ['id' => $payoutId]);
+        if (!$p) { return ['ok' => false, 'changed' => false, 'message' => 'Payout not found']; }
+        $state = (string) $p['state'];
+        $tc = $transferCode !== '' ? $transferCode : (string) ($p['transfer_code'] ?? '');
+
+        if ($outcome === 'success') {
+            if ($state === 'paid') {
+                return ['ok' => true, 'state' => 'paid', 'changed' => false, 'message' => 'Already paid.'];
+            }
+            if (!in_array($state, ['processing', 'approved'], true)) {
+                // 'failed'/'rejected'/'requested' shouldn't receive a success; don't force it.
+                return ['ok' => false, 'state' => $state, 'changed' => false, 'message' => 'Not in a finalisable state (' . $state . ').'];
+            }
+            try {
+                $db->update('supplier_earnings',
+                    ['state' => 'paid', 'updated_at' => date('Y-m-d H:i:s')],
+                    ['payout_id' => $payoutId, 'state' => 'available']);
+            } catch (\Throwable $e) { error_log('finalize debit: ' . $e->getMessage()); }
+            $db->update('supplier_payouts',
+                ['state' => 'paid', 'transfer_code' => $tc ?: null, 'paid_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+                ['id' => $payoutId, 'state' => $state]); // guard: only from the state we read
+            if (function_exists('emit_event')) {
+                emit_event($db, 'payout.paid', ['payout_id' => $payoutId, 'amount' => (float) $p['amount'], 'currency' => $p['currency']],
+                    'supplier_payout', $payoutId, $p['org_id'] !== null ? (int) $p['org_id'] : null);
+            }
+            return ['ok' => true, 'state' => 'paid', 'changed' => true, 'message' => 'Transfer confirmed; marked paid.'];
+        }
+
+        if ($outcome === 'failed' || $outcome === 'reversed') {
+            if (in_array($state, ['failed', 'rejected', 'cancelled'], true)) {
+                return ['ok' => true, 'state' => $state, 'changed' => false, 'message' => 'Already terminal.'];
+            }
+            // If it had been (optimistically or really) debited to 'paid', return those
+            // earnings to 'available' so the money is not lost; then release the reservation.
+            if ($state === 'paid') {
+                try {
+                    $db->update('supplier_earnings',
+                        ['state' => 'available', 'updated_at' => date('Y-m-d H:i:s')],
+                        ['payout_id' => $payoutId, 'state' => 'paid']);
+                } catch (\Throwable $e) { error_log('finalize unwind: ' . $e->getMessage()); }
+            }
+            $reason = $outcome === 'reversed' ? 'transfer reversed' : 'transfer failed';
+            if ($note !== '') { $reason .= ': ' . $note; }
+            $db->update('supplier_payouts',
+                ['state' => 'failed', 'transfer_code' => $tc ?: null,
+                 'failure_reason' => substr($reason, 0, 255), 'updated_at' => date('Y-m-d H:i:s')],
+                ['id' => $payoutId]);
+            supplier_payout_release_reservation($db, $payoutId);
+            return ['ok' => true, 'state' => 'failed', 'changed' => true, 'message' => ucfirst($reason) . '; reservation released.'];
+        }
+
+        return ['ok' => false, 'state' => $state, 'changed' => false, 'message' => 'Unknown outcome: ' . $outcome];
     }
 }

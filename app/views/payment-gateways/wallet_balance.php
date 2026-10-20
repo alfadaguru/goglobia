@@ -361,6 +361,14 @@ try {
         }
     }
 
+    // SUPPLIER EARNINGS: the wallet path is synchronous and never calls
+    // handle_payment_callback, so accrue own-inventory earnings here too. Idempotent +
+    // self-guarding (own-inventory real-supplier owner only; no-op otherwise).
+    if (function_exists('supplier_earning_accrue_for_booking')) {
+        try { supplier_earning_accrue_for_booking($db, (string) $booking['invoice_id']); }
+        catch (\Throwable $e) { error_log('wallet_balance accrue: ' . $e->getMessage()); }
+    }
+
     // Get full booking data for auto-issue
     $bookingData = $db->get('bookings', '*', ['invoice_id' => $booking['invoice_id']]);
     

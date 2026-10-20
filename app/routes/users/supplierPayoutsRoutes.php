@@ -92,16 +92,50 @@ $router->post('/supplier/payouts/request', function () use ($SECURE, $db) {
     if ($owner === null) { header('Location: ' . root . 'supplier/dashboard'); exit; }
     $back = root . 'supplier/payouts';
 
-    $amount   = round((float) ($_POST['amount'] ?? 0), 2);
-    $currency = strtoupper(trim((string) ($_POST['currency'] ?? 'NGN')));
+    $amount    = round((float) ($_POST['amount'] ?? 0), 2);
+    $currency  = strtoupper(trim((string) ($_POST['currency'] ?? 'NGN')));
+    $accountId = (int) ($_POST['account_id'] ?? 0);
+    // Where to send the supplier back: the wallet page if they came from it, else payouts.
+    if (!empty($_POST['from']) && $_POST['from'] === 'wallet') { $back = root . 'supplier/wallet'; }
 
     if (!function_exists('supplier_payout_request')) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Payouts are unavailable.'];
         header('Location: ' . $back); exit;
     }
+
+    // RULES GATE (Phase C): enabled? min/max/daily-cap? available balance? — all
+    // server-derived. Runs BEFORE any reservation. Also yields the fee to record.
+    if (function_exists('supplier_payout_precheck')) {
+        $pre = supplier_payout_precheck($db, $owner, $amount, $currency);
+        if (empty($pre['ok'])) {
+            $_SESSION['message'] = ['type' => 'error', 'text' => $pre['message'] ?? 'Payout not allowed.'];
+            header('Location: ' . $back); exit;
+        }
+        $fee = (float) ($pre['fee'] ?? 0);
+    } else {
+        $fee = 0.0;
+    }
+
+    // Resolve the destination account. Prefer an explicitly chosen saved account;
+    // else the owner's default saved account; else fall back to the legacy users.*
+    // columns (handled inside supplier_payout_request when no account is passed).
+    $account = null;
+    if (function_exists('supplier_bank_account_get') && $accountId > 0) {
+        $account = supplier_bank_account_get($db, $owner, $accountId);
+        if ($account === null) {
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'That bank account was not found.'];
+            header('Location: ' . $back); exit;
+        }
+    } elseif (function_exists('supplier_bank_account_default')) {
+        $account = supplier_bank_account_default($db, $owner); // may be null → legacy fallback
+    }
+
+    $opts = ['fee' => $fee];
+    if ($account !== null) { $opts['account'] = $account; }
+
     // The request helper re-validates the amount against the LOCKED available balance;
     // the client amount is only an upper request, never trusted as the truth.
-    $res = supplier_payout_request($db, $owner, $amount, $currency);
+    $res = supplier_payout_request($db, $owner, $amount, $currency, $opts);
     $_SESSION['message'] = [
         'type' => !empty($res['ok']) ? 'success' : 'error',
         'text' => $res['message'] ?? (!empty($res['ok']) ? 'Payout requested.' : 'Could not request payout.'),

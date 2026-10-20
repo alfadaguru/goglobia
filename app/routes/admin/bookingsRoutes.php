@@ -294,6 +294,15 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
                 }
             }
 
+            // SUPPLIER EARNINGS: an admin mark-paid (offline/bank-transfer/Pay-Later) also
+            // settles own-inventory revenue and must accrue the supplier earning, since it
+            // bypasses handle_payment_callback. Idempotent + self-guarding (own-inventory
+            // real-supplier owner only; no-op otherwise). Best effort.
+            if (function_exists('supplier_earning_accrue_for_booking')) {
+                try { supplier_earning_accrue_for_booking($db, (string) $invoice_id); }
+                catch (\Throwable $e) { error_log('admin mark_paid accrue: ' . $e->getMessage()); }
+            }
+
             // Trigger Notification
             $pdfPath = GENERATE_BOOKING_PDF($invoice_id);
             NOTIFY::payment($booking['module'], $booking, [

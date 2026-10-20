@@ -28206,6 +28206,7 @@ CREATE TABLE `settings` (
   `supplier_site_ip` varchar(45) DEFAULT NULL,
   `stays_hold_ttl_minutes` int(11) DEFAULT NULL,
   `supplier_payouts_live` varchar(1) NOT NULL DEFAULT '0',
+  `supplier_payout_settings` longtext DEFAULT NULL,
   `agent_registration` enum('1','0') NOT NULL DEFAULT '0',
   `guest_booking` enum('0','1') NOT NULL DEFAULT '0',
   `social_media` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`social_media`)),
@@ -28914,6 +28915,9 @@ CREATE TABLE `supplier_payouts` (
   `bank_code` varchar(20) DEFAULT NULL,
   `account_number` varchar(40) DEFAULT NULL,
   `account_name` varchar(191) DEFAULT NULL,
+  `bank_name` varchar(191) DEFAULT NULL,
+  `bank_account_id` int(11) DEFAULT NULL,
+  `fee_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
   `recipient_code` varchar(100) DEFAULT NULL,
   `transfer_code` varchar(100) DEFAULT NULL,
   `reference` varchar(100) NOT NULL,
@@ -28929,6 +28933,40 @@ CREATE TABLE `supplier_payouts` (
   KEY `idx_owner_state` (`owner_user_id`,`state`),
   KEY `idx_org` (`org_id`),
   KEY `idx_state` (`state`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Supplier bank accounts (multi-account, multi-country payout destinations). A
+-- supplier may save several accounts and choose one default; the account name is
+-- always the gateway-resolved (Paystack /bank/resolve) name. Created at runtime by
+-- app/lib/supplier_payouts_ext.php::supplier_payouts_ext_ensure_schema(). NG wired
+-- live via Paystack; country/method/currency leave room for other markets.
+--
+CREATE TABLE `supplier_bank_accounts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) DEFAULT NULL,
+  `owner_user_id` varchar(155) NOT NULL,
+  `country` char(2) NOT NULL DEFAULT 'NG',
+  `method` varchar(30) NOT NULL DEFAULT 'bank_transfer',
+  `currency` char(3) NOT NULL DEFAULT 'NGN',
+  `bank_code` varchar(20) NOT NULL,
+  `bank_name` varchar(191) DEFAULT NULL,
+  `account_number` varchar(40) NOT NULL,
+  `account_name` varchar(191) DEFAULT NULL,
+  `verified` tinyint(1) NOT NULL DEFAULT 0,
+  `verified_name` varchar(191) DEFAULT NULL,
+  `verified_at` datetime DEFAULT NULL,
+  `recipient_code` varchar(100) DEFAULT NULL,
+  `is_default` tinyint(1) NOT NULL DEFAULT 0,
+  `status` enum('active','removed') NOT NULL DEFAULT 'active',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_owner` (`owner_user_id`,`status`),
+  KEY `idx_owner_default` (`owner_user_id`,`is_default`),
+  KEY `idx_org` (`org_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------

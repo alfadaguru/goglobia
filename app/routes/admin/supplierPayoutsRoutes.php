@@ -106,3 +106,47 @@ $router->post(admin . '/supplier-payouts/resolve', function () use ($SECURE, $db
     ];
     header('Location: ' . $back); exit;
 });
+
+// ----------------------------------------------------------------------------
+// GET /admin/supplier-payout-settings — payout rules + enable kill-switch
+// ----------------------------------------------------------------------------
+$router->get(admin . '/supplier-payout-settings', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (function_exists('supplier_payouts_ext_ensure_schema')) { supplier_payouts_ext_ensure_schema($db); }
+
+    $settings  = function_exists('supplier_payout_settings') ? supplier_payout_settings($db) : ['enabled' => false, 'methods' => ['bank_transfer'], 'currencies' => []];
+    $defaults  = function_exists('supplier_payout_settings_defaults') ? supplier_payout_settings_defaults() : [];
+    // Currencies offered for configuration: those already configured + the wired ones.
+    $countries = function_exists('supplier_payout_countries') ? supplier_payout_countries() : [];
+
+    $title = 'Payout settings'; $description = ''; $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "admin/suppliers/payout-settings.php";
+    require_once views . "includes/footer.php";
+});
+
+// ----------------------------------------------------------------------------
+// POST /admin/supplier-payout-settings — save payout rules + toggle
+// ----------------------------------------------------------------------------
+$router->post(admin . '/supplier-payout-settings', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    CSRF::guard();
+    $back = root . admin . '/supplier-payout-settings';
+    if (!function_exists('supplier_payout_settings_save')) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Payout settings are unavailable.'];
+        header('Location: ' . $back); exit;
+    }
+    // Form posts a per-currency grid under rules[CUR][key]; enable is a checkbox.
+    $rules = (isset($_POST['rules']) && is_array($_POST['rules'])) ? $_POST['rules'] : [];
+    $methods = (isset($_POST['methods']) && is_array($_POST['methods'])) ? $_POST['methods'] : ['bank_transfer'];
+    $res = supplier_payout_settings_save($db, [
+        'enabled'    => !empty($_POST['enabled']),
+        'methods'    => $methods,
+        'currencies' => $rules,
+    ]);
+    $_SESSION['message'] = [
+        'type' => !empty($res['ok']) ? 'success' : 'error',
+        'text' => $res['message'] ?? 'Done.',
+    ];
+    header('Location: ' . $back); exit;
+});

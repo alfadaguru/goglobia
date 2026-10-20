@@ -149,3 +149,78 @@ $router->post('payment/paystack/webhook', function () use ($SECURE, $db) {
 
     $ack(200, 'OK');
 });
+
+// ============================================================================
+// PAYSTACK WEBHOOK — Transfers (SUPPLIER PAYOUTS, outbound money)
+// ----------------------------------------------------------------------------
+// Authoritative final status for a supplier payout transfer. approve_and_send
+// optimistically marks a payout 'paid' on the synchronous response, but Paystack's
+// real outcome arrives here: transfer.success / transfer.failed / transfer.reversed.
+// We verify the signature exactly as above (HMAC-SHA512 of the raw body, keyed with
+// the gateway secret c1), match the payout by our `reference` (the transfer's
+// idempotency key we sent), and finalise idempotently via
+// supplier_payout_finalize_transfer(). A reversal after an optimistic 'paid' returns
+// the earnings to 'available' so money is never lost.
+//
+// Register in the Paystack Dashboard (same place as the charge webhook; Paystack
+// posts all events to the configured URL, so pointing transfers here too is fine):
+//       https://<your-domain>/payment/paystack/transfer-webhook
+// (You may also use the single charge webhook URL — this separate route exists so
+//  transfer events are handled even if the two URLs are configured independently.)
+// ============================================================================
+$router->post('payment/paystack/transfer-webhook', function () use ($SECURE, $db) {
+
+    require_once 'app/lib/wallet.php';
+
+    $raw = file_get_contents('php://input');
+    $ack = function (int $code = 200, string $body = 'OK') {
+        http_response_code($code);
+        header('Content-Type: text/plain');
+        echo $body;
+        exit;
+    };
+    if ($raw === '' || $raw === false) { $ack(200, 'ignored'); }
+
+    $gateway = function_exists('paystack_dva_gateway') ? paystack_dva_gateway($db) : null;
+    $secret  = $gateway ? paystack_dva_secret($gateway) : '';
+    if ($secret === '') { error_log('PAYSTACK TRANSFER WH | no secret'); $ack(200, 'unconfigured'); }
+
+    $sig = $_SERVER['HTTP_X_PAYSTACK_SIGNATURE'] ?? '';
+    $expected = hash_hmac('sha512', $raw, $secret);
+    if ($sig === '' || !hash_equals($expected, $sig)) {
+        error_log('PAYSTACK TRANSFER WH | invalid signature');
+        $ack(401, 'invalid signature');
+    }
+
+    $payload = json_decode($raw, true);
+    if (!is_array($payload) || empty($payload['event'])) { $ack(200, 'ignored'); }
+
+    $event = (string) $payload['event'];
+    $data  = is_array($payload['data'] ?? null) ? $payload['data'] : [];
+
+    // Only transfer events concern supplier payouts.
+    $map = ['transfer.success' => 'success', 'transfer.failed' => 'failed', 'transfer.reversed' => 'reversed'];
+    if (!isset($map[$event])) { $ack(200, 'ignored'); } // e.g. charge.success handled by the other route
+
+    $reference    = (string) ($data['reference'] ?? '');
+    $transferCode = (string) ($data['transfer_code'] ?? '');
+    if ($reference === '' && $transferCode === '') {
+        error_log('PAYSTACK TRANSFER WH | ' . $event . ' with no reference/transfer_code');
+        $ack(200, 'ignored');
+    }
+
+    // Match our payout by the reference we sent (preferred), else by transfer_code.
+    $payout = null;
+    if ($reference !== '') { $payout = $db->get('supplier_payouts', ['id'], ['reference' => $reference]); }
+    if (!$payout && $transferCode !== '') { $payout = $db->get('supplier_payouts', ['id'], ['transfer_code' => $transferCode]); }
+    if (!$payout) {
+        error_log('PAYSTACK TRANSFER WH | no payout for reference=' . $reference . ' transfer_code=' . $transferCode);
+        $ack(200, 'ignored'); // not one of ours (or a transfer made outside this system)
+    }
+
+    if (!function_exists('supplier_payout_finalize_transfer')) { $ack(200, 'unavailable'); }
+    $note = (string) ($data['gateway_response'] ?? ($data['reason'] ?? ''));
+    $res = supplier_payout_finalize_transfer($db, (int) $payout['id'], $map[$event], $transferCode, $note);
+    error_log('PAYSTACK TRANSFER WH | ' . $event . ' payout#' . (int) $payout['id'] . ' -> ' . ($res['message'] ?? '?'));
+    $ack(200, 'OK');
+});

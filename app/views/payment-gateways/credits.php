@@ -219,6 +219,15 @@ try {
         }
     }
 
+    // SUPPLIER EARNINGS: credits is a synchronous gateway (no handle_payment_callback),
+    // so accrue own-inventory earnings here too. Idempotent + self-guarding — if an agent
+    // pays by credits for a supplier-owned listing, the supplier still earns; no-op for
+    // aggregator modules or non-supplier listings.
+    if (function_exists('supplier_earning_accrue_for_booking')) {
+        try { supplier_earning_accrue_for_booking($db, (string) $booking['invoice_id']); }
+        catch (\Throwable $e) { error_log('credits accrue: ' . $e->getMessage()); }
+    }
+
     // SUCCESS - SHOW CONFIRMATION AND REDIRECT
     ?>
     

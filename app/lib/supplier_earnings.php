@@ -24,8 +24,110 @@
 
 if (!function_exists('supplier_earning_clearance_days')) {
     /** Days after checkout before a pending earning becomes available. Conservative
-     *  default; a settings-driven value can replace this later. */
-    function supplier_earning_clearance_days(): int { return 1; }
+     *  default (1). When $db is given AND the admin has configured a per-currency
+     *  hold in settings.supplier_payout_settings (via supplier_payouts_ext.php), that
+     *  value is used; otherwise the default stands. Backward compatible: called with
+     *  no args it still returns 1, so existing callers are unaffected. */
+    function supplier_earning_clearance_days($db = null, string $currency = 'NGN'): int
+    {
+        if ($db !== null && function_exists('supplier_payout_rule')) {
+            $v = supplier_payout_rule($db, $currency, 'hold_days', null);
+            if ($v !== null && $v !== '' && is_numeric($v)) {
+                $d = (int) $v;
+                if ($d >= 0 && $d <= 365) { return $d; }
+            }
+        }
+        return 1;
+    }
+}
+
+if (!function_exists('supplier_earning_is_real_supplier')) {
+    /**
+     * TRUE only when $ownerUserId is a real supplier account (users.role = 'supplier').
+     * This is the safety gate that keeps earnings from accruing to the admin-seeded
+     * owner id (e.g. the demo user_id '1' on seed tours/cars, whose role is NOT
+     * 'supplier'). Fail-closed: any doubt (missing row / read error) → false (no accrual).
+     */
+    function supplier_earning_is_real_supplier($db, string $ownerUserId): bool
+    {
+        $ownerUserId = trim($ownerUserId);
+        if ($ownerUserId === '') { return false; }
+        try {
+            $u = $db->get('users', ['role'], ['user_id' => $ownerUserId]);
+            return $u && strtolower((string) ($u['role'] ?? '')) === 'supplier';
+        } catch (\Throwable $e) {
+            error_log('supplier_earning_is_real_supplier: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
+if (!function_exists('supplier_earning_resolve_owner')) {
+    /**
+     * Resolve the own-inventory OWNER for a PAID booking, per module. Returns
+     *   ['owner'=>string, 'org_id'=>?int, 'listing_id'=>int, 'module'=>string]
+     * or null when this booking is NOT own-inventory supplier revenue (aggregator
+     * module, legacy/seed listing, or an owner that isn't a real supplier account).
+     *
+     * Supported own-inventory modules + their resolution path (all VERIFIED against
+     * the schema + booking_data shapes):
+     *   - stays/hotels : booking_data.hotel_id -> stays.id (user_id owner, org_id)
+     *   - tours        : booking_data.tour_id  -> tours.id (user_id owner, supplier_id=org)
+     *   - cars         : booking_data.car_data.id -> cars.id (user_id owner, no org)
+     * Deliberately NOT supported (returns null):
+     *   - flights      : aggregator-only (Duffel/Amadeus); no supplier ownership, no
+     *                    local flights.id on the booking.
+     *   - bus          : admin/operator-managed, NOT supplier-owned (verified: bus has
+     *                    admin-only CRUD, bus.user_id is the creating admin, and bus
+     *                    links to bus_operators which are not user accounts). Crediting
+     *                    it would pay the admin, so bus is never accrued.
+     * Every resolved owner is validated as a real role='supplier' account, so even a
+     * listing with an admin/seed user_id (e.g. '' or '1') is skipped, not mis-credited.
+     */
+    function supplier_earning_resolve_owner($db, string $moduleType, $bookingData): ?array
+    {
+        $moduleType = strtolower(trim($moduleType));
+        $bd = is_array($bookingData) ? $bookingData : json_decode((string) $bookingData, true);
+        if (!is_array($bd)) { $bd = []; }
+
+        if (in_array($moduleType, ['stays', 'hotels'], true)) {
+            $hid = function_exists('supplier_reservation_hotel_id')
+                ? (int) supplier_reservation_hotel_id($bookingData)
+                : (int) ($bd['hotel_id'] ?? 0);
+            if ($hid <= 0) { return null; }
+            $row = $db->get('stays', ['id', 'user_id', 'org_id'], ['id' => $hid]);
+            if (!$row || trim((string) ($row['user_id'] ?? '')) === '') { return null; }
+            $owner = (string) $row['user_id'];
+            if (!supplier_earning_is_real_supplier($db, $owner)) { return null; }
+            return ['owner' => $owner, 'org_id' => ($row['org_id'] !== null ? (int) $row['org_id'] : null),
+                    'listing_id' => $hid, 'module' => 'stays'];
+        }
+
+        if ($moduleType === 'tours') {
+            $tid = (int) ($bd['tour_id'] ?? 0);
+            if ($tid <= 0) { return null; }
+            $row = $db->get('tours', ['id', 'user_id', 'supplier_id'], ['id' => $tid]);
+            if (!$row || trim((string) ($row['user_id'] ?? '')) === '') { return null; }
+            $owner = (string) $row['user_id'];
+            if (!supplier_earning_is_real_supplier($db, $owner)) { return null; }
+            return ['owner' => $owner, 'org_id' => ($row['supplier_id'] !== null ? (int) $row['supplier_id'] : null),
+                    'listing_id' => $tid, 'module' => 'tours'];
+        }
+
+        if ($moduleType === 'cars') {
+            // booking_data.car_data.id (nested) is the local cars.id.
+            $cid = (int) ($bd['car_data']['id'] ?? ($bd['car_id'] ?? 0));
+            if ($cid <= 0) { return null; }
+            $row = $db->get('cars', ['id', 'user_id'], ['id' => $cid]); // cars has no org column
+            if (!$row || trim((string) ($row['user_id'] ?? '')) === '') { return null; }
+            $owner = (string) $row['user_id'];
+            if (!supplier_earning_is_real_supplier($db, $owner)) { return null; }
+            return ['owner' => $owner, 'org_id' => null, 'listing_id' => $cid, 'module' => 'cars'];
+        }
+
+        // flights, bus, and everything else → not own-inventory supplier revenue.
+        return null;
+    }
 }
 
 if (!function_exists('supplier_earning_accrue_for_booking')) {
@@ -34,10 +136,10 @@ if (!function_exists('supplier_earning_accrue_for_booking')) {
      * Returns ['ok'=>bool, 'state'=>?, 'message'=>?, 'already'=>bool].
      *
      * Rules (fail-closed — accrue ONLY when every condition holds):
-     *   - the booking exists, is module_type stays/hotels (OWN inventory only),
+     *   - the booking exists and is an OWN-INVENTORY supplier module whose listing
+     *     resolves to a REAL supplier owner (see supplier_earning_resolve_owner):
+     *     stays/hotels, tours, cars. Aggregator/unowned modules are skipped.
      *   - is PAID (payment_status='paid') and NOT cancelled,
-     *   - its booking_data.hotel_id resolves to a real stays row with a non-empty
-     *     user_id (the supplier owner),
      *   - no earning row already exists for this invoice (idempotency).
      * The amount is the server-stored price_original (never a client value).
      */
@@ -53,12 +155,9 @@ if (!function_exists('supplier_earning_accrue_for_booking')) {
                 ['invoice_id' => $invoiceId]);
             if (!$b) { return ['ok' => false, 'message' => 'Booking not found']; }
 
-            // Own-inventory stays only.
+            // Own-inventory modules only (stays/hotels, tours, cars). Must be paid and
+            // not cancelled BEFORE we resolve ownership.
             $moduleType = strtolower((string) ($b['module_type'] ?? ''));
-            if (!in_array($moduleType, ['stays', 'hotels'], true)) {
-                return ['ok' => false, 'message' => 'Not an own-inventory stay'];
-            }
-            // Must be paid and not cancelled.
             if (strtolower((string) ($b['payment_status'] ?? '')) !== 'paid') {
                 return ['ok' => false, 'message' => 'Not paid'];
             }
@@ -66,17 +165,18 @@ if (!function_exists('supplier_earning_accrue_for_booking')) {
                 return ['ok' => false, 'message' => 'Cancelled'];
             }
 
-            // Resolve the property owner via booking_data.hotel_id -> stays (proven path).
-            $hid = function_exists('supplier_reservation_hotel_id')
-                ? supplier_reservation_hotel_id($b['booking_data'] ?? null)
-                : 0;
-            if ($hid <= 0) { return ['ok' => false, 'message' => 'No property on booking']; }
-            $stay = $db->get('stays', ['id', 'user_id', 'org_id'], ['id' => $hid]);
-            if (!$stay || trim((string) ($stay['user_id'] ?? '')) === '') {
-                return ['ok' => false, 'message' => 'Property has no owner']; // legacy/seed → skip
+            // Resolve the own-inventory owner per module. Returns null for aggregator
+            // modules (flights/bus) or any listing without a REAL supplier owner (incl.
+            // the admin-seeded demo owner) — in which case we skip accrual entirely.
+            $res = supplier_earning_resolve_owner($db, $moduleType, $b['booking_data'] ?? null);
+            if ($res === null) {
+                return ['ok' => false, 'message' => 'Not an own-inventory supplier booking'];
             }
-            $owner = (string) $stay['user_id'];
-            $orgId = ($stay['org_id'] !== null) ? (int) $stay['org_id'] : null;
+            $owner = (string) $res['owner'];
+            $orgId = $res['org_id'];
+            // stay_id column is stays-specific; only set it for stays/hotels. tours/cars
+            // store NULL (the listing is identified by the booking, not this column).
+            $stayId = ($res['module'] === 'stays') ? (int) $res['listing_id'] : null;
 
             // Amounts: supplier earns the NET rate (price_original). Server-stored only.
             $net = round((float) ($b['price_original'] ?? 0), 2);
@@ -86,7 +186,7 @@ if (!function_exists('supplier_earning_accrue_for_booking')) {
             $currency = strtoupper(trim((string) ($b['currency_markup'] ?? ''))) ?: 'USD';
 
             $result = ['ok' => false, 'message' => 'Accrual failed'];
-            $db->action(function ($db) use ($invoiceId, $owner, $orgId, $hid, $net, $gross, $commission, $currency, &$result) {
+            $db->action(function ($db) use ($invoiceId, $owner, $orgId, $stayId, $net, $gross, $commission, $currency, &$result) {
                 // Lock any existing earning for this invoice (idempotency under concurrency).
                 $locked = $db->query(
                     'SELECT id, state FROM supplier_earnings WHERE invoice_id = :inv FOR UPDATE',
@@ -101,7 +201,7 @@ if (!function_exists('supplier_earning_accrue_for_booking')) {
                     'org_id'            => $orgId,
                     'owner_user_id'     => $owner,
                     'invoice_id'        => $invoiceId,
-                    'stay_id'           => $hid,
+                    'stay_id'           => $stayId,
                     'currency'          => $currency,
                     'gross_amount'      => $gross,
                     'commission_amount' => $commission,
@@ -180,12 +280,15 @@ if (!function_exists('supplier_earning_release_due')) {
     function supplier_earning_release_due($db, int $limit = 500): int
     {
         $released = 0;
-        $clearDays = supplier_earning_clearance_days();
+        $clearCache = []; // currency => clearance days (admin-configurable, memoized)
         try {
-            $pending = $db->select('supplier_earnings', ['id', 'invoice_id', 'created_at'],
+            $pending = $db->select('supplier_earnings', ['id', 'invoice_id', 'currency', 'created_at'],
                 ['state' => 'pending', 'ORDER' => ['id' => 'ASC'], 'LIMIT' => max(1, $limit)]) ?: [];
             $now = time();
             foreach ($pending as $e) {
+                $cur = strtoupper((string) ($e['currency'] ?? 'NGN')) ?: 'NGN';
+                if (!isset($clearCache[$cur])) { $clearCache[$cur] = supplier_earning_clearance_days($db, $cur); }
+                $clearDays = $clearCache[$cur];
                 // Determine the clearance anchor = checkout date if known, else created_at.
                 $anchor = null;
                 try {

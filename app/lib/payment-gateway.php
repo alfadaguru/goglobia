@@ -479,6 +479,11 @@ function handle_payment_callback($token, $action, $data = [])
                                 stays_hold_consume_ref($db, (string) $tokenData['invoice_id']);
                             }
                         }
+                        // Own-inventory tours/cars earnings (idempotent + self-guarding).
+                        if (function_exists('supplier_earning_accrue_for_booking')) {
+                            try { supplier_earning_accrue_for_booking($db, (string) $tokenData['invoice_id']); }
+                            catch (\Throwable $e) { error_log('accrue (devmode path): ' . $e->getMessage()); }
+                        }
 
                         // Clear token
                         clear_payment_token($token);
@@ -989,6 +994,18 @@ function handle_payment_callback($token, $action, $data = [])
                 } elseif (function_exists('stays_hold_consume_ref')) {
                     stays_hold_consume_ref($db, (string) $tokenData['invoice_id']);
                 }
+            }
+
+            // SUPPLIER EARNINGS (own-inventory tours & cars, in addition to stays above).
+            // supplier_earning_accrue_for_booking is idempotent (UNIQUE invoice_id) and
+            // self-guarding: it only accrues when the booking's listing resolves to a REAL
+            // supplier owner, and no-ops for aggregator modules (flights/bus) and for
+            // stays (already accrued via stays_on_paid). Safe to call for every paid
+            // booking. (The stays branch above also calls accrue; the second call here is
+            // a guarded no-op for stays because the row already exists.)
+            if (function_exists('supplier_earning_accrue_for_booking')) {
+                try { supplier_earning_accrue_for_booking($db, (string) $tokenData['invoice_id']); }
+                catch (\Throwable $e) { error_log('accrue on paid: ' . $e->getMessage()); }
             }
 
             // ============================================================
