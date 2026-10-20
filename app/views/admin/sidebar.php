@@ -351,6 +351,7 @@ $adminMenu = array_merge($adminMenu, [
             ['name' => 'Tiers & Loyalty', 'icon' => 'workspace_premium', 'url' => root.admin.'/finance/tiers'],
             ['name' => 'Members', 'icon' => 'groups', 'url' => root.admin.'/finance/members'],
             ['name' => T::promo_codes, 'icon' => 'confirmation_number', 'url' => root.admin.'/promo-codes'],
+            ['name' => 'Email Campaigns', 'icon' => 'campaign', 'url' => root.admin.'/campaigns'],
 
             // ['name' => T::invoices, 'icon' => 'description', 'url' => root.admin.'/finance/invoices'],
             // ['name' => T::payments, 'icon' => 'payment', 'url' => root.admin.'/finance/payments'],

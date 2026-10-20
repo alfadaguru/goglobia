@@ -56,6 +56,7 @@ require_once 'app/routes/users/supplierDashboardRoutes.php'; // supplier area (S
 require_once 'app/routes/users/supplierStaysRoutes.php'; // owner-scoped stays CRUD (Phase 1 inc 3)
 require_once 'app/routes/users/supplierReservationsRoutes.php'; // reservations inbox (inc S11; reuses stays helpers)
 require_once 'app/routes/users/supplierPayoutsRoutes.php'; // supplier payout request UI (inc S19)
+require_once 'app/routes/users/supplierBankAccountsRoutes.php'; // multi-account bank management (Paystack bank list + resolve)
 require_once 'app/routes/users/supplierHousekeepingRoutes.php'; // housekeeping board + physical rooms (inc S22) + maintenance (S23)
 require_once 'app/routes/users/supplierPosRoutes.php'; // F&B / POS — outlets, menu, orders, charge-to-room (inc S24)
 require_once 'app/routes/users/supplierOwnersRoutes.php'; // property owners + agreements + owner statements (inc S26)
@@ -240,6 +241,7 @@ require_once 'app/routes/admin/creditsRoutes.php';
 require_once 'app/routes/admin/transactionsRoutes.php';
 require_once 'app/routes/admin/moneyRoutes.php'; // agent tiers + loyalty scheme (MONEY-WALLET-AUDIT §C.4 steps 4-5)
 require_once 'app/routes/admin/notificationTemplatesRoutes.php';
+require_once 'app/routes/admin/campaignsRoutes.php'; // email campaign manager (Phase 2)
 require_once 'app/routes/admin/menusRoutes.php';
 require_once 'app/routes/admin/staysRoutes.php';
 require_once 'app/routes/admin/staysSettingsRoutes.php';

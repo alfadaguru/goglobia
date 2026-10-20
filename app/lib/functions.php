@@ -4559,6 +4559,65 @@ function ensureNewsletterSchema($db): void
     }
 }
 
+/**
+ * Self-healing schema for the email campaign manager (Phase 2). Idempotent;
+ * same pattern as the other ensure*Schema() helpers.
+ *
+ * email_campaigns   : one row per campaign (draft -> scheduled -> sending -> sent/failed)
+ * email_campaign_log: one row per recipient send attempt (per-recipient audit +
+ *                     resume safety — a re-triggered send skips already-sent rows).
+ */
+function ensureCampaignSchema($db): void
+{
+    static $checked = false;
+    if ($checked) { return; }
+    $checked = true;
+
+    try {
+        if (!dbTableExists($db, 'email_campaigns')) {
+            $db->query("CREATE TABLE IF NOT EXISTS `email_campaigns` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `name` varchar(191) NOT NULL,
+                `subject` varchar(255) NOT NULL,
+                `body_html` mediumtext NOT NULL,
+                `from_name` varchar(191) DEFAULT NULL,
+                `from_email` varchar(191) DEFAULT NULL,
+                `audience_status` varchar(20) NOT NULL DEFAULT 'subscribed',
+                `audience_country` varchar(2) DEFAULT NULL,
+                `audience_language` varchar(8) DEFAULT NULL,
+                `status` enum('draft','scheduled','sending','sent','failed') NOT NULL DEFAULT 'draft',
+                `scheduled_at` datetime DEFAULT NULL,
+                `sent_at` datetime DEFAULT NULL,
+                `total_recipients` int(11) NOT NULL DEFAULT 0,
+                `sent_count` int(11) NOT NULL DEFAULT 0,
+                `failed_count` int(11) NOT NULL DEFAULT 0,
+                `created_by` int(11) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                KEY `idx_status` (`status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        }
+
+        if (!dbTableExists($db, 'email_campaign_log')) {
+            $db->query("CREATE TABLE IF NOT EXISTS `email_campaign_log` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `campaign_id` int(11) NOT NULL,
+                `subscriber_id` int(11) DEFAULT NULL,
+                `email` varchar(191) NOT NULL,
+                `status` enum('sent','failed') NOT NULL,
+                `error` varchar(255) DEFAULT NULL,
+                `sent_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_campaign_email` (`campaign_id`, `email`),
+                KEY `idx_campaign` (`campaign_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        }
+    } catch (\Throwable $e) {
+        error_log('ensureCampaignSchema: ' . $e->getMessage());
+    }
+}
+
 function ensurePromoUsageSchema($db): void
 {
     static $checked = false;

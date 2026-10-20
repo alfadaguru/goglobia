@@ -1,0 +1,156 @@
+<?php
+// app/views/admin/campaigns/campaigns-manage.php — create/edit a campaign.
+// HTML body via a styled textarea + live preview (full WYSIWYG designer = Phase 3).
+@$SECURE or die('Access Denied!');
+
+$cid = (int) ($_GET['id'] ?? 0);
+$c = $cid > 0 ? $db->get('email_campaigns', '*', ['id' => $cid]) : null;
+if ($cid > 0 && !$c) {
+    $_SESSION['message'] = ['type' => 'error', 'text' => 'Campaign not found.'];
+    redirect(root . admin . '/campaigns');
+    return;
+}
+
+$isSent    = $c && in_array($c['status'], ['sent','sending'], true);
+$subTotal  = (int) $db->count('newsletter_subscribers', ['status' => 'subscribed']);
+
+// Live recipient count for the saved audience (so the admin sees reach before sending).
+$audienceCount = 0;
+if ($c) {
+    $w = ['status' => $c['audience_status'] ?: 'subscribed'];
+    if (!empty($c['audience_country']))  { $w['country']  = $c['audience_country']; }
+    if (!empty($c['audience_language'])) { $w['language'] = $c['audience_language']; }
+    $audienceCount = (int) $db->count('newsletter_subscribers', $w);
+}
+
+$v = function ($k, $d = '') use ($c) { return htmlspecialchars((string) ($c[$k] ?? $d), ENT_QUOTES); };
+?>
+
+<div class="container my-4" style="max-width:1000px">
+  <?php if (isset($_SESSION['message'])): ?>
+    <div class="mb-4 flex items-center gap-2 p-3 rounded-lg"
+         style="<?= $_SESSION['message']['type'] === 'success' ? 'background:#dcfce7;color:#166534' : 'background:#fee2e2;color:#991b1b' ?>">
+      <span class="material-symbols-outlined"><?= $_SESSION['message']['type'] === 'success' ? 'check_circle' : 'error' ?></span>
+      <div><?= htmlspecialchars($_SESSION['message']['text']) ?></div>
+    </div>
+    <?php unset($_SESSION['message']); ?>
+  <?php endif; ?>
+
+  <div class="flex items-center gap-2 mb-5">
+    <a href="<?= root.admin ?>/campaigns" class="text-gray-400 hover:text-gray-700"><span class="material-symbols-outlined">arrow_back</span></a>
+    <h1 class="text-xl font-bold text-gray-900"><?= $cid > 0 ? 'Edit campaign' : 'New campaign' ?></h1>
+    <?php if ($c): ?>
+      <span class="ml-2 text-xs font-bold uppercase tracking-wide px-2 py-0.5 rounded-full"
+            style="<?= $c['status'] === 'sent' ? 'background:#dcfce7;color:#166534' : ($c['status'] === 'sending' ? 'background:#dbeafe;color:#1e40af' : 'background:#f1f5f9;color:#475569') ?>"><?= htmlspecialchars($c['status']) ?></span>
+    <?php endif; ?>
+  </div>
+
+  <form method="POST" action="<?= root.admin ?>/campaigns/save" x-data="{ body: <?= json_encode((string)($c['body_html'] ?? '<p>Hi {$subscriber.first_name},</p>\n<p>Write your message here…</p>')) ?> }">
+    <?= CSRF::tokenField() ?>
+    <input type="hidden" name="id" value="<?= $cid ?>">
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- Left: content -->
+      <div class="lg:col-span-2 space-y-4">
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Campaign name <span class="text-gray-400 font-normal">(internal)</span></label>
+          <input type="text" name="name" value="<?= $v('name') ?>" required <?= $isSent ? 'readonly' : '' ?>
+                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Subject line</label>
+          <input type="text" name="subject" value="<?= $v('subject') ?>" required <?= $isSent ? 'readonly' : '' ?>
+                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Email body (HTML)</label>
+          <textarea name="body_html" x-model="body" rows="14" <?= $isSent ? 'readonly' : '' ?>
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></textarea>
+          <p class="text-xs text-gray-500 mt-1">
+            Placeholders: <code>{$subscriber.first_name}</code>, <code>{$settings.business_name}</code>, <code>{{unsubscribe_url}}</code>.
+            The logo, outer frame and an unsubscribe link are added automatically.
+          </p>
+        </div>
+      </div>
+
+      <!-- Right: audience + actions -->
+      <div class="space-y-4">
+        <div class="rounded-xl border border-gray-100 p-4 bg-gray-50">
+          <h3 class="text-sm font-bold text-gray-900 mb-3">Audience</h3>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Status</label>
+          <select name="audience_status" <?= $isSent ? 'disabled' : '' ?> class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-3">
+            <?php foreach (['subscribed' => 'Confirmed subscribers', 'pending' => 'Pending (not yet confirmed)'] as $k => $lbl): ?>
+              <option value="<?= $k ?>" <?= ($c['audience_status'] ?? 'subscribed') === $k ? 'selected' : '' ?>><?= $lbl ?></option>
+            <?php endforeach; ?>
+          </select>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Country <span class="text-gray-400 font-normal">(ISO-2, optional)</span></label>
+          <input type="text" name="audience_country" maxlength="2" value="<?= $v('audience_country') ?>" <?= $isSent ? 'readonly' : '' ?>
+                 placeholder="e.g. NG" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-3 uppercase">
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Language <span class="text-gray-400 font-normal">(optional)</span></label>
+          <input type="text" name="audience_language" maxlength="8" value="<?= $v('audience_language') ?>" <?= $isSent ? 'readonly' : '' ?>
+                 placeholder="e.g. en" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+          <?php if ($c): ?>
+            <p class="text-xs text-gray-500 mt-3">Current reach: <strong class="text-gray-900"><?= number_format($audienceCount) ?></strong> of <?= number_format($subTotal) ?> subscribers.</p>
+          <?php endif; ?>
+        </div>
+
+        <div class="rounded-xl border border-gray-100 p-4 bg-gray-50">
+          <h3 class="text-sm font-bold text-gray-900 mb-3">Sender <span class="text-gray-400 font-normal text-xs">(optional override)</span></h3>
+          <input type="text" name="from_name" value="<?= $v('from_name') ?>" <?= $isSent ? 'readonly' : '' ?> placeholder="From name" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-2">
+          <input type="email" name="from_email" value="<?= $v('from_email') ?>" <?= $isSent ? 'readonly' : '' ?> placeholder="From email" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+          <p class="text-xs text-gray-500 mt-2">Leave blank to use the platform default sender.</p>
+        </div>
+
+        <?php if (!$isSent): ?>
+          <button type="submit" class="w-full rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-black transition">Save draft</button>
+        <?php endif; ?>
+      </div>
+    </div>
+  </form>
+
+  <!-- Live preview (rendered from the textarea) -->
+  <div class="mt-6" x-data="{ body: <?= json_encode((string)($c['body_html'] ?? '')) ?> }">
+    <h3 class="text-sm font-bold text-gray-900 mb-2">Preview</h3>
+    <div class="rounded-xl border border-gray-200 overflow-hidden" style="background:#f3f4f6">
+      <div style="max-width:600px;margin:16px auto;background:#fff;border-radius:12px;overflow:hidden">
+        <div style="padding:16px;border-bottom:1px solid #eef2f7;text-align:center">
+          <img src="<?= versionedAssetUrl('uploads/global/logo.png') ?>" alt="logo" style="height:34px;width:auto">
+        </div>
+        <div style="padding:22px;color:#111;font-size:14px;line-height:1.6"
+             x-html="(document.querySelector('[name=body_html]')?.value || <?= json_encode((string)($c['body_html'] ?? '')) ?>)"></div>
+      </div>
+    </div>
+    <p class="text-xs text-gray-400 mt-1">Preview uses placeholder text as-is; real sends substitute each subscriber's name and a unique unsubscribe link.</p>
+  </div>
+
+  <?php if ($c && $c['status'] !== 'sent'): ?>
+    <!-- SEND -->
+    <div class="mt-6 rounded-xl border p-4 flex items-center justify-between" style="border-color:#bfdbfe;background:#eff6ff">
+      <div>
+        <h3 class="text-sm font-bold text-gray-900">
+          <?= $c['status'] === 'sending' ? 'Continue sending' : 'Send campaign' ?>
+        </h3>
+        <p class="text-xs text-gray-600 mt-0.5">
+          <?php if ($c['status'] === 'sending'): ?>
+            Sent so far: <?= number_format((int)$c['sent_count']) ?> / <?= number_format((int)$c['total_recipients']) ?>. Large lists send in batches — click to continue.
+          <?php else: ?>
+            Sends to <strong><?= number_format($audienceCount) ?></strong> subscriber<?= $audienceCount === 1 ? '' : 's' ?> via your active email provider. Save your latest changes first.
+          <?php endif; ?>
+        </p>
+      </div>
+      <form method="POST" action="<?= root.admin ?>/campaigns/send"
+            onsubmit="return confirm('Send this campaign to <?= (int) $audienceCount ?> subscriber(s) now?');">
+        <?= CSRF::tokenField() ?>
+        <input type="hidden" name="id" value="<?= (int) $c['id'] ?>">
+        <button type="submit" <?= $audienceCount === 0 ? 'disabled' : '' ?>
+                class="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-700 transition disabled:opacity-50">
+          <?= $c['status'] === 'sending' ? 'Continue' : 'Send now' ?>
+        </button>
+      </form>
+    </div>
+  <?php elseif ($c && $c['status'] === 'sent'): ?>
+    <div class="mt-6 rounded-xl border p-4" style="border-color:#bbf7d0;background:#f0fdf4">
+      <p class="text-sm font-semibold text-green-800">Campaign sent — <?= number_format((int)$c['sent_count']) ?> delivered<?php if ((int)$c['failed_count'] > 0): ?>, <?= number_format((int)$c['failed_count']) ?> failed<?php endif; ?>.</p>
+    </div>
+  <?php endif; ?>
+</div>

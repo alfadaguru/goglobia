@@ -431,6 +431,10 @@ try {
     if (function_exists('ensureNewsletterSchema')) {
         ensureNewsletterSchema($db);
     }
+    // Email campaigns (campaign manager) — idempotent.
+    if (function_exists('ensureCampaignSchema')) {
+        ensureCampaignSchema($db);
+    }
     // Agent API (docs/AGENT-API.md) — idempotent, no-op once tables exist.
     if (function_exists('ensureAgentApiSchema')) {
         ensureAgentApiSchema($db);
