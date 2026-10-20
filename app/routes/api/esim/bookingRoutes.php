@@ -218,11 +218,10 @@ $router->post('/api/esim/booking/submit', function () use ($SECURE, $db) {
         $promoData = null;
 
         if (!empty($couponCodeStr)) {
-            if ($couponCodeStr === 'ESIM10') {
-                $discountPercent = 10.0;
-                $couponDiscount = round($price * ($discountPercent / 100), 2);
-            } else {
-                // Look up in promo_codes table
+            {
+                // Every coupon is DB-driven + validated server-side (no hardcoded
+                // backdoor). To offer a code like "ESIM10", create it in Admin →
+                // Marketing → Promo codes; it then flows through the same checks.
                 $promoData = $db->get('promo_codes', '*', ['code' => $couponCodeStr]);
                 if (!$promoData) {
                     throw new Exception('Invalid coupon code');
@@ -326,28 +325,16 @@ $router->post('/api/esim/booking/submit', function () use ($SECURE, $db) {
 
         // Prepare promo code JSON for database storage
         $promoCodeJson = null;
-        if (!empty($couponCodeStr) && $couponDiscount > 0) {
-            if ($promoData) {
-                $promoCodeJson = json_encode([
-                    'code' => $promoData['code'],
-                    'discount_type' => $promoData['discount_type'],
-                    'discount_value' => floatval($promoData['discount_value']),
-                    'discount_amount' => $couponDiscount,
-                    'max_discount_amount' => $promoData['max_discount_amount'] ? floatval($promoData['max_discount_amount']) : null,
-                    'description' => $promoData['description'],
-                    'module' => $promoData['module']
-                ]);
-            } else if ($couponCodeStr === 'ESIM10') {
-                $promoCodeJson = json_encode([
-                    'code' => 'ESIM10',
-                    'discount_type' => 'percentage',
-                    'discount_value' => 10.0,
-                    'discount_amount' => $couponDiscount,
-                    'max_discount_amount' => null,
-                    'description' => '10% discount for eSIM',
-                    'module' => 'esim'
-                ]);
-            }
+        if (!empty($couponCodeStr) && $couponDiscount > 0 && $promoData) {
+            $promoCodeJson = json_encode([
+                'code' => $promoData['code'],
+                'discount_type' => $promoData['discount_type'],
+                'discount_value' => floatval($promoData['discount_value']),
+                'discount_amount' => $couponDiscount,
+                'max_discount_amount' => $promoData['max_discount_amount'] ? floatval($promoData['max_discount_amount']) : null,
+                'description' => $promoData['description'],
+                'module' => $promoData['module']
+            ]);
         }
 
         $invoiceId = str_pad((string) rand(0, 99999999), 8, '0', STR_PAD_LEFT);

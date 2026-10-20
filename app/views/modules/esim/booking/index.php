@@ -504,9 +504,9 @@ if (!empty($paymentGateways)) {
                 }
                 if (this.couponApplied) {
                     const code = this.couponCode.trim().toUpperCase();
-                    if (code === 'ESIM10') {
-                        this.couponDiscount = +(Number(this.selectedPackage.price || 0) * 0.10).toFixed(2);
-                    } else {
+                    {
+                        // All coupons are validated server-side (no client-side shortcut)
+                        // so the preview always matches what the booking will actually apply.
                         try {
                             const res = await fetch('<?= root ?>api/promo/validate', {
                                 method: 'POST',
@@ -549,10 +549,7 @@ if (!empty($paymentGateways)) {
                     this.couponError = 'Please enter a coupon code.';
                     return;
                 }
-                if (code === 'ESIM10') {
-                    this.couponApplied = true;
-                    this.recalculateCoupon();
-                } else {
+                {
                     try {
                         const res = await fetch('<?= root ?>api/promo/validate', {
                             method: 'POST',
