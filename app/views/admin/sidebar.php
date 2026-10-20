@@ -352,6 +352,8 @@ $adminMenu = array_merge($adminMenu, [
             ['name' => 'Members', 'icon' => 'groups', 'url' => root.admin.'/finance/members'],
             ['name' => T::promo_codes, 'icon' => 'confirmation_number', 'url' => root.admin.'/promo-codes'],
             ['name' => 'Email Campaigns', 'icon' => 'campaign', 'url' => root.admin.'/campaigns'],
+            ['name' => 'Campaign Templates', 'icon' => 'dashboard_customize', 'url' => root.admin.'/campaign-templates'],
+            ['name' => 'Subscribers', 'icon' => 'group', 'url' => root.admin.'/newsletter/subscribers'],
 
             // ['name' => T::invoices, 'icon' => 'description', 'url' => root.admin.'/finance/invoices'],
             // ['name' => T::payments, 'icon' => 'payment', 'url' => root.admin.'/finance/payments'],

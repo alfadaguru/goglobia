@@ -139,7 +139,25 @@ $v = function ($k, $d = '') use ($c) { return htmlspecialchars((string) ($c[$k] 
         </div>
 
         <?php if (!$isSent): ?>
-          <button type="submit" class="w-full rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-black transition">Save draft</button>
+          <?php
+          // Preformat any existing schedule for the datetime-local input (YYYY-MM-DDTHH:MM).
+          $schedVal = '';
+          if (!empty($c['scheduled_at'])) {
+              $sts = strtotime((string) $c['scheduled_at']);
+              if ($sts !== false) { $schedVal = date('Y-m-d\TH:i', $sts); }
+          }
+          ?>
+          <div class="rounded-xl border border-gray-100 p-4 bg-gray-50">
+            <h3 class="text-sm font-bold text-gray-900 mb-1">Schedule <span class="text-gray-400 font-normal text-xs">(optional)</span></h3>
+            <p class="text-xs text-gray-500 mb-2">Pick a future date/time to send automatically, or leave blank and use “Send” below. Requires the dispatch cron to be running on the server.</p>
+            <input type="datetime-local" name="scheduled_at" value="<?= htmlspecialchars($schedVal, ENT_QUOTES) ?>"
+                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+            <?php if (!empty($c['scheduled_at']) && ($c['status'] ?? '') === 'scheduled'): ?>
+              <p class="text-xs mt-2 font-medium" style="color:#854d0e">Currently scheduled for <?= htmlspecialchars((string) $c['scheduled_at']) ?>. Clear the field and save to return it to a draft.</p>
+            <?php endif; ?>
+          </div>
+
+          <button type="submit" class="w-full rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-black transition">Save <span class="font-normal text-gray-300">/</span> Schedule</button>
         <?php endif; ?>
       </div>
     </div>
@@ -159,6 +177,23 @@ $v = function ($k, $d = '') use ($c) { return htmlspecialchars((string) ($c[$k] 
     </div>
     <p class="text-xs text-gray-400 mt-1">Preview uses placeholder text as-is; real sends substitute each subscriber's name and a unique unsubscribe link.</p>
   </div>
+
+  <?php if ($c): ?>
+    <!-- TEST SEND (own form; proof a single copy before the real blast) -->
+    <div class="mt-6 rounded-xl border border-gray-200 p-4 flex items-center justify-between flex-wrap gap-3">
+      <div>
+        <h3 class="text-sm font-bold text-gray-900">Send a test</h3>
+        <p class="text-xs text-gray-500 mt-0.5">Proof the saved version to yourself before sending to subscribers.</p>
+      </div>
+      <form method="POST" action="<?= root.admin ?>/campaigns/test" class="flex items-center gap-2">
+        <?= CSRF::tokenField() ?>
+        <input type="hidden" name="id" value="<?= (int) $c['id'] ?>">
+        <input type="email" name="test_email" value="<?= htmlspecialchars((string) ($_SESSION['user_email'] ?? ''), ENT_QUOTES) ?>"
+               placeholder="you@example.com" class="rounded-lg border border-gray-300 px-3 py-2 text-sm" style="min-width:220px">
+        <button type="submit" class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:border-gray-400 transition">Send test</button>
+      </form>
+    </div>
+  <?php endif; ?>
 
   <?php if ($c && $c['status'] !== 'sent'): ?>
     <!-- SEND -->
@@ -230,11 +265,17 @@ $v = function ($k, $d = '') use ($c) { return htmlspecialchars((string) ($c[$k] 
         <?php endforeach; ?>
       </div>
       <?php if (!$anyEvents): ?>
-        <p class="text-xs text-gray-400 mt-2">
-          No delivery events recorded yet. Open/delivery/bounce stats appear here once Resend sends webhook events —
-          add your endpoint at <span class="font-mono">/webhooks/resend/events</span> in the Resend dashboard and paste the
-          signing secret into Settings → Email → Resend → Webhook Secret.
-        </p>
+        <div class="text-xs text-gray-500 mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3 leading-relaxed">
+          <strong class="text-gray-700">No delivery events yet.</strong> Opens, deliveries, clicks and bounces appear here
+          once Resend sends webhooks. To enable:
+          <ol class="list-decimal ml-5 mt-1 space-y-0.5">
+            <li>In the Resend dashboard → <em>Webhooks</em> → <em>Add endpoint</em>, use this URL:
+              <br><span class="font-mono text-gray-700"><?= htmlspecialchars(rtrim((string) root, '/') . '/webhooks/resend/events') ?></span></li>
+            <li>Copy the generated <span class="font-mono">whsec_…</span> signing secret into
+              <a href="<?= root.admin ?>/settings" class="text-blue-600 hover:underline">Settings → Email → Resend → Webhook Secret</a> and save.</li>
+          </ol>
+          Without the secret the endpoint can't verify events and silently records nothing.
+        </div>
       <?php endif; ?>
     </div>
   <?php endif; ?>

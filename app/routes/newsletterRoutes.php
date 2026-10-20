@@ -202,3 +202,31 @@ $router->get('/newsletter/unsubscribe/([a-f0-9]{32})', function ($token) use ($S
     require_once views . "includes/footer.php";
     exit;
 });
+
+// ============================================================================
+// POST /newsletter/unsubscribe/{token} — RFC 8058 one-click unsubscribe.
+// Triggered by the mail client's List-Unsubscribe-Post header (Gmail/Yahoo).
+// This is a machine-to-machine request: NO cookies, NO CSRF token — the random
+// 128-bit token in the URL is the capability. Must NOT require CSRF. Responds
+// with a bare 200 (no HTML page); the mail client doesn't render a body.
+// ============================================================================
+$router->post('/newsletter/unsubscribe/([a-f0-9]{32})', function ($token) use ($SECURE, $db) {
+    if (function_exists('ensureNewsletterSchema')) { ensureNewsletterSchema($db); }
+    try {
+        $row = $db->get('newsletter_subscribers', '*', ['unsubscribe_token' => $token]);
+        if ($row && ($row['status'] ?? '') !== 'unsubscribed') {
+            $db->update('newsletter_subscribers', [
+                'status'          => 'unsubscribed',
+                'unsubscribed_at' => date('Y-m-d H:i:s'),
+            ], ['id' => $row['id']]);
+        }
+    } catch (\Throwable $e) {
+        error_log('newsletter/unsubscribe(POST): ' . $e->getMessage());
+    }
+    // Always 200 so the mail provider records the unsubscribe as honoured (and we
+    // don't leak whether the token existed).
+    http_response_code(200);
+    header('Content-Type: text/plain');
+    echo 'OK';
+    exit;
+});

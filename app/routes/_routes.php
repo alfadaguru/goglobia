@@ -410,3 +410,4 @@ require_once 'app/routes/crons/creditsRemindersRoutes.php';
 require_once 'app/routes/crons/currencyRatesRoutes.php';
 require_once 'app/routes/crons/umrahHoldsRoutes.php';
 require_once 'app/routes/crons/payLaterRoutes.php';
+require_once 'app/routes/crons/campaignsDispatchRoutes.php'; // scheduled email campaign dispatcher

@@ -2670,7 +2670,14 @@ function sendNotification($userId, $templateName, $additionalData = [], $channel
  *   - Provider credentials loaded from secure database storage
  * ============================================================================
  */
-function SENDEMAIL($toEmail, $toName, $subject, $htmlBody, $pdfPath = null)
+/**
+ * @param array $extraHeaders Optional RFC-822 headers to attach to this message,
+ *   e.g. ['List-Unsubscribe' => '<https://…>', 'List-Unsubscribe-Post' => 'List-Unsubscribe=One-Click'].
+ *   Passed to the provider via its config as 'extra_headers'; only providers that
+ *   support custom headers (currently Resend) act on it — others ignore it. Default
+ *   empty, so every existing caller is unaffected.
+ */
+function SENDEMAIL($toEmail, $toName, $subject, $htmlBody, $pdfPath = null, array $extraHeaders = [])
 {
     global $db;
 
@@ -2698,6 +2705,13 @@ function SENDEMAIL($toEmail, $toName, $subject, $htmlBody, $pdfPath = null)
         // Add sender information to provider config
         $providerConfig['from_name'] = $settings['email_sender_name'] ?? 'PHPTRAVELS';
         $providerConfig['from_email'] = $settings['email_sender_email'] ?? 'noreply@example.com';
+
+        // Per-message custom headers (e.g. List-Unsubscribe for bulk campaigns).
+        // Carried via config so the fixed-arity provider send() signatures don't
+        // need changing; only providers that support headers read this.
+        if (!empty($extraHeaders)) {
+            $providerConfig['extra_headers'] = $extraHeaders;
+        }
 
         // Store sender info separately for easy access
         $senderName = $settings['email_sender_name'] ?? 'PHPTRAVELS';

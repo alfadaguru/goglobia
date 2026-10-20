@@ -178,27 +178,48 @@ $router->post('webhooks/resend/events', function () use ($SECURE, $db) {
             ]);
         }
 
+        // Suppress bad addresses at the SOURCE so future campaigns don't re-mail
+        // them (deliverability death-spiral + Gmail/Yahoo bulk-sender penalties).
+        // Keyed on the recipient email; harmless if they aren't a subscriber.
+        // Only ever moves an *active* subscriber out — never resurrects one that
+        // already unsubscribed/bounced, and never touches pending opt-ins.
+        if ($recipient !== '' && ($type === 'email.bounced' || $type === 'email.complained')) {
+            try {
+                $newStatus = ($type === 'email.bounced') ? 'bounced' : 'unsubscribed';
+                // Scoped to currently-'subscribed' rows: we only ever move an
+                // active subscriber out, so stamping unsubscribed_at here is always
+                // the first time it leaves — no existing value to preserve.
+                $db->update('newsletter_subscribers',
+                    [
+                        'status'          => $newStatus,
+                        'unsubscribed_at' => date('Y-m-d H:i:s'),
+                    ],
+                    ['email' => $recipient, 'status' => 'subscribed']);
+            } catch (\Throwable $e) {
+                error_log('RESEND WEBHOOK | suppress ' . $type . ': ' . $e->getMessage());
+            }
+        }
+
         if ($row) {
-            $update = [];
+            // Backfill resend_id so later events for this message match by id.
             if ($emailId !== '' && empty($row['resend_id'])) {
-                $update['resend_id'] = $emailId;
+                try { $db->update('email_campaign_log', ['resend_id' => $emailId], ['id' => $row['id'], 'resend_id' => null]); }
+                catch (\Throwable $e) { /* best-effort */ }
             }
-            // Only write a timestamp column, and only if not already set (first
-            // event of its kind wins — opens/clicks fire repeatedly).
+            // Stamp the timestamp column ATOMICALLY — `WHERE id = ? AND col IS NULL`
+            // means the first concurrent event wins and a later duplicate event
+            // can't overwrite it (opens/clicks fire repeatedly). Read-then-write
+            // would race; this cannot.
             if ($col !== null) {
-                $current = $db->get('email_campaign_log', $col, ['id' => $row['id']]);
-                if (empty($current)) {
-                    $update[$col] = $eventAt;
-                }
-            }
-            if (!empty($update)) {
-                $db->update('email_campaign_log', $update, ['id' => $row['id']]);
+                try { $db->update('email_campaign_log', [$col => $eventAt], ['id' => $row['id'], $col => null]); }
+                catch (\Throwable $e) { error_log('RESEND WEBHOOK | stamp ' . $col . ': ' . $e->getMessage()); }
             }
             $ack(200, 'recorded:' . $type);
         }
 
-        // No matching recipient (e.g. a transactional email, not a campaign) —
-        // understood and verified, just nothing of ours to record.
+        // No matching campaign-log row (e.g. a transactional email, not a
+        // campaign). We may still have suppressed the address above; either way
+        // it's understood and verified, so ack.
         $ack(200, 'no-match');
     } catch (\Throwable $e) {
         error_log('RESEND WEBHOOK | DB error recording event: ' . $e->getMessage());

@@ -5,66 +5,12 @@
 // a per-recipient log for resume safety (never double-sends).
 @$SECURE or die('Access Denied!');
 
-// How many recipients to process per /send trigger. Large lists finish across
-// repeated clicks (the per-recipient unique log makes re-triggers resume, not
-// re-send). Kept modest so one request never risks a PHP timeout.
-if (!defined('CAMPAIGN_SEND_BATCH')) { define('CAMPAIGN_SEND_BATCH', 400); }
 
-/**
- * Wrap a campaign's HTML body in a self-contained branded email shell
- * (logo + body + unsubscribe footer). Deliberately NOT the booking-email chrome,
- * which needs invoice-specific vars a campaign doesn't have. Replaces the
- * {{unsubscribe_url}} token (and injects a footer link if absent) and simple
- * {$subscriber.first_name}/{$settings.business_name} placeholders.
- */
-if (!function_exists('campaign_render_email')) {
-    function campaign_render_email($db, string $bodyHtml, array $subscriber, string $unsubscribeUrl): string
-    {
-        $brand = function_exists('getBrandName') ? (string) getBrandName($db) : (string) ($GLOBALS['app']['business_name'] ?? 'Our newsletter');
-        $logo  = rtrim((string) root, '/') . '/uploads/global/logo.png';
-        $first = trim((string) ($subscriber['first_name'] ?? ''));
+// Shared campaign send engine + render/audience helpers (also used by the
+// scheduler cron). Defines CAMPAIGN_SEND_BATCH, campaign_render_email(),
+// campaign_audience_where(), campaign_run_batch() — all function_exists-guarded.
+require_once __DIR__ . '/../../lib/campaigns.php';
 
-        // Placeholder substitution (escaped where it's user-facing text).
-        $repl = [
-            '{$subscriber.first_name}' => htmlspecialchars($first !== '' ? $first : 'there', ENT_QUOTES),
-            '{$settings.business_name}' => htmlspecialchars($brand, ENT_QUOTES),
-            '{{unsubscribe_url}}'       => htmlspecialchars($unsubscribeUrl, ENT_QUOTES),
-        ];
-        $body = strtr($bodyHtml, $repl);
-
-        // Ensure an unsubscribe link exists even if the author didn't place one.
-        if (stripos($body, $unsubscribeUrl) === false) {
-            $body .= '<p style="margin-top:28px;font-size:12px;color:#9ca3af;text-align:center">'
-                   . 'You received this because you subscribed to ' . htmlspecialchars($brand, ENT_QUOTES) . '. '
-                   . '<a href="' . htmlspecialchars($unsubscribeUrl, ENT_QUOTES) . '" style="color:#6b7280;text-decoration:underline">Unsubscribe</a>.'
-                   . '</p>';
-        }
-
-        return '<div style="background:#f3f4f6;padding:24px 0;font-family:Arial,Helvetica,sans-serif">'
-             . '<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden">'
-             . '<div style="padding:20px 28px;border-bottom:1px solid #eef2f7;text-align:center">'
-             . '<img src="' . htmlspecialchars($logo, ENT_QUOTES) . '" alt="' . htmlspecialchars($brand, ENT_QUOTES) . '" style="height:40px;width:auto">'
-             . '</div>'
-             . '<div style="padding:28px;color:#111;font-size:15px;line-height:1.6">' . $body . '</div>'
-             . '</div></div>';
-    }
-}
-
-/**
- * Build the Medoo WHERE for a campaign's audience over newsletter_subscribers.
- * Only ever targets confirmed subscribers unless a broader status is chosen.
- */
-if (!function_exists('campaign_audience_where')) {
-    function campaign_audience_where(array $campaign): array
-    {
-        $where = [];
-        $status = (string) ($campaign['audience_status'] ?? 'subscribed');
-        $where['status'] = $status !== '' ? $status : 'subscribed';
-        if (!empty($campaign['audience_country']))  { $where['country']  = $campaign['audience_country']; }
-        if (!empty($campaign['audience_language'])) { $where['language'] = $campaign['audience_language']; }
-        return $where;
-    }
-}
 
 // ================================ LIST
 $router->get(admin.'/campaigns', function () use ($SECURE, $db) {
@@ -127,6 +73,16 @@ $router->post(admin.'/campaigns/save', function () use ($SECURE, $db) {
         'audience_language' => trim((string) ($_POST['audience_language'] ?? '')) ?: null,
     ];
 
+    // Optional scheduling. A datetime-local value in the future flips the campaign
+    // to 'scheduled' (the cron dispatches it); clearing it returns the draft. A
+    // past/invalid time is treated as "no schedule" (admin can just hit Send).
+    $scheduleRaw = trim((string) ($_POST['scheduled_at'] ?? ''));
+    $scheduleAt  = null;
+    if ($scheduleRaw !== '') {
+        $ts = strtotime($scheduleRaw);
+        if ($ts !== false && $ts > time() + 30) { $scheduleAt = date('Y-m-d H:i:s', $ts); }
+    }
+
     try {
         if ($id > 0) {
             $existing = $db->get('email_campaigns', '*', ['id' => $id]);
@@ -135,14 +91,20 @@ $router->post(admin.'/campaigns/save', function () use ($SECURE, $db) {
             if (in_array($existing['status'], ['sending','sent'], true)) {
                 throw new Exception('A campaign that is sending or already sent cannot be edited.');
             }
+            // Schedule state transitions for an editable (draft/scheduled/failed) campaign.
+            $data['scheduled_at'] = $scheduleAt;
+            $data['status']       = $scheduleAt !== null ? 'scheduled' : 'draft';
             $db->update('email_campaigns', $data, ['id' => $id]);
         } else {
-            $data['status']     = 'draft';
-            $data['created_by'] = (int) ($_SESSION['user_id'] ?? 0) ?: null;
+            $data['scheduled_at'] = $scheduleAt;
+            $data['status']       = $scheduleAt !== null ? 'scheduled' : 'draft';
+            $data['created_by']   = (int) ($_SESSION['user_id'] ?? 0) ?: null;
             $db->insert('email_campaigns', $data);
             $id = (int) $db->id();
         }
-        $_SESSION['message'] = ['type' => 'success', 'text' => 'Campaign saved.'];
+        $_SESSION['message'] = ['type' => 'success', 'text' => $scheduleAt !== null
+            ? ('Campaign scheduled for ' . $scheduleAt . '.')
+            : 'Campaign saved.'];
         redirect(root . admin . '/campaigns/edit/' . $id);
     } catch (\Throwable $e) {
         $_SESSION['message'] = ['type' => 'error', 'text' => $e->getMessage()];
@@ -176,77 +138,78 @@ $router->post(admin.'/campaigns/send', function () use ($SECURE, $db) {
         return;
     }
 
-    try {
-        $where = campaign_audience_where($campaign);
-        $total = (int) $db->count('newsletter_subscribers', $where);
-
-        // Recipients NOT already logged for this campaign (resume-safe).
-        $alreadyRows = $db->select('email_campaign_log', 'email', ['campaign_id' => $id]) ?: [];
-        $already = array_fill_keys(array_map('strval', $alreadyRows), true);
-
-        $batchWhere = $where;
-        $batchWhere['LIMIT'] = CAMPAIGN_SEND_BATCH + count($already) + 50; // over-fetch, then skip logged
-        $subs = $db->select('newsletter_subscribers',
-            ['id','email','first_name','unsubscribe_token'], $batchWhere) ?: [];
-
-        $db->update('email_campaigns', ['status' => 'sending', 'total_recipients' => $total], ['id' => $id]);
-
-        $processed = 0; $sentNow = 0; $failedNow = 0;
-        foreach ($subs as $s) {
-            if ($processed >= CAMPAIGN_SEND_BATCH) { break; }
-            $email = strtolower(trim((string) ($s['email'] ?? '')));
-            if ($email === '' || isset($already[$email])) { continue; } // skip blanks + already-sent
-            $processed++;
-
-            $token = (string) ($s['unsubscribe_token'] ?? '');
-            $unsub = $token !== '' ? rtrim((string) root, '/') . '/newsletter/unsubscribe/' . rawurlencode($token) : rtrim((string) root, '/');
-            $html  = campaign_render_email($db, (string) $campaign['body_html'], (array) $s, $unsub);
-
-            $ok = false; $err = null;
-            try {
-                $ok = (bool) SENDEMAIL($email, (string) ($s['first_name'] ?? ''), (string) $campaign['subject'], $html);
-            } catch (\Throwable $e) {
-                $err = substr($e->getMessage(), 0, 240);
-            }
-
-            // Log per recipient (unique key campaign+email => resume-safe).
-            try {
-                $db->insert('email_campaign_log', [
-                    'campaign_id'   => $id,
-                    'subscriber_id' => (int) ($s['id'] ?? 0) ?: null,
-                    'email'         => $email,
-                    'status'        => $ok ? 'sent' : 'failed',
-                    'error'         => $ok ? null : $err,
-                ]);
-            } catch (\Throwable $e) { /* duplicate (already logged) — ignore */ }
-
-            $ok ? $sentNow++ : $failedNow++;
-        }
-
-        // Recompute totals from the authoritative log + decide final status.
-        $sentTotal   = (int) $db->count('email_campaign_log', ['campaign_id' => $id, 'status' => 'sent']);
-        $failedTotal = (int) $db->count('email_campaign_log', ['campaign_id' => $id, 'status' => 'failed']);
-        $doneAll     = ($sentTotal + $failedTotal) >= $total;
-
-        $db->update('email_campaigns', [
-            'sent_count'   => $sentTotal,
-            'failed_count' => $failedTotal,
-            'status'       => $doneAll ? 'sent' : 'sending',
-            'sent_at'      => $doneAll ? date('Y-m-d H:i:s') : $campaign['sent_at'],
-        ], ['id' => $id]);
-
-        if ($doneAll) {
-            $_SESSION['message'] = ['type' => 'success', 'text' => "Campaign sent. Delivered: $sentTotal, failed: $failedTotal."];
-        } else {
-            $remaining = max(0, $total - $sentTotal - $failedTotal);
-            $_SESSION['message'] = ['type' => 'success', 'text' => "Sent $sentNow this batch ($sentTotal/$total total). $remaining remaining — click Send again to continue."];
-        }
-        redirect(root . admin . '/campaigns/edit/' . $id);
-    } catch (\Throwable $e) {
-        $db->update('email_campaigns', ['status' => 'failed'], ['id' => $id]);
-        $_SESSION['message'] = ['type' => 'error', 'text' => 'Send failed: ' . $e->getMessage()];
-        redirect(root . admin . '/campaigns/edit/' . $id);
+    // Sending is an explicit "send now" — clear any schedule so it doesn't also
+    // get picked up by the cron later.
+    if (!empty($campaign['scheduled_at'])) {
+        $db->update('email_campaigns', ['scheduled_at' => null], ['id' => $id]);
+        $campaign['scheduled_at'] = null;
     }
+
+    $r = campaign_run_batch($db, $campaign);
+    if (!$r['ok']) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Send failed: ' . $r['error']];
+    } elseif ($r['done']) {
+        $_SESSION['message'] = ['type' => 'success', 'text' => "Campaign sent. Delivered: {$r['sent_total']}, failed: {$r['failed_total']}."];
+    } else {
+        $_SESSION['message'] = ['type' => 'success', 'text' => "Sent {$r['sent_now']} this batch ({$r['sent_total']}/{$r['total']} total). {$r['remaining']} remaining — click Send again to continue."];
+    }
+    redirect(root . admin . '/campaigns/edit/' . $id);
+});
+
+// ================================ TEST SEND (one email to a chosen address)
+// Renders the campaign exactly as a real send would (branded shell + a sample
+// unsubscribe link) and sends a single copy so the admin can proof it. Does NOT
+// touch the campaign status or the send log.
+$router->post(admin.'/campaigns/test', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    CSRF::verifyRequest();
+    if (function_exists('ensureCampaignSchema')) { ensureCampaignSchema($db); }
+
+    $id = (int) ($_POST['id'] ?? 0);
+    $campaign = $id > 0 ? $db->get('email_campaigns', '*', ['id' => $id]) : null;
+    if (!$campaign) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Save the campaign first, then send a test.'];
+        redirect(root . admin . '/campaigns' . ($id > 0 ? '/edit/' . $id : ''));
+        return;
+    }
+
+    // Default to the logged-in admin's email; allow an explicit override.
+    $to = strtolower(trim((string) ($_POST['test_email'] ?? '')));
+    if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
+        $to = strtolower(trim((string) ($_SESSION['user_email'] ?? '')));
+        if ($to === '') {
+            $me = (int) ($_SESSION['user_id'] ?? 0);
+            if ($me > 0) { $to = strtolower(trim((string) ($db->get('users', 'email', ['id' => $me]) ?? ''))); }
+        }
+    }
+    if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Enter a valid test email address.'];
+        redirect(root . admin . '/campaigns/edit/' . $id);
+        return;
+    }
+    if (!function_exists('SENDEMAIL')) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Email sending is not available (SENDEMAIL missing).'];
+        redirect(root . admin . '/campaigns/edit/' . $id);
+        return;
+    }
+
+    // A sample subscriber + a well-formed-but-nonexistent unsubscribe token (all
+    // zeros) — this is a proof, not a real recipient, so the link resolves to the
+    // "link not found" page rather than unsubscribing anyone real.
+    $sample = ['first_name' => 'there', 'email' => $to];
+    $unsub  = rtrim((string) root, '/') . '/newsletter/unsubscribe/' . str_repeat('0', 32);
+    $html   = campaign_render_email($db, (string) $campaign['body_html'], $sample, $unsub);
+
+    $ok = false;
+    try {
+        $ok = (bool) SENDEMAIL($to, 'Test', '[TEST] ' . (string) $campaign['subject'], $html);
+    } catch (\Throwable $e) {
+        error_log('campaigns/test: ' . $e->getMessage());
+    }
+    $_SESSION['message'] = $ok
+        ? ['type' => 'success', 'text' => 'Test email sent to ' . $to . '.']
+        : ['type' => 'error', 'text' => 'Could not send the test email — check your email provider settings.'];
+    redirect(root . admin . '/campaigns/edit/' . $id);
 });
 
 // ================================ DELETE
@@ -264,4 +227,101 @@ $router->post(admin.'/campaigns/delete', function () use ($SECURE, $db) {
         $_SESSION['message'] = ['type' => 'error', 'text' => $e->getMessage()];
     }
     redirect(root . admin . '/campaigns');
+});
+
+// ============================================================================
+// SUBSCRIBERS — list / search / export / per-row actions.
+// Gives admins visibility into the audience the campaigns target.
+// ============================================================================
+
+// ------------------------------- LIST (filter + search + paginate)
+$router->get(admin.'/newsletter/subscribers', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (function_exists('ensureNewsletterSchema')) { ensureNewsletterSchema($db); }
+    $title = 'Subscribers'; $description = ''; $header = true; $footer = true;
+    require_once views."includes/header.php";
+    require_once "app/views/admin/campaigns/subscribers.php";
+    require_once views."includes/footer.php";
+});
+
+// ------------------------------- EXPORT (CSV of the current filter)
+$router->get(admin.'/newsletter/subscribers/export', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (function_exists('ensureNewsletterSchema')) { ensureNewsletterSchema($db); }
+
+    $where = [];
+    $status = (string) ($_GET['status'] ?? '');
+    if (in_array($status, ['pending','subscribed','unsubscribed','bounced'], true)) { $where['status'] = $status; }
+    $q = trim((string) ($_GET['q'] ?? ''));
+    if ($q !== '') { $where['email[~]'] = $q; }
+    $where['ORDER'] = ['id' => 'DESC'];
+
+    $rows = $db->select('newsletter_subscribers',
+        ['email','first_name','status','source','country','language','confirmed_at','unsubscribed_at','created_at'],
+        $where) ?: [];
+
+    $csv = array_map(static function ($r) {
+        return [
+            $r['email'] ?? '', $r['first_name'] ?? '', $r['status'] ?? '',
+            $r['source'] ?? '', $r['country'] ?? '', $r['language'] ?? '',
+            $r['confirmed_at'] ?? '', $r['unsubscribed_at'] ?? '', $r['created_at'] ?? '',
+        ];
+    }, $rows);
+
+    $header = ['Email','First name','Status','Source','Country','Language','Confirmed at','Unsubscribed at','Created at'];
+    if (function_exists('_report_stream_csv')) {
+        _report_stream_csv('subscribers-' . date('Ymd-His') . '.csv', $header, $csv);
+    }
+    // Self-sufficient fallback (the reports helper lives in a file not loaded on a
+    // campaigns request). Carries the SAME formula-injection guard: a cell starting
+    // with = + - @ or tab/CR would become a live formula in Excel/Sheets, so prefix
+    // it with a quote to force text.
+    $csvSafe = static function ($v): string {
+        $v = (string) $v;
+        if ($v !== '' && preg_match('/^[=+\-@\t\r]/', $v)) { return "'" . $v; }
+        return $v;
+    };
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="subscribers-' . date('Ymd-His') . '.csv"');
+    header('Cache-Control: no-store');
+    $out = fopen('php://output', 'w');
+    fwrite($out, "\xEF\xBB\xBF");
+    fputcsv($out, array_map($csvSafe, $header));
+    foreach ($csv as $r) { fputcsv($out, array_map($csvSafe, $r)); }
+    fclose($out);
+    exit;
+});
+
+// ------------------------------- PER-ROW ACTION (unsubscribe / resubscribe / delete)
+$router->post(admin.'/newsletter/subscribers/action', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    CSRF::verifyRequest();
+    if (function_exists('ensureNewsletterSchema')) { ensureNewsletterSchema($db); }
+
+    $id     = (int) ($_POST['id'] ?? 0);
+    $action = (string) ($_POST['action'] ?? '');
+    try {
+        if ($id <= 0) { throw new Exception('Invalid subscriber.'); }
+        if ($action === 'unsubscribe') {
+            $db->update('newsletter_subscribers',
+                ['status' => 'unsubscribed', 'unsubscribed_at' => date('Y-m-d H:i:s')], ['id' => $id]);
+            $msg = 'Subscriber unsubscribed.';
+        } elseif ($action === 'resubscribe') {
+            // Admin manually re-activating a previously-opted-in address. Clears the
+            // unsubscribed marker; does NOT re-run double opt-in (admin override).
+            $db->update('newsletter_subscribers',
+                ['status' => 'subscribed', 'unsubscribed_at' => null, 'confirmed_at' => date('Y-m-d H:i:s')], ['id' => $id]);
+            $msg = 'Subscriber re-subscribed.';
+        } elseif ($action === 'delete') {
+            $db->delete('newsletter_subscribers', ['id' => $id]);
+            $msg = 'Subscriber deleted.';
+        } else {
+            throw new Exception('Unknown action.');
+        }
+        $_SESSION['message'] = ['type' => 'success', 'text' => $msg];
+    } catch (\Throwable $e) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => $e->getMessage()];
+    }
+    redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/newsletter/subscribers');
 });

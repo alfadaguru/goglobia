@@ -140,6 +140,20 @@ class ResendProvider
         $replyTo = trim((string) ($this->config['reply_to'] ?? ''));
         if ($replyTo !== '') { $payload['reply_to'] = $replyTo; }
 
+        // Optional custom headers (e.g. List-Unsubscribe / List-Unsubscribe-Post for
+        // bulk campaigns — Gmail/Yahoo 2024 one-click-unsubscribe compliance). Resend
+        // accepts a `headers` object of string->string. Injected by SENDEMAIL via
+        // config['extra_headers']; keys/values coerced to strings defensively.
+        $extra = $this->config['extra_headers'] ?? null;
+        if (is_array($extra) && !empty($extra)) {
+            $headers = [];
+            foreach ($extra as $k => $v) {
+                $k = trim((string) $k);
+                if ($k !== '') { $headers[$k] = (string) $v; }
+            }
+            if (!empty($headers)) { $payload['headers'] = $headers; }
+        }
+
         return $payload;
     }
 

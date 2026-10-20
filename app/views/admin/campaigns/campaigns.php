@@ -71,7 +71,14 @@ $statusBadge = function (string $s): string {
               <td class="px-4 py-3 text-right tabular-nums">
                 <?= number_format((int) $c['sent_count']) ?><?php if ((int)$c['failed_count'] > 0): ?><span class="text-red-600"> / <?= number_format((int)$c['failed_count']) ?> failed</span><?php endif; ?>
               </td>
-              <td class="px-4 py-3 text-gray-500 text-xs"><?= htmlspecialchars((string) ($c['sent_at'] ?: $c['created_at'])) ?></td>
+              <td class="px-4 py-3 text-gray-500 text-xs">
+                <?php if (($c['status'] ?? '') === 'scheduled' && !empty($c['scheduled_at'])): ?>
+                  <span class="material-symbols-outlined !text-[13px] align-middle" style="color:#854d0e">schedule</span>
+                  <?= htmlspecialchars((string) $c['scheduled_at']) ?>
+                <?php else: ?>
+                  <?= htmlspecialchars((string) ($c['sent_at'] ?: $c['created_at'])) ?>
+                <?php endif; ?>
+              </td>
               <td class="px-4 py-3 text-right whitespace-nowrap">
                 <a href="<?= root.admin ?>/campaigns/edit/<?= (int) $c['id'] ?>" class="text-blue-600 hover:underline font-medium"><?= in_array($c['status'], ['sent','sending'], true) ? 'View' : 'Edit' ?></a>
                 <form method="POST" action="<?= root.admin ?>/campaigns/delete" class="inline ml-3" onsubmit="return confirm('Delete this campaign? This cannot be undone.');">
