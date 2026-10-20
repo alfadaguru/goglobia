@@ -35158,3 +35158,103 @@ ALTER TABLE `stays_documents`
   ADD COLUMN `file_ref` VARCHAR(255) DEFAULT NULL,
   ADD COLUMN `retain_until` DATE DEFAULT NULL,
   ADD COLUMN `reviewed_at` DATETIME DEFAULT NULL;
+
+-- --------------------------------------------------------
+-- Newsletter + email-campaign system.
+-- These tables are also created at runtime by ensure*Schema() in
+-- app/lib/functions.php (self-healing bootstrap), but they MUST live here too so
+-- the admin "Database Update" tool (which diffs the live DB against this file)
+-- can create them on an existing install — the runtime path is skipped when the
+-- DB user lacks CREATE rights. Definitions match the ensure*Schema() CREATEs
+-- verbatim. (CLAUDE.md §10: new tables belong in install/db.sql.)
+-- --------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `newsletter_subscribers` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `email` varchar(191) NOT NULL,
+  `first_name` varchar(120) DEFAULT NULL,
+  `last_name` varchar(120) DEFAULT NULL,
+  `country` varchar(2) DEFAULT NULL,
+  `language` varchar(8) DEFAULT NULL,
+  `status` enum('pending','subscribed','unsubscribed','bounced') NOT NULL DEFAULT 'pending',
+  `source` varchar(50) DEFAULT NULL,
+  `confirm_token` varchar(64) DEFAULT NULL,
+  `unsubscribe_token` varchar(64) DEFAULT NULL,
+  `ip` varchar(45) DEFAULT NULL,
+  `confirmed_at` datetime DEFAULT NULL,
+  `unsubscribed_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_email` (`email`),
+  KEY `idx_status` (`status`),
+  KEY `idx_confirm_token` (`confirm_token`),
+  KEY `idx_unsubscribe_token` (`unsubscribe_token`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `email_campaigns` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(191) NOT NULL,
+  `subject` varchar(255) NOT NULL,
+  `body_html` mediumtext NOT NULL,
+  `from_name` varchar(191) DEFAULT NULL,
+  `from_email` varchar(191) DEFAULT NULL,
+  `audience_status` varchar(20) NOT NULL DEFAULT 'subscribed',
+  `audience_country` varchar(2) DEFAULT NULL,
+  `audience_language` varchar(8) DEFAULT NULL,
+  `audience_groups` varchar(255) DEFAULT NULL,
+  `audience_role` varchar(50) DEFAULT NULL,
+  `status` enum('draft','scheduled','sending','sent','failed') NOT NULL DEFAULT 'draft',
+  `scheduled_at` datetime DEFAULT NULL,
+  `sent_at` datetime DEFAULT NULL,
+  `total_recipients` int(11) NOT NULL DEFAULT 0,
+  `sent_count` int(11) NOT NULL DEFAULT 0,
+  `failed_count` int(11) NOT NULL DEFAULT 0,
+  `created_by` int(11) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `email_campaign_log` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `campaign_id` int(11) NOT NULL,
+  `subscriber_id` int(11) DEFAULT NULL,
+  `email` varchar(191) NOT NULL,
+  `status` enum('sent','failed') NOT NULL,
+  `error` varchar(255) DEFAULT NULL,
+  `resend_id` varchar(191) DEFAULT NULL,
+  `delivered_at` datetime DEFAULT NULL,
+  `opened_at` datetime DEFAULT NULL,
+  `clicked_at` datetime DEFAULT NULL,
+  `bounced_at` datetime DEFAULT NULL,
+  `complained_at` datetime DEFAULT NULL,
+  `sent_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_campaign_email` (`campaign_id`, `email`),
+  KEY `idx_campaign` (`campaign_id`),
+  KEY `idx_resend_id` (`resend_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `email_templates_library` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(191) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `blocks_json` mediumtext DEFAULT NULL,
+  `body_html` mediumtext NOT NULL,
+  `is_system` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_system` (`is_system`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `campaign_suppressions` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `email` varchar(191) NOT NULL,
+  `reason` varchar(50) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_sup_email` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
