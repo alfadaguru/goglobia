@@ -31,11 +31,23 @@ $giaWModuleAliases = [
 ];
 $giaWContext = $giaWModuleAliases[$giaWFirst] ?? '';
 
+// Public Pusher bits (key + cluster only) for realtime human-handoff delivery.
+// Empty when Pusher isn't configured -> the widget just polls. Never the secret.
+$giaWPusher = [];
+$giaWRt = dirname(__DIR__, 2) . '/lib/ai/gia_realtime.php';
+if (is_file($giaWRt)) {
+    require_once $giaWRt;
+    if (function_exists('App\\lib\\ai\\gia_pusher_public_config')) {
+        $giaWPusher = \App\lib\ai\gia_pusher_public_config($giaWDb);
+    }
+}
+
 $giaWCfg = json_encode([
     'endpoint'  => root . 'api/gia/chat',
     'csrfToken' => class_exists('CSRF') ? CSRF::getToken() : '',
     'root'      => root,
     'context'   => $giaWContext,
+    'pusher'    => $giaWPusher, // {key,cluster} or {}
 ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE);
 ?>
 <style>
@@ -336,7 +348,7 @@ function giaWidget(cfg){
     teaser:'', pulse:false, greeted:false, idleTimer:null, nudged:false,
     leadShown:false, leadDone:false, leadOpen:false, leadName:'', leadEmail:'', leadPhone:'', leadMsg:'',
     drawer:false, drawerUrl:'', drawerTitle:'',
-    staffActive:false, pollTimer:null,
+    staffActive:false, pollTimer:null, pusher:(cfg.pusher||{}), convKey:'', rtChannel:null, rtClient:null,
     starters:['Flights to Dubai','Hotels in Lagos','Plan a trip to Zanzibar'],
     // Per-context copy so GIA opens relevantly (e.g. on /umrah it talks umrah).
     ctxCopy:{
@@ -374,8 +386,9 @@ function giaWidget(cfg){
           this.greeted = true;          // already has a conversation; skip canned greeting
           this.$nextTick(()=>this.scrollDown());
         }
-        // Resume handoff polling if a human was mid-conversation with this visitor.
-        if(d && d.staff_active){ this.staffActive=true; this.startPolling(); }
+        if(d && d.conv_key){ this.convKey=d.conv_key; }
+        // Resume handoff (realtime + polling) if a human was mid-conversation.
+        if(d && d.staff_active){ this.staffActive=true; this.subscribeRealtime(); this.startPolling(); }
       }catch(e){ /* fail-soft: start fresh */ }
     },
     armIdle(){
@@ -423,14 +436,45 @@ function giaWidget(cfg){
         this.messages.push({role:'ai',text:data.reply||(res.ok?'Done.':'Sorry, something went wrong.'),
           searches:Array.isArray(data.searches)?data.searches:null,checkout:data.checkout||null,payment:data.payment||null,order_status:data.order_status||null});
         if(showedValue) this.maybeOfferLead();
-        // Human handoff: a staff member took over — show the banner + poll for their replies.
-        if(data.handoff || data.staff_active){ this.staffActive=true; this.startPolling(); }
+        if(data.conv_key){ this.convKey=data.conv_key; }
+        // Human handoff: a staff member took over — subscribe for instant replies
+        // (Pusher) AND poll as a fallback; show the banner.
+        if(data.handoff || data.staff_active){ this.staffActive=true; this.subscribeRealtime(); this.startPolling(); }
       }catch(e){ this.messages.push({role:'ai',text:'I could not reach the assistant. Please try again.'}); }
       finally{ this.sending=false; this.$nextTick(()=>this.scrollDown()); }
     },
-    // While a human is handling the chat, poll history for new staff replies.
-    startPolling(){ if(this.pollTimer) return; this.pollTimer=setInterval(()=>this.syncStaff(), 6000); },
-    stopPolling(){ if(this.pollTimer){ clearInterval(this.pollTimer); this.pollTimer=null; } },
+    // Realtime (Pusher) delivery of staff replies — instant, with polling as the
+    // safety net. No-op (polling only) when Pusher isn't configured.
+    subscribeRealtime(){
+      if(this.rtChannel || !this.convKey) return;
+      var key=this.pusher && this.pusher.key;
+      if(!key){ return; } // not configured -> polling covers it
+      var self=this;
+      var start=function(){
+        try{
+          if(!self.rtClient){ self.rtClient=new Pusher(key, { cluster:(self.pusher.cluster||'us2'), forceTLS:true }); }
+          self.rtChannel=self.rtClient.subscribe('gia-conv-'+self.convKey);
+          self.rtChannel.bind('gia-staff-reply', function(data){
+            if(!data || !data.text) return;
+            self.staffActive=true;
+            self.messages.push({role:'ai', text:String(data.text)});
+            self.$nextTick(()=>self.scrollDown());
+          });
+        }catch(e){ /* fall back to polling */ }
+      };
+      if(typeof Pusher!=='undefined'){ start(); return; }
+      // Lazy-load the Pusher client script once.
+      var s=document.createElement('script'); s.src='https://js.pusher.com/8.0.1/pusher.min.js';
+      s.onload=start; s.onerror=function(){ /* polling fallback */ };
+      document.head.appendChild(s);
+    },
+    // While a human is handling the chat, poll history for new staff replies
+    // (fallback + reconciliation even when realtime is active).
+    startPolling(){ if(this.pollTimer) return; this.pollTimer=setInterval(()=>this.syncStaff(), 8000); },
+    stopPolling(){ if(this.pollTimer){ clearInterval(this.pollTimer); this.pollTimer=null; }
+      // Also tear down the realtime subscription once handoff ends.
+      try{ if(this.rtChannel && this.rtClient){ this.rtClient.unsubscribe('gia-conv-'+this.convKey); } }catch(e){}
+      this.rtChannel=null; },
     async syncStaff(){
       try{
         const res=await fetch(this.root+'api/gia/history',{headers:{'X-CSRF-TOKEN':this.csrfToken}});
@@ -476,6 +520,7 @@ function giaWidget(cfg){
     async newChat(){
       if(this.sending) return;
       try{ await fetch(this.root+'api/gia/reset',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':this.csrfToken},body:JSON.stringify({csrf_token:this.csrfToken})}); }catch(e){}
+      this.stopPolling(); this.convKey='';
       this.messages=[]; this.greeted=false; this.leadShown=false; this.leadDone=false; this.staffActive=false;
       this.showGreeting(); this.$nextTick(()=>{ if(this.$refs.input) this.$refs.input.focus(); this.scrollDown(); });
     },

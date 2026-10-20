@@ -254,6 +254,16 @@ $router->post(admin . '/gia/conversation/staff-reply', function () use ($SECURE,
             'msg_count[+]' => 1,
             'last_message' => (function_exists('mb_substr') ? mb_substr($text, 0, 480) : substr($text, 0, 480)),
         ], ['id' => $id]);
+
+        // Realtime push to the traveller's chat (instant); fail-soft -> the widget's
+        // polling fallback still delivers within a few seconds if Pusher isn't set.
+        require_once dirname(__DIR__, 2) . '/lib/ai/gia_realtime.php';
+        if (function_exists('App\\lib\\ai\\gia_realtime_staff_reply')) {
+            $convKey = (string) ($db->get('gia_conversations', 'conv_key', ['id' => $id]) ?: '');
+            if ($convKey !== '') {
+                \App\lib\ai\gia_realtime_staff_reply($db, $convKey, $text);
+            }
+        }
         echo json_encode(['status' => true]);
     } catch (\Throwable $e) {
         error_log('[gia] staff reply: ' . $e->getMessage());

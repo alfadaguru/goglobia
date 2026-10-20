@@ -13,11 +13,20 @@
 // authorized; the model can never self-approve), a payment redirect, and a
 // truthful order-status chip.
 // ============================================================================
+$giaPagePusher = [];
+$giaPageRt = dirname(__DIR__, 2) . '/lib/ai/gia_realtime.php';
+if (is_file($giaPageRt) && isset($db)) {
+    require_once $giaPageRt;
+    if (function_exists('App\\lib\\ai\\gia_pusher_public_config')) {
+        $giaPagePusher = \App\lib\ai\gia_pusher_public_config($db);
+    }
+}
 $giaCfg = json_encode([
     'endpoint'  => root . 'api/gia/chat',
     'csrfToken' => class_exists('CSRF') ? CSRF::getToken() : '',
     'brand'     => '#0058E6',
     'root'      => root,
+    'pusher'    => $giaPagePusher,
 ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE);
 ?>
 <style>
@@ -75,6 +84,9 @@ $giaCfg = json_encode([
 
     <!-- Conversation -->
     <div class="gia-card p-4 sm:p-5">
+      <div class="mb-3 px-3 py-1.5 text-xs rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center gap-1.5" x-show="staffActive" x-cloak>
+        <span class="material-symbols-outlined text-[15px]">support_agent</span> A team member is helping you on this chat.
+      </div>
       <div class="gia-scroll overflow-y-auto pr-1" style="max-height:52vh" x-ref="scroll">
 
         <!-- Empty state -->
@@ -338,12 +350,54 @@ function giaChat(cfg) {
     leadShown: false, leadDone: false, leadName: '', leadEmail: '', leadPhone: '', leadMsg: '',
     drawer: false, drawerUrl: '', drawerTitle: '',
     staffActive: false, pollTimer: null,
+    pusher: (cfg.pusher || {}), convKey: '', rtChannel: null, rtClient: null,
 
     init() { this.hydrate(); },
+
+    // Realtime (Pusher) delivery of staff replies; polling is the fallback.
+    subscribeRealtime() {
+      if (this.rtChannel || !this.convKey) return;
+      var key = this.pusher && this.pusher.key;
+      if (!key) return;
+      var self = this;
+      var start = function () {
+        try {
+          if (!self.rtClient) { self.rtClient = new Pusher(key, { cluster: (self.pusher.cluster || 'us2'), forceTLS: true }); }
+          self.rtChannel = self.rtClient.subscribe('gia-conv-' + self.convKey);
+          self.rtChannel.bind('gia-staff-reply', function (data) {
+            if (!data || !data.text) return;
+            self.staffActive = true;
+            self.messages.push({ role: 'ai', text: String(data.text) });
+            self.$nextTick(() => self.scrollDown());
+          });
+        } catch (e) {}
+      };
+      if (typeof Pusher !== 'undefined') { start(); return; }
+      var s = document.createElement('script'); s.src = 'https://js.pusher.com/8.0.1/pusher.min.js';
+      s.onload = start; document.head.appendChild(s);
+    },
+    startPolling() { if (this.pollTimer) return; this.pollTimer = setInterval(() => this.syncStaff(), 8000); },
+    stopPolling() {
+      if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+      try { if (this.rtChannel && this.rtClient) { this.rtClient.unsubscribe('gia-conv-' + this.convKey); } } catch (e) {}
+      this.rtChannel = null;
+    },
+    async syncStaff() {
+      try {
+        const res = await fetch(this.root + 'api/gia/history', { headers: { 'X-CSRF-TOKEN': this.csrfToken } });
+        const d = await res.json().catch(() => ({}));
+        if (d && Array.isArray(d.messages) && d.messages.length > this.messages.length) {
+          this.messages = d.messages.map(m => ({ role: m.role === 'user' ? 'user' : 'ai', text: m.text || '' }));
+          this.$nextTick(() => this.scrollDown());
+        }
+        if (d) { this.staffActive = !!d.staff_active; if (!d.staff_active) this.stopPolling(); }
+      } catch (e) {}
+    },
 
     async newChat() {
       if (this.sending) return;
       try { await fetch(this.root + 'api/gia/reset', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken }, body: JSON.stringify({ csrf_token: this.csrfToken }) }); } catch (e) {}
+      this.stopPolling(); this.convKey = '';
       this.messages = []; this.leadShown = false; this.leadDone = false; this.staffActive = false;
       this.$nextTick(() => { if (this.$refs.input) this.$refs.input.focus(); this.scrollDown(); });
     },
@@ -378,6 +432,8 @@ function giaChat(cfg) {
           this.messages = d.messages.map(m => ({ role: m.role === 'user' ? 'user' : 'ai', text: m.text || '' }));
           this.$nextTick(() => this.scrollDown());
         }
+        if (d && d.conv_key) { this.convKey = d.conv_key; }
+        if (d && d.staff_active) { this.staffActive = true; this.subscribeRealtime(); this.startPolling(); }
       } catch (e) { /* fail-soft: fresh start */ }
     },
     maybeOfferLead() {
@@ -449,6 +505,8 @@ function giaChat(cfg) {
           order_status: data.order_status || null,
         });
         if (showedValue) this.maybeOfferLead();
+        if (data.conv_key) { this.convKey = data.conv_key; }
+        if (data.handoff || data.staff_active) { this.staffActive = true; this.subscribeRealtime(); this.startPolling(); }
       } catch (e) {
         this.messages.push({ role: 'ai', text: 'I could not reach the assistant. Please check your connection and try again.' });
       } finally {
