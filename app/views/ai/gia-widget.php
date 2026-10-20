@@ -125,9 +125,14 @@ $giaWCfg = json_encode([
         <div class="ttl">Ask GIA</div>
         <div class="sub">AI travel assistant · you approve before any payment</div>
       </div>
+      <button class="giaw-close" @click="newChat()" aria-label="New chat" title="Start a new chat"
+              x-show="messages.length > 0"><span class="material-symbols-outlined">add_comment</span></button>
       <button class="giaw-close" @click="toggle()" aria-label="Close"><span class="material-symbols-outlined">close</span></button>
     </div>
 
+    <div class="px-3 py-1.5 text-[11px] bg-emerald-50 text-emerald-700 border-b border-emerald-100 flex items-center gap-1.5" x-show="staffActive" x-cloak>
+      <span class="material-symbols-outlined text-[14px]">support_agent</span> A team member is helping you on this chat.
+    </div>
     <div class="giaw-body" x-ref="scroll">
       <template x-if="messages.length === 0">
         <div class="text-center py-6">
@@ -331,6 +336,7 @@ function giaWidget(cfg){
     teaser:'', pulse:false, greeted:false, idleTimer:null, nudged:false,
     leadShown:false, leadDone:false, leadOpen:false, leadName:'', leadEmail:'', leadPhone:'', leadMsg:'',
     drawer:false, drawerUrl:'', drawerTitle:'',
+    staffActive:false, pollTimer:null,
     starters:['Flights to Dubai','Hotels in Lagos','Plan a trip to Zanzibar'],
     // Per-context copy so GIA opens relevantly (e.g. on /umrah it talks umrah).
     ctxCopy:{
@@ -368,6 +374,8 @@ function giaWidget(cfg){
           this.greeted = true;          // already has a conversation; skip canned greeting
           this.$nextTick(()=>this.scrollDown());
         }
+        // Resume handoff polling if a human was mid-conversation with this visitor.
+        if(d && d.staff_active){ this.staffActive=true; this.startPolling(); }
       }catch(e){ /* fail-soft: start fresh */ }
     },
     armIdle(){
@@ -415,8 +423,28 @@ function giaWidget(cfg){
         this.messages.push({role:'ai',text:data.reply||(res.ok?'Done.':'Sorry, something went wrong.'),
           searches:Array.isArray(data.searches)?data.searches:null,checkout:data.checkout||null,payment:data.payment||null,order_status:data.order_status||null});
         if(showedValue) this.maybeOfferLead();
+        // Human handoff: a staff member took over — show the banner + poll for their replies.
+        if(data.handoff || data.staff_active){ this.staffActive=true; this.startPolling(); }
       }catch(e){ this.messages.push({role:'ai',text:'I could not reach the assistant. Please try again.'}); }
       finally{ this.sending=false; this.$nextTick(()=>this.scrollDown()); }
+    },
+    // While a human is handling the chat, poll history for new staff replies.
+    startPolling(){ if(this.pollTimer) return; this.pollTimer=setInterval(()=>this.syncStaff(), 6000); },
+    stopPolling(){ if(this.pollTimer){ clearInterval(this.pollTimer); this.pollTimer=null; } },
+    async syncStaff(){
+      try{
+        const res=await fetch(this.root+'api/gia/history',{headers:{'X-CSRF-TOKEN':this.csrfToken}});
+        const d=await res.json().catch(()=>({}));
+        if(d && Array.isArray(d.messages)){
+          // Rehydrate from the server transcript (includes staff replies) only if it grew.
+          if(d.messages.length > this.messages.length){
+            this.messages = d.messages.map(m=>({role: m.role==='user'?'user':'ai', text:m.text||''}));
+            this.$nextTick(()=>this.scrollDown());
+          }
+          this.staffActive = !!d.staff_active;
+          if(!d.staff_active) this.stopPolling(); // handed back to GIA
+        }
+      }catch(e){ /* keep polling */ }
     },
     // Soft, optional lead offer AFTER GIA has shown real value. Once per session,
     // dismissible, never blocks the chat. (Warm 'save your trip' value exchange.)
@@ -444,6 +472,13 @@ function giaWidget(cfg){
       finally{ this.sending=false; this.$nextTick(()=>this.scrollDown()); }
     },
     dismissLead(){ this.leadDone=true; this.leadOpen=false; },
+    // Start a fresh conversation: retire the server-side one, wipe the UI, re-greet.
+    async newChat(){
+      if(this.sending) return;
+      try{ await fetch(this.root+'api/gia/reset',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':this.csrfToken},body:JSON.stringify({csrf_token:this.csrfToken})}); }catch(e){}
+      this.messages=[]; this.greeted=false; this.leadShown=false; this.leadDone=false; this.staffActive=false;
+      this.showGreeting(); this.$nextTick(()=>{ if(this.$refs.input) this.$refs.input.focus(); this.scrollDown(); });
+    },
     // Picking a LIVE offer: send a message GIA turns into select_option(module,ref).
     // The ref is the stable id fetch_live_offers returned + cached server-side.
     pickOffer(sr, c){ if(this.sending) return;
