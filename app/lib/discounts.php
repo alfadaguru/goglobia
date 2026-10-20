@@ -288,3 +288,161 @@ if (!function_exists('discount_apply_with_promo')) {
         return ['total' => round($total, 2), 'auto' => round($autoDisc, 2), 'promo' => round($promoDisc, 2), 'clamped' => $clamped];
     }
 }
+
+/**
+ * ONE orchestrator every booking route calls at the promo stage, so discount +
+ * promo behave identically everywhere ("seamless"). It:
+ *   1. resolves the best AUTO discount for this booking's scope,
+ *   2. resolves the PROMO code (reusing promoResolveForBooking),
+ *   3. detects whether the product is a PORTAL-supplier listing (role=supplier),
+ *   4. applies the money model:
+ *        - portal-supplier product → discount is PLATFORM-FUNDED: it reduces the
+ *          customer's charge but price_original stays whole (supplier paid in
+ *          full); NO net floor (the platform chose to absorb it). The funded
+ *          amount is reported so the route can store it (bookings.discount).
+ *        - API / own-service → clamp so price_markup NEVER drops below supplier
+ *          net (price_original). This also closes the old promo-below-net leak.
+ *
+ * @param array $args {
+ *   base          float  post-tax total BEFORE any discount (what gets reduced)
+ *   supplier_net  float  bookings.price_original (floor + supplier earning ref)
+ *   module        string service type ('flights','stays',…) for promo + scope
+ *   currency      string base currency
+ *   promo_code    string raw code from the customer ('' if none)
+ *   booking_data  array|string  used to resolve the own-inventory owner
+ *   item_id       int    local product id (for product-scope discounts) | 0
+ *   provider      string bookings.module supplier name (for provider scope) | ''
+ *   audience      string customer|agent|supplier|staff | ''
+ *   user_id,user_email  for promo per-user limits
+ * }
+ * @return array {
+ *   total            float  final charged total (store as price_markup)
+ *   auto_discount    float  auto-discount applied
+ *   promo_discount   float  promo applied
+ *   total_discount   float  auto + promo
+ *   platform_funded  float  portion the PLATFORM absorbs (supplier-product case)
+ *   promo_json       ?string  bookings.promo_codes blob (null if none)
+ *   discount_json    ?string  applied-auto-discount blob (null if none)
+ *   promo_row        ?array   for recordPromoUsage
+ *   discount_row     ?array   for bumping discounts.used_count
+ *   is_supplier_product bool
+ *   floor_clamped    bool
+ * }
+ */
+if (!function_exists('apply_booking_discounts')) {
+    function apply_booking_discounts($db, array $args): array
+    {
+        $base        = max(0.0, (float) ($args['base'] ?? 0));
+        $supplierNet = max(0.0, (float) ($args['supplier_net'] ?? 0));
+        $module      = (string) ($args['module'] ?? '');
+        $currency    = (string) ($args['currency'] ?? '');
+        $promoCode   = trim((string) ($args['promo_code'] ?? ''));
+        $bookingData = $args['booking_data'] ?? null;
+
+        // Is this a PORTAL-supplier-owned product? Reuse the authoritative resolver
+        // (stays/tours/cars; fail-closed on role=supplier). If so, discounts are
+        // platform-funded and the net floor does NOT apply to the supplier.
+        $isSupplierProduct = false;
+        if (function_exists('supplier_earning_resolve_owner')) {
+            try {
+                $owner = supplier_earning_resolve_owner($db, $module, $bookingData);
+                $isSupplierProduct = ($owner !== null);
+            } catch (\Throwable $e) { $isSupplierProduct = false; }
+        }
+
+        // 1. AUTO discount for this scope.
+        $ctx = [
+            'module'       => $module,
+            'provider'     => (string) ($args['provider'] ?? ''),
+            'owner'        => isset($owner['owner']) ? (string) $owner['owner'] : '',
+            'item_id'      => (int) ($args['item_id'] ?? 0),
+            'currency'     => $currency,
+            'audience'     => (string) ($args['audience'] ?? ''),
+            'order_amount' => $base,
+        ];
+        $auto = discount_resolve_for_booking($db, $ctx);
+        $autoDisc   = (float) $auto['discount'];
+        $autoRow    = $auto['rule'];
+        $floorPct   = $autoRow ? (float) ($autoRow['margin_floor_pct'] ?? 0) : 0.0;
+
+        // 2. PROMO on the post-auto subtotal (stacking order).
+        $promoDisc = 0.0; $promoRow = null; $promoJson = null;
+        if ($promoCode !== '' && function_exists('promoResolveForBooking')) {
+            $afterAuto = max(0.0, $base - $autoDisc);
+            $pr = promoResolveForBooking($db, $promoCode, $afterAuto, $module, $currency, [
+                'user_id'    => $args['user_id'] ?? null,
+                'user_email' => $args['user_email'] ?? null,
+                'item_id'    => $ctx['item_id'] ?: null,
+            ]);
+            $promoDisc = (float) ($pr['discount'] ?? 0);
+            $promoRow  = $pr['promo'] ?? null;
+            $promoJson = $pr['json'] ?? null;
+        }
+
+        // 3. Money model.
+        if ($isSupplierProduct) {
+            // Platform-funded: customer pays base - (auto+promo); supplier net is
+            // untouched; NO floor (platform deliberately absorbs). Guard only against
+            // a negative charge.
+            $totalDisc = min($autoDisc + $promoDisc, $base);
+            $total     = round($base - $totalDisc, 2);
+            // Platform funds whatever the discount exceeds our margin (base - net).
+            $ourMargin = max(0.0, $base - $supplierNet);
+            $platformFunded = round(max(0.0, $totalDisc - $ourMargin), 2);
+            $clamped = false;
+            // Re-split (auto/promo) proportionally only if we capped at base.
+            if ($totalDisc < $autoDisc + $promoDisc && ($autoDisc + $promoDisc) > 0) {
+                $scale = $totalDisc / ($autoDisc + $promoDisc);
+                $autoDisc = round($autoDisc * $scale, 2);
+                $promoDisc = round($promoDisc * $scale, 2);
+            }
+        } else {
+            // API / own-service: clamp so charged >= supplier net (closes promo leak).
+            $res = discount_apply_with_promo($base, $supplierNet, $autoDisc, $promoDisc, $floorPct);
+            $total = $res['total']; $autoDisc = $res['auto']; $promoDisc = $res['promo'];
+            $totalDisc = round($autoDisc + $promoDisc, 2);
+            $platformFunded = 0.0;
+            $clamped = $res['clamped'];
+        }
+
+        // Auto-discount JSON for the booking row (mirrors promo_codes blob style).
+        $discountJson = null;
+        if ($autoRow && $autoDisc > 0) {
+            $discountJson = json_encode([
+                'id'              => (int) $autoRow['id'],
+                'name'            => (string) $autoRow['name'],
+                'discount_type'   => (string) $autoRow['discount_type'],
+                'scope_type'      => (string) $autoRow['scope_type'],
+                'discount_amount' => round($autoDisc, 2),
+                'platform_funded' => $platformFunded,
+                'currency'        => $currency,
+            ]);
+        }
+
+        return [
+            'total'               => round($total, 2),
+            'auto_discount'       => round($autoDisc, 2),
+            'promo_discount'      => round($promoDisc, 2),
+            'total_discount'      => round($autoDisc + $promoDisc, 2),
+            'platform_funded'     => round($platformFunded, 2),
+            'promo_json'          => $promoJson,
+            'discount_json'       => $discountJson,
+            'promo_row'           => $promoRow,
+            'discount_row'        => $autoRow,
+            'is_supplier_product' => $isSupplierProduct,
+            'floor_clamped'       => $clamped,
+        ];
+    }
+}
+
+/** Bump a discount's used_count idempotently is NOT needed (no per-use ledger);
+ *  just increment on application. Separate from promo which has its own ledger. */
+if (!function_exists('discount_record_use')) {
+    function discount_record_use($db, array $discountRow): void
+    {
+        $id = (int) ($discountRow['id'] ?? 0);
+        if ($id <= 0) { return; }
+        try { $db->update('discounts', ['used_count[+]' => 1, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $id]); }
+        catch (\Throwable $e) { error_log('discount_record_use: ' . $e->getMessage()); }
+    }
+}
