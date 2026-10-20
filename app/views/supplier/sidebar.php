@@ -154,10 +154,8 @@ if ($activeStay > 0) {
             ['name' => 'Tax & fiscal',    'icon' => 'percent',          'url' => 'supplier/tax', 'show' => true],
             ['name' => 'Payments & deposits','icon' => 'credit_card',   'url' => 'supplier/payments', 'show' => true],
             ['name' => 'Cashier',         'icon' => 'point_of_sale',    'url' => 'supplier/cashier', 'show' => true],
-            ['name' => 'Wallet',          'icon' => 'wallet',           'url' => 'supplier/wallet', 'show' => true],
+            ['name' => 'Payouts & wallet','icon' => 'wallet',           'url' => 'supplier/payouts', 'show' => true],
             ['name' => 'Settlement',      'icon' => 'account_balance',  'url' => 'supplier/settlement', 'show' => true],
-            ['name' => 'Payouts',         'icon' => 'savings',          'url' => 'supplier/payouts', 'show' => true],
-            ['name' => 'Bank accounts',   'icon' => 'account_balance',  'url' => 'supplier/bank-accounts', 'show' => true],
         ]];
         $groups[] = ['label' => 'Procurement & stores', 'items' => [
             ['name' => 'Procurement',     'icon' => 'inventory_2',      'url' => 'supplier/procurement', 'show' => true],

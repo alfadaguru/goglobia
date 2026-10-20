@@ -24,27 +24,12 @@ if (!function_exists('_supplier_bank_owner')) {
 // ----------------------------------------------------------------------------
 // GET /supplier/bank-accounts — list accounts + add form
 // ----------------------------------------------------------------------------
+// Bank-account management is now INLINE on the Payouts hub (/supplier/payouts).
+// This page route redirects there; the JSON + action endpoints below (banks/resolve/
+// add/default/remove) remain and are what the hub's add-account form calls.
 $router->get('/supplier/bank-accounts', function () use ($SECURE, $db) {
     SUPPLIER_AUTH();
-    $owner = _supplier_bank_owner($db);
-    if ($owner === null) {
-        $_SESSION['message'] = ['type' => 'error', 'text' => 'Only the supplier account owner can manage bank accounts.'];
-        header('Location: ' . root . 'supplier/dashboard'); exit;
-    }
-
-    // Migrate any legacy single account on the users row into the new store (once).
-    if (function_exists('supplier_bank_account_backfill')) { supplier_bank_account_backfill($db, $owner); }
-
-    $accounts  = function_exists('supplier_bank_accounts_for_owner') ? supplier_bank_accounts_for_owner($db, $owner) : [];
-    $countries = function_exists('supplier_payout_countries') ? supplier_payout_countries() : [];
-    // Gateway connection state (for an honest "verification not connected" notice).
-    $gw = function_exists('paystack_dva_gateway') ? paystack_dva_gateway($db) : null;
-    $gatewayConnected = $gw && trim((string) ($gw['c1'] ?? '')) !== '';
-
-    $title = 'Bank accounts'; $description = ''; $header = true; $footer = true;
-    require_once views . "includes/header.php";
-    require_once views . "supplier/bank-accounts.php";
-    require_once views . "includes/footer.php";
+    header('Location: ' . root . 'supplier/payouts'); exit;
 });
 
 // ----------------------------------------------------------------------------

@@ -22,44 +22,10 @@ if (!function_exists('_supplier_wallet_owner')) {
 // ----------------------------------------------------------------------------
 // GET /supplier/wallet — balances + statement + withdraw
 // ----------------------------------------------------------------------------
+// The wallet is now merged into the single Payouts hub (/supplier/payouts).
+// This route redirects there so old links/bookmarks keep working. The money surface
+// lives in ONE place to avoid the confusing duplicate pages.
 $router->get('/supplier/wallet', function () use ($SECURE, $db) {
     SUPPLIER_AUTH();
-    $owner = _supplier_wallet_owner($db);
-    if ($owner === null) {
-        $_SESSION['message'] = ['type' => 'error', 'text' => 'Only the supplier account owner can view the wallet.'];
-        header('Location: ' . root . 'supplier/dashboard'); exit;
-    }
-
-    // Balances from the earnings ledger (the single source of truth).
-    $summary   = function_exists('supplier_earning_summary') ? supplier_earning_summary($db, $owner) : [];
-    $available = function_exists('supplier_payable_available') ? supplier_payable_available($db, $owner) : [];
-
-    // Saved bank accounts for the withdraw form (verified ones only are usable).
-    if (function_exists('supplier_bank_account_backfill')) { supplier_bank_account_backfill($db, $owner); }
-    $accounts  = function_exists('supplier_bank_accounts_for_owner') ? supplier_bank_accounts_for_owner($db, $owner) : [];
-
-    // Admin rules + enable flag (so the UI can show min/fee and gate the form honestly).
-    $payoutSettings = function_exists('supplier_payout_settings') ? supplier_payout_settings($db) : ['enabled' => false, 'currencies' => []];
-    $payoutsLive    = !empty($payoutSettings['enabled']);
-
-    // Recent payouts (history) + a current-month statement for the primary currency.
-    $payouts   = $db->select('supplier_payouts',
-        ['id', 'currency', 'amount', 'fee_amount', 'state', 'reference', 'failure_reason', 'requested_at', 'paid_at'],
-        ['owner_user_id' => $owner, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 25]) ?: [];
-
-    // Pick a primary currency to statement on: the one with the most available, else NGN.
-    $primaryCur = 'NGN';
-    if (!empty($available)) {
-        $byAmount = $available;      // copy — do not disturb the display order of $available
-        arsort($byAmount);
-        $primaryCur = (string) array_key_first($byAmount);
-    }
-    $statement = function_exists('supplier_settlement_statement')
-        ? supplier_settlement_statement($db, $owner, $primaryCur, date('Y-m-01'), date('Y-m-d'))
-        : ['lines' => []];
-
-    $title = 'Wallet'; $description = ''; $header = true; $footer = true;
-    require_once views . "includes/header.php";
-    require_once views . "supplier/wallet.php";
-    require_once views . "includes/footer.php";
+    header('Location: ' . root . 'supplier/payouts'); exit;
 });

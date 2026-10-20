@@ -34,13 +34,33 @@ $router->get('/supplier/payouts', function () use ($SECURE, $db) {
         header('Location: ' . root . 'supplier/dashboard'); exit;
     }
 
-    $user = $db->get('users', ['payout_bank_code', 'payout_account_number', 'payout_account_name'], ['user_id' => $owner]);
+    // Ensure the new schema + migrate any legacy single bank account into the store.
+    if (function_exists('supplier_payouts_ext_ensure_schema')) { supplier_payouts_ext_ensure_schema($db); }
+    if (function_exists('supplier_bank_account_backfill')) { supplier_bank_account_backfill($db, $owner); }
+
+    // Balances from the earnings ledger (single source of truth).
     $available = function_exists('supplier_payable_available') ? supplier_payable_available($db, $owner) : [];
     $summary   = function_exists('supplier_earning_summary') ? supplier_earning_summary($db, $owner) : [];
+
+    // Saved bank accounts + the inputs the add-form needs (countries + gateway state).
+    $accounts  = function_exists('supplier_bank_accounts_for_owner') ? supplier_bank_accounts_for_owner($db, $owner) : [];
+    $countries = function_exists('supplier_payout_countries') ? supplier_payout_countries() : [];
+    $gw = function_exists('paystack_dva_gateway') ? paystack_dva_gateway($db) : null;
+    $gatewayConnected = $gw && trim((string) ($gw['c1'] ?? '')) !== '';
+
+    // Admin rules + the enable flag (drives the withdraw form + fee preview).
+    $payoutSettings = function_exists('supplier_payout_settings') ? supplier_payout_settings($db) : ['enabled' => false, 'currencies' => []];
+    $payoutsLive = !empty($payoutSettings['enabled']);
+
+    // Payout history (incl. fee) + a current-month statement for the primary currency.
     $payouts   = $db->select('supplier_payouts',
-        ['id', 'currency', 'amount', 'state', 'reference', 'failure_reason', 'requested_at', 'paid_at'],
+        ['id', 'currency', 'amount', 'fee_amount', 'state', 'reference', 'failure_reason', 'requested_at', 'paid_at'],
         ['owner_user_id' => $owner, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 50]) ?: [];
-    $payoutsLive = function_exists('supplier_payouts_live') ? supplier_payouts_live($db) : false;
+    $primaryCur = 'NGN';
+    if (!empty($available)) { $byAmt = $available; arsort($byAmt); $primaryCur = (string) array_key_first($byAmt); }
+    $statement = function_exists('supplier_settlement_statement')
+        ? supplier_settlement_statement($db, $owner, $primaryCur, date('Y-m-01'), date('Y-m-d'))
+        : ['lines' => []];
 
     $title = 'Payouts'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";

@@ -29,7 +29,7 @@
     <h2 class="text-lg font-semibold text-gray-900 mb-1 flex items-center gap-2">
       <span class="material-symbols-outlined text-violet-600">payments</span> Earnings
     </h2>
-    <p class="text-xs text-gray-500 mb-4">Your net earnings from paid bookings. Payouts to your bank are coming soon.</p>
+    <p class="text-xs text-gray-500 mb-4">Your net earnings from paid bookings. Withdraw available funds to your bank from <a href="<?= root ?>supplier/payouts" class="text-violet-600 hover:underline">Payouts &amp; wallet</a>.</p>
     <div class="space-y-4">
       <?php foreach ($earn as $cur => $v): ?>
         <div>
