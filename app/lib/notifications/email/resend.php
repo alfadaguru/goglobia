@@ -17,10 +17,14 @@
 
 $requirements = [
     'name'   => 'Resend',
-    // A single API key — rendered as a password input by the admin UI (field name
-    // contains "key"). from_email / from_name come from the global email sender settings,
-    // like the other providers (injected by SENDEMAIL / sendEmailNotification).
-    'fields' => ['api_key'],
+    // api_key       — the Bearer send key (re_...), rendered as a password input.
+    // webhook_secret — the Svix signing secret (whsec_...) from the Resend dashboard
+    //                  Webhooks page; used by /webhooks/resend/events to verify delivery
+    //                  events for campaign analytics. Optional; also a password input
+    //                  (field name contains "secret"). Both come from the admin UI.
+    // from_email / from_name come from the global email sender settings, like the other
+    // providers (injected by SENDEMAIL / sendEmailNotification).
+    'fields' => ['api_key', 'webhook_secret'],
 ];
 
 class ResendProvider

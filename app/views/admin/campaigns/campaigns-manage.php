@@ -187,7 +187,55 @@ $v = function ($k, $d = '') use ($c) { return htmlspecialchars((string) ($c[$k] 
     </div>
   <?php elseif ($c && $c['status'] === 'sent'): ?>
     <div class="mt-6 rounded-xl border p-4" style="border-color:#bbf7d0;background:#f0fdf4">
-      <p class="text-sm font-semibold text-green-800">Campaign sent — <?= number_format((int)$c['sent_count']) ?> delivered<?php if ((int)$c['failed_count'] > 0): ?>, <?= number_format((int)$c['failed_count']) ?> failed<?php endif; ?>.</p>
+      <p class="text-sm font-semibold text-green-800">Campaign sent — <?= number_format((int)$c['sent_count']) ?> accepted by provider<?php if ((int)$c['failed_count'] > 0): ?>, <?= number_format((int)$c['failed_count']) ?> failed<?php endif; ?>.</p>
+    </div>
+  <?php endif; ?>
+
+  <?php
+  // ---- Delivery analytics (populated by the Resend webhook). ----------------
+  // Only show for campaigns that have actually been sent. Counts come straight
+  // from email_campaign_log; the *_at columns are stamped by /webhooks/resend/events.
+  if ($c && in_array($c['status'], ['sent', 'sending'], true)):
+      $acc        = (int) $db->count('email_campaign_log', ['campaign_id' => $cid, 'status' => 'sent']);
+      $delivered  = (int) $db->count('email_campaign_log', ['campaign_id' => $cid, 'delivered_at[!]' => null]);
+      $opened     = (int) $db->count('email_campaign_log', ['campaign_id' => $cid, 'opened_at[!]' => null]);
+      $clicked    = (int) $db->count('email_campaign_log', ['campaign_id' => $cid, 'clicked_at[!]' => null]);
+      $bounced    = (int) $db->count('email_campaign_log', ['campaign_id' => $cid, 'bounced_at[!]' => null]);
+      $complained = (int) $db->count('email_campaign_log', ['campaign_id' => $cid, 'complained_at[!]' => null]);
+      $anyEvents  = ($delivered + $opened + $clicked + $bounced + $complained) > 0;
+      $pct = function (int $n) use ($acc): string {
+          return $acc > 0 ? number_format($n * 100 / $acc, 1) . '%' : '—';
+      };
+      $cards = [
+          ['Accepted',   $acc,        null,            '#475569'],
+          ['Delivered',  $delivered,  $pct($delivered),'#166534'],
+          ['Opened',     $opened,     $pct($opened),   '#1e40af'],
+          ['Clicked',    $clicked,    $pct($clicked),  '#6d28d9'],
+          ['Bounced',    $bounced,    $pct($bounced),  '#b45309'],
+          ['Complaints', $complained, $pct($complained),'#991b1b'],
+      ];
+  ?>
+    <div class="mt-6">
+      <div class="flex items-center gap-2 mb-2">
+        <h3 class="text-sm font-bold text-gray-900">Delivery analytics</h3>
+        <span class="text-[11px] text-gray-400">via Resend webhook</span>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <?php foreach ($cards as [$label, $n, $rate, $color]): ?>
+          <div class="rounded-xl border border-gray-100 bg-white p-3 text-center">
+            <div class="text-xl font-bold tabular-nums" style="color:<?= $color ?>"><?= number_format($n) ?></div>
+            <div class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mt-0.5"><?= $label ?></div>
+            <?php if ($rate !== null): ?><div class="text-[11px] text-gray-500 mt-0.5"><?= $rate ?></div><?php endif; ?>
+          </div>
+        <?php endforeach; ?>
+      </div>
+      <?php if (!$anyEvents): ?>
+        <p class="text-xs text-gray-400 mt-2">
+          No delivery events recorded yet. Open/delivery/bounce stats appear here once Resend sends webhook events —
+          add your endpoint at <span class="font-mono">/webhooks/resend/events</span> in the Resend dashboard and paste the
+          signing secret into Settings → Email → Resend → Webhook Secret.
+        </p>
+      <?php endif; ?>
     </div>
   <?php endif; ?>
 </div>

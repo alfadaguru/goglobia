@@ -4607,11 +4607,37 @@ function ensureCampaignSchema($db): void
                 `email` varchar(191) NOT NULL,
                 `status` enum('sent','failed') NOT NULL,
                 `error` varchar(255) DEFAULT NULL,
+                `resend_id` varchar(191) DEFAULT NULL,
+                `delivered_at` datetime DEFAULT NULL,
+                `opened_at` datetime DEFAULT NULL,
+                `clicked_at` datetime DEFAULT NULL,
+                `bounced_at` datetime DEFAULT NULL,
+                `complained_at` datetime DEFAULT NULL,
                 `sent_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (`id`),
                 UNIQUE KEY `uq_campaign_email` (`campaign_id`, `email`),
-                KEY `idx_campaign` (`campaign_id`)
+                KEY `idx_campaign` (`campaign_id`),
+                KEY `idx_resend_id` (`resend_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } else {
+            // Phase 4: add delivery-event columns to pre-existing (Phase 2) tables.
+            // Idempotent SHOW COLUMNS + ALTER, matching the house pattern.
+            $cols = [
+                ['resend_id',     "ALTER TABLE `email_campaign_log` ADD COLUMN `resend_id` VARCHAR(191) NULL DEFAULT NULL"],
+                ['delivered_at',  "ALTER TABLE `email_campaign_log` ADD COLUMN `delivered_at` DATETIME NULL DEFAULT NULL"],
+                ['opened_at',     "ALTER TABLE `email_campaign_log` ADD COLUMN `opened_at` DATETIME NULL DEFAULT NULL"],
+                ['clicked_at',    "ALTER TABLE `email_campaign_log` ADD COLUMN `clicked_at` DATETIME NULL DEFAULT NULL"],
+                ['bounced_at',    "ALTER TABLE `email_campaign_log` ADD COLUMN `bounced_at` DATETIME NULL DEFAULT NULL"],
+                ['complained_at', "ALTER TABLE `email_campaign_log` ADD COLUMN `complained_at` DATETIME NULL DEFAULT NULL"],
+            ];
+            foreach ($cols as [$column, $alterSql]) {
+                try {
+                    $exists = $db->query("SHOW COLUMNS FROM `email_campaign_log` LIKE " . $db->pdo->quote($column))->fetchAll();
+                    if (count($exists) === 0) { $db->pdo->exec($alterSql); }
+                } catch (\Throwable $e) {
+                    error_log("ensureCampaignSchema: could not add email_campaign_log.$column: " . $e->getMessage());
+                }
+            }
         }
     } catch (\Throwable $e) {
         error_log('ensureCampaignSchema: ' . $e->getMessage());

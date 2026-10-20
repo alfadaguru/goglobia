@@ -402,6 +402,9 @@ require_once 'app/routes/demo-warning-route.php';
 require_once 'app/routes/paymentAdyenRoutes.php';
 require_once 'app/routes/paymentPaystackRoutes.php'; // Paystack DVA (virtual account) deposits
 
+// EMAIL DELIVERY WEBHOOKS (public, unauthenticated, Svix signature-verified)
+require_once 'app/routes/webhooksResendRoutes.php'; // Resend campaign delivery events
+
 // CRON ROUTES
 require_once 'app/routes/crons/creditsRemindersRoutes.php';
 require_once 'app/routes/crons/currencyRatesRoutes.php';
