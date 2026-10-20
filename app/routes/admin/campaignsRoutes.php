@@ -253,7 +253,7 @@ $router->post(admin.'/campaigns/delete', function () use ($SECURE, $db) {
 // ============================================================================
 
 // ------------------------------- LIST (filter + search + paginate)
-$router->get(admin.'/newsletter/subscribers', function () use ($SECURE, $db) {
+$router->get(admin.'/campaigns/subscribers', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     if (function_exists('ensureNewsletterSchema')) { ensureNewsletterSchema($db); }
     $title = 'Subscribers'; $description = ''; $header = true; $footer = true;
@@ -263,7 +263,7 @@ $router->get(admin.'/newsletter/subscribers', function () use ($SECURE, $db) {
 });
 
 // ------------------------------- EXPORT (CSV of the current filter)
-$router->get(admin.'/newsletter/subscribers/export', function () use ($SECURE, $db) {
+$router->get(admin.'/campaigns/subscribers/export', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     if (function_exists('ensureNewsletterSchema')) { ensureNewsletterSchema($db); }
 
@@ -312,7 +312,7 @@ $router->get(admin.'/newsletter/subscribers/export', function () use ($SECURE, $
 });
 
 // ------------------------------- PER-ROW ACTION (unsubscribe / resubscribe / delete)
-$router->post(admin.'/newsletter/subscribers/action', function () use ($SECURE, $db) {
+$router->post(admin.'/campaigns/subscribers/action', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     CSRF::verifyRequest();
     if (function_exists('ensureNewsletterSchema')) { ensureNewsletterSchema($db); }
@@ -341,5 +341,5 @@ $router->post(admin.'/newsletter/subscribers/action', function () use ($SECURE, 
     } catch (\Throwable $e) {
         $_SESSION['message'] = ['type' => 'error', 'text' => $e->getMessage()];
     }
-    redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/newsletter/subscribers');
+    redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/campaigns/subscribers');
 });

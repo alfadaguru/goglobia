@@ -70,7 +70,7 @@ $qs = function (array $override = []) use ($status, $q, $page): string {
       <p class="text-sm text-gray-500 mt-0.5"><?= number_format($counts['all']) ?> total &middot; <?= number_format($counts['subscribed']) ?> confirmed</p>
     </div>
     <div class="flex items-center gap-2">
-      <a href="<?= root.admin ?>/newsletter/subscribers/export<?= $qs(['page' => '']) ?>"
+      <a href="<?= root.admin ?>/campaigns/subscribers/export<?= $qs(['page' => '']) ?>"
          class="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:border-gray-400 transition">
         <span class="material-symbols-outlined !text-[18px]">download</span> Export CSV
       </a>
@@ -95,7 +95,7 @@ $qs = function (array $override = []) use ($status, $q, $page): string {
       foreach ($chips as $key => [$label, $n]):
         $active = ($status === $key);
       ?>
-        <a href="<?= root.admin ?>/newsletter/subscribers<?= ($key !== '' || $q !== '') ? ('?' . http_build_query(array_filter(['status' => $key, 'q' => $q]))) : '' ?>"
+        <a href="<?= root.admin ?>/campaigns/subscribers<?= ($key !== '' || $q !== '') ? ('?' . http_build_query(array_filter(['status' => $key, 'q' => $q]))) : '' ?>"
            class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition <?= $active ? 'text-white' : 'text-gray-600 border border-gray-300 hover:border-gray-400' ?>"
            style="<?= $active ? 'background:#111827' : '' ?>">
           <?= htmlspecialchars($label) ?>
@@ -103,7 +103,7 @@ $qs = function (array $override = []) use ($status, $q, $page): string {
         </a>
       <?php endforeach; ?>
     </div>
-    <form method="GET" action="<?= root.admin ?>/newsletter/subscribers" class="flex items-center gap-2">
+    <form method="GET" action="<?= root.admin ?>/campaigns/subscribers" class="flex items-center gap-2">
       <?php if ($status !== ''): ?><input type="hidden" name="status" value="<?= htmlspecialchars($status, ENT_QUOTES) ?>"><?php endif; ?>
       <input type="text" name="q" value="<?= htmlspecialchars($q, ENT_QUOTES) ?>" placeholder="Search email…"
              class="rounded-lg border border-gray-300 px-3 py-2 text-sm" style="min-width:220px">
@@ -142,21 +142,21 @@ $qs = function (array $override = []) use ($status, $q, $page): string {
               <td class="px-4 py-3 text-gray-500 text-xs"><?= htmlspecialchars((string) ($s['created_at'] ?? '')) ?></td>
               <td class="px-4 py-3 text-right whitespace-nowrap">
                 <?php if ($st !== 'unsubscribed'): ?>
-                  <form method="POST" action="<?= root.admin ?>/newsletter/subscribers/action" class="inline">
+                  <form method="POST" action="<?= root.admin ?>/campaigns/subscribers/action" class="inline">
                     <?= CSRF::tokenField() ?>
                     <input type="hidden" name="id" value="<?= (int) $s['id'] ?>">
                     <input type="hidden" name="action" value="unsubscribe">
                     <button type="submit" class="text-gray-600 hover:underline font-medium">Unsubscribe</button>
                   </form>
                 <?php else: ?>
-                  <form method="POST" action="<?= root.admin ?>/newsletter/subscribers/action" class="inline">
+                  <form method="POST" action="<?= root.admin ?>/campaigns/subscribers/action" class="inline">
                     <?= CSRF::tokenField() ?>
                     <input type="hidden" name="id" value="<?= (int) $s['id'] ?>">
                     <input type="hidden" name="action" value="resubscribe">
                     <button type="submit" class="text-green-600 hover:underline font-medium">Re-subscribe</button>
                   </form>
                 <?php endif; ?>
-                <form method="POST" action="<?= root.admin ?>/newsletter/subscribers/action" class="inline ml-3" onsubmit="return confirm('Permanently delete this subscriber?');">
+                <form method="POST" action="<?= root.admin ?>/campaigns/subscribers/action" class="inline ml-3" onsubmit="return confirm('Permanently delete this subscriber?');">
                   <?= CSRF::tokenField() ?>
                   <input type="hidden" name="id" value="<?= (int) $s['id'] ?>">
                   <input type="hidden" name="action" value="delete">
@@ -174,10 +174,10 @@ $qs = function (array $override = []) use ($status, $q, $page): string {
         <div>Page <?= $page ?> of <?= $totalPages ?> &middot; <?= number_format($totalRows) ?> result<?= $totalRows === 1 ? '' : 's' ?></div>
         <div class="flex items-center gap-2">
           <?php if ($page > 1): ?>
-            <a href="<?= root.admin ?>/newsletter/subscribers<?= $qs(['page' => $page - 1]) ?>" class="rounded-lg border border-gray-300 px-3 py-1.5 hover:border-gray-400">Previous</a>
+            <a href="<?= root.admin ?>/campaigns/subscribers<?= $qs(['page' => $page - 1]) ?>" class="rounded-lg border border-gray-300 px-3 py-1.5 hover:border-gray-400">Previous</a>
           <?php endif; ?>
           <?php if ($page < $totalPages): ?>
-            <a href="<?= root.admin ?>/newsletter/subscribers<?= $qs(['page' => $page + 1]) ?>" class="rounded-lg border border-gray-300 px-3 py-1.5 hover:border-gray-400">Next</a>
+            <a href="<?= root.admin ?>/campaigns/subscribers<?= $qs(['page' => $page + 1]) ?>" class="rounded-lg border border-gray-300 px-3 py-1.5 hover:border-gray-400">Next</a>
           <?php endif; ?>
         </div>
       </div>

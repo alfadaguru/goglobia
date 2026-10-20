@@ -363,7 +363,7 @@ $adminMenu = array_merge($adminMenu, [
         'submenu' => [
             ['name' => 'Email Campaigns', 'icon' => 'campaign', 'url' => root.admin.'/campaigns'],
             ['name' => 'Campaign Templates', 'icon' => 'dashboard_customize', 'url' => root.admin.'/campaign-templates'],
-            ['name' => 'Subscribers', 'icon' => 'group', 'url' => root.admin.'/newsletter/subscribers'],
+            ['name' => 'Subscribers', 'icon' => 'group', 'url' => root.admin.'/campaigns/subscribers'],
             ['name' => T::promo_codes, 'icon' => 'confirmation_number', 'url' => root.admin.'/promo-codes'],
         ]
     ],
