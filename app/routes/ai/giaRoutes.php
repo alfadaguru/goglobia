@@ -548,3 +548,159 @@ $router->post('/api/gia/lead', function () use ($db) {
         'message' => 'Thanks — saved! I\'ll keep your trip details handy.',
     ]);
 });
+
+// ============================================================================
+// VOICE — provider-grade speech, with a graceful browser fallback.
+//
+// These two endpoints UPGRADE GIA's voice to the admin's active AI provider when
+// that provider genuinely supports it (OpenAI Whisper STT + OpenAI TTS; Gemini
+// audio-in for STT). When it doesn't (Claude has no voice; Gemini TTS isn't GA;
+// voice disabled; no key), they respond fallback:true and the widget uses the
+// browser Web Speech API. Both are gated on the AI feature flag + voice_enabled,
+// CSRF-checked, and rate-limited (voice calls are PAID provider requests).
+// ============================================================================
+
+// Shared voice gate: feature on + voice on + CSRF + rate limit. Returns the
+// decoded JSON input on success, or null after already emitting the error JSON.
+$__giaVoiceGate = function ($db, string $bucket, array $input) {
+    $deny = function (int $http, array $body): void {
+        http_response_code($http);
+        echo json_encode($body);
+    };
+
+    // Feature + voice toggle.
+    $aiDir = dirname(__DIR__, 2) . '/lib/ai/';
+    require_once $aiDir . 'gia_voice.php';
+    if (!function_exists('aiTripIsEnabled') || !aiTripIsEnabled($db) || !gia_voice_enabled($db)) {
+        $deny(403, ['status' => false, 'fallback' => true, 'error_code' => 'VOICE_DISABLED']);
+        return false;
+    }
+
+    // CSRF (JSON body or X-CSRF-TOKEN header).
+    $csrf = (string) ($input['csrf_token'] ?? ($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '')));
+    if (class_exists('CSRF') && method_exists('CSRF', 'validateToken') && !CSRF::validateToken($csrf)) {
+        $deny(403, ['status' => false, 'fallback' => false, 'error_code' => 'CSRF_INVALID']);
+        return false;
+    }
+
+    // Rate limit (voice = paid provider call). Tighter than chat.
+    if (!class_exists('RateLimiter')) {
+        $rlFile = dirname(__DIR__, 3) . '/modules/RateLimiter.php';
+        if (is_file($rlFile)) { require_once $rlFile; }
+    }
+    if (class_exists('RateLimiter')) {
+        $rl = new RateLimiter(dirname(__DIR__, 3) . '/app/cache/rate_limiter');
+        $rlId = 'gia_voice_' . $bucket . ':' . $rl->getClientIdentifier();
+        if (!$rl->attempt($rlId . ':burst', 10, 60) || !$rl->attempt($rlId . ':hour', 120, 3600)) {
+            http_response_code(429);
+            header('Retry-After: 60');
+            echo json_encode(['status' => false, 'fallback' => true, 'error_code' => 'VOICE_RATE_LIMITED']);
+            return false;
+        }
+    }
+    return true;
+};
+
+// POST /api/gia/voice/transcribe — audio -> text via the active provider's STT.
+// Accepts a multipart upload (field "audio") OR JSON {audio_base64, mime}.
+// Response: {status, text, fallback, error_code}. fallback:true => use browser.
+$router->post('/api/gia/voice/transcribe', function () use ($db, $__giaVoiceGate) {
+    header('Content-Type: application/json');
+
+    // Read audio either from a multipart file or a base64 JSON body.
+    $bytes = '';
+    $mime  = '';
+    $input = [];
+    if (!empty($_FILES['audio']) && is_uploaded_file($_FILES['audio']['tmp_name'] ?? '')) {
+        $bytes = (string) @file_get_contents($_FILES['audio']['tmp_name']);
+        $mime  = (string) ($_FILES['audio']['type'] ?? '');
+        // CSRF for multipart comes via POST field or header.
+        $input = ['csrf_token' => (string) ($_POST['csrf_token'] ?? '')];
+    } else {
+        $raw = file_get_contents('php://input') ?: '';
+        $j = json_decode($raw, true);
+        $input = is_array($j) ? $j : [];
+        $b64 = (string) ($input['audio_base64'] ?? '');
+        if ($b64 !== '') {
+            $bytes = (string) base64_decode($b64, true);
+        }
+        $mime = (string) ($input['mime'] ?? '');
+    }
+
+    if (!$__giaVoiceGate($db, 'stt', $input)) {
+        return;
+    }
+
+    // Cap audio size (defense-in-depth; Whisper's own limit is 25 MB).
+    if (strlen($bytes) > 20 * 1024 * 1024) {
+        http_response_code(413);
+        echo json_encode(['status' => false, 'fallback' => true, 'error_code' => 'VOICE_TOO_LARGE']);
+        return;
+    }
+
+    $res = gia_voice_transcribe($db, $bytes, $mime);
+    http_response_code($res['ok'] ? 200 : 200); // fallback is not an error to the client
+    echo json_encode([
+        'status'   => (bool) $res['ok'],
+        'text'     => (string) $res['text'],
+        'provider' => (string) $res['provider'],
+        'fallback' => (bool) $res['fallback'],
+        'error_code' => $res['ok'] ? '' : 'VOICE_STT_FAILED',
+    ]);
+});
+
+// POST /api/gia/voice/speak — text -> audio via the active provider's TTS.
+// JSON {text, voice?}. On success returns raw audio (audio/mpeg). When no server
+// TTS is available, returns JSON {fallback:true} so the widget speaks in-browser.
+$router->post('/api/gia/voice/speak', function () use ($db, $__giaVoiceGate) {
+    $raw = file_get_contents('php://input') ?: '';
+    $input = json_decode($raw, true);
+    if (!is_array($input)) { $input = []; }
+
+    if (!$__giaVoiceGate($db, 'tts', $input)) {
+        header('Content-Type: application/json');
+        return;
+    }
+
+    $text  = (string) ($input['text'] ?? '');
+    $voice = (string) ($input['voice'] ?? '');
+    $res   = gia_voice_speak($db, $text, $voice);
+
+    if (!empty($res['ok']) && $res['audio'] !== '') {
+        header('Content-Type: ' . ($res['mime'] !== '' ? $res['mime'] : 'audio/mpeg'));
+        header('Content-Length: ' . strlen($res['audio']));
+        header('Cache-Control: no-store');
+        echo $res['audio'];
+        return;
+    }
+
+    // No server TTS (or failure) -> tell the widget to use the browser voice.
+    header('Content-Type: application/json');
+    echo json_encode([
+        'status'   => false,
+        'fallback' => (bool) ($res['fallback'] ?? true),
+        'error_code' => 'VOICE_TTS_FAILED',
+    ]);
+});
+
+// GET /api/gia/voice/capabilities — tiny read endpoint so the widget can refresh
+// its STT/TTS capability at runtime (also inlined into the widget config). No
+// CSRF (read-only, exposes only on/off booleans — never the provider key).
+$router->get('/api/gia/voice/capabilities', function () use ($db) {
+    header('Content-Type: application/json');
+    $aiDir = dirname(__DIR__, 2) . '/lib/ai/';
+    require_once $aiDir . 'gia_voice.php';
+    $caps = gia_voice_capabilities($db);
+    // Do NOT leak the concrete provider name to anonymous visitors beyond what the
+    // widget needs (stt/tts booleans + voice list are harmless).
+    echo json_encode([
+        'status'    => true,
+        'enabled'   => (bool) $caps['enabled'],
+        'stt'       => (bool) $caps['stt'],
+        'tts'       => (bool) $caps['tts'],
+        'voices'    => $caps['voices'],
+        'tts_voice' => (string) $caps['tts_voice'],
+        'speed'     => (float) ($caps['speed'] ?? 1.0),
+        'autospeak' => (bool) ($caps['autospeak'] ?? false),
+    ]);
+});

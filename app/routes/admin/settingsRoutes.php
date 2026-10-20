@@ -441,6 +441,10 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
         // Voice (tap-to-speak + read-aloud). Browser Web Speech — no key needed, so
         // it isn't gated on provider credentials like the model features are.
         $voiceOn = isset($_POST['ai_voice_enabled']);
+        // Voice preferences (normalized/clamped in aiConfigurationNormalize).
+        $voiceTtsVoice = (string) ($_POST['ai_voice_tts_voice'] ?? 'nova');
+        $voiceSpeed    = (float) ($_POST['ai_voice_speed'] ?? 1.0);
+        $voiceAutospeak = isset($_POST['ai_voice_autospeak']);
         $activeProviderHasKey = $activeProvider !== ''
             && trim((string) ($providersConfig[$activeProvider]['api_key'] ?? '')) !== '';
         if (!$activeProviderHasKey) {
@@ -460,6 +464,9 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
             'passport_local_enabled' => $passportLocalOn,
             'trip_enabled' => $tripOn,
             'voice_enabled' => $voiceOn,
+            'voice_tts_voice' => $voiceTtsVoice,
+            'voice_speed' => $voiceSpeed,
+            'voice_autospeak' => $voiceAutospeak,
             'provider' => $activeProvider,
             'timeout' => $timeout > 0 ? $timeout : 30,
             'max_file_size' => $maxFileSize !== null ? $maxFileSize : 5242880,

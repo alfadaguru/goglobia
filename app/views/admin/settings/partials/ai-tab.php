@@ -244,9 +244,75 @@ $aiModelsList = [
             </div>
         </div>
         <label class="switch-container switch-md switch-blue shrink-0 cursor-pointer">
-            <input type="checkbox" name="ai_voice_enabled" id="ai_voice_enabled" value="1" class="switch-input" <?= $voiceOn ? 'checked' : '' ?>>
+            <input type="checkbox" name="ai_voice_enabled" id="ai_voice_enabled" value="1" class="switch-input" <?= $voiceOn ? 'checked' : '' ?> x-on:change="voiceOn = $event.target.checked">
             <div class="switch-track"><div class="switch-thumb"></div></div>
         </label>
+    </div>
+
+    <!-- Voice settings panel — reading voice, speed, and the read-aloud default.
+         These apply to the active provider's TTS (OpenAI) AND the browser fallback
+         (speed maps to the browser's speech rate; the voice name is OpenAI-only).
+         Greys out while the voice toggle above is off. -->
+    <?php
+        $voiceName = strtolower((string) ($ai['voice_tts_voice'] ?? 'nova'));
+        $voiceSpeed = (float) ($ai['voice_speed'] ?? 1.0);
+        $voiceAutospeak = !empty($ai['voice_autospeak']);
+        $ttsVoices = [
+            'alloy'   => 'Alloy — neutral, balanced',
+            'echo'    => 'Echo — warm, measured',
+            'fable'   => 'Fable — expressive, bright',
+            'onyx'    => 'Onyx — deep, calm',
+            'nova'    => 'Nova — friendly, energetic',
+            'shimmer' => 'Shimmer — soft, gentle',
+        ];
+    ?>
+    <div class="bg-white rounded-lg border border-gray-200 p-5 mb-8"
+         x-data="{ voiceOn: <?= $voiceOn ? 'true' : 'false' ?>, speed: <?= number_format($voiceSpeed, 2, '.', '') ?> }"
+         :class="voiceOn ? '' : 'opacity-50 pointer-events-none'">
+        <div class="flex items-center gap-2 mb-4">
+            <span class="material-symbols-outlined text-xl" style="color:#8b5cf6;">tune</span>
+            <h3 class="text-sm font-semibold text-gray-900">Voice settings</h3>
+            <span class="text-xs text-gray-400">applies to GIA's spoken replies</span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <!-- Reading voice (OpenAI TTS). Ignored by the browser fallback voice. -->
+            <div>
+                <label for="ai_voice_tts_voice" class="block text-xs font-medium text-gray-700 mb-1">Reading voice</label>
+                <select name="ai_voice_tts_voice" id="ai_voice_tts_voice"
+                        class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200">
+                    <?php foreach ($ttsVoices as $vk => $vlabel): ?>
+                        <option value="<?= htmlspecialchars($vk) ?>" <?= $voiceName === $vk ? 'selected' : '' ?>><?= htmlspecialchars($vlabel) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <p class="text-[11px] text-gray-400 mt-1">Used when the active AI provider is OpenAI. Other providers use the visitor's browser voice.</p>
+            </div>
+
+            <!-- Speaking speed — applies to provider TTS AND the browser voice. -->
+            <div>
+                <label for="ai_voice_speed" class="block text-xs font-medium text-gray-700 mb-1">
+                    Speaking speed <span class="text-gray-400 font-normal">(<span x-text="Number(speed).toFixed(2)"></span>×)</span>
+                </label>
+                <input type="range" name="ai_voice_speed" id="ai_voice_speed" min="0.5" max="2" step="0.05"
+                       x-model="speed" value="<?= number_format($voiceSpeed, 2, '.', '') ?>"
+                       class="w-full mt-2 accent-indigo-600">
+                <div class="flex justify-between text-[10px] text-gray-400 mt-1">
+                    <span>0.5× slower</span><span>1× normal</span><span>2× faster</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Read replies aloud by default -->
+        <div class="flex items-center justify-between gap-3 mt-5 pt-4 border-t border-gray-100">
+            <div class="min-w-0">
+                <h4 class="text-sm font-medium text-gray-900">Read replies aloud by default</h4>
+                <p class="text-xs text-gray-500">Start new chats with the speaker on. Visitors can still mute it from the chat header.</p>
+            </div>
+            <label class="switch-container switch-md switch-blue shrink-0 cursor-pointer">
+                <input type="checkbox" name="ai_voice_autospeak" id="ai_voice_autospeak" value="1" class="switch-input" <?= $voiceAutospeak ? 'checked' : '' ?>>
+                <div class="switch-track"><div class="switch-thumb"></div></div>
+            </label>
+        </div>
     </div>
 
     <!-- Shared provider -->
