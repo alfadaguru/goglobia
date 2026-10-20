@@ -314,6 +314,48 @@ $footer_menus = array_values(array_filter(array_map(
             </div>
 
             <!-- ================================================================
+         CERTIFICATIONS / ACCREDITATIONS BAND — legal-compliance trust signal
+         Real accreditation logos (IATA, NANTA, NCAA). Assets in
+         uploads/global/certifications/. White cards keep logos legible on any
+         themed footer background (light or dark).
+         ================================================================ -->
+            <div class="border-t" style="border-color: var(--footer-border-color);">
+                <div class="container mx-auto px-4 py-6">
+                    <div class="flex flex-col items-center gap-4 lg:flex-row lg:justify-center lg:gap-8">
+                        <p class="text-[11px] font-semibold uppercase tracking-wider text-center lg:text-left"
+                           style="color: var(--footer-text-color); opacity:.75;">
+                            Accredited &amp; Certified
+                        </p>
+                        <div class="flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+                            <?php
+                            $__certs = [
+                                ['file' => 'iata.png',  'alt' => 'IATA Accredited Agent',                 'url' => 'https://www.iata.org/'],
+                                ['file' => 'nanta.png', 'alt' => 'NANTA — National Association of Nigeria Travel Agencies', 'url' => 'https://nanta.org.ng/'],
+                                ['file' => 'ncaa.png',  'alt' => 'NCAA — Nigeria Civil Aviation Authority Certified',       'url' => 'https://ncaa.gov.ng/'],
+                            ];
+                            foreach ($__certs as $__c):
+                                $__certPath = 'uploads/global/certifications/' . $__c['file'];
+                                if (!is_file(__DIR__ . '/../../../' . $__certPath)) continue; // skip if asset missing
+                            ?>
+                                <a href="<?= htmlspecialchars($__c['url']) ?>" target="_blank" rel="noopener noreferrer"
+                                   title="<?= htmlspecialchars($__c['alt']) ?>"
+                                   class="group inline-flex items-center justify-center bg-white rounded-lg px-3 py-2 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5"
+                                   style="border:1px solid rgba(0,0,0,0.06);">
+                                    <img src="<?= versionedAssetUrl($__certPath) ?>"
+                                         alt="<?= htmlspecialchars($__c['alt']) ?>"
+                                         class="h-7 sm:h-9 w-auto object-contain transition-all duration-200"
+                                         style="filter:grayscale(1);opacity:.9;"
+                                         onmouseover="this.style.filter='grayscale(0)';this.style.opacity='1';"
+                                         onmouseout="this.style.filter='grayscale(1)';this.style.opacity='.9';"
+                                         loading="lazy" decoding="async">
+                                </a>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ================================================================
          FOOTER BOTTOM - Copyright, Legal Links & Trust Badges
          ================================================================ -->
             <div class="border-t"
@@ -381,14 +423,6 @@ $footer_menus = array_values(array_filter(array_map(
                                 <span class="font-semibold text-[10px] sm:text-xs whitespace-nowrap"
                                     style="color: var(--footer-heading-color);">SSL Secure</span>
                             </div>
-
-                            <a href="https://iata.co" target="_blank"
-                                class="flex items-center gap-1.5 border px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full shadow-sm hover:shadow-md hover:border-blue-600 transition-all duration-200"
-                                style="background-color: var(--footer-background); border-color: var(--footer-border-color);">
-                                <span class="material-symbols-outlined text-blue-600 text-sm sm:text-base">verified</span>
-                                <span class="font-semibold text-[10px] sm:text-xs whitespace-nowrap"
-                                    style="color: var(--footer-heading-color);">IATA</span>
-                            </a>
 
                             <div class="flex items-center gap-1.5 border px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full shadow-sm"
                                 style="background-color: var(--footer-background); border-color: var(--footer-border-color);">

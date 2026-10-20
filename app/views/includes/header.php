@@ -476,9 +476,9 @@ if (!empty($activeCurrencyRow)) {
     <?php if (($header ?? true) !== false) { ?>
     <!-- parts/loadPart: DROPDOWN CONTENT (CURRENCIES/LANGUAGES) IS FETCHED FROM
          partials/* ONLY WHEN A DROPDOWN IS FIRST OPENED — KEEPS FIRST-PAINT DOM SMALL -->
-    <header class="sticky top-0 z-50 w-full shadow-sm" x-data="{ mobileMenuOpen: false, parts: {}, loadPart(name) { if (!this.parts[name]) fetch('<?=root?>partials/' + name).then(r => r.ok ? r.text() : '').then(t => { if (t) this.parts[name] = t }) } }" style="background-color: var(--header-background); color: var(--header-text-color); font-size: var(--header-font-size); border-bottom: var(--header-border-width)px solid var(--header-border-color); height: var(--header-height)px; padding-left: var(--header-padding-x)px; padding-right: var(--header-padding-x)px; box-shadow: var(--header-shadow);">
+    <header class="sticky top-0 z-50 w-full transition-shadow duration-300" :class="scrolled ? 'shadow-md' : 'shadow-sm'" x-data="{ mobileMenuOpen: false, scrolled: (typeof window !== 'undefined' && window.scrollY > 10), parts: {}, loadPart(name) { if (!this.parts[name]) fetch('<?=root?>partials/' + name).then(r => r.ok ? r.text() : '').then(t => { if (t) this.parts[name] = t }) } }" x-init="scrolled = window.scrollY > 10" @scroll.window="scrolled = window.scrollY > 10" style="background-color: var(--header-background); color: var(--header-text-color); font-size: var(--header-font-size); border-bottom: var(--header-border-width)px solid var(--header-border-color); min-height: var(--header-height)px; padding-left: var(--header-padding-x)px; padding-right: var(--header-padding-x)px; box-shadow: var(--header-shadow);">
       <div class="container mx-auto">
-        <div class="flex h-16 items-center justify-between">
+        <div class="flex items-center justify-between transition-all duration-300 ease-out" :class="scrolled ? 'h-16' : 'h-20'">
           <!-- LOGO + NAVIGATION -->
           <?php $__wl = function_exists('wl_is_tenant') && wl_is_tenant(); ?>
           <div class="flex items-center gap-4">
@@ -493,8 +493,11 @@ if (!empty($activeCurrencyRow)) {
               <?php endif; ?>
             </a>
             <?php else: ?>
-            <a href="<?=root?>" class="flex items-center">
-              <img src="<?=versionedAssetUrl('uploads/global/logo.png')?>" alt="<?=$GLOBALS['app']['business_name']?>" class="h-8 w-auto" width="160" height="40" decoding="async">
+            <a href="<?=root?>" class="flex items-center shrink-0">
+              <img src="<?=versionedAssetUrl('uploads/global/logo.png')?>" alt="<?=$GLOBALS['app']['business_name']?>"
+                   class="w-auto object-contain transition-all duration-300 ease-out"
+                   :class="scrolled ? 'h-8 lg:h-9' : 'h-10 lg:h-12'"
+                   width="200" height="48" decoding="async">
             </a>
             <?php endif; ?>
 
