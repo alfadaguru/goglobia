@@ -47,11 +47,13 @@ class selectOptionTool implements giaToolInterface
             'properties' => [
                 'module' => [
                     'type' => 'string',
-                    'description' => 'The service of the chosen option: umrah, stays, tours, bus or visa.',
+                    'description' => 'The service of the chosen option: umrah, stays, tours, bus, visa '
+                        . '(from search_trip), or flights, cars, rail, ferries, esim (from fetch_live_offers).',
                 ],
                 'option_id' => [
                     'type' => 'string',
-                    'description' => 'The id/ref of the chosen option exactly as shown in the search results.',
+                    'description' => 'The id/ref of the chosen option exactly as shown in search_trip '
+                        . 'results (local modules) or fetch_live_offers results (live-supplier modules).',
                 ],
                 'adults' => ['type' => 'integer', 'description' => 'Number of adults (default 1).'],
                 'children' => ['type' => 'integer', 'description' => 'Number of children (default 0).'],
@@ -79,39 +81,65 @@ class selectOptionTool implements giaToolInterface
             return ['ok' => false, 'error_code' => 'AI_BAD_OPTION', 'message' => 'Tell me which option to set up.'];
         }
 
-        // Only LOCAL-DB modules can be turned into a draft here — their price is
-        // re-derived authoritatively by reprice_trip. Live-supplier modules
-        // (flights/cars/rail/ferries/esim) go through their own booking pages.
-        $allowed = ['umrah', 'stays', 'tours', 'bus', 'visa'];
-        if (!in_array($module, $allowed, true)) {
-            return [
-                'ok' => false,
-                'error_code' => 'AI_MODULE_NOT_BOOKABLE_INLINE',
-                'message' => 'This one is booked on its own page — I can open it for you instead.',
-            ];
+        $localModules = ['umrah', 'stays', 'tours', 'bus', 'visa'];
+        $liveModules  = ['flights', 'cars', 'rail', 'ferries', 'esim'];
+        if (!in_array($module, $localModules, true) && !in_array($module, $liveModules, true)) {
+            return ['ok' => false, 'error_code' => 'AI_MODULE_UNKNOWN', 'message' => "I can't set that up here."];
         }
 
         $adults = max(0, (int) ($input['adults'] ?? 0));
         $children = max(0, (int) ($input['children'] ?? 0));
         $infants = max(0, (int) ($input['infants'] ?? 0));
         if ($adults <= 0) {
-            $adults = 1; // sensible default; reprice caps to the package's own max_*
+            $adults = 1; // sensible default; reprice caps to the option's own max_*
         }
         $currency = (string) ($context['currency'] ?? ($_SESSION['app_currency'] ?? 'USD'));
         if ($currency === '') {
             $currency = 'USD';
         }
 
-        // --- Verify the option EXISTS and is live, and capture a display title.
-        //     We do NOT trust any price here; reprice_trip re-derives it. ---
-        $verified = $this->verifyOption($db, $module, $optionId);
-        if (!$verified['ok']) {
-            return ['ok' => false, 'error_code' => 'AI_OPTION_NOT_FOUND', 'message' => "I couldn't find that option anymore — it may have sold out. Want me to search again?"];
-        }
+        $expires = false;
+        if (in_array($module, $liveModules, true)) {
+            // LIVE-SUPPLIER: the traveller picked an offer fetch_live_offers returned.
+            // Its authoritative stable fields were cached server-side by ref — the
+            // model never handled the pricing/token. Build the draft item from that.
+            $cacheKey = $module . ':' . $optionId;
+            $cached = (isset($_SESSION['gia_live_offers'][$cacheKey]) && is_array($_SESSION['gia_live_offers'][$cacheKey]))
+                ? $_SESSION['gia_live_offers'][$cacheKey] : null;
+            if ($cached === null) {
+                return ['ok' => false, 'error_code' => 'AI_OFFER_EXPIRED', 'message' => "That option isn't in view anymore — let me pull up live options again."];
+            }
+            $stable = is_array($cached['stable'] ?? null) ? $cached['stable'] : [];
+            $expires = (bool) ($cached['expires'] ?? false);
+            $title = (string) ($cached['title'] ?? ucfirst($module));
+            $supplier = (string) ($cached['supplier'] ?? $module);
 
-        // --- Build the single-item draft. `item` carries ONLY identifiers + pax,
-        //     so reprice_trip re-fetches the authoritative price from the DB. ---
-        $item = $this->buildDraftItem($module, $verified, $adults, $children, $infants, $currency);
+            $item = [
+                'module'   => $module,
+                'kind'     => $module,
+                'supplier' => $supplier !== '' ? $supplier : $module,
+                'title'    => $title,
+                'price'    => 0.0, // reprice re-derives the authoritative price
+                'currency' => $currency,
+                // The revalidators read ids from item + item.detail + params; we store
+                // the full stable set under all three so whichever a module reads is present.
+                'item'     => array_merge($stable, ['detail' => $stable]),
+                'params'   => array_merge($stable, [
+                    'adults'   => (string) $adults,
+                    'children' => (string) $children,
+                    'infants'  => (string) $infants,
+                    'currency' => $currency,
+                ]),
+            ];
+            $verified = ['ok' => true, 'id' => $optionId, 'title' => $title];
+        } else {
+            // --- LOCAL-DB: verify the option EXISTS + is live; build id-only draft. ---
+            $verified = $this->verifyOption($db, $module, $optionId);
+            if (!$verified['ok']) {
+                return ['ok' => false, 'error_code' => 'AI_OPTION_NOT_FOUND', 'message' => "I couldn't find that option anymore — it may have sold out. Want me to search again?"];
+            }
+            $item = $this->buildDraftItem($module, $verified, $adults, $children, $infants, $currency);
+        }
 
         $payload = [
             'type'         => 'ai_trip',
@@ -156,8 +184,11 @@ class selectOptionTool implements giaToolInterface
                 'currency'   => $currency,
                 // Explicit signal to the model: price is NOT known yet; reprice next.
                 'next'       => 'reprice_trip',
+                // Flight offers carry a time-sensitive token — reprice right before approval.
+                'time_sensitive' => $expires,
             ],
-            'message' => 'Selected "' . $verified['title'] . '". Next: confirm the live price (reprice_trip) before checkout.',
+            'message' => 'Selected "' . $verified['title'] . '". Next: confirm the live price (reprice_trip) before checkout.'
+                . ($expires ? ' This fare is time-sensitive, so reprice just before approving.' : ''),
         ];
     }
 

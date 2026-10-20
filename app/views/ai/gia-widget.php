@@ -187,7 +187,9 @@ $giaWCfg = json_encode([
                     <template x-if="sr.cards && sr.cards.length">
                       <div class="space-y-1.5">
                         <template x-for="(c,ci) in sr.cards.slice(0,5)" :key="ci">
-                          <a :href="cardUrl(sr,c)" @click.prevent="openDrawer(cardUrl(sr,c), c.name||c.title||'Details')" class="giaw-card block overflow-hidden hover:bg-slate-50 transition cursor-pointer">
+                          <a :href="sr.live ? '#' : cardUrl(sr,c)"
+                             @click.prevent="sr.live ? pickOffer(sr,c) : openDrawer(cardUrl(sr,c), c.name||c.title||'Details')"
+                             class="giaw-card block overflow-hidden hover:bg-slate-50 transition cursor-pointer">
                             <div class="flex gap-2">
                               <template x-if="c.image">
                                 <img :src="c.image" :alt="c.name||c.title||''" class="w-14 h-14 object-cover shrink-0" loading="lazy" @error="$event.target.style.display='none'">
@@ -200,9 +202,16 @@ $giaWCfg = json_encode([
                                   </div>
                                   <div class="text-[11px] font-bold text-slate-900 shrink-0" x-text="money(c.price!=null?c.price:c.adult_price, c.currency)"></div>
                                 </div>
+                                <div class="mt-1 flex items-center gap-1 text-[10px] font-semibold" style="color:var(--gia-brand)">
+                                  <span x-text="sr.live ? 'Select this' : 'View & book'"></span>
+                                  <span class="material-symbols-outlined text-[13px]">arrow_forward</span>
+                                </div>
                               </div>
                             </div>
                           </a>
+                        </template>
+                        <template x-if="sr.live && sr.expires">
+                          <p class="text-[9px] text-amber-600 px-1">Live fares — prices confirmed when you pick one.</p>
                         </template>
                       </div>
                     </template>
@@ -435,6 +444,15 @@ function giaWidget(cfg){
       finally{ this.sending=false; this.$nextTick(()=>this.scrollDown()); }
     },
     dismissLead(){ this.leadDone=true; this.leadOpen=false; },
+    // Picking a LIVE offer: send a message GIA turns into select_option(module,ref).
+    // The ref is the stable id fetch_live_offers returned + cached server-side.
+    pickOffer(sr, c){ if(this.sending) return;
+      const mod=(c&&(c.module||c.kind))||(sr&&sr.module)||'';
+      const ref=(c&&(c.ref||c.id))||'';
+      const name=(c&&(c.name||c.title))||'this option';
+      if(!mod||!ref){ this.send('I\'d like to book '+name); return; }
+      // Explicit, unambiguous instruction for the model to call select_option.
+      this.send('Please select_option module='+mod+' id='+ref+' — I want to book "'+name+'".'); },
     // Open a result/listing page INSIDE a side drawer (iframe) so the visitor
     // never leaves the chat. Makes sure the panel is open so the drawer has a home.
     openDrawer(url, title){ if(!url||url==='#') return; this.open=true; this.drawerUrl=url; this.drawerTitle=title||'Details'; this.drawer=true; },

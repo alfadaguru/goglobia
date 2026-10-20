@@ -132,10 +132,11 @@ $giaCfg = json_encode([
                                       </template>
                                     </div>
                                   </template>
-                                  <a :href="cardUrl(sr, c)" @click.prevent="openDrawer(cardUrl(sr, c), c.name || c.title || 'Details')"
+                                  <a :href="sr.live ? '#' : cardUrl(sr, c)"
+                                     @click.prevent="sr.live ? pickOffer(sr, c) : openDrawer(cardUrl(sr, c), c.name || c.title || 'Details')"
                                      class="inline-flex items-center gap-1 mt-2 text-xs font-semibold cursor-pointer"
                                      style="color:var(--gia-brand)">
-                                    View &amp; book
+                                    <span x-text="sr.live ? 'Select this' : 'View & book'"></span>
                                     <span class="material-symbols-outlined text-[15px]">arrow_forward</span>
                                   </a>
                                 </div>
@@ -338,6 +339,15 @@ function giaChat(cfg) {
     // Open a result/listing page in a side drawer (iframe) — stay in the chat.
     openDrawer(url, title) { if (!url || url === '#') return; this.drawerUrl = url; this.drawerTitle = title || 'Details'; this.drawer = true; },
     closeDrawer() { this.drawer = false; this.drawerUrl = ''; },
+    // Picking a LIVE offer -> ask GIA to select_option(module, ref).
+    pickOffer(sr, c) {
+      if (this.sending) return;
+      const mod = (c && (c.module || c.kind)) || (sr && sr.module) || '';
+      const ref = (c && (c.ref || c.id)) || '';
+      const name = (c && (c.name || c.title)) || 'this option';
+      if (!mod || !ref) { this.send('I\'d like to book ' + name); return; }
+      this.send('Please select_option module=' + mod + ' id=' + ref + ' — I want to book "' + name + '".');
+    },
     // Same-origin payment pages load in the drawer; an external gateway URL opens
     // in a new tab (it can't be framed).
     openPayment(url) {
