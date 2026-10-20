@@ -18,6 +18,27 @@ $router->get(admin.'/promo-codes', function () use ($SECURE,$db) {
     require_once views."includes/footer.php";
 });
 
+// ============================ GET /promo-codes/usage/{id} - REDEMPTION DRILL-DOWN
+// Shows every recorded redemption of one code (who, which booking, how much, when)
+// from the promo_code_usage ledger — the per-redemption detail behind used_count.
+$router->get(admin.'/promo-codes/usage/([0-9]+)', function ($id) use ($SECURE,$db) {
+    ADMIN_AUTH();
+    $id = (int) $id;
+    $promo = $db->get('promo_codes', '*', ['id' => $id]);
+    if (!$promo) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Promo code not found.'];
+        redirect(root . admin . '/promo-codes');
+        return;
+    }
+    $title = 'Redemptions — ' . ($promo['code'] ?? '');
+    $description = '';
+    $header = true;
+    $footer = true;
+    require_once views."includes/header.php";
+    require_once "app/views/admin/promo-codes/promo-code-usage.php";
+    require_once views."includes/footer.php";
+});
+
 // ================================ GET /promo-codes/add - ADD NEW PROMO CODE FORM
 $router->get(admin.'/promo-codes/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();

@@ -67,18 +67,20 @@
             'used_count' => function($row) {
                 $used = intval($row['used_count']);
                 $limit = $row['usage_limit'] ? intval($row['usage_limit']) : null;
-                
+                $href  = root . admin . '/promo-codes/usage/' . (int) $row['id'];
+                // Clickable → per-redemption drill-down (who/which booking/how much).
+                $open  = '<a href="' . $href . '" title="View redemptions" class="block hover:opacity-80">';
                 if ($limit) {
                     $pct = round(($used / $limit) * 100);
                     $color = $pct >= 90 ? 'red' : ($pct >= 60 ? 'yellow' : 'green');
-                    return '<div class="flex flex-col gap-1">
-                        <span class="text-sm font-medium">' . $used . ' / ' . $limit . '</span>
+                    return $open . '<div class="flex flex-col gap-1">
+                        <span class="text-sm font-medium underline decoration-dotted">' . $used . ' / ' . $limit . '</span>
                         <div class="w-full bg-gray-200 rounded-full h-1.5">
                             <div class="bg-' . $color . '-500 h-1.5 rounded-full" style="width: ' . min($pct, 100) . '%"></div>
                         </div>
-                    </div>';
+                    </div></a>';
                 }
-                return '<span class="font-medium">' . $used . '</span>';
+                return $open . '<span class="font-medium underline decoration-dotted">' . $used . '</span></a>';
             },
             'start_date' => function($row) {
                 if (empty($row['start_date'])) return '<span class="text-gray-400 text-sm">—</span>';
