@@ -30,9 +30,21 @@ $base = root . admin . '/supplier-payouts';
       <h1 class="text-2xl font-bold text-gray-900">Supplier payouts</h1>
       <p class="text-sm text-gray-600">Review and approve supplier withdrawal requests.</p>
     </div>
-    <span class="px-3 py-1.5 rounded-full text-sm font-semibold <?= $payoutsLive ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700' ?>">
-      Transfers: <?= $payoutsLive ? 'LIVE' : 'DISABLED' ?>
-    </span>
+    <div class="flex items-center gap-3">
+      <span class="px-3 py-1.5 rounded-full text-sm font-semibold <?= $payoutsLive ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700' ?>">
+        Transfers: <?= $payoutsLive ? 'LIVE' : 'DISABLED' ?>
+      </span>
+      <form action="<?= $base ?>/toggle-live" method="POST"
+            onsubmit="return confirm('<?= $payoutsLive
+              ? 'Disable bank payouts? Approvals will no longer send money.'
+              : 'Enable LIVE bank payouts? Approving a payout will send REAL money to the supplier\'s bank via Paystack. Make sure Paystack transfers are configured.' ?>');">
+        <?= CSRF::tokenField() ?>
+        <input type="hidden" name="enable" value="<?= $payoutsLive ? '0' : '1' ?>">
+        <button type="submit" class="btn <?= $payoutsLive ? 'secondary' : 'primary' ?> text-sm">
+          <?= $payoutsLive ? 'Disable payouts' : 'Enable payouts' ?>
+        </button>
+      </form>
+    </div>
   </div>
 
   <?php if (!$payoutsLive): ?>
