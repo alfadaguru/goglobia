@@ -241,6 +241,7 @@ require_once 'app/routes/admin/creditsRoutes.php';
 require_once 'app/routes/admin/transactionsRoutes.php';
 require_once 'app/routes/admin/moneyRoutes.php'; // agent tiers + loyalty scheme (MONEY-WALLET-AUDIT §C.4 steps 4-5)
 require_once 'app/routes/admin/notificationTemplatesRoutes.php';
+require_once 'app/routes/admin/campaignTemplatesRoutes.php'; // campaign template library + designer (Phase 3)
 require_once 'app/routes/admin/campaignsRoutes.php'; // email campaign manager (Phase 2)
 require_once 'app/routes/admin/menusRoutes.php';
 require_once 'app/routes/admin/staysRoutes.php';

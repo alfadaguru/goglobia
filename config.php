@@ -435,6 +435,10 @@ try {
     if (function_exists('ensureCampaignSchema')) {
         ensureCampaignSchema($db);
     }
+    // Campaign template library (designer) — idempotent; seeds starters once.
+    if (function_exists('ensureCampaignTemplateSchema')) {
+        ensureCampaignTemplateSchema($db);
+    }
     // Agent API (docs/AGENT-API.md) — idempotent, no-op once tables exist.
     if (function_exists('ensureAgentApiSchema')) {
         ensureAgentApiSchema($db);

@@ -14,6 +14,14 @@ if ($cid > 0 && !$c) {
 $isSent    = $c && in_array($c['status'], ['sent','sending'], true);
 $subTotal  = (int) $db->count('newsletter_subscribers', ['status' => 'subscribed']);
 
+// Templates for the "Start from template" picker (Phase 3). Ensure the library
+// exists + is seeded so the picker is never empty on a fresh install.
+if (function_exists('ensureCampaignTemplateSchema')) { ensureCampaignTemplateSchema($db); }
+if (function_exists('campaignSeedStarters'))         { campaignSeedStarters($db); }
+$templateChoices = (function_exists('dbTableExists') && dbTableExists($db, 'email_templates_library'))
+    ? ($db->select('email_templates_library', ['id', 'name'], ['ORDER' => ['is_system' => 'DESC', 'name' => 'ASC']]) ?: [])
+    : [];
+
 // Live recipient count for the saved audience (so the admin sees reach before sending).
 $audienceCount = 0;
 if ($c) {
@@ -45,7 +53,22 @@ $v = function ($k, $d = '') use ($c) { return htmlspecialchars((string) ($c[$k] 
     <?php endif; ?>
   </div>
 
-  <form method="POST" action="<?= root.admin ?>/campaigns/save" x-data="{ body: <?= json_encode((string)($c['body_html'] ?? '<p>Hi {$subscriber.first_name},</p>\n<p>Write your message here…</p>')) ?> }">
+  <form method="POST" action="<?= root.admin ?>/campaigns/save" x-data="{
+      body: <?= json_encode((string)($c['body_html'] ?? '<p>Hi {$subscriber.first_name},</p>\n<p>Write your message here…</p>')) ?>,
+      tplId: '',
+      tplLoading: false,
+      async loadTemplate() {
+        if (!this.tplId) return;
+        if (this.body && this.body.trim() && !confirm('Replace the current body with this template?')) { this.tplId=''; return; }
+        this.tplLoading = true;
+        try {
+          const r = await fetch('<?= root.admin ?>/campaign-templates/html/' + encodeURIComponent(this.tplId), { headers: { 'X-Requested-With': 'fetch' } });
+          const d = await r.json().catch(() => ({}));
+          if (d && d.success && d.body_html) { this.body = d.body_html; }
+        } catch (e) { /* ignore — leave body as-is */ }
+        finally { this.tplLoading = false; this.tplId = ''; }
+      }
+    }">
     <?= CSRF::tokenField() ?>
     <input type="hidden" name="id" value="<?= $cid ?>">
 
@@ -63,7 +86,21 @@ $v = function ($k, $d = '') use ($c) { return htmlspecialchars((string) ($c[$k] 
                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
         </div>
         <div>
-          <label class="block text-sm font-semibold text-gray-700 mb-1">Email body (HTML)</label>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-semibold text-gray-700">Email body (HTML)</label>
+            <?php if (!$isSent && !empty($templateChoices)): ?>
+              <div class="flex items-center gap-2">
+                <select x-model="tplId" @change="loadTemplate()" :disabled="tplLoading"
+                        class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-xs text-gray-700">
+                  <option value="">Start from template…</option>
+                  <?php foreach ($templateChoices as $tc): ?>
+                    <option value="<?= (int) $tc['id'] ?>"><?= htmlspecialchars($tc['name']) ?></option>
+                  <?php endforeach; ?>
+                </select>
+                <a href="<?= root.admin ?>/campaign-templates" target="_blank" class="text-xs text-blue-600 hover:underline whitespace-nowrap">Manage</a>
+              </div>
+            <?php endif; ?>
+          </div>
           <textarea name="body_html" x-model="body" rows="14" <?= $isSent ? 'readonly' : '' ?>
                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></textarea>
           <p class="text-xs text-gray-500 mt-1">

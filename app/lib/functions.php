@@ -4618,6 +4618,45 @@ function ensureCampaignSchema($db): void
     }
 }
 
+/**
+ * Self-healing schema for the campaign template library (Phase 3). Idempotent.
+ *
+ * `blocks_json` : the ordered list of layout blocks (hero/text/button/image/
+ *                 divider) the designer edits — the editable source of truth.
+ * `body_html`   : the rendered HTML the blocks compile to — what a campaign
+ *                 copies into its body when "started from" this template.
+ * `is_system`   : 1 for the seeded starter templates (not deletable).
+ */
+function ensureCampaignTemplateSchema($db): void
+{
+    static $checked = false;
+    if ($checked) { return; }
+    $checked = true;
+
+    try {
+        if (!dbTableExists($db, 'email_templates_library')) {
+            $db->query("CREATE TABLE IF NOT EXISTS `email_templates_library` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `name` varchar(191) NOT NULL,
+                `description` varchar(255) DEFAULT NULL,
+                `blocks_json` mediumtext DEFAULT NULL,
+                `body_html` mediumtext NOT NULL,
+                `is_system` tinyint(1) NOT NULL DEFAULT 0,
+                `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                KEY `idx_system` (`is_system`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        }
+        // NOTE: starter templates are seeded LAZILY by the campaign-templates admin
+        // route (campaignSeedStarters), NOT here — the seed data + block renderer
+        // live in the routes file, which loads AFTER this bootstrap call. Seeding
+        // here would run before those functions exist. See campaignTemplatesRoutes.php.
+    } catch (\Throwable $e) {
+        error_log('ensureCampaignTemplateSchema: ' . $e->getMessage());
+    }
+}
+
 function ensurePromoUsageSchema($db): void
 {
     static $checked = false;
@@ -11252,6 +11291,7 @@ function aiConfigurationDefaults(): array
         'passport_enabled' => false,
         'passport_local_enabled' => false,
         'trip_enabled' => false,
+        'voice_enabled' => true,
         'provider' => '',
         'timeout' => 30,
         'max_file_size' => 5242880,
@@ -11385,6 +11425,10 @@ function aiConfigurationNormalize($raw): array
     $passport = $data['passport_enabled'] ?? $data['passport_ai_enabled'] ?? false;
     $passportLocal = $data['passport_local_enabled'] ?? false;
     $trip = $data['trip_enabled'] ?? $data['ai_trip_enabled'] ?? false;
+    // Voice (tap-to-speak + read-aloud) in the GIA chat. Browser Web Speech by
+    // default (no key, works for any provider). Defaults ON when unset so GIA is
+    // voice-capable out of the box; admin can turn it off.
+    $voice = $data['voice_enabled'] ?? $data['ai_voice_enabled'] ?? true;
     if (is_string($passport)) {
         $passport = $passport === '1' || strtolower($passport) === 'true';
     }
@@ -11393,6 +11437,9 @@ function aiConfigurationNormalize($raw): array
     }
     if (is_string($trip)) {
         $trip = $trip === '1' || strtolower($trip) === 'true';
+    }
+    if (is_string($voice)) {
+        $voice = $voice === '1' || strtolower($voice) === 'true';
     }
 
     $passport = (bool) $passport;
@@ -11442,6 +11489,7 @@ function aiConfigurationNormalize($raw): array
         'passport_enabled' => $passport,
         'passport_local_enabled' => $passportLocal,
         'trip_enabled' => (bool) $trip,
+        'voice_enabled' => (bool) $voice,
         'provider' => $provider,
         'timeout' => $timeout,
         'max_file_size' => $maxFileSize,
