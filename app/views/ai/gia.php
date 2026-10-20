@@ -4,7 +4,7 @@
 // GIA chat UI — frontend for POST /api/gia/chat.
 // House pattern: rendered between includes/header.php and includes/footer.php by
 // GET /gia (giaRoutes.php). Alpine.js component, Tailwind build, CSRF token from
-// CSRF::getToken() — same conventions as app/views/ai/trip.php. The JS is inline
+// CSRF::getToken() — standard GIA conventions. The JS is inline
 // (self-contained; no separate built asset to version).
 //
 // It renders the agent's text reply plus the structured tool outputs the route
@@ -21,12 +21,16 @@ if (is_file($giaPageRt) && isset($db)) {
         $giaPagePusher = \App\lib\ai\gia_pusher_public_config($db);
     }
 }
+// Optional initial query (e.g. the homepage AI box fallback: /gia?q=...). Bounded.
+$giaInitialQ = trim((string) ($_GET['q'] ?? ''));
+if (function_exists('mb_substr')) { $giaInitialQ = mb_substr($giaInitialQ, 0, 500); }
 $giaCfg = json_encode([
     'endpoint'  => root . 'api/gia/chat',
     'csrfToken' => class_exists('CSRF') ? CSRF::getToken() : '',
     'brand'     => '#0058E6',
     'root'      => root,
     'pusher'    => $giaPagePusher,
+    'initialQuery' => $giaInitialQ,
 ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE);
 ?>
 <style>
@@ -352,7 +356,12 @@ function giaChat(cfg) {
     staffActive: false, pollTimer: null,
     pusher: (cfg.pusher || {}), convKey: '', rtChannel: null, rtClient: null,
 
-    init() { this.hydrate(); },
+    init() {
+      this.hydrate();
+      // If arrived with an initial query (homepage AI box fallback), send it once.
+      const q = (cfg.initialQuery || '').trim();
+      if (q) { this.$nextTick(() => this.send(q)); }
+    },
 
     // Realtime (Pusher) delivery of staff replies; polling is the fallback.
     subscribeRealtime() {
