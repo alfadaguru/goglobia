@@ -57,10 +57,14 @@ $giaCfg = json_encode([
       <div class="w-11 h-11 rounded-full flex items-center justify-center text-white shrink-0" style="background:var(--gia-brand)">
         <span class="material-symbols-outlined">travel_explore</span>
       </div>
-      <div>
+      <div class="flex-1">
         <h1 class="text-lg font-bold text-slate-800 leading-tight">GIA — your travel assistant</h1>
         <p class="text-xs text-slate-500">Plan a trip in plain English. GIA searches live options and prepares a checkout — you always approve before anything is paid.</p>
       </div>
+      <button type="button" @click="newChat()" x-show="messages.length > 0"
+              class="shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
+        <span class="material-symbols-outlined text-[16px]">add_comment</span> New chat
+      </button>
     </div>
 
     <!-- AI disclosure (BRD CON-006) -->
@@ -333,8 +337,16 @@ function giaChat(cfg) {
 
     leadShown: false, leadDone: false, leadName: '', leadEmail: '', leadPhone: '', leadMsg: '',
     drawer: false, drawerUrl: '', drawerTitle: '',
+    staffActive: false, pollTimer: null,
 
     init() { this.hydrate(); },
+
+    async newChat() {
+      if (this.sending) return;
+      try { await fetch(this.root + 'api/gia/reset', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken }, body: JSON.stringify({ csrf_token: this.csrfToken }) }); } catch (e) {}
+      this.messages = []; this.leadShown = false; this.leadDone = false; this.staffActive = false;
+      this.$nextTick(() => { if (this.$refs.input) this.$refs.input.focus(); this.scrollDown(); });
+    },
 
     // Open a result/listing page in a side drawer (iframe) — stay in the chat.
     openDrawer(url, title) { if (!url || url === '#') return; this.drawerUrl = url; this.drawerTitle = title || 'Details'; this.drawer = true; },

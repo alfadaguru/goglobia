@@ -367,8 +367,19 @@ $adminMenu = array_merge($adminMenu, [
             ['name' => T::booking.' '.T::reports, 'icon' => 'assessment', 'url' => root.admin.'/reports/bookings'],
             ['name' => T::users.' '.T::reports, 'icon' => 'people_outline', 'url' => root.admin.'/reports/users'],
             ['name' => T::transactions.' '.T::reports, 'icon' => 'receipt_long', 'url' => root.admin.'/reports/transactions'],
-            ['name' => T::deposit.' '.T::reports, 'icon' => 'receipt_long', 'url' => root.admin.'/reports/deposit'],
-            ['name' => 'GIA Assistant', 'icon' => 'smart_toy', 'url' => root.admin.'/gia']
+            ['name' => T::deposit.' '.T::reports, 'icon' => 'receipt_long', 'url' => root.admin.'/reports/deposit']
+        ]
+    ],
+    // GIA — the AI travel assistant gets its own top-level section (reports,
+    // conversations, leads, controls + live handoff).
+    [
+        'icon' => 'smart_toy', 'name' => 'GIA Assistant', 'url' => root.admin.'/gia',
+        'submenu' => [
+            ['name' => 'Overview &amp; reports', 'icon' => 'insights', 'url' => root.admin.'/gia'],
+            ['name' => 'Conversations', 'icon' => 'forum', 'url' => root.admin.'/gia#conversations'],
+            ['name' => 'Leads', 'icon' => 'contact_mail', 'url' => root.admin.'/gia#leads'],
+            ['name' => 'Export leads (CSV)', 'icon' => 'download', 'url' => root.admin.'/gia/leads/export'],
+            ['name' => 'AI settings', 'icon' => 'tune', 'url' => root.admin.'/settings#ai'],
         ]
     ],
     [

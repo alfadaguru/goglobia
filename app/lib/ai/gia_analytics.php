@@ -65,6 +65,10 @@ if (!function_exists('ensureGiaAnalyticsSchema')) {
                 `revenue` decimal(14,2) NOT NULL DEFAULT 0.00,
                 `revenue_currency` varchar(10) DEFAULT NULL,
                 `last_message` varchar(500) DEFAULT NULL,
+                `closed` tinyint(1) NOT NULL DEFAULT 0,
+                `needs_human` tinyint(1) NOT NULL DEFAULT 0,
+                `staff_active` tinyint(1) NOT NULL DEFAULT 0,
+                `flagged` tinyint(1) NOT NULL DEFAULT 0,
                 `started_at` datetime NOT NULL DEFAULT current_timestamp(),
                 `last_at` datetime DEFAULT NULL ON UPDATE current_timestamp(),
                 PRIMARY KEY (`id`),
@@ -72,8 +76,29 @@ if (!function_exists('ensureGiaAnalyticsSchema')) {
                 KEY `browser_id` (`browser_id`),
                 KEY `user_id` (`user_id`),
                 KEY `lead_id` (`lead_id`),
-                KEY `last_at` (`last_at`)
+                KEY `last_at` (`last_at`),
+                KEY `closed` (`closed`),
+                KEY `needs_human` (`needs_human`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            // Idempotent ALTERs for installs created before these columns existed
+            // (CREATE TABLE IF NOT EXISTS does not add columns to an existing table).
+            foreach ([
+                'closed'       => "ALTER TABLE `gia_conversations` ADD COLUMN `closed` tinyint(1) NOT NULL DEFAULT 0",
+                'needs_human'  => "ALTER TABLE `gia_conversations` ADD COLUMN `needs_human` tinyint(1) NOT NULL DEFAULT 0",
+                'staff_active' => "ALTER TABLE `gia_conversations` ADD COLUMN `staff_active` tinyint(1) NOT NULL DEFAULT 0",
+                'flagged'      => "ALTER TABLE `gia_conversations` ADD COLUMN `flagged` tinyint(1) NOT NULL DEFAULT 0",
+            ] as $col => $alter) {
+                try {
+                    $exists = $db->query("SHOW COLUMNS FROM `gia_conversations` LIKE " . $db->quote($col))->fetch();
+                    if (!$exists) { $db->query($alter); }
+                } catch (\Throwable $e) { /* best-effort; swallow like the house pattern */ }
+            }
+            // gia_messages gains a 'staff' sender flag for human-handoff replies.
+            try {
+                $mExists = $db->query("SHOW COLUMNS FROM `gia_messages` LIKE 'is_staff'")->fetch();
+                if (!$mExists) { $db->query("ALTER TABLE `gia_messages` ADD COLUMN `is_staff` tinyint(1) NOT NULL DEFAULT 0"); }
+            } catch (\Throwable $e) { /* best-effort */ }
 
             $db->query("CREATE TABLE IF NOT EXISTS `gia_messages` (
                 `id` int(11) NOT NULL AUTO_INCREMENT,

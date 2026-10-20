@@ -140,6 +140,24 @@ $router->post('/api/gia/chat', function () use ($db) {
         : null;
     $convId = (int) ($conv['id'] ?? 0);
 
+    // --- HUMAN HANDOFF: if a staff member has taken over this conversation, GIA
+    //     pauses — we record the traveller's message for the agent to see, but do
+    //     NOT call the model. The widget keeps polling /history for staff replies. ---
+    if ($convId > 0 && (int) ($conv['staff_active'] ?? 0) === 1) {
+        if (function_exists('gia_log_turn')) {
+            gia_log_turn($db, $convId, $message, '', []); // store user msg only
+        }
+        $respond(200, [
+            'status'       => true,
+            'reply'        => 'Thanks — a member of our team is helping you on this chat and will reply here shortly.',
+            'handoff'      => true,
+            'staff_active' => true,
+            'conv_key'     => (string) ($conv['conv_key'] ?? ''),
+            'tool_runs'    => [],
+        ]);
+        return;
+    }
+
     // --- Conversation history: prefer the persisted transcript (so a NEW tab /
     //     refresh / another device resumes the same chat); fall back to session. ---
     $convKey = 'gia_conv';
@@ -381,22 +399,84 @@ $router->get('/api/gia/history', function () use ($db) {
     try {
         $where = null;
         if ($userId !== '') {
-            $where = ['user_id' => $userId, 'ORDER' => ['last_at' => 'DESC'], 'LIMIT' => 1];
+            $where = ['user_id' => $userId, 'closed' => 0, 'ORDER' => ['last_at' => 'DESC'], 'LIMIT' => 1];
         } elseif ($browserId !== '') {
-            $where = ['browser_id' => $browserId, 'ORDER' => ['last_at' => 'DESC'], 'LIMIT' => 1];
+            $where = ['browser_id' => $browserId, 'closed' => 0, 'ORDER' => ['last_at' => 'DESC'], 'LIMIT' => 1];
         }
         if ($where !== null && function_exists('ensureGiaAnalyticsSchema')) {
             ensureGiaAnalyticsSchema($db);
-            $conv = $db->get('gia_conversations', ['id', 'conv_key'], $where);
+            $conv = $db->get('gia_conversations', ['id', 'conv_key', 'needs_human', 'staff_active'], $where);
             if (is_array($conv) && !empty($conv['id'])) {
-                $out['messages'] = gia_conv_history($db, (int) $conv['id'], 20);
+                $out['messages'] = gia_conv_history($db, (int) $conv['id'], 40);
                 $out['conv_key'] = (string) ($conv['conv_key'] ?? '');
+                // Handoff state so the widget can show "a human is helping" + keep polling.
+                $out['staff_active'] = (int) ($conv['staff_active'] ?? 0) === 1;
+                $out['needs_human'] = (int) ($conv['needs_human'] ?? 0) === 1;
             }
         }
     } catch (\Throwable $e) {
         error_log('[gia] history route: ' . $e->getMessage());
     }
     echo json_encode($out);
+});
+
+// ============================================================================
+// POST /api/gia/reset — start a fresh chat. Closes the active conversation for
+// this browser/user so the NEXT message opens a brand-new conversation (new
+// transcript), and clears the session cache. CSRF-guarded. Does not delete the
+// old conversation (admin reports keep it); it just stops resuming it.
+// ============================================================================
+$router->post('/api/gia/reset', function () use ($db) {
+    header('Content-Type: application/json');
+    if (!function_exists('aiTripIsEnabled') || !aiTripIsEnabled($db)) {
+        echo json_encode(['status' => true]);
+        return;
+    }
+    $raw = file_get_contents('php://input') ?: '';
+    $input = json_decode($raw, true);
+    if (!is_array($input)) { $input = []; }
+    $csrf = (string) ($input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''));
+    if (class_exists('CSRF') && method_exists('CSRF', 'validateToken') && !CSRF::validateToken($csrf)) {
+        http_response_code(403);
+        echo json_encode(['status' => false, 'message' => 'Your session expired. Please refresh.']);
+        return;
+    }
+
+    $aiDir = dirname(__DIR__, 2) . '/lib/ai/';
+    require_once $aiDir . 'gia_analytics.php';
+    require_once $aiDir . 'gia_crm.php';
+
+    // Mark the current conversation ended for this browser/user so it is no longer
+    // resumed; a new one is created on the next message. We "retire" by clearing the
+    // browser_id link (so history/get-or-create won't match it) — the row + its
+    // transcript stay intact for admin reports.
+    try {
+        if (function_exists('gia_browser_id') && function_exists('ensureGiaAnalyticsSchema')) {
+            ensureGiaAnalyticsSchema($db);
+            $browserId = gia_browser_id();
+            $userId = (string) ($_SESSION['user_id'] ?? '');
+            $where = null;
+            if ($userId !== '') {
+                $where = ['user_id' => $userId, 'ORDER' => ['last_at' => 'DESC'], 'LIMIT' => 1];
+            } elseif ($browserId !== '') {
+                $where = ['browser_id' => $browserId, 'ORDER' => ['last_at' => 'DESC'], 'LIMIT' => 1];
+            }
+            if ($where !== null) {
+                $conv = $db->get('gia_conversations', ['id'], $where);
+                if (is_array($conv) && !empty($conv['id'])) {
+                    // Retire: mark closed so get-or-create/history won't resume it.
+                    // The row + transcript stay intact (admin reports keep history).
+                    $db->update('gia_conversations', ['closed' => 1], ['id' => (int) $conv['id']]);
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log('[gia] reset: ' . $e->getMessage());
+    }
+
+    // Clear per-session caches so the next message is a clean slate.
+    unset($_SESSION['gia_conv'], $_SESSION['gia_last_search'], $_SESSION['gia_live_offers']);
+    echo json_encode(['status' => true]);
 });
 
 // ============================================================================

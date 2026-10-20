@@ -68,12 +68,13 @@ if (!function_exists('gia_conv_get_or_create')) {
         }
         ensureGiaAnalyticsSchema($db);
         try {
-            // Prefer the most recent conversation for this user (if known), else browser.
+            // Prefer the most recent OPEN conversation for this user (if known),
+            // else browser. closed=1 rows (ended via New chat) are never resumed.
             $where = null;
             if ($userId !== '') {
-                $where = ['user_id' => $userId, 'ORDER' => ['last_at' => 'DESC'], 'LIMIT' => 1];
+                $where = ['user_id' => $userId, 'closed' => 0, 'ORDER' => ['last_at' => 'DESC'], 'LIMIT' => 1];
             } elseif ($browserId !== '') {
-                $where = ['browser_id' => $browserId, 'ORDER' => ['last_at' => 'DESC'], 'LIMIT' => 1];
+                $where = ['browser_id' => $browserId, 'closed' => 0, 'ORDER' => ['last_at' => 'DESC'], 'LIMIT' => 1];
             } else {
                 return null;
             }

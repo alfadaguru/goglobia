@@ -11,9 +11,23 @@ $convRate = ($funnel['chats'] ?? 0) > 0
 
   <div class="mb-4 flex items-center gap-2">
     <i class="material-symbols-outlined text-blue-600">smart_toy</i>
-    <div>
+    <div class="flex-1">
       <h1 class="text-xl font-bold text-gray-900">GIA Assistant</h1>
       <p class="text-sm text-gray-600">What your AI travel assistant is doing — conversations, leads, conversions &amp; cost.</p>
+    </div>
+    <?php $giaCsrf = class_exists('CSRF') ? CSRF::getToken() : ''; ?>
+    <div class="flex items-center gap-2" id="gia-controls" data-csrf="<?php echo $e($giaCsrf); ?>" data-base="<?php echo $e(root.admin); ?>">
+      <a href="<?php echo root.admin; ?>/gia/leads/export"
+         class="inline-flex items-center gap-1 text-xs font-semibold px-3 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50">
+        <i class="material-symbols-outlined text-[16px]">download</i> Export leads
+      </a>
+      <button type="button" id="gia-toggle"
+              data-enabled="<?php echo !empty($giaEnabled) ? '1' : '0'; ?>"
+              class="inline-flex items-center gap-1 text-xs font-semibold px-3 py-2 rounded-lg text-white"
+              style="background: <?php echo !empty($giaEnabled) ? '#16a34a' : '#64748b'; ?>">
+        <i class="material-symbols-outlined text-[16px]"><?php echo !empty($giaEnabled) ? 'toggle_on' : 'toggle_off'; ?></i>
+        <span><?php echo !empty($giaEnabled) ? 'GIA is ON' : 'GIA is OFF'; ?></span>
+      </button>
     </div>
   </div>
 
@@ -97,7 +111,7 @@ $convRate = ($funnel['chats'] ?? 0) > 0
     </div>
 
     <!-- Recent leads -->
-    <div class="card p-0">
+    <div class="card p-0" id="leads">
       <div class="card-header"><div><span class="card-header-icon material-symbols-outlined">contact_mail</span> Recent leads</div></div>
       <div class="card-body overflow-x-auto">
         <?php if (empty($leads)): ?>
@@ -132,7 +146,7 @@ $convRate = ($funnel['chats'] ?? 0) > 0
   </div>
 
   <!-- Recent conversations -->
-  <div class="card p-0">
+  <div class="card p-0" id="conversations">
     <div class="card-header"><div><span class="card-header-icon material-symbols-outlined">forum</span> Recent conversations</div></div>
     <div class="card-body overflow-x-auto">
       <?php if (empty($conversations)): ?>
@@ -156,7 +170,12 @@ $convRate = ($funnel['chats'] ?? 0) > 0
               <td class="py-1.5 pr-2 text-right"><?php echo number_format((int)($c['booking_count'] ?? 0)); ?></td>
               <td class="py-1.5 pr-2 text-right"><?php echo (float)($c['revenue'] ?? 0) > 0 ? $e($c['revenue_currency'] ?: '') . ' ' . number_format((float)$c['revenue'], 2) : '—'; ?></td>
               <td class="py-1.5 text-gray-500 text-xs"><?php echo $e($c['last_at'] ?: $c['started_at'] ?? ''); ?></td>
-              <td class="py-1.5"><a class="text-blue-600 hover:underline text-xs" href="<?php echo root.admin; ?>/gia/conversation/<?php echo (int)$c['id']; ?>">View</a></td>
+              <td class="py-1.5 whitespace-nowrap">
+                <a class="text-blue-600 hover:underline text-xs" href="<?php echo root.admin; ?>/gia/conversation/<?php echo (int)$c['id']; ?>">View</a>
+                <button type="button" class="gia-flag text-xs ml-2 <?php echo !empty($c['flagged']) ? 'text-amber-600' : 'text-gray-400'; ?> hover:text-amber-700"
+                        data-id="<?php echo (int)$c['id']; ?>" data-flagged="<?php echo !empty($c['flagged']) ? '1' : '0'; ?>" title="Flag/unflag">⚑</button>
+                <button type="button" class="gia-del text-xs ml-1 text-gray-400 hover:text-red-600" data-id="<?php echo (int)$c['id']; ?>" title="Delete">✕</button>
+              </td>
             </tr>
           <?php endforeach; ?>
           </tbody>
@@ -166,3 +185,46 @@ $convRate = ($funnel['chats'] ?? 0) > 0
   </div>
 
 </div>
+
+<script>
+(function(){
+  var ctl = document.getElementById('gia-controls');
+  if(!ctl) return;
+  var csrf = ctl.getAttribute('data-csrf') || '';
+  var base = ctl.getAttribute('data-base') || '';
+  function post(path, body){
+    var fd = new FormData();
+    fd.append('csrf_token', csrf);
+    Object.keys(body||{}).forEach(function(k){ fd.append(k, body[k]); });
+    return fetch(base + path, { method:'POST', headers:{'X-CSRF-TOKEN':csrf}, body: fd })
+      .then(function(r){ return r.json().catch(function(){ return {}; }); });
+  }
+  // On/off toggle
+  var tg = document.getElementById('gia-toggle');
+  if(tg){
+    tg.addEventListener('click', function(){
+      var on = tg.getAttribute('data-enabled') === '1';
+      post('/gia/toggle', { enable: on ? '0' : '1' }).then(function(d){
+        if(d && d.status){ location.reload(); }
+        else { alert((d && d.message) || 'Could not change the setting.'); }
+      });
+    });
+  }
+  // Flag / unflag
+  document.querySelectorAll('.gia-flag').forEach(function(b){
+    b.addEventListener('click', function(){
+      var on = b.getAttribute('data-flagged') === '1';
+      post('/gia/conversation/action', { id: b.getAttribute('data-id'), action: on ? 'unflag' : 'flag' })
+        .then(function(d){ if(d && d.status){ location.reload(); } });
+    });
+  });
+  // Delete (confirm)
+  document.querySelectorAll('.gia-del').forEach(function(b){
+    b.addEventListener('click', function(){
+      if(!confirm('Delete this conversation and its transcript? This cannot be undone.')) return;
+      post('/gia/conversation/action', { id: b.getAttribute('data-id'), action: 'delete' })
+        .then(function(d){ if(d && d.status){ location.reload(); } else { alert('Delete failed.'); } });
+    });
+  });
+})();
+</script>
