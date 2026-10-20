@@ -56,6 +56,11 @@ $giaWCfg = json_encode([
     'pusher'    => $giaWPusher, // {key,cluster} or {}
     'firstName' => $giaWFirstName,
     'loggedIn'  => !empty($_SESSION['user_id']),
+    'voice'     => (function () use ($giaWDb) {
+        if (!function_exists('passportAiSettings')) { return false; }
+        $s = passportAiSettings($giaWDb);
+        return !empty($s['voice_enabled']);
+    })(),
 ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE);
 ?>
 <style>
@@ -93,6 +98,11 @@ $giaWCfg = json_encode([
   .giaw-typing span:nth-child(2){animation-delay:.2s}.giaw-typing span:nth-child(3){animation-delay:.4s}
   @keyframes giaw-blink{0%,80%,100%{opacity:.3}40%{opacity:1}}
   .giaw-foot{border-top:1px solid #eef2f7;padding:10px 12px;background:#fff}
+  /* Mic actively listening — red pulse */
+  .giaw-mic-live{background:#ef4444}
+  .giaw-mic-live{animation:giaw-mic 1.1s ease-in-out infinite}
+  @keyframes giaw-mic{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.5)}50%{box-shadow:0 0 0 7px rgba(239,68,68,0)}}
+  @media (prefers-reduced-motion:reduce){.giaw-mic-live{animation:none}}
   @media (max-width:420px){.giaw-panel{right:0;bottom:0;width:100vw;height:100vh;max-height:100vh;border-radius:0}}
   @media (prefers-reduced-motion:reduce){
     .giaw-fab.giaw-bounce,.giaw-msg-in,.giaw-unread{animation:none!important}
@@ -162,6 +172,11 @@ $giaWCfg = json_encode([
         <div class="ttl">Ask GIA</div>
         <div class="sub">AI travel assistant · you approve before any payment</div>
       </div>
+      <!-- Read GIA's replies aloud (browser speech synthesis). Toggle on/off. -->
+      <button class="giaw-close" x-show="voiceOutputOk" @click="toggleSpeak()" x-cloak
+              :aria-pressed="speakOn" :title="speakOn ? 'Mute voice replies' : 'Hear replies aloud'">
+        <span class="material-symbols-outlined" x-text="speakOn ? 'volume_up' : 'volume_off'"></span>
+      </button>
       <button class="giaw-close" @click="newChat()" aria-label="New chat" title="Start a new chat"
               x-show="messages.length > 0"><span class="material-symbols-outlined">add_comment</span></button>
       <button class="giaw-close" @click="toggle()" aria-label="Close"><span class="material-symbols-outlined">close</span></button>
@@ -332,8 +347,15 @@ $giaWCfg = json_encode([
       <form @submit.prevent="send()" class="flex items-end gap-2">
         <textarea x-model="draft" rows="1" maxlength="2000" x-ref="input"
                   @keydown.enter.prevent="if(!$event.shiftKey){ send() }" @input="autoGrow($event.target)"
-                  placeholder="Ask about a trip…"
+                  :placeholder="listening ? 'Listening…' : 'Ask about a trip…'"
                   class="flex-1 resize-none rounded-lg border border-slate-200 px-2.5 py-2 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-200"></textarea>
+        <!-- Tap-to-speak (browser speech recognition). Only shown when voice is on + supported. -->
+        <button type="button" x-show="voiceInputOk" @click="toggleMic()" :aria-pressed="listening"
+                :title="listening ? 'Stop' : 'Tap to speak'"
+                class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center transition"
+                :class="listening ? 'giaw-mic-live text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'" x-cloak>
+          <span class="material-symbols-outlined text-[20px]" x-text="listening ? 'stop' : 'mic'"></span>
+        </button>
         <button type="submit" :disabled="sending || !draft.trim()" class="shrink-0 w-10 h-10 rounded-lg text-white flex items-center justify-center disabled:opacity-50" style="background:#0058E6">
           <span class="material-symbols-outlined text-[20px]">send</span>
         </button>
@@ -376,6 +398,10 @@ function giaWidget(cfg){
     staffActive:false, pollTimer:null, pusher:(cfg.pusher||{}), convKey:'', rtChannel:null, rtClient:null,
     firstName:(cfg.firstName||''), loggedIn:!!cfg.loggedIn,
     bounce:false, unread:0,
+    // Voice (browser Web Speech). voiceOn = admin enabled it; *Ok = enabled AND
+    // the browser supports that half. listening = mic active; speakOn = read aloud.
+    voiceOn:!!cfg.voice, voiceInputOk:false, voiceOutputOk:false,
+    listening:false, speakOn:false, recog:null,
     starters:['Flights to Dubai','Hotels in Lagos','Plan a trip to Zanzibar'],
     // Per-context copy so GIA opens relevantly (e.g. on /umrah it talks umrah).
     ctxCopy:{
@@ -389,6 +415,11 @@ function giaWidget(cfg){
     init(){
       const c = this.ctxCopy[this.context] || this.ctxCopy[''];
       this.starters = c.starters;
+      // Voice capability detection (only if the admin enabled voice).
+      if(this.voiceOn){
+        this.voiceInputOk  = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+        this.voiceOutputOk = !!(window.speechSynthesis && window.SpeechSynthesisUtterance);
+      }
       // Resume a persistent conversation (cross-tab / refresh / another device):
       // pull this browser's prior transcript from the server. Fail-soft.
       this.hydrate();
@@ -450,6 +481,40 @@ function giaWidget(cfg){
     openFromTeaser(){ const t=this.teaser; this.teaser=''; this.pulse=false; this.unread=0; this.open=true;
       this.$nextTick(()=>{ if(this.$refs.input) this.$refs.input.focus(); if(this.messages.length===0) this.showGreeting(); this.scrollDown(); }); },
     dismissTeaser(){ this.teaser=''; this.pulse=false; },
+    // --- VOICE: tap-to-speak (SpeechRecognition) + read-aloud (SpeechSynthesis).
+    //     Browser-native: no API key, no server call, works for any provider. ---
+    toggleMic(){
+      if(!this.voiceInputOk) return;
+      if(this.listening){ this.stopListen(); return; }
+      try{
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const r = new SR();
+        r.lang = (navigator.language || 'en-US');
+        r.interimResults = false; r.maxAlternatives = 1; r.continuous = false;
+        r.onresult = (e)=>{ const t=(e.results[0] && e.results[0][0] && e.results[0][0].transcript) ? e.results[0][0].transcript : '';
+          if(t){ this.draft = (this.draft ? this.draft+' ' : '') + t; } };
+        r.onerror = ()=>{ this.listening=false; };
+        r.onend = ()=>{ this.listening=false;
+          // Auto-send what was dictated (natural voice flow); user can still edit if they stop first.
+          if((this.draft||'').trim()){ this.send(); } };
+        this.recog = r; this.listening = true; r.start();
+      }catch(e){ this.listening=false; }
+    },
+    stopListen(){ this.listening=false; try{ if(this.recog) this.recog.stop(); }catch(e){} },
+    toggleSpeak(){ this.speakOn = !this.speakOn;
+      if(!this.speakOn){ try{ window.speechSynthesis.cancel(); }catch(e){} } },
+    speak(text){
+      if(!this.speakOn || !this.voiceOutputOk || !text) return;
+      try{
+        // Strip markdown/emoji-ish noise so TTS reads cleanly.
+        const clean = String(text).replace(/[#*_>`]/g,'').replace(/\s+/g,' ').trim();
+        if(!clean) return;
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(clean);
+        u.lang = (navigator.language || 'en-US'); u.rate = 1; u.pitch = 1;
+        window.speechSynthesis.speak(u);
+      }catch(e){}
+    },
     // A warm, varied, personalized opener — not one static line. Uses the first
     // name when logged in, and rotates wording so repeat visits feel alive.
     greetLine(){
@@ -500,8 +565,10 @@ function giaWidget(cfg){
         const res=await fetch(this.endpoint,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':this.csrfToken},body:JSON.stringify(Object.assign({csrf_token:this.csrfToken,context:this.context,surface:'widget'},body))});
         const data=await res.json().catch(()=>({}));
         const showedValue = (Array.isArray(data.searches) && data.searches.length) || !!data.checkout;
-        this.messages.push({role:'ai',text:data.reply||(res.ok?'Done.':'Sorry, something went wrong.'),
+        const giaReply = data.reply||(res.ok?'Done.':'Sorry, something went wrong.');
+        this.messages.push({role:'ai',text:giaReply,
           searches:Array.isArray(data.searches)?data.searches:null,checkout:data.checkout||null,payment:data.payment||null,order_status:data.order_status||null});
+        if(this.speakOn) this.speak(giaReply);   // read GIA's reply aloud if voice-out is on
         if(showedValue) this.maybeOfferLead();
         if(data.conv_key){ this.convKey=data.conv_key; }
         // Human handoff: a staff member took over — subscribe for instant replies
