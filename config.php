@@ -439,6 +439,11 @@ try {
     if (function_exists('ensureCampaignTemplateSchema')) {
         ensureCampaignTemplateSchema($db);
     }
+    // Discount engine (automatic non-code discounts) — idempotent.
+    require_once 'app/lib/discounts.php';
+    if (function_exists('ensureDiscountSchema')) {
+        ensureDiscountSchema($db);
+    }
     // Agent API (docs/AGENT-API.md) — idempotent, no-op once tables exist.
     if (function_exists('ensureAgentApiSchema')) {
         ensureAgentApiSchema($db);

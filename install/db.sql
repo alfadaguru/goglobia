@@ -35258,3 +35258,40 @@ CREATE TABLE IF NOT EXISTS `campaign_suppressions` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_sup_email` (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+-- Discount engine (automatic, non-code discounts — complements promo_codes).
+-- Also created at runtime by ensureDiscountSchema() (app/lib/discounts.php);
+-- kept here so the admin Database-Update tool can create it on existing installs.
+-- Definition matches ensureDiscountSchema() verbatim.
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `discounts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(191) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `discount_type` enum('percentage','fixed','tiered','override') NOT NULL DEFAULT 'percentage',
+  `discount_value` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `tiers_json` mediumtext DEFAULT NULL,
+  `scope_type` enum('all','service','product','provider') NOT NULL DEFAULT 'all',
+  `scope_module` varchar(50) DEFAULT NULL,
+  `scope_product_ids` mediumtext DEFAULT NULL,
+  `scope_provider` varchar(191) DEFAULT NULL,
+  `scope_owner` varchar(255) DEFAULT NULL,
+  `audience` varchar(50) DEFAULT NULL,
+  `currency` varchar(3) DEFAULT NULL,
+  `min_order_amount` decimal(14,2) DEFAULT NULL,
+  `max_discount_amount` decimal(14,2) DEFAULT NULL,
+  `margin_floor_pct` decimal(6,2) NOT NULL DEFAULT 0.00,
+  `priority` int(11) NOT NULL DEFAULT 0,
+  `stackable` tinyint(1) NOT NULL DEFAULT 1,
+  `start_date` datetime DEFAULT NULL,
+  `end_date` datetime DEFAULT NULL,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `used_count` int(11) NOT NULL DEFAULT 0,
+  `created_by` int(11) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_active` (`status`, `scope_type`),
+  KEY `idx_module` (`scope_module`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
