@@ -700,5 +700,7 @@ $router->get('/api/gia/voice/capabilities', function () use ($db) {
         'tts'       => (bool) $caps['tts'],
         'voices'    => $caps['voices'],
         'tts_voice' => (string) $caps['tts_voice'],
+        'speed'     => (float) ($caps['speed'] ?? 1.0),
+        'autospeak' => (bool) ($caps['autospeak'] ?? false),
     ]);
 });

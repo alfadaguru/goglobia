@@ -68,7 +68,7 @@ $giaWCfg = json_encode([
         $f = dirname(__DIR__, 2) . '/lib/ai/gia_voice.php';
         if (is_file($f)) { require_once $f; }
         if (!function_exists('gia_voice_capabilities')) {
-            return ['stt' => false, 'tts' => false, 'voices' => [], 'tts_voice' => ''];
+            return ['stt' => false, 'tts' => false, 'voices' => [], 'tts_voice' => '', 'speed' => 1.0, 'autospeak' => false];
         }
         $c = gia_voice_capabilities($giaWDb);
         return [
@@ -76,6 +76,8 @@ $giaWCfg = json_encode([
             'tts'       => (bool) $c['tts'],
             'voices'    => $c['voices'],
             'tts_voice' => (string) $c['tts_voice'],
+            'speed'     => (float) ($c['speed'] ?? 1.0),
+            'autospeak' => (bool) ($c['autospeak'] ?? false),
         ];
     })(),
 ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE);
@@ -426,6 +428,10 @@ function giaWidget(cfg){
     sttServer:!!(cfg.voiceCaps && cfg.voiceCaps.stt),
     ttsServer:!!(cfg.voiceCaps && cfg.voiceCaps.tts),
     ttsVoice:(cfg.voiceCaps && cfg.voiceCaps.tts_voice) || '',
+    // Admin voice prefs: reading speed (also the browser SpeechSynthesis rate) and
+    // whether to read replies aloud by default (speakOn starts from this in init).
+    ttsSpeed:(cfg.voiceCaps && cfg.voiceCaps.speed) || 1,
+    autospeak:!!(cfg.voiceCaps && cfg.voiceCaps.autospeak),
     sttBrowserOk:false, ttsBrowserOk:false,
     mediaRec:null, audioChunks:[], recStream:null, speaking:false, ttsAudio:null,
     starters:['Flights to Dubai','Hotels in Lagos','Plan a trip to Zanzibar'],
@@ -451,6 +457,9 @@ function giaWidget(cfg){
         const canRecord    = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
         this.voiceInputOk  = (this.sttServer && canRecord) || this.sttBrowserOk;
         this.voiceOutputOk = this.ttsServer || this.ttsBrowserOk;
+        // Admin "read replies aloud by default": start with the speaker on. (Audio
+        // still only plays after the first user interaction, per browser policy.)
+        if(this.autospeak && this.voiceOutputOk){ this.speakOn = true; }
       }
       // Resume a persistent conversation (cross-tab / refresh / another device):
       // pull this browser's prior transcript from the server. Fail-soft.
@@ -638,7 +647,9 @@ function giaWidget(cfg){
       try{
         window.speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(clean);
-        u.lang = (navigator.language || 'en-US'); u.rate = 1; u.pitch = 1;
+        // Apply the admin's chosen speed as the browser speech rate (0.5–2.0).
+        let rate = Number(this.ttsSpeed) || 1; if(rate<0.5) rate=0.5; if(rate>2) rate=2;
+        u.lang = (navigator.language || 'en-US'); u.rate = rate; u.pitch = 1;
         u.onend=()=>{ this.speaking=false; };
         this.speaking=true;
         window.speechSynthesis.speak(u);

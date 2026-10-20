@@ -11292,6 +11292,13 @@ function aiConfigurationDefaults(): array
         'passport_local_enabled' => false,
         'trip_enabled' => false,
         'voice_enabled' => true,
+        // Voice preferences (apply to provider TTS AND the browser fallback):
+        //   voice_tts_voice  — OpenAI voice name (ignored by browser speech)
+        //   voice_speed      — 0.5–2.0 reading rate (maps to SpeechSynthesis rate)
+        //   voice_autospeak  — read GIA replies aloud by default (user can still mute)
+        'voice_tts_voice' => 'nova',
+        'voice_speed' => 1.0,
+        'voice_autospeak' => false,
         'provider' => '',
         'timeout' => 30,
         'max_file_size' => 5242880,
@@ -11429,6 +11436,20 @@ function aiConfigurationNormalize($raw): array
     // default (no key, works for any provider). Defaults ON when unset so GIA is
     // voice-capable out of the box; admin can turn it off.
     $voice = $data['voice_enabled'] ?? $data['ai_voice_enabled'] ?? true;
+    // Voice preferences.
+    $voiceName = strtolower(trim((string) ($data['voice_tts_voice'] ?? $data['ai_voice_tts_voice'] ?? 'nova')));
+    $voiceAllowed = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
+    if (!in_array($voiceName, $voiceAllowed, true)) {
+        $voiceName = 'nova';
+    }
+    $voiceSpeed = (float) ($data['voice_speed'] ?? $data['ai_voice_speed'] ?? 1.0);
+    if ($voiceSpeed < 0.5) { $voiceSpeed = 0.5; }
+    if ($voiceSpeed > 2.0) { $voiceSpeed = 2.0; }
+    $voiceSpeed = round($voiceSpeed, 2);
+    $voiceAutospeak = $data['voice_autospeak'] ?? $data['ai_voice_autospeak'] ?? false;
+    if (is_string($voiceAutospeak)) {
+        $voiceAutospeak = $voiceAutospeak === '1' || strtolower($voiceAutospeak) === 'true';
+    }
     if (is_string($passport)) {
         $passport = $passport === '1' || strtolower($passport) === 'true';
     }
@@ -11490,6 +11511,9 @@ function aiConfigurationNormalize($raw): array
         'passport_local_enabled' => $passportLocal,
         'trip_enabled' => (bool) $trip,
         'voice_enabled' => (bool) $voice,
+        'voice_tts_voice' => $voiceName,
+        'voice_speed' => $voiceSpeed,
+        'voice_autospeak' => (bool) $voiceAutospeak,
         'provider' => $provider,
         'timeout' => $timeout,
         'max_file_size' => $maxFileSize,

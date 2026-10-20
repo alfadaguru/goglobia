@@ -36,6 +36,32 @@ if (!function_exists('gia_voice_enabled')) {
     }
 }
 
+if (!function_exists('gia_voice_prefs')) {
+    /**
+     * Admin voice preferences (reading voice, speed, auto-speak default), already
+     * normalized/clamped by aiConfigurationNormalize(). Safe defaults if unset.
+     *
+     * @return array{voice:string, speed:float, autospeak:bool}
+     */
+    function gia_voice_prefs($db): array
+    {
+        $s = passportAiSettings($db);
+        $allowed = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
+        $voice = strtolower(trim((string) ($s['voice_tts_voice'] ?? 'nova')));
+        if (!in_array($voice, $allowed, true)) {
+            $voice = 'nova';
+        }
+        $speed = (float) ($s['voice_speed'] ?? 1.0);
+        if ($speed < 0.5) { $speed = 0.5; }
+        if ($speed > 2.0) { $speed = 2.0; }
+        return [
+            'voice'     => $voice,
+            'speed'     => round($speed, 2),
+            'autospeak' => !empty($s['voice_autospeak']),
+        ];
+    }
+}
+
 if (!function_exists('gia_voice_capabilities')) {
     /**
      * What CAN we do server-side right now, given the active provider?
@@ -44,17 +70,20 @@ if (!function_exists('gia_voice_capabilities')) {
      * record+POST (provider path) or use the browser Web Speech API (fallback).
      *
      * @return array{enabled:bool, provider:string, stt:bool, tts:bool,
-     *               voices:string[], tts_voice:string}
+     *               voices:string[], tts_voice:string, speed:float, autospeak:bool}
      */
     function gia_voice_capabilities($db): array
     {
+        $prefs = gia_voice_prefs($db);
         $out = [
             'enabled'   => false,
             'provider'  => '',
             'stt'       => false,   // server speech-to-text available
             'tts'       => false,   // server text-to-speech available
             'voices'    => [],
-            'tts_voice' => '',
+            'tts_voice' => $prefs['voice'],     // admin-chosen reading voice
+            'speed'     => $prefs['speed'],     // admin-chosen reading rate
+            'autospeak' => $prefs['autospeak'], // read replies aloud by default
         ];
 
         if (!gia_voice_enabled($db)) {
@@ -75,7 +104,6 @@ if (!function_exists('gia_voice_capabilities')) {
                 $out['stt']       = true;
                 $out['tts']       = true;
                 $out['voices']    = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
-                $out['tts_voice'] = 'nova';
                 break;
             case 'gemini':
                 $out['stt'] = true;   // audio-in via generateContent is GA
@@ -275,6 +303,16 @@ if (!function_exists('gia_voice_speak')) {
             $text = substr($text, 0, 4000);
         }
 
+        // Fall back to the admin's saved reading voice + speed when the client
+        // didn't request a specific one. The client CAN override the voice, but
+        // the speed always comes from admin settings (one consistent cadence).
+        $prefs = gia_voice_prefs($db);
+        $allowed = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
+        if (!in_array($voice, $allowed, true)) {
+            $voice = $prefs['voice'];
+        }
+        $speed = $prefs['speed'];
+
         $cfg = passportAiActiveProviderConfig($db);
         if (!is_array($cfg)) {
             return $fail('No provider — use browser.');
@@ -284,7 +322,7 @@ if (!function_exists('gia_voice_speak')) {
         $timeout = (int) ($cfg['timeout'] ?? 30);
 
         if ($key === 'openai') {
-            return gia_voice_speak_openai($text, $voice, $apiKey, $timeout);
+            return gia_voice_speak_openai($text, $voice, $apiKey, $timeout, $speed);
         }
 
         // Gemini TTS is not GA; Claude has no voice -> browser.
@@ -294,7 +332,7 @@ if (!function_exists('gia_voice_speak')) {
 
 if (!function_exists('gia_voice_speak_openai')) {
     /** OpenAI TTS: POST /v1/audio/speech (model tts-1, JSON -> raw mp3 bytes). */
-    function gia_voice_speak_openai(string $text, string $voice, string $apiKey, int $timeout): array
+    function gia_voice_speak_openai(string $text, string $voice, string $apiKey, int $timeout, float $speed = 1.0): array
     {
         $fail = static function (string $msg, bool $fallback = true): array {
             return ['ok' => false, 'audio' => '', 'mime' => '', 'provider' => 'openai', 'fallback' => $fallback, 'error' => $msg];
@@ -304,6 +342,9 @@ if (!function_exists('gia_voice_speak_openai')) {
         }
         $allowed = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
         $voice   = in_array($voice, $allowed, true) ? $voice : 'nova';
+        // OpenAI /audio/speech accepts speed 0.25–4.0; our admin range is 0.5–2.0.
+        if ($speed < 0.5) { $speed = 0.5; }
+        if ($speed > 2.0) { $speed = 2.0; }
 
         $started = microtime(true);
         $ch = curl_init('https://api.openai.com/v1/audio/speech');
@@ -320,6 +361,7 @@ if (!function_exists('gia_voice_speak_openai')) {
                 'input'           => $text,
                 'voice'           => $voice,
                 'response_format' => 'mp3',
+                'speed'           => round($speed, 2),
             ]),
         ]);
         $raw   = curl_exec($ch);
