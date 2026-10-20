@@ -878,26 +878,21 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
       function submit() {
          var q = readQuery();
          setError("");
-         if (q.length < 10) {
-            setError("Please enter at least 10 characters for better recommendations.");
+         // GIA is conversational and search-first — it asks for anything missing
+         // itself, so we DON'T gatekeep here (no min-length / arrival / destination
+         // nags). Just hand the prompt straight to GIA, which opens and replies.
+         if (!q) {
+            setError("Tell GIA what you're looking for — e.g. 'flights to Dubai next month'.");
             return false;
          }
-         var disabledMsg = disabledModulesMessage(q);
-         if (disabledMsg) {
-            setError(disabledMsg);
+         try {
+            window.dispatchEvent(new CustomEvent('gia:open', { detail: { message: q } }));
+            return false;
+         } catch (err) {
+            // Fallback if the widget/event isn't available: open the GIA page with the query.
+            window.location.href = root + "gia?q=" + encodeURIComponent(q);
             return false;
          }
-         if (isFlightAsk(q) && !hasArrival(q)) {
-            setError("Please mention Arrival To in your prompt (for example, flights to Paris or flights in Dubai).");
-            return false;
-         }
-         if (isStayAsk(q) && !hasStayDestination(q)) {
-            setError("Please mention a hotel destination in your prompt (for example, hotels in Dubai).");
-            return false;
-         }
-         try { sessionStorage.setItem("ai_trip_pending_q", q); } catch (err) {}
-         window.location.href = root + "ai-trip";
-         return false;
       }
       document.addEventListener("click", function (e) {
          var t = e.target;
@@ -954,6 +949,66 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
    </div>
    <?php endif; ?>
 </div>
+
+<!-- ================================================================
+     P2 — TRUST STRIP (directly under the hero/search, Wakanow-style).
+     Accreditation logos + at-a-glance assurances. No new data; cert logos
+     reuse uploads/global/certifications/. Light band, theme-neutral.
+     ================================================================ -->
+<section class="w-full border-b border-gray-100 bg-white/95">
+  <div class="container mx-auto px-4 py-4 sm:py-5">
+    <div class="flex flex-col items-center gap-4 lg:flex-row lg:justify-between lg:gap-6">
+
+      <!-- Assurance items -->
+      <div class="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 lg:justify-start">
+        <?php
+        $__trust = [
+            ['icon' => 'verified_user', 'title' => 'Trusted partner', 'sub' => 'IATA-accredited agency'],
+            ['icon' => 'lock',          'title' => 'Secure payments',  'sub' => 'Encrypted checkout'],
+            ['icon' => 'support_agent', 'title' => '24/7 support',      'sub' => 'We are always here'],
+            ['icon' => 'sell',          'title' => 'Great prices',      'sub' => 'Fair, transparent fares'],
+        ];
+        foreach ($__trust as $__t): ?>
+          <div class="flex items-center gap-2.5">
+            <span class="material-symbols-outlined !text-[22px] text-primary" style="color:var(--header-link-color,#2563eb);"><?= htmlspecialchars($__t['icon']) ?></span>
+            <span class="leading-tight">
+              <span class="block text-[13px] font-semibold text-gray-900"><?= htmlspecialchars($__t['title']) ?></span>
+              <span class="block text-[11px] text-gray-500"><?= htmlspecialchars($__t['sub']) ?></span>
+            </span>
+          </div>
+        <?php endforeach; ?>
+      </div>
+
+      <!-- Accreditation logos (same assets as the footer cert band) -->
+      <div class="flex items-center gap-3 sm:gap-4">
+        <span class="hidden sm:inline text-[11px] font-semibold uppercase tracking-wider text-gray-400">Accredited by</span>
+        <?php
+        $__homeCerts = [
+            ['file' => 'iata.png',  'alt' => 'IATA Accredited Agent',                             'url' => 'https://www.iata.org/'],
+            ['file' => 'nanta.png', 'alt' => 'NANTA — National Association of Nigeria Travel Agencies', 'url' => 'https://nanta.org.ng/'],
+            ['file' => 'ncaa.png',  'alt' => 'NCAA — Nigeria Civil Aviation Authority Certified',       'url' => 'https://ncaa.gov.ng/'],
+        ];
+        foreach ($__homeCerts as $__hc):
+            $__hcPath = 'uploads/global/certifications/' . $__hc['file'];
+            if (!is_file(__DIR__ . '/../../' . $__hcPath)) continue;
+        ?>
+          <a href="<?= htmlspecialchars($__hc['url']) ?>" target="_blank" rel="noopener noreferrer"
+             title="<?= htmlspecialchars($__hc['alt']) ?>"
+             class="inline-flex items-center justify-center rounded-md bg-white px-2 py-1 transition-all duration-200 hover:-translate-y-0.5"
+             style="border:1px solid rgba(0,0,0,0.06);">
+            <img src="<?= versionedAssetUrl($__hcPath) ?>" alt="<?= htmlspecialchars($__hc['alt']) ?>"
+                 class="h-6 sm:h-7 w-auto object-contain"
+                 style="filter:grayscale(1);opacity:.9;"
+                 onmouseover="this.style.filter='grayscale(0)';this.style.opacity='1';"
+                 onmouseout="this.style.filter='grayscale(1)';this.style.opacity='.9';"
+                 loading="lazy" decoding="async">
+          </a>
+        <?php endforeach; ?>
+      </div>
+
+    </div>
+  </div>
+</section>
 
 <div style="content-visibility:auto; contain-intrinsic-size: 1400px;">
 <?php
