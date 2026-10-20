@@ -672,37 +672,33 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
         $finalTotalWithTaxBase = $finalTotalWithTax;
 
         // PROMO CODE HANDLING (audit money-integrity): recompute the discount
-        // SERVER-SIDE from the promo row — never trust the client's promo_discount.
-        $promoCodeStr = trim($input['promo_code'] ?? '');
-        $promoDiscount = 0.0;
-        $promoCodeJson = null;
-        $promoData = null;
-        if ($promoCodeStr !== '' && function_exists('validatePromoCode')) {
-            $pv = validatePromoCode($db, $promoCodeStr, (float) $markupPriceBase, 'stays', (string) $baseCurrency, [
-                'item_id'    => (int) ($input['hotel_id'] ?? 0),
-                'user_id'    => $_SESSION['user_id'] ?? null,
-                'user_email' => $primaryGuest['email'] ?? null,
+        // DISCOUNT + PROMO (unified engine). Both are recomputed server-side; the
+        // customer only supplies the promo code. Portal-supplier products are
+        // platform-funded (supplier net stays whole); API/own clamp to net.
+        $promoCodeStr  = trim($input['promo_code'] ?? '');
+        $promoDiscount = 0.0; $promoCodeJson = null; $promoData = null;
+        $autoDiscount  = 0.0; $discountJson = null; $discountRow = null; $platformFunded = 0.0;
+        if (function_exists('apply_booking_discounts')) {
+            $dsc = apply_booking_discounts($db, [
+                'base'         => (float) $finalTotalWithTaxBase,
+                'supplier_net' => (float) $actualPriceBase,
+                'module'       => 'stays',
+                'currency'     => (string) $baseCurrency,
+                'promo_code'   => $promoCodeStr,
+                'booking_data' => $bookingData,
+                'item_id'      => (int) ($input['hotel_id'] ?? 0),
+                'provider'     => (string) ($bookingData['supplier'] ?? 'stays'),
+                'user_id'      => $_SESSION['user_id'] ?? null,
+                'user_email'   => $primaryGuest['email'] ?? null,
             ]);
-            if (!empty($pv['ok'])) {
-                $promoDiscount = (float) $pv['discount'];
-                $promoData = $pv['promo'] ?? null;
-            }
-        }
-        if ($promoDiscount > 0 && $promoData) {
-            $promoCodeJson = json_encode([
-                'code' => $promoData['code'],
-                'discount_type' => $promoData['discount_type'],
-                'discount_value' => floatval($promoData['discount_value']),
-                'discount_amount' => $promoDiscount,
-                'max_discount_amount' => $promoData['max_discount_amount'] ? floatval($promoData['max_discount_amount']) : null,
-                'description' => $promoData['description'],
-                'module' => $promoData['module']
-            ]);
-        }
-
-        // APPLY PROMO DISCOUNT TO FINAL TOTAL
-        if ($promoDiscount > 0 && $promoData) {
-            $finalTotalWithTaxBase = round($finalTotalWithTaxBase - $promoDiscount, 2);
+            $finalTotalWithTaxBase = (float) $dsc['total'];
+            $promoDiscount   = (float) $dsc['promo_discount'];
+            $autoDiscount    = (float) $dsc['auto_discount'];
+            $platformFunded  = (float) $dsc['platform_funded'];
+            $promoCodeJson   = $dsc['promo_json'];
+            $discountJson    = $dsc['discount_json'];
+            $promoData       = $dsc['promo_row'];
+            $discountRow     = $dsc['discount_row'];
         }
 
         // PREPARE TRAVELLERS JSON (GUEST + TRAVELLERS)
@@ -868,9 +864,10 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
             'commission' => $commissionBase,
             'module' => $bookingData['supplier'] ?? 'stays',
             'special_requests' => $guestDetails['special_requests'] ?? null,
-            'promo_codes' => $promoCodeJson
+            'promo_codes' => $promoCodeJson,
+            'discount' => (int) round($autoDiscount)
         ]);
-        
+
         $bookingResult = $db->id();
 
         if ($bookingResult) {
@@ -878,6 +875,10 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
             // and writes the per-user ledger row that enforces per_user_limit).
             if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
                 recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?? null, $primaryGuest['email'] ?? null, (float) $promoDiscount, 'stays', (string) $baseCurrency);
+            }
+            // Record auto-discount use (bumps discounts.used_count).
+            if ($autoDiscount > 0 && $discountRow && function_exists('discount_record_use')) {
+                discount_record_use($db, $discountRow);
             }
             // DELETE TEMPORARY BOOKING DATA
             $db->delete('logs_bookings', ['hash' => $bookingHash]);
