@@ -107,15 +107,32 @@ if (!function_exists('headerNavIcon')) {
 // ============================================================
 // SHARED SERVICES LOGIC (PRE-PROCESS FOR ALL DEVICES)
 // ============================================================
-$enabledModules = $GLOBALS['modules'] ?? [];
+// NAV ORDER MIRRORS THE HOMEPAGE SEARCH TABS (home.php): same filtering (skip
+// empty/invalid module types) and the SAME sort — active-count per type DESC,
+// then type alphabetical — so the top-bar services and the hero search tabs
+// always appear in an identical order. Keep this block in sync with home.php.
+$enabledModules = array_values(array_filter($GLOBALS['modules'] ?? [], function ($m) {
+    $type = strtolower(trim((string)($m['type'] ?? '')));
+    return $type !== '' && (bool) preg_match('/^[a-z]+$/', $type);
+}));
 $processedServices = [];
 if (!empty($enabledModules)) {
+    // Group by normalised type, carrying a per-type module COUNT for the sort.
     $grouped = array_reduce($enabledModules, function($c, $m) {
-        $c[$m['type']] = $c[$m['type']] ?? ['type' => $m['type'], 'name' => $m['type'], 'order' => $m['order'], 'icon' => $m['icon'] ?? ''];
+        $type = strtolower(trim((string)$m['type']));
+        $c[$type] = $c[$type] ?? ['type' => $type, 'name' => $type, 'order' => $m['order'], 'icon' => $m['icon'] ?? '', 'count' => 0];
+        if (empty($c[$type]['icon']) && !empty($m['icon'])) $c[$type]['icon'] = $m['icon'];
+        $c[$type]['count']++;
         return $c;
     }, []);
     $processedServices = array_values($grouped);
-    usort($processedServices, fn($a, $b) => $a['order'] <=> $b['order']);
+    // Mirror home.php: most-active type first, alphabetical tiebreak.
+    usort($processedServices, function($a, $b) {
+        if ($b['count'] !== $a['count']) {
+            return $b['count'] - $a['count'];
+        }
+        return strcmp((string)$a['type'], (string)$b['type']);
+    });
 
     // MATERIAL SYMBOL FALLBACKS PER MODULE TYPE — same icons the hero search
     // tabs show when a module row has no icon of its own.
