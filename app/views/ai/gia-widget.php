@@ -42,20 +42,37 @@ if (is_file($giaWRt)) {
     }
 }
 
+// Personalization: first name for a warm, logged-in greeting (never the full PII).
+$giaWFirstName = '';
+if (!empty($_SESSION['user_name'])) {
+    $giaWFirstName = trim((string) explode(' ', trim((string) $_SESSION['user_name']))[0]);
+}
+
 $giaWCfg = json_encode([
     'endpoint'  => root . 'api/gia/chat',
     'csrfToken' => class_exists('CSRF') ? CSRF::getToken() : '',
     'root'      => root,
     'context'   => $giaWContext,
     'pusher'    => $giaWPusher, // {key,cluster} or {}
+    'firstName' => $giaWFirstName,
+    'loggedIn'  => !empty($_SESSION['user_id']),
 ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE);
 ?>
 <style>
   .giaw-fab{position:fixed;right:20px;bottom:20px;z-index:9998;width:60px;height:60px;border-radius:50%;
-    background:#0058E6;color:#fff;border:none;cursor:pointer;box-shadow:0 8px 24px rgba(0,88,230,.35);
+    background:linear-gradient(135deg,#0058E6,#3b82f6);color:#fff;border:none;cursor:pointer;
+    box-shadow:0 8px 24px rgba(0,88,230,.35);
     display:flex;align-items:center;justify-content:center;transition:transform .2s}
-  .giaw-fab:hover{transform:scale(1.06)}
+  .giaw-fab:hover{transform:scale(1.08) rotate(-4deg)}
   .giaw-fab .material-symbols-outlined{font-size:28px}
+  /* Attention bounce when the site opens / a proactive ping arrives */
+  .giaw-fab.giaw-bounce{animation:giaw-bounce 1s ease 2}
+  @keyframes giaw-bounce{0%,100%{transform:translateY(0)}25%{transform:translateY(-10px) scale(1.05)}50%{transform:translateY(0)}75%{transform:translateY(-5px)}}
+  /* Unread red dot on the bubble */
+  .giaw-unread{position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;
+    background:#ef4444;color:#fff;font-size:11px;font-weight:700;line-height:18px;text-align:center;
+    box-shadow:0 0 0 2px #fff;animation:giaw-pop .3s ease}
+  @keyframes giaw-pop{from{transform:scale(0)}to{transform:scale(1)}}
   .giaw-panel{position:fixed;right:20px;bottom:20px;z-index:9999;width:380px;max-width:calc(100vw - 32px);
     height:600px;max-height:calc(100vh - 40px);background:#fff;border-radius:18px;
     box-shadow:0 20px 60px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden}
@@ -67,6 +84,9 @@ $giaWCfg = json_encode([
   .giaw-body::-webkit-scrollbar{width:6px}.giaw-body::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
   .giaw-u{background:#0058E6;color:#fff;border-radius:16px 16px 4px 16px}
   .giaw-a{background:#eef2f7;color:#0f172a;border-radius:16px 16px 16px 4px}
+  /* Message bubbles animate in (slide + fade) so the chat feels alive */
+  .giaw-msg-in{animation:giaw-msg .32s cubic-bezier(.2,.8,.2,1) both}
+  @keyframes giaw-msg{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
   .giaw-card{border:1px solid #e2e8f0;border-radius:12px;background:#fff}
   .giaw-chip{font-size:.62rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;padding:2px 8px;border-radius:999px}
   .giaw-typing span{display:inline-block;width:5px;height:5px;margin:0 1px;border-radius:50%;background:#94a3b8;animation:giaw-blink 1.2s infinite both}
@@ -74,6 +94,10 @@ $giaWCfg = json_encode([
   @keyframes giaw-blink{0%,80%,100%{opacity:.3}40%{opacity:1}}
   .giaw-foot{border-top:1px solid #eef2f7;padding:10px 12px;background:#fff}
   @media (max-width:420px){.giaw-panel{right:0;bottom:0;width:100vw;height:100vh;max-height:100vh;border-radius:0}}
+  @media (prefers-reduced-motion:reduce){
+    .giaw-fab.giaw-bounce,.giaw-msg-in,.giaw-unread{animation:none!important}
+    .giaw-fab:hover{transform:none}
+  }
   [x-cloak]{display:none!important}
   /* Proactive teaser bubble above the FAB */
   .giaw-teaser{position:fixed;right:20px;bottom:92px;z-index:9998;width:260px;max-width:calc(100vw - 40px);
@@ -124,9 +148,10 @@ $giaWCfg = json_encode([
   </div>
 
   <!-- Floating bubble -->
-  <button type="button" class="giaw-fab" x-show="!open" @click="toggle()" aria-label="Ask GIA"
-          :class="pulse && !open ? 'giaw-pulse' : ''">
+  <button type="button" class="giaw-fab" x-show="!open" @click="toggle()" aria-label="Ask GIA" style="position:fixed"
+          :class="(pulse && !open ? 'giaw-pulse ' : '') + (bounce ? 'giaw-bounce' : '')">
     <span class="material-symbols-outlined">forum</span>
+    <span class="giaw-unread" x-show="unread > 0" x-text="unread" x-cloak></span>
   </button>
 
   <!-- Chat panel -->
@@ -158,7 +183,7 @@ $giaWCfg = json_encode([
       </template>
 
       <template x-for="(m,i) in messages" :key="i">
-        <div class="mb-3" :class="m.role==='user' ? 'flex justify-end' : 'flex justify-start'">
+        <div class="mb-3 giaw-msg-in" :class="m.role==='user' ? 'flex justify-end' : 'flex justify-start'">
           <div class="max-w-[88%]">
             <div class="px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap" :class="m.role==='user' ? 'giaw-u' : 'giaw-a'"
                  x-html="m.role==='user' ? escapeHtml(m.text) : renderMarkdown(m.text)"></div>
@@ -349,6 +374,8 @@ function giaWidget(cfg){
     leadShown:false, leadDone:false, leadOpen:false, leadName:'', leadEmail:'', leadPhone:'', leadMsg:'',
     drawer:false, drawerUrl:'', drawerTitle:'',
     staffActive:false, pollTimer:null, pusher:(cfg.pusher||{}), convKey:'', rtChannel:null, rtClient:null,
+    firstName:(cfg.firstName||''), loggedIn:!!cfg.loggedIn,
+    bounce:false, unread:0,
     starters:['Flights to Dubai','Hotels in Lagos','Plan a trip to Zanzibar'],
     // Per-context copy so GIA opens relevantly (e.g. on /umrah it talks umrah).
     ctxCopy:{
@@ -367,11 +394,19 @@ function giaWidget(cfg){
       this.hydrate();
       // First-visit greeting teaser: appear shortly after load (warm, not instant),
       // once per browser session. A gentle pulse draws the eye.
+      // Personalize the teaser when we know the visitor (name), else context/default.
+      const teaserText = (this.firstName && !this.context)
+        ? ("Welcome back, "+this.firstName+" 👋 Need a hand planning something?")
+        : c.teaser;
+      const showPing = ()=>{ if(this.open) return;
+        this.teaser=teaserText; this.pulse=true; this.unread=1;   // "we sent you a message"
+        this.bounce=true; setTimeout(()=>{ this.bounce=false; }, 2100);
+      };
       try{
         if(!sessionStorage.getItem('gia_greeted')){
-          setTimeout(()=>{ if(!this.open){ this.teaser=c.teaser; this.pulse=true; sessionStorage.setItem('gia_greeted','1'); } }, 1800);
+          setTimeout(()=>{ showPing(); sessionStorage.setItem('gia_greeted','1'); }, 1800);
         } else { this.pulse=false; }
-      }catch(e){ setTimeout(()=>{ if(!this.open) this.teaser=c.teaser; }, 1800); }
+      }catch(e){ setTimeout(showPing, 1800); }
       this.armIdle();
       ['click','keydown','scroll','mousemove','touchstart'].forEach(ev=>
         window.addEventListener(ev, ()=>this.armIdle(), {passive:true}));
@@ -412,17 +447,40 @@ function giaWidget(cfg){
         this.pulse=true; this.nudged=true;
       }, 38000);
     },
-    openFromTeaser(){ const t=this.teaser; this.teaser=''; this.pulse=false; this.open=true;
+    openFromTeaser(){ const t=this.teaser; this.teaser=''; this.pulse=false; this.unread=0; this.open=true;
       this.$nextTick(()=>{ if(this.$refs.input) this.$refs.input.focus(); if(this.messages.length===0) this.showGreeting(); this.scrollDown(); }); },
     dismissTeaser(){ this.teaser=''; this.pulse=false; },
+    // A warm, varied, personalized opener — not one static line. Uses the first
+    // name when logged in, and rotates wording so repeat visits feel alive.
+    greetLine(){
+      const c=this.ctxCopy[this.context]||this.ctxCopy[''];
+      const name=this.firstName;
+      if(this.context==='umrah'){
+        return name ? ("Assalamu alaikum, "+name+" 🕋 Ready to look at Umrah packages? I can show you in seconds.")
+                    : "Assalamu alaikum 🕋 Ask me about Umrah and I'll show you our packages right away — no long forms.";
+      }
+      if(this.context){ return (name? (name+", ") : "") + c.teaser; }
+      // Generic openers — pick one so it isn't the same every time.
+      const loggedIn=[
+        "Welcome back, "+name+" 👋 Where are we headed next?",
+        "Hey "+name+"! ✈️ What trip can I pull together for you today?",
+        "Good to see you, "+name+" 😊 Tell me where you'd like to go and I'll handle the rest."
+      ];
+      const guest=[
+        "Hi, I'm GIA 👋 Tell me where you'd like to go and I'll find real options — and book it with you.",
+        "Hey there! ✈️ I'm GIA, your travel buddy. What are you dreaming up?",
+        "Hi! 😊 I'm GIA. Give me a trip idea and I'll turn it into real, bookable options."
+      ];
+      const pool = (name? loggedIn : guest);
+      // Rotate by a per-session counter so it varies without randomness APIs.
+      let n=0; try{ n=parseInt(sessionStorage.getItem('gia_greet_n')||'0',10)||0; sessionStorage.setItem('gia_greet_n', String(n+1)); }catch(e){}
+      return pool[n % pool.length];
+    },
     showGreeting(){ if(this.greeted) return; this.greeted=true;
       const c=this.ctxCopy[this.context]||this.ctxCopy[''];
-      const hi = this.context==='umrah'
-        ? "Assalamu alaikum 🕋 I'm GIA. Ask me about Umrah and I'll show you our packages right away — no long forms."
-        : (this.context ? c.teaser : "Hi, I'm GIA — GoGlobia's travel assistant 👋 Tell me what you're dreaming up and I'll find real options and book it with you.");
-      this.messages.push({role:'ai',text:hi, quick:c.starters});
+      this.messages.push({role:'ai', text:this.greetLine(), quick:c.starters});
     },
-    toggle(){ this.open=!this.open; this.teaser=''; this.pulse=false;
+    toggle(){ this.open=!this.open; this.teaser=''; this.pulse=false; this.unread=0;
       if(this.open) this.$nextTick(()=>{ if(this.$refs.input) this.$refs.input.focus(); if(this.messages.length===0) this.showGreeting(); this.scrollDown(); }); },
     autoGrow(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,100)+'px'; },
     async send(preset){
