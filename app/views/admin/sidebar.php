@@ -351,13 +351,20 @@ $adminMenu = array_merge($adminMenu, [
             ['name' => 'Transaction Journeys', 'icon' => 'timeline', 'url' => root.admin.'/finance/journeys'],
             ['name' => 'Tiers & Loyalty', 'icon' => 'workspace_premium', 'url' => root.admin.'/finance/tiers'],
             ['name' => 'Members', 'icon' => 'groups', 'url' => root.admin.'/finance/members'],
-            ['name' => T::promo_codes, 'icon' => 'confirmation_number', 'url' => root.admin.'/promo-codes'],
-            ['name' => 'Email Campaigns', 'icon' => 'campaign', 'url' => root.admin.'/campaigns'],
-            ['name' => 'Campaign Templates', 'icon' => 'dashboard_customize', 'url' => root.admin.'/campaign-templates'],
-            ['name' => 'Subscribers', 'icon' => 'group', 'url' => root.admin.'/newsletter/subscribers'],
 
             // ['name' => T::invoices, 'icon' => 'description', 'url' => root.admin.'/finance/invoices'],
             // ['name' => T::payments, 'icon' => 'payment', 'url' => root.admin.'/finance/payments'],
+        ]
+    ],
+    [
+        // Marketing — newsletter/email tools + promo codes. Promoted out of Finance
+        // (where they were buried) into their own top-level group for discoverability.
+        'icon' => 'campaign', 'name' => 'Marketing', 'url' => root.admin.'/campaigns',
+        'submenu' => [
+            ['name' => 'Email Campaigns', 'icon' => 'campaign', 'url' => root.admin.'/campaigns'],
+            ['name' => 'Campaign Templates', 'icon' => 'dashboard_customize', 'url' => root.admin.'/campaign-templates'],
+            ['name' => 'Subscribers', 'icon' => 'group', 'url' => root.admin.'/newsletter/subscribers'],
+            ['name' => T::promo_codes, 'icon' => 'confirmation_number', 'url' => root.admin.'/promo-codes'],
         ]
     ],
     [
