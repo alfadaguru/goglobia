@@ -15,7 +15,7 @@ $isPaid = strtolower((string)($paymentStatus ?? 'unpaid')) === 'paid';
         Hello <strong><?= htmlspecialchars(trim((string)$firstName . ' ' . (string)$lastName)) ?></strong>,
     </div>
     <div style="font-size: 14px; color: #4a5568; margin-bottom: 24px; line-height: 1.6;">
-        Here is your AI Trip package invoice <strong>#<?= htmlspecialchars((string)$invoiceId) ?></strong>.
+        Here is your GIA Trip package invoice <strong>#<?= htmlspecialchars((string)$invoiceId) ?></strong>.
     </div>
 
     <?php if ($packageItems !== []): ?>

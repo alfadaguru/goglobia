@@ -66,7 +66,7 @@ $initialTabKey = $mods[array_key_first($mods)]['type'] ?? '';
 // Build a JS-safe list of valid tab types so URL-hash sync can validate input.
 $validTabTypes = array_values(array_map(fn($m) => $m['type'], $mods));
 
-// Home AI search (only when Trip Planner is enabled in settings)
+// Home AI search (GIA) — only when GIA (ai trip) is enabled in settings
 $aiSearchEnabled = function_exists('aiTripIsEnabled') ? aiTripIsEnabled($GLOBALS['db'] ?? null) : false;
 if ($aiSearchEnabled) {
     $validTabTypes[] = 'ai';

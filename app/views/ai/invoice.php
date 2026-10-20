@@ -90,7 +90,7 @@ $moduleLabel = static function ($m) {
         'visa'    => 'Visa',
         'umrah'   => 'Umrah',
         'ferries' => 'Ferry',
-        'ai_trip' => 'AI Trip',
+        'ai_trip' => 'GIA Trip',
     ];
     $key = strtolower((string)$m);
     return $map[$key] ?? ucfirst((string)$m);
@@ -335,7 +335,7 @@ $guestNationality = trim((string)($booking['nationality'] ?? ($booking['country'
 
         <!-- Breadcrumb -->
         <div class="flex gap-1 items-center text-sm text-gray-500 mb-5">
-            <a href="<?= root ?>ai-trip" class="text-slate-600 hover:text-slate-700 text-[13px] font-medium">AI Trip</a>
+            <a href="<?= root ?>gia" class="text-slate-600 hover:text-slate-700 text-[13px] font-medium">GIA</a>
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
                 <path fill="currentColor" d="m13.292 12l-4.6-4.6l.708-.708L14.708 12L9.4 17.308l-.708-.708z"/>
             </svg>
@@ -416,7 +416,7 @@ $guestNationality = trim((string)($booking['nationality'] ?? ($booking['country'
                                     </div>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400"><?= T::booking_type ?? 'Booking Type' ?>:</span>
-                                        <span class="font-medium">AI Trip Package</span>
+                                        <span class="font-medium">GIA Trip Package</span>
                                     </div>
                                     <div class="flex justify-between">
                                         <span class="text-gray-600 dark:text-gray-400">Items:</span>
