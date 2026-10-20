@@ -25,16 +25,29 @@ $grouped = array_reduce($modules, function($c, $m) {
 }, []);
 
 $mods = array_values($grouped);
-// Sort by active count descending
-usort($mods, function($a, $b) {
-    $aActive = count($a['modules']);
-    $bActive = count($b['modules']);
-    if ($bActive !== $aActive) {
-        return $bActive - $aActive; // Most active first
+// SERVICE ORDER (shared with the header nav — keep in sync): a deliberate OTA
+// arrangement (Flights -> Stays -> Tours -> Cars -> Visa -> rest), matching how
+// Wakanow/Travelwings lead their menus. Primary key = this fixed priority; the
+// admin `order` field breaks ties / orders any type not in the list; then
+// alphabetical as a final stable fallback. Unlisted types fall after listed
+// ones (priority 999) but before/after each other by their admin order.
+if (!function_exists('goglobiaServicePriority')) {
+    function goglobiaServicePriority($type) {
+        static $rank = [
+            'flights' => 1, 'stays' => 2, 'tours' => 3, 'cars' => 4, 'visa' => 5,
+            'umrah' => 6, 'cruises' => 7, 'rail' => 8, 'bus' => 9, 'ferries' => 10,
+            'esim' => 11, 'insurance' => 12,
+        ];
+        return $rank[strtolower((string)$type)] ?? 999;
     }
-
-   // Stable alphabetical fallback when counts are equal
-   return strcmp((string)$a['type'], (string)$b['type']);
+}
+usort($mods, function($a, $b) {
+    $pa = goglobiaServicePriority($a['type']);
+    $pb = goglobiaServicePriority($b['type']);
+    if ($pa !== $pb) return $pa <=> $pb;                 // fixed OTA order first
+    $oa = (int)($a['order'] ?? 0); $ob = (int)($b['order'] ?? 0);
+    if ($oa !== $ob) return $oa <=> $ob;                 // then admin `order`
+    return strcmp((string)$a['type'], (string)$b['type']); // stable fallback
 });
 
 // ICON MAPPING FOR MODULES

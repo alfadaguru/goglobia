@@ -126,11 +126,26 @@ if (!empty($enabledModules)) {
         return $c;
     }, []);
     $processedServices = array_values($grouped);
-    // Mirror home.php: most-active type first, alphabetical tiebreak.
-    usort($processedServices, function($a, $b) {
-        if ($b['count'] !== $a['count']) {
-            return $b['count'] - $a['count'];
+    // SERVICE ORDER — identical to home.php's search tabs (keep in sync): a fixed
+    // OTA arrangement (Flights -> Stays -> Tours -> Cars -> Visa -> rest), then the
+    // admin `order` field as tiebreaker, then alphabetical. Defined here guarded
+    // because the header renders before home.php.
+    if (!function_exists('goglobiaServicePriority')) {
+        function goglobiaServicePriority($type) {
+            static $rank = [
+                'flights' => 1, 'stays' => 2, 'tours' => 3, 'cars' => 4, 'visa' => 5,
+                'umrah' => 6, 'cruises' => 7, 'rail' => 8, 'bus' => 9, 'ferries' => 10,
+                'esim' => 11, 'insurance' => 12,
+            ];
+            return $rank[strtolower((string)$type)] ?? 999;
         }
+    }
+    usort($processedServices, function($a, $b) {
+        $pa = goglobiaServicePriority($a['type']);
+        $pb = goglobiaServicePriority($b['type']);
+        if ($pa !== $pb) return $pa <=> $pb;
+        $oa = (int)($a['order'] ?? 0); $ob = (int)($b['order'] ?? 0);
+        if ($oa !== $ob) return $oa <=> $ob;
         return strcmp((string)$a['type'], (string)$b['type']);
     });
 
