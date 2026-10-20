@@ -375,6 +375,15 @@ function giaWidget(cfg){
       this.armIdle();
       ['click','keydown','scroll','mousemove','touchstart'].forEach(ev=>
         window.addEventListener(ev, ()=>this.armIdle(), {passive:true}));
+      // External open hook: anything on the page (e.g. the homepage AI box) can
+      // open GIA and optionally send a first message via a window event:
+      //   window.dispatchEvent(new CustomEvent('gia:open', {detail:{message:'...'}}))
+      window.addEventListener('gia:open', (e)=>{
+        const msg = (e && e.detail && e.detail.message) ? String(e.detail.message) : '';
+        this.teaser=''; this.pulse=false;
+        if(!this.open){ this.open=true; this.$nextTick(()=>{ if(this.$refs.input) this.$refs.input.focus(); this.scrollDown(); }); }
+        if(msg.trim()){ this.send(msg.trim()); }
+      });
     },
     async hydrate(){
       try{
