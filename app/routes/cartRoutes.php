@@ -398,20 +398,33 @@ $router->post('/cart/checkout', function () use ($SECURE, $db) {
     $netBase = round($netBase, 2);
     $grandBase = round($cart['grand_base'], 2); // subtotal + tax across lines
 
-    // Coupon — recompute server-side against the whole-cart base total (module 'cart').
+    // DISCOUNT + PROMO (unified engine) on the whole-cart base total (module 'cart').
+    // A cart is a mixed package (no single supplier owner), so it clamps to net —
+    // never charges below the summed supplier cost; closes promo leak.
     $promoCodeStr = trim((string) ($in['promo_code'] ?? ''));
     $promoDiscount = 0.0; $promoData = null; $promoCodeJson = null;
-    if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
-        $pr = promoResolveForBooking($db, $promoCodeStr, $grandBase, 'cart', $baseCurrency, [
-            'user_id'    => $userId,
-            'user_email' => $email ?: null,
+    $autoDiscount = 0.0; $discountRow = null;
+    if (function_exists('apply_booking_discounts')) {
+        $dsc = apply_booking_discounts($db, [
+            'base'         => (float) $grandBase,
+            'supplier_net' => (float) $netBase,
+            'module'       => 'cart',
+            'currency'     => (string) $baseCurrency,
+            'promo_code'   => $promoCodeStr,
+            'booking_data' => null,
+            'provider'     => 'cart',
+            'user_id'      => $userId,
+            'user_email'   => $email ?: null,
         ]);
-        $promoDiscount = (float) $pr['discount'];
-        $promoData     = $pr['promo'];
-        $promoCodeJson = $pr['json'];
+        $promoDiscount = (float) $dsc['promo_discount'];
+        $autoDiscount  = (float) $dsc['auto_discount'];
+        $promoData     = $dsc['promo_row'];
+        $promoCodeJson = $dsc['promo_json'];
+        $discountRow   = $dsc['discount_row'];
+        $payableBase   = (float) $dsc['total'];
+    } else {
+        $payableBase = round(max(0, $grandBase - $promoDiscount), 2);
     }
-
-    $payableBase = round(max(0, $grandBase - $promoDiscount), 2);
     if ($payableBase <= 0) { cart_json(['success' => false, 'message' => 'Cart total is invalid.'], 409); }
     $commission = round(max(0, $payableBase - $netBase - $taxBase), 2);
 
@@ -484,6 +497,7 @@ $router->post('/cart/checkout', function () use ($SECURE, $db) {
         'module'               => 'ai_trip',
         'special_requests'     => '',
         'promo_codes'          => $promoCodeJson,
+        'discount'             => (int) round($autoDiscount),
         'booking_date'         => date('Y-m-d H:i:s'),
         'created_at'           => date('Y-m-d H:i:s'),
     ]);
@@ -494,6 +508,10 @@ $router->post('/cart/checkout', function () use ($SECURE, $db) {
     // Record coupon usage idempotently (per invoice) — bumps used_count + ledger.
     if ($promoCodeStr !== '' && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
         recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?: null, $email ?: null, (float) $promoDiscount, 'cart', $baseCurrency);
+    }
+    // Record auto-discount use (bumps discounts.used_count).
+    if ($autoDiscount > 0 && $discountRow && function_exists('discount_record_use')) {
+        discount_record_use($db, $discountRow);
     }
 
     // Success: clear the cart and send the customer to the package invoice, where

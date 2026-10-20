@@ -533,25 +533,31 @@ $router->post('/api/umrah/booking/submit', function () use ($SECURE, $db) {
         // PROMO CODE HANDLING (C1): recompute the discount SERVER-SIDE via the
         // canonical helper (enforces module/targeting/usage/min-order/per-user);
         // never trust the client-sent promo_discount amount.
-        $promoCodeStr = trim($input['promo_code'] ?? '');
-        $promoDiscount = 0.0;
-        $promoData = null;
-        $promoCodeJson = null;
-        if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
-            $pr = promoResolveForBooking($db, $promoCodeStr, (float) $finalTotalWithTaxBase, 'umrah', (string) $baseCurrency, [
-                'item_id'    => (int) ($input['umrah_id'] ?? 0),
-                'user_id'    => $_SESSION['user_id'] ?? null,
-                'user_email' => $primaryGuest['email'] ?? null,
+        // DISCOUNT + PROMO (unified engine). Umrah is own-inventory → clamped so
+        // charged never drops below net; closes promo leak. The installment engine
+        // reads the stored (discounted) price_markup, so discounting here is correct.
+        $promoCodeStr  = trim($input['promo_code'] ?? '');
+        $promoDiscount = 0.0; $promoData = null; $promoCodeJson = null;
+        $autoDiscount  = 0.0; $discountRow = null;
+        if (function_exists('apply_booking_discounts')) {
+            $dsc = apply_booking_discounts($db, [
+                'base'         => (float) $finalTotalWithTaxBase,
+                'supplier_net' => (float) $actualPriceBase,
+                'module'       => 'umrah',
+                'currency'     => (string) $baseCurrency,
+                'promo_code'   => $promoCodeStr,
+                'booking_data' => null,
+                'item_id'      => (int) ($input['umrah_id'] ?? 0),
+                'provider'     => 'umrah',
+                'user_id'      => $_SESSION['user_id'] ?? null,
+                'user_email'   => $primaryGuest['email'] ?? null,
             ]);
-            $promoDiscount = (float) $pr['discount'];
-            $promoData     = $pr['promo'];
-            $promoCodeJson = $pr['json'];
-        }
-
-        // APPLY the server-computed discount (already floored to >=0 and <= order).
-        if ($promoDiscount > 0 && $promoData) {
-            $finalTotalWithTaxBase = round($finalTotalWithTaxBase - $promoDiscount, 2);
-            if ($finalTotalWithTaxBase < 0) { $finalTotalWithTaxBase = 0; }
+            $finalTotalWithTaxBase = (float) $dsc['total'];
+            $promoDiscount = (float) $dsc['promo_discount'];
+            $autoDiscount  = (float) $dsc['auto_discount'];
+            $promoData     = $dsc['promo_row'];
+            $promoCodeJson = $dsc['promo_json'];
+            $discountRow   = $dsc['discount_row'];
         }
 
         // PREPARE TRAVELLERS JSON
@@ -652,7 +658,8 @@ $router->post('/api/umrah/booking/submit', function () use ($SECURE, $db) {
             'commission' => $commissionBase,                // COMMISSION IN BASE CURRENCY
             'module' => $bookingData['supplier'] ?? 'umrah',
             'special_requests' => $guestDetails['special_requests'] ?? null,
-            'promo_codes' => $promoCodeJson
+            'promo_codes' => $promoCodeJson,
+            'discount' => (int) round($autoDiscount)
         ]);
 
         $bookingResult = $db->id();
@@ -662,6 +669,10 @@ $router->post('/api/umrah/booking/submit', function () use ($SECURE, $db) {
             // writes the per-user ledger row that enforces per_user_limit).
             if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
                 recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?? null, $primaryGuest['email'] ?? null, (float) $promoDiscount, 'umrah', (string) $baseCurrency);
+            }
+            // Record auto-discount use (bumps discounts.used_count).
+            if ($autoDiscount > 0 && $discountRow && function_exists('discount_record_use')) {
+                discount_record_use($db, $discountRow);
             }
             // Trigger booking confirmed webhook
             triggerWebhook('umrah/booking', 'umrah.booking.confirmed', [
