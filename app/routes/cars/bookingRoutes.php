@@ -327,23 +327,30 @@ $router->post('/cars/booking/submit', function () use ($SECURE, $db) {
 
         // PROMO CODE HANDLING — recompute the discount SERVER-SIDE (never trust a
         // client number). Enforces module/targeting/usage/min-order/per-user.
-        $promoCodeStr = trim($input['promo_code'] ?? '');
-        $promoDiscount = 0.0;
-        $promoData = null;
-        $promoCodeJson = null;
-        if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
-            $pr = promoResolveForBooking($db, $promoCodeStr, (float) $finalTotal, 'cars', (string) $currency, [
-                'item_id'    => (int) ($input['car_id'] ?? 0),
-                'user_id'    => $userId ?: ($_SESSION['user_id'] ?? null),
-                'user_email' => $primaryContact['email'] ?? null,
+        // DISCOUNT + PROMO (unified engine). Own-inventory cars can be portal-supplier
+        // owned → platform-funded; API cars → clamped so charged never below net.
+        $promoCodeStr  = trim($input['promo_code'] ?? '');
+        $promoDiscount = 0.0; $promoData = null; $promoCodeJson = null;
+        $autoDiscount  = 0.0; $discountRow = null;
+        if (function_exists('apply_booking_discounts')) {
+            $dsc = apply_booking_discounts($db, [
+                'base'         => (float) $finalTotal,
+                'supplier_net' => (float) $basePrice,
+                'module'       => 'cars',
+                'currency'     => (string) $currency,
+                'promo_code'   => $promoCodeStr,
+                'booking_data' => ['car_data' => $carData], // resolver reads booking_data.car_data.id
+                'item_id'      => (int) ($input['car_id'] ?? 0),
+                'provider'     => (string) ($carData['supplier'] ?? 'cars'),
+                'user_id'      => $userId ?: ($_SESSION['user_id'] ?? null),
+                'user_email'   => $primaryContact['email'] ?? null,
             ]);
-            $promoDiscount = (float) $pr['discount'];
-            $promoData     = $pr['promo'];
-            $promoCodeJson = $pr['json'];
-        }
-        if ($promoDiscount > 0 && $promoData) {
-            $finalTotal = round($finalTotal - $promoDiscount, 2);
-            if ($finalTotal < 0) { $finalTotal = 0.0; }
+            $finalTotal    = (float) $dsc['total'];
+            $promoDiscount = (float) $dsc['promo_discount'];
+            $autoDiscount  = (float) $dsc['auto_discount'];
+            $promoData     = $dsc['promo_row'];
+            $promoCodeJson = $dsc['promo_json'];
+            $discountRow   = $dsc['discount_row'];
         }
 
         // Prepare booking data JSON
@@ -389,6 +396,7 @@ $router->post('/cars/booking/submit', function () use ($SECURE, $db) {
             'user_id' => $userId !== '' ? $userId : null,
             'user_data' => $userData ? json_encode($userData) : null,
             'promo_codes' => $promoCodeJson,
+            'discount' => (int) round($autoDiscount),
             'created_at' => date('Y-m-d H:i:s'),
             'booking_date' => date('Y-m-d')
         ]);
@@ -400,6 +408,10 @@ $router->post('/cars/booking/submit', function () use ($SECURE, $db) {
             // writes the per-user ledger row that enforces per_user_limit).
             if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
                 recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?: null, $primaryContact['email'] ?? null, (float) $promoDiscount, 'cars', (string) $currency);
+            }
+            // Record auto-discount use (bumps discounts.used_count).
+            if ($autoDiscount > 0 && $discountRow && function_exists('discount_record_use')) {
+                discount_record_use($db, $discountRow);
             }
             // Send Notification (Email/SMS) using NOTIFY library
             if (class_exists('NOTIFY')) {

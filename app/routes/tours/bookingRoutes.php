@@ -393,36 +393,30 @@ $router->post('/api/tour/booking/submit', function () use ($SECURE, $db) {
 
         // PROMO CODE HANDLING (audit money-integrity): recompute the discount
         // SERVER-SIDE from the promo row — never trust the client's promo_discount.
-        $promoCodeStr = trim($input['promo_code'] ?? '');
-        $promoDiscount = 0.0;
-        $promoCodeJson = null;
-        $promoData = null;
-        if ($promoCodeStr !== '' && function_exists('validatePromoCode')) {
-            $pv = validatePromoCode($db, $promoCodeStr, (float) $markupPriceBase, 'tours', (string) $baseCurrency, [
-                'item_id'    => (int) ($input['tour_id'] ?? 0),
-                'user_id'    => $_SESSION['user_id'] ?? null,
-                'user_email' => $primaryGuest['email'] ?? null,
+        // DISCOUNT + PROMO (unified engine). Portal-supplier tours → platform-funded;
+        // API/own → clamped so charged never drops below net.
+        $promoCodeStr  = trim($input['promo_code'] ?? '');
+        $promoDiscount = 0.0; $promoCodeJson = null; $promoData = null;
+        $autoDiscount  = 0.0; $discountRow = null;
+        if (function_exists('apply_booking_discounts')) {
+            $dsc = apply_booking_discounts($db, [
+                'base'         => (float) $finalTotalWithTaxBase,
+                'supplier_net' => (float) $actualPriceBase,
+                'module'       => 'tours',
+                'currency'     => (string) $baseCurrency,
+                'promo_code'   => $promoCodeStr,
+                'booking_data' => $bookingData,
+                'item_id'      => (int) ($input['tour_id'] ?? 0),
+                'provider'     => (string) ($bookingData['supplier'] ?? 'tours'),
+                'user_id'      => $_SESSION['user_id'] ?? null,
+                'user_email'   => $primaryGuest['email'] ?? null,
             ]);
-            if (!empty($pv['ok'])) {
-                $promoDiscount = (float) $pv['discount'];
-                $promoData = $pv['promo'] ?? null;
-            }
-        }
-        if ($promoDiscount > 0 && $promoData) {
-            $promoCodeJson = json_encode([
-                'code' => $promoData['code'],
-                'discount_type' => $promoData['discount_type'],
-                'discount_value' => floatval($promoData['discount_value']),
-                'discount_amount' => $promoDiscount,
-                'max_discount_amount' => $promoData['max_discount_amount'] ? floatval($promoData['max_discount_amount']) : null,
-                'description' => $promoData['description'],
-                'module' => $promoData['module']
-            ]);
-        }
-
-        // APPLY PROMO DISCOUNT TO FINAL TOTAL
-        if ($promoDiscount > 0 && $promoData) {
-            $finalTotalWithTaxBase = round($finalTotalWithTaxBase - $promoDiscount, 2);
+            $finalTotalWithTaxBase = (float) $dsc['total'];
+            $promoDiscount = (float) $dsc['promo_discount'];
+            $autoDiscount  = (float) $dsc['auto_discount'];
+            $promoCodeJson = $dsc['promo_json'];
+            $promoData     = $dsc['promo_row'];
+            $discountRow   = $dsc['discount_row'];
         }
 
         // PREPARE TRAVELLERS JSON
@@ -523,7 +517,8 @@ $router->post('/api/tour/booking/submit', function () use ($SECURE, $db) {
             'commission' => $commissionBase,                // COMMISSION IN BASE CURRENCY
             'module' => $bookingData['supplier'] ?? 'tours',
             'special_requests' => $guestDetails['special_requests'] ?? null,
-            'promo_codes' => $promoCodeJson
+            'promo_codes' => $promoCodeJson,
+            'discount' => (int) round($autoDiscount)
         ]);
 
         $bookingResult = $db->id();
@@ -533,6 +528,10 @@ $router->post('/api/tour/booking/submit', function () use ($SECURE, $db) {
             // writes the per-user ledger row that enforces per_user_limit).
             if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
                 recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?? null, $primaryGuest['email'] ?? null, (float) $promoDiscount, 'tours', (string) $baseCurrency);
+            }
+            // Record auto-discount use (bumps discounts.used_count).
+            if ($autoDiscount > 0 && $discountRow && function_exists('discount_record_use')) {
+                discount_record_use($db, $discountRow);
             }
             
             // Trigger booking confirmed webhook

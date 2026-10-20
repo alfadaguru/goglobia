@@ -268,22 +268,29 @@ $router->post('/api/bus/booking/submit', function () use ($SECURE, $db) {
 
         // PROMO CODE HANDLING — recompute the discount SERVER-SIDE (never trust a
         // client number). Enforces module/targeting/usage/min-order/per-user.
-        $promoCodeStr = trim($input['promo_code'] ?? '');
-        $promoDiscount = 0.0;
-        $promoData = null;
-        $promoCodeJson = null;
-        if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
-            $pr = promoResolveForBooking($db, $promoCodeStr, (float) $finalTotal, 'bus', (string) $currency, [
-                'user_id'    => $userId ?: ($_SESSION['user_id'] ?? null),
-                'user_email' => $guest['email'] ?? null,
+        // DISCOUNT + PROMO (unified engine). Bus is admin-managed (not portal-
+        // supplier) → clamped so charged never drops below net; closes promo leak.
+        $promoCodeStr  = trim($input['promo_code'] ?? '');
+        $promoDiscount = 0.0; $promoData = null; $promoCodeJson = null;
+        $autoDiscount  = 0.0; $discountRow = null;
+        if (function_exists('apply_booking_discounts')) {
+            $dsc = apply_booking_discounts($db, [
+                'base'         => (float) $finalTotal,
+                'supplier_net' => (float) $baseTotal,
+                'module'       => 'bus',
+                'currency'     => (string) $currency,
+                'promo_code'   => $promoCodeStr,
+                'booking_data' => $draft ?? null,
+                'provider'     => 'bus',
+                'user_id'      => $userId ?: ($_SESSION['user_id'] ?? null),
+                'user_email'   => $guest['email'] ?? null,
             ]);
-            $promoDiscount = (float) $pr['discount'];
-            $promoData     = $pr['promo'];
-            $promoCodeJson = $pr['json'];
-        }
-        if ($promoDiscount > 0 && $promoData) {
-            $finalTotal = round($finalTotal - $promoDiscount, 2);
-            if ($finalTotal < 0) { $finalTotal = 0.0; }
+            $finalTotal    = (float) $dsc['total'];
+            $promoDiscount = (float) $dsc['promo_discount'];
+            $autoDiscount  = (float) $dsc['auto_discount'];
+            $promoData     = $dsc['promo_row'];
+            $promoCodeJson = $dsc['promo_json'];
+            $discountRow   = $dsc['discount_row'];
         }
 
         $db->insert('bookings', [
@@ -314,6 +321,7 @@ $router->post('/api/bus/booking/submit', function () use ($SECURE, $db) {
             'special_requests'=> $guest['special_requests'] ?? '',
             'user_id'         => $_SESSION['user_id'] ?? null,
             'promo_codes'     => $promoCodeJson,
+            'discount'        => (int) round($autoDiscount),
             'cancellation_request' => 0,
             'cancellation_status'  => 0,
         ]);
@@ -324,6 +332,10 @@ $router->post('/api/bus/booking/submit', function () use ($SECURE, $db) {
         // writes the per-user ledger row that enforces per_user_limit).
         if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
             recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?: null, $guest['email'] ?? null, (float) $promoDiscount, 'bus', (string) $currency);
+        }
+        // Record auto-discount use (bumps discounts.used_count).
+        if ($autoDiscount > 0 && $discountRow && function_exists('discount_record_use')) {
+            discount_record_use($db, $discountRow);
         }
 
         $db->delete('logs_bookings', ['hash' => $hash]);

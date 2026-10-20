@@ -1003,35 +1003,29 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
 
         // PROMO CODE HANDLING (audit money-integrity): recompute the discount
         // SERVER-SIDE from the promo row — never trust the client's promo_discount.
-        $promoCodeStr = trim($input['promo_code'] ?? '');
-        $promoDiscount = 0.0;
-        $promoCodeJson = null;
-        $promoData = null;
-        if ($promoCodeStr !== '' && function_exists('validatePromoCode')) {
-            $pv = validatePromoCode($db, $promoCodeStr, (float) $subtotal, 'flights', (string) $baseCurrency, [
-                'user_id'    => $userId ?: ($_SESSION['user_id'] ?? null),
-                'user_email' => $primaryGuest['email'] ?? null,
+        // DISCOUNT + PROMO (unified engine). Flights are API/own (never a portal
+        // supplier), so the stack is clamped so charged never drops below net.
+        $promoCodeStr  = trim($input['promo_code'] ?? '');
+        $promoDiscount = 0.0; $promoCodeJson = null; $promoData = null;
+        $autoDiscount  = 0.0; $discountRow = null;
+        if (function_exists('apply_booking_discounts')) {
+            $dsc = apply_booking_discounts($db, [
+                'base'         => (float) $finalTotalBase,
+                'supplier_net' => (float) $actualPriceBase,
+                'module'       => 'flights',
+                'currency'     => (string) $baseCurrency,
+                'promo_code'   => $promoCodeStr,
+                'booking_data' => null,
+                'provider'     => (string) ($supplierName ?? ''),
+                'user_id'      => $userId ?: ($_SESSION['user_id'] ?? null),
+                'user_email'   => $primaryGuest['email'] ?? null,
             ]);
-            if (!empty($pv['ok'])) {
-                $promoDiscount = (float) $pv['discount'];
-                $promoData = $pv['promo'] ?? null;
-            }
-        }
-        if ($promoDiscount > 0 && $promoData) {
-                $promoCodeJson = json_encode([
-                    'code' => $promoData['code'],
-                    'discount_type' => $promoData['discount_type'],
-                    'discount_value' => floatval($promoData['discount_value']),
-                    'discount_amount' => $promoDiscount,
-                    'max_discount_amount' => $promoData['max_discount_amount'] ? floatval($promoData['max_discount_amount']) : null,
-                    'description' => $promoData['description'],
-                    'module' => $promoData['module']
-                ]);
-        }
-
-        // APPLY PROMO DISCOUNT TO FINAL TOTAL
-        if ($promoDiscount > 0 && $promoData) {
-            $finalTotalBase = round($finalTotalBase - $promoDiscount, 2);
+            $finalTotalBase = (float) $dsc['total'];
+            $promoDiscount  = (float) $dsc['promo_discount'];
+            $autoDiscount   = (float) $dsc['auto_discount'];
+            $promoCodeJson  = $dsc['promo_json'];
+            $promoData      = $dsc['promo_row'];
+            $discountRow    = $dsc['discount_row'];
         }
 
         // Prepare booking data (save flight routes data in booking_data column)
@@ -1117,9 +1111,10 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
             'special_requests' => $specialRequests,
             'created_at' => date('Y-m-d H:i:s'),
             'booking_date' => date('Y-m-d'),
-            'promo_codes' => $promoCodeJson
+            'promo_codes' => $promoCodeJson,
+            'discount' => (int) round($autoDiscount)
         ]);
-        
+
         $bookingId = $db->id();
 
         if ($bookingId) {
@@ -1127,6 +1122,10 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
             // writes the per-user ledger row that enforces per_user_limit).
             if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
                 recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?? null, $primaryGuest['email'] ?? null, (float) $promoDiscount, 'flights', (string) $baseCurrency);
+            }
+            // Record auto-discount use (bumps discounts.used_count).
+            if ($autoDiscount > 0 && $discountRow && function_exists('discount_record_use')) {
+                discount_record_use($db, $discountRow);
             }
             // Trigger booking confirmed webhook
             triggerWebhook('flights/booking', 'flights.booking.confirmed', [

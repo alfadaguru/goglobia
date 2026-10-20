@@ -162,23 +162,29 @@ $orderHandler = function () use ($SECURE, $db) {
 
         // PROMO CODE HANDLING — recompute SERVER-SIDE (never trust the client's
         // promo_discount). Enforces module/targeting/usage/per-user.
-        $promoCodeStr = trim($input['promo_code'] ?? '');
-        $promoDiscount = 0.0;
-        $promoCodeJson = null;
-        $promoData = null;
-        if ($promoCodeStr !== '' && function_exists('promoResolveForBooking')) {
-            $pr = promoResolveForBooking($db, $promoCodeStr, (float) $finalPrice, 'rail', (string) $displayCurrency, [
-                'user_id'    => $userId ?: ($_SESSION['user_id'] ?? null),
-                'user_email' => $input['contact_email'] ?? null,
+        // DISCOUNT + PROMO (unified engine). Rail is API-only → clamped so charged
+        // never drops below net; closes promo leak.
+        $promoCodeStr  = trim($input['promo_code'] ?? '');
+        $promoDiscount = 0.0; $promoCodeJson = null; $promoData = null;
+        $autoDiscount  = 0.0; $discountRow = null;
+        if (function_exists('apply_booking_discounts')) {
+            $dsc = apply_booking_discounts($db, [
+                'base'         => (float) $finalPrice,
+                'supplier_net' => (float) $totalPrice,
+                'module'       => 'rail',
+                'currency'     => (string) $displayCurrency,
+                'promo_code'   => $promoCodeStr,
+                'booking_data' => null,
+                'provider'     => 'train',
+                'user_id'      => $userId ?: ($_SESSION['user_id'] ?? null),
+                'user_email'   => $input['contact_email'] ?? null,
             ]);
-            $promoDiscount = (float) $pr['discount'];
-            $promoData     = $pr['promo'];
-            $promoCodeJson = $pr['json'];
-        }
-
-        // APPLY PROMO DISCOUNT TO FINAL PRICE
-        if ($promoDiscount > 0 && $promoData) {
-            $finalPrice = round($finalPrice - $promoDiscount, 2);
+            $finalPrice    = (float) $dsc['total'];
+            $promoDiscount = (float) $dsc['promo_discount'];
+            $autoDiscount  = (float) $dsc['auto_discount'];
+            $promoData     = $dsc['promo_row'];
+            $promoCodeJson = $dsc['promo_json'];
+            $discountRow   = $dsc['discount_row'];
         }
 
         // INSERT BOOKING INTO DATABASE
@@ -216,6 +222,7 @@ $orderHandler = function () use ($SECURE, $db) {
             'created_at'         => date('Y-m-d H:i:s'),
             'updated_at'         => date('Y-m-d H:i:s'),
             'promo_codes'        => $promoCodeJson,
+            'discount'           => (int) round($autoDiscount),
         ]);
 
         $bookingId = $db->id();
@@ -225,6 +232,10 @@ $orderHandler = function () use ($SECURE, $db) {
             // writes the per-user ledger row that enforces per_user_limit).
             if (!empty($promoCodeStr) && $promoDiscount > 0 && $promoData && function_exists('recordPromoUsage')) {
                 recordPromoUsage($db, $promoData, (string) $invoiceId, $userId ?? null, $input['contact_email'] ?? null, (float) $promoDiscount, 'rail', (string) $displayCurrency);
+            }
+            // Record auto-discount use (bumps discounts.used_count).
+            if ($autoDiscount > 0 && $discountRow && function_exists('discount_record_use')) {
+                discount_record_use($db, $discountRow);
             }
 
             // Let the (possibly guest) session that created this invoice view it —
