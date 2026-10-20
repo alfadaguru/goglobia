@@ -61,6 +61,23 @@ $giaWCfg = json_encode([
         $s = passportAiSettings($giaWDb);
         return !empty($s['voice_enabled']);
     })(),
+    // Provider-grade voice capability (server STT/TTS). When these are true the
+    // widget records + POSTs to the provider; otherwise it uses the browser Web
+    // Speech API. Resolved from the admin's ACTIVE provider — never leaks the key.
+    'voiceCaps' => (function () use ($giaWDb) {
+        $f = dirname(__DIR__, 2) . '/lib/ai/gia_voice.php';
+        if (is_file($f)) { require_once $f; }
+        if (!function_exists('gia_voice_capabilities')) {
+            return ['stt' => false, 'tts' => false, 'voices' => [], 'tts_voice' => ''];
+        }
+        $c = gia_voice_capabilities($giaWDb);
+        return [
+            'stt'       => (bool) $c['stt'],
+            'tts'       => (bool) $c['tts'],
+            'voices'    => $c['voices'],
+            'tts_voice' => (string) $c['tts_voice'],
+        ];
+    })(),
 ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE);
 ?>
 <style>
@@ -349,7 +366,8 @@ $giaWCfg = json_encode([
                   @keydown.enter.prevent="if(!$event.shiftKey){ send() }" @input="autoGrow($event.target)"
                   :placeholder="listening ? 'Listening…' : 'Ask about a trip…'"
                   class="flex-1 resize-none rounded-lg border border-slate-200 px-2.5 py-2 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-200"></textarea>
-        <!-- Tap-to-speak (browser speech recognition). Only shown when voice is on + supported. -->
+        <!-- Tap-to-speak: provider STT (Whisper/Gemini) when available, else the
+             browser recognizer. Only shown when voice is on + some path works. -->
         <button type="button" x-show="voiceInputOk" @click="toggleMic()" :aria-pressed="listening"
                 :title="listening ? 'Stop' : 'Tap to speak'"
                 class="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center transition"
@@ -398,10 +416,18 @@ function giaWidget(cfg){
     staffActive:false, pollTimer:null, pusher:(cfg.pusher||{}), convKey:'', rtChannel:null, rtClient:null,
     firstName:(cfg.firstName||''), loggedIn:!!cfg.loggedIn,
     bounce:false, unread:0,
-    // Voice (browser Web Speech). voiceOn = admin enabled it; *Ok = enabled AND
-    // the browser supports that half. listening = mic active; speakOn = read aloud.
+    // Voice. voiceOn = admin enabled it; *Ok = enabled AND we have SOME way to do
+    // that half (provider OR browser). listening = mic active; speakOn = read aloud.
+    //   sttServer/ttsServer = the active AI provider offers server-grade STT/TTS
+    //   (OpenAI Whisper / OpenAI TTS / Gemini audio-in). When true we record+POST;
+    //   otherwise we use the browser Web Speech API. Both fall back on failure.
     voiceOn:!!cfg.voice, voiceInputOk:false, voiceOutputOk:false,
     listening:false, speakOn:false, recog:null,
+    sttServer:!!(cfg.voiceCaps && cfg.voiceCaps.stt),
+    ttsServer:!!(cfg.voiceCaps && cfg.voiceCaps.tts),
+    ttsVoice:(cfg.voiceCaps && cfg.voiceCaps.tts_voice) || '',
+    sttBrowserOk:false, ttsBrowserOk:false,
+    mediaRec:null, audioChunks:[], recStream:null, speaking:false, ttsAudio:null,
     starters:['Flights to Dubai','Hotels in Lagos','Plan a trip to Zanzibar'],
     // Per-context copy so GIA opens relevantly (e.g. on /umrah it talks umrah).
     ctxCopy:{
@@ -415,10 +441,16 @@ function giaWidget(cfg){
     init(){
       const c = this.ctxCopy[this.context] || this.ctxCopy[''];
       this.starters = c.starters;
-      // Voice capability detection (only if the admin enabled voice).
+      // Voice capability detection (only if the admin enabled voice). We can do
+      // EACH half if the active provider supports it (sttServer/ttsServer) OR the
+      // browser does — so the mic/speaker show whenever there's any working path.
       if(this.voiceOn){
-        this.voiceInputOk  = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-        this.voiceOutputOk = !!(window.speechSynthesis && window.SpeechSynthesisUtterance);
+        this.sttBrowserOk  = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+        this.ttsBrowserOk  = !!(window.speechSynthesis && window.SpeechSynthesisUtterance);
+        // Provider STT additionally needs the browser to be able to CAPTURE audio.
+        const canRecord    = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+        this.voiceInputOk  = (this.sttServer && canRecord) || this.sttBrowserOk;
+        this.voiceOutputOk = this.ttsServer || this.ttsBrowserOk;
       }
       // Resume a persistent conversation (cross-tab / refresh / another device):
       // pull this browser's prior transcript from the server. Fail-soft.
@@ -481,13 +513,68 @@ function giaWidget(cfg){
     openFromTeaser(){ const t=this.teaser; this.teaser=''; this.pulse=false; this.unread=0; this.open=true;
       this.$nextTick(()=>{ if(this.$refs.input) this.$refs.input.focus(); if(this.messages.length===0) this.showGreeting(); this.scrollDown(); }); },
     dismissTeaser(){ this.teaser=''; this.pulse=false; },
-    // --- VOICE: tap-to-speak (SpeechRecognition) + read-aloud (SpeechSynthesis).
-    //     Browser-native: no API key, no server call, works for any provider. ---
+    // --- VOICE: tap-to-speak + read-aloud. PROVIDER-GRADE when the active AI
+    //     provider supports it (OpenAI Whisper STT + TTS, Gemini audio-in STT),
+    //     else the browser Web Speech API. Each half falls back independently and
+    //     on any failure, so the mic/speaker always do *something* when shown. ---
     toggleMic(){
       if(!this.voiceInputOk) return;
       if(this.listening){ this.stopListen(); return; }
+      // Prefer provider STT (record audio and POST it); fall back to the browser.
+      if(this.sttServer && navigator.mediaDevices && window.MediaRecorder){
+        this.startServerRecording();
+      } else {
+        this.startBrowserRecognition();
+      }
+    },
+    // Provider STT: capture mic audio with MediaRecorder, POST to /voice/transcribe.
+    async startServerRecording(){
       try{
-        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+        this.recStream = stream;
+        // Let the browser pick a supported container (webm on Chrome/FF, mp4 Safari).
+        let mr; try{ mr = new MediaRecorder(stream); }catch(e){ mr = new MediaRecorder(stream, {}); }
+        this.mediaRec = mr; this.audioChunks = [];
+        mr.ondataavailable = (e)=>{ if(e.data && e.data.size>0) this.audioChunks.push(e.data); };
+        mr.onstop = ()=>{ this.finishServerRecording(); };
+        mr.start();
+        this.listening = true;
+      }catch(e){
+        // Mic denied / unavailable -> try the browser recognizer (may also fail; that's fine).
+        this.listening=false; this.cleanupStream();
+        if(this.sttBrowserOk) this.startBrowserRecognition();
+      }
+    },
+    async finishServerRecording(){
+      this.listening=false;
+      const chunks=this.audioChunks; this.audioChunks=[];
+      this.cleanupStream();
+      if(!chunks.length){ return; }
+      const type=(this.mediaRec && this.mediaRec.mimeType) ? this.mediaRec.mimeType : 'audio/webm';
+      const blob=new Blob(chunks,{type});
+      try{
+        const fd=new FormData();
+        fd.append('audio', blob, 'speech');
+        fd.append('csrf_token', this.csrfToken);
+        const res=await fetch(this.root+'api/gia/voice/transcribe',{
+          method:'POST', headers:{'X-CSRF-TOKEN':this.csrfToken}, body:fd });
+        const d=await res.json().catch(()=>({}));
+        if(d && d.status && d.text){
+          this.draft=(this.draft?this.draft+' ':'')+d.text;
+          if((this.draft||'').trim()) this.send();
+          return;
+        }
+        // Server declined (fallback) or failed -> try the browser recognizer once.
+        if(this.sttBrowserOk){ this.startBrowserRecognition(); }
+      }catch(e){
+        if(this.sttBrowserOk){ this.startBrowserRecognition(); }
+      }
+    },
+    // Browser STT (Web Speech API).
+    startBrowserRecognition(){
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if(!SR){ this.listening=false; return; }
+      try{
         const r = new SR();
         r.lang = (navigator.language || 'en-US');
         r.interimResults = false; r.maxAlternatives = 1; r.continuous = false;
@@ -495,25 +582,67 @@ function giaWidget(cfg){
           if(t){ this.draft = (this.draft ? this.draft+' ' : '') + t; } };
         r.onerror = ()=>{ this.listening=false; };
         r.onend = ()=>{ this.listening=false;
-          // Auto-send what was dictated (natural voice flow); user can still edit if they stop first.
           if((this.draft||'').trim()){ this.send(); } };
         this.recog = r; this.listening = true; r.start();
       }catch(e){ this.listening=false; }
     },
-    stopListen(){ this.listening=false; try{ if(this.recog) this.recog.stop(); }catch(e){} },
+    stopListen(){
+      this.listening=false;
+      // Stop whichever recorder is active.
+      try{ if(this.mediaRec && this.mediaRec.state!=='inactive') this.mediaRec.stop(); }catch(e){}
+      try{ if(this.recog) this.recog.stop(); }catch(e){}
+    },
+    cleanupStream(){ try{ if(this.recStream){ this.recStream.getTracks().forEach(t=>t.stop()); this.recStream=null; } }catch(e){} },
     toggleSpeak(){ this.speakOn = !this.speakOn;
-      if(!this.speakOn){ try{ window.speechSynthesis.cancel(); }catch(e){} } },
+      if(!this.speakOn){ this.stopSpeaking(); } },
+    stopSpeaking(){
+      try{ if(this.ttsAudio){ this.ttsAudio.pause(); this.ttsAudio=null; } }catch(e){}
+      try{ window.speechSynthesis && window.speechSynthesis.cancel(); }catch(e){}
+      this.speaking=false;
+    },
     speak(text){
       if(!this.speakOn || !this.voiceOutputOk || !text) return;
+      // Strip markdown noise so either engine reads cleanly.
+      const clean = String(text).replace(/[#*_>`]/g,'').replace(/\s+/g,' ').trim();
+      if(!clean) return;
+      this.stopSpeaking();
+      if(this.ttsServer){ this.speakServer(clean); }
+      else { this.speakBrowser(clean); }
+    },
+    // Provider TTS: POST text, play returned audio. Fall back to browser on failure.
+    async speakServer(clean){
       try{
-        // Strip markdown/emoji-ish noise so TTS reads cleanly.
-        const clean = String(text).replace(/[#*_>`]/g,'').replace(/\s+/g,' ').trim();
-        if(!clean) return;
+        const res=await fetch(this.root+'api/gia/voice/speak',{
+          method:'POST',
+          headers:{'Content-Type':'application/json','X-CSRF-TOKEN':this.csrfToken},
+          body:JSON.stringify({text:clean, voice:this.ttsVoice, csrf_token:this.csrfToken}) });
+        const ct=(res.headers.get('content-type')||'');
+        if(res.ok && ct.indexOf('audio')===0){
+          const buf=await res.arrayBuffer();
+          const url=URL.createObjectURL(new Blob([buf],{type:ct}));
+          const a=new Audio(url); this.ttsAudio=a; this.speaking=true;
+          a.onended=()=>{ this.speaking=false; URL.revokeObjectURL(url); };
+          a.onerror=()=>{ this.speaking=false; URL.revokeObjectURL(url); if(this.ttsBrowserOk) this.speakBrowser(clean); };
+          await a.play().catch(()=>{ this.speaking=false; if(this.ttsBrowserOk) this.speakBrowser(clean); });
+          return;
+        }
+        // JSON fallback signal (or error) -> browser voice.
+        if(this.ttsBrowserOk) this.speakBrowser(clean);
+      }catch(e){
+        if(this.ttsBrowserOk) this.speakBrowser(clean);
+      }
+    },
+    // Browser TTS (SpeechSynthesis).
+    speakBrowser(clean){
+      if(!this.ttsBrowserOk) return;
+      try{
         window.speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(clean);
         u.lang = (navigator.language || 'en-US'); u.rate = 1; u.pitch = 1;
+        u.onend=()=>{ this.speaking=false; };
+        this.speaking=true;
         window.speechSynthesis.speak(u);
-      }catch(e){}
+      }catch(e){ this.speaking=false; }
     },
     // A warm, varied, personalized opener — not one static line. Uses the first
     // name when logged in, and rotates wording so repeat visits feel alive.
