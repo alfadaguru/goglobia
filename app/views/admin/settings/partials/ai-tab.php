@@ -229,7 +229,26 @@ $aiModelsList = [
             </div>
         <?php endforeach; ?>
     </div>
-    
+
+    <!-- Voice toggle — tap-to-speak + read-aloud in GIA chat (browser Web Speech;
+         no API key, works regardless of the selected provider). -->
+    <?php $voiceOn = !empty($ai['voice_enabled']); ?>
+    <div class="bg-white rounded-lg border border-gray-200 p-4 mb-8 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3 min-w-0">
+            <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style="background:#8b5cf620;">
+                <span class="material-symbols-outlined text-xl" style="color:#8b5cf6;">mic</span>
+            </div>
+            <div class="min-w-0">
+                <h3 class="text-sm font-semibold text-gray-900">Voice in GIA chat</h3>
+                <p class="text-xs text-gray-500">Tap-to-speak + read replies aloud (uses the visitor's browser — no API key or extra cost).</p>
+            </div>
+        </div>
+        <label class="switch-container switch-md switch-blue shrink-0 cursor-pointer">
+            <input type="checkbox" name="ai_voice_enabled" id="ai_voice_enabled" value="1" class="switch-input" <?= $voiceOn ? 'checked' : '' ?>>
+            <div class="switch-track"><div class="switch-thumb"></div></div>
+        </label>
+    </div>
+
     <!-- Shared provider -->
     <div>
         <div class="section">

@@ -438,6 +438,9 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
         $passportOn = isset($_POST['passport_ai_enabled']);
         $passportLocalOn = isset($_POST['passport_local_enabled']);
         $tripOn = isset($_POST['ai_trip_enabled']);
+        // Voice (tap-to-speak + read-aloud). Browser Web Speech — no key needed, so
+        // it isn't gated on provider credentials like the model features are.
+        $voiceOn = isset($_POST['ai_voice_enabled']);
         $activeProviderHasKey = $activeProvider !== ''
             && trim((string) ($providersConfig[$activeProvider]['api_key'] ?? '')) !== '';
         if (!$activeProviderHasKey) {
@@ -456,6 +459,7 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
             'passport_enabled' => $passportOn,
             'passport_local_enabled' => $passportLocalOn,
             'trip_enabled' => $tripOn,
+            'voice_enabled' => $voiceOn,
             'provider' => $activeProvider,
             'timeout' => $timeout > 0 ? $timeout : 30,
             'max_file_size' => $maxFileSize !== null ? $maxFileSize : 5242880,
