@@ -22,14 +22,18 @@ $templateChoices = (function_exists('dbTableExists') && dbTableExists($db, 'emai
     ? ($db->select('email_templates_library', ['id', 'name'], ['ORDER' => ['is_system' => 'DESC', 'name' => 'ASC']]) ?: [])
     : [];
 
-// Live recipient count for the saved audience (so the admin sees reach before sending).
+// Live recipient count for the SAVED audience (de-duplicated across all selected
+// groups), so the admin sees true reach before sending.
 $audienceCount = 0;
-if ($c) {
-    $w = ['status' => $c['audience_status'] ?: 'subscribed'];
-    if (!empty($c['audience_country']))  { $w['country']  = $c['audience_country']; }
-    if (!empty($c['audience_language'])) { $w['language'] = $c['audience_language']; }
-    $audienceCount = (int) $db->count('newsletter_subscribers', $w);
+if ($c && function_exists('campaign_resolve_recipients')) {
+    try { $audienceCount = count(campaign_resolve_recipients($db, (array) $c)); }
+    catch (\Throwable $e) { $audienceCount = 0; }
 }
+// Which groups are currently selected (for the checkbox state).
+$selectedGroups = ($c && function_exists('campaign_selected_groups'))
+    ? campaign_selected_groups((array) $c)
+    : ['subscribers'];
+$selectedRole = strtolower((string) ($c['audience_role'] ?? ''));
 
 $v = function ($k, $d = '') use ($c) { return htmlspecialchars((string) ($c[$k] ?? $d), ENT_QUOTES); };
 ?>
@@ -113,8 +117,41 @@ $v = function ($k, $d = '') use ($c) { return htmlspecialchars((string) ($c[$k] 
       <!-- Right: audience + actions -->
       <div class="space-y-4">
         <div class="rounded-xl border border-gray-100 p-4 bg-gray-50">
-          <h3 class="text-sm font-bold text-gray-900 mb-3">Audience</h3>
-          <label class="block text-xs font-semibold text-gray-600 mb-1">Status</label>
+          <h3 class="text-sm font-bold text-gray-900 mb-1">Audience</h3>
+          <p class="text-xs text-gray-500 mb-3">Send to one group or several — recipients are merged and de-duplicated by email.</p>
+
+          <?php
+          // group key => [label, is marketing?, note]
+          $groupDefs = [
+            'subscribers' => ['Newsletter subscribers', true,  'opted in via the site'],
+            'customers'   => ['Customers',              true,  'users.role = customer'],
+            'agents'      => ['Agents',                 false, 'operational — no unsubscribe'],
+            'suppliers'   => ['Suppliers',              false, 'operational — no unsubscribe'],
+            'staff'       => ['Internal staff',         false, 'admin/employee — internal'],
+          ];
+          foreach ($groupDefs as $gk => [$glabel, $gmkt, $gnote]):
+            $checked = in_array($gk, $selectedGroups, true);
+          ?>
+            <label class="flex items-start gap-2 mb-2 cursor-pointer">
+              <input type="checkbox" name="audience_groups[]" value="<?= $gk ?>" <?= $checked ? 'checked' : '' ?> <?= $isSent ? 'disabled' : '' ?> class="mt-0.5">
+              <span class="text-sm text-gray-800"><?= htmlspecialchars($glabel) ?>
+                <span class="block text-[11px] text-gray-400"><?= htmlspecialchars($gnote) ?><?= $gmkt ? '' : '' ?></span>
+              </span>
+            </label>
+          <?php endforeach; ?>
+
+          <!-- Staff role narrows the "Internal staff" group (optional). -->
+          <label class="block text-xs font-semibold text-gray-600 mt-2 mb-1">Staff role <span class="text-gray-400 font-normal">(only for Internal staff)</span></label>
+          <select name="audience_role" <?= $isSent ? 'disabled' : '' ?> class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-3">
+            <option value="">All staff (admin + employee)</option>
+            <?php foreach (['admin' => 'Admins only', 'employee' => 'Employees only'] as $rk => $rlbl): ?>
+              <option value="<?= $rk ?>" <?= $selectedRole === $rk ? 'selected' : '' ?>><?= $rlbl ?></option>
+            <?php endforeach; ?>
+          </select>
+
+          <hr class="my-3 border-gray-200">
+
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Subscriber status <span class="text-gray-400 font-normal">(subscribers group)</span></label>
           <select name="audience_status" <?= $isSent ? 'disabled' : '' ?> class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-3">
             <?php foreach (['subscribed' => 'Confirmed subscribers', 'pending' => 'Pending (not yet confirmed)'] as $k => $lbl): ?>
               <option value="<?= $k ?>" <?= ($c['audience_status'] ?? 'subscribed') === $k ? 'selected' : '' ?>><?= $lbl ?></option>
@@ -127,7 +164,7 @@ $v = function ($k, $d = '') use ($c) { return htmlspecialchars((string) ($c[$k] 
           <input type="text" name="audience_language" maxlength="8" value="<?= $v('audience_language') ?>" <?= $isSent ? 'readonly' : '' ?>
                  placeholder="e.g. en" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
           <?php if ($c): ?>
-            <p class="text-xs text-gray-500 mt-3">Current reach: <strong class="text-gray-900"><?= number_format($audienceCount) ?></strong> of <?= number_format($subTotal) ?> subscribers.</p>
+            <p class="text-xs text-gray-500 mt-3">Current reach: <strong class="text-gray-900"><?= number_format($audienceCount) ?></strong> recipient<?= $audienceCount === 1 ? '' : 's' ?> (de-duplicated). Save to recalculate.</p>
           <?php endif; ?>
         </div>
 

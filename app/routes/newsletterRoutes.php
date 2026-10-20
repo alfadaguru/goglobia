@@ -14,6 +14,25 @@ if (!function_exists('newsletter_token')) {
 }
 
 /**
+ * Add an email to the marketing suppression list (idempotent). Used so that a
+ * single unsubscribe keeps the address out of ALL future marketing sends — not
+ * just the newsletter group — because the same person may also be a customer
+ * (users table) targeted via the "customers" audience group.
+ */
+if (!function_exists('newsletter_suppress')) {
+    function newsletter_suppress($db, string $email, string $reason = 'unsubscribe'): void
+    {
+        $email = strtolower(trim($email));
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) { return; }
+        try {
+            if (function_exists('ensureCampaignSchema')) { ensureCampaignSchema($db); }
+            // UNIQUE(email) makes this a no-op on repeat.
+            $db->insert('campaign_suppressions', ['email' => $email, 'reason' => substr($reason, 0, 50)]);
+        } catch (\Throwable $e) { /* already suppressed or table missing — ignore */ }
+    }
+}
+
+/**
  * Send the double-opt-in confirmation email via the active provider.
  * Best-effort: never throws into the request; returns bool.
  */
@@ -181,6 +200,7 @@ $router->get('/newsletter/unsubscribe/([a-f0-9]{32})', function ($token) use ($S
                 'status'          => 'unsubscribed',
                 'unsubscribed_at' => date('Y-m-d H:i:s'),
             ], ['id' => $row['id']]);
+            newsletter_suppress($db, (string) $row['email']); // keep out of ALL marketing
             $done = true;
         }
     } catch (\Throwable $e) {
@@ -214,17 +234,81 @@ $router->post('/newsletter/unsubscribe/([a-f0-9]{32})', function ($token) use ($
     if (function_exists('ensureNewsletterSchema')) { ensureNewsletterSchema($db); }
     try {
         $row = $db->get('newsletter_subscribers', '*', ['unsubscribe_token' => $token]);
-        if ($row && ($row['status'] ?? '') !== 'unsubscribed') {
-            $db->update('newsletter_subscribers', [
-                'status'          => 'unsubscribed',
-                'unsubscribed_at' => date('Y-m-d H:i:s'),
-            ], ['id' => $row['id']]);
+        if ($row) {
+            if (($row['status'] ?? '') !== 'unsubscribed') {
+                $db->update('newsletter_subscribers', [
+                    'status'          => 'unsubscribed',
+                    'unsubscribed_at' => date('Y-m-d H:i:s'),
+                ], ['id' => $row['id']]);
+            }
+            newsletter_suppress($db, (string) $row['email']);
         }
     } catch (\Throwable $e) {
         error_log('newsletter/unsubscribe(POST): ' . $e->getMessage());
     }
     // Always 200 so the mail provider records the unsubscribe as honoured (and we
     // don't leak whether the token existed).
+    http_response_code(200);
+    header('Content-Type: text/plain');
+    echo 'OK';
+    exit;
+});
+
+// ============================================================================
+// Marketing OPT-OUT for USER recipients (customers etc.) who have no newsletter
+// unsubscribe_token. The link carries an HMAC-signed email token
+// (hex(email).sig — see campaign_optout_token()). Verifying it adds the email to
+// campaign_suppressions so it drops out of ALL future marketing sends.
+//   GET  = human lands on a confirmation page.
+//   POST = RFC 8058 one-click (List-Unsubscribe-Post); bare 200, no CSRF.
+// Token = lowercase-hex email + '.' + 64-hex HMAC.
+// ============================================================================
+$router->get('/newsletter/optout/([a-f0-9]+\.[a-f0-9]{64})', function ($token) use ($SECURE, $db) {
+    require_once 'app/lib/campaigns.php';
+    $email = campaign_optout_verify($token);
+    $done  = false;
+    if ($email !== '') {
+        newsletter_suppress($db, $email, 'optout');
+        // If they're also a newsletter subscriber, flip that row too.
+        try {
+            $row = $db->get('newsletter_subscribers', ['id'], ['email' => $email]);
+            if ($row) {
+                $db->update('newsletter_subscribers',
+                    ['status' => 'unsubscribed', 'unsubscribed_at' => date('Y-m-d H:i:s')], ['id' => $row['id']]);
+            }
+        } catch (\Throwable $e) { /* ignore */ }
+        $done = true;
+    }
+
+    $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    ?>
+    <div class="container mx-auto px-4 py-20 text-center">
+      <span class="material-symbols-outlined !text-[56px] text-gray-400">unsubscribe</span>
+      <h1 class="mt-4 text-2xl font-bold text-gray-900"><?= $done ? 'You\'ve been unsubscribed' : 'Link not found' ?></h1>
+      <p class="mt-2 text-gray-600"><?= $done
+        ? 'You will no longer receive marketing emails from us. Service and booking emails you expect will still be sent.'
+        : 'This unsubscribe link is invalid or has expired. If you keep receiving emails, contact support.' ?></p>
+      <a href="<?= root ?>" class="inline-block mt-6 px-5 py-2.5 rounded-full bg-blue-600 text-white font-semibold hover:bg-blue-700 transition">Back to home</a>
+    </div>
+    <?php
+    require_once views . "includes/footer.php";
+    exit;
+});
+
+$router->post('/newsletter/optout/([a-f0-9]+\.[a-f0-9]{64})', function ($token) use ($SECURE, $db) {
+    require_once 'app/lib/campaigns.php';
+    $email = campaign_optout_verify($token);
+    if ($email !== '') {
+        newsletter_suppress($db, $email, 'optout');
+        try {
+            $row = $db->get('newsletter_subscribers', ['id'], ['email' => $email]);
+            if ($row) {
+                $db->update('newsletter_subscribers',
+                    ['status' => 'unsubscribed', 'unsubscribed_at' => date('Y-m-d H:i:s')], ['id' => $row['id']]);
+            }
+        } catch (\Throwable $e) { /* ignore */ }
+    }
     http_response_code(200);
     header('Content-Type: text/plain');
     echo 'OK';

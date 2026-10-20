@@ -4599,6 +4599,8 @@ function ensureCampaignSchema($db): void
                 `audience_status` varchar(20) NOT NULL DEFAULT 'subscribed',
                 `audience_country` varchar(2) DEFAULT NULL,
                 `audience_language` varchar(8) DEFAULT NULL,
+                `audience_groups` varchar(255) DEFAULT NULL,
+                `audience_role` varchar(50) DEFAULT NULL,
                 `status` enum('draft','scheduled','sending','sent','failed') NOT NULL DEFAULT 'draft',
                 `scheduled_at` datetime DEFAULT NULL,
                 `sent_at` datetime DEFAULT NULL,
@@ -4610,6 +4612,35 @@ function ensureCampaignSchema($db): void
                 `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (`id`),
                 KEY `idx_status` (`status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } else {
+            // Multi-audience (Phase 5): existing campaigns tables get the group +
+            // staff-role columns. Idempotent SHOW COLUMNS + ALTER (house pattern).
+            $ecCols = [
+                ['audience_groups', "ALTER TABLE `email_campaigns` ADD COLUMN `audience_groups` VARCHAR(255) NULL DEFAULT NULL"],
+                ['audience_role',   "ALTER TABLE `email_campaigns` ADD COLUMN `audience_role` VARCHAR(50) NULL DEFAULT NULL"],
+            ];
+            foreach ($ecCols as [$column, $alterSql]) {
+                try {
+                    $exists = $db->query("SHOW COLUMNS FROM `email_campaigns` LIKE " . $db->pdo->quote($column))->fetchAll();
+                    if (count($exists) === 0) { $db->pdo->exec($alterSql); }
+                } catch (\Throwable $e) {
+                    error_log("ensureCampaignSchema: could not add email_campaigns.$column: " . $e->getMessage());
+                }
+            }
+        }
+
+        // Suppression list: emails that opted out of MARKETING sends (any audience).
+        // Separate from newsletter_subscribers because a suppressed address may be a
+        // customer/agent/supplier/staff user who was never a newsletter subscriber.
+        if (!dbTableExists($db, 'campaign_suppressions')) {
+            $db->query("CREATE TABLE IF NOT EXISTS `campaign_suppressions` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `email` varchar(191) NOT NULL,
+                `reason` varchar(50) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_sup_email` (`email`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         }
 

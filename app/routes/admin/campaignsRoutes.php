@@ -62,12 +62,23 @@ $router->post(admin.'/campaigns/save', function () use ($SECURE, $db) {
         return;
     }
 
+    // Audience groups: whitelist against the known set; default to subscribers if
+    // nothing ticked (keeps a campaign from targeting "everyone" by accident).
+    $knownGroups = defined('CAMPAIGN_GROUPS') ? explode(',', CAMPAIGN_GROUPS) : ['subscribers','customers','agents','suppliers','staff'];
+    $postedGroups = (array) ($_POST['audience_groups'] ?? []);
+    $groups = array_values(array_intersect(array_map('strval', $postedGroups), $knownGroups));
+    if (empty($groups)) { $groups = ['subscribers']; }
+    $role = strtolower(trim((string) ($_POST['audience_role'] ?? '')));
+    if (!in_array($role, ['admin', 'employee'], true)) { $role = null; }
+
     $data = [
         'name'              => $name,
         'subject'           => $subj,
         'body_html'         => $body,
         'from_name'         => trim((string) ($_POST['from_name'] ?? '')) ?: null,
         'from_email'        => trim((string) ($_POST['from_email'] ?? '')) ?: null,
+        'audience_groups'   => json_encode($groups),
+        'audience_role'     => $role,
         'audience_status'   => in_array($_POST['audience_status'] ?? '', ['subscribed','pending','unsubscribed','bounced'], true) ? $_POST['audience_status'] : 'subscribed',
         'audience_country'  => trim((string) ($_POST['audience_country'] ?? '')) ?: null,
         'audience_language' => trim((string) ($_POST['audience_language'] ?? '')) ?: null,
@@ -196,9 +207,16 @@ $router->post(admin.'/campaigns/test', function () use ($SECURE, $db) {
     // A sample subscriber + a well-formed-but-nonexistent unsubscribe token (all
     // zeros) — this is a proof, not a real recipient, so the link resolves to the
     // "link not found" page rather than unsubscribing anyone real.
+    // Render with the campaign's REAL marketing status so the test matches the live
+    // send: an operational-only campaign (agents/suppliers/staff) shows NO
+    // unsubscribe footer, a marketing one does.
+    $marketing = false;
+    if (function_exists('campaign_selected_groups') && function_exists('campaign_marketing_groups')) {
+        $marketing = (bool) array_intersect(campaign_selected_groups($campaign), campaign_marketing_groups());
+    }
     $sample = ['first_name' => 'there', 'email' => $to];
     $unsub  = rtrim((string) root, '/') . '/newsletter/unsubscribe/' . str_repeat('0', 32);
-    $html   = campaign_render_email($db, (string) $campaign['body_html'], $sample, $unsub);
+    $html   = campaign_render_email($db, (string) $campaign['body_html'], $sample, $unsub, $marketing);
 
     $ok = false;
     try {
