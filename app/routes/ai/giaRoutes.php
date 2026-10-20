@@ -118,6 +118,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'giaChatProvider.php';
     require_once $aiDir . 'giaAgent.php';
     require_once $aiDir . 'tools/searchTripTool.php';
+    require_once $aiDir . 'tools/fetchLiveOffersTool.php';
     require_once $aiDir . 'tools/selectOptionTool.php';
     require_once $aiDir . 'tools/composeTripTool.php';
     require_once $aiDir . 'tools/createCheckoutTool.php';
@@ -161,12 +162,18 @@ $router->post('/api/gia/chat', function () use ($db) {
         'account_id'    => (string) ($_SESSION['user_id'] ?? ''),
         'user_approved' => ($input['approved'] ?? null) === true,
         'currency'      => (string) ($_SESSION['app_currency'] ?? 'USD'),
+        // The last search's params+suppliers per module, so fetch_live_offers can run
+        // the live supplier lookup for a module the traveller searched earlier. Set by
+        // the ROUTE from prior search_trip results — never model-supplied.
+        'last_search_params' => (isset($_SESSION['gia_last_search']) && is_array($_SESSION['gia_last_search']))
+            ? $_SESSION['gia_last_search'] : [],
     ];
 
     // --- Run the agent. ---
     try {
         $agent = new \App\lib\ai\giaAgent($db);
         $agent->registerTool(new \App\lib\ai\searchTripTool());
+        $agent->registerTool(new \App\lib\ai\fetchLiveOffersTool());
         $agent->registerTool(new \App\lib\ai\selectOptionTool());
         $agent->registerTool(new \App\lib\ai\composeTripTool());
         $agent->registerTool(new \App\lib\ai\createCheckoutTool());
@@ -214,6 +221,20 @@ $router->post('/api/gia/chat', function () use ($db) {
         $logEvent = ($convId > 0 && function_exists('gia_log_event'));
         if ($name === 'search_trip' && isset($data['searches']) && is_array($data['searches'])) {
             $searches = $data['searches'];
+            // Cache each module's search params+suppliers so a later fetch_live_offers
+            // (live-supplier modules) can run the supplier lookup. Route-set, not model.
+            if (!isset($_SESSION['gia_last_search']) || !is_array($_SESSION['gia_last_search'])) {
+                $_SESSION['gia_last_search'] = [];
+            }
+            foreach ($data['searches'] as $sr) {
+                if (!is_array($sr)) { continue; }
+                $mod = (string) ($sr['module'] ?? $sr['kind'] ?? '');
+                if ($mod === '') { continue; }
+                $_SESSION['gia_last_search'][$mod] = [
+                    'params'    => is_array($sr['params'] ?? null) ? $sr['params'] : [],
+                    'suppliers' => is_array($sr['suppliers'] ?? null) ? $sr['suppliers'] : [],
+                ];
+            }
             if ($logEvent) {
                 // One search event per module the search touched (for the funnel).
                 $modulesSeen = [];
@@ -229,6 +250,20 @@ $router->post('/api/gia/chat', function () use ($db) {
                         'meta'   => $hasCards ? 'results' : 'intent',
                     ]);
                 }
+            }
+        } elseif ($name === 'fetch_live_offers' && ($tr['output']['ok'] ?? false) && isset($data['cards']) && is_array($data['cards'])) {
+            // Live-supplier offers render as pickable cards — surface them like a search.
+            $mod = (string) ($data['module'] ?? '');
+            $searches[] = [
+                'module'  => $mod,
+                'kind'    => $mod,
+                'title'   => ucfirst($mod) . ' options',
+                'cards'   => $data['cards'],
+                'live'    => true,
+                'expires' => (bool) ($data['expires'] ?? false),
+            ];
+            if ($logEvent && $mod !== '') {
+                gia_log_event($db, $convId, 'search', ['module' => $mod, 'meta' => 'live_offers']);
             }
         } elseif ($name === 'create_checkout' && ($tr['output']['ok'] ?? false) && !empty($data['checkout_ref'])) {
             $checkout = [
