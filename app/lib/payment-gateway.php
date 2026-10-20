@@ -46,6 +46,27 @@ function triggerNotification($event, $data = [])
  * @param string $invoiceId - Invoice ID to process payment for
  * @return array - Payment processing result
  */
+/**
+ * Suppliers that have NO local booking/issue path — they are affiliate/redirect
+ * (the customer completes payment on the supplier/OTA site) or an unimplemented
+ * stub. A booking must NEVER be paid through OUR gateway for one of these: there
+ * is nothing to issue, so the money would land with no fulfilment (paid-but-not-
+ * issued). Audited 2026-10-20. Keyed on bookings.module (the supplier name).
+ *   - viator / tiqets / viator_merchant  (tours — redirect / creds-only stub)
+ *   - discover_cars / kiwitaxi           (cars — affiliate booking_url)
+ *   - travelpayouts                      (flights — actions are TODO stubs)
+ * These may still be SOLD as redirects from search; they just can't be charged
+ * through process_payment().
+ */
+if (!function_exists('payment_supplier_is_unbookable')) {
+    function payment_supplier_is_unbookable($booking): bool
+    {
+        $module = strtolower(trim((string) ($booking['module'] ?? '')));
+        $unbookable = ['viator', 'tiqets', 'viator_merchant', 'discover_cars', 'kiwitaxi', 'travelpayouts'];
+        return in_array($module, $unbookable, true);
+    }
+}
+
 function process_payment($invoiceId)
 {
     global $db, $SECURE;
@@ -61,6 +82,16 @@ function process_payment($invoiceId)
         // Check if already paid
         if ($booking['payment_status'] === 'paid') {
             return ['success' => false, 'message' => 'Payment already completed'];
+        }
+
+        // BOOKABILITY guard (money-safety, audited 2026-10-20): never take a
+        // gateway payment for an affiliate/redirect or stub supplier that has no
+        // local issue path — the money would land with nothing to fulfil. These
+        // suppliers are redirect-only; they must not reach checkout. Enforced here
+        // (not just in the UI) so it can't be bypassed by POSTing an invoice id.
+        if (payment_supplier_is_unbookable($booking)) {
+            error_log('process_payment BLOCKED unbookable supplier module=' . ($booking['module'] ?? '') . ' invoice=' . $invoiceId);
+            return ['success' => false, 'message' => 'This item is booked directly with the provider and cannot be paid here.'];
         }
 
         // Get payment gateway
