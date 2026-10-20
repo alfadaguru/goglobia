@@ -160,6 +160,15 @@ if (!empty($enabledModules)) {
     unset($svc); // BREAK REFERENCE
 }
 
+// NAV LAYOUT (P1): promote services into the top bar instead of hiding them all
+// in one "Services" dropdown. Show the first N services inline (by admin `order`),
+// fold the rest + CMS menus (About/Contact/Blog) into a single "More" dropdown.
+// Reuses $processedServices as-is — no new data. Inline count is intentionally
+// modest so the bar never overflows on common laptop widths.
+$HEADER_INLINE_SERVICES = 6;
+$inlineServices   = array_slice($processedServices, 0, $HEADER_INLINE_SERVICES);
+$overflowServices = array_slice($processedServices, $HEADER_INLINE_SERVICES);
+
 // SHARED CURRENCY LOGIC (step 3): priority is
 //   1. MANUAL choice (user switched currency; app_currency_changed=true) — always wins
 //   2. GEO currency (visitor's country -> enabled currency, detected once/session)
@@ -502,70 +511,79 @@ if (!empty($activeCurrencyRow)) {
             <?php endif; ?>
 
             <!-- DESKTOP NAVIGATION -->
-            <nav class="hidden lg:flex items-center font-medium">
-            <!-- DYNAMIC SERVICES DROPDOWN (platform only — hidden on a hotel's own site) -->
-            <?php if (!$__wl && !empty($processedServices)): ?>
-            <div class="relative group">
-                <button class="nav-link flex items-center gap-1.5 px-4 py-2 rounded-full hover:bg-gray-50">
-                  <?= headerNavIcon(['slug_url' => 'services']) ?>
-                  <span class="font-medium"><?= ucfirst(T::services) ?></span>
-                  <span class="material-symbols-outlined !text-[18px] transition-transform group-hover:rotate-180">expand_more</span>
-                </button>
-                <!-- INVISIBLE BRIDGE TO PREVENT DROPDOWN CLOSE -->
-                <div class="absolute top-full left-0 h-2 w-full pointer-events-none group-hover:pointer-events-auto"></div>
-                <div class="absolute top-full left-0 mt-1 w-56 rounded-md border border-gray-200 bg-white p-1 shadow-lg opacity-0 invisible translate-y-[-8px] transition-all duration-150 ease-out group-hover:opacity-100 group-hover:visible group-hover:translate-y-0">
-                  <?php foreach ($processedServices as $svc): ?>
-                  <a href="<?= $svc['href'] ?>" class="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-900 hover:bg-gray-100 rounded transition-colors">
-                    <span class="material-symbols-outlined !text-[18px] text-gray-500"><?= htmlspecialchars($svc['icon']) ?></span>
-                    <span><?= ucwords($svc['label']) ?> <?= T::booking ?></span>
-                  </a>
-                  <?php endforeach; ?>
-                </div>
-            </div>
-            <?php endif; ?>
-
-            <!-- DYNAMIC CMS DROPDOWNS (PARENTS WITH CHILDREN) -->
-            <?php if (!empty($header_menus)): ?>
-              <?php foreach ($header_menus as $menu): ?>
-              <div class="relative group">
-                <button class="nav-link flex items-center gap-1.5 px-4 py-2 rounded-full hover:bg-gray-50">
-                  <?= headerNavIcon($menu['parent'], true) ?>
-                  <span class="font-medium"><?= htmlspecialchars(getTranslatedPageName($menu['parent'], $currentLang)) ?></span>
-                  <span class="material-symbols-outlined !text-[18px] transition-transform group-hover:rotate-180">expand_more</span>
-                </button>
-                <!-- INVISIBLE BRIDGE TO PREVENT DROPDOWN CLOSE -->
-                <div class="absolute top-full left-0 h-2 w-full pointer-events-none group-hover:pointer-events-auto"></div>
-                <div class="absolute top-full left-0 mt-1 w-56 rounded-md border border-gray-200 bg-white p-1 shadow-lg opacity-0 invisible translate-y-[-8px] transition-all duration-150 ease-out group-hover:opacity-100 group-hover:visible group-hover:translate-y-0">
-                  <?php foreach ($menu['children'] as $child): ?>
-                  <?php
-                  $href = !empty($child['external_url'])
-                    ? htmlspecialchars($child['external_url'])
-                    : root . 'page/' . htmlspecialchars($child['slug_url']);
-                  ?>
-                  <a href="<?= $href ?>" class="block px-2 py-1.5 text-sm text-gray-900 hover:bg-gray-100 rounded transition-colors"
-                    <?= !empty($child['external_url']) ? 'target="_blank" rel="noopener noreferrer"' : '' ?>>
-                    <?= htmlspecialchars(getTranslatedPageName($child, $currentLang)) ?>
-                  </a>
-                  <?php endforeach; ?>
-                </div>
-              </div>
-              <?php endforeach; ?>
-            <?php endif; ?>
-
-            <!-- DYNAMIC CMS STANDALONE LINKS -->
-            <?php if (!empty($header_standalone)): ?>
-              <?php foreach ($header_standalone as $page): ?>
-              <?php
-              $href = !empty($page['external_url'])
-                ? htmlspecialchars($page['external_url'])
-                : root . 'page/' . htmlspecialchars($page['slug_url']);
-              ?>
-              <a href="<?= $href ?>" class="nav-link flex items-center gap-1.5 px-4 py-2 rounded-full font-medium hover:bg-gray-50"
-                <?= !empty($page['external_url']) ? 'target="_blank" rel="noopener noreferrer"' : '' ?>>
-                <?= headerNavIcon($page) ?>
-                <span><?= htmlspecialchars(getTranslatedPageName($page, $currentLang)) ?></span>
+            <nav class="hidden lg:flex items-center gap-0.5 font-medium">
+            <!-- INLINE SERVICES (platform only — hidden on a hotel's own site).
+                 First N services promoted into the bar; the rest live in "More". -->
+            <?php if (!$__wl && !empty($inlineServices)): ?>
+              <?php foreach ($inlineServices as $svc): ?>
+              <a href="<?= $svc['href'] ?>" class="nav-link flex items-center gap-1.5 px-3 py-2 rounded-full font-medium hover:bg-gray-50 whitespace-nowrap">
+                <span class="material-symbols-outlined !text-[18px] text-gray-500"><?= htmlspecialchars($svc['icon']) ?></span>
+                <span><?= htmlspecialchars(ucwords($svc['label'])) ?></span>
               </a>
               <?php endforeach; ?>
+            <?php endif; ?>
+
+            <!-- MORE ▾ : overflow services + CMS menus (About/Contact/Blog). Only
+                 rendered when there's something to put in it. -->
+            <?php
+            $__hasMore = (!$__wl && !empty($overflowServices)) || !empty($header_menus) || !empty($header_standalone);
+            if ($__hasMore):
+            ?>
+            <div class="relative group">
+                <button class="nav-link flex items-center gap-1.5 px-3 py-2 rounded-full hover:bg-gray-50">
+                  <span class="material-symbols-outlined !text-[18px] text-gray-500">apps</span>
+                  <span class="font-medium"><?= ucfirst(T::more) ?></span>
+                  <span class="material-symbols-outlined !text-[18px] transition-transform group-hover:rotate-180">expand_more</span>
+                </button>
+                <!-- INVISIBLE BRIDGE TO PREVENT DROPDOWN CLOSE -->
+                <div class="absolute top-full right-0 h-2 w-full pointer-events-none group-hover:pointer-events-auto"></div>
+                <div class="absolute top-full right-0 mt-1 w-64 rounded-md border border-gray-200 bg-white p-1 shadow-lg opacity-0 invisible translate-y-[-8px] transition-all duration-150 ease-out group-hover:opacity-100 group-hover:visible group-hover:translate-y-0 max-h-[70vh] overflow-y-auto">
+
+                  <!-- Overflow services -->
+                  <?php if (!$__wl && !empty($overflowServices)): ?>
+                    <?php foreach ($overflowServices as $svc): ?>
+                    <a href="<?= $svc['href'] ?>" class="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-900 hover:bg-gray-100 rounded transition-colors">
+                      <span class="material-symbols-outlined !text-[18px] text-gray-500"><?= htmlspecialchars($svc['icon']) ?></span>
+                      <span><?= htmlspecialchars(ucwords($svc['label'])) ?></span>
+                    </a>
+                    <?php endforeach; ?>
+                  <?php endif; ?>
+
+                  <!-- Divider before corporate pages, only if both groups exist -->
+                  <?php if ((!$__wl && !empty($overflowServices)) && (!empty($header_menus) || !empty($header_standalone))): ?>
+                    <div class="my-1 border-t border-gray-100"></div>
+                  <?php endif; ?>
+
+                  <!-- CMS parent menus (render children as a small labelled group) -->
+                  <?php if (!empty($header_menus)): foreach ($header_menus as $menu): ?>
+                    <div class="px-2 pt-1.5 pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                      <?= htmlspecialchars(getTranslatedPageName($menu['parent'], $currentLang)) ?>
+                    </div>
+                    <?php foreach ($menu['children'] as $child):
+                      $href = !empty($child['external_url'])
+                        ? htmlspecialchars($child['external_url'])
+                        : root . 'page/' . htmlspecialchars($child['slug_url']); ?>
+                      <a href="<?= $href ?>" class="block px-2 py-1.5 text-sm text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                        <?= !empty($child['external_url']) ? 'target="_blank" rel="noopener noreferrer"' : '' ?>>
+                        <?= htmlspecialchars(getTranslatedPageName($child, $currentLang)) ?>
+                      </a>
+                    <?php endforeach; ?>
+                  <?php endforeach; endif; ?>
+
+                  <!-- CMS standalone pages (About / Contact / Blog) -->
+                  <?php if (!empty($header_standalone)): foreach ($header_standalone as $page):
+                    $href = !empty($page['external_url'])
+                      ? htmlspecialchars($page['external_url'])
+                      : root . 'page/' . htmlspecialchars($page['slug_url']); ?>
+                    <a href="<?= $href ?>" class="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                      <?= !empty($page['external_url']) ? 'target="_blank" rel="noopener noreferrer"' : '' ?>>
+                      <?= headerNavIcon($page) ?>
+                      <span><?= htmlspecialchars(getTranslatedPageName($page, $currentLang)) ?></span>
+                    </a>
+                  <?php endforeach; endif; ?>
+
+                </div>
+            </div>
             <?php endif; ?>
             </nav>
           </div>
