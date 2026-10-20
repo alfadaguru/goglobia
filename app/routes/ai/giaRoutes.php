@@ -125,6 +125,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/requestApprovalTool.php';
     require_once $aiDir . 'tools/initiatePaymentTool.php';
     require_once $aiDir . 'tools/getOrderStatusTool.php';
+    require_once $aiDir . 'tools/requestHumanTool.php';
     // CRM + analytics (persistent chat, leads, logging). Fail-soft: if these are
     // unavailable the chat still works, just without persistence/reporting.
     require_once $aiDir . 'gia_analytics.php';
@@ -180,6 +181,9 @@ $router->post('/api/gia/chat', function () use ($db) {
         'account_id'    => (string) ($_SESSION['user_id'] ?? ''),
         'user_approved' => ($input['approved'] ?? null) === true,
         'currency'      => (string) ($_SESSION['app_currency'] ?? 'USD'),
+        // Conversation handle so request_human can flag/alert the right chat.
+        'conv_id'       => $convId,
+        'conv_key'      => (string) ($conv['conv_key'] ?? ''),
         // The last search's params+suppliers per module, so fetch_live_offers can run
         // the live supplier lookup for a module the traveller searched earlier. Set by
         // the ROUTE from prior search_trip results — never model-supplied.
@@ -198,6 +202,7 @@ $router->post('/api/gia/chat', function () use ($db) {
         $agent->registerTool(new \App\lib\ai\requestApprovalTool());
         $agent->registerTool(new \App\lib\ai\initiatePaymentTool());
         $agent->registerTool(new \App\lib\ai\getOrderStatusTool());
+        $agent->registerTool(new \App\lib\ai\requestHumanTool());
         $agent->setToolContext($toolContext);
         $result = $agent->run($message, $history);
     } catch (\Throwable $e) {
@@ -530,6 +535,14 @@ $router->post('/api/gia/lead', function () use ($db) {
         $respond(200, ['status' => false, 'message' => 'Please share a valid email or phone.']);
         return;
     }
+
+    // Nurture: follow up the lead with their options (email + optional WhatsApp).
+    // Fail-soft + deduped inside the helper; never affects the response.
+    require_once $aiDir . 'gia_notify.php';
+    if (function_exists('App\\lib\\ai\\gia_nurture_lead') && !empty($res['lead_id'])) {
+        try { \App\lib\ai\gia_nurture_lead($db, (int) $res['lead_id'], $convId); } catch (\Throwable $e) {}
+    }
+
     $respond(200, [
         'status'  => true,
         'message' => 'Thanks — saved! I\'ll keep your trip details handy.',
