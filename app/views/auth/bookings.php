@@ -348,7 +348,7 @@ $selectedPaymentStatus = $_GET['payment_status'] ?? '';
                <?php if (function_exists('aiTripIsEnabled') && aiTripIsEnabled($GLOBALS['db'] ?? ($db ?? null))): ?>
                <a href="<?=root?>bookings?filter=ai_trip" class="tabs-trigger <?= $currentFilter=='ai_trip' ? 'active' : '' ?> shrink-0 flex-none sm:flex-1">
                   <span class="material-symbols-outlined text-sm">auto_awesome</span>
-                  AI Trip
+                  GIA Trip
                </a>
                <?php endif; ?>
             </div>
@@ -432,7 +432,7 @@ $selectedPaymentStatus = $_GET['payment_status'] ?? '';
             ->row([
                'module_type' => function ($row) {
                   $mod = strtolower((string)($row['module_type'] ?? ''));
-                  $label = $mod === 'ai_trip' ? 'AI Trip' : ucfirst($mod);
+                  $label = $mod === 'ai_trip' ? 'GIA Trip' : ucfirst($mod);
                   return '<span class="capitalize">' . htmlspecialchars($label) . '</span>';
                },
                'invoice_id' => '<a href="' . root . 'invoice/{{invoice_id}}" target="_blank" class="text-blue-600 hover:underline">{{invoice_id}} <i class="material-symbols-outlined text-xs">north_east</i></a>',

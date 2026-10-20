@@ -1,8 +1,8 @@
 <?php
 /**
- * AI settings tab — Passport Scanner + Trip Planner feature cards + Provider.
+ * AI settings tab — Passport Scanner + GIA feature cards + Provider.
  * Suggestions list is rendered after Save Settings in settings.php.
- * Trip Planner suppliers follow each module's status=1 AND active=1.
+ * GIA suppliers follow each module's status=1 AND active=1.
  * Expects $db in scope.
  */
 ensurePassportAiSchema($db);
@@ -39,11 +39,11 @@ $aiFeatureModules = [
     ],
     'trip' => [
         'key' => 'trip',
-        'name' => 'AI Trip Planner',
+        'name' => 'GIA (AI travel assistant)',
         'type' => 'Search',
         'icon' => 'auto_awesome',
         'color' => '#0ea5e9',
-        'desc' => 'Home AI search tab and trip planner page. Active modules appear automatically.',
+        'desc' => 'The GIA conversational assistant (home AI box, /gia page, and site-wide chat widget). Active modules appear automatically.',
         'field' => 'ai_trip_enabled',
         'enabled' => !empty($ai['trip_enabled']),
         'needs_key' => true,
@@ -240,7 +240,7 @@ $aiModelsList = [
                     </div>
                     <div class="min-w-0">
                         <h3 class="text-base font-medium text-gray-900">Provider</h3>
-                        <p class="text-xs text-gray-500">Shared by Passport Scanner and Trip Planner. Select a tab and save to activate it.</p>
+                        <p class="text-xs text-gray-500">Shared by Passport Scanner and GIA. Select a tab and save to activate it.</p>
                     </div>
                 </div>
             </div>
@@ -336,7 +336,7 @@ $aiModelsList = [
         <h3 class="text-lg font-medium text-gray-900 mb-1">No modules active</h3>
         <p class="text-sm text-gray-500"
            x-text="activeProviderHasKey
-             ? 'Turn on Passport Scanner, Local Passport Scanner, or AI Trip Planner above, then save settings.'
+             ? 'Turn on Passport Scanner, Local Passport Scanner, or GIA above, then save settings.'
              : 'Add an API key for AI features, or enable Local Passport Scanner (no key required).'"></p>
     </div>
 </div>
