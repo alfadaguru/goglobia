@@ -339,8 +339,10 @@ $footer_menus = array_values(array_filter(array_map(
                             ?>
                                 <a href="<?= htmlspecialchars($__c['url']) ?>" target="_blank" rel="noopener noreferrer"
                                    title="<?= htmlspecialchars($__c['alt']) ?>"
-                                   class="group inline-flex items-center justify-center bg-white rounded-lg px-3 py-2 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5"
-                                   style="border:1px solid rgba(0,0,0,0.06);">
+                                   class="group inline-flex items-center justify-center bg-white rounded-lg px-3 py-2 shadow-sm transition-all duration-200"
+                                   style="border:1px solid rgba(0,0,0,0.06);"
+                                   onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 18px rgba(0,0,0,.12)';"
+                                   onmouseout="this.style.transform='';this.style.boxShadow='';">
                                     <img src="<?= versionedAssetUrl($__certPath) ?>"
                                          alt="<?= htmlspecialchars($__c['alt']) ?>"
                                          class="h-7 sm:h-9 w-auto object-contain transition-all duration-200"

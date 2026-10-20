@@ -4514,6 +4514,51 @@ function calculateTax($totalAmount, $moduleName, $db, $fromCurrency = null, $toC
  * never double-count. `user_ref` is the user_id when logged in, else a
  * lowercased email, so guest checkouts are still capped per email.
  */
+/**
+ * Self-healing schema for the newsletter/campaign feature (Phase 1: subscribers).
+ * Idempotent; follows the same pattern as the other ensure*Schema() helpers
+ * (static guard, CREATE IF NOT EXISTS, swallow+log failures, never throw).
+ *
+ * `status`  : pending (double-opt-in, not yet confirmed) | subscribed | unsubscribed | bounced
+ * `confirm_token`     : one-time token emailed for double-opt-in confirmation
+ * `unsubscribe_token` : stable per-subscriber token for one-click unsubscribe (CAN-SPAM)
+ */
+function ensureNewsletterSchema($db): void
+{
+    static $checked = false;
+    if ($checked) { return; }
+    $checked = true;
+
+    try {
+        if (!dbTableExists($db, 'newsletter_subscribers')) {
+            $db->query("CREATE TABLE IF NOT EXISTS `newsletter_subscribers` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `email` varchar(191) NOT NULL,
+                `first_name` varchar(120) DEFAULT NULL,
+                `last_name` varchar(120) DEFAULT NULL,
+                `country` varchar(2) DEFAULT NULL,
+                `language` varchar(8) DEFAULT NULL,
+                `status` enum('pending','subscribed','unsubscribed','bounced') NOT NULL DEFAULT 'pending',
+                `source` varchar(50) DEFAULT NULL,
+                `confirm_token` varchar(64) DEFAULT NULL,
+                `unsubscribe_token` varchar(64) DEFAULT NULL,
+                `ip` varchar(45) DEFAULT NULL,
+                `confirmed_at` datetime DEFAULT NULL,
+                `unsubscribed_at` datetime DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_email` (`email`),
+                KEY `idx_status` (`status`),
+                KEY `idx_confirm_token` (`confirm_token`),
+                KEY `idx_unsubscribe_token` (`unsubscribe_token`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        }
+    } catch (\Throwable $e) {
+        error_log('ensureNewsletterSchema: ' . $e->getMessage());
+    }
+}
+
 function ensurePromoUsageSchema($db): void
 {
     static $checked = false;

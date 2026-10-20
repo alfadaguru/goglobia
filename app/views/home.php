@@ -403,8 +403,8 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
                 const labels = requested.map((m) => this._aiModuleLabel(m)).filter(Boolean);
                 const avail = enabled.map((m) => this._aiModuleLabel(m)).filter(Boolean);
                 let msg = labels.length === 1
-                    ? (labels[0] + " is not available for AI Trip right now.")
-                    : "That travel option is not available for AI Trip right now.";
+                    ? (labels[0] + " is not available right now.")
+                    : "That travel option is not available right now.";
                 if (avail.length) {
                     const examples = avail.slice(0, 3);
                     msg += " Try " + examples.join(", ")
@@ -542,7 +542,7 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
                     : 'bg-transparent text-gray-600 border-transparent hover:text-gray-900 hover:bg-gray-100/50'"
                 role="tab">
                <span class="material-symbols-outlined font-medium text-xl">auto_awesome</span>
-               <span class="text-xs md:text-sm font-semibold">AI Trip Planner</span>
+               <span class="text-xs md:text-sm font-semibold">GIA</span>
             </button>
             <?php endif; ?>
          </nav>
@@ -594,7 +594,7 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
                   <div class="rounded-2xl border border-primary/30 bg-white p-4 md:p-5">
                      <div class="flex items-center gap-2 mb-3">
                         <span class="material-symbols-outlined text-primary">auto_awesome</span>
-                        <h3 class="text-base md:text-lg font-semibold text-gray-900">AI Trip Planner</h3>
+                        <h3 class="text-base md:text-lg font-semibold text-gray-900">GIA — your AI travel assistant</h3>
                      </div>
 
                      <div class="relative">
@@ -604,7 +604,7 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
                            class="w-full rounded-xl border-0 bg-transparent px-0 py-1 text-sm md:text-base leading-relaxed text-gray-700 focus:outline-none focus:ring-0 min-h-[110px] empty:before:content-[attr(data-placeholder)] empty:before:text-gray-400"
                            contenteditable="true"
                            role="textbox"
-                           data-placeholder="Describe the trip you need… (e.g. Round trip Dubai to Paris in October for 2 adults, beach resort stay)"
+                           data-placeholder="Tell GIA what you need… (e.g. Round trip Dubai to Paris in October for 2 adults, beach resort stay)"
                            @input="onAiInput()"
                         ></div>
                      </div>
@@ -707,7 +707,7 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
                         class="btn relative z-30"
                         onclick="if(window.homeAiSearch){window.homeAiSearch.submit();}return false;">
                         <span class="material-symbols-outlined text-base">auto_awesome</span>
-                        <span>Search with AI</span>
+                        <span>Ask GIA</span>
                      </button>
                   </div>
 
@@ -786,8 +786,8 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
          var labels = requested.map(moduleLabel).filter(Boolean);
          var avail = enabledModules.map(moduleLabel).filter(Boolean);
          var msg = labels.length === 1
-            ? (labels[0] + " is not available for AI Trip right now.")
-            : "That travel option is not available for AI Trip right now.";
+            ? (labels[0] + " is not available right now.")
+            : "That travel option is not available right now.";
          if (avail.length) {
             var examples = avail.slice(0, 3);
             msg += " Try " + examples.join(", ")
@@ -994,8 +994,10 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
         ?>
           <a href="<?= htmlspecialchars($__hc['url']) ?>" target="_blank" rel="noopener noreferrer"
              title="<?= htmlspecialchars($__hc['alt']) ?>"
-             class="inline-flex items-center justify-center rounded-md bg-white px-2 py-1 transition-all duration-200 hover:-translate-y-0.5"
-             style="border:1px solid rgba(0,0,0,0.06);">
+             class="inline-flex items-center justify-center rounded-md bg-white px-2 py-1 transition-transform duration-200"
+             style="border:1px solid rgba(0,0,0,0.06);"
+             onmouseover="this.style.transform='translateY(-2px)';"
+             onmouseout="this.style.transform='';">
             <img src="<?= versionedAssetUrl($__hcPath) ?>" alt="<?= htmlspecialchars($__hc['alt']) ?>"
                  class="h-6 sm:h-7 w-auto object-contain"
                  style="filter:grayscale(1);opacity:.9;"
@@ -1076,6 +1078,40 @@ foreach ($featuredOrder as $modType) {
     </div>
 </div>
 
+<!-- ================================================================
+     P3 — WHY CHOOSE US (after featured, before app-download). Static,
+     no new data; reinforces the hero trust strip with a bit more detail.
+     ================================================================ -->
+<section class="w-full bg-gray-50 border-t border-gray-100">
+  <div class="container mx-auto px-4 py-12 sm:py-16">
+    <div class="text-center max-w-2xl mx-auto">
+      <h2 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-gray-900">Why book with us</h2>
+      <p class="mt-2 text-sm sm:text-base text-gray-600">Everything you need for the whole trip — booked in one place, backed by real support and fair prices.</p>
+    </div>
+    <div class="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <?php
+      $__why = [
+          ['icon' => 'public',          'title' => 'Everything in one place', 'desc' => 'Flights, stays, tours, cars, visas and more — plan the whole journey without juggling sites.'],
+          ['icon' => 'payments',        'title' => 'Fair, transparent prices', 'desc' => 'Clear fares with no hidden surprises, and flexible ways to pay.'],
+          ['icon' => 'verified_user',   'title' => 'Book with confidence',      'desc' => 'An IATA-accredited agency with secure, encrypted checkout on every booking.'],
+          ['icon' => 'support_agent',   'title' => '24/7 human support',        'desc' => 'Real people ready to help before, during and after your trip — any time zone.'],
+      ];
+      foreach ($__why as $__w): ?>
+        <div class="bg-white rounded-2xl border border-gray-100 p-6 text-center shadow-sm transition-all duration-200"
+             onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 10px 24px rgba(0,0,0,.08)';"
+             onmouseout="this.style.transform='';this.style.boxShadow='';">
+          <span class="inline-flex items-center justify-center w-12 h-12 rounded-full"
+                style="background: color-mix(in srgb, var(--header-link-color,#2563eb) 12%, #fff); ">
+            <span class="material-symbols-outlined !text-[26px]" style="color:var(--header-link-color,#2563eb);"><?= htmlspecialchars($__w['icon']) ?></span>
+          </span>
+          <h3 class="mt-4 text-base font-bold text-gray-900"><?= htmlspecialchars($__w['title']) ?></h3>
+          <p class="mt-2 text-sm text-gray-600 leading-relaxed"><?= htmlspecialchars($__w['desc']) ?></p>
+        </div>
+      <?php endforeach; ?>
+    </div>
+  </div>
+</section>
+
 <?php
 // Mobile App Section - Dynamic from already-loaded global settings
 $showApps = (($GLOBALS['app']['show_apps'] ?? '1') == '1');
@@ -1122,4 +1158,56 @@ if ($showApps && $hasAppLinks):
 </section>
 </div>
 <?php endif; ?>
+
+<!-- ================================================================
+     P3 — NEWSLETTER SIGNUP (double opt-in). Posts to /newsletter/subscribe;
+     backend stores as 'pending' and emails a confirmation link (Resend).
+     Placed just above the footer, per the competitor section order.
+     ================================================================ -->
+<section class="w-full" style="background: linear-gradient(135deg,#1e3a8a 0%,#2563eb 100%);">
+  <div class="container mx-auto px-4 py-12 sm:py-14">
+    <div class="max-w-2xl mx-auto text-center text-white" x-data="{ email:'', name:'', loading:false, done:false, msg:'', err:false,
+      async submit() {
+        if (this.loading) return;
+        this.err = false; this.msg = '';
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(this.email)) { this.err = true; this.msg = 'Please enter a valid email address.'; return; }
+        this.loading = true;
+        try {
+          const r = await fetch('<?= root ?>newsletter/subscribe', {
+            method:'POST',
+            headers:{ 'Content-Type':'application/json', 'X-CSRF-TOKEN':'<?= CSRF::getToken() ?>' },
+            body: JSON.stringify({ email:this.email, name:this.name, csrf_token:'<?= CSRF::getToken() ?>' })
+          });
+          const d = await r.json().catch(() => ({}));
+          this.msg = d.message || (r.ok ? 'Thanks! Check your inbox to confirm.' : 'Something went wrong. Please try again.');
+          this.err = !r.ok || d.success === false;
+          if (!this.err) { this.done = true; }
+        } catch (e) {
+          this.err = true; this.msg = 'Network error. Please try again.';
+        } finally { this.loading = false; }
+      }
+    }">
+      <span class="material-symbols-outlined !text-[40px] opacity-90">mail</span>
+      <h2 class="mt-2 text-2xl sm:text-3xl font-extrabold tracking-tight">Get travel deals in your inbox</h2>
+      <p class="mt-2 text-sm sm:text-base text-blue-100">Subscribe for exclusive offers, new destinations and travel tips. No spam — unsubscribe any time.</p>
+
+      <template x-if="!done">
+        <form @submit.prevent="submit()" class="mt-6 flex flex-col sm:flex-row gap-3 sm:gap-2 max-w-xl mx-auto" novalidate>
+          <input type="text" x-model="name" placeholder="First name (optional)" autocomplete="given-name"
+                 class="flex-1 min-w-0 rounded-full px-5 py-3 text-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-white/70">
+          <input type="email" x-model="email" placeholder="Your email address" required autocomplete="email"
+                 class="flex-1 min-w-0 rounded-full px-5 py-3 text-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-white/70">
+          <button type="submit" :disabled="loading"
+                  class="shrink-0 rounded-full bg-white px-6 py-3 text-sm font-bold text-blue-700 hover:bg-blue-50 transition disabled:opacity-60">
+            <span x-show="!loading">Subscribe</span>
+            <span x-show="loading">Sending…</span>
+          </button>
+        </form>
+      </template>
+
+      <p x-show="msg" x-cloak class="mt-4 text-sm font-medium"
+         :class="err ? 'text-red-100' : 'text-white'" x-text="msg"></p>
+    </div>
+  </div>
+</section>
 </div>

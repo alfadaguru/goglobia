@@ -390,6 +390,7 @@ require_once 'app/routes/ai/giaRoutes.php'; // GIA agent (Phase A): POST /api/gi
 // GLOBAL ROUTES
 require_once 'app/routes/blogsRoutes.php';
 require_once 'app/routes/globalRoutes.php';
+require_once 'app/routes/newsletterRoutes.php'; // newsletter double-opt-in: subscribe/confirm/unsubscribe
 require_once 'app/routes/cartRoutes.php'; // general cart (tours/visa/esim) — step 6b
 require_once 'app/routes/ajaxRoutes.php';
 require_once 'app/routes/demo-warning-route.php';
