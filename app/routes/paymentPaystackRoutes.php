@@ -70,6 +70,30 @@ $router->post('payment/paystack/webhook', function () use ($SECURE, $db) {
     $event = (string) $payload['event'];
     $data  = is_array($payload['data'] ?? null) ? $payload['data'] : [];
 
+    // SUPPLIER PAYOUT TRANSFERS: Paystack posts ALL events to the one configured URL,
+    // so the existing (already-registered) webhook also handles transfer outcomes — no
+    // second URL to register. transfer.success/failed/reversed finalise a supplier payout
+    // by reference (idempotent + atomic via supplier_payout_finalize_transfer). This runs
+    // BEFORE the charge.success guard below so transfer events aren't dropped.
+    $transferMap = ['transfer.success' => 'success', 'transfer.failed' => 'failed', 'transfer.reversed' => 'reversed'];
+    if (isset($transferMap[$event])) {
+        $reference    = (string) ($data['reference'] ?? '');
+        $transferCode = (string) ($data['transfer_code'] ?? '');
+        if ($reference === '') { $ack(200, 'ignored'); } // our payouts always carry a reference
+        $payout = $db->get('supplier_payouts', ['id'], ['reference' => $reference]);
+        if (!$payout && $transferCode !== '') {
+            $payout = $db->get('supplier_payouts', ['id'], ['transfer_code' => $transferCode]);
+        }
+        if ($payout && function_exists('supplier_payout_finalize_transfer')) {
+            $note = (string) ($data['gateway_response'] ?? ($data['reason'] ?? ''));
+            $r = supplier_payout_finalize_transfer($db, (int) $payout['id'], $transferMap[$event], $transferCode, $note);
+            error_log('PAYSTACK WEBHOOK | ' . $event . ' payout#' . (int) $payout['id'] . ' -> ' . ($r['message'] ?? '?'));
+        } else {
+            error_log('PAYSTACK WEBHOOK | ' . $event . ' no payout for reference=' . $reference);
+        }
+        $ack(200, 'OK'); // handled (or not ours) — don't fall through to charge logic
+    }
+
     // We only act on a successful charge that funded a dedicated virtual account.
     if ($event !== 'charge.success') {
         $ack(200, 'ignored'); // e.g. dedicatedaccount.assign.* — nothing to credit
@@ -204,17 +228,16 @@ $router->post('payment/paystack/transfer-webhook', function () use ($SECURE, $db
 
     $reference    = (string) ($data['reference'] ?? '');
     $transferCode = (string) ($data['transfer_code'] ?? '');
-    if ($reference === '' && $transferCode === '') {
-        error_log('PAYSTACK TRANSFER WH | ' . $event . ' with no reference/transfer_code');
+    // Our outbound transfers ALWAYS carry our unique reference (the UNIQUE idempotency
+    // key). Match strictly on it — never fall back to transfer_code alone, which is not
+    // unique in our schema and could finalise the wrong payout.
+    if ($reference === '') {
+        error_log('PAYSTACK TRANSFER WH | ' . $event . ' with no reference');
         $ack(200, 'ignored');
     }
-
-    // Match our payout by the reference we sent (preferred), else by transfer_code.
-    $payout = null;
-    if ($reference !== '') { $payout = $db->get('supplier_payouts', ['id'], ['reference' => $reference]); }
-    if (!$payout && $transferCode !== '') { $payout = $db->get('supplier_payouts', ['id'], ['transfer_code' => $transferCode]); }
+    $payout = $db->get('supplier_payouts', ['id'], ['reference' => $reference]);
     if (!$payout) {
-        error_log('PAYSTACK TRANSFER WH | no payout for reference=' . $reference . ' transfer_code=' . $transferCode);
+        error_log('PAYSTACK TRANSFER WH | no payout for reference=' . $reference);
         $ack(200, 'ignored'); // not one of ours (or a transfer made outside this system)
     }
 

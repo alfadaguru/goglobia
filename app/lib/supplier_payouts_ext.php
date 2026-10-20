@@ -84,6 +84,20 @@ if (!function_exists('supplier_payouts_ext_ensure_schema')) {
                     $db->query("ALTER TABLE `supplier_payouts` ADD COLUMN `{$col}` {$def}");
                 }
             }
+
+            // Ensure the state enum includes 'awaiting_otp' (added for the Paystack
+            // per-transfer OTP flow). Idempotent: only MODIFY when the value is absent, so
+            // we never rewrite the column on every request. Safe on existing data because
+            // we only ADD a value to the enum (no existing row's value is removed).
+            try {
+                $col = $db->query("SHOW COLUMNS FROM `supplier_payouts` LIKE 'state'")->fetch(\PDO::FETCH_ASSOC);
+                $type = (string) ($col['Type'] ?? '');
+                if ($type !== '' && stripos($type, "awaiting_otp") === false) {
+                    $db->query("ALTER TABLE `supplier_payouts` MODIFY COLUMN `state`
+                        enum('requested','approved','processing','awaiting_otp','paid','failed','rejected','cancelled')
+                        NOT NULL DEFAULT 'requested'");
+                }
+            } catch (\Throwable $e) { error_log('supplier_payouts state enum ensure: ' . $e->getMessage()); }
         } catch (\Throwable $e) {
             error_log('supplier_payouts_ext_ensure_schema: ' . $e->getMessage());
         }

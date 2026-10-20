@@ -128,10 +128,15 @@ if (!function_exists('supplier_payout_request')) {
         $fee = round(max(0.0, (float) ($opts['fee'] ?? 0)), 2);
         if ($fee > $amount) { $fee = $amount; } // never exceed the gross
         $orgId = function_exists('supplier_org_for_owner') ? supplier_org_for_owner($db, $owner) : 0;
+        // Daily cap (0 = no cap). Checked AGAIN inside the locked transaction below so two
+        // concurrent requests cannot both pass a pre-check and jointly exceed the cap.
+        $dailyCap = function_exists('supplier_payout_rule')
+            ? (float) supplier_payout_rule($db, $currency, 'daily_cap', 0) : 0.0;
+        $today = date('Y-m-d');
 
         $result = ['ok' => false, 'message' => 'Could not create the payout request'];
         try {
-            $db->action(function ($db) use ($owner, $amount, $currency, $bankCode, $acctNo, $acctName, $bankName, $recipient, $bankAcctId, $fee, $orgId, &$result) {
+            $db->action(function ($db) use ($owner, $amount, $currency, $bankCode, $acctNo, $acctName, $bankName, $recipient, $bankAcctId, $fee, $orgId, $dailyCap, $today, &$result) {
                 // Lock this owner's unreserved available earnings in this currency.
                 $locked = $db->query(
                     "SELECT id, net_amount FROM supplier_earnings
@@ -146,6 +151,30 @@ if (!function_exists('supplier_payout_request')) {
                 if ($amount > $avail + 1e-9) {
                     $result = ['ok' => false, 'message' => 'Requested amount exceeds your available balance.'];
                     return false; // rollback
+                }
+
+                // Authoritative daily-cap enforcement INSIDE the transaction. Because both
+                // concurrent requests hold the earnings row locks above, their cap reads
+                // here are serialized — the second sees the first's just-inserted row and
+                // is correctly rejected if it would breach the cap. (The precheck outside
+                // is advisory UX only.) Counts today's non-terminal + paid payouts.
+                if ($dailyCap > 0) {
+                    $todayRows = $db->select('supplier_payouts', ['amount', 'created_at'],
+                        ['owner_user_id' => $owner, 'currency' => $currency,
+                         'state' => ['requested', 'approved', 'processing', 'awaiting_otp', 'paid']]) ?: [];
+                    $usedToday = 0.0;
+                    foreach ($todayRows as $tr) {
+                        if (substr((string) ($tr['created_at'] ?? ''), 0, 10) === $today) {
+                            $usedToday = round($usedToday + (float) $tr['amount'], 2);
+                        }
+                    }
+                    if ($usedToday + $amount > $dailyCap + 1e-9) {
+                        $remaining = max(0.0, round($dailyCap - $usedToday, 2));
+                        $result = ['ok' => false, 'message' => 'Daily payout limit is ' . $currency . ' '
+                            . number_format($dailyCap, 2) . '. You can still withdraw ' . $currency . ' '
+                            . number_format($remaining, 2) . ' today.'];
+                        return false; // rollback
+                    }
                 }
 
                 // Create the payout row (requested). The destination + fee are snapshotted
@@ -476,20 +505,42 @@ if (!function_exists('supplier_payout_approve_and_send')) {
         $transferCode = (string) ($tres['json']['data']['transfer_code'] ?? '');
         $httpOk = $tres['http'] >= 200 && $tres['http'] < 300;
 
-        // Paystack transfer 'status': success | pending | otherwise. success/pending =
-        // accepted (finalised by the transfer webhook); otherwise = failed.
-        if ($httpOk && in_array($tstatus, ['success', 'pending', 'otp'], true)) {
-            // COMMIT the debit: reserved earnings 'available' -> 'paid'.
-            try {
-                $db->update('supplier_earnings',
-                    ['state' => 'paid', 'updated_at' => date('Y-m-d H:i:s')],
-                    ['payout_id' => $payoutId, 'state' => 'available']);
-            } catch (\Throwable $e) { error_log('payout debit: ' . $e->getMessage()); }
+        // Paystack transfer 'status':
+        //   success | pending  = ACCEPTED — money is moving; finalised by the transfer
+        //                        webhook (transfer.success/failed/reversed).
+        //   otp                = NOT sent yet. The account has per-transfer OTP enabled;
+        //                        the money does NOT move until we POST /transfer/finalize_transfer
+        //                        with the OTP. We must NOT debit earnings or mark paid here.
+        //   otherwise          = failed.
+        if ($httpOk && $tstatus === 'otp') {
+            // Park awaiting OTP: keep the reservation (earnings stay 'available', payout_id
+            // set), store the transfer_code for finalize, and surface it to the admin to
+            // enter the OTP. NO earnings debit — the transfer has not happened.
             $db->update('supplier_payouts', [
-                'state'         => 'paid',
+                'state'         => 'awaiting_otp',
                 'transfer_code' => $transferCode ?: null,
-                'paid_at'       => date('Y-m-d H:i:s'),
-            ], ['id' => $payoutId]);
+                'failure_reason'=> null,
+            ], ['id' => $payoutId, 'state' => 'processing']);
+            return ['ok' => true, 'state' => 'awaiting_otp',
+                'message' => 'Paystack requires an OTP to authorise this transfer. Enter the OTP sent to the business phone to complete it.'];
+        }
+
+        if ($httpOk && in_array($tstatus, ['success', 'pending'], true)) {
+            // COMMIT atomically: reserved earnings 'available' -> 'paid' AND payout 'paid'
+            // in one transaction, so a crash can't debit earnings without finalising the
+            // payout (or vice-versa).
+            try {
+                $db->action(function ($db) use ($payoutId, $transferCode) {
+                    $db->update('supplier_earnings',
+                        ['state' => 'paid', 'updated_at' => date('Y-m-d H:i:s')],
+                        ['payout_id' => $payoutId, 'state' => 'available']);
+                    $db->update('supplier_payouts', [
+                        'state'         => 'paid',
+                        'transfer_code' => $transferCode ?: null,
+                        'paid_at'       => date('Y-m-d H:i:s'),
+                    ], ['id' => $payoutId, 'state' => 'processing']);
+                });
+            } catch (\Throwable $e) { error_log('payout debit: ' . $e->getMessage()); }
             if (function_exists('emit_event')) {
                 emit_event($db, 'payout.paid', ['payout_id' => $payoutId, 'amount' => (float) $p['amount'], 'currency' => $p['currency']],
                     'supplier_payout', $payoutId, $p['org_id'] !== null ? (int) $p['org_id'] : null);
@@ -504,6 +555,92 @@ if (!function_exists('supplier_payout_approve_and_send')) {
             ['id' => $payoutId]);
         supplier_payout_release_reservation($db, $payoutId);
         return ['ok' => false, 'state' => 'failed', 'message' => 'Transfer failed: ' . $msg];
+    }
+}
+
+if (!function_exists('supplier_payout_submit_otp')) {
+    /**
+     * Complete a transfer that is parked in 'awaiting_otp' by POSTing the OTP to
+     * Paystack's /transfer/finalize_transfer. Admin-invoked with the OTP the business
+     * received on its phone. On a confirmed transfer the earnings are debited and the
+     * payout finalised 'paid' (via supplier_payout_finalize_transfer, atomic + idempotent).
+     *
+     * Only acts on an 'awaiting_otp' payout; any other state is refused. On a bad/expired
+     * OTP the payout STAYS 'awaiting_otp' (the admin can retry or resend) — we never fail
+     * it on a wrong OTP, because the transfer is still pending at Paystack.
+     * Returns ['ok'=>bool,'state'=>,'message'=>].
+     */
+    function supplier_payout_submit_otp($db, int $payoutId, string $otp): array
+    {
+        $otp = trim($otp);
+        $p = $db->get('supplier_payouts', '*', ['id' => $payoutId]);
+        if (!$p) { return ['ok' => false, 'message' => 'Payout not found']; }
+        if ((string) $p['state'] !== 'awaiting_otp') {
+            return ['ok' => false, 'message' => 'This payout is not awaiting an OTP (state: ' . $p['state'] . ').'];
+        }
+        $transferCode = trim((string) ($p['transfer_code'] ?? ''));
+        if ($transferCode === '') {
+            return ['ok' => false, 'message' => 'No transfer code on this payout; cannot finalise. Reject and re-request.'];
+        }
+        if ($otp === '') { return ['ok' => false, 'message' => 'Enter the OTP.']; }
+
+        $gw = function_exists('paystack_dva_gateway') ? paystack_dva_gateway($db) : null;
+        $secret = $gw ? paystack_dva_secret($gw) : '';
+        if ($secret === '') { return ['ok' => false, 'message' => 'Paystack gateway not configured.']; }
+
+        $fres = paystack_dva_http('POST', 'https://api.paystack.co/transfer/finalize_transfer', $secret, [
+            'transfer_code' => $transferCode,
+            'otp'           => $otp,
+        ]);
+        $httpOk = ($fres['http'] ?? 0) >= 200 && ($fres['http'] ?? 0) < 300;
+        $fstatus = strtolower((string) ($fres['json']['data']['status'] ?? ''));
+
+        if ($httpOk && in_array($fstatus, ['success', 'pending'], true)) {
+            // Transfer authorised — finalise exactly like the webhook would (atomic debit
+            // + payout 'paid', idempotent). We move it to 'processing' first so the shared
+            // finaliser (which expects processing/approved) applies cleanly.
+            $db->update('supplier_payouts', ['state' => 'processing'], ['id' => $payoutId, 'state' => 'awaiting_otp']);
+            if (function_exists('supplier_payout_finalize_transfer')) {
+                $r = supplier_payout_finalize_transfer($db, $payoutId, 'success', $transferCode, 'otp finalised');
+                return ['ok' => !empty($r['ok']), 'state' => $r['state'] ?? 'paid',
+                        'message' => 'OTP accepted — transfer authorised and marked paid.'];
+            }
+            return ['ok' => true, 'state' => 'processing', 'message' => 'OTP accepted; awaiting confirmation.'];
+        }
+
+        // Bad/expired OTP, or Paystack declined: stay 'awaiting_otp' for a retry/resend.
+        $msg = $fres['json']['message'] ?? ($fres['error'] ?: 'OTP not accepted');
+        return ['ok' => false, 'state' => 'awaiting_otp', 'message' => 'OTP not accepted: ' . $msg];
+    }
+}
+
+if (!function_exists('supplier_payout_resend_otp')) {
+    /**
+     * Ask Paystack to resend the transfer OTP for a payout parked in 'awaiting_otp'
+     * (POST /transfer/resend_otp with the transfer_code). Admin-invoked. Does not change
+     * payout state. Returns ['ok'=>bool,'message'=>].
+     */
+    function supplier_payout_resend_otp($db, int $payoutId): array
+    {
+        $p = $db->get('supplier_payouts', ['id', 'state', 'transfer_code'], ['id' => $payoutId]);
+        if (!$p) { return ['ok' => false, 'message' => 'Payout not found']; }
+        if ((string) $p['state'] !== 'awaiting_otp') {
+            return ['ok' => false, 'message' => 'Not awaiting an OTP.'];
+        }
+        $transferCode = trim((string) ($p['transfer_code'] ?? ''));
+        if ($transferCode === '') { return ['ok' => false, 'message' => 'No transfer code on this payout.']; }
+
+        $gw = function_exists('paystack_dva_gateway') ? paystack_dva_gateway($db) : null;
+        $secret = $gw ? paystack_dva_secret($gw) : '';
+        if ($secret === '') { return ['ok' => false, 'message' => 'Paystack gateway not configured.']; }
+
+        $res = paystack_dva_http('POST', 'https://api.paystack.co/transfer/resend_otp', $secret, [
+            'transfer_code' => $transferCode,
+            'reason'        => 'resend_otp',
+        ]);
+        $httpOk = ($res['http'] ?? 0) >= 200 && ($res['http'] ?? 0) < 300;
+        $msg = $res['json']['message'] ?? ($res['error'] ?: ($httpOk ? 'OTP resent.' : 'Could not resend OTP.'));
+        return ['ok' => $httpOk, 'message' => $msg];
     }
 }
 
@@ -542,14 +679,19 @@ if (!function_exists('supplier_payout_finalize_transfer')) {
                 // 'failed'/'rejected'/'requested' shouldn't receive a success; don't force it.
                 return ['ok' => false, 'state' => $state, 'changed' => false, 'message' => 'Not in a finalisable state (' . $state . ').'];
             }
+            // Atomic: debit the reserved earnings AND mark the payout paid in one
+            // transaction, so a crash between them can't leave earnings paid with the
+            // payout unfinalised (or vice-versa). State-guarded on both sides.
             try {
-                $db->update('supplier_earnings',
-                    ['state' => 'paid', 'updated_at' => date('Y-m-d H:i:s')],
-                    ['payout_id' => $payoutId, 'state' => 'available']);
+                $db->action(function ($db) use ($payoutId, $tc, $state) {
+                    $db->update('supplier_earnings',
+                        ['state' => 'paid', 'updated_at' => date('Y-m-d H:i:s')],
+                        ['payout_id' => $payoutId, 'state' => 'available']);
+                    $db->update('supplier_payouts',
+                        ['state' => 'paid', 'transfer_code' => $tc ?: null, 'paid_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
+                        ['id' => $payoutId, 'state' => $state]); // guard: only from the state we read
+                });
             } catch (\Throwable $e) { error_log('finalize debit: ' . $e->getMessage()); }
-            $db->update('supplier_payouts',
-                ['state' => 'paid', 'transfer_code' => $tc ?: null, 'paid_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
-                ['id' => $payoutId, 'state' => $state]); // guard: only from the state we read
             if (function_exists('emit_event')) {
                 emit_event($db, 'payout.paid', ['payout_id' => $payoutId, 'amount' => (float) $p['amount'], 'currency' => $p['currency']],
                     'supplier_payout', $payoutId, $p['org_id'] !== null ? (int) $p['org_id'] : null);
@@ -561,22 +703,33 @@ if (!function_exists('supplier_payout_finalize_transfer')) {
             if (in_array($state, ['failed', 'rejected', 'cancelled'], true)) {
                 return ['ok' => true, 'state' => $state, 'changed' => false, 'message' => 'Already terminal.'];
             }
-            // If it had been (optimistically or really) debited to 'paid', return those
-            // earnings to 'available' so the money is not lost; then release the reservation.
-            if ($state === 'paid') {
-                try {
-                    $db->update('supplier_earnings',
-                        ['state' => 'available', 'updated_at' => date('Y-m-d H:i:s')],
-                        ['payout_id' => $payoutId, 'state' => 'paid']);
-                } catch (\Throwable $e) { error_log('finalize unwind: ' . $e->getMessage()); }
-            }
             $reason = $outcome === 'reversed' ? 'transfer reversed' : 'transfer failed';
             if ($note !== '') { $reason .= ': ' . $note; }
-            $db->update('supplier_payouts',
-                ['state' => 'failed', 'transfer_code' => $tc ?: null,
-                 'failure_reason' => substr($reason, 0, 255), 'updated_at' => date('Y-m-d H:i:s')],
-                ['id' => $payoutId]);
+            // Atomic: if it had been (optimistically or really) debited to 'paid', return
+            // those earnings 'paid'->'available' so the money is not lost, AND mark the
+            // payout failed — in one transaction. decided_by records the webhook as the
+            // actor for the audit trail. Then release the reservation.
+            try {
+                $db->action(function ($db) use ($payoutId, $state, $tc, $reason) {
+                    if ($state === 'paid') {
+                        $db->update('supplier_earnings',
+                            ['state' => 'available', 'updated_at' => date('Y-m-d H:i:s')],
+                            ['payout_id' => $payoutId, 'state' => 'paid']);
+                    }
+                    $db->update('supplier_payouts',
+                        ['state' => 'failed', 'transfer_code' => $tc ?: null,
+                         'failure_reason' => substr($reason, 0, 255),
+                         'decided_by' => 'paystack_webhook', 'updated_at' => date('Y-m-d H:i:s')],
+                        ['id' => $payoutId]);
+                });
+            } catch (\Throwable $e) { error_log('finalize fail/reverse: ' . $e->getMessage()); }
             supplier_payout_release_reservation($db, $payoutId);
+            // Notify so a failed/reversed payout is never silent (supplier + admin ops).
+            if (function_exists('emit_event')) {
+                emit_event($db, 'payout.' . $outcome,
+                    ['payout_id' => $payoutId, 'amount' => (float) $p['amount'], 'currency' => $p['currency'], 'reason' => $reason],
+                    'supplier_payout', $payoutId, $p['org_id'] !== null ? (int) $p['org_id'] : null);
+            }
             return ['ok' => true, 'state' => 'failed', 'changed' => true, 'message' => ucfirst($reason) . '; reservation released.'];
         }
 

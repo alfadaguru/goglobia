@@ -25,6 +25,7 @@ $stateBadge = function ($s) {
     return [
         'requested' => 'bg-amber-50 text-amber-700', 'approved' => 'bg-blue-50 text-blue-700',
         'processing'=> 'bg-indigo-50 text-indigo-700','paid' => 'bg-green-50 text-green-700',
+        'awaiting_otp' => 'bg-purple-50 text-purple-700',
         'failed'    => 'bg-red-50 text-red-700','rejected' => 'bg-red-50 text-red-700',
         'cancelled' => 'bg-gray-100 text-gray-600','reversed' => 'bg-red-50 text-red-700',
     ][strtolower((string) $s)] ?? 'bg-gray-100 text-gray-600';

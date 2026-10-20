@@ -8,6 +8,7 @@ $stateBadge = function ($s) {
     return [
         'requested' => 'bg-amber-50 text-amber-700', 'approved' => 'bg-blue-50 text-blue-700',
         'processing'=> 'bg-indigo-50 text-indigo-700','paid' => 'bg-green-50 text-green-700',
+        'awaiting_otp' => 'bg-purple-50 text-purple-700',
         'failed'    => 'bg-red-50 text-red-700','rejected' => 'bg-red-50 text-red-700',
         'cancelled' => 'bg-gray-100 text-gray-600',
     ][strtolower((string) $s)] ?? 'bg-gray-100 text-gray-600';
@@ -74,6 +75,22 @@ $base = root . admin . '/supplier-payouts';
                     <?= CSRF::tokenField() ?>
                     <input type="hidden" name="id" value="<?= (int) $p['id'] ?>">
                     <button type="submit" class="btn rose text-xs">Reject</button>
+                  </form>
+                </div>
+              <?php elseif ($st === 'awaiting_otp'): ?>
+                <div class="flex flex-col gap-1.5">
+                  <div class="text-[11px] text-indigo-600">Paystack sent an OTP to the business phone. Enter it to complete the transfer.</div>
+                  <form action="<?= $base ?>/otp" method="POST" class="flex items-center gap-1">
+                    <?= CSRF::tokenField() ?>
+                    <input type="hidden" name="id" value="<?= (int) $p['id'] ?>">
+                    <input type="text" name="otp" inputmode="numeric" autocomplete="off" required
+                           class="input text-xs w-28" placeholder="OTP">
+                    <button type="submit" class="btn emerald text-xs">Complete</button>
+                  </form>
+                  <form action="<?= $base ?>/resend-otp" method="POST" class="inline">
+                    <?= CSRF::tokenField() ?>
+                    <input type="hidden" name="id" value="<?= (int) $p['id'] ?>">
+                    <button type="submit" class="btn ghost text-[11px]">Resend OTP</button>
                   </form>
                 </div>
               <?php elseif ($st === 'processing'): ?>

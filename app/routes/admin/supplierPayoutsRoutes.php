@@ -108,6 +108,48 @@ $router->post(admin . '/supplier-payouts/resolve', function () use ($SECURE, $db
 });
 
 // ----------------------------------------------------------------------------
+// POST /admin/supplier-payouts/otp — submit the Paystack OTP to finalise a transfer
+// parked in 'awaiting_otp' (account has per-transfer OTP enabled).
+// ----------------------------------------------------------------------------
+$router->post(admin . '/supplier-payouts/otp', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    CSRF::guard();
+    $id = (int) ($_POST['id'] ?? 0);
+    $otp = trim((string) ($_POST['otp'] ?? ''));
+    $back = root . admin . '/supplier-payouts';
+    if ($id <= 0 || !function_exists('supplier_payout_submit_otp')) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Invalid payout.'];
+        header('Location: ' . $back); exit;
+    }
+    $res = supplier_payout_submit_otp($db, $id, $otp);
+    $_SESSION['message'] = [
+        'type' => !empty($res['ok']) ? 'success' : 'error',
+        'text' => $res['message'] ?? 'Done.',
+    ];
+    header('Location: ' . $back); exit;
+});
+
+// ----------------------------------------------------------------------------
+// POST /admin/supplier-payouts/resend-otp — ask Paystack to resend the transfer OTP.
+// ----------------------------------------------------------------------------
+$router->post(admin . '/supplier-payouts/resend-otp', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    CSRF::guard();
+    $id = (int) ($_POST['id'] ?? 0);
+    $back = root . admin . '/supplier-payouts';
+    if ($id <= 0 || !function_exists('supplier_payout_resend_otp')) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Invalid payout.'];
+        header('Location: ' . $back); exit;
+    }
+    $res = supplier_payout_resend_otp($db, $id);
+    $_SESSION['message'] = [
+        'type' => !empty($res['ok']) ? 'success' : 'error',
+        'text' => $res['message'] ?? 'Done.',
+    ];
+    header('Location: ' . $back); exit;
+});
+
+// ----------------------------------------------------------------------------
 // GET /admin/supplier-payout-settings — payout rules + enable kill-switch
 // ----------------------------------------------------------------------------
 $router->get(admin . '/supplier-payout-settings', function () use ($SECURE, $db) {

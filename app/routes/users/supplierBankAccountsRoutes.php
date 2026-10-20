@@ -73,6 +73,20 @@ $router->post('/supplier/bank-accounts/resolve', function () use ($SECURE, $db) 
     if (!CSRF::validateToken(CSRF::tokenFromRequest())) {
         echo json_encode(['ok' => false, 'message' => 'Invalid request token.']); exit;
     }
+    // Rate-limit: /resolve calls Paystack's account lookup, which could be abused to
+    // enumerate account-number -> holder-name. Cap at 20 lookups per rolling 60s per
+    // session. Self-contained session-window counter (no external infra).
+    $nowTs = time();
+    $win = $_SESSION['ba_resolve_win'] ?? ['start' => $nowTs, 'count' => 0];
+    if (!is_array($win) || ($nowTs - (int) ($win['start'] ?? 0)) >= 60) {
+        $win = ['start' => $nowTs, 'count' => 0];
+    }
+    if ((int) $win['count'] >= 20) {
+        echo json_encode(['ok' => false, 'message' => 'Too many lookups. Please wait a minute and try again.']); exit;
+    }
+    $win['count'] = (int) $win['count'] + 1;
+    $_SESSION['ba_resolve_win'] = $win;
+
     $bankCode = (string) ($_POST['bank_code'] ?? '');
     $acctNo   = (string) ($_POST['account_number'] ?? '');
     $res = function_exists('supplier_payout_resolve_account')

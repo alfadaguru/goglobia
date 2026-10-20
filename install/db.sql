@@ -28911,7 +28911,7 @@ CREATE TABLE `supplier_payouts` (
   `owner_user_id` varchar(155) NOT NULL,
   `currency` char(3) NOT NULL DEFAULT 'NGN',
   `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
-  `state` enum('requested','approved','processing','paid','failed','rejected','cancelled') NOT NULL DEFAULT 'requested',
+  `state` enum('requested','approved','processing','awaiting_otp','paid','failed','rejected','cancelled') NOT NULL DEFAULT 'requested',
   `bank_code` varchar(20) DEFAULT NULL,
   `account_number` varchar(40) DEFAULT NULL,
   `account_name` varchar(191) DEFAULT NULL,

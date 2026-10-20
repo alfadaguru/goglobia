@@ -182,7 +182,7 @@ if (!function_exists('supplier_settlement_statement')) {
         $toDt   = $to . ' 23:59:59';
 
         $out = ['currency' => $currency, 'from' => $from, 'to' => $to,
-                'released' => 0.0, 'paid_out' => 0.0, 'charged_back' => 0.0,
+                'released' => 0.0, 'paid_out' => 0.0, 'payout_fees' => 0.0, 'charged_back' => 0.0,
                 'gross' => 0.0, 'commission' => 0.0, 'lines' => []];
         if ($owner === '') { return $out; }
 
@@ -207,16 +207,32 @@ if (!function_exists('supplier_settlement_statement')) {
                         'note' => 'Earning cleared'];
                 }
             }
-            // Payouts marked paid in-window.
-            $pays = $db->select('supplier_payouts',
-                ['reference', 'amount', 'paid_at'],
+            // Payouts marked paid in-window. The payout 'amount' is the GROSS debited from
+            // the supplier's balance; the bank receives amount - fee (the platform keeps
+            // the fee). We surface both so the statement reconciles against the bank deposit
+            // (previously the fee was invisible and looked like a shortfall). fee_amount may
+            // be absent on legacy rows — tolerate it.
+            $payCols = ['reference', 'amount', 'paid_at'];
+            try {
+                if ($db->query("SHOW COLUMNS FROM `supplier_payouts` LIKE 'fee_amount'")->fetch()) {
+                    $payCols[] = 'fee_amount';
+                }
+            } catch (\Throwable $ignore) {}
+            $pays = $db->select('supplier_payouts', $payCols,
                 ['owner_user_id' => $owner, 'currency' => $currency, 'state' => 'paid',
                  'paid_at[<>]' => [$fromDt, $toDt], 'ORDER' => ['id' => 'ASC']]) ?: [];
             foreach ($pays as $p) {
-                $out['paid_out'] = round($out['paid_out'] + (float) $p['amount'], 2);
+                $gross = (float) $p['amount'];
+                $fee   = round((float) ($p['fee_amount'] ?? 0), 2);
+                $net   = round($gross - $fee, 2);
+                $out['paid_out'] = round($out['paid_out'] + $gross, 2);
+                $out['payout_fees'] = round($out['payout_fees'] + $fee, 2);
+                $note = $fee > 0
+                    ? ('Paid to bank ' . $currency . ' ' . number_format($net, 2) . ' (fee ' . $currency . ' ' . number_format($fee, 2) . ')')
+                    : 'Paid to bank';
                 $out['lines'][] = ['date' => substr((string) $p['paid_at'], 0, 10), 'type' => 'payout',
-                    'reference' => (string) $p['reference'], 'amount' => -1 * (float) $p['amount'],
-                    'note' => 'Paid to bank'];
+                    'reference' => (string) $p['reference'], 'amount' => -1 * $gross,
+                    'fee' => $fee, 'net' => $net, 'note' => $note];
             }
             // Chargebacks applied in-window (new table; tolerate absence).
             try {
