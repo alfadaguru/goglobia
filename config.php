@@ -139,6 +139,7 @@ require_once 'app/lib/supplier_procurement_ext.php';
 require_once 'app/lib/supplier_rbac_ext.php';
 require_once 'app/lib/supplier_safety_ext.php';
 require_once 'app/lib/supplier_settlement_ext.php';
+require_once 'app/lib/supplier_payouts_ext.php'; // wallet surface + multi-account banking + payout rules
 require_once 'app/lib/supplier_stores_ext.php';
 require_once 'app/lib/supplier_tax_ext.php';
 require_once 'app/lib/supplier_treasury_ext.php';
@@ -425,6 +426,10 @@ try {
     // Per-user promo redemption ledger (enforces per_user_limit) — idempotent.
     if (function_exists('ensurePromoUsageSchema')) {
         ensurePromoUsageSchema($db);
+    }
+    // Newsletter subscribers (double-opt-in capture) — idempotent.
+    if (function_exists('ensureNewsletterSchema')) {
+        ensureNewsletterSchema($db);
     }
     // Agent API (docs/AGENT-API.md) — idempotent, no-op once tables exist.
     if (function_exists('ensureAgentApiSchema')) {
