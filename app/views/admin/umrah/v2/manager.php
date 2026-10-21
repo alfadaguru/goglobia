@@ -156,7 +156,9 @@ foreach ($templatesActive as $t) { $tplName[(int) $t['id']] = $t['name']; }
                     <button class="btn btn-sm outline" @click='editDeparture(<?= json_encode([
                       "id"=>(int)$d["id"],"departure_date"=>$d["departure_date"],"return_date"=>$d["return_date"],
                       "origin_city"=>$d["origin_city"],"capacity"=>(int)$d["capacity"],"low_stock_threshold"=>(int)$d["low_stock_threshold"],
-                      "display_inventory_count"=>(int)$d["display_inventory_count"]
+                      "display_inventory_count"=>(int)$d["display_inventory_count"],
+                      "regular_price"=>$dt ? (float)$dt["regular_price"] : 0,
+                      "promo_price"=>$dt ? (float)$dt["promo_price"] : 0
                     ], JSON_HEX_APOS|JSON_HEX_QUOT) ?>)'>Edit</button>
                     <button class="btn btn-sm outline" @click='openImages(<?= (int)$d['id'] ?>, <?= htmlspecialchars(json_encode((string)($d['hero_image'] ?? '')), ENT_QUOTES) ?>, <?= htmlspecialchars(json_encode(json_decode((string)($d['gallery'] ?? ''), true) ?: []), ENT_QUOTES) ?>)'>Images</button>
                     <button class="btn btn-sm outline" @click="clone(<?= (int)$d['id'] ?>)">Clone</button>
@@ -387,6 +389,8 @@ foreach ($templatesActive as $t) { $tplName[(int) $t['id']] = $t['name']; }
           <div class="form-control"><label>Origin city</label><input class="input" x-model="f.origin_city"></div>
           <div class="form-control"><label>Capacity</label><input type="number" class="input" x-model.number="f.capacity"></div>
           <div class="form-control"><label>Low-stock threshold</label><input type="number" class="input" x-model.number="f.low_stock_threshold"></div>
+          <div class="form-control"><label>Regular price</label><input type="number" step="0.01" class="input" x-model.number="f.regular_price"></div>
+          <div class="form-control"><label>Promo price <span class="text-slate-400 text-xs">(0 = none)</span></label><input type="number" step="0.01" class="input" x-model.number="f.promo_price"></div>
           <div class="form-control"><label class="flex items-center gap-2"><input type="checkbox" x-model="f.display_inventory_count"> Show remaining seats publicly</label></div>
         </div>
       </template>

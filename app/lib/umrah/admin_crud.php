@@ -236,6 +236,36 @@ if (!function_exists('umrah_admin_departure_update')) {
         if ($bca !== '') { $fields['booking_close_at'] = date('Y-m-d H:i:s', strtotime($bca)); }
 
         $db->update('umrah_departures', $fields, ['id' => $id]);
+
+        // PRICE EDIT: the per-departure tier price (umrah_departure_tiers) was previously
+        // only settable at create/bulk-create — there was no way to re-price an existing
+        // departure. When the edit form sends a price, update the departure's tier row(s).
+        // regular_price is required to be > 0 to change it (an accidental blank/0 is
+        // ignored so we never zero out a live price); promo_price may be 0 to CLEAR a promo.
+        if (array_key_exists('regular_price', $in) || array_key_exists('promo_price', $in)) {
+            $priceFields = ['updated_at' => date('Y-m-d H:i:s')];
+            $reg = isset($in['regular_price']) ? round((float) $in['regular_price'], 2) : null;
+            if ($reg !== null && $reg > 0) { $priceFields['regular_price'] = $reg; }
+            if (array_key_exists('promo_price', $in)) {
+                $promo = round((float) $in['promo_price'], 2);
+                // Promo must not exceed regular (would be a nonsensical "discount").
+                $cap = $reg !== null && $reg > 0 ? $reg : null;
+                if ($cap !== null && $promo > $cap) { return ['ok' => false, 'message' => 'Promo price cannot exceed the regular price.']; }
+                if ($promo > 0) {
+                    $priceFields['promo_price'] = $promo;
+                    $priceFields['promo_active'] = 1; // a set promo is active (public site shows it)
+                } else {
+                    $priceFields['promo_price'] = null; // 0 clears the promo
+                    $priceFields['promo_active'] = 0;
+                }
+            }
+            if (count($priceFields) > 1) { // more than just updated_at
+                $db->update('umrah_departure_tiers', $priceFields, ['departure_id' => $id]);
+                umrah_admin_audit($db, 'umrah_departure', (string) $id, 'reprice',
+                    ['regular' => $priceFields['regular_price'] ?? null, 'promo' => $priceFields['promo_price'] ?? null]);
+            }
+        }
+
         umrah_admin_audit($db, 'umrah_departure', (string) $id, 'updated', ['date' => $fields['departure_date']]);
         return ['ok' => true, 'id' => $id];
     }
