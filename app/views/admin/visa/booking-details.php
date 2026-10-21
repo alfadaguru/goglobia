@@ -278,6 +278,30 @@ if (!empty($booking['documents'])) {
                         </button>
                     </div>
                 </form>
+
+                <?php
+                $visaBd = is_array($booking['booking_data'] ?? null) ? $booking['booking_data'] : (json_decode((string) ($booking['booking_data'] ?? ''), true) ?: []);
+                $alreadyRefunded = !empty($visaBd['refund']);
+                $isCancelled = ($booking['booking_status'] ?? '') === 'cancelled';
+                ?>
+                <?php if (!$alreadyRefunded): ?>
+                <!-- Cancel & refund: own-managed visa, so refund through the original gateway. -->
+                <form method="POST" action="<?= root.admin ?>/visa-bookings/refund" class="mt-4 pt-4 border-t border-gray-200"
+                      onsubmit="return confirm('Cancel this visa booking<?= ($booking['payment_status'] ?? '') === 'paid' ? ' and refund the customer' : '' ?>?');">
+                    <?= CSRF::tokenField() ?>
+                    <input type="hidden" name="id" value="<?= (int) $booking['id'] ?>">
+                    <div class="form-control mb-2">
+                        <label class="text-sm">Cancellation reason</label>
+                        <input type="text" name="reason" class="input text-sm" placeholder="Reason (shown in records)">
+                    </div>
+                    <button type="submit" class="btn w-full text-sm" style="background:#b91c1c">
+                        <span class="material-symbols-outlined text-lg">cancel</span>
+                        <span><?= ($booking['payment_status'] ?? '') === 'paid' ? 'Cancel &amp; refund' : 'Cancel booking' ?></span>
+                    </button>
+                </form>
+                <?php else: ?>
+                <p class="mt-4 pt-4 border-t border-gray-200 text-sm text-gray-500">Refunded on <?= htmlspecialchars((string) ($visaBd['refund']['at'] ?? '')) ?>.</p>
+                <?php endif; ?>
             </div>
 
         </div>

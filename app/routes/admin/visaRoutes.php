@@ -939,6 +939,76 @@ $router->post(admin.'/visa-bookings/update-status', function () use ($SECURE,$db
     redirect(root . admin . '/visa-bookings/view/' . $id);
 });
 
+// ============================ POST /visa-bookings/refund — CANCEL + GATEWAY REFUND
+// Visa is own-managed (no supplier cancel API). This cancels the booking AND
+// refunds the customer through the original gateway via refund_gateway_payment(),
+// instead of the old destructive hard-delete. Idempotent: a already-refunded or
+// unpaid booking is handled gracefully.
+$router->post(admin.'/visa-bookings/refund', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    CSRF::guard();
+
+    $id = (int) ($_POST['id'] ?? 0);
+    $reason = trim((string) ($_POST['reason'] ?? 'Visa booking cancelled'));
+    $booking = $id > 0 ? $db->get('bookings', '*', ['AND' => ['id' => $id, 'module' => 'visa']]) : null;
+    if (!$booking) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Visa booking not found.'];
+        redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/visa-bookings');
+        return;
+    }
+
+    $bd = json_decode((string) ($booking['booking_data'] ?? ''), true);
+    if (!is_array($bd)) { $bd = []; }
+
+    // Already refunded? idempotent no-op.
+    if (!empty($bd['refund'])) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'This booking was already refunded.'];
+        redirect(root . admin . '/visa-bookings/view/' . $id);
+        return;
+    }
+
+    $wasPaid = strtolower((string) ($booking['payment_status'] ?? '')) === 'paid';
+    $refundNote = null;
+
+    if ($wasPaid && function_exists('refund_gateway_payment')) {
+        $res = refund_gateway_payment($db, $booking, null, $reason);
+        $status = $res['status'] ?? 'failed';
+        if ($status === 'success' || $status === 'refunded') {
+            $bd['refund'] = [
+                'amount'  => (float) ($booking['price_markup'] ?? 0),
+                'at'      => date('Y-m-d H:i:s'),
+                'gateway' => $booking['payment_gateway'] ?? '',
+                'reason'  => $reason,
+            ];
+            $refundNote = 'Refund issued to the customer.';
+        } elseif ($status === 'unsupported') {
+            // Gateway can't auto-refund (e.g. wallet/manual) — cancel + flag for manual refund.
+            $bd['refund_pending'] = ['at' => date('Y-m-d H:i:s'), 'reason' => $reason, 'gateway_msg' => $res['message'] ?? ''];
+            $refundNote = 'Booking cancelled. Gateway does not support auto-refund — refund the customer manually.';
+        } else {
+            $_SESSION['message'] = ['type' => 'error', 'text' => 'Refund failed: ' . ($res['message'] ?? 'gateway error') . '. Booking NOT cancelled.'];
+            redirect(root . admin . '/visa-bookings/view/' . $id);
+            return;
+        }
+    } else {
+        $refundNote = $wasPaid ? 'Booking cancelled (manual refund required).' : 'Booking cancelled (was unpaid).';
+    }
+
+    $bd['visa_status'] = 'cancelled';
+    try {
+        $db->update('bookings', [
+            'booking_status'      => 'cancelled',
+            'cancellation_status' => 1,
+            'booking_data'        => json_encode($bd),
+            'updated_at'          => date('Y-m-d H:i:s'),
+        ], ['AND' => ['id' => $id, 'module' => 'visa']]);
+        $_SESSION['message'] = ['type' => 'success', 'text' => $refundNote];
+    } catch (\Throwable $e) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Cancel failed: ' . $e->getMessage()];
+    }
+    redirect(root . admin . '/visa-bookings/view/' . $id);
+});
+
 // ================================ POST /visa-bookings/delete - DELETE VISA BOOKING
 $router->post(admin.'/visa-bookings/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();

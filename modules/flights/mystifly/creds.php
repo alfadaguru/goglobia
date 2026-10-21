@@ -60,8 +60,14 @@ function getMystiflyBaseUrl($credentials)
     }
     $env = strtolower($credentials['environment'] ?? 'demo');
     if ($env === 'live' || $env === 'production') {
-        return 'https://api.myfarebox.com'; // TODO: confirm live URL from Mystifly docs
+        // SAFETY (audit 2026-10-20): in LIVE mode we must NOT silently fall back to
+        // an unverified/guessed host — that risks booking against the wrong (or
+        // demo) environment with real money. Require the operator to set the
+        // verified Mystifly live base URL in c5. Return '' so callers fail closed.
+        error_log('MYSTIFLY: live mode but no base URL (c5) configured — refusing to use a default host. Set the verified live URL in the module credentials (c5).');
+        return '';
     }
+    // dev_mode=1 → the public demo sandbox is correct and safe.
     return 'https://restapidemo.myfarebox.com';
 }
 
@@ -139,6 +145,7 @@ function getMystiflyBearerToken($db, $credentials = null)
 
     // 2. Create a fresh session
     $baseUrl   = getMystiflyBaseUrl($credentials);
+    if ($baseUrl === '') { return null; } // live mode without a configured base URL — fail closed
     $sessionId = mystiflyCreateSession(
         $credentials['account_number'],
         $credentials['username'],
@@ -173,6 +180,11 @@ function mystiflyApiRequest($db, $endpoint, $payload = [], $method = 'POST', $bo
     }
 
     $baseUrl = getMystiflyBaseUrl($credentials);
+    if ($baseUrl === '') {
+        // Live mode without a configured/verified base URL — refuse rather than
+        // hit an unverified or demo host with a real booking.
+        return ['success' => false, 'error' => 'Mystifly live base URL is not configured. Set the verified live URL in the module credentials (c5) before booking.', 'http_code' => 0, 'data' => null];
+    }
     $token   = getMystiflyBearerToken($db, $credentials);
 
     $fullUrl = $baseUrl . '/' . ltrim($endpoint, '/');
