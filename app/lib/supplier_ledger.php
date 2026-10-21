@@ -242,10 +242,25 @@ if (!function_exists('gl_trial_balance')) {
         try {
             $accts = $db->select('chart_of_accounts', ['id', 'code', 'name', 'type'],
                 ['org_id' => $orgId, 'ORDER' => ['code' => 'ASC']]) ?: [];
+
+            // PERF (audit #12): sum all journal lines for the org in ONE grouped query
+            // instead of two SUM scans per account (N+1 on the GL hot read path).
+            $sums = [];
+            try {
+                $rows = $db->query(
+                    'SELECT account_id, SUM(debit) AS d, SUM(credit) AS c
+                     FROM journal_lines WHERE org_id = :o GROUP BY account_id',
+                    [':o' => $orgId]
+                );
+                foreach (($rows ? $rows->fetchAll(\PDO::FETCH_ASSOC) : []) as $r) {
+                    $sums[(int) $r['account_id']] = ['d' => (float) $r['d'], 'c' => (float) $r['c']];
+                }
+            } catch (\Throwable $e) { error_log('gl_trial_balance grouped sum: ' . $e->getMessage()); }
+
             foreach ($accts as $a) {
                 $aid = (int) $a['id'];
-                $d = (float) $db->sum('journal_lines', 'debit',  ['org_id' => $orgId, 'account_id' => $aid]);
-                $c = (float) $db->sum('journal_lines', 'credit', ['org_id' => $orgId, 'account_id' => $aid]);
+                $d = (float) ($sums[$aid]['d'] ?? 0);
+                $c = (float) ($sums[$aid]['c'] ?? 0);
                 $normal = gl_account_normal_side((string) $a['type']);
                 $balance = $normal === 'debit' ? round($d - $c, 2) : round($c - $d, 2);
                 $out[(string) $a['code']] = [

@@ -333,10 +333,12 @@ $router->post('/api/flight/booking/save-draft', function () use ($SECURE, $db) {
         // Generate secure hash (16 characters)
         $hash = bin2hex(random_bytes(8));
 
-        // Save to database
+        // Save to database. Stamp the owner (audit #39) when logged in so submit can
+        // verify the draft belongs to the acting user; guest drafts keep user_id NULL.
         $result = $db->insert('logs_bookings', [
             'hash' => $hash,
             'data' => json_encode($input),
+            'user_id' => $_SESSION['user_id'] ?? null,
             'created_at' => date('Y-m-d H:i:s')
         ]);
 
@@ -772,9 +774,18 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
         }
 
         // Get draft booking
-        $draft = $db->get('logs_bookings', ['data'], ['hash' => $input['booking_hash']]);
+        $draft = $db->get('logs_bookings', ['data', 'user_id'], ['hash' => $input['booking_hash']]);
         if (!$draft || empty($draft['data'])) {
             throw new Exception('Booking draft not found');
+        }
+
+        // OWNERSHIP (audit #39): a draft stamped with a user_id may only be submitted by
+        // that user — the 16-char hash alone is not an authorization. Guest drafts
+        // (user_id NULL) stay open. Prevents one logged-in user submitting another's draft.
+        $draftOwner = trim((string) ($draft['user_id'] ?? ''));
+        $actingUser = trim((string) ($_SESSION['user_id'] ?? ''));
+        if ($draftOwner !== '' && $draftOwner !== $actingUser) {
+            throw new Exception('This booking draft belongs to a different account. Please start a new search.');
         }
 
         $draftData = json_decode($draft['data'], true);

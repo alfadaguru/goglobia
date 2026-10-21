@@ -116,7 +116,11 @@ $router->post('/esim/booking/submit', function () use ($SECURE, $db) {
         $couponCodeStr = strtoupper(trim((string) ($input['coupon_code'] ?? $input['promo_code'] ?? '')));
         $couponDiscount = 0.0;
         $promoData = null;
-        $currency = (string) ($selectedPackage['currency'] ?? ($module['currency'] ?? 'USD'));
+        // CURRENCY INTEGRITY (audit #54): the price is server-derived from $authPrice, so
+        // the currency LABEL must come from the SAME authoritative source — not the
+        // client's selected_package.currency, which could mislabel the amount owed.
+        $currency = strtoupper((string) ($authPrice['currency'] ?? ($module['currency'] ?? 'USD'))) ?: 'USD';
+        $selectedPackage['currency'] = $currency; // keep the client-facing field consistent
 
         if (!empty($couponCodeStr)) {
             {
@@ -244,7 +248,7 @@ $router->post('/esim/booking/submit', function () use ($SECURE, $db) {
             ]);
         }
 
-        $currency = (string) ($selectedPackage['currency'] ?? ($module['currency'] ?? 'USD'));
+        // $currency already derived authoritatively above (audit #54) — reuse it.
         $invoiceId = str_pad((string) rand(0, 99999999), 8, '0', STR_PAD_LEFT);
 
         $bookingData = [

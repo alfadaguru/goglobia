@@ -268,6 +268,20 @@ if (!function_exists('wallet_apply')) {
                 // structural backstop; this check gives the clean "already" result.)
                 $txnId = isset($opts['transaction_id']) ? (int) $opts['transaction_id'] : 0;
                 if ($txnId > 0 && $db->has('wallet_ledger', ['transaction_id' => $txnId])) {
+                    // RECONCILE LEGACY MIRROR ON NO-OP (audit #35): the money was already
+                    // applied, but a prior run may have skipped the users.balance mirror
+                    // (or written it for a different currency), leaving the legacy field
+                    // (read by dashboards/admin) drifted below the true wallet balance.
+                    // Resync it to the current authoritative wallet balance when it is
+                    // unambiguous for this currency — same guard as the main mirror below.
+                    if (($w['kind'] ?? '') !== 'agent') {
+                        try {
+                            $uCur = strtoupper(trim((string) ($db->get('users', 'currency', ['user_id' => $userId]) ?: '')));
+                            $mirror = $uCur !== '' ? ($uCur === $currency)
+                                : ((int) $db->count('wallets', ['user_id' => $userId, 'currency[!]' => $currency]) === 0);
+                            if ($mirror) { $db->update('users', ['balance' => round($balance, 2)], ['user_id' => $userId]); }
+                        } catch (\Throwable $e) { error_log('wallet_apply no-op mirror reconcile: ' . $e->getMessage()); }
+                    }
                     $result = ['ok' => true, 'balance' => round($balance, 2), 'already' => true];
                     return true; // commit (no-op) — money already applied for this txn
                 }
