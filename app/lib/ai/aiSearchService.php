@@ -5068,15 +5068,16 @@ PROMPT;
         // Attach REAL, priced package cards from our local umrah inventory so GIA can
         // talk about actual packages/prices and the UI can render rich cards.
         $entry['cards'] = $this->attachLocalCards('umrah', [
-            'destination' => $destParam,
-            'start_date'  => $startDmY,
-            'duration'    => $durationParam,
-            'umrah_type'  => $typeParam,
-            'services'    => $servicesParam,
-            'adults'      => $adults,
-            'children'    => $children,
-            'infants'     => $infants,
-            'currency'    => $currency,
+            'destination'    => $destParam,
+            'start_date'     => $startDmY,
+            'start_date_ymd' => $startYmd,
+            'duration'       => $durationParam,
+            'umrah_type'     => $typeParam,
+            'services'       => $servicesParam,
+            'adults'         => $adults,
+            'children'       => $children,
+            'infants'        => $infants,
+            'currency'       => $currency,
         ]);
         if ($entry['cards'] !== []) {
             $entry['result_count'] = count($entry['cards']);

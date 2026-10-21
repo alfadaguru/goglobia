@@ -150,6 +150,23 @@ class createBookingTool implements giaToolInterface
             } catch (\Throwable $e) { /* non-fatal */ }
         }
 
+        // === UMRAH v2 BOOKING PATH ===========================================
+        // A single-umrah draft books through the real v2 service layer
+        // (quote -> hold -> umrah_booking_create), which writes umrah_bookings +
+        // installments + the generic bookings/invoice row and re-prices the actual
+        // booker server-side (anti-tamper). This keeps GIA umrah on the SAME rails
+        // as the website — never the generic ai_trip insert below.
+        if (count($items) === 1
+            && is_array($items[0])
+            && (string) ($items[0]['module'] ?? $items[0]['kind'] ?? '') === 'umrah') {
+            $umrahRes = $this->createUmrahV2Booking($db, $items[0], $d, $hash, $userId, $firstName, $lastName, $email, $phone);
+            if ($umrahRes !== null) {
+                return $umrahRes;
+            }
+            // null => the umrah fast-path could not apply (missing ids); fall through
+            // to the generic path so we never silently drop a booking.
+        }
+
         // AITP prefix + ai_trip module, matching the cart convention exactly.
         try {
             $packageId = 'AITP' . strtoupper(bin2hex(random_bytes(5)));
@@ -236,5 +253,102 @@ class createBookingTool implements giaToolInterface
             ],
             'message' => 'Booking created (unpaid). Ready for payment.',
         ];
+    }
+
+    /**
+     * Book a single umrah v2 departure-tier through the real service layer:
+     * fresh quote -> hold -> umrah_booking_create. Returns the GIA booking shape,
+     * or NULL if this isn't a bookable umrah item (so the caller falls through to
+     * the generic path). Never throws.
+     *
+     * @param array $item  the draft's single umrah item
+     * @param array $d     the full draft (for plan_code + guest)
+     */
+    private function createUmrahV2Booking($db, array $item, array $d, string $hash, string $userId,
+                                          string $firstName, string $lastName, string $email, string $phone): ?array
+    {
+        // The bookable identifier lives in the draft item's nested `item` payload
+        // (selectOptionTool/reprice write it there); accept the top level too for
+        // safety. `params` carries pax for some shapes.
+        $payload = is_array($item['item'] ?? null) ? $item['item'] : $item;
+        $params  = is_array($item['params'] ?? null) ? $item['params'] : [];
+        $dtId = (int) ($payload['departure_tier_id'] ?? $item['departure_tier_id'] ?? 0);
+        $pax  = (int) ($payload['pax'] ?? $item['pax'] ?? 0);
+        if ($pax <= 0) {
+            $pax = max(1, (int) ($payload['adults'] ?? $params['adults'] ?? 0)
+                + (int) ($payload['children'] ?? $params['children'] ?? 0)
+                + (int) ($payload['infants'] ?? $params['infants'] ?? 0));
+        }
+        if ($dtId <= 0) {
+            return null; // not a v2 umrah item -> let the generic path try
+        }
+
+        if (!function_exists('umrah_price_quote')) {
+            $svc = dirname(__DIR__, 2) . '/umrah/services.php';
+            if (is_file($svc)) { require_once $svc; }
+        }
+        if (!function_exists('umrah_price_quote') || !function_exists('umrah_hold_create') || !function_exists('umrah_booking_create')) {
+            return ['ok' => false, 'error_code' => 'AI_BOOKING_FAILED', 'message' => 'Umrah booking is temporarily unavailable.'];
+        }
+
+        try {
+            // 1) Fresh quote (the draft's quote may have expired; re-price to be safe).
+            $q = umrah_price_quote($db, $dtId, $pax, 20);
+            if (empty($q['ok'])) {
+                return ['ok' => false, 'error_code' => 'AI_UMRAH_UNAVAILABLE', 'message' => (string) ($q['message'] ?? 'This umrah departure is no longer available.')];
+            }
+            // 2) Reserve seats (transactional, prevents oversell).
+            $hold = umrah_hold_create($db, $dtId, $pax, (int) ($q['quote_id'] ?? 0), $userId !== '' ? $userId : null);
+            if (empty($hold['ok'])) {
+                return ['ok' => false, 'error_code' => 'AI_UMRAH_NO_SEATS', 'message' => (string) ($hold['message'] ?? 'Those seats are no longer available.')];
+            }
+            // 3) Choose the payment plan: the one the traveller picked (carried on the
+            //    draft/item), else the system default. Validate it is a real active plan.
+            $planCode = trim((string) ($payload['plan_code'] ?? $item['plan_code'] ?? $d['plan_code'] ?? ''));
+            if ($planCode === '' || !$db->get('umrah_payment_plans', 'id', ['code' => $planCode, 'active' => 1])) {
+                $planCode = (string) ($db->get('umrah_payment_plans', 'code', ['active' => 1, 'ORDER' => ['deposit_percent' => 'DESC']]) ?: 'PP-50-25-25');
+            }
+            // 4) Create the real booking (writes umrah_bookings + installments + the
+            //    generic bookings/invoice row; re-prices the actual booker).
+            $lead = [
+                'first_name' => $firstName, 'last_name' => $lastName,
+                'email' => $email, 'phone' => $phone,
+                'user_id' => $userId,
+            ];
+            $res = umrah_booking_create($db, (string) $q['quote_ref'], (int) $hold['hold_id'], $lead, $planCode);
+            if (empty($res['ok'])) {
+                return ['ok' => false, 'error_code' => 'AI_BOOKING_FAILED', 'message' => (string) ($res['message'] ?? 'Could not create the umrah booking.')];
+            }
+
+            // Tag the generic bookings row with the GIA draft hash for idempotency
+            // + source, matching the rest of the GIA flow (best-effort).
+            if ($hash !== '' && !empty($res['invoice_id'])) {
+                try {
+                    $row = $db->get('bookings', ['booking_data'], ['invoice_id' => $res['invoice_id']]);
+                    $bd = is_array($row) ? (json_decode((string) ($row['booking_data'] ?? ''), true) ?: []) : [];
+                    $bd['source'] = 'gia_chat';
+                    $bd['gia_draft_hash'] = $hash;
+                    $db->update('bookings', ['booking_data' => json_encode($bd)], ['invoice_id' => $res['invoice_id']]);
+                } catch (\Throwable $e) { /* non-fatal */ }
+            }
+
+            $dueNow = isset($res['amount_due_now']) ? (float) $res['amount_due_now'] : (float) ($res['total_price'] ?? 0);
+            return [
+                'ok' => true,
+                'data' => [
+                    'invoice_id'     => (string) $res['invoice_id'],
+                    'booking_ref'    => (string) ($res['booking_ref'] ?? ''),
+                    'amount'         => (float) ($res['total_price'] ?? 0),
+                    'amount_due_now' => $dueNow,
+                    'currency'       => (string) ($q['currency'] ?? 'NGN'),
+                    'installments'   => is_array($res['installments'] ?? null) ? $res['installments'] : [],
+                    'plan_code'      => $planCode,
+                ],
+                'message' => 'Umrah booking created (unpaid). Ready for payment.',
+            ];
+        } catch (\Throwable $e) {
+            error_log('[gia] createUmrahV2Booking: ' . $e->getMessage());
+            return ['ok' => false, 'error_code' => 'AI_BOOKING_FAILED', 'message' => 'Could not create the umrah booking. Please try again.'];
+        }
     }
 }

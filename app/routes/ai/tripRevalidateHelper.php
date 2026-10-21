@@ -2526,134 +2526,108 @@ if (!function_exists('aiTripRevalidateUmrahItem')) {
      */
     function aiTripRevalidateUmrahItem($db, array &$it, string $displayCurrency): array
     {
+        // UMRAH v2 reprice. The bookable unit is a departure_tier_id; price is
+        // resolved authoritatively server-side by umrah_price_quote() (which also
+        // re-checks the departure is published/open and freezes a GGQ quote_ref
+        // used later by hold+booking). v2 prices flat PER PILGRIM, so pax drives
+        // the total — no adult/child/infant split. The quote's own currency is the
+        // truth; we do NOT currency-convert (that would risk mischarge).
         $payload = is_array($it['item'] ?? null) ? $it['item'] : [];
         $params = is_array($it['params'] ?? null) ? $it['params'] : [];
         $oldDisplay = (float)($it['price'] ?? ($payload['price'] ?? 0));
-        $umrahId = (int)($payload['umrah_id'] ?? ($payload['id'] ?? 0));
-        $adultsReq = (int)($payload['adults'] ?? $params['adults'] ?? 0);
-        $childrenReq = (int)($payload['children'] ?? $params['children'] ?? 0);
-        $infantsReq = (int)($payload['infants'] ?? $params['infants'] ?? 0);
+        $dtId = (int)($payload['departure_tier_id'] ?? 0);
+        $pax = (int)($payload['pax'] ?? 0);
+        if ($pax <= 0) {
+            $pax = max(1, (int)($payload['adults'] ?? $params['adults'] ?? 0)
+                + (int)($payload['children'] ?? $params['children'] ?? 0)
+                + (int)($payload['infants'] ?? $params['infants'] ?? 0));
+        }
         $currency = strtoupper(trim((string)($it['currency'] ?? $displayCurrency)));
-        if ($currency === '') {
-            $currency = 'USD';
+
+        $fail = function (string $msg) use ($oldDisplay, $currency) {
+            return [
+                'module' => 'umrah', 'supplier' => 'umrah', 'skipped' => false,
+                'is_valid' => false, 'price_changed' => false,
+                'old_price' => $oldDisplay, 'new_price' => $oldDisplay,
+                'currency' => $currency !== '' ? $currency : 'NGN', 'message' => $msg,
+            ];
+        };
+
+        if ($dtId <= 0) {
+            return $fail('Umrah departure selection missing — please pick a departure again.');
         }
 
-        if ($umrahId <= 0) {
-            return [
-                'module' => 'umrah',
-                'supplier' => 'umrah',
-                'skipped' => false,
-                'is_valid' => false,
-                'price_changed' => false,
-                'old_price' => $oldDisplay,
-                'new_price' => $oldDisplay,
-                'currency' => $currency,
-                'message' => 'Umrah package id missing.',
-            ];
+        if (!function_exists('umrah_price_quote')) {
+            $svc = dirname(__DIR__, 3) . '/lib/umrah/services.php';
+            if (is_file($svc)) { require_once $svc; }
+        }
+        if (!function_exists('umrah_price_quote')) {
+            return $fail('Umrah pricing is temporarily unavailable.');
         }
 
         try {
-            $u = $db->get('umrah', '*', ['id' => $umrahId, 'status' => 1]);
-            if (!$u) {
-                return [
-                    'module' => 'umrah',
-                    'supplier' => 'umrah',
-                    'skipped' => false,
-                    'is_valid' => false,
-                    'price_changed' => false,
-                    'old_price' => $oldDisplay,
-                    'new_price' => $oldDisplay,
-                    'currency' => $currency,
-                    'message' => 'Umrah package no longer available.',
-                ];
+            // 20-min quote window (matches the hold/booking window).
+            $q = umrah_price_quote($db, $dtId, $pax, 20);
+            if (empty($q['ok'])) {
+                return $fail((string)($q['message'] ?? 'This umrah departure is no longer available.'));
             }
 
-            $maxAdults = (int)($u['max_adults'] ?? 0);
-            $maxChildren = (int)($u['max_children'] ?? 0);
-            $maxInfants = (int)($u['max_infants'] ?? 0);
-            $adults = $adultsReq;
-            if ($maxAdults > 0 && $adults > $maxAdults) {
-                $adults = $maxAdults;
-            }
-            $children = $childrenReq;
-            if ($maxChildren > 0 && $children > $maxChildren) {
-                $children = $maxChildren;
-            }
-            $infants = $infantsReq;
-            if ($maxInfants > 0 && $infants > $maxInfants) {
-                $infants = $maxInfants;
-            }
+            $newDisplay = round((float)($q['total_price'] ?? 0), 2);
+            $quoteCurrency = strtoupper((string)($q['currency'] ?? 'NGN'));
 
-            $module = $db->get('modules', '*', ['name' => 'umrah', 'type' => 'umrah'])
-                ?: $db->get('modules', '*', ['name' => 'umrah'])
-                ?: ['markup_b2c' => 0, 'markup_type_b2c' => 'percentage'];
-            $uCurrency = $u['currency'] ?: 'USD';
-            $markedAdult = function_exists('MARKUP')
-                ? MARKUP((float)($u['adult_price'] ?? 0), $module, $db, $uCurrency, $currency)
-                : ['price' => (float)($u['adult_price'] ?? 0)];
-            $markedChild = function_exists('MARKUP')
-                ? MARKUP((float)($u['child_price'] ?? 0), $module, $db, $uCurrency, $currency)
-                : ['price' => (float)($u['child_price'] ?? 0)];
-            $markedInfant = function_exists('MARKUP')
-                ? MARKUP((float)($u['infant_price'] ?? 0), $module, $db, $uCurrency, $currency)
-                : ['price' => (float)($u['infant_price'] ?? 0)];
-            $adultPrice = round((float)($markedAdult['price'] ?? 0), 2);
-            $childPrice = round((float)($markedChild['price'] ?? 0), 2);
-            $infantPrice = round((float)($markedInfant['price'] ?? 0), 2);
-            $newDisplay = round(($adultPrice * $adults) + ($childPrice * $children) + ($infantPrice * $infants), 2);
+            // Pull real departure/tier labels for the draft (no invented fields).
+            $dt = $db->get('umrah_departure_tiers', ['departure_id', 'tier_id'], ['id' => $dtId]);
+            $dep = $dt ? $db->get('umrah_departures', ['origin_city', 'departure_date', 'return_date'], ['id' => (int)$dt['departure_id']]) : null;
+            $tierLabel = ($dt && !empty($dt['tier_id']))
+                ? (string)($db->get('umrah_tiers', 'public_label', ['id' => (int)$dt['tier_id']]) ?: '')
+                : '';
+            $city = (string)($dep['origin_city'] ?? 'Kano');
+            $depDate = (string)($dep['departure_date'] ?? '');
+            $retDate = (string)($dep['return_date'] ?? '');
+            $days = ($depDate && $retDate && strtotime($depDate) && strtotime($retDate))
+                ? max(0, (int) round((strtotime($retDate) - strtotime($depDate)) / 86400)) : 0;
+            $whenLabel = ($depDate && strtotime($depDate))
+                ? date('j M', strtotime($depDate)) . ($retDate && strtotime($retDate) ? ' → ' . date('j M Y', strtotime($retDate)) : '') : '';
+            $name = $city . ($days > 0 ? ' · ' . $days . '-day Umrah' : ' Umrah');
 
-            $typeLabel = '';
-            if (!empty($u['umrah_type_id'])) {
-                $typeLabel = (string)($db->get('umrah_settings', 'setting_label', [
-                    'id' => $u['umrah_type_id'],
-                    'status' => 1,
-                ]) ?: '');
-            }
-
-            $loc = trim((string)($u['location'] ?? ''));
-            $days = (int)($u['days'] ?? 0);
-            $payload['umrah_id'] = $umrahId;
-            $payload['id'] = (string)$umrahId;
-            $payload['name'] = (string)($u['name'] ?? 'Umrah');
-            $payload['title'] = $payload['name'];
-            $payload['subtitle'] = trim(($loc !== '' ? $loc . ' · ' : '') . ($days > 0 ? $days . ' days' : '') . ($typeLabel !== '' ? ' · ' . $typeLabel : ''));
-            $payload['location'] = $loc;
+            // Write the repriced draft (carry the frozen quote_ref for hold+booking).
+            $payload['departure_tier_id'] = $dtId;
+            $payload['id'] = (string)$dtId;
+            $payload['pax'] = $pax;
+            $payload['quote_ref'] = (string)($q['quote_ref'] ?? '');
+            $payload['quote_id'] = (int)($q['quote_id'] ?? 0);
+            $payload['unit_price'] = round((float)($q['unit_price'] ?? 0), 2);
+            $payload['amount_due_now'] = round((float)($q['amount_due_now'] ?? $newDisplay), 2);
+            $payload['quote_expires_at'] = (string)($q['expires_at'] ?? '');
+            $payload['name'] = $name;
+            $payload['title'] = $name;
+            $payload['subtitle'] = trim($city . ($whenLabel !== '' ? ' · ' . $whenLabel : '') . ($tierLabel !== '' ? ' · ' . $tierLabel : ''));
+            $payload['location'] = $city;
             $payload['days'] = $days;
-            $payload['nights'] = (int)($u['nights'] ?? 0);
-            $payload['umrah_type'] = $typeLabel;
-            $payload['umrah_type_id'] = (int)($u['umrah_type_id'] ?? 0);
-            $payload['adult_price'] = $adultPrice;
-            $payload['child_price'] = $childPrice;
-            $payload['infant_price'] = $infantPrice;
-            $payload['max_adults'] = $maxAdults;
-            $payload['max_children'] = $maxChildren;
-            $payload['max_infants'] = $maxInfants;
-            $payload['adults'] = $adults;
-            $payload['children'] = $children;
-            $payload['infants'] = $infants;
+            $payload['nights'] = $days > 0 ? max(0, $days - 1) : 0;
+            $payload['tier_label'] = $tierLabel;
+            $payload['departure_date'] = $depDate;
+            $payload['return_date'] = $retDate;
             $payload['price'] = $newDisplay;
-            $payload['currency'] = $currency;
+            $payload['currency'] = $quoteCurrency;
             $payload['supplier'] = 'umrah';
+
             $it['item'] = $payload;
             $it['price'] = $newDisplay;
-            $it['currency'] = $currency;
+            $it['currency'] = $quoteCurrency;
             $it['title'] = $payload['title'];
             $it['subtitle'] = $payload['subtitle'];
             $it['supplier'] = 'umrah';
 
             $changed = abs($oldDisplay - $newDisplay) > 0.009;
             return [
-                'module' => 'umrah',
-                'supplier' => 'umrah',
-                'skipped' => false,
-                'is_valid' => true,
-                'price_changed' => $changed,
-                'old_price' => $oldDisplay,
-                'new_price' => $newDisplay,
-                'currency' => $currency,
-                'message' => $changed ? 'Umrah package price updated.' : 'Umrah package verified.',
+                'module' => 'umrah', 'supplier' => 'umrah', 'skipped' => false,
+                'is_valid' => true, 'price_changed' => $changed,
+                'old_price' => $oldDisplay, 'new_price' => $newDisplay,
+                'currency' => $quoteCurrency,
+                'message' => $changed ? 'Umrah price confirmed (updated).' : 'Umrah price confirmed.',
             ];
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             return [
                 'module' => 'umrah',
                 'supplier' => 'umrah',
@@ -2662,7 +2636,7 @@ if (!function_exists('aiTripRevalidateUmrahItem')) {
                 'price_changed' => false,
                 'old_price' => $oldDisplay,
                 'new_price' => $oldDisplay,
-                'currency' => $currency,
+                'currency' => $currency !== '' ? $currency : 'NGN',
                 'message' => $e->getMessage() ?: 'Umrah revalidation failed.',
             ];
         }

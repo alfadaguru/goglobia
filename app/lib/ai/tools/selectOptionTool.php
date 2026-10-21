@@ -210,11 +210,31 @@ class selectOptionTool implements giaToolInterface
         try {
             switch ($module) {
                 case 'umrah': {
+                    // v2: the option id is a departure_tier_id (the bookable unit).
+                    // Validate the tier is active AND its departure is open for
+                    // booking — never accept a draft/closed/hidden one.
                     $id = (int) $optionId;
                     if ($id <= 0) { return ['ok' => false]; }
-                    $row = $db->get('umrah', ['id', 'name'], ['id' => $id, 'status' => 1]);
-                    if (!$row) { return ['ok' => false]; }
-                    return ['ok' => true, 'id' => $id, 'title' => (string) ($row['name'] ?? 'Umrah package')];
+                    if (!function_exists('umrah_departure_bookable')) {
+                        $svc = dirname(__DIR__, 2) . '/umrah/services.php';
+                        if (is_file($svc)) { require_once $svc; }
+                    }
+                    $dt = $db->get('umrah_departure_tiers', ['id', 'departure_id', 'tier_id', 'status'], ['id' => $id]);
+                    if (!$dt || ($dt['status'] ?? '') !== 'active') { return ['ok' => false]; }
+                    if (function_exists('umrah_departure_bookable')
+                        && !umrah_departure_bookable($db, (int) $dt['departure_id'], $dt)) {
+                        return ['ok' => false];
+                    }
+                    // Build a human title from the real departure + tier.
+                    $dep = $db->get('umrah_departures', ['origin_city', 'departure_date'], ['id' => (int) $dt['departure_id']]);
+                    $tier = $db->get('umrah_tiers', ['public_label'], ['id' => (int) $dt['tier_id']]);
+                    $city = (string) ($dep['origin_city'] ?? 'Kano');
+                    $when = (!empty($dep['departure_date']) && strtotime((string) $dep['departure_date']))
+                        ? date('j M Y', strtotime((string) $dep['departure_date'])) : '';
+                    $title = trim($city . ' Umrah' . ($when !== '' ? ' · ' . $when : '')
+                        . (!empty($tier['public_label']) ? ' · ' . $tier['public_label'] : ''));
+                    return ['ok' => true, 'id' => $id, 'title' => $title ?: 'Umrah package',
+                        'extra' => ['departure_id' => (int) $dt['departure_id'], 'tier_id' => (int) $dt['tier_id']]];
                 }
                 case 'tours': {
                     $id = (int) $optionId;
@@ -268,7 +288,13 @@ class selectOptionTool implements giaToolInterface
         ];
         // Module-specific id key the revalidator expects.
         if ($module === 'umrah') {
-            $itemPayload['umrah_id'] = (int) $id;
+            // v2: the bookable unit is the departure_tier_id; pax = total pilgrims
+            // (v2 prices flat per pilgrim, no A/C/I split). Carry departure_id/tier_id
+            // for the revalidator/booking path.
+            $itemPayload['departure_tier_id'] = (int) $id;
+            $itemPayload['pax'] = max(1, $adults + $children + $infants);
+            if (isset($extra['departure_id'])) { $itemPayload['departure_id'] = (int) $extra['departure_id']; }
+            if (isset($extra['tier_id'])) { $itemPayload['tier_id'] = (int) $extra['tier_id']; }
         } elseif ($module === 'tours') {
             $itemPayload['tour_id'] = (string) $id;
         } elseif ($module === 'bus') {

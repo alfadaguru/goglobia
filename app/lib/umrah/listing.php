@@ -3,16 +3,14 @@
 // FILE: app/lib/umrah/listing.php
 // Reusable Umrah package-card builder.
 //
-// This is the SINGLE source of truth for turning a search (destination / dates /
-// duration / type / services / pax / currency) into real, priced, bookable Umrah
-// package cards from the `umrah` table. It was extracted VERBATIM (behaviour-
-// preserving) from the POST /api/umrah/listing handler so that:
-//   - the web endpoint (app/routes/umrah/listingRoutes.php) keeps returning the
-//     exact same cards it always did, and
-//   - the GIA agent's search_trip tool can obtain the SAME real cards by calling
-//     this function directly (no internal HTTP round-trip, no CSRF dance).
+// Turns a search (destination city / dates / pilgrims) into real, priced, bookable
+// Umrah cards from the UMRAH v2 model (umrah_departures + tiers) — the SAME source
+// the website /umrah page reads (umrahV2PublishedDepartures), so GIA and the web
+// can never show different inventory. Each card's id is the bookable v2
+// `departure_tier_id`. The legacy v1 `umrah` table is intentionally NOT read here
+// (it held stale test rows that made GIA show phantom packages).
 //
-// It is strictly READ-ONLY: it selects rows and computes marked-up display prices.
+// It is strictly READ-ONLY: it reads published departures and their resolved prices.
 // It never writes, holds, books or charges anything.
 // ============================================================================
 
@@ -29,238 +27,127 @@ if (!function_exists('umrahListingCards')) {
      */
     function umrahListingCards(array $input, $db): array
     {
-        $destination = trim((string)($input['destination'] ?? ''));
-        $startDate = trim((string)($input['start_date'] ?? ''));
-        $duration = trim((string)($input['duration'] ?? 'any'));
-        $umrahType = trim((string)($input['umrah_type'] ?? 'any'));
-        $services = $input['services'] ?? 'any';
-        $adultsReq = (int)($input['adults'] ?? 0);
-        $childrenReq = (int)($input['children'] ?? 0);
-        $infantsReq = (int)($input['infants'] ?? 0);
-        // 0 (or omitted with explicit 0 from AI) = no LIMIT; positive values capped for safety
+        // ====================================================================
+        // UMRAH v2. GIA reads the SAME published-departure inventory the website
+        // /umrah page shows (umrahV2PublishedDepartures), so chat and web can never
+        // diverge. The old `umrah` (v1) table is NOT read here anymore — that dead
+        // table held stale test rows (Multan/Simple/Ramadan) that were never on the
+        // live site and caused GIA to show phantom packages. One card per published
+        // departure; the card id IS the bookable `departure_tier_id` (cheapest tier
+        // as the entry price), so select_option/reprice/book act on a real v2 unit.
+        // ====================================================================
+        $destination = strtolower(trim((string)($input['destination'] ?? '')));
+        $durationReq = strtolower(trim((string)($input['duration'] ?? 'any')));
+        $startYmd = trim((string)($input['start_date_ymd'] ?? ''));
+        $startRaw = trim((string)($input['start_date'] ?? ''));
+        // Pilgrims: v2 prices PER PILGRIM (flat), so total pax drives the "from"
+        // total. We never invent a count — 0 means "show the per-pilgrim price".
+        $pax = max(0, (int)($input['adults'] ?? 0)) + max(0, (int)($input['children'] ?? 0)) + max(0, (int)($input['infants'] ?? 0));
+
         $hasExplicitLimit = array_key_exists('items_limit', $input) || array_key_exists('per_page', $input);
-        $rawLimit = $hasExplicitLimit
-            ? (int)($input['items_limit'] ?? ($input['per_page'] ?? 0))
-            : 8;
+        $rawLimit = $hasExplicitLimit ? (int)($input['items_limit'] ?? ($input['per_page'] ?? 0)) : 8;
         $limit = $rawLimit <= 0 ? 0 : max(1, min(500, $rawLimit));
-        $currency = strtoupper(trim((string)($input['currency'] ?? ($_SESSION['app_currency'] ?? 'USD'))));
-        if ($currency === '') {
-            $currency = 'USD';
+
+        if (!function_exists('umrahV2PublishedDepartures')) {
+            $svc = dirname(__DIR__) . '/umrah/services.php';
+            if (is_file($svc)) { require_once $svc; }
+        }
+        if (!function_exists('umrahV2PublishedDepartures')) {
+            return ['cards' => []]; // no v2 source available -> show nothing (never fabricate)
         }
 
-        $module = $db->get('modules', '*', ['name' => 'umrah', 'type' => 'umrah'])
-            ?: $db->get('modules', '*', ['name' => 'umrah'])
-            ?: ['markup_b2c' => 0, 'markup_type_b2c' => 'percentage'];
-
-        $where = ['status' => 1];
-
-        if (!empty($services) && $services !== 'any') {
-            $serviceIds = is_array($services) ? $services : explode(',', (string)$services);
-            $i = 0;
-            foreach ($serviceIds as $sid) {
-                $sid = (int)$sid;
-                if ($sid <= 0) {
-                    continue;
-                }
-                $active = $db->get('umrah_settings', 'id', [
-                    'id' => $sid,
-                    'setting_type' => ['service', 'hotel', 'flight', 'car'],
-                    'status' => 1,
-                ]);
-                if (!$active) {
-                    continue;
-                }
-                $where['AND']['OR #svc' . $i] = [
-                    'services[~]' => '[' . $sid . ']',
-                    'services[~] #1' => '[' . $sid . ',',
-                    'services[~] #2' => ',' . $sid . ']',
-                    'services[~] #3' => ',' . $sid . ',',
-                ];
-                $i++;
-            }
+        $departures = umrahV2PublishedDepartures($db);
+        if (!is_array($departures) || $departures === []) {
+            return ['cards' => []];
         }
 
-        if ($umrahType !== '' && strtolower($umrahType) !== 'any') {
-            $typeId = ctype_digit($umrahType) ? (int)$umrahType : 0;
-            if ($typeId <= 0) {
-                $typeId = (int)($db->get('umrah_settings', 'id', [
-                    'setting_type' => 'umrah_type',
-                    'setting_label' => $umrahType,
-                    'status' => 1,
-                ]) ?: 0);
-            }
-            if ($typeId > 0 && $db->get('umrah_settings', 'id', [
-                'id' => $typeId,
-                'setting_type' => 'umrah_type',
-                'status' => 1,
-            ])) {
-                $where['umrah_type_id'] = $typeId;
-            }
+        // Optional, CONSERVATIVE filtering — only narrow when the traveller clearly
+        // asked for a city or month; a vague "umrah" shows everything (never hide
+        // real inventory on an ambiguous query).
+        $monthNeedle = '';
+        if ($startYmd !== '' && strtotime($startYmd) !== false) {
+            $monthNeedle = strtolower(date('F Y', strtotime($startYmd)));
+        } elseif ($startRaw !== '' && strtotime($startRaw) !== false) {
+            $monthNeedle = strtolower(date('F Y', strtotime($startRaw)));
         }
-
-        // Duration: umrah_settings.metadata only (no hardcoded buckets)
-        if ($duration !== '' && strtolower($duration) !== 'any') {
-            $durMeta = null;
-            if (ctype_digit($duration)) {
-                $durRow = $db->get('umrah_settings', ['metadata', 'status'], [
-                    'id' => (int)$duration,
-                    'setting_type' => 'duration',
-                ]);
-                if ($durRow && (int)($durRow['status'] ?? 0) === 1) {
-                    $durMeta = json_decode((string)($durRow['metadata'] ?? ''), true);
-                }
-            }
-            if (!is_array($durMeta)) {
-                foreach (($db->select('umrah_settings', ['metadata'], [
-                    'setting_type' => 'duration',
-                    'status' => 1,
-                ]) ?: []) as $cand) {
-                    $m = json_decode((string)($cand['metadata'] ?? ''), true);
-                    if (is_array($m) && strtolower((string)($m['code'] ?? '')) === strtolower($duration)) {
-                        $durMeta = $m;
-                        break;
-                    }
-                }
-            }
-            if (is_array($durMeta)) {
-                $min = (int)($durMeta['min_days'] ?? 0);
-                $max = array_key_exists('max_days', $durMeta) && $durMeta['max_days'] !== null && $durMeta['max_days'] !== ''
-                    ? (int)$durMeta['max_days'] : null;
-                if ($min >= 1) {
-                    if ($max === null) {
-                        $where['days[>=]'] = $min;
-                    } elseif ($min === $max) {
-                        $where['days'] = $min;
-                    } else {
-                        $where['days[<>]'] = [$min, $max];
-                    }
-                }
-            }
-        }
-
-        // Destination = umrah.location (filter before LIMIT so city search is not truncated away)
-        if ($destination !== '' && strtolower($destination) !== 'any') {
-            $where['location[~]'] = $destination;
-        }
-
-        $where['ORDER'] = ['id' => 'DESC'];
-        if ($limit > 0) {
-            $where['LIMIT'] = $limit;
-        }
-        $rows = $db->select('umrah', '*', $where) ?: [];
 
         $cards = [];
-        foreach ($rows as $u) {
-            $maxAdults = (int)($u['max_adults'] ?? 0);
-            $maxChildren = (int)($u['max_children'] ?? 0);
-            $maxInfants = (int)($u['max_infants'] ?? 0);
+        foreach ($departures as $d) {
+            $originCity = (string)($d['origin_city'] ?? '');
+            $monthBucket = (string)($d['month_bucket'] ?? '');
 
-            // Cap requested counts to this package's max_* from DB (no invented defaults)
-            $adults = $adultsReq;
-            if ($maxAdults > 0 && $adults > $maxAdults) {
-                $adults = $maxAdults;
+            // City filter: match the departure city (v2 "location" = origin city).
+            if ($destination !== '' && $destination !== 'any'
+                && stripos($originCity, $destination) === false) {
+                continue;
             }
-            $children = $childrenReq;
-            if ($maxChildren > 0 && $children > $maxChildren) {
-                $children = $maxChildren;
-            }
-            $infants = $infantsReq;
-            if ($maxInfants > 0 && $infants > $maxInfants) {
-                $infants = $maxInfants;
+            // Month filter: match the departure's month bucket when a date was given.
+            if ($monthNeedle !== '' && stripos($monthBucket, $monthNeedle) === false) {
+                continue;
             }
 
-            $uCurrency = $u['currency'] ?: 'USD';
-            $markedAdult = function_exists('MARKUP')
-                ? MARKUP((float)($u['adult_price'] ?? 0), $module, $db, $uCurrency, $currency)
-                : ['price' => (float)($u['adult_price'] ?? 0)];
-            $markedChild = function_exists('MARKUP')
-                ? MARKUP((float)($u['child_price'] ?? 0), $module, $db, $uCurrency, $currency)
-                : ['price' => (float)($u['child_price'] ?? 0)];
-            $markedInfant = function_exists('MARKUP')
-                ? MARKUP((float)($u['infant_price'] ?? 0), $module, $db, $uCurrency, $currency)
-                : ['price' => (float)($u['infant_price'] ?? 0)];
-            $adultPrice = round((float)($markedAdult['price'] ?? 0), 2);
-            $childPrice = round((float)($markedChild['price'] ?? 0), 2);
-            $infantPrice = round((float)($markedInfant['price'] ?? 0), 2);
-            $displayTotal = round(($adultPrice * $adults) + ($childPrice * $children) + ($infantPrice * $infants), 2);
-
-            $typeLabel = '';
-            if (!empty($u['umrah_type_id'])) {
-                $typeLabel = (string)($db->get('umrah_settings', 'setting_label', [
-                    'id' => $u['umrah_type_id'],
-                    'status' => 1,
-                ]) ?: '');
+            $depDate = (string)($d['departure_date'] ?? '');
+            $retDate = (string)($d['return_date'] ?? '');
+            $days = 0;
+            if ($depDate !== '' && $retDate !== '' && strtotime($depDate) && strtotime($retDate)) {
+                $days = max(0, (int) round((strtotime($retDate) - strtotime($depDate)) / 86400));
             }
 
-            $image = '';
-            if (!empty($u['img'])) {
-                $decoded = json_decode($u['img'], true);
-                if (is_array($decoded) && !empty($decoded[0])) {
-                    $img = $decoded[0];
-                    $url = is_array($img) ? (string)($img['url'] ?? '') : (string)$img;
-                    if ($url !== '') {
-                        $clean = ltrim(str_replace(['modules/modules/', 'modules/'], '', $url), '/');
-                        $image = (stripos($url, 'http') === 0) ? $url : (str_replace('modules/', '', root) . $clean);
-                    }
-                }
+            $unit = round((float)($d['unit_price'] ?? 0), 2);
+            $currency = strtoupper((string)($d['currency'] ?? 'NGN'));
+            // "From" total: unit × pilgrims when a count was given, else the
+            // per-pilgrim unit price. NO per-age split — v2 is flat per pilgrim.
+            $displayTotal = $pax > 0 ? round($unit * $pax, 2) : $unit;
+
+            // Image: v2 hero_image (absolute-ise relative paths the way the site does).
+            $image = (string)($d['hero_image'] ?? '');
+            if ($image !== '' && stripos($image, 'http') !== 0) {
+                $base = defined('root') ? str_replace('modules/', '', root) : '/';
+                $image = $base . ltrim(str_replace(['modules/modules/', 'modules/'], '', $image), '/');
             }
 
-            $loc = trim((string)($u['location'] ?? ''));
-            $days = (int)($u['days'] ?? 0);
-
-            $serviceIds = [];
-            if (!empty($u['services'])) {
-                $decodedSvc = json_decode((string)$u['services'], true);
-                if (is_array($decodedSvc)) {
-                    $serviceIds = $decodedSvc;
-                } else {
-                    $serviceIds = array_filter(array_map('intval', explode(',', (string)$u['services'])));
-                }
-            }
-            $inclusions = [];
-            if ($serviceIds !== []) {
-                foreach (($db->select('umrah_settings', ['setting_label', 'icon'], [
-                    'id' => $serviceIds,
-                    'status' => 1,
-                ]) ?: []) as $sd) {
-                    $inclusions[] = [
-                        'name' => (string)($sd['setting_label'] ?? ''),
-                        'icon' => (string)($sd['icon'] ?? 'check_circle'),
-                    ];
-                }
-            }
+            $tierLabel = (string)($d['tier_label'] ?? 'Standard');
+            $cityLabel = $originCity !== '' ? $originCity : 'Kano';
+            $dateLabel = ($depDate !== '' && strtotime($depDate))
+                ? date('j M', strtotime($depDate)) . ($retDate && strtotime($retDate) ? ' → ' . date('j M Y', strtotime($retDate)) : '')
+                : $monthBucket;
+            $name = $cityLabel . ($days > 0 ? ' · ' . $days . '-day Umrah' : ' Umrah');
 
             $cards[] = [
-                'id' => (string)$u['id'],
-                'umrah_id' => (int)$u['id'],
-                'kind' => 'umrah',
-                'supplier' => 'umrah',
-                'name' => (string)($u['name'] ?? 'Umrah'),
-                'title' => (string)($u['name'] ?? 'Umrah'),
-                'subtitle' => trim(($loc !== '' ? $loc . ' · ' : '') . ($days > 0 ? $days . ' days' : '') . ($typeLabel !== '' ? ' · ' . $typeLabel : '')),
-                'location' => $loc,
-                'description' => trim(strip_tags((string)($u['description'] ?? ($u['desc'] ?? '')))),
-                'days' => $days,
-                'nights' => (int)($u['nights'] ?? 0),
-                'umrah_type' => $typeLabel,
-                'umrah_type_id' => (int)($u['umrah_type_id'] ?? 0),
-                'start_date' => $startDate,
-                'adults' => $adults,
-                'children' => $children,
-                'infants' => $infants,
-                'max_adults' => $maxAdults,
-                'max_children' => $maxChildren,
-                'max_infants' => $maxInfants,
-                'price' => $displayTotal,
-                'adult_price' => $adultPrice,
-                'child_price' => $childPrice,
-                'infant_price' => $infantPrice,
-                'currency' => $currency,
-                'image' => $image,
-                'slug' => (string)($u['slug'] ?? ''),
-                'inclusions' => $inclusions,
-                'services' => array_values(array_map('strval', $serviceIds)),
+                // The bookable unit — select_option/reprice/book use this v2 id.
+                'id'                => (string)($d['departure_tier_id'] ?? ''),
+                'departure_tier_id' => (int)($d['departure_tier_id'] ?? 0),
+                'departure_id'      => (int)($d['departure_id'] ?? 0),
+                'kind'              => 'umrah',
+                'supplier'          => 'umrah',
+                'name'              => $name,
+                'title'             => $name,
+                'subtitle'          => trim($cityLabel . ' · ' . $dateLabel . ($tierLabel !== '' ? ' · from ' . $tierLabel : '')),
+                'location'          => $cityLabel,
+                'days'              => $days,
+                'nights'            => $days > 0 ? max(0, $days - 1) : 0,
+                'departure_date'    => $depDate,
+                'return_date'       => $retDate,
+                'month_bucket'      => $monthBucket,
+                'tier_code'         => (string)($d['tier_code'] ?? ''),
+                'tier_label'        => $tierLabel,
+                'tier_count'        => (int)($d['tier_count'] ?? 1),
+                'room_sharing'      => (string)($d['room_sharing'] ?? ''),
+                'pax'               => $pax,
+                // v2 unit is per pilgrim; price = the "from" total for display.
+                'price'             => $displayTotal,
+                'unit_price'        => $unit,
+                'price_min'         => round((float)($d['price_min'] ?? $unit), 2),
+                'price_max'         => round((float)($d['price_max'] ?? $unit), 2),
+                'currency'          => $currency,
+                'availability'      => (string)($d['availability'] ?? 'available'),
+                'image'             => $image,
+                'slug'              => (string)($d['slug'] ?? ''),
             ];
+
+            if ($limit > 0 && count($cards) >= $limit) {
+                break;
+            }
         }
 
         return ['cards' => $cards];

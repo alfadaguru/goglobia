@@ -9,77 +9,12 @@
 // Shared loader: published departures, each summarised by its CHEAPEST active
 // tier as the "from" price (so a departure card shows the entry price and the
 // detail page shows every tier). Carries origin_city for the city+month search.
+// umrahV2PublishedDepartures() now lives in app/lib/umrah/services.php (autoloaded
+// via config.php) so BOTH this web page and the GIA assistant read the one same
+// source. The definition there is function_exists-guarded; this file relies on it.
+// (A defensive fallback require in case load order ever changes.)
 if (!function_exists('umrahV2PublishedDepartures')) {
-    function umrahV2PublishedDepartures($db): array
-    {
-        $rows = $db->select('umrah_departures', '*', [
-            'status' => 'published', 'archived' => 0,
-            'ORDER'  => ['departure_date' => 'ASC'],
-        ]) ?: [];
-        // Resolve each departure's template slug once (cached per template_id) so
-        // result cards link to the CORRECT package detail page — not a hardcoded
-        // slug. Falls back to a safe default only if the template row is missing.
-        $slugCache = [];
-        $out = [];
-        foreach ($rows as $d) {
-            $tplId = (int) ($d['template_id'] ?? 0);
-            if ($tplId && !array_key_exists($tplId, $slugCache)) {
-                $slugCache[$tplId] = (string) ($db->get('umrah_package_templates', 'slug', ['id' => $tplId]) ?: '');
-            }
-            $tplSlug = $tplId ? ($slugCache[$tplId] ?: '') : '';
-            $tiers = $db->select('umrah_departure_tiers', '*', [
-                'departure_id' => $d['id'], 'status' => 'active',
-                'ORDER' => ['id' => 'ASC'],
-            ]) ?: [];
-            if (!$tiers) { continue; }
-            // Pick the cheapest priced tier as the "from" entry price.
-            $best = null; $bestPriced = null;
-            foreach ($tiers as $dt) {
-                $priced = function_exists('umrah_price_resolve')
-                    ? umrah_price_resolve($db, $dt)
-                    : ['unit' => (float) ($dt['promo_price'] ?? 0), 'currency' => $dt['currency'] ?? 'NGN', 'promo' => null];
-                if (($priced['unit'] ?? 0) <= 0) { continue; }
-                if ($best === null || $priced['unit'] < $bestPriced['unit']) { $best = $dt; $bestPriced = $priced; }
-            }
-            if ($best === null) { continue; }
-            $cap = function_exists('umrah_capacity_for') ? umrah_capacity_for($db, (int) $best['id']) : ['remaining' => 0];
-            $tier = $db->get('umrah_tiers', ['code', 'public_label', 'room_sharing'], ['id' => $best['tier_id']]);
-            $avail = ($cap['remaining'] <= 0) ? 'sold_out'
-                : (($cap['remaining'] <= (int) ($d['low_stock_threshold'] ?? 10)) ? 'limited' : 'available');
-            // Price range + tier codes across all active tiers (for the card + tier filter).
-            $prices = []; $tierCodes = [];
-            foreach ($tiers as $dt2) {
-                $p2 = function_exists('umrah_price_resolve') ? umrah_price_resolve($db, $dt2) : ['unit' => (float) ($dt2['promo_price'] ?? 0)];
-                if (($p2['unit'] ?? 0) > 0) { $prices[] = (float) $p2['unit']; }
-                $tc = $db->get('umrah_tiers', ['code'], ['id' => $dt2['tier_id']]);
-                if ($tc) { $tierCodes[] = $tc['code']; }
-            }
-            $out[] = [
-                'departure_id'      => (int) $d['id'],
-                'departure_tier_id' => (int) $best['id'],
-                'template_id'       => $tplId,
-                'slug'              => $tplSlug,
-                'code'              => $d['code'],
-                'origin_city'       => $d['origin_city'] ?: 'Kano',
-                'hero_image'        => $d['hero_image'] ?: '',
-                'departure_date'    => $d['departure_date'],
-                'return_date'       => $d['return_date'],
-                'month_bucket'      => $d['month_bucket'] ?: date('F Y', strtotime($d['departure_date'])),
-                'tier_code'         => $tier['code'] ?? 'standard',
-                'tier_label'        => $tier['public_label'] ?? 'Standard Economy',
-                'room_sharing'      => $tier['room_sharing'] ?? '4-5 sharing',
-                'unit_price'        => $bestPriced['unit'],
-                'price_min'         => $prices ? min($prices) : $bestPriced['unit'],
-                'price_max'         => $prices ? max($prices) : $bestPriced['unit'],
-                'currency'          => $bestPriced['currency'],
-                'promo'             => $bestPriced['promo'],
-                'availability'      => $avail,
-                'tier_count'        => count($tiers),
-                'tier_codes'        => $tierCodes,
-            ];
-        }
-        return $out;
-    }
+    require_once dirname(__DIR__, 2) . '/lib/umrah/services.php';
 }
 
 // ---- NEW LANDING: GET /umrah  (and /umrah/) -----------------------------
