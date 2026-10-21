@@ -196,6 +196,21 @@ class createBookingTool implements giaToolInterface
             'guest'              => $primaryGuest,
         ];
 
+        // STAYS: lift the chosen room(s) + dates + hotel to booking_data top-level,
+        // where the stays invoice + inventory-hold logic reads them (not nested in
+        // items). Keeps the chat booking on the same rails as the web stays booking.
+        if (count($items) === 1 && is_array($items[0])
+            && (string) ($items[0]['module'] ?? $items[0]['kind'] ?? '') === 'stays') {
+            $si = is_array($items[0]['item'] ?? null) ? $items[0]['item'] : [];
+            if (!empty($si['selected_rooms']) && is_array($si['selected_rooms'])) {
+                $bookingData['selected_rooms'] = $si['selected_rooms'];
+                $bookingData['hotel_id'] = (int) ($si['hotel_id'] ?? $si['stay_id'] ?? 0);
+                $bookingData['stay_id']  = (int) ($si['stay_id'] ?? $si['hotel_id'] ?? 0);
+                $bookingData['checkin']  = (string) ($si['checkin'] ?? '');
+                $bookingData['checkout'] = (string) ($si['checkout'] ?? '');
+            }
+        }
+
         try {
             $ok = $db->insert('bookings', [
                 'invoice_id'           => $invoiceId,

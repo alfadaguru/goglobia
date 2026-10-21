@@ -490,6 +490,36 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
                     ];
                 }
             }
+            // STAYS ROOM TYPES: select_option on a property returns data.stays_rooms[]
+            // (each room with option rows). Render one card per bookable room-option
+            // with a pick button carrying the colon-delimited room ref.
+            if ($ok && $name === 'select_option' && !empty($data['stays_rooms']) && is_array($data['stays_rooms'])) {
+                $stayId = (int) ($data['stay_id'] ?? 0);
+                foreach ($data['stays_rooms'] as $rm) {
+                    if (!is_array($rm)) { continue; }
+                    $roomId = (int) ($rm['room_id'] ?? 0);
+                    $roomName = (string) ($rm['room_name'] ?? 'Room');
+                    foreach (($rm['options'] ?? []) as $o) {
+                        if (!is_array($o)) { continue; }
+                        $optId = (int) ($o['option_id'] ?? 0);
+                        if ($stayId <= 0 || $roomId <= 0 || $optId <= 0) { continue; }
+                        $price = $o['price'] ?? null;
+                        $cur   = (string) ($o['currency'] ?? ($data['currency'] ?? ''));
+                        $bits  = [];
+                        if (!empty($o['board'])) { $bits[] = (string) $o['board']; }
+                        if (!empty($o['free_cancellation'])) { $bits[] = 'Free cancellation'; }
+                        if (($o['available'] ?? 0) > 0 && (int) $o['available'] <= 5) { $bits[] = 'Only ' . (int) $o['available'] . ' left'; }
+                        $sub = trim(implode(' · ', $bits) . ($price !== null ? '  ' . trim($cur . ' ' . number_format((float) $price, 2)) : ''));
+                        $ref = 'stayroom:' . $stayId . ':' . $roomId . ':' . $optId;
+                        $cards[] = [
+                            'title'    => $roomName,
+                            'subtitle' => $sub,
+                            'image'    => (string) ($rm['image'] ?? ''),
+                            'buttons'  => [['id' => 'pick|stays|' . $ref, 'title' => 'Choose this room']],
+                        ];
+                    }
+                }
+            }
             // Local search cards (umrah/stays/tours/bus/visa): data.searches[].cards[].
             if ($name === 'search_trip' && isset($data['searches']) && is_array($data['searches'])) {
                 foreach ($data['searches'] as $sr) {

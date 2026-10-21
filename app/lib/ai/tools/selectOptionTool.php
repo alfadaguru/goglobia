@@ -58,6 +58,8 @@ class selectOptionTool implements giaToolInterface
                 'adults' => ['type' => 'integer', 'description' => 'Number of adults (default 1).'],
                 'children' => ['type' => 'integer', 'description' => 'Number of children (default 0).'],
                 'infants' => ['type' => 'integer', 'description' => 'Number of infants (default 0).'],
+                'checkin' => ['type' => 'string', 'description' => 'Stays only: check-in date YYYY-MM-DD (from the conversation). Needed to price rooms and book.'],
+                'checkout' => ['type' => 'string', 'description' => 'Stays only: check-out date YYYY-MM-DD.'],
             ],
             'required' => ['module', 'option_id'],
         ];
@@ -97,6 +99,93 @@ class selectOptionTool implements giaToolInterface
         if ($currency === '') {
             $currency = 'USD';
         }
+
+        // ============ STAYS: two-step room selection ==========================
+        // A hotel has many ROOM TYPES, so a stays selection is 2 steps:
+        //  (A) pick a PROPERTY  -> we return its real bookable rooms (so GIA can
+        //      show them instead of one shallow card), each with a pick ref
+        //      "stayroom|<stay>|<room>|<option>".
+        //  (B) pick a ROOM via that ref -> we build the draft with selected_rooms.
+        if ($module === 'stays') {
+            $checkin  = trim((string) ($input['checkin'] ?? ''));
+            $checkout = trim((string) ($input['checkout'] ?? ''));
+            $pax = $adults + $children;
+
+            if (!function_exists('stays_list_room_options')) {
+                $inv = dirname(__DIR__, 2) . '/stays_inventory.php';
+                if (is_file($inv)) { require_once $inv; }
+            }
+
+            // (B) A specific room was chosen: "stayroom:<stay>:<room>:<option>[:<qty>]".
+            // Colon-delimited (not '|') so it survives as a single select_option ref
+            // through the 'pick|<module>|<ref>' tap convention.
+            if (preg_match('/^stayroom:(\d+):(\d+):(\d+)(?::(\d+))?$/', $optionId, $sm)) {
+                $stayId = (int) $sm[1]; $roomId = (int) $sm[2]; $roomOpt = (int) $sm[3];
+                $qty = max(1, (int) ($sm[4] ?? 1));
+                // Validate the room/option really exists + is priceable for the dates.
+                if (function_exists('stays_list_room_options')) {
+                    $rooms = stays_list_room_options($db, $stayId, $checkin, $checkout, $pax);
+                    $found = null; $propName = (string) ($rooms['property'] ?? '');
+                    foreach (($rooms['rooms'] ?? []) as $rm) {
+                        foreach (($rm['options'] ?? []) as $o) {
+                            if ((int) $rm['room_id'] === $roomId && (int) $o['option_id'] === $roomOpt) { $found = ['room' => $rm, 'opt' => $o]; break 2; }
+                        }
+                    }
+                    if ($found === null) {
+                        return ['ok' => false, 'error_code' => 'AI_ROOM_UNAVAILABLE', 'message' => "That room isn't available for those dates — let me show the current rooms."];
+                    }
+                    $title = trim($propName . ' — ' . (string) $found['room']['room_name']);
+                    $item = [
+                        'module' => 'stays', 'kind' => 'stays', 'supplier' => 'stays',
+                        'title' => $title, 'price' => 0.0, 'currency' => $currency,
+                        'item' => [
+                            'id' => (string) $stayId, 'stay_id' => $stayId, 'hotel_id' => $stayId,
+                            'checkin' => $rooms['checkin'] ?? $checkin, 'checkout' => $rooms['checkout'] ?? $checkout,
+                            'adults' => $adults, 'children' => $children, 'infants' => $infants,
+                            'selected_rooms' => [[
+                                'room_id' => $roomId, 'option_id' => $roomOpt, 'quantity' => $qty,
+                                'option' => ['option_id' => $roomOpt],
+                            ]],
+                        ],
+                        'params' => ['adults' => (string) $adults, 'children' => (string) $children, 'infants' => (string) $infants, 'currency' => $currency],
+                    ];
+                    $verifiedStay = ['ok' => true, 'id' => $stayId, 'title' => $title, '__item' => $item];
+                    return $this->saveDraftAndRespond($db, $module, $verifiedStay, $item, $adults, $children, $infants, $currency, $context);
+                }
+                return ['ok' => false, 'error_code' => 'AI_NO_ROOMS', 'message' => 'Room selection is unavailable right now.'];
+            }
+
+            // (A) A property id was chosen: return its real rooms for the dates.
+            if (ctype_digit($optionId) && function_exists('stays_list_room_options')) {
+                $rooms = stays_list_room_options($db, (int) $optionId, $checkin, $checkout, $pax);
+                if (empty($rooms['ok'])) {
+                    return ['ok' => false, 'error_code' => 'AI_NO_ROOMS', 'message' => (string) ($rooms['message'] ?? "I couldn't load rooms for that property.")];
+                }
+                if (($rooms['rooms'] ?? []) === []) {
+                    return ['ok' => true, 'data' => ['stays_rooms' => [], 'property' => $rooms['property'] ?? ''],
+                            'message' => 'That property has no rooms available for those dates. Want me to try different dates?'];
+                }
+                $needDates = ($checkin === '' || $checkout === '');
+                return [
+                    'ok' => true,
+                    'data' => [
+                        'stays_rooms' => $rooms['rooms'],
+                        'stay_id'     => (int) $optionId,
+                        'property'    => $rooms['property'] ?? '',
+                        'currency'    => $rooms['currency'] ?? '',
+                        'checkin'     => $rooms['checkin'] ?? '',
+                        'checkout'    => $rooms['checkout'] ?? '',
+                        'nights'      => $rooms['nights'] ?? 1,
+                        'need_dates'  => $needDates,
+                        'next'        => 'pick_room',
+                    ],
+                    'message' => 'Here are the room types at ' . ($rooms['property'] ?? 'this property')
+                        . ($needDates ? ' (showing a sample 1-night price — give me your check-in/out dates for the exact total). ' : '. ')
+                        . 'Ask the traveller which room they want.',
+                ];
+            }
+        }
+        // ======================================================================
 
         $expires = false;
         if (in_array($module, $liveModules, true)) {
@@ -148,6 +237,18 @@ class selectOptionTool implements giaToolInterface
             $item = $this->buildDraftItem($module, $verified, $adults, $children, $infants, $currency);
         }
 
+        return $this->saveDraftAndRespond($db, $module, $verified, $item, $adults, $children, $infants, $currency, $context, $expires);
+    }
+
+    /**
+     * Persist the single-item draft to logs_bookings and return the standard
+     * select_option response (draft_hash + next=reprice_trip). Shared by the
+     * generic path and the stays room-pick path so the save logic lives once.
+     */
+    private function saveDraftAndRespond($db, string $module, array $verified, array $item,
+                                         int $adults, int $children, int $infants, string $currency,
+                                         array $context, bool $expires = false): array
+    {
         $payload = [
             'type'         => 'ai_trip',
             'query'        => '',

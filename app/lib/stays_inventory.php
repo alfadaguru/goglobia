@@ -82,6 +82,122 @@ if (!function_exists('stays_room_option_ids')) {
     }
 }
 
+if (!function_exists('stays_list_room_options')) {
+    /**
+     * List the bookable ROOM TYPES (and their rate options) for a property over a
+     * date range — the data GIA needs to show "here are the rooms" and let a
+     * traveller pick one. There was no server-side room-list function before (the
+     * website room picker is front-end only), so GIA could only ever surface the
+     * one property card. This reads the SAME authoritative source as the web rooms
+     * API + the hold engine: stays_rooms.room_options (stable option_id via
+     * stays_room_option_ids) priced by stays_recompute_net (calendar + yield rules).
+     *
+     * Each returned option is directly bookable as
+     *   selected_rooms = [['room_id'=>R,'option_id'=>O,'quantity'=>Q]]
+     *
+     * @param int    $pax total guests (adults+children); options whose capacity is
+     *                    below pax are excluded. 0 = don't filter by capacity.
+     * @return array {ok, currency, nights, rooms:[{room_id, room_name, image,
+     *               options:[{option_id, label, price, currency, board,
+     *               breakfast, refundable, free_cancellation, available, max_adults,
+     *               max_children}]}]} or {ok:false, message}
+     */
+    function stays_list_room_options($db, int $stayId, string $checkin = '', string $checkout = '', int $pax = 0): array
+    {
+        if ($stayId <= 0) { return ['ok' => false, 'message' => 'No property.']; }
+
+        // Default a sensible 1-night stay (today+ a near date) when GIA has no dates
+        // yet, so a price can still be shown; GIA should ask for real dates to book.
+        if ($checkin === '' || strtotime($checkin) === false) {
+            $checkin = date('Y-m-d', strtotime('+1 day'));
+        }
+        if ($checkout === '' || strtotime($checkout) === false || strtotime($checkout) <= strtotime($checkin)) {
+            $checkout = date('Y-m-d', strtotime($checkin . ' +1 day'));
+        }
+        $nightCount = max(1, (int) round((strtotime($checkout) - strtotime($checkin)) / 86400));
+
+        $stay = $db->get('stays', ['id', 'name', 'currency'], ['id' => $stayId, 'status' => 1]);
+        if (!$stay) { return ['ok' => false, 'message' => 'That property is not available.']; }
+
+        $rooms = $db->select('stays_rooms', ['id', 'room_name', 'room_images', 'room_options'],
+            ['stay_id' => $stayId, 'status' => 1, 'ORDER' => ['id' => 'ASC']]) ?: [];
+        if (!$rooms) { return ['ok' => true, 'currency' => strtoupper((string) ($stay['currency'] ?? '')), 'nights' => $nightCount, 'rooms' => []]; }
+
+        $out = [];
+        foreach ($rooms as $room) {
+            $roomId = (int) $room['id'];
+            // Stable option ids (also backfills any missing ones).
+            $options = stays_room_option_ids($db, $roomId, $stayId);
+            if (!$options) { continue; }
+
+            $img = '';
+            $imgs = json_decode((string) ($room['room_images'] ?? ''), true);
+            if (is_array($imgs) && $imgs !== []) {
+                $first = $imgs[0];
+                $url = is_array($first) ? (string) ($first['url'] ?? '') : (string) $first;
+                if ($url !== '') {
+                    $img = (stripos($url, 'http') === 0) ? $url
+                         : (defined('root') ? rtrim((string) root, '/') . '/' . ltrim($url, '/') : $url);
+                }
+            }
+
+            $optOut = [];
+            foreach ($options as $o) {
+                if ((int) ($o['status'] ?? 1) !== 1) { continue; }
+                $optionId = (int) ($o['option_id'] ?? 0);
+                if ($optionId <= 0) { continue; }
+                // Capacity filter: skip an option that can't hold the party.
+                $cap = (int) ($o['max_adults'] ?? 0) + (int) ($o['max_children'] ?? 0);
+                if ($pax > 0 && $cap > 0 && $cap < $pax) { continue; }
+                if ((int) ($o['available_quantity'] ?? 0) <= 0) { continue; }
+
+                // Authoritative price for this exact option over the dates.
+                $priceRes = stays_recompute_net($db, $stayId,
+                    [['room_id' => $roomId, 'option_id' => $optionId, 'quantity' => 1]],
+                    $checkin, $checkout, '');
+                if (empty($priceRes['ok']) || (float) ($priceRes['net'] ?? 0) <= 0) { continue; }
+
+                // Board: there is no board-name table in this codebase, so describe
+                // the real fact we DO have (breakfast) rather than invent a label.
+                $boardLabel = !empty($o['breakfast_included']) ? 'Breakfast included' : 'Room only';
+
+                $optOut[] = [
+                    'option_id'         => $optionId,
+                    'room_id'           => $roomId,
+                    'price'             => round((float) $priceRes['net'], 2),
+                    'currency'          => strtoupper((string) ($priceRes['hotel_currency'] ?? ($stay['currency'] ?? ''))),
+                    'board'             => $boardLabel,
+                    'breakfast'         => !empty($o['breakfast_included']),
+                    'refundable'        => !empty($o['refundable']),
+                    'free_cancellation' => !empty($o['cancellation_free']),
+                    'available'         => (int) ($o['available_quantity'] ?? 0),
+                    'max_adults'        => (int) ($o['max_adults'] ?? 0),
+                    'max_children'      => (int) ($o['max_children'] ?? 0),
+                ];
+            }
+            if (!$optOut) { continue; }
+
+            $out[] = [
+                'room_id'   => $roomId,
+                'room_name' => (string) ($room['room_name'] ?? 'Room'),
+                'image'     => $img,
+                'options'   => $optOut,
+            ];
+        }
+
+        return [
+            'ok'       => true,
+            'stay_id'  => $stayId,
+            'property' => (string) ($stay['name'] ?? ''),
+            'currency' => strtoupper((string) ($stay['currency'] ?? '')),
+            'checkin'  => $checkin,
+            'checkout' => $checkout,
+            'nights'   => $nightCount,
+            'rooms'    => $out,
+        ];
+    }
+}
+
 if (!function_exists('stays_option_default_quantity')) {
     /** The option's configured available_quantity (the per-night ceiling), or 0. */
     function stays_option_default_quantity(array $options, int $optionId): int
