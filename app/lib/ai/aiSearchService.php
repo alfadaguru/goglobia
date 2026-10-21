@@ -2450,7 +2450,10 @@ PROMPT;
     }
 
     /**
-     * Distinct active package cities from umrah.location (canonical labels).
+     * Distinct umrah DEPARTURE cities from the v2 model (umrah_departures.origin_city)
+     * — the SAME source the website /umrah page uses. The legacy `umrah` table is NOT
+     * read here anymore: it held stale rows (e.g. "Multan, Pakistan") that made GIA
+     * match/announce cities that aren't real inventory.
      * @return string[]
      */
     private function umrahLocationsFromDb(): array
@@ -2461,12 +2464,13 @@ PROMPT;
         }
         $cache = [];
         try {
-            $rows = $this->db->select('umrah', ['location'], [
-                'status' => 1,
+            $rows = $this->db->select('umrah_departures', ['origin_city'], [
+                'status' => 'published',
+                'archived' => 0,
             ]) ?: [];
             $seen = [];
             foreach ($rows as $row) {
-                $loc = trim((string)($row['location'] ?? ''));
+                $loc = trim((string)($row['origin_city'] ?? ''));
                 if ($loc === '' || strcasecmp($loc, 'any') === 0) {
                     continue;
                 }
