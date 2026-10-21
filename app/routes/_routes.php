@@ -407,6 +407,10 @@ require_once 'app/routes/paymentPaystackRoutes.php'; // Paystack DVA (virtual ac
 // EMAIL DELIVERY WEBHOOKS (public, unauthenticated, Svix signature-verified)
 require_once 'app/routes/webhooksResendRoutes.php'; // Resend campaign delivery events
 
+// GIA MESSAGING CHANNELS (public, unauthenticated, per-channel signature/secret
+// verified): inbound webhooks for WhatsApp / Messenger / Telegram -> GIA.
+require_once 'app/routes/ai/giaChannelsRoutes.php';
+
 // CRON ROUTES
 require_once 'app/routes/crons/creditsRemindersRoutes.php';
 require_once 'app/routes/crons/currencyRatesRoutes.php';

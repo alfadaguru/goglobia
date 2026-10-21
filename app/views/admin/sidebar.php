@@ -389,6 +389,7 @@ $adminMenu = array_merge($adminMenu, [
         'submenu' => [
             ['name' => 'Overview &amp; reports', 'icon' => 'insights', 'url' => root.admin.'/gia'],
             ['name' => 'Conversations', 'icon' => 'forum', 'url' => root.admin.'/gia#conversations'],
+            ['name' => 'Channels', 'icon' => 'hub', 'url' => root.admin.'/gia/channels'],
             ['name' => 'Leads', 'icon' => 'contact_mail', 'url' => root.admin.'/gia#leads'],
             ['name' => 'Export leads (CSV)', 'icon' => 'download', 'url' => root.admin.'/gia/leads/export'],
             ['name' => 'AI settings', 'icon' => 'tune', 'url' => root.admin.'/settings#ai'],

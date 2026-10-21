@@ -293,3 +293,102 @@ $router->post(admin . '/gia/conversation/handoff', function () use ($SECURE, $db
         echo json_encode(['status' => false]);
     }
 });
+
+// ============================================================================
+// GIA MESSAGING CHANNELS — admin has FULL control: enable/disable each channel,
+// enter credentials, see the webhook URL + verify token to paste into each
+// provider console, and test connectivity. ADMIN_AUTH on all; CSRF on writes.
+// ============================================================================
+
+// GET admin/gia/channels — the control panel.
+$router->get(admin . '/gia/channels', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    require_once dirname(__DIR__, 2) . '/lib/ai/gia_channels_config.php';
+    $channels = gia_channels_config($db);
+    // Webhook URLs to paste into each provider console (built from this install's base URL).
+    $webhooks = [
+        'telegram'  => root . 'webhooks/gia/telegram',
+        'whatsapp'  => root . 'webhooks/gia/whatsapp',
+        'messenger' => root . 'webhooks/gia/messenger',
+    ];
+    require_once views . "includes/header.php";
+    require_once "app/views/admin/gia/channels.php";
+    require_once views . "includes/footer.php";
+});
+
+// POST admin/gia/channels/save — persist per-channel config (merge-safe).
+$router->post(admin . '/gia/channels/save', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (class_exists('CSRF')) { CSRF::guard(); }
+    header('Content-Type: application/json');
+    require_once dirname(__DIR__, 2) . '/lib/ai/gia_channels_config.php';
+
+    // Accept a nested gia_channels[<channel>][<field>] form post.
+    $incoming = $_POST['gia_channels'] ?? [];
+    if (!is_array($incoming)) { $incoming = []; }
+    // Normalize checkbox 'enabled' (absent => off) for each known channel.
+    foreach (['whatsapp', 'messenger', 'telegram'] as $ch) {
+        if (!isset($incoming[$ch]) || !is_array($incoming[$ch])) { $incoming[$ch] = []; }
+        $incoming[$ch]['enabled'] = !empty($incoming[$ch]['enabled']);
+    }
+    $ok = gia_channels_save($db, $incoming);
+    echo json_encode(['status' => $ok]);
+});
+
+// POST admin/gia/channels/test — lightweight connectivity check per channel.
+$router->post(admin . '/gia/channels/test', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (class_exists('CSRF')) { CSRF::guard(); }
+    header('Content-Type: application/json');
+    require_once dirname(__DIR__, 2) . '/lib/ai/gia_channels_config.php';
+    $channel = (string) ($_POST['channel'] ?? '');
+    $cfg = gia_channels_config($db)[$channel] ?? null;
+    if (!is_array($cfg)) { echo json_encode(['status' => false, 'message' => 'Unknown channel']); return; }
+
+    try {
+        if ($channel === 'telegram') {
+            $token = trim((string) ($cfg['bot_token'] ?? ''));
+            if ($token === '') { echo json_encode(['status' => false, 'message' => 'No bot token set']); return; }
+            // Telegram getMe confirms the token without sending anything.
+            $ch = curl_init('https://api.telegram.org/bot' . $token . '/getMe');
+            curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10, CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2]);
+            $resp = curl_exec($ch); $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+            $j = json_decode((string) $resp, true);
+            if ($code === 200 && !empty($j['ok'])) {
+                echo json_encode(['status' => true, 'message' => 'Connected as @' . ($j['result']['username'] ?? 'bot')]);
+            } else {
+                echo json_encode(['status' => false, 'message' => 'Telegram rejected the token']);
+            }
+            return;
+        }
+        if ($channel === 'whatsapp') {
+            // Green API: reuse the provider's own testConnection via SENDWHATSAPP's loader path.
+            $mode = (string) ($cfg['mode'] ?? 'greenapi');
+            if ($mode === 'greenapi') {
+                $settings = $db->get('settings', '*');
+                $wcfg = json_decode($settings['whatsapp_providers_config'] ?? '{}', true);
+                $gc = $wcfg['greenapi'] ?? [];
+                if (empty($gc['instance_id']) || empty($gc['token'])) {
+                    echo json_encode(['status' => false, 'message' => 'Green API credentials not set (Settings → WhatsApp)']); return;
+                }
+                require_once dirname(__DIR__, 2) . '/lib/notifications/whatsapp/greenapi.php';
+                $p = new GreenapiProvider($gc);
+                $r = $p->testConnection();
+                echo json_encode(['status' => !empty($r['success']), 'message' => (string) ($r['message'] ?? '')]);
+            } else {
+                $ok = trim((string) ($cfg['meta_phone_number_id'] ?? '')) !== '' && trim((string) ($cfg['meta_access_token'] ?? '')) !== '';
+                echo json_encode(['status' => $ok, 'message' => $ok ? 'Meta credentials present' : 'Meta phone id / token missing']);
+            }
+            return;
+        }
+        if ($channel === 'messenger') {
+            $ok = trim((string) ($cfg['page_token'] ?? '')) !== '' && trim((string) ($cfg['app_secret'] ?? '')) !== '' && trim((string) ($cfg['verify_token'] ?? '')) !== '';
+            echo json_encode(['status' => $ok, 'message' => $ok ? 'Page token + app secret + verify token present' : 'Missing page token / app secret / verify token']);
+            return;
+        }
+        echo json_encode(['status' => false, 'message' => 'Unknown channel']);
+    } catch (\Throwable $e) {
+        error_log('[gia] channel test: ' . $e->getMessage());
+        echo json_encode(['status' => false, 'message' => 'Test failed']);
+    }
+});

@@ -57,6 +57,8 @@ if (!function_exists('ensureGiaAnalyticsSchema')) {
                 `lead_id` int(11) DEFAULT NULL,
                 `context` varchar(40) DEFAULT NULL,
                 `surface` varchar(20) NOT NULL DEFAULT 'widget',
+                `channel` varchar(16) NOT NULL DEFAULT 'web',
+                `channel_user_id` varchar(120) DEFAULT NULL,
                 `msg_count` int(11) NOT NULL DEFAULT 0,
                 `token_in` int(11) NOT NULL DEFAULT 0,
                 `token_out` int(11) NOT NULL DEFAULT 0,
@@ -78,16 +80,22 @@ if (!function_exists('ensureGiaAnalyticsSchema')) {
                 KEY `lead_id` (`lead_id`),
                 KEY `last_at` (`last_at`),
                 KEY `closed` (`closed`),
-                KEY `needs_human` (`needs_human`)
+                KEY `needs_human` (`needs_human`),
+                KEY `channel_user` (`channel`,`channel_user_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
             // Idempotent ALTERs for installs created before these columns existed
             // (CREATE TABLE IF NOT EXISTS does not add columns to an existing table).
             foreach ([
-                'closed'       => "ALTER TABLE `gia_conversations` ADD COLUMN `closed` tinyint(1) NOT NULL DEFAULT 0",
-                'needs_human'  => "ALTER TABLE `gia_conversations` ADD COLUMN `needs_human` tinyint(1) NOT NULL DEFAULT 0",
-                'staff_active' => "ALTER TABLE `gia_conversations` ADD COLUMN `staff_active` tinyint(1) NOT NULL DEFAULT 0",
-                'flagged'      => "ALTER TABLE `gia_conversations` ADD COLUMN `flagged` tinyint(1) NOT NULL DEFAULT 0",
+                'closed'          => "ALTER TABLE `gia_conversations` ADD COLUMN `closed` tinyint(1) NOT NULL DEFAULT 0",
+                'needs_human'     => "ALTER TABLE `gia_conversations` ADD COLUMN `needs_human` tinyint(1) NOT NULL DEFAULT 0",
+                'staff_active'    => "ALTER TABLE `gia_conversations` ADD COLUMN `staff_active` tinyint(1) NOT NULL DEFAULT 0",
+                'flagged'         => "ALTER TABLE `gia_conversations` ADD COLUMN `flagged` tinyint(1) NOT NULL DEFAULT 0",
+                // Messaging channels (Phase 1): which channel a conversation is on and
+                // the sender's id on that channel (phone / Messenger PSID / Telegram id).
+                // Web stays 'web' with a NULL channel_user_id (keyed by browser_id/user_id).
+                'channel'         => "ALTER TABLE `gia_conversations` ADD COLUMN `channel` varchar(16) NOT NULL DEFAULT 'web'",
+                'channel_user_id' => "ALTER TABLE `gia_conversations` ADD COLUMN `channel_user_id` varchar(120) DEFAULT NULL",
             ] as $col => $alter) {
                 try {
                     $exists = $db->query("SHOW COLUMNS FROM `gia_conversations` LIKE " . $db->quote($col))->fetch();

@@ -1,0 +1,488 @@
+<?php
+// ============================================================================
+// FILE: app/lib/ai/gia_channel.php
+// GIA shared INBOUND spine for messaging channels (WhatsApp / Messenger /
+// Telegram). The channel webhooks (adapters) verify their own signatures and
+// parse their own payloads, then hand a normalized (channel, sender, text) to
+// gia_channel_handle() — which does the SAME work the web route does, minus the
+// browser session:
+//     dedupe retries -> rate-limit sender -> resolve conversation + history ->
+//     register tools -> set trusted context + personalize -> giaAgent::run() ->
+//     persist the turn -> return the reply text to send back.
+//
+// Channel-agnostic: every adapter calls one function and gets one reply string.
+// FAIL-SOFT: returns a safe, friendly reply on any internal error; never throws
+// to the webhook (a 200 ack must still go back to the platform).
+// ============================================================================
+
+namespace App\lib\ai;
+
+if (!function_exists('App\\lib\\ai\\gia_channel_supported')) {
+    /** Channels this spine serves. */
+    function gia_channel_supported(string $channel): bool
+    {
+        return in_array(strtolower(trim($channel)), ['whatsapp', 'messenger', 'telegram'], true);
+    }
+}
+
+if (!function_exists('App\\lib\\ai\\gia_channel_seen_before')) {
+    /**
+     * Idempotency: platforms RETRY a webhook if we don't 200 fast enough, so the
+     * same inbound message id can arrive 2-3 times. Record each (channel, msg_id)
+     * once; return true if we've already processed it (=> skip, don't re-reply).
+     * Best-effort: if the dedupe store is unavailable we process (better a rare
+     * duplicate reply than dropping a real message).
+     */
+    function gia_channel_seen_before($db, string $channel, string $messageId): bool
+    {
+        $messageId = trim($messageId);
+        if ($messageId === '') {
+            return false; // nothing to dedupe on; let it through
+        }
+        try {
+            $db->query("CREATE TABLE IF NOT EXISTS `gia_channel_seen` (
+                `id` INT(11) NOT NULL AUTO_INCREMENT,
+                `channel` VARCHAR(16) NOT NULL,
+                `message_id` VARCHAR(191) NOT NULL,
+                `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_channel_msg` (`channel`,`message_id`),
+                KEY `created_at` (`created_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            // Atomic claim: the UNIQUE key makes a duplicate insert fail -> seen.
+            $db->insert('gia_channel_seen', ['channel' => strtolower($channel), 'message_id' => $messageId]);
+            $id = (int) $db->id();
+            return $id <= 0; // insert produced no id => it already existed
+        } catch (\Throwable $e) {
+            // Unique-violation path (duplicate) or store error. Treat a duplicate as
+            // seen; a genuine store error we let through (process) — logged.
+            $msg = $e->getMessage();
+            if (stripos($msg, 'duplicate') !== false || stripos($msg, '1062') !== false) {
+                return true;
+            }
+            error_log('[gia] channel_seen: ' . $msg);
+            return false;
+        }
+    }
+}
+
+if (!function_exists('App\\lib\\ai\\gia_channel_rate_ok')) {
+    /**
+     * Per-sender abuse guard (a messaging webhook has no session/IP to key on).
+     * Mirrors the web route's tightness: 8 msgs/min, 80/hour per channel sender.
+     * Fail-open if the limiter is unavailable (never block a real traveler on a
+     * missing cache dir), but log it.
+     */
+    function gia_channel_rate_ok(string $channel, string $channelUserId): bool
+    {
+        if (!class_exists('\\RateLimiter')) {
+            $rlFile = dirname(__DIR__, 3) . '/modules/RateLimiter.php';
+            if (is_file($rlFile)) {
+                require_once $rlFile;
+            }
+        }
+        if (!class_exists('\\RateLimiter')) {
+            return true; // fail-open
+        }
+        try {
+            $rl = new \RateLimiter(dirname(__DIR__, 3) . '/app/cache/rate_limiter');
+            $id = 'gia_ch:' . strtolower($channel) . ':' . preg_replace('/[^A-Za-z0-9]/', '', $channelUserId);
+            $burstOk = $rl->attempt($id . ':burst', 8, 60);
+            $hourOk  = $rl->attempt($id . ':hour', 80, 3600);
+            return $burstOk && $hourOk;
+        } catch (\Throwable $e) {
+            error_log('[gia] channel_rate: ' . $e->getMessage());
+            return true;
+        }
+    }
+}
+
+if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
+    /**
+     * Run one inbound turn for a messaging channel and return the reply to send.
+     *
+     * @param object $db
+     * @param string $channel        'whatsapp' | 'messenger' | 'telegram'
+     * @param string $channelUserId  sender id on that channel (phone/PSID/tg-id)
+     * @param string $text           the traveler's message text
+     * @param string $messageId      platform message id (for retry dedupe; '' ok)
+     * @param array  $opts           reserved (e.g. ['display_name'=>..])
+     * @return array{ok:bool,reply:string,skip:bool,conv_key:string,handoff:bool}
+     */
+    function gia_channel_handle($db, string $channel, string $channelUserId, string $text, string $messageId = '', array $opts = []): array
+    {
+        $channel = strtolower(trim($channel));
+        $channelUserId = trim($channelUserId);
+        $text = trim($text);
+        $fail = function (string $reply, bool $skip = false, bool $handoff = false, string $convKey = '') {
+            return ['ok' => false, 'reply' => $reply, 'skip' => $skip, 'conv_key' => $convKey, 'handoff' => $handoff];
+        };
+
+        if (!gia_channel_supported($channel) || $channelUserId === '') {
+            return $fail('', true); // not ours / unusable — skip silently
+        }
+
+        // Feature gate (reuse the same flag as the web widget).
+        if (!function_exists('aiTripIsEnabled') || !aiTripIsEnabled($db)) {
+            return $fail("I'm just getting set up and can't chat just yet. Please check back soon!");
+        }
+
+        // Retry dedupe: if we've already handled this exact message id, skip.
+        if ($messageId !== '' && gia_channel_seen_before($db, $channel, $messageId)) {
+            return $fail('', true);
+        }
+
+        // Empty / non-text payloads (stickers, reactions) — acknowledge gently.
+        if ($text === '') {
+            return $fail("I can help best with text for now — tell me where you'd like to go and I'll find options.");
+        }
+        if (mb_strlen($text) > 2000) {
+            $text = mb_substr($text, 0, 2000);
+        }
+
+        // Per-sender abuse guard.
+        if (!gia_channel_rate_ok($channel, $channelUserId)) {
+            return $fail("You're sending messages very fast — give me a moment to catch up.");
+        }
+
+        // --- Load the GIA stack (explicit; this install has no composer autoload). ---
+        $aiDir = __DIR__ . '/';
+        require_once $aiDir . 'giaToolInterface.php';
+        require_once $aiDir . 'giaChatProvider.php';
+        require_once $aiDir . 'giaAgent.php';
+        require_once $aiDir . 'tools/searchTripTool.php';
+        require_once $aiDir . 'tools/fetchLiveOffersTool.php';
+        require_once $aiDir . 'tools/selectOptionTool.php';
+        require_once $aiDir . 'tools/composeTripTool.php';
+        require_once $aiDir . 'tools/createCheckoutTool.php';
+        require_once $aiDir . 'tools/createBookingTool.php';
+        require_once $aiDir . 'tools/requestApprovalTool.php';
+        require_once $aiDir . 'tools/initiatePaymentTool.php';
+        require_once $aiDir . 'tools/getOrderStatusTool.php';
+        require_once $aiDir . 'tools/requestHumanTool.php';
+        require_once $aiDir . 'tools/verifyIdentityTool.php';
+        require_once $aiDir . 'gia_analytics.php';
+        require_once $aiDir . 'gia_crm.php';
+        require_once $aiDir . 'gia_identity.php';
+
+        // --- Resolve identity (Phase 2). Two tiers, kept distinct:
+        //     verified => a confirmed account link (trusted for money, Phase 3);
+        //     match-only => a best-effort phone match (GREET BY NAME ONLY). ---
+        $ident = function_exists('gia_identity_resolve')
+            ? gia_identity_resolve($db, $channel, $channelUserId)
+            : ['user_id' => '', 'verified' => false, 'match' => false];
+        $verifiedUserId = !empty($ident['verified']) ? (string) $ident['user_id'] : '';
+        // account_id is for READS (greeting, order status of THIS person). It is the
+        // verified user when linked, else the passive match (reads only — never a
+        // money authorization, which additionally requires user_approved + verify).
+        $accountId = (string) ($ident['user_id'] ?? '');
+
+        $conv = function_exists('gia_conv_get_or_create_channel')
+            ? gia_conv_get_or_create_channel($db, $channel, $channelUserId, $verifiedUserId, '')
+            : null;
+        $convId  = (int) ($conv['id'] ?? 0);
+        $convKey = (string) ($conv['conv_key'] ?? '');
+
+        // --- Human handoff: if staff took over, record the message and pause GIA. ---
+        if ($convId > 0 && (int) ($conv['staff_active'] ?? 0) === 1) {
+            if (function_exists('gia_log_turn')) {
+                gia_log_turn($db, $convId, $text, '', []);
+            }
+            return [
+                'ok' => true, 'skip' => false, 'handoff' => true, 'conv_key' => $convKey,
+                'reply' => 'Thanks — a member of our team is on this chat and will reply here shortly.',
+            ];
+        }
+
+        // --- History (persisted transcript; there is no session on a webhook). ---
+        $history = ($convId > 0 && function_exists('gia_conv_history'))
+            ? gia_conv_history($db, $convId, 20)
+            : [];
+
+        // --- APPROVE TAP (money gate) — handled DETERMINISTICALLY, not via the LLM.
+        //     A tap sends payload 'approve|<checkout_ref>'. We pay ONLY when the chat
+        //     is VERIFIED. We do NOT rely on the model remembering refs (stateless
+        //     webhooks don't replay tool results): gia_pay_approve_and_charge()
+        //     recovers everything from the signed checkout, mints the snapshot-gated
+        //     approval, assigns the wallet gateway, and charges via process_payment.
+        //     Then we reply with the real outcome — the model never touches money. ---
+        if (preg_match('/^approve\|(gco_[a-f0-9]{20})$/', $text, $am)) {
+            if (empty($ident['verified'])) {
+                return $fail("Please link your account first so I can take payment securely — say \"verify\" and I'll send a code.", false, false, $convKey);
+            }
+            $coRef = $am[1];
+            if (!function_exists('gia_pay_approve_and_charge')) {
+                $pf = $aiDir . 'gia_pay.php';
+                if (is_file($pf)) { require_once $pf; }
+            }
+            // Wallet path: point the booking at the wallet gateway when the verified
+            // user has the balance (else process_payment uses the assigned gateway).
+            if (function_exists('gia_pay_invoice_for_checkout') && function_exists('gia_pay_wallet_ready')
+                && function_exists('gia_pay_assign_wallet_gateway')) {
+                $invForCo = gia_pay_invoice_for_checkout($db, $coRef);
+                if ($invForCo !== '') {
+                    try {
+                        $bk = $db->get('bookings', ['price_markup', 'currency_markup'], ['invoice_id' => $invForCo]);
+                        $amt = (float) ($bk['price_markup'] ?? 0);
+                        $cur = (string) ($bk['currency_markup'] ?? '');
+                        if ($accountId !== '' && gia_pay_wallet_ready($db, $accountId, $amt, $cur)) {
+                            gia_pay_assign_wallet_gateway($db, $invForCo);
+                        }
+                    } catch (\Throwable $e) { /* non-fatal; fall through to charge */ }
+                }
+            }
+            $pay = function_exists('gia_pay_approve_and_charge')
+                ? gia_pay_approve_and_charge($db, $coRef, $accountId)
+                : ['ok' => false, 'error' => 'Payment is unavailable right now.'];
+
+            if (!empty($pay['ok'])) {
+                $reply = !empty($pay['already_paid'])
+                    ? 'That booking is already paid — you\'re all set. ✈️'
+                    : (!empty($pay['redirect_url'])
+                        ? "You're approved. Complete payment here: " . (string) $pay['redirect_url']
+                        : "Payment started — I'll confirm the moment it's done.");
+            } else {
+                $code = (string) ($pay['error_code'] ?? '');
+                $reply = $code === 'PRICE_CHANGED'
+                    ? "The price just changed since we quoted it — let me re-quote before you pay."
+                    : (string) ($pay['error'] ?? "I couldn't complete the payment. Please try again.");
+            }
+            if ($convId > 0 && function_exists('gia_log_turn')) {
+                gia_log_turn($db, $convId, $text, $reply, []);
+            }
+            return ['ok' => true, 'skip' => false, 'handoff' => false, 'conv_key' => $convKey, 'reply' => $reply, 'rich' => ['text' => $reply, 'buttons' => [], 'cards' => []]];
+        }
+
+        // --- Trusted context. account_id enables READS for the resolved person.
+        //     user_approved stays FALSE for the model path: the approve TAP is
+        //     handled deterministically above, so the LLM never needs R3. ---
+        $toolContext = [
+            'account_id'         => $accountId,
+            'user_approved'      => false,
+            'currency'           => 'USD',
+            'conv_id'            => $convId,
+            'conv_key'           => $convKey,
+            'channel'            => $channel,
+            'channel_user_id'    => $channelUserId,
+            'identity_verified'  => !empty($ident['verified']),
+            'last_search_params' => [],
+        ];
+
+        try {
+            $agent = new giaAgent($db);
+            $agent->registerTool(new searchTripTool());
+            $agent->registerTool(new fetchLiveOffersTool());
+            $agent->registerTool(new selectOptionTool());
+            $agent->registerTool(new composeTripTool());
+            $agent->registerTool(new createCheckoutTool());
+            $agent->registerTool(new createBookingTool());
+            $agent->registerTool(new requestApprovalTool());
+            $agent->registerTool(new initiatePaymentTool());
+            $agent->registerTool(new requestHumanTool());
+            // Account linking (verify_identity) is always available so GIA can
+            // offer to link the chat to an account.
+            $agent->registerTool(new verifyIdentityTool());
+            // get_order_status reads a booking by invoice ref with NO owner scope
+            // (shared tool). On a channel we therefore register it ONLY for a
+            // VERIFIED traveler — a stranger can't look up arbitrary bookings here.
+            // (Web behavior is unchanged; this gate is channel-only.)
+            if (!empty($ident['verified'])) {
+                $agent->registerTool(new getOrderStatusTool());
+            }
+            $agent->setToolContext($toolContext);
+            // Teach GIA how to act on a tapped option button ('pick|module|ref').
+            $agent->addSystemNote(gia_channel_pick_note());
+            // Payment on channels is handled OUTSIDE the model: after create_booking,
+            // the interface shows an 'Approve & pay' button (or a secure pay link) and
+            // the tap completes payment. So GIA must NOT call request_booking_approval
+            // or initiate_payment here — stop after create_booking and tell the
+            // traveler to tap the button / open the link to pay. If they're not yet
+            // account-linked, verify first (verify_identity).
+            $agent->addSystemNote(
+                "PAYMENT ON THIS CHANNEL: do the flow up to and including create_booking, then STOP and "
+                . "invite the traveler to tap the 'Approve & pay' button (or the payment link) shown below "
+                . "your message — that completes payment securely. Do NOT call request_booking_approval or "
+                . "initiate_payment yourself here; the button handles it. Never ask for card details in chat."
+            );
+            // Bot disclosure (Meta/WhatsApp policy: automated chats must disclose
+            // they're automated). On the FIRST turn of a channel conversation,
+            // instruct GIA to make that clear naturally in its opening reply.
+            if ($history === []) {
+                $agent->addSystemNote(
+                    "CHANNEL: this traveler is messaging you on " . ucfirst($channel) . ". In your FIRST "
+                    . "reply of this conversation, make clear in a natural, friendly way that they're "
+                    . "chatting with GIA, GoGlobia's automated assistant (not a specific human), and that "
+                    . "they can ask for a person anytime. Keep replies concise and plain for messaging."
+                );
+            }
+            // Greet by name whenever we resolved a person (verified OR passive
+            // phone match) — personalization is read-only, so a match is enough here.
+            if ($accountId !== '' && function_exists('gia_user_profile')) {
+                $agent->setUserProfile(gia_user_profile($db, $accountId));
+            }
+            // Identity guidance: if NOT verified on this channel, GIA must link the
+            // account (verify_identity) before anything account-specific — it has no
+            // way to read "my bookings" here until then.
+            if (empty($ident['verified'])) {
+                $agent->addSystemNote(
+                    "ACCOUNT: this chat is NOT yet linked to a GoGlobia account. If the traveler asks about "
+                    . "'my bookings', their order status, or wants to pay from their wallet, first link their "
+                    . "account using the verify_identity tool (ask for their account email, send a code, confirm "
+                    . "it). You cannot look up their bookings until the chat is verified. You can still help them "
+                    . "search and plan new trips without linking."
+                );
+            }
+            $result = $agent->run($text, $history);
+        } catch (\Throwable $e) {
+            error_log('[gia] channel_handle run: ' . $e->getMessage());
+            return $fail('Sorry — I hit a snag just now. Please try again in a moment.', false, false, $convKey);
+        }
+
+        $reply = trim((string) ($result['reply'] ?? ''));
+        if ($reply === '') {
+            $reply = "I'm here — tell me where you'd like to go and I'll find real options.";
+        }
+
+        // --- Build rich choices (tappable buttons/cards) from this turn's tool
+        //     outputs, so the channel can render native buttons. A tap sends back
+        //     the button id as the next message; gia_channel_pick_note() (added to
+        //     the prompt above) tells GIA how to act on it. Payment context lets it
+        //     add an Approve-&-pay button (verified + wallet-funded) or a pay-link. ---
+        $rich = gia_channel_build_rich($reply, $result['tool_runs'] ?? [], [
+            'db'                => $db,
+            'identity_verified' => !empty($ident['verified']),
+            'account_id'        => $accountId,
+        ]);
+
+        // --- Persist the turn (cross-device resume + admin reporting). ---
+        if ($convId > 0 && function_exists('gia_log_turn')) {
+            gia_log_turn($db, $convId, $text, $reply, is_array($result['usage'] ?? null) ? $result['usage'] : []);
+        }
+
+        return ['ok' => true, 'skip' => false, 'handoff' => false, 'conv_key' => $convKey, 'reply' => $reply, 'rich' => $rich];
+    }
+}
+
+if (!function_exists('App\\lib\\ai\\gia_channel_pick_note')) {
+    /** The system note that teaches GIA to act on a tapped-button payload. */
+    function gia_channel_pick_note(): string
+    {
+        return "PICK BUTTONS: some of your replies show tappable option buttons. When the traveler taps "
+             . "one, their next message will be EXACTLY 'pick|<module>|<ref>'. Treat that as them choosing "
+             . "that option: immediately call select_option with that module and that ref (id), then "
+             . "continue the booking flow. Do not ask them to retype it.";
+    }
+}
+
+if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
+    /**
+     * Derive a normalized rich message (text + pickable buttons/cards) from the
+     * agent's tool_runs for this turn. Buttons carry id 'pick|<module>|<ref>' so a
+     * tap round-trips into select_option (see gia_channel_pick_note). When a
+     * booking was just created, it adds an Approve-&-pay button (verified traveler
+     * with enough wallet balance) and/or a secure pay-link card. Returns a
+     * normalized ['text'=>,'buttons'=>,'cards'=>].
+     *
+     * @param array $payCtx ['db'=>, 'identity_verified'=>bool, 'account_id'=>string]
+     */
+    function gia_channel_build_rich(string $text, array $toolRuns, array $payCtx = []): array
+    {
+        $cards = [];
+        $buttons = [];
+        // Payment refs seen this turn (to wire the Approve button / pay-link).
+        $checkoutRef = ''; $invoiceId = ''; $payAmount = 0.0; $payCurrency = '';
+        foreach ($toolRuns as $tr) {
+            if (!is_array($tr)) { continue; }
+            $name = (string) ($tr['name'] ?? '');
+            $data = (isset($tr['output']['data']) && is_array($tr['output']['data'])) ? $tr['output']['data'] : [];
+            $ok   = (bool) ($tr['output']['ok'] ?? false);
+
+            // Track payment refs from the booking-flow tools.
+            if ($ok && $name === 'create_checkout' && !empty($data['checkout_ref'])) {
+                $checkoutRef = (string) $data['checkout_ref'];
+            }
+            if ($ok && $name === 'request_booking_approval' && !empty($data['checkout_ref'])) {
+                $checkoutRef = (string) $data['checkout_ref'];
+            }
+            if ($ok && $name === 'create_booking' && !empty($data['invoice_id'])) {
+                $invoiceId   = (string) $data['invoice_id'];
+                $payAmount   = (float) ($data['amount'] ?? 0);
+                $payCurrency = (string) ($data['currency'] ?? '');
+            }
+
+            // Live offers: data.module + data.cards[] (each has ref/title/price/...).
+            if ($name === 'fetch_live_offers' && $ok && !empty($data['cards']) && is_array($data['cards'])) {
+                $mod = (string) ($data['module'] ?? '');
+                foreach ($data['cards'] as $c) {
+                    if (!is_array($c)) { continue; }
+                    $ref = (string) ($c['ref'] ?? ($c['id'] ?? ''));
+                    if ($mod === '' || $ref === '') { continue; }
+                    $title = (string) ($c['title'] ?? ($c['name'] ?? 'Option'));
+                    $price = $c['price'] ?? null;
+                    $cur   = (string) ($c['currency'] ?? '');
+                    $sub   = trim((string) ($c['subtitle'] ?? '') . ($price !== null ? '  ' . trim($cur . ' ' . $price) : ''));
+                    $cards[] = [
+                        'title'    => $title,
+                        'subtitle' => $sub,
+                        'image'    => (string) ($c['image'] ?? ''),
+                        'buttons'  => [['id' => 'pick|' . $mod . '|' . $ref, 'title' => 'Select']],
+                    ];
+                }
+            }
+            // Local search cards (umrah/stays/tours/bus/visa): data.searches[].cards[].
+            if ($name === 'search_trip' && isset($data['searches']) && is_array($data['searches'])) {
+                foreach ($data['searches'] as $sr) {
+                    if (!is_array($sr) || empty($sr['cards']) || !is_array($sr['cards'])) { continue; }
+                    $mod = (string) ($sr['module'] ?? ($sr['kind'] ?? ''));
+                    foreach ($sr['cards'] as $c) {
+                        if (!is_array($c)) { continue; }
+                        $ref = (string) ($c['ref'] ?? ($c['id'] ?? ($c['slug'] ?? '')));
+                        if ($mod === '' || $ref === '') { continue; }
+                        $title = (string) ($c['name'] ?? ($c['title'] ?? 'Option'));
+                        $price = $c['price'] ?? ($c['adult_price'] ?? null);
+                        $cur   = (string) ($c['currency'] ?? '');
+                        $sub   = trim((string) ($c['subtitle'] ?? ($c['location'] ?? '')) . ($price !== null ? '  ' . trim($cur . ' ' . $price) : ''));
+                        $cards[] = [
+                            'title'    => $title,
+                            'subtitle' => $sub,
+                            'image'    => (string) ($c['image'] ?? ''),
+                            'buttons'  => [['id' => 'pick|' . $mod . '|' . $ref, 'title' => 'Select']],
+                        ];
+                    }
+                }
+            }
+        }
+        // --- Payment affordance: a booking was created this turn. Offer the right
+        //     pay path. An Approve-&-pay button only for a VERIFIED traveler with
+        //     enough wallet balance (the tap sets user_approved; see the approve
+        //     handler). Everyone else gets a secure, expiring pay-link card. ---
+        if ($invoiceId !== '' && $checkoutRef !== '' && $payAmount > 0) {
+            $db        = $payCtx['db'] ?? null;
+            $verified  = !empty($payCtx['identity_verified']);
+            $accountId = (string) ($payCtx['account_id'] ?? '');
+            if ($db !== null && !function_exists('gia_pay_wallet_ready')) {
+                $f = __DIR__ . '/gia_pay.php';
+                if (is_file($f)) { require_once $f; }
+            }
+            $walletReady = $db !== null && $verified && $accountId !== '' && function_exists('gia_pay_wallet_ready')
+                && gia_pay_wallet_ready($db, $accountId, $payAmount, $payCurrency);
+
+            if ($walletReady) {
+                // Approve button: id carries the checkout_ref; the tap (verified-only)
+                // sets user_approved and tells the agent to approve+pay from wallet.
+                $buttons[] = ['id' => 'approve|' . $checkoutRef, 'title' => 'Approve & pay'];
+            } elseif ($db !== null && function_exists('gia_pay_link')) {
+                // Pay-link (card/gateway path): a real, signed + expiring URL. We put
+                // the URL in the TEXT (a callback can't open a URL reliably on WA/FB)
+                // and add a native URL button on channels that support one (TG).
+                $url = gia_pay_link($invoiceId);
+                $text = trim($text . "\n\nPay securely here: " . $url);
+                $buttons[] = ['id' => $url, 'title' => 'Pay now', 'url' => $url];
+            }
+        }
+
+        // Cap total cards defensively (renderers also clamp per platform).
+        if (count($cards) > 10) { $cards = array_slice($cards, 0, 10); }
+        return ['text' => $text, 'buttons' => $buttons, 'cards' => $cards];
+    }
+}
