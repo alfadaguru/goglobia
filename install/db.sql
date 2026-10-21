@@ -27228,6 +27228,26 @@ CREATE TABLE `logs_bookings` (
 
 -- GIA per-booking payment engine: one row per booking payment attempt (Paystack
 -- DVA bank transfer OR hosted checkout), with the 20-min window + reminder state.
+-- GIA per-conversation pilgrim-collection state: tracks an umrah booking that is
+-- still gathering per-pilgrim passport details BEFORE payment (photo OCR + confirm).
+CREATE TABLE IF NOT EXISTS `gia_pending_travellers` (
+  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `conv_key` varchar(64) NOT NULL,
+  `module` varchar(24) NOT NULL DEFAULT 'umrah',
+  `invoice_id` varchar(64) NOT NULL DEFAULT '',
+  `umrah_booking_id` int(11) NOT NULL DEFAULT 0,
+  `pax` smallint(6) NOT NULL DEFAULT 1,
+  `collected` smallint(6) NOT NULL DEFAULT 0,
+  `pending_confirm` text DEFAULT NULL,
+  `status` varchar(16) NOT NULL DEFAULT 'collecting',
+  `expires_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_gpt_conv` (`conv_key`,`status`),
+  KEY `idx_gpt_invoice` (`invoice_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 CREATE TABLE IF NOT EXISTS `gia_booking_payments` (
   `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
   `invoice_id` varchar(64) NOT NULL,

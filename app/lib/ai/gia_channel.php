@@ -413,6 +413,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             'db'                => $db,
             'identity_verified' => !empty($ident['verified']),
             'account_id'        => $accountId,
+            'conv_key'          => $convKey,
         ]);
 
         // --- Persist the turn (cross-device resume + admin reporting). ---
@@ -452,6 +453,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
         $buttons = [];
         // Payment refs seen this turn (to wire the Approve button / pay-link).
         $checkoutRef = ''; $invoiceId = ''; $payAmount = 0.0; $payCurrency = '';
+        $umrahCollectBookingId = 0; $umrahCollectPax = 0;
         foreach ($toolRuns as $tr) {
             if (!is_array($tr)) { continue; }
             $name = (string) ($tr['name'] ?? '');
@@ -469,6 +471,13 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
                 $invoiceId   = (string) $data['invoice_id'];
                 $payAmount   = (float) ($data['amount'] ?? 0);
                 $payCurrency = (string) ($data['currency'] ?? '');
+                // Umrah needs per-pilgrim passports BEFORE payment — capture the
+                // booking id + pax so we can start the collection and DEFER the pay
+                // options until the manifest is complete.
+                if ((string) ($data['module'] ?? '') === 'umrah' && !empty($data['needs_travellers'])) {
+                    $umrahCollectBookingId = (int) ($data['umrah_booking_id'] ?? 0);
+                    $umrahCollectPax       = (int) ($data['pax'] ?? 0);
+                }
             }
 
             // Live offers: data.module + data.cards[] (each has ref/title/price/...).
@@ -549,8 +558,30 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
         //     deterministically in gia_channel_handle — the model never moves money.
         //     A verified traveller with enough wallet balance ALSO gets a one-tap
         //     "Approve & pay" (wallet) fast-path when the legacy checkout_ref exists. ---
+        // UMRAH GATE: a real umrah needs every pilgrim's passport BEFORE payment.
+        // When the booking was just created and still needs travellers, START the
+        // pilgrim collection for this conversation and ask for the first passport —
+        // do NOT show the pay options yet (they appear once the manifest is complete,
+        // from the dispatch intercept after the last pilgrim is saved).
+        $db = $payCtx['db'] ?? null;
+        if ($invoiceId !== '' && $umrahCollectBookingId > 0 && $umrahCollectPax > 0 && $db !== null) {
+            require_once __DIR__ . '/gia_pending_travellers.php';
+            $convKey = (string) ($payCtx['conv_key'] ?? '');
+            if ($convKey !== '' && function_exists('gia_pt_start')) {
+                gia_pt_start($db, $convKey, 'umrah', $invoiceId, $umrahCollectBookingId, $umrahCollectPax);
+                $amtLabel = trim($payCurrency . ' ' . number_format($payAmount, 2));
+                $who = $umrahCollectPax === 1 ? "the pilgrim's" : "each pilgrim's";
+                $text = trim($text . "\n\nBooking created (" . $invoiceId . ") — total " . $amtLabel . "."
+                    . "\nBefore payment I need " . $who . " passport (required for the Saudi visa)."
+                    . "\nPlease send a clear PHOTO of the lead pilgrim's passport data page (or type their "
+                    . "full name, gender, date of birth, nationality, passport number and expiry).");
+                // No pay buttons yet — gated until the manifest is complete.
+                if (count($cards) > 10) { $cards = array_slice($cards, 0, 10); }
+                return ['text' => $text, 'buttons' => $buttons, 'cards' => $cards];
+            }
+        }
+
         if ($invoiceId !== '' && $payAmount > 0) {
-            $db        = $payCtx['db'] ?? null;
             $verified  = !empty($payCtx['identity_verified']);
             $accountId = (string) ($payCtx['account_id'] ?? '');
             if ($db !== null && !function_exists('gia_pay_wallet_ready')) {

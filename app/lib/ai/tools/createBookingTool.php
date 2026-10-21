@@ -353,13 +353,21 @@ class createBookingTool implements giaToolInterface
                 'data' => [
                     'invoice_id'     => (string) $res['invoice_id'],
                     'booking_ref'    => (string) ($res['booking_ref'] ?? ''),
+                    // Surface the umrah_bookings.id + pax so the pilgrim-details step
+                    // can attach travellers (umrah_traveller_add needs the booking id,
+                    // not the invoice) and knows how many pilgrims to collect. A real
+                    // umrah needs per-pilgrim passport data BEFORE payment.
+                    'umrah_booking_id' => (int) ($res['umrah_booking_id'] ?? 0),
+                    'pax'            => $pax,
+                    'needs_travellers' => true,
+                    'module'         => 'umrah',
                     'amount'         => (float) ($res['total_price'] ?? 0),
                     'amount_due_now' => $dueNow,
                     'currency'       => (string) ($q['currency'] ?? 'NGN'),
                     'installments'   => is_array($res['installments'] ?? null) ? $res['installments'] : [],
                     'plan_code'      => $planCode,
                 ],
-                'message' => 'Umrah booking created (unpaid). Ready for payment.',
+                'message' => 'Umrah booking created (unpaid). Next: collect each pilgrim\'s passport details, then payment.',
             ];
         } catch (\Throwable $e) {
             error_log('[gia] createUmrahV2Booking: ' . $e->getMessage());

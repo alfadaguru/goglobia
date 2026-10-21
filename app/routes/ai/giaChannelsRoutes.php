@@ -350,6 +350,42 @@ if (!function_exists('gia_ch_dispatch')) {
             }
         };
 
+        // PILGRIM COLLECTION INTERCEPT: if an umrah booking in THIS chat is still
+        // collecting pilgrim passports, a photo or a text reply ("yes"/details)
+        // belongs to that step, NOT the general agent. Handle it deterministically
+        // (download -> OCR -> confirm -> umrah_traveller_add) and, when the manifest
+        // is complete, show the pay options. Returns null when there is no active
+        // collection, so normal handling proceeds.
+        if ($kind === 'image' || $kind === 'text') {
+            // Dedupe media the same way the media path does (avoid double-OCR on retry).
+            if ($kind === 'image') {
+                require_once dirname(__DIR__, 2) . '/lib/ai/gia_media.php';
+                if (function_exists('App\\lib\\ai\\gia_channel_seen_before')
+                    && \App\lib\ai\gia_channel_seen_before($db, $channel, $msgId)) {
+                    return;
+                }
+            }
+            require_once dirname(__DIR__, 2) . '/lib/ai/gia_pending_travellers.php';
+            if (function_exists('gia_pt_handle_channel_message')) {
+                $payload = $kind === 'image' ? (is_array($p['media'] ?? null) ? $p['media'] : []) : (string) ($p['text'] ?? '');
+                $pt = gia_pt_handle_channel_message($db, $channel, $sender, $kind, $payload);
+                if (is_array($pt) && isset($pt['reply'])) {
+                    // When collection just completed, append the two pay buttons for
+                    // that booking so the traveller can pay immediately.
+                    $rich = ['text' => (string) $pt['reply'], 'buttons' => [], 'cards' => []];
+                    if (!empty($pt['done']) && (string) ($pt['invoice_id'] ?? '') !== '') {
+                        $inv = (string) $pt['invoice_id'];
+                        $rich['buttons'] = [
+                            ['id' => 'paybank|' . $inv, 'title' => 'Pay by bank transfer'],
+                            ['id' => 'paycard|' . $inv, 'title' => 'Pay with card / online'],
+                        ];
+                    }
+                    $send((string) $pt['reply'], $rich);
+                    return;
+                }
+            }
+        }
+
         // TEXT / tapped-button -> the agent spine (handles its own reply + rich).
         if ($kind === 'text') {
             $text = (string) ($p['text'] ?? '');
