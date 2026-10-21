@@ -85,6 +85,55 @@ $giaCfg = json_encode([
   .gia-typing span:nth-child(2){animation-delay:.2s}.gia-typing span:nth-child(3){animation-delay:.4s}
   @keyframes gia-blink{0%,80%,100%{opacity:.3}40%{opacity:1}}
   .gia-card{border:1px solid #e2e8f0;border-radius:14px;background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.06)}
+  /* ===== PREMIUM TRAVEL CARD SYSTEM (parity with the floating widget) ===== */
+  .gia-opt{display:block;border:1px solid #e8edf3;border-radius:16px;background:#fff;overflow:hidden;
+    box-shadow:0 1px 2px rgba(15,23,42,.05);transition:transform .16s ease, box-shadow .16s ease, border-color .16s;
+    animation:gia-card-in .36s cubic-bezier(.16,1,.3,1) both}
+  .gia-opt:hover{transform:translateY(-2px);box-shadow:0 14px 32px rgba(15,23,42,.13);border-color:color-mix(in srgb,var(--gia-brand) 35%,#e8edf3)}
+  @keyframes gia-card-in{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
+  .gia-opt-media{position:relative;height:120px;background:linear-gradient(135deg,var(--gia-brand-soft),#f3f6fb);overflow:hidden}
+  .gia-opt-media img{width:100%;height:100%;object-fit:cover;display:block}
+  .gia-opt-ico{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--gia-brand)}
+  .gia-opt-ico .material-symbols-outlined{font-size:46px;opacity:.9}
+  .gia-opt-live{position:absolute;top:10px;left:10px;display:inline-flex;align-items:center;gap:5px;
+    background:rgba(255,255,255,.93);color:#15803d;font-size:10px;font-weight:800;letter-spacing:.04em;
+    text-transform:uppercase;padding:4px 9px;border-radius:999px;box-shadow:0 1px 3px rgba(15,23,42,.12)}
+  .gia-opt-live i{width:6px;height:6px;border-radius:50%;background:#22c55e;display:inline-block;animation:gia-blink 1.4s infinite}
+  .gia-opt-body{padding:13px 15px}
+  .gia-opt-ttl{font-size:15px;font-weight:750;color:#0f172a;line-height:1.25;letter-spacing:-.01em}
+  .gia-opt-sub{font-size:12px;color:#64748b;margin-top:2px}
+  .gia-opt-price{font-size:19px;font-weight:850;color:#0b1220;line-height:1}
+  .gia-opt-price .cur{font-size:12px;font-weight:700;color:#64748b;margin-right:2px}
+  .gia-opt-from{font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+  .gia-opt-cta{display:inline-flex;align-items:center;gap:5px;background:var(--gia-brand);color:#fff;
+    font-size:13px;font-weight:700;padding:9px 16px;border-radius:11px;white-space:nowrap;cursor:pointer;
+    box-shadow:0 2px 8px color-mix(in srgb,var(--gia-brand) 28%,transparent);transition:background .14s}
+  .gia-opt:hover .gia-opt-cta{background:var(--gia-brand-dark)}
+  .gia-opt-cta .material-symbols-outlined{font-size:17px}
+  .gia-pay{border:1px solid #e8edf3;border-radius:16px;background:#fff;overflow:hidden;box-shadow:0 2px 12px rgba(15,23,42,.07);
+    animation:gia-card-in .36s cubic-bezier(.16,1,.3,1) both}
+  .gia-pay-top{padding:15px 16px 13px;background:linear-gradient(180deg,color-mix(in srgb,var(--gia-brand) 5%,#fff),#fff)}
+  .gia-pay-amt{font-size:30px;font-weight:850;color:#0b1220;line-height:1;margin-top:9px;letter-spacing:-.02em}
+  .gia-pay-amt .cur{font-size:15px;font-weight:700;color:#64748b;margin-right:2px}
+  .gia-pay-btn{width:100%;border:0;cursor:pointer;color:#fff;font-size:14px;font-weight:750;
+    padding:13px;display:flex;align-items:center;justify-content:center;gap:7px;
+    background:linear-gradient(135deg,var(--gia-brand),var(--gia-brand-dark));transition:filter .14s}
+  .gia-pay-btn:hover{filter:brightness(1.06)}
+  .gia-pay-btn:disabled{opacity:.6;cursor:default}
+  .gia-pay-btn .material-symbols-outlined{font-size:19px}
+  .gia-pay-btn--go{background:linear-gradient(135deg,#16a34a,#15803d)}
+  .gia-summary{display:flex;align-items:center;gap:12px;border:1px solid #e8edf3;border-radius:16px;background:#fff;
+    padding:13px 15px;box-shadow:0 1px 2px rgba(15,23,42,.05);
+    transition:transform .16s ease, box-shadow .16s ease, border-color .16s;
+    animation:gia-card-in .36s cubic-bezier(.16,1,.3,1) both}
+  .gia-summary:hover{transform:translateY(-2px);box-shadow:0 14px 32px rgba(15,23,42,.13);border-color:color-mix(in srgb,var(--gia-brand) 35%,#e8edf3)}
+  .gia-summary-ico{width:44px;height:44px;flex:none;border-radius:12px;background:var(--gia-brand-soft);color:var(--gia-brand);
+    display:flex;align-items:center;justify-content:center}
+  .gia-summary-ico .material-symbols-outlined{font-size:23px}
+  /* Tactile press feedback (parity with the widget). */
+  .gia-opt:active,.gia-summary:active{transform:translateY(0) scale(.99)}
+  .gia-opt-cta:active,.gia-pay-btn:active:not(:disabled),.gia-qr:active{transform:scale(.97)}
+  @media (prefers-reduced-motion:reduce){.gia-opt,.gia-opt:hover,.gia-pay,.gia-summary,.gia-summary:hover,.gia-opt:active,.gia-summary:active,.gia-opt-cta:active,.gia-pay-btn:active,.gia-qr:active{animation:none;transform:none}.gia-opt-live i{animation:none}}
   .gia-chip{font-size:.7rem;font-weight:600;letter-spacing:.03em;text-transform:uppercase;padding:3px 10px;border-radius:999px}
   /* Starter/quick-reply chips lift on hover (parity). */
   .gia-qr{transition:transform .14s ease, box-shadow .14s ease, background .14s}
@@ -164,45 +213,45 @@ $giaCfg = json_encode([
                       <template x-if="sr.cards && sr.cards.length">
                         <div class="space-y-2">
                           <template x-for="(c, ci) in sr.cards.slice(0, 6)" :key="ci">
-                            <div class="gia-card overflow-hidden">
-                              <div class="flex gap-3">
-                                <!-- thumbnail -->
+                            <a :href="sr.live ? '#' : cardUrl(sr, c)"
+                               @click.prevent="sr.live ? pickOffer(sr, c) : openDrawer(cardUrl(sr, c), c.name || c.title || 'Details')"
+                               class="gia-opt cursor-pointer" :style="'animation-delay:' + (ci * 60) + 'ms'">
+                              <!-- Media lead: real photo, else a branded module-icon tile. -->
+                              <div class="gia-opt-media">
                                 <template x-if="c.image">
-                                  <div class="w-20 shrink-0 bg-slate-100">
-                                    <img :src="c.image" :alt="c.name || c.title || 'Package'"
-                                         class="w-20 h-full object-cover" loading="lazy"
-                                         @error="$event.target.style.display='none'">
+                                  <img :src="c.image" :alt="c.name || c.title || 'Package'" loading="lazy"
+                                       @error="$event.target.closest('.gia-opt-media').querySelector('.gia-opt-ico').style.display='flex'; $event.target.style.display='none'">
+                                </template>
+                                <span class="gia-opt-ico" :style="c.image ? 'display:none' : ''">
+                                  <span class="material-symbols-outlined" x-text="moduleIcon(sr.module || sr.kind)"></span>
+                                </span>
+                                <template x-if="sr.live">
+                                  <span class="gia-opt-live"><i></i> Live fare</span>
+                                </template>
+                              </div>
+                              <div class="gia-opt-body">
+                                <div class="gia-opt-ttl" x-text="c.name || c.title || 'Option'"></div>
+                                <div class="gia-opt-sub" x-show="c.subtitle || c.location" x-text="c.subtitle || c.location || ''"></div>
+                                <!-- inclusions chips -->
+                                <template x-if="c.inclusions && c.inclusions.length">
+                                  <div class="flex flex-wrap gap-1 mt-2">
+                                    <template x-for="(inc, ii) in c.inclusions.slice(0, 4)" :key="ii">
+                                      <span class="text-[10px] bg-slate-100 text-slate-600 rounded-full px-2 py-0.5" x-text="inc.name"></span>
+                                    </template>
                                   </div>
                                 </template>
-                                <div class="flex-1 min-w-0 p-3">
-                                  <div class="flex items-start justify-between gap-2">
-                                    <div class="min-w-0">
-                                      <div class="text-sm font-semibold text-slate-800 truncate" x-text="c.name || c.title || 'Option'"></div>
-                                      <div class="text-[11px] text-slate-500 truncate" x-text="c.subtitle || c.location || ''"></div>
-                                    </div>
-                                    <div class="text-right shrink-0">
-                                      <div class="text-sm font-bold text-slate-900" x-text="money(c.price != null ? c.price : c.adult_price, c.currency)"></div>
-                                      <div class="text-[10px] text-slate-400" x-text="(c.price != null && (c.adults || c.children || c.infants)) ? 'total' : 'from'"></div>
-                                    </div>
+                                <div class="flex items-end justify-between gap-3 mt-3">
+                                  <div>
+                                    <div class="gia-opt-from" x-text="(c.price != null && (c.adults || c.children || c.infants)) ? 'Total' : 'From'"></div>
+                                    <div class="gia-opt-price" x-html="moneyHtml(c.price != null ? c.price : c.adult_price, c.currency)"></div>
                                   </div>
-                                  <!-- inclusions chips -->
-                                  <template x-if="c.inclusions && c.inclusions.length">
-                                    <div class="flex flex-wrap gap-1 mt-1.5">
-                                      <template x-for="(inc, ii) in c.inclusions.slice(0, 4)" :key="ii">
-                                        <span class="text-[10px] bg-slate-100 text-slate-600 rounded-full px-2 py-0.5" x-text="inc.name"></span>
-                                      </template>
-                                    </div>
-                                  </template>
-                                  <a :href="sr.live ? '#' : cardUrl(sr, c)"
-                                     @click.prevent="sr.live ? pickOffer(sr, c) : openDrawer(cardUrl(sr, c), c.name || c.title || 'Details')"
-                                     class="inline-flex items-center gap-1 mt-2 text-xs font-semibold cursor-pointer"
-                                     style="color:var(--gia-brand)">
-                                    <span x-text="sr.live ? 'Select this' : 'View & book'"></span>
-                                    <span class="material-symbols-outlined text-[15px]">arrow_forward</span>
-                                  </a>
+                                  <span class="gia-opt-cta">
+                                    <span x-text="sr.live ? 'Select' : 'View & book'"></span>
+                                    <span class="material-symbols-outlined">arrow_forward</span>
+                                  </span>
                                 </div>
                               </div>
-                            </div>
+                            </a>
                           </template>
                           <!-- link to all results when there are more -->
                           <template x-if="sr.listing_url && sr.cards.length >= 6">
@@ -217,20 +266,15 @@ $giaCfg = json_encode([
                            results page (external API too slow to fetch inline). -->
                       <template x-if="!(sr.cards && sr.cards.length) && hasSummary(sr)">
                         <a href="#" @click.prevent="isLiveModule(sr.module || sr.kind) ? pickLive(sr) : (sr.listing_url && openDrawer(absUrl(sr.listing_url), summaryHeadline(sr)))"
-                           class="gia-card block p-3 hover:bg-slate-50 transition cursor-pointer">
-                          <div class="flex items-center gap-2 mb-1.5">
-                            <span class="material-symbols-outlined text-[18px]" style="color:var(--gia-brand)" x-text="moduleIcon(sr.module)"></span>
-                            <span class="text-sm font-semibold text-slate-800" x-text="summaryHeadline(sr)"></span>
+                           class="gia-summary cursor-pointer">
+                          <span class="gia-summary-ico"><span class="material-symbols-outlined" x-text="moduleIcon(sr.module)"></span></span>
+                          <div class="min-w-0 flex-1">
+                            <div class="gia-opt-ttl" x-text="summaryHeadline(sr)"></div>
+                            <div class="flex flex-wrap gap-x-3 gap-y-0.5 gia-opt-sub">
+                              <template x-for="(ln, li) in summaryLines(sr)" :key="li"><span x-text="ln"></span></template>
+                            </div>
                           </div>
-                          <div class="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500 mb-2">
-                            <template x-for="(ln, li) in summaryLines(sr)" :key="li">
-                              <span x-text="ln"></span>
-                            </template>
-                          </div>
-                          <span class="inline-flex items-center gap-1 text-xs font-semibold" style="color:var(--gia-brand)">
-                            <span x-text="summaryCta(sr)"></span>
-                            <span class="material-symbols-outlined text-[15px]">arrow_forward</span>
-                          </span>
+                          <span class="gia-opt-cta"><span x-text="summaryCta(sr)"></span><span class="material-symbols-outlined">arrow_forward</span></span>
                         </a>
                       </template>
 
@@ -279,22 +323,17 @@ $giaCfg = json_encode([
 
               <!-- Checkout card -> Approve -->
               <template x-if="m.checkout">
-                <div class="mt-2 gia-card p-4">
-                  <div class="flex items-center justify-between mb-1">
-                    <span class="gia-chip bg-amber-50 text-amber-700">Review &amp; approve</span>
-                    <span class="text-[11px] text-slate-400" x-text="m.checkout.expires_at ? ('Expires ' + m.checkout.expires_at) : ''"></span>
+                <div class="mt-2 gia-pay">
+                  <div class="gia-pay-top">
+                    <div class="flex items-center justify-between">
+                      <span class="gia-chip bg-amber-50 text-amber-700">Review &amp; approve</span>
+                      <span class="text-[11px] text-slate-400" x-text="m.checkout.expires_at ? ('Expires ' + m.checkout.expires_at) : ''"></span>
+                    </div>
+                    <div class="gia-pay-amt" x-html="moneyHtml(m.checkout.amount, m.checkout.currency)"></div>
+                    <p class="text-xs text-slate-500 mt-1.5">Total · nothing is charged until you approve and complete payment.</p>
                   </div>
-                  <div class="flex items-baseline gap-1 mb-3">
-                    <span class="text-2xl font-bold text-slate-800" x-text="money(m.checkout.amount, m.checkout.currency)"></span>
-                    <span class="text-xs text-slate-500">total</span>
-                  </div>
-                  <p class="text-xs text-slate-500 mb-3">Approve this exact amount to continue. Nothing is charged until you approve and complete payment.</p>
-                  <button type="button"
-                          class="w-full py-2.5 rounded-lg text-white font-semibold text-sm disabled:opacity-60"
-                          style="background:var(--gia-brand)"
-                          :disabled="sending"
-                          @click="approveCheckout()">
-                    <span class="material-symbols-outlined align-middle text-[18px] mr-1">check_circle</span>
+                  <button type="button" class="gia-pay-btn" :disabled="sending" @click="approveCheckout()">
+                    <span class="material-symbols-outlined">lock</span>
                     Approve <span x-text="money(m.checkout.amount, m.checkout.currency)"></span>
                   </button>
                 </div>
@@ -302,15 +341,14 @@ $giaCfg = json_encode([
 
               <!-- Payment redirect -->
               <template x-if="m.payment && m.payment.redirect_url">
-                <div class="mt-2 gia-card p-4">
-                  <span class="gia-chip bg-green-50 text-green-700 mb-2 inline-block">Approved — pay securely</span>
-                  <p class="text-xs text-slate-500 mb-3">Your approval is locked in. Complete the secure payment right here to confirm your booking.</p>
+                <div class="mt-2 gia-pay">
+                  <div class="gia-pay-top">
+                    <span class="gia-chip bg-green-50 text-green-700 inline-block">Approved — pay securely</span>
+                    <p class="text-xs text-slate-500 mt-2">Your approval is locked in. Complete the secure payment right here to confirm your booking.</p>
+                  </div>
                   <!-- Pay IN-CHAT: secure payment page loads in the side drawer. -->
-                  <button type="button" @click="openPayment(m.payment.redirect_url)"
-                     class="block text-center w-full py-2.5 rounded-lg text-white font-semibold text-sm"
-                     style="background:#16a34a">
-                    <span class="material-symbols-outlined align-middle text-[18px] mr-1">lock</span>
-                    Pay securely now
+                  <button type="button" @click="openPayment(m.payment.redirect_url)" class="gia-pay-btn gia-pay-btn--go">
+                    <span class="material-symbols-outlined">verified_user</span> Pay securely now
                   </button>
                   <a :href="absUrl(m.payment.redirect_url)" target="_blank" rel="noopener"
                      class="block text-center text-[11px] text-slate-400 mt-1.5 hover:text-slate-600">or open in a new tab</a>
@@ -580,6 +618,14 @@ function giaChat(cfg) {
     money(amt, cur) {
       const n = Number(amt || 0);
       return (cur ? cur + ' ' : '') + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    },
+    // HTML variant: currency code in a small .cur span. Currency is supplier-
+    // supplied, so sanitize it (rendered via x-html).
+    moneyHtml(amt, cur) {
+      const n = Number(amt || 0);
+      const a = n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const c = String(cur || '').replace(/[^A-Za-z0-9$€£₦.]/g, '').slice(0, 6);
+      return (c ? '<span class="cur">' + c + '</span>' : '') + a;
     },
     // --- Deep-link summary helpers (flights use a rich route/date/pax/cabin shape;
     //     cars/esim/rail/ferries use a generic headline/line1/line2/cta shape). ---

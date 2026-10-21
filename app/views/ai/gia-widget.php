@@ -269,6 +269,10 @@ $giaWCfg = json_encode([
   @media (prefers-reduced-motion:reduce){.giaw-drawer{animation:none}}
   .giaw-qr:hover{background:color-mix(in srgb, var(--gia-brand) 14%, #fff);transform:translateY(-1px);box-shadow:0 3px 10px color-mix(in srgb, var(--gia-brand) 18%, transparent)}
   @media (prefers-reduced-motion:reduce){.giaw-qr:hover{transform:none}}
+  /* Tactile press feedback on the key tappables (perceived responsiveness). */
+  .giaw-opt:active,.giaw-summary:active{transform:translateY(0) scale(.99)}
+  .giaw-opt-cta:active,.giaw-pay-btn:active:not(:disabled),.giaw-qr:active{transform:scale(.97)}
+  @media (prefers-reduced-motion:reduce){.giaw-opt:active,.giaw-summary:active,.giaw-opt-cta:active,.giaw-pay-btn:active,.giaw-qr:active{transform:none}}
 </style>
 
 <div class="giaw-root" x-data='giaWidget(<?= $giaWCfg ?>)' x-init="init()" x-cloak>
