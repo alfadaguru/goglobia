@@ -300,14 +300,27 @@ function handle_payment_callback($token, $action, $data = [])
         // paying" bypass without falsely failing a payment that may still land.
         // ============================================================
         if ($action === 'pending') {
-            $db->update('bookings', [
-                'payment_status' => 'pending',
-            ], ['invoice_id' => $tokenData['invoice_id']]);
+            // GUARD (audit #28): never downgrade a booking that an async gateway
+            // webhook has ALREADY finalised. A slow synchronous verification that
+            // returns 'pending' must not overwrite a booking the webhook marked
+            // 'paid'/'confirmed', or a settled booking would be un-paid. Re-read the
+            // current state and only write 'pending' when it is not already settled.
+            $curr = $db->get('bookings', ['payment_status', 'booking_status'], ['invoice_id' => $tokenData['invoice_id']]);
+            $alreadySettled = $curr
+                && (strtolower((string) ($curr['payment_status'] ?? '')) === 'paid'
+                    || in_array(strtolower((string) ($curr['booking_status'] ?? '')), ['confirmed', 'completed'], true));
+            if (!$alreadySettled) {
+                $db->update('bookings', [
+                    'payment_status' => 'pending',
+                ], ['invoice_id' => $tokenData['invoice_id']]);
+            }
             // Keep the token so a later webhook / retry can still finalise it.
             return [
-                'success' => false,
-                'pending' => true,
-                'message' => 'Payment is pending confirmation. Your booking will be confirmed once the payment is verified.',
+                'success' => $alreadySettled ? true : false,
+                'pending' => !$alreadySettled,
+                'message' => $alreadySettled
+                    ? 'Payment already confirmed.'
+                    : 'Payment is pending confirmation. Your booking will be confirmed once the payment is verified.',
                 'booking' => $db->get('bookings', '*', ['invoice_id' => $tokenData['invoice_id']]),
             ];
         }
@@ -469,15 +482,48 @@ function handle_payment_callback($token, $action, $data = [])
 
                         error_log("DEV_MODE MISMATCH | Invoice: {$tokenData['invoice_id']} | {$devModeMessage}");
 
-                        // Still update payment status - money was already collected
-                        $db->update('bookings', [
-                            'payment_status' => 'paid',
-                            'booking_status' => 'confirmed',
-                            'transaction_id' => $data['transaction_id'] ?? null,
-                            'paid_at' => date('Y-m-d H:i:s')
-                        ], [
-                            'invoice_id' => $tokenData['invoice_id']
-                        ]);
+                        // INSTALLMENT-AWARE (audit #29): money was collected, but if this
+                        // booking is on an installment schedule the amount is only the next
+                        // slice — do NOT blanket-mark it fully 'paid' here (that desyncs the
+                        // schedule and leaves the balance uncollectable). Mirror the main
+                        // success path: let the installment engine own payment_status.
+                        $dmUmrahInst   = ($booking['module_type'] ?? '') === 'umrah';
+                        $dmGenericInst = !$dmUmrahInst && function_exists('installments_active_for')
+                            && installments_active_for($db, (string) $tokenData['invoice_id']);
+
+                        if ($dmGenericInst) {
+                            if (function_exists('installments_settle_payment')) {
+                                installments_settle_payment(
+                                    $db,
+                                    (string) $tokenData['invoice_id'],
+                                    (float) ($tokenData['amount'] ?? ($booking['price_markup'] ?? 0)),
+                                    (string) ($tokenData['currency'] ?? ($booking['currency_markup'] ?? 'USD')),
+                                    (string) ($data['transaction_id'] ?? '')
+                                );
+                            }
+                            // Record only the txn/paid_at; the engine set the status.
+                            $db->update('bookings', [
+                                'transaction_id' => $data['transaction_id'] ?? null,
+                                'paid_at'        => date('Y-m-d H:i:s'),
+                            ], ['invoice_id' => $tokenData['invoice_id']]);
+                        } elseif ($dmUmrahInst) {
+                            // Umrah owns its own status via umrah_settle_payment below —
+                            // record just txn/paid_at so a deposit is not falsely full-paid.
+                            $db->update('bookings', [
+                                'transaction_id' => $data['transaction_id'] ?? null,
+                                'paid_at'        => date('Y-m-d H:i:s'),
+                            ], ['invoice_id' => $tokenData['invoice_id']]);
+                        } else {
+                            // Non-installment: full amount collected → mark paid + confirmed.
+                            $db->update('bookings', [
+                                'payment_status' => 'paid',
+                                'booking_status' => 'confirmed',
+                                'transaction_id' => $data['transaction_id'] ?? null,
+                                'paid_at' => date('Y-m-d H:i:s')
+                            ], [
+                                'invoice_id' => $tokenData['invoice_id']
+                            ]);
+                        }
 
                         // Record the transaction
                         record_transaction($tokenData, $data['transaction_id'] ?? null, 'success', $data);
