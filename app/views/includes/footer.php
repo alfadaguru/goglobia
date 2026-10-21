@@ -93,11 +93,10 @@ $footer_menus = array_values(array_filter(array_map(
                     <div class="mb-6">
                         <div class="mb-4">
                             <a href="<?= root ?>" class="flex items-start">
-                                <!-- Larger, more noticeable footer logo (OTA-style). Inline
-                                     height so it's build-independent. -->
+                                <!-- Wide logo lockup (4:1). Inline height; width flows from ratio. -->
                                 <img src="<?= versionedAssetUrl('uploads/global/logo.png') ?>"
                                      alt="<?= isset($GLOBALS['app']['business_name']) ? $GLOBALS['app']['business_name'] : '' ?>"
-                                     class="w-auto" style="height:64px" width="256" height="64" decoding="async">
+                                     class="w-auto" style="height:52px" width="208" height="52" decoding="async">
                             </a>
                         </div>
                         <p class="text-sm leading-relaxed" style="color: var(--footer-text-color);">

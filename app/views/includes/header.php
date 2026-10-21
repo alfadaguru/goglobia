@@ -541,14 +541,14 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
             </a>
             <?php else: ?>
             <a href="<?=root?>" class="flex items-center shrink-0">
-              <!-- Logo sizing via inline style (not Tailwind h-* classes — the
-                   precompiled build lacks lg:h-* variants). Bigger + bolder for
-                   presence (OTA-style), with a gentle shrink on scroll so it stays
-                   clearly noticeable. -->
+              <!-- WIDE logo lockup (4:1). Sized by HEIGHT via inline style (the
+                   precompiled build lacks lg:h-* variants); width flows from the
+                   aspect ratio so it reads as a full brand wordmark like the OTAs.
+                   Gentle shrink on scroll. -->
               <img src="<?=versionedAssetUrl('uploads/global/logo.png')?>" alt="<?=$GLOBALS['app']['business_name']?>"
                    class="w-auto object-contain transition-all duration-300 ease-out"
-                   :style="scrolled ? 'height:74px' : 'height:90px'"
-                   style="height:90px" width="90" height="90" decoding="async">
+                   :style="scrolled ? 'height:46px' : 'height:54px'"
+                   style="height:54px" width="280" height="70" decoding="async">
             </a>
             <?php endif; ?>
 
