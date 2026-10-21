@@ -94,13 +94,50 @@ $router->post('payment/paystack/webhook', function () use ($SECURE, $db) {
         $ack(200, 'OK'); // handled (or not ours) — don't fall through to charge logic
     }
 
-    // We only act on a successful charge that funded a dedicated virtual account.
+    // We only act on a successful charge.
     if ($event !== 'charge.success') {
         $ack(200, 'ignored'); // e.g. dedicatedaccount.assign.* — nothing to credit
     }
 
     $status  = strtolower((string) ($data['status'] ?? ''));
     $channel = strtolower((string) ($data['channel'] ?? ''));
+
+    // ---- GIA per-booking payments (DVA bank transfer OR hosted checkout) -------
+    // These are mapped to a BOOKING, not a wallet. A DVA transfer carries the
+    // per-booking customer_code; a checkout carries our GIAPAY- reference. We match
+    // on EITHER (Paystack's docs are inconsistent on the DVA channel string, so we
+    // do NOT hard-match the channel here). gia_bp_confirm is idempotent; a non-ok
+    // result is retryable -> 500 so Paystack re-delivers.
+    if ($status === 'success') {
+        require_once 'app/lib/ai/gia_booking_payment.php';
+        $giaInvoice = '';
+        $pref = (string) ($data['reference'] ?? '');
+        $custCode = (string) ($data['customer']['customer_code'] ?? '');
+        if (function_exists('gia_bp_ensure_schema')) {
+            gia_bp_ensure_schema($db);
+            // Checkout: our reference is GIAPAY-<invoice>-<rand>; also match the
+            // stored checkout_reference directly.
+            if ($pref !== '') {
+                $byRef = $db->get('gia_booking_payments', ['invoice_id'], ['checkout_reference' => $pref]);
+                if ($byRef) { $giaInvoice = (string) $byRef['invoice_id']; }
+            }
+            // DVA: the per-booking customer code maps straight to the booking.
+            if ($giaInvoice === '' && $custCode !== '') {
+                $byCust = $db->get('gia_booking_payments', ['invoice_id'], ['paystack_customer_code' => $custCode]);
+                if ($byCust) { $giaInvoice = (string) $byCust['invoice_id']; }
+            }
+        }
+        if ($giaInvoice !== '') {
+            $res = gia_bp_confirm($db, $giaInvoice, $pref !== '' ? $pref : $custCode, $data);
+            if (empty($res['ok'])) {
+                error_log('PAYSTACK WEBHOOK | gia_bp_confirm ' . $giaInvoice . ' not ok: ' . ($res['message'] ?? '?') . ' — 500 for retry');
+                $ack(500, 'retry: gia confirm failed');
+            }
+            error_log('PAYSTACK WEBHOOK | gia booking ' . $giaInvoice . ' -> ' . ($res['status'] ?? 'ok'));
+            $ack(200, 'OK'); // handled as a GIA booking payment — do not fall through
+        }
+    }
+
     // Paystack marks DVA transfers with channel 'dedicated_nuban'. Guard on it so
     // a normal card charge (already handled by the synchronous callback) is not
     // double-credited here.

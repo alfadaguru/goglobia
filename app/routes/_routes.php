@@ -418,3 +418,4 @@ require_once 'app/routes/crons/umrahHoldsRoutes.php';
 require_once 'app/routes/crons/payLaterRoutes.php';
 require_once 'app/routes/crons/supplierEarningsRoutes.php'; // clearance sweep: pending -> available
 require_once 'app/routes/crons/campaignsDispatchRoutes.php'; // scheduled email campaign dispatcher
+require_once 'app/routes/crons/giaPaymentsRoutes.php'; // GIA per-booking payment reminders + expiry sweep

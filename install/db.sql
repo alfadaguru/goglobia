@@ -27226,6 +27226,41 @@ CREATE TABLE `logs_bookings` (
 -- ensureGiaCheckoutSchema() (app/lib/ai/gia_checkout.php).
 --
 
+-- GIA per-booking payment engine: one row per booking payment attempt (Paystack
+-- DVA bank transfer OR hosted checkout), with the 20-min window + reminder state.
+CREATE TABLE IF NOT EXISTS `gia_booking_payments` (
+  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `invoice_id` varchar(64) NOT NULL,
+  `method` varchar(16) NOT NULL DEFAULT 'dva',
+  `status` varchar(16) NOT NULL DEFAULT 'pending',
+  `module` varchar(24) NOT NULL DEFAULT '',
+  `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` varchar(10) NOT NULL DEFAULT 'NGN',
+  `channel` varchar(16) NOT NULL DEFAULT '',
+  `channel_user_id` varchar(64) NOT NULL DEFAULT '',
+  `paystack_customer_code` varchar(64) NOT NULL DEFAULT '',
+  `dva_account_number` varchar(32) NOT NULL DEFAULT '',
+  `dva_bank_name` varchar(120) NOT NULL DEFAULT '',
+  `dva_account_name` varchar(160) NOT NULL DEFAULT '',
+  `checkout_reference` varchar(80) NOT NULL DEFAULT '',
+  `authorization_url` varchar(500) NOT NULL DEFAULT '',
+  `paystack_reference` varchar(100) NOT NULL DEFAULT '',
+  `sender_account` varchar(32) NOT NULL DEFAULT '',
+  `sender_bank` varchar(120) NOT NULL DEFAULT '',
+  `reminders_sent` tinyint(4) NOT NULL DEFAULT 0,
+  `last_reminder_at` datetime DEFAULT NULL,
+  `expires_at` datetime DEFAULT NULL,
+  `paid_at` datetime DEFAULT NULL,
+  `refunded_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_gbp_invoice` (`invoice_id`),
+  KEY `idx_gbp_customer` (`paystack_customer_code`),
+  KEY `idx_gbp_ref` (`checkout_reference`),
+  KEY `idx_gbp_status_exp` (`status`,`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 CREATE TABLE IF NOT EXISTS `gia_checkouts` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `checkout_ref` varchar(40) NOT NULL,
