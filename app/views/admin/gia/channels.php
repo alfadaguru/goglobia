@@ -54,6 +54,19 @@ $copyRow = function (string $label, string $val) use ($e) {
     echo '<button type="button" class="gia-copy shrink-0 text-xs font-semibold px-3 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50" data-copy="' . $e($val) . '"><i class="material-symbols-outlined text-[15px] align-[-3px]">content_copy</i> Copy</button>';
     echo '</div></div>';
 };
+// Secret field with a one-click Generate button that fills a strong random value.
+$secretField = function (string $name, string $label, string $val, string $hint = '') use ($e) {
+    $id = 'f_' . preg_replace('/[^a-z0-9]/i', '_', $name);
+    echo '<label class="block">';
+    echo '<span class="text-xs font-semibold text-gray-700">' . $e($label) . '</span>';
+    echo '<div class="mt-1 flex items-center gap-2">';
+    echo '<input type="text" name="' . $e($name) . '" id="' . $e($id) . '" value="' . $e($val) . '" '
+       . 'class="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500" autocomplete="off">';
+    echo '<button type="button" class="gia-gen shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-3 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50" data-target="' . $e($id) . '"><i class="material-symbols-outlined text-[15px] align-[-3px]">casino</i> Generate</button>';
+    echo '</div>';
+    if ($hint !== '') { echo '<span class="mt-0.5 block text-[11px] text-gray-400">' . $e($hint) . '</span>'; }
+    echo '</label>';
+};
 // Enable toggle shown inside each panel header row.
 $enableToggle = function (string $chan, bool $enabled) use ($e) {
     echo '<label class="inline-flex items-center gap-2 cursor-pointer select-none">';
@@ -121,7 +134,7 @@ $enableToggle = function (string $chan, bool $enabled) use ($e) {
               <b>How to connect (2 steps):</b> 1) Type any <b>webhook secret</b> below and click <b>Save channels</b>. 2) Click <b>Connect Green API</b> — we point your Green API instance's incoming messages at GIA automatically. Sending uses the Green API credentials in <b>Settings → WhatsApp</b>.
             </div>
             <div class="grid md:grid-cols-2 gap-4">
-              <?php $field('gia_channels[whatsapp][webhook_secret]', 'Webhook secret', (string)($wa['webhook_secret'] ?? ''), 'text', 'Any value you choose. It authenticates Green API\'s calls to us (appended as ?secret=… on the URL).'); ?>
+              <?php $secretField('gia_channels[whatsapp][webhook_secret]', 'Webhook secret', (string)($wa['webhook_secret'] ?? ''), 'Click Generate for a strong random value, or type your own. It authenticates Green API\'s calls to us (appended as ?secret=… on the URL). Save, then Connect.'); ?>
             </div>
             <?php
               $waUrl = $webhooks['whatsapp'] ?? '';
@@ -171,7 +184,7 @@ $enableToggle = function (string $chan, bool $enabled) use ($e) {
           </div>
           <div class="grid md:grid-cols-2 gap-4">
             <?php $field('gia_channels[telegram][bot_token]', 'Bot token (from BotFather)', (string)($tg['bot_token'] ?? ''), 'password'); ?>
-            <?php $field('gia_channels[telegram][webhook_secret]', 'Webhook secret', (string)($tg['webhook_secret'] ?? ''), 'text', 'Any value you choose. Telegram echoes it back on every update so we can trust it.'); ?>
+            <?php $secretField('gia_channels[telegram][webhook_secret]', 'Webhook secret', (string)($tg['webhook_secret'] ?? ''), 'Click Generate for a strong random value, or type your own. Telegram echoes it back on every update so we can trust it.'); ?>
           </div>
           <?php $copyRow('Webhook URL (auto-registered by the button below; shown for reference)', $webhooks['telegram'] ?? ''); ?>
           <div class="flex items-center gap-3 flex-wrap pt-1">
@@ -257,6 +270,25 @@ $enableToggle = function (string $chan, bool $enabled) use ($e) {
     root.querySelectorAll('.gia-wa-meta').forEach(function(el){ el.hidden = (m !== 'meta'); });
   }
   if (waMode){ waMode.addEventListener('change', applyWaMode); applyWaMode(); }
+
+  // ---- Generate secret ----
+  function makeSecret(){
+    var bytes = new Uint8Array(24);
+    (window.crypto || window.msCrypto).getRandomValues(bytes);
+    var s = '';
+    for (var i=0;i<bytes.length;i++){ s += ('0' + bytes[i].toString(16)).slice(-2); }
+    return 'gia_' + s; // ~52 chars, URL-safe (hex)
+  }
+  root.querySelectorAll('.gia-gen').forEach(function(b){
+    b.addEventListener('click', function(){
+      var inp = document.getElementById(b.getAttribute('data-target'));
+      if(!inp) return;
+      inp.value = makeSecret();
+      inp.dispatchEvent(new Event('input', {bubbles:true}));
+      var orig = b.innerHTML; b.textContent = 'Generated'; setTimeout(function(){ b.innerHTML = orig; }, 1200);
+      showFlash(true, 'Secret generated. Click Save channels, then Connect.');
+    });
+  });
 
   // ---- Copy buttons ----
   root.querySelectorAll('.gia-copy').forEach(function(b){
