@@ -62,13 +62,25 @@ if (!function_exists('umrahListingCards')) {
         }
 
         // Optional, CONSERVATIVE filtering — only narrow when the traveller clearly
-        // asked for a city or month; a vague "umrah" shows everything (never hide
+        // asked for a city or month; a vague "umrah" shows EVERYTHING (never hide
         // real inventory on an ambiguous query).
+        //
+        // CRITICAL: do NOT month-filter on a DEFAULTED date. The AI search fills a
+        // default start date (today) when the traveller gave none; filtering on that
+        // silently hid the real December departures and returned empty. We only
+        // month-filter when the caller passes month_explicit=1 (the user actually
+        // named a month) AND that month is in the future-ish — a past month (e.g.
+        // "December 2025") is treated as "not specified" rather than zeroing results.
         $monthNeedle = '';
-        if ($startYmd !== '' && strtotime($startYmd) !== false) {
-            $monthNeedle = strtolower(date('F Y', strtotime($startYmd)));
-        } elseif ($startRaw !== '' && strtotime($startRaw) !== false) {
-            $monthNeedle = strtolower(date('F Y', strtotime($startRaw)));
+        $monthExplicit = !empty($input['month_explicit']);
+        if ($monthExplicit) {
+            $src = $startYmd !== '' ? $startYmd : $startRaw;
+            if ($src !== '' && strtotime($src) !== false) {
+                // Ignore a month already in the past (stale year) — show all instead.
+                if (strtotime(date('Y-m-01', strtotime($src))) >= strtotime(date('Y-m-01'))) {
+                    $monthNeedle = strtolower(date('F Y', strtotime($src)));
+                }
+            }
         }
 
         $cards = [];

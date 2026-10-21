@@ -4984,6 +4984,10 @@ PROMPT;
         if ($startYmd === '') {
             $startYmd = $this->normalizeYmdDate((string)($fields['departure_date'] ?? ($fields['checkin'] ?? '')));
         }
+        // Did the TRAVELLER actually give a date, or are we about to default one?
+        // Umrah must only month-filter on an EXPLICIT date — defaulting to today and
+        // filtering on it silently hides the real (future-month) departures.
+        $umrahMonthExplicit = $startYmd !== '';
         if ($startYmd === '') {
             $startYmd = $this->defaultTravelDateYmd();
         }
@@ -5075,6 +5079,7 @@ PROMPT;
             'destination'    => $destParam,
             'start_date'     => $startDmY,
             'start_date_ymd' => $startYmd,
+            'month_explicit' => $umrahMonthExplicit ? 1 : 0,
             'duration'       => $durationParam,
             'umrah_type'     => $typeParam,
             'services'       => $servicesParam,
