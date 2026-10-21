@@ -36,6 +36,16 @@ $UPD_EXCLUDED = [
     'backups/',
 ];
 
+// Carve-outs: paths that OVERRIDE the exclusion above (checked first). uploads/
+// is excluded to protect per-site uploaded content (customer photos, documents,
+// admin-set logo/cover) from being clobbered by updates — but uploads/global/
+// holds PLATFORM assets shipped with the app (certification logos, destination
+// images, platform imagery). Those SHOULD ship so homepage visuals stay current.
+// A file matching an allow prefix is written even if it also matches an exclude.
+$UPD_EXCLUDED_ALLOW = [
+    'uploads/global/',
+];
+
 // Commits whose EVERY file matches one of these are internal repo housekeeping:
 // they are hidden from the updates list and auto-skipped in the install queue.
 // (Empty — install/db.sql now ships to clients, so nothing is hidden by default.)
@@ -514,7 +524,7 @@ if (($_POST['action'] ?? '') === 'install') {
         }
         $commitData = $result['body'];
 
-        global $UPD_EXCLUDED;
+        global $UPD_EXCLUDED, $UPD_EXCLUDED_ALLOW;
         $updated = $failed = $skipped = [];
         $debugInfo = [
             'root_path' => UPD_ROOT,
@@ -529,12 +539,20 @@ if (($_POST['action'] ?? '') === 'install') {
             $status   = $file['status'];
             $fileDebug = ['filename' => $filename, 'status' => $status];
 
+            // Allow-list overrides the exclusion: a platform asset under an allowed
+            // prefix (e.g. uploads/global/) ships even though uploads/ is excluded.
+            $isAllowed = false;
+            foreach ($UPD_EXCLUDED_ALLOW as $allow) {
+                if (strpos($filename, rtrim($allow, '/')) === 0) { $isAllowed = true; break; }
+            }
             $isExcluded = false;
-            foreach ($UPD_EXCLUDED as $pattern) {
-                if (strpos($filename, rtrim($pattern, '/')) === 0) {
-                    $isExcluded = true;
-                    $fileDebug['result'] = 'skipped (excluded by pattern: ' . $pattern . ')';
-                    break;
+            if (!$isAllowed) {
+                foreach ($UPD_EXCLUDED as $pattern) {
+                    if (strpos($filename, rtrim($pattern, '/')) === 0) {
+                        $isExcluded = true;
+                        $fileDebug['result'] = 'skipped (excluded by pattern: ' . $pattern . ')';
+                        break;
+                    }
                 }
             }
             if ($isExcluded) { $skipped[] = $filename; $debugInfo['details'][] = $fileDebug; continue; }
