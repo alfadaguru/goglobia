@@ -51,7 +51,20 @@ $router->get(admin.'/umrah-manager', function () use ($SECURE, $db) {
     // Enrich each departure with tier price + load factor.
     $rows = [];
     foreach ($departures as $d) {
-        $dt = $db->get('umrah_departure_tiers', '*', ['departure_id' => $d['id'], 'ORDER' => ['id' => 'ASC']]);
+        // ALL tiers for this departure (a departure has many — Economy/VIP/etc.), each
+        // with its own price + status. The summary row uses the first ($dt); the per-tier
+        // editor uses the full list ($tiersList), enriched with the tier label.
+        $tierRows = $db->select('umrah_departure_tiers', '*', ['departure_id' => $d['id'], 'ORDER' => ['id' => 'ASC']]) ?: [];
+        $tiersList = [];
+        foreach ($tierRows as $tr) {
+            $meta = $db->get('umrah_tiers', ['code', 'name', 'public_label', 'room_sharing', 'sort_order'], ['id' => (int) $tr['tier_id']]);
+            $tr['tier_label'] = $meta['public_label'] ?: ($meta['name'] ?? ($meta['code'] ?? ('Tier ' . $tr['tier_id'])));
+            $tr['room_sharing'] = $meta['room_sharing'] ?? '';
+            $tr['sort_order'] = (int) ($meta['sort_order'] ?? 0);
+            $tiersList[] = $tr;
+        }
+        usort($tiersList, fn($a, $b) => ($a['sort_order'] <=> $b['sort_order']) ?: ($a['id'] <=> $b['id']));
+        $dt = $tiersList[0] ?? null;
         $cap = ($dt && function_exists('umrah_capacity_for')) ? umrah_capacity_for($db, (int) $dt['id']) : ['capacity' => (int) $d['capacity'], 'confirmed' => 0, 'active_holds' => 0, 'remaining' => (int) $d['capacity']];
         $confirmedPax = (int) $db->sum('umrah_bookings', 'pax', ['departure_id' => $d['id'], 'booking_status' => ['confirmed', 'completed']]);
         $revenue = (float) $db->sum('umrah_bookings', 'total_price', ['departure_id' => $d['id'], 'booking_status' => ['confirmed', 'completed']]);
@@ -59,6 +72,7 @@ $router->get(admin.'/umrah-manager', function () use ($SECURE, $db) {
         $rows[] = [
             'd' => $d,
             'dt' => $dt,
+            'tiers' => $tiersList,
             'cap' => $cap,
             'confirmed_pax' => $confirmedPax,
             'revenue' => $revenue,

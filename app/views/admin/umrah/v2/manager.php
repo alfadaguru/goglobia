@@ -156,10 +156,18 @@ foreach ($templatesActive as $t) { $tplName[(int) $t['id']] = $t['name']; }
                     <button class="btn btn-sm outline" @click='editDeparture(<?= json_encode([
                       "id"=>(int)$d["id"],"departure_date"=>$d["departure_date"],"return_date"=>$d["return_date"],
                       "origin_city"=>$d["origin_city"],"capacity"=>(int)$d["capacity"],"low_stock_threshold"=>(int)$d["low_stock_threshold"],
-                      "display_inventory_count"=>(int)$d["display_inventory_count"],
-                      "regular_price"=>$dt ? (float)$dt["regular_price"] : 0,
-                      "promo_price"=>$dt ? (float)$dt["promo_price"] : 0
+                      "display_inventory_count"=>(int)$d["display_inventory_count"]
                     ], JSON_HEX_APOS|JSON_HEX_QUOT) ?>)'>Edit</button>
+                    <button class="btn btn-sm outline" @click='openTierPricing(<?= json_encode([
+                      "departure"=>htmlspecialchars_decode(date('d M Y', strtotime($d['departure_date']))),
+                      "tiers"=>array_map(function($t){ return [
+                        "id"=>(int)$t["id"],"label"=>$t["tier_label"],"room"=>$t["room_sharing"],
+                        "regular_price"=>$t["regular_price"]!==null?(float)$t["regular_price"]:0,
+                        "promo_price"=>$t["promo_price"]!==null?(float)$t["promo_price"]:0,
+                        "tier_capacity"=>$t["tier_capacity"]!==null?(int)$t["tier_capacity"]:0,
+                        "status"=>$t["status"],
+                      ]; }, $r["tiers"] ?? [])
+                    ], JSON_HEX_APOS|JSON_HEX_QUOT) ?>)'>Prices &amp; tiers</button>
                     <button class="btn btn-sm outline" @click='openImages(<?= (int)$d['id'] ?>, <?= htmlspecialchars(json_encode((string)($d['hero_image'] ?? '')), ENT_QUOTES) ?>, <?= htmlspecialchars(json_encode(json_decode((string)($d['gallery'] ?? ''), true) ?: []), ENT_QUOTES) ?>)'>Images</button>
                     <button class="btn btn-sm outline" @click="clone(<?= (int)$d['id'] ?>)">Clone</button>
                     <a class="btn btn-sm outline" href="<?= root ?>admin/umrah-manager/operations/<?= (int)$d['id'] ?>">Ops</a>
@@ -389,8 +397,6 @@ foreach ($templatesActive as $t) { $tplName[(int) $t['id']] = $t['name']; }
           <div class="form-control"><label>Origin city</label><input class="input" x-model="f.origin_city"></div>
           <div class="form-control"><label>Capacity</label><input type="number" class="input" x-model.number="f.capacity"></div>
           <div class="form-control"><label>Low-stock threshold</label><input type="number" class="input" x-model.number="f.low_stock_threshold"></div>
-          <div class="form-control"><label>Regular price</label><input type="number" step="0.01" class="input" x-model.number="f.regular_price"></div>
-          <div class="form-control"><label>Promo price <span class="text-slate-400 text-xs">(0 = none)</span></label><input type="number" step="0.01" class="input" x-model.number="f.promo_price"></div>
           <div class="form-control"><label class="flex items-center gap-2"><input type="checkbox" x-model="f.display_inventory_count"> Show remaining seats publicly</label></div>
         </div>
       </template>
@@ -400,6 +406,43 @@ foreach ($templatesActive as $t) { $tplName[(int) $t['id']] = $t['name']; }
         <button class="btn outline" @click="edit.open=false">Cancel</button>
         <button class="btn" :disabled="edit.busy" @click="saveEdit()" x-text="edit.busy?'Saving…':'Save'"></button>
       </div>
+    </div>
+  </div>
+
+  <!-- ==================== PER-TIER PRICING MODAL ==================== -->
+  <div x-show="tp.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,.5)" @click.self="tp.open=false">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-5">
+      <h3 class="font-semibold text-slate-900 mb-1">Prices &amp; tiers</h3>
+      <p class="text-xs text-slate-500 mb-4">Departure: <span x-text="tp.departure"></span>. Each tier has its OWN price and visibility — editing one does not affect the others.</p>
+      <div class="table-container">
+        <table class="table">
+          <thead><tr><th>Tier</th><th>Regular price</th><th>Promo price <span class="text-slate-400 font-normal">(0 = none)</span></th><th>Capacity <span class="text-slate-400 font-normal">(0 = departure cap)</span></th><th>Visibility</th><th></th></tr></thead>
+          <tbody>
+            <template x-for="t in tp.tiers" :key="t.id">
+              <tr>
+                <td class="whitespace-nowrap"><span class="font-medium" x-text="t.label"></span><br><span class="text-xs text-slate-500" x-text="t.room"></span></td>
+                <td><input type="number" step="0.01" min="0" class="input w-32" x-model.number="t.regular_price"></td>
+                <td><input type="number" step="0.01" min="0" class="input w-32" x-model.number="t.promo_price"></td>
+                <td><input type="number" step="1" min="0" class="input w-24" x-model.number="t.tier_capacity"></td>
+                <td>
+                  <select class="select" x-model="t.status">
+                    <option value="active">Active (shown)</option>
+                    <option value="hidden">Hidden</option>
+                    <option value="sold_out">Sold out</option>
+                    <option value="draft">Draft</option>
+                  </select>
+                </td>
+                <td class="whitespace-nowrap">
+                  <button class="btn btn-sm" :disabled="t._busy" @click="saveTier(t)" x-text="t._busy?'…':'Save'"></button>
+                  <span class="text-xs ml-1" :class="t._ok?'text-green-600':'text-rose-600'" x-text="t._msg||''"></span>
+                </td>
+              </tr>
+            </template>
+            <tr x-show="!tp.tiers.length"><td colspan="6" class="text-slate-500">No tiers on this departure.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="mt-4 flex justify-end"><button class="btn outline" @click="tp.open=false">Close</button></div>
     </div>
   </div>
 
@@ -494,6 +537,26 @@ function umrahMgr() {
     // ---- Archive / restore (generic) ----
     async archive(kind,id){ if(!confirm('Archive this record? It will be hidden from the site but not deleted.'))return; const j=await this.post(this.base+'/'+kind+'/archive',{id:id,archive:1}); if(j.success) location.reload(); else alert(j.message||'Failed'); },
     async restore(kind,id){ const j=await this.post(this.base+'/'+kind+'/archive',{id:id,archive:0}); if(j.success) location.reload(); else alert(j.message||'Failed'); },
+
+    // ---- Per-tier pricing modal ----
+    tp:{ open:false, departure:'', tiers:[] },
+    openTierPricing(d){
+      // each tier gets its own busy/ok/msg so saves are independent
+      this.tp={ open:true, departure:d.departure||'', tiers:(d.tiers||[]).map(t=>Object.assign({_busy:false,_ok:false,_msg:''},t)) };
+    },
+    async saveTier(t){
+      if(!(t.regular_price>0)){ t._ok=false; t._msg='Regular price must be > 0'; return; }
+      if(t.promo_price>0 && t.promo_price>t.regular_price){ t._ok=false; t._msg='Promo cannot exceed regular'; return; }
+      t._busy=true; t._msg='';
+      const j=await this.post(this.base+'/departures/tier-pricing',{
+        departure_tier_id:t.id,
+        regular_price:t.regular_price,
+        promo_price:(t.promo_price>0?t.promo_price:''),  // '' clears the promo (endpoint sets NULL)
+        tier_capacity:(t.tier_capacity>0?t.tier_capacity:''),
+        status:t.status
+      });
+      t._busy=false; t._ok=!!j.success; t._msg=j.success?'Saved':(j.message||'Failed');
+    },
 
     // ---- Edit modal (shared across entity types) ----
     edit:{ open:false, type:'', title:'', busy:false, ok:false, msg:'' },
