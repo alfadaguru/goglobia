@@ -256,10 +256,21 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         // --- Trusted context. account_id enables READS for the resolved person.
         //     user_approved stays FALSE for the model path: the approve TAP is
         //     handled deterministically above, so the LLM never needs R3. ---
+        // Currency: channels have no browser session, so resolve the SITE's default
+        // currency from the currencies table (default='1') instead of hardcoding USD
+        // — a Nigerian install quotes NGN, matching the website. Falls back to USD.
+        $channelCurrency = 'USD';
+        try {
+            $defCur = $db->get('currencies', 'name', ['default' => '1', 'status' => '1'])
+                ?: $db->get('currencies', 'name', ['default' => '1'])
+                ?: $db->get('currencies', 'name', ['ORDER' => ['default' => 'DESC']]);
+            if (is_string($defCur) && $defCur !== '') { $channelCurrency = strtoupper($defCur); }
+        } catch (\Throwable $e) { /* keep USD fallback */ }
+
         $toolContext = [
             'account_id'         => $accountId,
             'user_approved'      => false,
-            'currency'           => 'USD',
+            'currency'           => $channelCurrency,
             'conv_id'            => $convId,
             'conv_key'           => $convKey,
             'channel'            => $channel,
@@ -276,8 +287,12 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             $agent->registerTool(new composeTripTool());
             $agent->registerTool(new createCheckoutTool());
             $agent->registerTool(new createBookingTool());
-            $agent->registerTool(new requestApprovalTool());
-            $agent->registerTool(new initiatePaymentTool());
+            // NOTE: requestApprovalTool + initiatePaymentTool are DELIBERATELY NOT
+            // registered on channels. Payment here is handled OUTSIDE the model —
+            // after create_booking the interface shows the pay options (bank-transfer
+            // VA / Paystack checkout) and a tap completes it. Not registering them
+            // (rather than only instructing the model) means the model CANNOT waste a
+            // turn calling a payment tool or surface a confusing "not permitted" error.
             $agent->registerTool(new requestHumanTool());
             // Account linking (verify_identity) is always available so GIA can
             // offer to link the chat to an account.

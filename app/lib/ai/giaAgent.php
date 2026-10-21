@@ -171,11 +171,14 @@ class giaAgent
             }
             $messages[] = $assistant;
 
-            // Model answered with no tool call -> done.
+            // Model answered with no tool call -> done. Run the containment guard on
+            // the final text so a fabricated price can never reach the traveller.
             if (($resp['stop'] ?? 'end') !== 'tool_use' || empty($resp['tool_calls'])) {
+                $guarded = $this->guardReplyContainment((string) ($resp['text'] ?? ''), $toolRuns);
                 return [
                     'ok' => true,
-                    'reply' => (string) ($resp['text'] ?? ''),
+                    'reply' => $guarded['reply'],
+                    'reply_flagged' => $guarded['flagged'],
                     'provider' => $provider,
                     'model' => $model,
                     'stop' => 'end',
@@ -430,6 +433,94 @@ class giaAgent
         }
 
         return $out;
+    }
+
+    /**
+     * CONTAINMENT REPLY GUARD. The model is instructed never to invent products or
+     * prices, but instruction-following is best-effort — so this is the CODE that
+     * enforces it before a reply ever reaches the traveller. It focuses on the
+     * highest-harm lie: a fabricated PRICE. Every monetary figure in the reply must
+     * correspond to a real price the tools returned this turn (or an amount the
+     * traveller/checkout already established). If the reply quotes a price that is
+     * NOT backed by tool data, we log a hallucination alert and neutralise the reply
+     * rather than let a made-up price reach the customer.
+     *
+     * Deliberately conservative: it only acts on monetary figures (unambiguous,
+     * high-harm), never on general prose, so it cannot mangle a legitimate answer.
+     *
+     * @param array<int,array<string,mixed>> $toolRuns
+     * @return array{reply:string,flagged:bool}
+     */
+    private function guardReplyContainment(string $reply, array $toolRuns): array
+    {
+        if (trim($reply) === '') {
+            return ['reply' => $reply, 'flagged' => false];
+        }
+
+        // 1) Collect every REAL numeric amount the tools surfaced this turn — card
+        //    prices, checkout/approval/payment amounts, order totals. These are the
+        //    only figures the model is allowed to state.
+        $realAmounts = [];
+        $addAmount = static function ($v) use (&$realAmounts): void {
+            if ($v === null || $v === '' || !is_numeric($v)) { return; }
+            $realAmounts[] = round((float) $v, 2);
+        };
+        $scan = function ($node) use (&$scan, $addAmount): void {
+            if (is_array($node)) {
+                foreach ($node as $k => $v) {
+                    if (is_array($v)) { $scan($v); continue; }
+                    $key = is_string($k) ? strtolower($k) : '';
+                    // Only treat money-ish keys as real amounts (avoid ids/counts).
+                    if (preg_match('/(price|amount|total|fare|cost|due|deposit|balance|payable|subtotal)/', $key)) {
+                        $addAmount($v);
+                    }
+                }
+            }
+        };
+        foreach ($toolRuns as $tr) {
+            if (is_array($tr['output'] ?? null)) { $scan($tr['output']); }
+        }
+
+        // 2) Pull every monetary figure the MODEL stated. Match "NGN 1,617,250.67",
+        //    "₦58,400", "$500", "150000 USD", etc. — a currency marker adjacent to a
+        //    number. Bare numbers (dates, counts, "2 adults") are ignored.
+        $curr = '(?:NGN|USD|GHS|KES|ZAR|GBP|EUR|₦|\$|£|€)';
+        $num  = '\d[\d,]*(?:\.\d+)?';
+        $pattern = '/(?:' . $curr . '\s?' . $num . ')|(?:' . $num . '\s?' . $curr . ')/u';
+        if (!preg_match_all($pattern, $reply, $m) || empty($m[0])) {
+            return ['reply' => $reply, 'flagged' => false]; // no money quoted -> nothing to check
+        }
+
+        $tol = 0.01;
+        $bad = [];
+        foreach ($m[0] as $hit) {
+            if (!preg_match('/' . $num . '/', $hit, $nm)) { continue; }
+            $stated = round((float) str_replace(',', '', $nm[0]), 2);
+            if ($stated <= 0) { continue; }
+            $ok = false;
+            foreach ($realAmounts as $real) {
+                if (abs($real - $stated) <= $tol) { $ok = true; break; }
+            }
+            if (!$ok) { $bad[] = $stated; }
+        }
+
+        if ($bad === []) {
+            return ['reply' => $reply, 'flagged' => false];
+        }
+
+        // 3) A price was quoted that no tool returned. This is exactly the failure
+        //    the owner hit (invented umrah prices). Do NOT ship it. Log, and replace
+        //    the reply with a safe deflection that leans on the real cards/next step.
+        error_log('[gia][containment] blocked reply quoting unverified amount(s): '
+            . implode(', ', array_map('strval', $bad))
+            . ' | realAmounts=' . implode(',', array_map('strval', $realAmounts)));
+
+        $hasRealOptions = $realAmounts !== [];
+        $safe = $hasRealOptions
+            ? "Here are the real options from our system — the details and exact prices are on the cards below. Which one would you like to go with?"
+            : "Let me pull the live options from our system so I can give you exact, up-to-date prices. One moment — could you confirm what you're looking for?";
+
+        return ['reply' => $safe, 'flagged' => true];
     }
 
     /** Trim one real result card to the handful of fields a model talks about. */
