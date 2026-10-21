@@ -960,6 +960,9 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
    <?php endif; ?>
 </div>
 
+<!-- Featured deals row (real featured tours; self-hides when empty). -->
+<?php include views . 'partials/home-deals.php'; ?>
+
 <!-- ================================================================
      P2 — TRUST STRIP (directly under the hero/search, Wakanow-style).
      Accreditation logos + at-a-glance assurances. No new data; cert logos
