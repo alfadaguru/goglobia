@@ -107,12 +107,32 @@ $router->post('/api/cards/([0-9]+)/charge', function ($id) use ($SECURE, $db) {
     $amount = round((float) ($in['amount'] ?? 0), 2);
     if ($amount <= 0) { http_response_code(400); echo json_encode(['success' => false, 'message' => 'Enter an amount']); exit; }
     if (!function_exists('cards_charge')) { http_response_code(500); echo json_encode(['success' => false, 'message' => 'Card charging unavailable']); exit; }
-    $res = cards_charge($db, (int) $id, $uid, $amount);
+    // Per-attempt idempotency id (audit #42): the client sends one stable id per click so
+    // a double-submit reuses the same provider idempotency key (no double charge).
+    $attemptId = (string) ($in['attempt_id'] ?? '');
+    $res = cards_charge($db, (int) $id, $uid, $amount, $attemptId);
     if (empty($res['ok'])) {
         http_response_code(($res['requires_action'] ?? false) ? 200 : 400);
         echo json_encode(array_merge(['success' => false], $res));
         exit;
     }
+    echo json_encode(['success' => true, 'balance' => $res['balance'] ?? null, 'message' => 'Wallet topped up.']);
+    exit;
+});
+
+// ---- POST /api/cards/{id}/charge/complete : finish a 3-DS/SCA charge --------
+// Body: { payment_intent }. After the browser confirms the PaymentIntent via
+// Stripe.js, this verifies it succeeded server-side and credits the wallet (audit #41).
+$router->post('/api/cards/([0-9]+)/charge/complete', function ($id) use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    $uid = cards_route_user();
+    $in  = cards_route_body();
+    cards_route_csrf($in);
+    $pi  = (string) ($in['payment_intent'] ?? '');
+    if ($pi === '') { http_response_code(400); echo json_encode(['success' => false, 'message' => 'Missing payment reference']); exit; }
+    if (!function_exists('cards_complete_sca')) { http_response_code(500); echo json_encode(['success' => false, 'message' => 'Card completion unavailable']); exit; }
+    $res = cards_complete_sca($db, (int) $id, $uid, $pi);
+    if (empty($res['ok'])) { http_response_code(400); echo json_encode(array_merge(['success' => false], $res)); exit; }
     echo json_encode(['success' => true, 'balance' => $res['balance'] ?? null, 'message' => 'Wallet topped up.']);
     exit;
 });

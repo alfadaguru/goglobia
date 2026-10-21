@@ -346,7 +346,7 @@ if (!function_exists('cards_charge')) {
      *
      * @return array{ok:bool,balance?:float,requires_action?:bool,client_secret?:string,message?:string}
      */
-    function cards_charge($db, int $cardId, string $userId, float $amount): array
+    function cards_charge($db, int $cardId, string $userId, float $amount, string $attemptId = ''): array
     {
         $amount = round($amount, 2);
         $card = cards_get_owned($db, $cardId, $userId);
@@ -364,16 +364,17 @@ if (!function_exists('cards_charge')) {
         $wallet_lib = __DIR__ . '/wallet.php';
         if (!function_exists('txn_create')) { require_once $wallet_lib; }
 
-        // IDEMPOTENCY (audit #2): a double-click / client retry must NOT charge the
-        // card twice. Previously the spine idem key was derived from the provider id
-        // returned AFTER the charge, so two calls minted two distinct ids and both
-        // credited. We now derive a deterministic key from (user, card, amount, 60s
-        // window) and hand it to the PROVIDER — Stripe as the Idempotency-Key header,
-        // Paystack as the charge reference. The provider then collapses the duplicate
-        // to the SAME charge/reference, so cards_settle_topup sees the same provider
-        // ref → same CARD-* spine key → the second settle is a no-op. No double charge.
+        // IDEMPOTENCY (audit #42): the key handed to the provider (Stripe
+        // Idempotency-Key / Paystack reference) must be STABLE for a single charge
+        // attempt. The old key bucketed on floor(time()/60): two clicks ~0.5s apart but
+        // straddling a minute boundary minted DIFFERENT keys → the provider treated them
+        // as distinct charges → double charge. Prefer a caller-supplied per-attempt id
+        // (the client echoes one id for a given click), which is stable across a retry of
+        // the SAME attempt; fall back to the coarse window only when none is supplied.
         $minor    = (int) round($amount * 100);
-        $idemKey  = 'CARDCHG-' . $userId . '-' . $cardId . '-' . $minor . '-' . (int) floor(time() / 60);
+        $attemptId = preg_replace('/[^A-Za-z0-9_-]/', '', $attemptId);
+        $idemSuffix = $attemptId !== '' ? $attemptId : (string) (int) floor(time() / 60);
+        $idemKey  = 'CARDCHG-' . $userId . '-' . $cardId . '-' . $minor . '-' . $idemSuffix;
 
         if ($provider === 'stripe') {
             $r = cards_http('POST', 'https://api.stripe.com/v1/payment_intents', $secret, [
@@ -462,6 +463,60 @@ if (!function_exists('cards_settle_topup')) {
             error_log('cards_settle_topup: ' . $e->getMessage());
             return ['ok' => false, 'message' => 'Top-up settlement error'];
         }
+    }
+}
+
+if (!function_exists('cards_complete_sca')) {
+    /**
+     * Complete a Stripe saved-card charge that required SCA/3-DS (audit #41).
+     * cards_charge() returns requires_action with a client_secret; the browser confirms
+     * the PaymentIntent via Stripe.js, then calls back here. Previously there was NO
+     * server path to credit the wallet after 3-DS — the card was charged but the wallet
+     * stayed empty (money-loss). This re-retrieves the PI from Stripe, verifies it
+     * actually SUCCEEDED and that it belongs to THIS user's Stripe customer (ownership —
+     * so a user cannot claim someone else's PI), then credits via the same
+     * CARD-STRIPE-{piId} idempotency key (so a later webhook/retry is a no-op).
+     *
+     * Returns ['ok'=>bool,'balance'=>?float,'message'=>].
+     */
+    function cards_complete_sca($db, int $cardId, string $userId, string $paymentIntentId): array
+    {
+        $paymentIntentId = trim($paymentIntentId);
+        if ($paymentIntentId === '') { return ['ok' => false, 'message' => 'Missing payment reference']; }
+        $card = cards_get_owned($db, $cardId, $userId);
+        if (!$card) { return ['ok' => false, 'message' => 'Card not found']; }
+        if ((string) $card['provider'] !== 'stripe') { return ['ok' => false, 'message' => 'Not a Stripe card']; }
+        $currency = strtoupper((string) $card['currency']);
+
+        $gw = $db->get('payment_gateways', '*', ['id' => (int) ($card['gateway_id'] ?? 0)])
+            ?: cards_gateway_for_currency($db, $currency);
+        $secret = $gw ? cards_secret_key($gw) : '';
+        if ($secret === '') { return ['ok' => false, 'message' => 'Payment gateway not configured']; }
+
+        if (!function_exists('txn_create')) { require_once __DIR__ . '/wallet.php'; }
+
+        // Re-retrieve the PaymentIntent from Stripe (never trust the client's word that
+        // it succeeded).
+        $r = cards_http('GET', 'https://api.stripe.com/v1/payment_intents/' . rawurlencode($paymentIntentId), $secret, [], 'stripe');
+        $j = $r['json'] ?? [];
+        $status = (string) ($j['status'] ?? '');
+        if ($status !== 'succeeded') {
+            return ['ok' => false, 'message' => 'Payment not completed (' . ($status ?: 'unknown') . ').'];
+        }
+        // OWNERSHIP: the PI's customer must match this user's saved card customer.
+        $piCustomer = (string) ($j['customer'] ?? '');
+        $cardCustomer = (string) ($card['provider_customer'] ?? '');
+        if ($cardCustomer === '' || $piCustomer === '' || $piCustomer !== $cardCustomer) {
+            error_log('cards_complete_sca ownership mismatch: pi=' . $paymentIntentId . ' piCust=' . $piCustomer . ' cardCust=' . $cardCustomer . ' user=' . $userId);
+            return ['ok' => false, 'message' => 'This payment could not be matched to your account.'];
+        }
+        // Amount from the PI (server-trusted, in minor units) — never from the client.
+        $amount = round(((int) ($j['amount_received'] ?? $j['amount'] ?? 0)) / 100, 2);
+        if ($amount <= 0) { return ['ok' => false, 'message' => 'Nothing to credit']; }
+        $piCurrency = strtoupper((string) ($j['currency'] ?? $currency)) ?: $currency;
+
+        // Same spine key as the synchronous path → idempotent with any later webhook.
+        return cards_settle_topup($db, $userId, $amount, $piCurrency, (int) ($gw['id'] ?? 0), 'CARD-STRIPE-' . $paymentIntentId, $paymentIntentId);
     }
 }
 
