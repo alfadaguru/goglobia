@@ -94,17 +94,14 @@ $base = root . admin . '/supplier-payouts';
                       <button type="submit" class="btn ghost text-[11px]">Resend OTP</button>
                     </form>
                     <form action="<?= $base ?>/resolve" method="POST" class="inline"
-                          onsubmit="return confirm('Check this transfer with Paystack and finalise it (paid, or failed+released)? Use this if the OTP was abandoned or expired.');">
+                          onsubmit="return confirm('Check this transfer with Paystack and finalise it (paid, or failed+released)? Use this if the OTP was abandoned or expired. Do NOT reject an OTP-pending transfer — resolve it so a live transfer is not double-paid.');">
                       <?= CSRF::tokenField() ?>
                       <input type="hidden" name="id" value="<?= (int) $p['id'] ?>">
                       <button type="submit" class="btn ghost text-[11px]">Resolve</button>
                     </form>
-                    <form action="<?= $base ?>/reject" method="POST" class="inline"
-                          onsubmit="return confirm('Reject this payout and release the funds back to the supplier?');">
-                      <?= CSRF::tokenField() ?>
-                      <input type="hidden" name="id" value="<?= (int) $p['id'] ?>">
-                      <button type="submit" class="btn rose text-[11px]">Reject</button>
-                    </form>
+                    <!-- No direct Reject for awaiting_otp (audit #13): the transfer_code is
+                         live at Paystack; rejecting would release the reservation while the
+                         transfer can still complete. Use Resolve (Paystack-verified) instead. -->
                   </div>
                 </div>
               <?php elseif ($st === 'processing'): ?>

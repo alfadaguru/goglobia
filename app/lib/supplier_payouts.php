@@ -331,6 +331,17 @@ if (!function_exists('supplier_payout_resolve_stuck')) {
                 'message' => 'Transfer confirmed with Paystack; marked paid.'];
         }
 
+        // TRANSIENT-ERROR GUARD (audit #14): a non-2xx verify response (network blip,
+        // Paystack 5xx/429) is NOT a definitive "transfer didn't happen". Failing the
+        // payout + releasing the reservation here would strand a LIVE transfer (money
+        // gone from the float, earnings freed and re-requestable). Only proceed to fail
+        // on a DEFINITIVE negative answer (a 2xx response that reports failed/not-found).
+        // On a transient error, leave the payout untouched and ask the admin to retry.
+        if (!$httpOk) {
+            return ['ok' => false, 'state' => $state,
+                'message' => 'Could not reach Paystack to verify this transfer (transient error). It was NOT marked failed — please try again shortly.'];
+        }
+
         // Not found / failed → it did not go through. Fail it and free the money, via the
         // shared finaliser (handles the paid-unwind edge + event + decided_by).
         if (function_exists('supplier_payout_finalize_transfer')) {
@@ -354,7 +365,14 @@ if (!function_exists('supplier_payout_reject')) {
     {
         try {
             $p = $db->get('supplier_payouts', ['id', 'state'], ['id' => $payoutId]);
-            if (!$p || in_array($p['state'], ['paid', 'processing'], true)) { return false; }
+            // Never reject a payout whose transfer may be LIVE at the gateway:
+            //  - 'processing' : transfer initiated, outcome pending (webhook will finalise)
+            //  - 'awaiting_otp' (audit #13): transfer_code is live at Paystack awaiting OTP.
+            //    Rejecting it here would release the earnings reservation while the transfer
+            //    can still complete (OTP submitted/resent) → the money pays out with no
+            //    backing (double-pay). It must be resolved via Paystack verify first
+            //    (supplier_payout_resolve_stuck), which finalises paid or fails+releases.
+            if (!$p || in_array($p['state'], ['paid', 'processing', 'awaiting_otp'], true)) { return false; }
             $db->update('supplier_payouts',
                 ['state' => 'rejected', 'failure_reason' => substr($reason, 0, 255), 'decided_at' => date('Y-m-d H:i:s')],
                 ['id' => $payoutId]);
@@ -549,8 +567,13 @@ if (!function_exists('supplier_payout_approve_and_send')) {
             // COMMIT atomically: reserved earnings 'available' -> 'paid' AND payout 'paid'
             // in one transaction, so a crash can't debit earnings without finalising the
             // payout (or vice-versa).
+            // Medoo::action() returns void — it commits unless the callback returns false
+            // or throws. Track commit via a reference set as the LAST statement inside the
+            // callback: if any update throws, the exception propagates (rollback) and
+            // $committed stays false; if it runs to the end, it is set true then committed.
+            $committed = false;
             try {
-                $db->action(function ($db) use ($payoutId, $transferCode) {
+                $db->action(function ($db) use ($payoutId, $transferCode, &$committed) {
                     $db->update('supplier_earnings',
                         ['state' => 'paid', 'updated_at' => date('Y-m-d H:i:s')],
                         ['payout_id' => $payoutId, 'state' => 'available']);
@@ -559,8 +582,23 @@ if (!function_exists('supplier_payout_approve_and_send')) {
                         'transfer_code' => $transferCode ?: null,
                         'paid_at'       => date('Y-m-d H:i:s'),
                     ], ['id' => $payoutId, 'state' => 'processing']);
+                    $committed = true; // reached the end without throwing → will commit
+                    return true;
                 });
-            } catch (\Throwable $e) { error_log('payout debit: ' . $e->getMessage()); }
+            } catch (\Throwable $e) { error_log('payout debit: ' . $e->getMessage()); $committed = false; }
+
+            // DO NOT report 'paid' if the DB transaction rolled back (audit #15). The money
+            // DID leave Paystack (success response), but our books didn't update — the
+            // payout is in limbo. Leave it 'processing' so the transfer webhook / an admin
+            // Resolve reconciles it against Paystack, rather than claiming paid on books
+            // that never committed (which would re-free the earnings on the next read).
+            if (!$committed) {
+                // Ensure the row at least carries the transfer_code for later reconciliation.
+                try { $db->update('supplier_payouts', ['transfer_code' => $transferCode ?: null], ['id' => $payoutId, 'state' => 'processing']); } catch (\Throwable $e) {}
+                return ['ok' => false, 'state' => 'processing',
+                    'message' => 'Transfer was initiated at Paystack but the local settlement did not commit. Left as processing — use Resolve to reconcile.'];
+            }
+
             if (function_exists('emit_event')) {
                 emit_event($db, 'payout.paid', ['payout_id' => $payoutId, 'amount' => (float) $p['amount'], 'currency' => $p['currency']],
                     'supplier_payout', $payoutId, $p['org_id'] !== null ? (int) $p['org_id'] : null);
@@ -705,16 +743,25 @@ if (!function_exists('supplier_payout_finalize_transfer')) {
             // Atomic: debit the reserved earnings AND mark the payout paid in one
             // transaction, so a crash between them can't leave earnings paid with the
             // payout unfinalised (or vice-versa). State-guarded on both sides.
+            // (audit #15) Track commit via a reference so we never report 'paid' on a
+            // rolled-back transaction — leave it unchanged for the caller/webhook to retry.
+            $committed = false;
             try {
-                $db->action(function ($db) use ($payoutId, $tc, $state) {
+                $db->action(function ($db) use ($payoutId, $tc, $state, &$committed) {
                     $db->update('supplier_earnings',
                         ['state' => 'paid', 'updated_at' => date('Y-m-d H:i:s')],
                         ['payout_id' => $payoutId, 'state' => 'available']);
                     $db->update('supplier_payouts',
                         ['state' => 'paid', 'transfer_code' => $tc ?: null, 'paid_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
                         ['id' => $payoutId, 'state' => $state]); // guard: only from the state we read
+                    $committed = true;
+                    return true;
                 });
-            } catch (\Throwable $e) { error_log('finalize debit: ' . $e->getMessage()); }
+            } catch (\Throwable $e) { error_log('finalize debit: ' . $e->getMessage()); $committed = false; }
+            if (!$committed) {
+                return ['ok' => false, 'state' => $state, 'changed' => false,
+                    'message' => 'Settlement did not commit; left unchanged for retry.'];
+            }
             if (function_exists('emit_event')) {
                 emit_event($db, 'payout.paid', ['payout_id' => $payoutId, 'amount' => (float) $p['amount'], 'currency' => $p['currency']],
                     'supplier_payout', $payoutId, $p['org_id'] !== null ? (int) $p['org_id'] : null);
