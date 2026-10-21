@@ -191,10 +191,11 @@ if (!function_exists('supplier_payout_bank_list')) {
 
         if (!$httpOk || empty($rows)) {
             $raw = (string) ($res['json']['message'] ?? ($res['error'] ?: 'Could not load the bank list.'));
-            $friendly = function_exists('supplier_payout_friendly_gateway_error')
-                ? supplier_payout_friendly_gateway_error($raw, 'verify')
-                : 'Could not load the bank list right now. Please try again.';
-            return $cache[$country] = ['ok' => false, 'connected' => true, 'banks' => [], 'message' => $friendly];
+            error_log('supplier_payout_bank_list RAW: http=' . ($res['http'] ?? 0) . ' msg=' . $raw . ' country=' . $country);
+            // DIAGNOSTIC (temporary): surface the RAW message + HTTP status. Revert to the
+            // friendly mapper once the cause is known.
+            return $cache[$country] = ['ok' => false, 'connected' => true, 'banks' => [],
+                'message' => 'Paystack: ' . $raw . ' [HTTP ' . (int) ($res['http'] ?? 0) . ']'];
         }
 
         $banks = [];
@@ -249,8 +250,13 @@ if (!function_exists('supplier_payout_resolve_account')) {
 
         if (!$httpOk || $name === '') {
             $raw = (string) ($res['json']['message'] ?? ($res['error'] ?: 'Could not resolve the account.'));
+            error_log('supplier_payout_resolve_account RAW: http=' . ($res['http'] ?? 0) . ' msg=' . $raw . ' bank=' . $bankCode . ' acct=' . $accountNumber);
+            // DIAGNOSTIC (temporary): surface the RAW Paystack message + HTTP status so the
+            // real cause of a failed verify is visible, instead of the generic friendly
+            // text. Revert to supplier_payout_friendly_gateway_error($raw,'verify') once the
+            // cause is known.
             return ['ok' => false, 'connected' => true,
-                    'message' => supplier_payout_friendly_gateway_error($raw, 'verify')];
+                    'message' => 'Paystack: ' . $raw . ' [HTTP ' . (int) ($res['http'] ?? 0) . ']'];
         }
         return ['ok' => true, 'connected' => true, 'account_name' => $name, 'message' => null];
     }

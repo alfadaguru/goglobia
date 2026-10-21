@@ -150,7 +150,7 @@ $stateBadge = function ($s) {
                    placeholder="Type to search your bank…" disabled>
             <input type="hidden" name="bank_code" id="ba-bank" value="">
             <input type="hidden" name="bank_name" id="ba-bank-name" value="">
-            <ul id="ba-bank-list" class="hidden absolute z-20 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg text-sm"></ul>
+            <ul id="ba-bank-list" class="hidden absolute z-20 left-0 right-0 mt-1 rounded-lg border border-gray-200 bg-white shadow-lg text-sm overflow-y-auto overscroll-contain" style="max-height:16rem;"></ul>
           </div>
           <p id="ba-bank-hint" class="text-[11px] text-gray-400 mt-1">Loading banks…</p>
         </div>
@@ -271,14 +271,20 @@ $stateBadge = function ($s) {
 
   function renderList(q) {
     q = (q || '').trim().toLowerCase();
-    var matches = !q ? BANKS.slice(0, 50)
-      : BANKS.filter(function (b) { return b.name.toLowerCase().indexOf(q) !== -1; }).slice(0, 50);
-    if (!matches.length) { bankList.innerHTML = '<li class="px-3 py-2 text-gray-400">No match</li>'; bankList.classList.remove('hidden'); return; }
-    bankList.innerHTML = matches.map(function (b, i) {
+    var all = !q ? BANKS : BANKS.filter(function (b) { return b.name.toLowerCase().indexOf(q) !== -1; });
+    var matches = all.slice(0, 100);
+    if (!matches.length) { bankList.innerHTML = '<li class="px-3 py-2 text-gray-400">No match — try a different spelling</li>'; bankList.classList.remove('hidden'); return; }
+    var html = matches.map(function (b, i) {
       return '<li class="px-3 py-2 cursor-pointer hover:bg-emerald-50' + (i === activeIdx ? ' bg-emerald-50' : '') +
              '" data-code="' + esc(b.code) + '" data-name="' + esc(b.name) + '">' + esc(b.name) + '</li>';
     }).join('');
+    // When more match than are shown, tell the user to keep typing to narrow it.
+    if (all.length > matches.length) {
+      html += '<li class="px-3 py-1.5 text-[11px] text-gray-400 bg-gray-50 sticky bottom-0">Showing ' + matches.length + ' of ' + all.length + ' — keep typing to narrow</li>';
+    }
+    bankList.innerHTML = html;
     bankList.classList.remove('hidden');
+    bankList.scrollTop = 0; // reset scroll to top on each new filter
   }
 
   function choose(code, name) {
