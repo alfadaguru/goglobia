@@ -27427,6 +27427,29 @@ CREATE TABLE IF NOT EXISTS `gia_events` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `gia_webhook_log`
+-- Inbound GIA channel webhook activity (WhatsApp/Telegram/Messenger) so the
+-- admin can see what each provider sent and what we did with it. Self-trimming.
+--
+
+CREATE TABLE IF NOT EXISTS `gia_webhook_log` (
+  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `channel` varchar(20) NOT NULL DEFAULT '',
+  `outcome` varchar(24) NOT NULL DEFAULT '',
+  `http_code` smallint(6) NOT NULL DEFAULT 0,
+  `event_type` varchar(48) NOT NULL DEFAULT '',
+  `sender` varchar(48) NOT NULL DEFAULT '',
+  `kind` varchar(24) NOT NULL DEFAULT '',
+  `text_preview` varchar(255) NOT NULL DEFAULT '',
+  `raw_preview` varchar(1000) NOT NULL DEFAULT '',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_gia_whlog_chan_time` (`channel`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `logs_notification`
 --
 

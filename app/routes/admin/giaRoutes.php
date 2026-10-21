@@ -421,3 +421,14 @@ $router->post(admin . '/gia/channels/telegram-webhook', function () use ($SECURE
     $res = gia_telegram_set_webhook($db);
     echo json_encode(['status' => !empty($res['ok']), 'message' => (string) ($res['message'] ?? '')]);
 });
+
+// GET admin/gia/channels/logs — recent inbound webhook activity (JSON), so the
+// operator can SEE what each provider sent and what we did with it. ADMIN_AUTH.
+$router->get(admin . '/gia/channels/logs', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    header('Content-Type: application/json');
+    require_once dirname(__DIR__, 2) . '/lib/ai/gia_webhook_log.php';
+    $channel = isset($_GET['channel']) ? preg_replace('/[^a-z]/', '', strtolower((string) $_GET['channel'])) : '';
+    $rows = gia_webhook_log_recent($db, 40, $channel);
+    echo json_encode(['status' => true, 'rows' => $rows]);
+});

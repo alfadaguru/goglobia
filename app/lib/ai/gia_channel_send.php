@@ -234,7 +234,11 @@ if (!function_exists('gia_greenapi_set_webhook')) {
         }
         $host = (new \GreenapiProvider($gc))->getBaseUrl();
 
-        // Our inbound endpoint, with the shared secret as a query param.
+        // Our inbound endpoint. We send the shared secret BOTH ways so it works no
+        // matter how Green API delivers it:
+        //   1) as ?secret= on the webhookUrl (our handler checks $_GET['secret']), and
+        //   2) as webhookUrlToken (Green API sends it as `Authorization: Bearer <token>`;
+        //      our handler also accepts the Authorization header).
         $webhookUrl = (defined('root') ? root : '/') . 'webhooks/gia/whatsapp?secret=' . rawurlencode($secret);
 
         // SetSettings — enable incoming notifications + point them at us. We leave
@@ -243,6 +247,7 @@ if (!function_exists('gia_greenapi_set_webhook')) {
         $url = rtrim($host, '/') . '/waInstance' . rawurlencode($iid) . '/setSettings/' . rawurlencode($tok);
         $r = gia_channel_http_post_json($url, [
             'webhookUrl'          => $webhookUrl,
+            'webhookUrlToken'     => $secret,
             'incomingWebhook'     => 'yes',
             'stateWebhook'        => 'no',
             'outgoingWebhook'     => 'no',

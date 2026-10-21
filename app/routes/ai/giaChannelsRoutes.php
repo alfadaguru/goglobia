@@ -90,18 +90,23 @@ $router->get('/gia/pay/([A-Za-z0-9]{4,40})', function ($invoiceId) use ($db) {
 // ----------------------------------------------------------------------------
 $router->post('/webhooks/gia/telegram', function () use ($db, $giaChLib, $giaChAck) {
     $giaChLib();
-    if (!gia_channel_enabled($db, 'telegram')) { $giaChAck(200, 'disabled'); return; }
+    require_once dirname(__DIR__, 2) . '/lib/ai/gia_webhook_log.php';
+    $raw = file_get_contents('php://input') ?: '';
+    $logIt = function (string $outcome, int $code, array $extra = []) use ($db, $raw) {
+        gia_webhook_log_record($db, 'telegram', $outcome, $code, array_merge(['raw' => $raw], $extra));
+    };
+
+    if (!gia_channel_enabled($db, 'telegram')) { $logIt('disabled', 200); $giaChAck(200, 'disabled'); return; }
 
     $cfg = gia_channels_config($db)['telegram'] ?? [];
     $secret = (string) ($cfg['webhook_secret'] ?? '');
     $got = (string) ($_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? '');
     if ($secret !== '' && !hash_equals($secret, $got)) {
-        $giaChAck(403, 'bad secret'); return;
+        $logIt('bad_secret', 403); $giaChAck(403, 'bad secret'); return;
     }
 
-    $raw = file_get_contents('php://input') ?: '';
     $u = json_decode($raw, true);
-    if (!is_array($u)) { $giaChAck(200, 'ignored'); return; }
+    if (!is_array($u)) { $logIt('ignored', 200); $giaChAck(200, 'ignored'); return; }
 
     // Normalize: callback_query (button tap) OR a message (text / voice / photo /
     // document / location). Ignore edits/channel posts/etc.
@@ -131,7 +136,7 @@ $router->post('/webhooks/gia/telegram', function () use ($db, $giaChLib, $giaChA
             $p = ['sender' => $chatId, 'id' => $mid, 'kind' => 'other'];
         }
     }
-    if ($p === null || (string) ($p['sender'] ?? '') === '') { $giaChAck(200, 'ignored'); return; }
+    if ($p === null || (string) ($p['sender'] ?? '') === '') { $logIt('ignored', 200); $giaChAck(200, 'ignored'); return; }
 
     // Dismiss a button's loading spinner (best-effort).
     if ($cbId !== '') {
@@ -141,6 +146,7 @@ $router->post('/webhooks/gia/telegram', function () use ($db, $giaChLib, $giaChA
         }
     }
 
+    $logIt('ok', 200, ['sender' => (string) ($p['sender'] ?? ''), 'kind' => (string) ($p['kind'] ?? ''), 'text' => (string) ($p['text'] ?? '')]);
     gia_ch_dispatch($db, 'telegram', $p, 'tg:');
     $giaChAck(200, 'ok');
 });
@@ -171,39 +177,57 @@ $router->get('/webhooks/gia/whatsapp', function () use ($db, $giaChLib, $giaChAc
 
 $router->post('/webhooks/gia/whatsapp', function () use ($db, $giaChLib, $giaChAck) {
     $giaChLib();
-    if (!gia_channel_enabled($db, 'whatsapp')) { $giaChAck(200, 'disabled'); return; }
+    require_once dirname(__DIR__, 2) . '/lib/ai/gia_webhook_log.php';
+    $raw  = file_get_contents('php://input') ?: '';
+    // Pull an event type for the log even before we fully parse/authenticate.
+    $peek = json_decode($raw, true);
+    $evType = is_array($peek) ? (string) ($peek['typeWebhook'] ?? '') : '';
+    $logIt = function (string $outcome, int $code, array $extra = []) use ($db, $raw, $evType) {
+        gia_webhook_log_record($db, 'whatsapp', $outcome, $code, array_merge(['event_type' => $evType, 'raw' => $raw], $extra));
+    };
+
+    if (!gia_channel_enabled($db, 'whatsapp')) { $logIt('disabled', 200); $giaChAck(200, 'disabled'); return; }
     $cfg  = gia_channels_config($db)['whatsapp'] ?? [];
     $mode = (string) ($cfg['mode'] ?? 'greenapi');
-    $raw  = file_get_contents('php://input') ?: '';
 
     if ($mode === 'meta') {
         // Verify X-Hub-Signature-256 over the RAW body with the app secret.
         $appSecret = (string) ($cfg['meta_app_secret'] ?? '');
         $sigHeader = (string) ($_SERVER['HTTP_X_HUB_SIGNATURE_256'] ?? '');
         if ($appSecret === '' || !gia_ch_verify_meta_sig($raw, $sigHeader, $appSecret)) {
-            $giaChAck(403, 'bad signature'); return;
+            $logIt('bad_signature', 403); $giaChAck(403, 'bad signature'); return;
         }
         $data = json_decode($raw, true);
         $parsed = gia_ch_parse_meta_whatsapp(is_array($data) ? $data : []);
     } else {
-        // Green API: it does not sign webhooks, so a shared secret on the URL
-        // (?secret=) is the ONLY authentication. It is REQUIRED — a blank secret
-        // would let anyone who finds the URL POST forged inbound messages, so we
-        // refuse inbound until the admin sets one (and Green API echoes it).
+        // Green API: it does not sign webhooks, so a shared secret is the ONLY
+        // authentication. Green API can send it TWO ways depending on how it was
+        // configured: as a ?secret= query param (our one-click default) OR as the
+        // "Webhook authorization header" (sent as `Authorization: Bearer <secret>`
+        // or a bare value). Accept EITHER so it works regardless of console setup.
         $secret = (string) ($cfg['webhook_secret'] ?? '');
         $got = (string) ($_GET['secret'] ?? '');
+        if ($got === '') {
+            // Fall back to the Authorization header (Apache passes it via .htaccess).
+            $auth = (string) ($_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? ''));
+            if ($auth !== '') {
+                // Strip a leading "Bearer " / "Basic " scheme if present.
+                $got = trim(preg_replace('/^\s*(Bearer|Basic)\s+/i', '', $auth));
+            }
+        }
         if ($secret === '') {
             error_log('[gia] whatsapp(greenapi) webhook: refused — no webhook_secret configured');
-            $giaChAck(403, 'secret required'); return;
+            $logIt('secret_required', 403); $giaChAck(403, 'secret required'); return;
         }
         if (!hash_equals($secret, $got)) {
-            $giaChAck(403, 'bad secret'); return;
+            $logIt('bad_secret', 403); $giaChAck(403, 'bad secret'); return;
         }
         $data = json_decode($raw, true);
         $parsed = gia_ch_parse_greenapi(is_array($data) ? $data : []);
     }
 
-    if ($parsed === null) { $giaChAck(200, 'ignored'); return; }
+    if ($parsed === null) { $logIt('ignored', 200); $giaChAck(200, 'ignored'); return; }
+    $logIt('ok', 200, ['sender' => (string) ($parsed['sender'] ?? ''), 'kind' => (string) ($parsed['kind'] ?? ''), 'text' => (string) ($parsed['text'] ?? '')]);
     gia_ch_dispatch($db, 'whatsapp', $parsed, 'wa:');
     $giaChAck(200, 'ok');
 });
@@ -227,18 +251,24 @@ $router->get('/webhooks/gia/messenger', function () use ($db, $giaChLib, $giaChA
 
 $router->post('/webhooks/gia/messenger', function () use ($db, $giaChLib, $giaChAck) {
     $giaChLib();
-    if (!gia_channel_enabled($db, 'messenger')) { $giaChAck(200, 'disabled'); return; }
-    $cfg = gia_channels_config($db)['messenger'] ?? [];
+    require_once dirname(__DIR__, 2) . '/lib/ai/gia_webhook_log.php';
     $raw = file_get_contents('php://input') ?: '';
+    $logIt = function (string $outcome, int $code, array $extra = []) use ($db, $raw) {
+        gia_webhook_log_record($db, 'messenger', $outcome, $code, array_merge(['raw' => $raw], $extra));
+    };
+
+    if (!gia_channel_enabled($db, 'messenger')) { $logIt('disabled', 200); $giaChAck(200, 'disabled'); return; }
+    $cfg = gia_channels_config($db)['messenger'] ?? [];
 
     $appSecret = (string) ($cfg['app_secret'] ?? '');
     $sigHeader = (string) ($_SERVER['HTTP_X_HUB_SIGNATURE_256'] ?? '');
     if ($appSecret === '' || !gia_ch_verify_meta_sig($raw, $sigHeader, $appSecret)) {
-        $giaChAck(403, 'bad signature'); return;
+        $logIt('bad_signature', 403); $giaChAck(403, 'bad signature'); return;
     }
 
     $data = json_decode($raw, true);
-    if (!is_array($data)) { $giaChAck(200, 'ignored'); return; }
+    if (!is_array($data)) { $logIt('ignored', 200); $giaChAck(200, 'ignored'); return; }
+    $dispatched = 0;
 
     // Messenger batches events under entry[].messaging[]. Handle text, button taps
     // (quick_reply/postback), and attachments (image/audio/file/video/location);
@@ -271,9 +301,12 @@ $router->post('/webhooks/gia/messenger', function () use ($db, $giaChLib, $giaCh
                 }
             }
             if ($p === null) { continue; }
+            $logIt('ok', 200, ['sender' => (string) ($p['sender'] ?? ''), 'kind' => (string) ($p['kind'] ?? ''), 'text' => (string) ($p['text'] ?? '')]);
             gia_ch_dispatch($db, 'messenger', $p, 'fb:');
+            $dispatched++;
         }
     }
+    if ($dispatched === 0) { $logIt('ignored', 200); }
     $giaChAck(200, 'ok');
 });
 

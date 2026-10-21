@@ -230,6 +230,43 @@ $enableToggle = function (string $chan, bool $enabled) use ($e) {
       <span class="text-xs text-gray-500">Saving applies every tab at once.</span>
     </div>
   </form>
+
+  <!-- ===== Recent webhook activity ===== -->
+  <div class="mt-8">
+    <div class="flex items-center gap-3 mb-2">
+      <i class="material-symbols-outlined text-gray-500">receipt_long</i>
+      <h2 class="flex-1 text-base font-bold text-gray-900">Recent webhook activity</h2>
+      <select id="gia-log-filter" class="rounded-lg border border-gray-300 px-2 py-1.5 text-xs">
+        <option value="">All channels</option>
+        <option value="whatsapp">WhatsApp</option>
+        <option value="telegram">Telegram</option>
+        <option value="messenger">Messenger</option>
+      </select>
+      <button type="button" id="gia-log-refresh" class="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50">
+        <i class="material-symbols-outlined text-[15px] align-[-3px]">refresh</i> Refresh
+      </button>
+      <label class="inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
+        <input type="checkbox" id="gia-log-auto" class="rounded border-gray-300 text-blue-600"> Auto
+      </label>
+    </div>
+    <p class="text-[12px] text-gray-500 mb-2">Every inbound message hitting GIA is logged here with what happened to it. <b>ok</b> = delivered to GIA · <b>bad_secret</b> = the webhook secret didn't match · <b>disabled</b> = the channel is off · <b>ignored</b> = not a message we act on.</p>
+    <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-gray-500 text-[11px] uppercase tracking-wide">
+          <tr>
+            <th class="text-left font-semibold px-3 py-2">Time</th>
+            <th class="text-left font-semibold px-3 py-2">Channel</th>
+            <th class="text-left font-semibold px-3 py-2">Outcome</th>
+            <th class="text-left font-semibold px-3 py-2">From</th>
+            <th class="text-left font-semibold px-3 py-2">Message / event</th>
+          </tr>
+        </thead>
+        <tbody id="gia-log-body">
+          <tr><td colspan="5" class="px-3 py-6 text-center text-gray-400">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -340,5 +377,48 @@ $enableToggle = function (string $chan, bool $enabled) use ($e) {
   }
   wireConnect('gia-ga-webhook', '/gia/channels/greenapi-webhook');
   wireConnect('gia-tg-webhook', '/gia/channels/telegram-webhook');
+
+  // ---- Webhook activity log ----
+  var logBody = document.getElementById('gia-log-body');
+  var logFilter = document.getElementById('gia-log-filter');
+  var logAuto = document.getElementById('gia-log-auto');
+  var autoTimer = null;
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function pill(outcome){
+    var map = { ok:'bg-green-100 text-green-700', bad_secret:'bg-red-100 text-red-700', secret_required:'bg-red-100 text-red-700',
+                bad_signature:'bg-red-100 text-red-700', disabled:'bg-gray-200 text-gray-600', ignored:'bg-amber-100 text-amber-700',
+                error:'bg-red-100 text-red-700' };
+    var cls = map[outcome] || 'bg-gray-100 text-gray-600';
+    return '<span class="rounded-full px-2 py-0.5 text-[10px] font-bold '+cls+'">'+esc(outcome)+'</span>';
+  }
+  function chanIcon(ch){ return ({whatsapp:'chat',telegram:'send',messenger:'forum'})[ch] || 'public'; }
+  function loadLogs(){
+    var ch = logFilter ? logFilter.value : '';
+    fetch(base + '/gia/channels/logs' + (ch ? ('?channel='+encodeURIComponent(ch)) : ''), { headers:{'X-CSRF-TOKEN':csrf} })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var rows = (d && d.rows) || [];
+        if(!rows.length){ logBody.innerHTML = '<tr><td colspan="5" class="px-3 py-6 text-center text-gray-400">No webhooks received yet. Send a message to your connected number and click Refresh.</td></tr>'; return; }
+        logBody.innerHTML = rows.map(function(r){
+          var msg = r.text_preview ? esc(r.text_preview) : (r.event_type ? '<span class="text-gray-400">'+esc(r.event_type)+'</span>' : (r.kind ? esc(r.kind) : '—'));
+          return '<tr class="border-t border-gray-100">'
+            + '<td class="px-3 py-2 whitespace-nowrap text-gray-500 text-[12px]">'+esc(r.created_at)+'</td>'
+            + '<td class="px-3 py-2"><span class="inline-flex items-center gap-1"><i class="material-symbols-outlined text-[15px] text-gray-400">'+chanIcon(r.channel)+'</i>'+esc(r.channel)+'</span></td>'
+            + '<td class="px-3 py-2">'+pill(r.outcome)+'</td>'
+            + '<td class="px-3 py-2 text-gray-600 text-[12px] whitespace-nowrap">'+(r.sender?esc(r.sender):'—')+'</td>'
+            + '<td class="px-3 py-2 text-gray-700">'+msg+'</td>'
+            + '</tr>';
+        }).join('');
+      })
+      .catch(function(){ logBody.innerHTML = '<tr><td colspan="5" class="px-3 py-6 text-center text-red-500">Could not load logs.</td></tr>'; });
+  }
+  var rBtn = document.getElementById('gia-log-refresh');
+  if(rBtn) rBtn.addEventListener('click', loadLogs);
+  if(logFilter) logFilter.addEventListener('change', loadLogs);
+  if(logAuto) logAuto.addEventListener('change', function(){
+    if(logAuto.checked){ loadLogs(); autoTimer = setInterval(loadLogs, 5000); }
+    else if(autoTimer){ clearInterval(autoTimer); autoTimer = null; }
+  });
+  loadLogs();
 })();
 </script>
