@@ -407,3 +407,17 @@ $router->post(admin . '/gia/channels/greenapi-webhook', function () use ($SECURE
     $res = gia_greenapi_set_webhook($db);
     echo json_encode(['status' => !empty($res['ok']), 'message' => (string) ($res['message'] ?? '')]);
 });
+
+// POST admin/gia/channels/telegram-webhook — ONE-CLICK: register GoGlobia as the
+// Telegram bot's webhook (setWebhook with secret_token). ADMIN_AUTH + CSRF.
+$router->post(admin . '/gia/channels/telegram-webhook', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (class_exists('CSRF')) { CSRF::guard(); }
+    header('Content-Type: application/json');
+    require_once dirname(__DIR__, 2) . '/lib/ai/gia_channel_send.php';
+    if (!function_exists('gia_telegram_set_webhook')) {
+        echo json_encode(['status' => false, 'message' => 'Unavailable.']); return;
+    }
+    $res = gia_telegram_set_webhook($db);
+    echo json_encode(['status' => !empty($res['ok']), 'message' => (string) ($res['message'] ?? '')]);
+});

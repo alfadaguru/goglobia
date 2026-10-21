@@ -256,3 +256,39 @@ if (!function_exists('gia_greenapi_set_webhook')) {
         return ['ok' => false, 'message' => 'Green API rejected the request (HTTP ' . (int) ($r['code'] ?? 0) . '). Check the instance ID / token and that the instance is authorized.'];
     }
 }
+
+if (!function_exists('gia_telegram_set_webhook')) {
+    /**
+     * One-click: register GoGlobia's /webhooks/gia/telegram as the bot's webhook
+     * via Telegram's setWebhook, passing our secret as secret_token (Telegram then
+     * echoes it back in the X-Telegram-Bot-Api-Secret-Token header on every update).
+     * Mirrors gia_greenapi_set_webhook. Returns ['ok'=>bool,'message'=>string].
+     */
+    function gia_telegram_set_webhook($db): array
+    {
+        require_once __DIR__ . '/gia_channels_config.php';
+        $tg = gia_channels_config($db)['telegram'] ?? [];
+        $token  = trim((string) ($tg['bot_token'] ?? ''));
+        $secret = trim((string) ($tg['webhook_secret'] ?? ''));
+        if ($token === '') {
+            return ['ok' => false, 'message' => 'Set the Telegram bot token first, then save, then connect.'];
+        }
+        if ($secret === '') {
+            return ['ok' => false, 'message' => 'Set a Telegram webhook secret first (any value you choose), then save, then connect.'];
+        }
+
+        $webhookUrl = (defined('root') ? root : '/') . 'webhooks/gia/telegram';
+        $url = 'https://api.telegram.org/bot' . $token . '/setWebhook';
+        $r = gia_channel_http_post_json($url, [
+            'url'                  => $webhookUrl,
+            // Telegram validates this 1-256 char token and echoes it back per update.
+            'secret_token'         => $secret,
+            'allowed_updates'      => ['message'],
+            'drop_pending_updates' => true,
+        ]);
+        if (!empty($r['ok'])) {
+            return ['ok' => true, 'message' => 'Telegram is now sending messages to GIA. Open your bot in Telegram and say "hi" to test.'];
+        }
+        return ['ok' => false, 'message' => 'Telegram rejected the request (HTTP ' . (int) ($r['code'] ?? 0) . '). Check the bot token.'];
+    }
+}
