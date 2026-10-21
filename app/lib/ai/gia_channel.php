@@ -253,6 +253,52 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             return ['ok' => true, 'skip' => false, 'handoff' => false, 'conv_key' => $convKey, 'reply' => $reply, 'rich' => ['text' => $reply, 'buttons' => [], 'cards' => []]];
         }
 
+        // --- GIA PAY OPTIONS (bank transfer / card) — handled DETERMINISTICALLY.
+        //     A tap sends 'paybank|<invoice>' or 'paycard|<invoice>'. We create the
+        //     Paystack per-booking DVA or hosted checkout (tied to that invoice) and
+        //     reply with the real account/link. The model never touches money. ---
+        if (preg_match('/^(paybank|paycard)\|([A-Za-z0-9]{4,64})$/', $text, $pm)) {
+            $payKind = $pm[1];
+            $invoiceId = $pm[2];
+            require_once $aiDir . 'gia_booking_payment.php';
+            $logReply = function ($reply) use ($db, $convId, $text, $convKey) {
+                if ($convId > 0 && function_exists('gia_log_turn')) { gia_log_turn($db, $convId, $text, $reply, []); }
+                return ['ok' => true, 'skip' => false, 'handoff' => false, 'conv_key' => $convKey, 'reply' => $reply, 'rich' => ['text' => $reply, 'buttons' => [], 'cards' => []]];
+            };
+            try {
+                if ($payKind === 'paybank') {
+                    $r = gia_bp_create_dva($db, $invoiceId, $channel, $channelUserId);
+                    if (!empty($r['ok'])) {
+                        $mins = function_exists('gia_bp_window_minutes') ? gia_bp_window_minutes() : 20;
+                        $reply = "Pay by bank transfer — send exactly *" . $r['currency'] . ' ' . number_format((float) $r['amount'], 2) . "* to:\n"
+                            . "Bank: " . $r['bank_name'] . "\n"
+                            . "Account: " . $r['account_number'] . "\n"
+                            . "Name: " . $r['account_name'] . "\n\n"
+                            . "This account is for THIS booking only and expires in ~" . $mins . " min. I'll confirm automatically the moment your transfer lands.";
+                    } elseif (!empty($r['not_ngn'])) {
+                        $reply = (string) $r['message'];
+                    } else {
+                        $reply = (string) ($r['message'] ?? "I couldn't set up the transfer account. You can pay by card instead.");
+                    }
+                    return $logReply($reply);
+                }
+                // paycard
+                $r = gia_bp_create_checkout($db, $invoiceId, $channel, $channelUserId);
+                if (!empty($r['ok'])) {
+                    $mins = function_exists('gia_bp_window_minutes') ? gia_bp_window_minutes() : 20;
+                    $reply = "Pay securely online (card, bank, USSD and more): " . $r['authorization_url']
+                        . "\n\nAmount: " . $r['currency'] . ' ' . number_format((float) $r['amount'], 2)
+                        . ". The link is for this booking and expires in ~" . $mins . " min. I'll confirm the moment it's paid.";
+                } else {
+                    $reply = (string) ($r['message'] ?? "I couldn't start the online payment. Please try again.");
+                }
+                return $logReply($reply);
+            } catch (\Throwable $e) {
+                error_log('[gia] pay option ' . $payKind . ': ' . $e->getMessage());
+                return $logReply("Something went wrong setting up that payment. Please try again in a moment.");
+            }
+        }
+
         // --- Trusted context. account_id enables READS for the resolved person.
         //     user_approved stays FALSE for the model path: the approve TAP is
         //     handled deterministically above, so the LLM never needs R3. ---
@@ -467,11 +513,13 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
                 }
             }
         }
-        // --- Payment affordance: a booking was created this turn. Offer the right
-        //     pay path. An Approve-&-pay button only for a VERIFIED traveler with
-        //     enough wallet balance (the tap sets user_approved; see the approve
-        //     handler). Everyone else gets a secure, expiring pay-link card. ---
-        if ($invoiceId !== '' && $checkoutRef !== '' && $payAmount > 0) {
+        // --- GIA PAY OPTIONS: a booking was created this turn with a real invoice.
+        //     Offer the two chat-native Paystack options (bank transfer / card).
+        //     The taps ('paybank|<invoice>' / 'paycard|<invoice>') are handled
+        //     deterministically in gia_channel_handle — the model never moves money.
+        //     A verified traveller with enough wallet balance ALSO gets a one-tap
+        //     "Approve & pay" (wallet) fast-path when the legacy checkout_ref exists. ---
+        if ($invoiceId !== '' && $payAmount > 0) {
             $db        = $payCtx['db'] ?? null;
             $verified  = !empty($payCtx['identity_verified']);
             $accountId = (string) ($payCtx['account_id'] ?? '');
@@ -479,21 +527,20 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
                 $f = __DIR__ . '/gia_pay.php';
                 if (is_file($f)) { require_once $f; }
             }
-            $walletReady = $db !== null && $verified && $accountId !== '' && function_exists('gia_pay_wallet_ready')
+            $walletReady = $db !== null && $verified && $accountId !== '' && $checkoutRef !== ''
+                && function_exists('gia_pay_wallet_ready')
                 && gia_pay_wallet_ready($db, $accountId, $payAmount, $payCurrency);
 
+            $amtLabel = trim($payCurrency . ' ' . number_format($payAmount, 2));
+            $text = trim($text . "\n\nBooking created (" . $invoiceId . ") — total " . $amtLabel
+                . ". Choose how to pay; you have ~20 min before it's released:");
+
+            // Wallet fast-path first (verified + funded), then the two Paystack options.
             if ($walletReady) {
-                // Approve button: id carries the checkout_ref; the tap (verified-only)
-                // sets user_approved and tells the agent to approve+pay from wallet.
-                $buttons[] = ['id' => 'approve|' . $checkoutRef, 'title' => 'Approve & pay'];
-            } elseif ($db !== null && function_exists('gia_pay_link')) {
-                // Pay-link (card/gateway path): a real, signed + expiring URL. We put
-                // the URL in the TEXT (a callback can't open a URL reliably on WA/FB)
-                // and add a native URL button on channels that support one (TG).
-                $url = gia_pay_link($invoiceId);
-                $text = trim($text . "\n\nPay securely here: " . $url);
-                $buttons[] = ['id' => $url, 'title' => 'Pay now', 'url' => $url];
+                $buttons[] = ['id' => 'approve|' . $checkoutRef, 'title' => 'Pay from wallet'];
             }
+            $buttons[] = ['id' => 'paybank|' . $invoiceId, 'title' => 'Pay by bank transfer'];
+            $buttons[] = ['id' => 'paycard|' . $invoiceId, 'title' => 'Pay with card / online'];
         }
 
         // Cap total cards defensively (renderers also clamp per platform).
