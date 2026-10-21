@@ -1,19 +1,68 @@
 <?php
 // app/views/partials/home-deals.php
-// Above-the-fold "Featured deals" row. Included by home.php right under the hero.
-// Consumes the EXISTING tested endpoint /api/tours/featured (real data: images,
-// prices with markup + currency applied server-side — never fake prices). Uses
-// the SAME tour detail URL pattern as the existing tours featured component so
-// links are correct. Hides itself when there is nothing featured. Self-contained;
-// a failure here cannot break the page.
+// Above-the-fold "Popular destinations" strip + "Featured deals" row. Included by
+// home.php right under the hero. The deals row consumes the EXISTING tested
+// endpoint /api/tours/featured (real data: images, prices with markup + currency
+// applied server-side — never fake prices) and uses the SAME tour detail URL
+// pattern as the existing tours featured component. The destinations strip links
+// to a REAL, complete stays search URL (city/checkin/checkout/nat/rooms/guests)
+// with self-hosted images. Each block hides when its module is disabled or has
+// nothing to show. Self-contained; a failure here cannot break the page.
 @$SECURE or die('Access Denied!');
 
 $__dealsCur = strtoupper((string) ($_SESSION['currency'] ?? ($GLOBALS['app']['default_currency'] ?? 'USD')));
 $__dealsAdults   = (int) ($_SESSION['tour_adults'] ?? $_SESSION['tour_travelers'] ?? 2);
 $__dealsChildren = (int) ($_SESSION['tour_children'] ?? 0);
-$__toursEnabled  = in_array('tours', array_column($GLOBALS['modules'] ?? [], 'type'), true);
-if (!$__toursEnabled) { return; } // nothing to show, render nothing
+$__enabledTypes  = array_column($GLOBALS['modules'] ?? [], 'type');
+$__toursEnabled  = in_array('tours', $__enabledTypes, true);
+$__staysEnabled  = in_array('stays', $__enabledTypes, true);
+if (!$__toursEnabled && !$__staysEnabled) { return; } // nothing to show
+
+// Destinations strip — self-hosted images in uploads/global/destinations/. Each
+// links to a COMPLETE, valid stays search URL so it lands on real results:
+//   /stays/{city}/{DD-MM-YYYY checkin}/{DD-MM-YYYY checkout}/{nat}/{rooms}/{adults-children}
+$__ci = date('d-m-Y', strtotime('+14 days'));
+$__co = date('d-m-Y', strtotime('+18 days'));
+$__nat = strtoupper(substr((string) ($GLOBALS['app']['country'] ?? 'NG'), 0, 2)) ?: 'NG';
+$__staysUrl = function ($city) use ($__ci, $__co, $__nat) {
+    $slug = strtolower(str_replace(' ', '-', trim($city)));
+    return rtrim((string) root, '/') . '/stays/' . rawurlencode($slug) . '/' . $__ci . '/' . $__co . '/' . $__nat . '/1/2-0';
+};
+$__destinations = [
+    ['name' => 'Dubai',     'city' => 'Dubai',     'img' => 'dubai.jpg'],
+    ['name' => 'Istanbul',  'city' => 'Istanbul',  'img' => 'istanbul.jpg'],
+    ['name' => 'London',    'city' => 'London',    'img' => 'london.jpg'],
+    ['name' => 'Jeddah',    'city' => 'Jeddah',    'img' => 'jeddah.jpg'],
+    ['name' => 'Cape Town', 'city' => 'Cape Town', 'img' => 'capetown.jpg'],
+    ['name' => 'Paris',     'city' => 'Paris',     'img' => 'paris.jpg'],
+];
 ?>
+
+<!-- Popular destinations — links to a real stays search (self-hosted images). -->
+<?php if ($__staysEnabled): ?>
+<section class="w-full bg-white">
+  <div class="container mx-auto px-4 pt-8 pb-2">
+    <h2 class="text-lg sm:text-xl font-bold text-gray-900 mb-1">Popular destinations</h2>
+    <p class="text-sm text-gray-500 mb-4">Trending places travellers are booking right now.</p>
+    <div class="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1" style="scrollbar-width:thin">
+      <?php foreach ($__destinations as $d):
+        $__imgPath = 'uploads/global/destinations/' . $d['img'];
+        if (!is_file(__DIR__ . '/../../../' . $__imgPath)) { continue; } // skip if asset missing
+      ?>
+        <a href="<?= htmlspecialchars($__staysUrl($d['city']), ENT_QUOTES) ?>"
+           class="group relative shrink-0 w-44 h-28 rounded-xl overflow-hidden border border-gray-100 shadow-sm" style="text-decoration:none">
+          <img src="<?= root . $__imgPath ?>" alt="<?= htmlspecialchars($d['name']) ?>" width="480" height="358"
+               loading="lazy" decoding="async" class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105">
+          <div class="absolute inset-0" style="background:linear-gradient(0deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 55%)"></div>
+          <span class="absolute left-3 bottom-2 text-white font-semibold text-sm" style="text-shadow:0 1px 3px rgba(0,0,0,.5)"><?= htmlspecialchars($d['name']) ?></span>
+        </a>
+      <?php endforeach; ?>
+    </div>
+  </div>
+</section>
+<?php endif; ?>
+
+<?php if (!$__toursEnabled) { return; } // destinations shown; no featured-deals without tours ?>
 
 <!-- ================================================================
      FEATURED DEALS (above the fold, OTA-style). Real featured tours via
