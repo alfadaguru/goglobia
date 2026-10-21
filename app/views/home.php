@@ -147,7 +147,13 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
                 return new Promise(resolve => {
                     const start = performance.now();
                     const ready = () => {
-                        if (!window.tailwind) return false;
+                        // Tailwind is now PRECOMPILED (assets/css/tailwind.build.css) — the
+                        // runtime Play CDN (window.tailwind) was removed in that migration.
+                        // So when window.tailwind is absent, styles are ALREADY available and
+                        // there is nothing to wait for → ready immediately. (Previously this
+                        // returned false, so the loop ran until its 4s timeout — TWICE per
+                        // search-form load — delaying the form by ~8s for no reason.)
+                        if (!window.tailwind) return true;
                         const probe = (root && root.querySelector)
                             ? (root.querySelector(".field-box") || root.querySelector(".field-box-icon") || root.querySelector(".absolute.left-3"))
                             : document.getElementById("tw-cdn-ready-probe");
