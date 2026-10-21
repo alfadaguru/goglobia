@@ -91,24 +91,39 @@ $giaCfg = json_encode([
     animation:gia-card-in .36s cubic-bezier(.16,1,.3,1) both}
   .gia-opt:hover{transform:translateY(-2px);box-shadow:0 14px 32px rgba(15,23,42,.13);border-color:color-mix(in srgb,var(--gia-brand) 35%,#e8edf3)}
   @keyframes gia-card-in{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
-  .gia-opt-media{position:relative;height:120px;background:linear-gradient(135deg,var(--gia-brand-soft),#f3f6fb);overflow:hidden}
-  .gia-opt-media img{width:100%;height:100%;object-fit:cover;display:block}
-  .gia-opt-ico{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--gia-brand)}
-  .gia-opt-ico .material-symbols-outlined{font-size:46px;opacity:.9}
-  .gia-opt-live{position:absolute;top:10px;left:10px;display:inline-flex;align-items:center;gap:5px;
-    background:rgba(255,255,255,.93);color:#15803d;font-size:10px;font-weight:800;letter-spacing:.04em;
-    text-transform:uppercase;padding:4px 9px;border-radius:999px;box-shadow:0 1px 3px rgba(15,23,42,.12)}
+  /* Rich-banner: photo when present, else a generated brand-gradient banner
+     with the module motif; title/location overlaid. (parity with the widget) */
+  .gia-opt-ban{position:relative;height:132px;overflow:hidden;
+    background:linear-gradient(135deg,var(--gia-brand),var(--gia-brand-dark))}
+  .gia-opt-ban img{width:100%;height:100%;object-fit:cover;display:block}
+  .gia-opt-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(2,8,23,0) 34%,rgba(2,8,23,.58) 100%)}
+  .gia-opt-motif{position:absolute;right:-6px;bottom:-28px;color:#fff;opacity:.16;pointer-events:none;line-height:1}
+  .gia-opt-motif .material-symbols-outlined{font-size:160px}
+  .gia-opt-ban-ttl{position:absolute;left:15px;right:15px;bottom:12px;color:#fff;z-index:1}
+  .gia-opt-live{position:absolute;top:11px;left:12px;z-index:1;display:inline-flex;align-items:center;gap:5px;
+    background:rgba(255,255,255,.95);color:#15803d;font-size:10px;font-weight:800;letter-spacing:.04em;
+    text-transform:uppercase;padding:4px 9px;border-radius:999px;box-shadow:0 1px 3px rgba(15,23,42,.18)}
   .gia-opt-live i{width:6px;height:6px;border-radius:50%;background:#22c55e;display:inline-block;animation:gia-blink 1.4s infinite}
   .gia-opt-body{padding:13px 15px}
-  .gia-opt-ttl{font-size:15px;font-weight:750;color:#0f172a;line-height:1.25;letter-spacing:-.01em}
+  /* base title/sub (dark, used on the summary card); banner variants -> white */
+  .gia-opt-ttl{font-size:15px;font-weight:800;color:#0f172a;line-height:1.25;letter-spacing:-.01em}
   .gia-opt-sub{font-size:12px;color:#64748b;margin-top:2px}
+  .gia-opt-ban-ttl .gia-opt-ttl{font-size:17px;color:#fff;text-shadow:0 1px 6px rgba(2,8,23,.35);
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .gia-opt-ban-ttl .gia-opt-sub{font-weight:600;color:rgba(255,255,255,.92);text-shadow:0 1px 4px rgba(2,8,23,.35);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .gia-opt-badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .gia-opt-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#334155;
+    background:#f1f5f9;border-radius:999px;padding:4px 10px;line-height:1.4}
+  .gia-opt-badge .material-symbols-outlined{font-size:14px;color:var(--gia-brand)}
   .gia-opt-price{font-size:19px;font-weight:850;color:#0b1220;line-height:1}
   .gia-opt-price .cur{font-size:12px;font-weight:700;color:#64748b;margin-right:2px}
   .gia-opt-from{font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
-  .gia-opt-cta{display:inline-flex;align-items:center;gap:5px;background:var(--gia-brand);color:#fff;
-    font-size:13px;font-weight:700;padding:9px 16px;border-radius:11px;white-space:nowrap;cursor:pointer;
-    box-shadow:0 2px 8px color-mix(in srgb,var(--gia-brand) 28%,transparent);transition:background .14s}
-  .gia-opt:hover .gia-opt-cta{background:var(--gia-brand-dark)}
+  .gia-opt-cta{display:inline-flex;align-items:center;gap:5px;color:#fff;flex:none;
+    background:linear-gradient(135deg,var(--gia-brand),var(--gia-brand-dark));
+    font-size:13px;font-weight:750;padding:9px 16px;border-radius:11px;white-space:nowrap;cursor:pointer;
+    box-shadow:0 3px 10px color-mix(in srgb,var(--gia-brand) 30%,transparent);transition:filter .14s}
+  .gia-opt:hover .gia-opt-cta{filter:brightness(1.07)}
   .gia-opt-cta .material-symbols-outlined{font-size:17px}
   .gia-pay{border:1px solid #e8edf3;border-radius:16px;background:#fff;overflow:hidden;box-shadow:0 2px 12px rgba(15,23,42,.07);
     animation:gia-card-in .36s cubic-bezier(.16,1,.3,1) both}
@@ -216,23 +231,34 @@ $giaCfg = json_encode([
                             <a :href="sr.live ? '#' : cardUrl(sr, c)"
                                @click.prevent="sr.live ? pickOffer(sr, c) : openDrawer(cardUrl(sr, c), c.name || c.title || 'Details')"
                                class="gia-opt cursor-pointer" :style="'animation-delay:' + (ci * 60) + 'ms'">
-                              <!-- Media lead: real photo, else a branded module-icon tile. -->
-                              <div class="gia-opt-media">
+                              <!-- Banner: real photo if present, else a generated
+                                   brand-gradient banner with the module motif. Title +
+                                   location sit overlaid; live-fare badge when applicable. -->
+                              <div class="gia-opt-ban" :class="c.image ? 'gia-opt-ban--photo' : ''">
                                 <template x-if="c.image">
                                   <img :src="c.image" :alt="c.name || c.title || 'Package'" loading="lazy"
-                                       @error="$event.target.closest('.gia-opt-media').querySelector('.gia-opt-ico').style.display='flex'; $event.target.style.display='none'">
+                                       @error="const b=$event.target.closest('.gia-opt-ban'); b.classList.remove('gia-opt-ban--photo'); b.querySelector('.gia-opt-motif').style.display='block'; $event.target.remove()">
                                 </template>
-                                <span class="gia-opt-ico" :style="c.image ? 'display:none' : ''">
+                                <span class="gia-opt-motif" :style="c.image ? 'display:none' : ''">
                                   <span class="material-symbols-outlined" x-text="moduleIcon(sr.module || sr.kind)"></span>
                                 </span>
+                                <div class="gia-opt-scrim"></div>
                                 <template x-if="sr.live">
                                   <span class="gia-opt-live"><i></i> Live fare</span>
                                 </template>
+                                <div class="gia-opt-ban-ttl">
+                                  <div class="gia-opt-ttl" x-text="c.name || c.title || 'Option'"></div>
+                                  <div class="gia-opt-sub" x-show="c.subtitle || c.location" x-text="c.subtitle || c.location || ''"></div>
+                                </div>
                               </div>
                               <div class="gia-opt-body">
-                                <div class="gia-opt-ttl" x-text="c.name || c.title || 'Option'"></div>
-                                <div class="gia-opt-sub" x-show="c.subtitle || c.location" x-text="c.subtitle || c.location || ''"></div>
-                                <!-- inclusions chips -->
+                                <!-- honest detail badges (real fields only) -->
+                                <div class="gia-opt-badges" x-show="giaCardBadges(c).length">
+                                  <template x-for="(b, bi) in giaCardBadges(c)" :key="bi">
+                                    <span class="gia-opt-badge"><span class="material-symbols-outlined" x-text="b.icon"></span><span x-text="b.label"></span></span>
+                                  </template>
+                                </div>
+                                <!-- inclusions chips (tours/umrah supply these) -->
                                 <template x-if="c.inclusions && c.inclusions.length">
                                   <div class="flex flex-wrap gap-1 mt-2">
                                     <template x-for="(inc, ii) in c.inclusions.slice(0, 4)" :key="ii">
@@ -680,6 +706,17 @@ function giaChat(cfg) {
     moduleIcon(m) {
       return ({ flights:'flight', stays:'hotel', tours:'tour', cars:'directions_car', visa:'badge',
                 esim:'sim_card', ferries:'directions_boat', rail:'train', bus:'directions_bus', umrah:'mosque' })[m] || 'place';
+    },
+    // Detail badges for a result card — only from fields the card actually carries
+    // (attachLocalCards builders). Never invents claims. Max 3.
+    giaCardBadges(c) {
+      const out = []; if (!c || typeof c !== 'object') return out;
+      const days = Number(c.days || 0), nights = Number(c.nights || 0), stars = Number(c.stars || 0), rating = Number(c.rating || 0);
+      if (days > 0) out.push({ icon:'schedule', label: days + ' day' + (days > 1 ? 's' : '') });
+      else if (nights > 0) out.push({ icon:'bedtime', label: nights + ' night' + (nights > 1 ? 's' : '') });
+      if (stars > 0) out.push({ icon:'star', label: stars + '-star' });
+      if (rating > 0 && rating <= 5) out.push({ icon:'thumb_up', label: rating.toFixed(1) + ' rating' });
+      return out.slice(0, 3);
     },
     statusLabel(s) {
       return ({ CONFIRMED:'Confirmed', PARTIAL:'Partially booked', PAID_PENDING:'Payment received',
