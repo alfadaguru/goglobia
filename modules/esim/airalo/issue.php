@@ -50,6 +50,31 @@ $router->post('esim/airalo/issue', function () use ($db) {
             exit;
         }
 
+        // CONCURRENCY CLAIM (audit #25): the existing-provision guard above stops a
+        // sequential replay; this stops two TRULY concurrent requests both creating an
+        // Airalo order. Atomically flip to 'issuing' while un-issued; proceed only if we
+        // changed one row. Airalo's success path sets pnr + booking_status='confirmed'
+        // (verified), so the shutdown reset (issuing + empty pnr -> pending) only fires on
+        // a failed/abandoned attempt, keeping retries possible.
+        $claim = $db->query(
+            "UPDATE bookings SET booking_status = 'issuing'
+             WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')
+               AND booking_status NOT IN ('issuing','confirmed','cancelled','voided')",
+            [':inv' => $invoiceId]
+        );
+        if (!$claim || $claim->rowCount() < 1) {
+            echo json_encode(['status' => false, 'message' => 'This eSIM is already being issued or has been issued.', 'response_error' => 'already_issuing'], JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+        register_shutdown_function(function () use ($db, $invoiceId) {
+            try {
+                $b = $db->get('bookings', ['booking_status', 'pnr'], ['invoice_id' => $invoiceId]);
+                if ($b && strtolower((string) ($b['booking_status'] ?? '')) === 'issuing' && empty($b['pnr'])) {
+                    $db->update('bookings', ['booking_status' => 'pending'], ['invoice_id' => $invoiceId, 'booking_status' => 'issuing']);
+                }
+            } catch (\Throwable $e) { error_log('airalo issue issuing-reset: ' . $e->getMessage()); }
+        });
+
         $airaloOrder = (array) ($bookingData['airalo_order'] ?? []);
         $packageId = trim((string) ($airaloOrder['package_id'] ?? ''));
         $quantity = (int) ($airaloOrder['quantity'] ?? 1);

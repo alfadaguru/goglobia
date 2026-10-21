@@ -853,6 +853,14 @@ function handle_payment_callback($token, $action, $data = [])
                                 'invoice_id' => $tokenData['invoice_id']
                             ]);
 
+                            // AUTO-REFUND (audit #26): the customer was charged but the
+                            // supplier issue FAILED, so there is money held with no
+                            // service. Refund it immediately and surface a customer-visible
+                            // 'refund_initiated' state. Guarded: only refund a gateway-paid,
+                            // NON-installment booking (an installment mid-plan must not be
+                            // whole-refunded here) and only once (idempotent on state).
+                            _auto_refund_on_issue_failure($db, $tokenData, $booking, $bookingApiError);
+
                             // ============================================================
                             // TRIGGER FAILURE NOTIFICATION (NON-BLOCKING)
                             // ============================================================
@@ -894,6 +902,10 @@ function handle_payment_callback($token, $action, $data = [])
                         ], [
                             'invoice_id' => $tokenData['invoice_id']
                         ]);
+
+                        // AUTO-REFUND (audit #26): charged, but the issue threw — money
+                        // held with no service. Refund + surface 'refund_initiated'.
+                        _auto_refund_on_issue_failure($db, $tokenData, $booking, $bookingApiError);
 
                         // ============================================================
                         // TRIGGER EXCEPTION NOTIFICATION (NON-BLOCKING)
@@ -2175,6 +2187,65 @@ function render_payment_button($gateway, $booking, $onclick = '', $customText = 
 //   ['status'=>'failed','message'=>..,'gateway'=>..]                   API said no
 //   ['status'=>'unsupported','message'=>..,'gateway'=>..]              no refund API
 // ============================================================================
+if (!function_exists('_auto_refund_on_issue_failure')) {
+    /**
+     * audit #26: a supplier ISSUE failed AFTER the customer was charged — money is held
+     * with no service. Auto-refund the gateway payment and surface a customer-visible
+     * 'refund_initiated' state. Guarded so it is SAFE:
+     *   - only for a GATEWAY-paid booking (skip internal_wallet/credits — those refund
+     *     through the wallet spine on cancel, not here),
+     *   - NOT for an installment booking mid-plan (never whole-refund a part-paid plan),
+     *   - idempotent: skips if the booking is already in a refund/refunded state.
+     * Never throws (best-effort around the already-saved failure state).
+     */
+    function _auto_refund_on_issue_failure($db, array $tokenData, array $booking, string $error = ''): void
+    {
+        try {
+            $invoiceId = (string) ($tokenData['invoice_id'] ?? ($booking['invoice_id'] ?? ''));
+            if ($invoiceId === '') { return; }
+
+            // Re-read the authoritative current row (booking passed in may be stale).
+            $b = $db->get('bookings',
+                ['invoice_id', 'payment_status', 'booking_status', 'payment_gateway', 'module_type', 'transaction_id', 'price_markup', 'currency_markup'],
+                ['invoice_id' => $invoiceId]) ?: $booking;
+
+            // Idempotency: don't re-refund.
+            $bs = strtolower((string) ($b['booking_status'] ?? ''));
+            if (in_array($bs, ['refund_initiated', 'refunded', 'cancelled', 'voided'], true)) { return; }
+
+            // Only gateway payments (an internal wallet/credits payment is not a card/bank
+            // charge to reverse here).
+            $gwName = strtolower(trim((string) ($b['payment_gateway'] ?? '')));
+            if ($gwName === '' || in_array($gwName, ['internal_wallet', 'wallet', 'wallet balance', 'credits'], true)) { return; }
+
+            // Never whole-refund an installment booking mid-plan.
+            if (function_exists('installments_active_for') && installments_active_for($db, $invoiceId)) { return; }
+            if (($b['module_type'] ?? '') === 'umrah') { return; }
+
+            if (!function_exists('refund_gateway_payment')) { return; }
+            $res = refund_gateway_payment($db, $b, null, 'Automatic refund — supplier could not confirm the booking' . ($error !== '' ? ': ' . substr($error, 0, 120) : ''));
+
+            if (($res['status'] ?? '') === 'refunded') {
+                $db->update('bookings', [
+                    'payment_status' => 'refunded',
+                    'booking_status' => 'refund_initiated',
+                    'booking_payment_issue' => 'Auto-refunded: supplier issue failed. ' . substr($error, 0, 180),
+                ], ['invoice_id' => $invoiceId]);
+                error_log('AUTO-REFUND OK | invoice=' . $invoiceId . ' gateway=' . $gwName . ' ref=' . ($res['reference'] ?? '?'));
+            } else {
+                // Refund API couldn't process it — leave the booking 'pending' (as the
+                // caller already set) and flag for admin; do NOT claim refunded.
+                $db->update('bookings', [
+                    'booking_payment_issue' => 'Issue failed; AUTO-REFUND NOT completed (' . ($res['status'] ?? 'error') . ': ' . substr((string) ($res['message'] ?? ''), 0, 140) . ') — admin must refund manually.',
+                ], ['invoice_id' => $invoiceId]);
+                error_log('AUTO-REFUND FAILED | invoice=' . $invoiceId . ' gateway=' . $gwName . ' status=' . ($res['status'] ?? '?') . ' msg=' . ($res['message'] ?? ''));
+            }
+        } catch (\Throwable $e) {
+            error_log('_auto_refund_on_issue_failure: ' . $e->getMessage());
+        }
+    }
+}
+
 if (!function_exists('refund_gateway_payment')) {
     function refund_gateway_payment($db, $booking, $amount = null, $reason = 'Booking cancelled')
     {

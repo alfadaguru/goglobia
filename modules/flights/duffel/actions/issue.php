@@ -100,6 +100,35 @@ $router->post('flights/duffel/issue', function () use ($db) {
             exit;
         }
 
+        // CONCURRENCY CLAIM (audit #25): the empty-PNR check above stops a sequential
+        // replay, but two TRULY concurrent issue requests could both read pnr='' and both
+        // create a Duffel order (duplicate supplier charge). Atomically claim the booking
+        // by flipping it to 'issuing' only while it is still un-issued; proceed ONLY if we
+        // changed exactly one row. A racing duplicate changes 0 rows and is rejected here,
+        // before the supplier order call.
+        $claim = $db->query(
+            "UPDATE bookings SET booking_status = 'issuing'
+             WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')
+               AND booking_status NOT IN ('issuing','confirmed','cancelled','voided')",
+            [':inv' => $invoice_id]
+        );
+        if (!$claim || $claim->rowCount() < 1) {
+            echo json_encode(['status' => false, 'message' => 'This booking is already being issued or has been issued.']);
+            exit;
+        }
+        // SAFETY NET for the transient 'issuing' claim: the many error/exit paths below
+        // (missing creds, API errors) would otherwise strand the booking in 'issuing' and
+        // block a legitimate retry. On shutdown, if the booking is STILL 'issuing' (i.e.
+        // we exited without a confirmed PNR), reset it to 'pending' so it can be retried.
+        register_shutdown_function(function () use ($db, $invoice_id) {
+            try {
+                $b = $db->get('bookings', ['booking_status', 'pnr'], ['invoice_id' => $invoice_id]);
+                if ($b && strtolower((string) ($b['booking_status'] ?? '')) === 'issuing' && empty($b['pnr'])) {
+                    $db->update('bookings', ['booking_status' => 'pending'], ['invoice_id' => $invoice_id, 'booking_status' => 'issuing']);
+                }
+            } catch (\Throwable $e) { error_log('duffel issue issuing-reset: ' . $e->getMessage()); }
+        });
+
         // Get module configuration
         $module = $db->get('modules', '*', [
             'name' => 'duffel',

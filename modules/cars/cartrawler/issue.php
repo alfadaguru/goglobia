@@ -45,6 +45,30 @@ try {
         exit;
     }
 
+    // CONCURRENCY CLAIM (audit #25): the empty-PNR guard above stops a sequential
+    // replay; this stops two TRULY concurrent requests both reserving a second real car.
+    // Atomically flip to 'issuing' only while un-issued; proceed only if we changed one
+    // row. A crash-safe shutdown reset returns a stranded 'issuing' to 'pending' so a
+    // legitimate retry is never blocked.
+    $claim = $db->query(
+        "UPDATE bookings SET booking_status = 'issuing'
+         WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')
+           AND booking_status NOT IN ('issuing','confirmed','cancelled','voided')",
+        [':inv' => $invoice_id]
+    );
+    if (!$claim || $claim->rowCount() < 1) {
+        echo json_encode(['status' => false, 'message' => 'This booking is already being issued or has been issued.', 'response_error' => 'already_issuing']);
+        exit;
+    }
+    register_shutdown_function(function () use ($db, $invoice_id) {
+        try {
+            $b = $db->get('bookings', ['booking_status', 'pnr'], ['invoice_id' => $invoice_id]);
+            if ($b && strtolower((string) ($b['booking_status'] ?? '')) === 'issuing' && empty($b['pnr'])) {
+                $db->update('bookings', ['booking_status' => 'pending'], ['invoice_id' => $invoice_id, 'booking_status' => 'issuing']);
+            }
+        } catch (\Throwable $e) { error_log('cartrawler issue issuing-reset: ' . $e->getMessage()); }
+    });
+
     // Get module credentials
     $module = $db->get('modules', '*', ['name' => 'cartrawler', 'type' => 'cars']);
     if (!$module) {
