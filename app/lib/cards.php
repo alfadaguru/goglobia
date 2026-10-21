@@ -376,6 +376,35 @@ if (!function_exists('cards_charge')) {
         $idemSuffix = $attemptId !== '' ? $attemptId : (string) (int) floor(time() / 60);
         $idemKey  = 'CARDCHG-' . $userId . '-' . $cardId . '-' . $minor . '-' . $idemSuffix;
 
+        // DETERMINISTIC DOUBLE-CHARGE GUARD (audit #42): the provider idempotency key
+        // above dedups within a time bucket, but a double-click straddling a minute
+        // boundary (and the fact that no client sends a stable attempt_id) can still mint
+        // two distinct keys. Take a short MySQL advisory lock on {user,card,minor} held
+        // across the provider call, so a second concurrent/rapid charge is refused BEFORE
+        // it reaches the provider — independent of the client. Released in finally.
+        $lockName = 'cardchg_' . $userId . '_' . $cardId . '_' . $minor;
+        $gotLock = null;
+        try {
+            $lk = $db->query('SELECT GET_LOCK(:n, 0) AS g', [':n' => $lockName]);
+            $gotLock = $lk ? $lk->fetch(\PDO::FETCH_ASSOC) : null;
+            if (!$gotLock || (int) ($gotLock['g'] ?? 0) !== 1) {
+                return ['ok' => false, 'message' => 'A charge for this card is already in progress. Please wait a moment.'];
+            }
+        } catch (\Throwable $e) {
+            // If locking is unavailable, proceed (don't block payments) — the provider
+            // idempotency key is still the backstop. Logged for visibility.
+            error_log('cards_charge GET_LOCK unavailable: ' . $e->getMessage());
+            $gotLock = null;
+        }
+        // Ensure the lock is released on every exit path of this charge.
+        $releaseLock = function () use ($db, $lockName, &$gotLock) {
+            if ($gotLock && (int) ($gotLock['g'] ?? 0) === 1) {
+                try { $db->query('SELECT RELEASE_LOCK(:n)', [':n' => $lockName]); } catch (\Throwable $e) {}
+                $gotLock = null;
+            }
+        };
+        register_shutdown_function($releaseLock);
+
         if ($provider === 'stripe') {
             $r = cards_http('POST', 'https://api.stripe.com/v1/payment_intents', $secret, [
                 'amount'         => $minor,

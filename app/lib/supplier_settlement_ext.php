@@ -343,6 +343,15 @@ if (!function_exists('supplier_chargeback_apply')) {
         $reason = substr(trim($reason), 0, 255);
         $actor = substr(trim($actor) ?: (string) ($_SESSION['user_id'] ?? ''), 0, 155);
 
+        // SCHEMA ENSURE (audit #910): the chargeback columns (owner_user_id/earning_id/
+        // mode/state/reference/applied_*) live in spayx_ensure_schema (supplier_payments_ext).
+        // That ensure is NOT otherwise invoked on this write path, so on an install created
+        // with the old narrow schema the INSERT below would fail silently. Run it here so
+        // the columns exist before we write — making chargeback-apply actually functional.
+        if (function_exists('spayx_ensure_schema')) {
+            try { spayx_ensure_schema($db); } catch (\Throwable $e) { error_log('chargeback ensure schema: ' . $e->getMessage()); }
+        }
+
         $result = ['ok' => false, 'message' => 'Chargeback failed'];
         try {
             $db->action(function ($db) use ($invoiceId, $reason, $actor, &$result) {

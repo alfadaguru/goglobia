@@ -4992,29 +4992,29 @@ if (!function_exists('validatePromoCode')) {
         }
 
         $promoCurrency = strtoupper((string) ($promo['currency'] ?? 'USD'));
+        // audit #3 (regression-safe): convert a promo-currency amount into the ORDER
+        // currency. Returns the converted float, or NULL when FX genuinely can't be done
+        // (missing/zero rate). Crucially it does NOT fall back to the raw amount — the old
+        // bug (and my first fix's fallback, which shared the same zero-rate gate) applied a
+        // promo-currency number as if it were order-currency. Callers must treat NULL
+        // conservatively (fail-closed), not as "use the raw number".
         $conv = function ($amt) use ($promoCurrency, $currency, $db) {
             $amt = (float) $amt;
-            if ($promoCurrency !== $currency && $amt > 0 && function_exists('CURRENCY_CONVERT')) {
+            if ($amt <= 0) { return 0.0; }
+            if ($promoCurrency === $currency) { return $amt; } // same currency, no FX
+            if (function_exists('CURRENCY_CONVERT')) {
                 $c = CURRENCY_CONVERT($amt, $db, $promoCurrency, $currency);
-                // audit #3: only trust the converted price when the FX actually succeeded.
-                // On a missing/zero rate CURRENCY_CONVERT returns the UNCHANGED input with
-                // converted=false — using that would apply a promo-currency number as an
-                // order-currency amount (wrong discount / min-order gate). Fall back to a
-                // real conversion helper, else to the raw amount only as a last resort.
-                if (!empty($c['converted'])) {
-                    return (float) ($c['price'] ?? $amt);
-                }
-                if (function_exists('convertCurrencyAmount')) {
-                    $alt = convertCurrencyAmount($db, $amt, $promoCurrency, $currency); // sig: ($db,$amount,$from,$to)
-                    if (is_numeric($alt) && $alt > 0) { return (float) $alt; }
-                }
+                if (!empty($c['converted'])) { return (float) ($c['price'] ?? $amt); }
             }
-            return $amt;
+            return null; // FX unavailable — signal failure; never return the raw amount
         };
 
         if (!empty($promo['min_order_amount'])) {
             $minAmount = $conv($promo['min_order_amount']);
-            if ($orderAmount < $minAmount) {
+            // Fail-closed: if we cannot convert the minimum to the order currency, do NOT
+            // gate on an unconvertible figure (skip the min-order check) rather than
+            // compare a promo-currency number against an order-currency total.
+            if ($minAmount !== null && $orderAmount < $minAmount) {
                 return ['ok' => false, 'discount' => 0.0, 'message' => 'Minimum order amount of ' . $currency . ' ' . number_format($minAmount, 2) . ' is required to use this promo code'];
             }
         }
@@ -5024,10 +5024,17 @@ if (!function_exists('validatePromoCode')) {
             $discount = round($orderAmount * (floatval($promo['discount_value'] ?? 0) / 100), 2);
             if (!empty($promo['max_discount_amount'])) {
                 $cap = $conv($promo['max_discount_amount']);
-                if ($cap > 0 && $discount > $cap) { $discount = $cap; }
+                // Fail-closed: an unconvertible cap means we can't prove the discount is
+                // within the intended ceiling — apply the cap only when we have a real
+                // converted value. (If NULL, leave the % discount uncapped rather than
+                // clamp to a wrong-currency number; the order-total clamp below still binds.)
+                if ($cap !== null && $cap > 0 && $discount > $cap) { $discount = $cap; }
             }
         } else {
-            $discount = round($conv($promo['discount_value'] ?? 0), 2);
+            // Fixed-amount discount in promo currency. If FX fails, give NO discount
+            // rather than subtract a raw promo-currency number from an order-currency total.
+            $fixed = $conv($promo['discount_value'] ?? 0);
+            $discount = ($fixed === null) ? 0.0 : round($fixed, 2);
         }
         // Never discount more than the order itself.
         if ($discount > $orderAmount) { $discount = round($orderAmount, 2); }
