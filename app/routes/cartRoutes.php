@@ -497,7 +497,7 @@ $router->post('/cart/checkout', function () use ($SECURE, $db) {
         'module'               => 'ai_trip',
         'special_requests'     => '',
         'promo_codes'          => $promoCodeJson,
-        'discount'             => (int) round($autoDiscount),
+        'discount'             => round((float) $autoDiscount, 2), // audit #2: keep decimals (was (int) round → lost fractional discount in reporting)
         'booking_date'         => date('Y-m-d H:i:s'),
         'created_at'           => date('Y-m-d H:i:s'),
     ]);

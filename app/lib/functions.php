@@ -4814,8 +4814,37 @@ if (!function_exists('recordPromoUsage')) {
             error_log('recordPromoUsage insert: ' . $e->getMessage());
             return false;
         }
-        // Bump the global counter in the same logical step.
-        $db->update('promo_codes', ['used_count[+]' => 1, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $promoId]);
+
+        // ATOMIC, CONDITIONAL GLOBAL BUMP (audit #1): validatePromoCode checked
+        // used_count < usage_limit WITHOUT a lock, so N concurrent checkouts (distinct
+        // invoice_ids, no UNIQUE collision) all passed and each bumped the counter —
+        // over-redeeming a usage_limit=1 coupon. Do the bump as a single conditional
+        // UPDATE that only increments while under the limit; if it affects 0 rows the
+        // limit was already reached in the race, so roll back this usage row and refuse.
+        $limit = (int) ($promo['usage_limit'] ?? 0);
+        try {
+            if ($limit > 0) {
+                $stmt = $db->query(
+                    'UPDATE promo_codes SET used_count = used_count + 1, updated_at = :now
+                     WHERE id = :id AND used_count < :lim',
+                    [':now' => date('Y-m-d H:i:s'), ':id' => $promoId, ':lim' => $limit]
+                );
+                $bumped = $stmt ? $stmt->rowCount() : 0;
+                if ($bumped < 1) {
+                    // Lost the race against the last allowed redemption — undo our usage row.
+                    $db->delete('promo_code_usage', ['invoice_id' => $invoiceId, 'promo_id' => $promoId]);
+                    return false;
+                }
+            } else {
+                // No global limit — unconditional bump is fine.
+                $db->update('promo_codes', ['used_count[+]' => 1, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $promoId]);
+            }
+        } catch (\Throwable $e) {
+            error_log('recordPromoUsage bump: ' . $e->getMessage());
+            // On a bump error, don't leave an unaccounted usage row.
+            try { $db->delete('promo_code_usage', ['invoice_id' => $invoiceId, 'promo_id' => $promoId]); } catch (\Throwable $e2) {}
+            return false;
+        }
         return true;
     }
 }
@@ -4967,7 +4996,18 @@ if (!function_exists('validatePromoCode')) {
             $amt = (float) $amt;
             if ($promoCurrency !== $currency && $amt > 0 && function_exists('CURRENCY_CONVERT')) {
                 $c = CURRENCY_CONVERT($amt, $db, $promoCurrency, $currency);
-                return (float) ($c['price'] ?? $amt);
+                // audit #3: only trust the converted price when the FX actually succeeded.
+                // On a missing/zero rate CURRENCY_CONVERT returns the UNCHANGED input with
+                // converted=false — using that would apply a promo-currency number as an
+                // order-currency amount (wrong discount / min-order gate). Fall back to a
+                // real conversion helper, else to the raw amount only as a last resort.
+                if (!empty($c['converted'])) {
+                    return (float) ($c['price'] ?? $amt);
+                }
+                if (function_exists('convertCurrencyAmount')) {
+                    $alt = convertCurrencyAmount($db, $amt, $promoCurrency, $currency); // sig: ($db,$amount,$from,$to)
+                    if (is_numeric($alt) && $alt > 0) { return (float) $alt; }
+                }
             }
             return $amt;
         };

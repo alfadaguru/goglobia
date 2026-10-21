@@ -955,6 +955,16 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
         $subtotal += $ancillaryTotal;
         $ancillaryTotalDisplay = $ancillaryTotal * $conversionRate;
 
+        // PRICE INTEGRITY (audit #37): tax is ALWAYS the server-computed amount on the
+        // server-derived subtotal — never the client-supplied tax_amount. The fare has a
+        // tamper floor above, but tax did not: a client could post tax_amount=0.01 and pay
+        // almost no tax. Recompute server-side (mirrors stays bookingRoutes), discarding
+        // the client value for pricing.
+        if (function_exists('calculateTax')) {
+            $taxInfo = calculateTax($subtotal, $supplierName, $db);
+            $taxAmountBase = round((float) ($taxInfo['tax_amount'] ?? 0), 2);
+        }
+
         // Final pre-tax + tax total.
         $finalTotalBase = $subtotal + $taxAmountBase;
         $displayCurrency = $input['display_currency'] ?? 'USD';
