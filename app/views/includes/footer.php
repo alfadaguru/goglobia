@@ -97,7 +97,7 @@ $footer_menus = array_values(array_filter(array_map(
                                      height so it's build-independent. -->
                                 <img src="<?= versionedAssetUrl('uploads/global/logo.png') ?>"
                                      alt="<?= isset($GLOBALS['app']['business_name']) ? $GLOBALS['app']['business_name'] : '' ?>"
-                                     class="w-auto" style="height:52px" width="208" height="52" decoding="async">
+                                     class="w-auto" style="height:64px" width="256" height="64" decoding="async">
                             </a>
                         </div>
                         <p class="text-sm leading-relaxed" style="color: var(--footer-text-color);">

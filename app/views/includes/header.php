@@ -541,8 +541,8 @@ if (!empty($activeCurrencyRow)) {
                    clearly noticeable. -->
               <img src="<?=versionedAssetUrl('uploads/global/logo.png')?>" alt="<?=$GLOBALS['app']['business_name']?>"
                    class="w-auto object-contain transition-all duration-300 ease-out"
-                   :style="scrolled ? 'height:48px' : 'height:60px'"
-                   style="height:60px" width="220" height="60" decoding="async">
+                   :style="scrolled ? 'height:60px' : 'height:76px'"
+                   style="height:76px" width="280" height="76" decoding="async">
             </a>
             <?php endif; ?>
 
