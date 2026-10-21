@@ -190,9 +190,11 @@ if (!function_exists('supplier_payout_bank_list')) {
         $rows = (isset($res['json']['data']) && is_array($res['json']['data'])) ? $res['json']['data'] : [];
 
         if (!$httpOk || empty($rows)) {
-            $msg = $res['json']['message'] ?? ($res['error'] ?: 'Could not load the bank list.');
-            return $cache[$country] = ['ok' => false, 'connected' => true, 'banks' => [],
-                'message' => 'Bank list error: ' . $msg];
+            $raw = (string) ($res['json']['message'] ?? ($res['error'] ?: 'Could not load the bank list.'));
+            $friendly = function_exists('supplier_payout_friendly_gateway_error')
+                ? supplier_payout_friendly_gateway_error($raw, 'verify')
+                : 'Could not load the bank list right now. Please try again.';
+            return $cache[$country] = ['ok' => false, 'connected' => true, 'banks' => [], 'message' => $friendly];
         }
 
         $banks = [];
@@ -246,10 +248,55 @@ if (!function_exists('supplier_payout_resolve_account')) {
         $name = trim((string) ($res['json']['data']['account_name'] ?? ''));
 
         if (!$httpOk || $name === '') {
-            $msg = $res['json']['message'] ?? ($res['error'] ?: 'Could not resolve the account.');
-            return ['ok' => false, 'connected' => true, 'message' => $msg];
+            $raw = (string) ($res['json']['message'] ?? ($res['error'] ?: 'Could not resolve the account.'));
+            return ['ok' => false, 'connected' => true,
+                    'message' => supplier_payout_friendly_gateway_error($raw, 'verify')];
         }
         return ['ok' => true, 'connected' => true, 'account_name' => $name, 'message' => null];
+    }
+}
+
+if (!function_exists('supplier_payout_friendly_gateway_error')) {
+    /**
+     * Map a RAW Paystack error message to a supplier-facing one. Operator-side gate
+     * errors (IP allowlist, test-mode caps, unactivated business, auth) are NOT the
+     * supplier's fault and leak internals — we show a generic "temporarily unavailable,
+     * contact the site operator" message and log the raw detail for ops. Genuine
+     * account problems (not found / invalid number) pass through so the supplier can
+     * fix their input. $context is 'verify' or 'transfer' to tune the wording.
+     */
+    function supplier_payout_friendly_gateway_error(string $raw, string $context = 'verify'): string
+    {
+        $r = strtolower(trim($raw));
+        // Operator/config-side gates — hide the detail, tell them to contact support.
+        $operatorGates = [
+            'ip address',                 // "Your IP address is not allowed to make this call"
+            'not allowed to make this',
+            'daily limit',                // test-mode resolve cap
+            'test mode',
+            'business is not',            // not activated
+            'not activated',
+            'cannot be completed at this', // generic Paystack gate
+            'invalid key', 'authorization', 'unauthorized',
+        ];
+        foreach ($operatorGates as $needle) {
+            if (strpos($r, $needle) !== false) {
+                error_log('supplier_payout gateway gate (' . $context . '): ' . $raw);
+                return $context === 'transfer'
+                    ? 'Payouts are temporarily unavailable due to a payment-gateway setting. Please contact the site operator.'
+                    : 'Account verification is temporarily unavailable. Please try again later or contact the site operator.';
+            }
+        }
+        // Genuine account issues — surface clearly (trim any gateway prefix noise).
+        if (strpos($r, 'could not resolve') !== false || strpos($r, 'cannot resolve') !== false
+            || strpos($r, 'not found') !== false || strpos($r, 'invalid account') !== false) {
+            return 'We could not confirm that account. Check the bank and account number and try again.';
+        }
+        // Unknown — a safe generic (still logged for ops).
+        error_log('supplier_payout gateway error (' . $context . '): ' . $raw);
+        return $context === 'transfer'
+            ? 'The transfer could not be completed. Please contact the site operator.'
+            : 'We could not confirm that account right now. Please try again.';
     }
 }
 
