@@ -84,6 +84,10 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
 <div class="hero xl:min-h-[500px] lg:min-h-[460px] sm:min-h-[420px] min-h-0 h-auto relative flex items-center py-24 md:py-12  flex-col justify-center">
    <!-- Dark gradient overlay - transparent top to dark bottom -->
    <div class="absolute inset-0 z-[2] bg-gradient-to-b from-transparent via-black/60 to-black/80"></div>
+   <!-- Left-to-right scrim so the headline + sub-text stay legible over any hero
+        image (bright skies/sunsets wash out white text). Inline gradient so it is
+        independent of the precompiled Tailwind build. -->
+   <div class="absolute inset-0 z-[2]" style="background:linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.35) 35%, rgba(0,0,0,0) 70%)"></div>
 
    <style>
    @keyframes hero-kenburns {
