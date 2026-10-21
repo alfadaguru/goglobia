@@ -327,6 +327,24 @@ if (!function_exists('gia_ch_dispatch')) {
 
         $send = function (string $reply, array $rich = []) use ($db, $channel, $sender) {
             if (trim($reply) === '' && $rich === []) { return; }
+            // Log what GIA actually SENT back (reply preview + the card titles it
+            // showed) so the operator can verify GIA only surfaced real options.
+            if (function_exists('gia_webhook_log_record')) {
+                $cardTitles = [];
+                foreach (($rich['cards'] ?? []) as $c) {
+                    if (is_array($c)) {
+                        $t = (string) ($c['title'] ?? $c['name'] ?? '');
+                        $loc = (string) ($c['subtitle'] ?? $c['location'] ?? '');
+                        if ($t !== '') { $cardTitles[] = $t . ($loc !== '' ? ' (' . $loc . ')' : ''); }
+                    }
+                }
+                gia_webhook_log_record($db, $channel, 'reply_sent', 200, [
+                    'sender' => $sender,
+                    'kind'   => 'reply',
+                    'text'   => $reply,
+                    'raw'    => $cardTitles === [] ? '(no cards)' : ('cards: ' . implode(' | ', $cardTitles)),
+                ]);
+            }
             if (function_exists('gia_channel_send')) {
                 gia_channel_send($db, $channel, $sender, $reply, $rich);
             }

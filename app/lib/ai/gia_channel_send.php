@@ -39,6 +39,27 @@ if (!function_exists('gia_channel_http_post_json')) {
     }
 }
 
+if (!function_exists('gia_channel_http_get')) {
+    /** Simple GET returning ['ok','code','body']. Used to read provider settings. */
+    function gia_channel_http_get(string $url): array
+    {
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+        ]);
+        $body = curl_exec($ch);
+        $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err  = curl_error($ch);
+        curl_close($ch);
+        if ($err !== '') { return ['ok' => false, 'code' => $code, 'body' => '']; }
+        return ['ok' => ($code >= 200 && $code < 300), 'code' => $code, 'body' => (string) $body];
+    }
+}
+
 if (!function_exists('gia_channel_send')) {
     /**
      * @param object $db
@@ -191,6 +212,42 @@ if (!function_exists('gia_channel_send_messenger')) {
     }
 }
 
+if (!function_exists('gia_channel_site_base')) {
+    /**
+     * Resolve the ABSOLUTE public base URL of this install (always https, with a
+     * trailing slash), for building webhook URLs we hand to external providers.
+     * Order: settings.site_url -> the `root` constant (only if absolute) -> APP_URL
+     * from .env. Returns '' if none is absolute — callers MUST refuse to configure
+     * a provider rather than send a broken relative URL. NEVER returns '/'.
+     */
+    function gia_channel_site_base($db): string
+    {
+        $candidates = [];
+        try {
+            $su = (string) ($db->get('settings', 'site_url', ['id' => 1]) ?? '');
+            if ($su !== '') { $candidates[] = $su; }
+        } catch (\Throwable $e) { /* ignore */ }
+        if (defined('root')) { $candidates[] = (string) root; }
+        $env = getenv('APP_URL');
+        if ($env !== false && $env !== '') { $candidates[] = (string) $env; }
+
+        foreach ($candidates as $c) {
+            $c = trim($c);
+            // Must be an absolute http(s) URL with a host — reject '/', relative, localhost.
+            if (preg_match('#^https?://[^/]+#i', $c)) {
+                $host = parse_url($c, PHP_URL_HOST) ?: '';
+                if ($host === '' || preg_match('/^(localhost|127\.0\.0\.1|::1)$/i', $host)) {
+                    continue; // never register a localhost webhook with a live provider
+                }
+                // Force https for provider webhooks; normalize a single trailing slash.
+                $c = preg_replace('#^http://#i', 'https://', $c);
+                return rtrim($c, '/') . '/';
+            }
+        }
+        return '';
+    }
+}
+
 if (!function_exists('gia_greenapi_set_webhook')) {
     /**
      * ONE-CLICK: register GoGlobia as Green API's incoming-webhook target, so
@@ -232,31 +289,46 @@ if (!function_exists('gia_greenapi_set_webhook')) {
         if (!class_exists('GreenapiProvider')) {
             return ['ok' => false, 'message' => 'Green API provider unavailable.'];
         }
-        $host = (new \GreenapiProvider($gc))->getBaseUrl();
+        $host = rtrim((new \GreenapiProvider($gc))->getBaseUrl(), '/');
 
-        // Our inbound endpoint. We send the shared secret BOTH ways so it works no
-        // matter how Green API delivers it:
-        //   1) as ?secret= on the webhookUrl (our handler checks $_GET['secret']), and
-        //   2) as webhookUrlToken (Green API sends it as `Authorization: Bearer <token>`;
-        //      our handler also accepts the Authorization header).
-        $webhookUrl = (defined('root') ? root : '/') . 'webhooks/gia/whatsapp?secret=' . rawurlencode($secret);
+        // Resolve an ABSOLUTE site base. If we can't, REFUSE — writing a relative
+        // URL (the old bug) corrupts the operator's Green API config and silently
+        // breaks inbound. Better to fail loudly than to stomp their settings.
+        $base = gia_channel_site_base($db);
+        if ($base === '') {
+            return ['ok' => false, 'message' => 'Could not determine this site\'s public URL. Set it in Settings → General (Site URL) to an https address, then try again.'];
+        }
+        // Our inbound endpoint, with the shared secret as a ?secret= query param
+        // (our webhook reads $_GET['secret'], and also accepts the Authorization
+        // header if Green API is configured that way instead).
+        $webhookUrl = $base . 'webhooks/gia/whatsapp?secret=' . rawurlencode($secret);
 
-        // SetSettings — enable incoming notifications + point them at us. We leave
-        // the other webhook types untouched where possible, but Green API's
-        // SetSettings sets what you send; we send what GIA needs.
-        $url = rtrim($host, '/') . '/waInstance' . rawurlencode($iid) . '/setSettings/' . rawurlencode($tok);
-        $r = gia_channel_http_post_json($url, [
-            'webhookUrl'          => $webhookUrl,
-            'webhookUrlToken'     => $secret,
-            'incomingWebhook'     => 'yes',
-            'stateWebhook'        => 'no',
-            'outgoingWebhook'     => 'no',
-            'outgoingAPIMessageWebhook' => 'no',
-            'outgoingMessageWebhook'    => 'no',
-            'deviceWebhook'       => 'no',
-        ]);
+        // IMPORTANT: Green API's setSettings REPLACES the whole settings block, so
+        // sending only a couple of keys would blank the rest. To avoid turning OFF
+        // the operator's other toggles, READ the current settings first and change
+        // ONLY webhookUrl + incomingWebhook, preserving everything else.
+        $current = [];
+        $getUrl = $host . '/waInstance' . rawurlencode($iid) . '/getSettings/' . rawurlencode($tok);
+        $g = gia_channel_http_get($getUrl);
+        if (!empty($g['ok'])) {
+            $decoded = json_decode((string) ($g['body'] ?? ''), true);
+            if (is_array($decoded)) { $current = $decoded; }
+        }
+        // Green API only accepts a known set of keys on setSettings; keep the ones
+        // it returns and overlay just what GIA needs.
+        $payload = $current;
+        $payload['webhookUrl']      = $webhookUrl;
+        $payload['incomingWebhook'] = 'yes';          // GIA needs inbound messages
+        unset($payload['wid'], $payload['countInstanceForbiddenReceiveWebhook']); // non-settable echoes
+        // Drop null-ish values Green API may echo that it won't accept back.
+        foreach ($payload as $k => $v) {
+            if ($v === null) { unset($payload[$k]); }
+        }
+
+        $url = $host . '/waInstance' . rawurlencode($iid) . '/setSettings/' . rawurlencode($tok);
+        $r = gia_channel_http_post_json($url, $payload);
         if (!empty($r['ok'])) {
-            return ['ok' => true, 'message' => 'Green API is now sending incoming messages to GIA. Send your WhatsApp number a "hi" to test.'];
+            return ['ok' => true, 'message' => 'Green API now points incoming messages at GIA (your other Green API settings were left as they were). Send your WhatsApp number a "hi" to test.'];
         }
         return ['ok' => false, 'message' => 'Green API rejected the request (HTTP ' . (int) ($r['code'] ?? 0) . '). Check the instance ID / token and that the instance is authorized.'];
     }
@@ -282,7 +354,11 @@ if (!function_exists('gia_telegram_set_webhook')) {
             return ['ok' => false, 'message' => 'Set a Telegram webhook secret first (any value you choose), then save, then connect.'];
         }
 
-        $webhookUrl = (defined('root') ? root : '/') . 'webhooks/gia/telegram';
+        $base = gia_channel_site_base($db);
+        if ($base === '') {
+            return ['ok' => false, 'message' => 'Could not determine this site\'s public URL. Set it in Settings → General (Site URL) to an https address, then try again.'];
+        }
+        $webhookUrl = $base . 'webhooks/gia/telegram';
         $url = 'https://api.telegram.org/bot' . $token . '/setWebhook';
         $r = gia_channel_http_post_json($url, [
             'url'                  => $webhookUrl,
