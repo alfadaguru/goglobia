@@ -50,16 +50,19 @@ $router->post('esim/airalo/issue', function () use ($db) {
             exit;
         }
 
-        // CONCURRENCY CLAIM (audit #25): the existing-provision guard above stops a
-        // sequential replay; this stops two TRULY concurrent requests both creating an
-        // Airalo order. Atomically flip to 'issuing' while un-issued; proceed only if we
-        // changed one row. Airalo's success path sets pnr + booking_status='confirmed'
-        // (verified), so the shutdown reset (issuing + empty pnr -> pending) only fires on
-        // a failed/abandoned attempt, keeping retries possible.
+        // CONCURRENCY CLAIM (audit #25, regression-safe): the existing-provision guard
+        // above stops a sequential replay; this stops two TRULY concurrent requests both
+        // creating an Airalo order. Claim on the nullable `issue_claimed_at` timestamp —
+        // NOT booking_status, which is ENUM('confirmed','pending','cancelled') and would
+        // throw/coerce on an out-of-enum value. Succeeds only when un-issued AND the claim
+        // is free or stale (>10 min). Airalo's success path sets pnr+confirmed, so the
+        // release only fires on a failed/abandoned attempt.
+        try { $db->query("ALTER TABLE `bookings` ADD COLUMN `issue_claimed_at` datetime DEFAULT NULL"); } catch (\Throwable $e) { /* exists */ }
         $claim = $db->query(
-            "UPDATE bookings SET booking_status = 'issuing'
+            "UPDATE bookings SET issue_claimed_at = NOW()
              WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')
-               AND booking_status NOT IN ('issuing','confirmed','cancelled','voided')",
+               AND booking_status NOT IN ('confirmed','cancelled')
+               AND (issue_claimed_at IS NULL OR issue_claimed_at < (NOW() - INTERVAL 10 MINUTE))",
             [':inv' => $invoiceId]
         );
         if (!$claim || $claim->rowCount() < 1) {
@@ -68,11 +71,11 @@ $router->post('esim/airalo/issue', function () use ($db) {
         }
         register_shutdown_function(function () use ($db, $invoiceId) {
             try {
-                $b = $db->get('bookings', ['booking_status', 'pnr'], ['invoice_id' => $invoiceId]);
-                if ($b && strtolower((string) ($b['booking_status'] ?? '')) === 'issuing' && empty($b['pnr'])) {
-                    $db->update('bookings', ['booking_status' => 'pending'], ['invoice_id' => $invoiceId, 'booking_status' => 'issuing']);
+                $b = $db->get('bookings', ['pnr'], ['invoice_id' => $invoiceId]);
+                if ($b && empty($b['pnr'])) {
+                    $db->query("UPDATE bookings SET issue_claimed_at = NULL WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')", [':inv' => $invoiceId]);
                 }
-            } catch (\Throwable $e) { error_log('airalo issue issuing-reset: ' . $e->getMessage()); }
+            } catch (\Throwable $e) { error_log('airalo issue claim-release: ' . $e->getMessage()); }
         });
 
         $airaloOrder = (array) ($bookingData['airalo_order'] ?? []);

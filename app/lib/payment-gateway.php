@@ -2226,9 +2226,13 @@ if (!function_exists('_auto_refund_on_issue_failure')) {
             $res = refund_gateway_payment($db, $b, null, 'Automatic refund — supplier could not confirm the booking' . ($error !== '' ? ': ' . substr($error, 0, 120) : ''));
 
             if (($res['status'] ?? '') === 'refunded') {
+                // payment_status='refunded' is in ENUM('paid','unpaid','refunded'); booking
+                // is set 'cancelled' (the in-enum terminal state — booking_status is
+                // ENUM('confirmed','pending','cancelled'), so an out-of-enum 'refund_initiated'
+                // would throw/coerce). The refund context lives in booking_payment_issue.
                 $db->update('bookings', [
                     'payment_status' => 'refunded',
-                    'booking_status' => 'refund_initiated',
+                    'booking_status' => 'cancelled',
                     'booking_payment_issue' => 'Auto-refunded: supplier issue failed. ' . substr($error, 0, 180),
                 ], ['invoice_id' => $invoiceId]);
                 error_log('AUTO-REFUND OK | invoice=' . $invoiceId . ' gateway=' . $gwName . ' ref=' . ($res['reference'] ?? '?'));

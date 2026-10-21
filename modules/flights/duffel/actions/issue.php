@@ -100,33 +100,35 @@ $router->post('flights/duffel/issue', function () use ($db) {
             exit;
         }
 
-        // CONCURRENCY CLAIM (audit #25): the empty-PNR check above stops a sequential
-        // replay, but two TRULY concurrent issue requests could both read pnr='' and both
-        // create a Duffel order (duplicate supplier charge). Atomically claim the booking
-        // by flipping it to 'issuing' only while it is still un-issued; proceed ONLY if we
-        // changed exactly one row. A racing duplicate changes 0 rows and is rejected here,
-        // before the supplier order call.
+        // CONCURRENCY CLAIM (audit #25, regression-safe): the empty-PNR check above stops
+        // a sequential replay, but two TRULY concurrent requests could both read pnr='' and
+        // both create a Duffel order (duplicate supplier charge). Claim on a dedicated
+        // nullable `issue_claimed_at` timestamp — NOT booking_status, which is
+        // ENUM('confirmed','pending','cancelled') and would throw/coerce on an out-of-enum
+        // value. The claim succeeds only when un-issued AND the claim is free or STALE
+        // (>10 min, so a crashed attempt self-recovers without a status change). Proceed
+        // only if we set the stamp (one row). A racing duplicate sets 0 rows and is rejected.
+        try { $db->query("ALTER TABLE `bookings` ADD COLUMN `issue_claimed_at` datetime DEFAULT NULL"); } catch (\Throwable $e) { /* exists */ }
         $claim = $db->query(
-            "UPDATE bookings SET booking_status = 'issuing'
+            "UPDATE bookings SET issue_claimed_at = NOW()
              WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')
-               AND booking_status NOT IN ('issuing','confirmed','cancelled','voided')",
+               AND booking_status NOT IN ('confirmed','cancelled')
+               AND (issue_claimed_at IS NULL OR issue_claimed_at < (NOW() - INTERVAL 10 MINUTE))",
             [':inv' => $invoice_id]
         );
         if (!$claim || $claim->rowCount() < 1) {
             echo json_encode(['status' => false, 'message' => 'This booking is already being issued or has been issued.']);
             exit;
         }
-        // SAFETY NET for the transient 'issuing' claim: the many error/exit paths below
-        // (missing creds, API errors) would otherwise strand the booking in 'issuing' and
-        // block a legitimate retry. On shutdown, if the booking is STILL 'issuing' (i.e.
-        // we exited without a confirmed PNR), reset it to 'pending' so it can be retried.
+        // SAFETY NET: release the claim on any failure/exit path (so a retry isn't blocked
+        // for 10 min). On shutdown, if still un-issued (no PNR), clear issue_claimed_at.
         register_shutdown_function(function () use ($db, $invoice_id) {
             try {
-                $b = $db->get('bookings', ['booking_status', 'pnr'], ['invoice_id' => $invoice_id]);
-                if ($b && strtolower((string) ($b['booking_status'] ?? '')) === 'issuing' && empty($b['pnr'])) {
-                    $db->update('bookings', ['booking_status' => 'pending'], ['invoice_id' => $invoice_id, 'booking_status' => 'issuing']);
+                $b = $db->get('bookings', ['pnr'], ['invoice_id' => $invoice_id]);
+                if ($b && empty($b['pnr'])) {
+                    $db->query("UPDATE bookings SET issue_claimed_at = NULL WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')", [':inv' => $invoice_id]);
                 }
-            } catch (\Throwable $e) { error_log('duffel issue issuing-reset: ' . $e->getMessage()); }
+            } catch (\Throwable $e) { error_log('duffel issue claim-release: ' . $e->getMessage()); }
         });
 
         // Get module configuration
