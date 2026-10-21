@@ -171,12 +171,43 @@ try {
         $db->update('users', ['first_credit_usage_date' => date('Y-m-d H:i:s')], ['user_id' => $userId]);
     }
 
+    // IDEMPOTENCY KEY (audit #4): an installment-plan booking pays the SAME invoice
+    // multiple times (deposit, then each installment). A fixed invoice-scoped key
+    // 'CRDPAY-{invoice}' made wallet_spend() treat the 2nd/3rd installment as a
+    // duplicate of the deposit — returning the deposit's txn with ZERO debit while the
+    // UI reported success, so the tail was uncollectable. Scope the key to the specific
+    // installment being paid (+ a coarse time bucket so a browser refresh of THIS charge
+    // reuses the same key and can't silently pay ahead) — mirrors wallet_balance.php.
+    $idemKey = 'CRDPAY-' . $booking['invoice_id'];
+    try {
+        $nextSeq = null;
+        $ubForKey = $db->get('umrah_bookings', ['id'], ['invoice_id' => $booking['invoice_id']]);
+        if ($ubForKey) {
+            $nextInst = $db->get('umrah_installments', ['seq'], [
+                'umrah_booking_id' => (int) $ubForKey['id'],
+                'status'           => ['pending', 'overdue'],
+                'ORDER'            => ['seq' => 'ASC'],
+            ]);
+            if ($nextInst && isset($nextInst['seq'])) { $nextSeq = (int) $nextInst['seq']; }
+        } elseif (function_exists('installments_active_for') && installments_active_for($db, $booking['invoice_id'])) {
+            $genNext = $db->get('booking_installments', ['seq'], [
+                'invoice_id' => $booking['invoice_id'],
+                'status'     => ['pending', 'overdue'],
+                'ORDER'      => ['seq' => 'ASC'],
+            ]);
+            if ($genNext && isset($genNext['seq'])) { $nextSeq = (int) $genNext['seq']; }
+        }
+        if ($nextSeq !== null) { $idemKey .= '-s' . $nextSeq . '-t' . (int) floor(time() / 120); }
+    } catch (\Throwable $e) {
+        error_log('credits idem-key installment lookup: ' . $e->getMessage());
+    }
+
     $spend = wallet_spend($db, $userId, $paymentAmount, $paymentCurrency, [
         'reason'          => 'booking',
         'invoice_id'      => $booking['invoice_id'],
         'method'          => 'wallet',
         'allow_credit_line'=> true, // agents may draw on their credit line (users.credit_limits)
-        'idempotency_key' => 'CRDPAY-' . $booking['invoice_id'],
+        'idempotency_key' => $idemKey,
         'note'            => 'Credits payment for invoice ' . $booking['invoice_id'],
     ]);
 
@@ -192,19 +223,73 @@ try {
     $transactionId = $spend['transaction']['txn_ref'] ?? ('CRD-' . strtoupper(uniqid()));
     $newCreditsBalance = (float) $spend['balance'];
 
-    // UPDATE BOOKING PAYMENT STATUS
-    $db->update('bookings', [
-        'payment_status' => 'paid',
-        'paid_at' => date('Y-m-d H:i:s'),
-        'transaction_id' => $transactionId
-    ], [
-        'invoice_id' => $booking['invoice_id']
-    ]);
+    // INSTALLMENT-AWARE SETTLE (audit #4): credits is synchronous (no callback), so if
+    // this booking is on a deposit/installment plan the amount just charged is only the
+    // NEXT slice. Delegate to the settlement engine, which marks the covered
+    // installment(s) paid and sets payment_status (deposit_paid/partially_paid until the
+    // balance clears, then paid+confirmed). Only a NON-installment booking is marked
+    // fully 'paid' here. Mirrors wallet_balance.php. Re-read module_type from the DB
+    // (the legacy base64 payload branch lacks $booking['module_type']).
+    $mtForSettle = strtolower((string) ($db->get('bookings', 'module_type', ['invoice_id' => $booking['invoice_id']]) ?: ''));
+    $umrahSettled = false;
+    if ($mtForSettle === 'umrah' && function_exists('umrah_settle_payment')) {
+        try {
+            umrah_settle_payment($db, (string) $booking['invoice_id'], (float) $paymentAmount, (string) $paymentCurrency, (string) $transactionId);
+            $db->update('bookings', [
+                'transaction_id' => $transactionId, 'payment_gateway' => 'Credits', 'error_response' => '',
+            ], ['invoice_id' => $booking['invoice_id']]);
+            $umrahSettled = true;
+        } catch (\Throwable $e) { error_log('credits umrah settle: ' . $e->getMessage()); }
+    }
+    $genInstallmentSettled = false;
+    if (!$umrahSettled && function_exists('installments_active_for') && installments_active_for($db, (string) $booking['invoice_id'])) {
+        try {
+            $sres = installments_settle_payment($db, (string) $booking['invoice_id'], (float) $paymentAmount, (string) $paymentCurrency, (string) $transactionId);
+            if (!empty($sres['ok'])) {
+                $db->update('bookings', [
+                    'transaction_id' => $transactionId, 'payment_gateway' => 'Credits', 'error_response' => '',
+                ], ['invoice_id' => $booking['invoice_id']]);
+                $genInstallmentSettled = true;
+            }
+        } catch (\Throwable $e) { error_log('credits generic installment settle: ' . $e->getMessage()); }
+    }
 
-    // STAYS no-oversell: credits is a synchronous gateway (no handle_payment_callback),
-    // so consume the availability hold here too — else an own-inventory stay paid by
-    // credits loses its hold after ~20 min and the seat could be resold. Idempotent.
-    if (in_array(strtolower((string) ($booking['module_type'] ?? '')), ['stays', 'hotels'], true)) {
+    // Non-installment (or settle unavailable): the full amount cleared → mark paid.
+    if (!$umrahSettled && !$genInstallmentSettled) {
+        $db->update('bookings', [
+            'payment_status' => 'paid',
+            'paid_at' => date('Y-m-d H:i:s'),
+            'transaction_id' => $transactionId,
+            'payment_gateway' => 'Credits',
+        ], ['invoice_id' => $booking['invoice_id']]);
+    }
+
+    // GWPAY RESOLUTION (audit #6): close the gateway-attempt money_transactions row
+    // born 'pending'->'sent' at /payment/process — the synchronous credits path never
+    // calls handle_payment_callback, so without this it lingers 'sent' forever. Best
+    // effort + idempotent. Mirrors wallet_balance.php.
+    if (function_exists('txn_advance')) {
+        try {
+            $gwPayIdem = 'GWPAY-' . $booking['invoice_id'] . '-' . ($gateway['id'] ?? 'gw');
+            $gwPayTxn = $db->get('money_transactions', ['id', 'status'], ['idempotency_key' => $gwPayIdem]);
+            if ($gwPayTxn && in_array($gwPayTxn['status'], ['pending', 'sent'], true)) {
+                txn_advance($db, (int) $gwPayTxn['id'], 'success', 'credits payment confirmed (' . $transactionId . ')', null, ['provider_trx_id' => $transactionId]);
+            }
+        } catch (\Throwable $e) { error_log('credits GWPAY resolve: ' . $e->getMessage()); }
+    }
+
+    // LOYALTY EARN (audit #7): award points like the card/bank and wallet_balance
+    // paths do, so credits/agent payers are not silently penalised. Idempotent per
+    // invoice inside the helper; best effort.
+    if (function_exists('loyalty_earn_for_payment') && $userId !== '' && $paymentAmount > 0) {
+        try { loyalty_earn_for_payment($db, (string) $userId, (float) $paymentAmount, (string) $booking['invoice_id']); }
+        catch (\Throwable $e) { error_log('credits loyalty earn: ' . $e->getMessage()); }
+    }
+
+    // STAYS no-oversell (audit #8): consume the availability hold. Use the DB-read
+    // module_type ($mtForSettle), not $booking['module_type'] which is absent on the
+    // legacy base64-payload branch.
+    if (in_array($mtForSettle, ['stays', 'hotels'], true)) {
         if (!function_exists('stays_hold_consume_ref')) {
             $invLib = dirname(__DIR__, 2) . '/lib/stays_inventory.php';
             if (is_file($invLib)) { require_once $invLib; }
@@ -219,10 +304,7 @@ try {
         }
     }
 
-    // SUPPLIER EARNINGS: credits is a synchronous gateway (no handle_payment_callback),
-    // so accrue own-inventory earnings here too. Idempotent + self-guarding — if an agent
-    // pays by credits for a supplier-owned listing, the supplier still earns; no-op for
-    // aggregator modules or non-supplier listings.
+    // SUPPLIER EARNINGS: accrue own-inventory earnings (idempotent + self-guarding).
     if (function_exists('supplier_earning_accrue_for_booking')) {
         try { supplier_earning_accrue_for_booking($db, (string) $booking['invoice_id']); }
         catch (\Throwable $e) { error_log('credits accrue: ' . $e->getMessage()); }
