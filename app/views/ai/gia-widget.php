@@ -48,6 +48,27 @@ if (!empty($_SESSION['user_name'])) {
     $giaWFirstName = trim((string) explode(' ', trim((string) $_SESSION['user_name']))[0]);
 }
 
+// --- BRAND COLOR: drive the whole widget off settings.brand_color (so it is
+//     brand/white-label aware) instead of the old hardcoded #0058E6. We also
+//     derive a lighter shade (for the FAB gradient) and a soft tint (chips,
+//     avatar wash) in PHP so the CSS can use concrete values. Fixes the prior
+//     bug where var(--gia-brand) was USED but never DEFINED in this widget. ---
+$giaBrand = trim((string) ($GLOBALS['app']['brand_color'] ?? ''));
+if (!preg_match('/^#[0-9a-fA-F]{6}$/', $giaBrand)) {
+    $giaBrand = '#0058E6'; // the widget's long-standing blue, as a safe default
+}
+$giaHexAdjust = static function (string $hex, float $factor): string {
+    // factor >1 lightens, <1 darkens; clamps to [0,255].
+    $r = hexdec(substr($hex, 1, 2)); $g = hexdec(substr($hex, 3, 2)); $b = hexdec(substr($hex, 5, 2));
+    $mix = static fn($c) => max(0, min(255, (int) round($factor >= 1 ? $c + (255 - $c) * ($factor - 1) : $c * $factor)));
+    return sprintf('#%02x%02x%02x', $mix($r), $mix($g), $mix($b));
+};
+$giaBrandLight = $giaHexAdjust($giaBrand, 1.35); // FAB gradient end
+$giaBrandDark  = $giaHexAdjust($giaBrand, 0.82); // pressed / depth
+// Soft tint (very light wash) for chips + GIA-side accents.
+$giaBrandSoft  = $giaHexAdjust($giaBrand, 1.88);
+$e = static fn($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+
 $giaWCfg = json_encode([
     'endpoint'  => root . 'api/gia/chat',
     'csrfToken' => class_exists('CSRF') ? CSRF::getToken() : '',
@@ -83,10 +104,19 @@ $giaWCfg = json_encode([
 ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE);
 ?>
 <style>
+  /* Brand tokens — all driven by settings.brand_color (see PHP above). Defined
+     HERE so the widget is self-contained (the old code referenced --gia-brand but
+     never defined it in the widget, so card CTAs/icons lost their colour). */
+  .giaw-root{
+    --gia-brand: <?= $e($giaBrand) ?>;
+    --gia-brand-light: <?= $e($giaBrandLight) ?>;
+    --gia-brand-dark: <?= $e($giaBrandDark) ?>;
+    --gia-brand-soft: <?= $e($giaBrandSoft) ?>;
+  }
   .giaw-fab{position:fixed;right:20px;bottom:20px;z-index:9998;width:60px;height:60px;border-radius:50%;
-    background:linear-gradient(135deg,#0058E6,#3b82f6);color:#fff;border:none;cursor:pointer;
-    box-shadow:0 8px 24px rgba(0,88,230,.35);
-    display:flex;align-items:center;justify-content:center;transition:transform .2s}
+    background:linear-gradient(135deg,var(--gia-brand),var(--gia-brand-light));color:#fff;border:none;cursor:pointer;
+    box-shadow:0 10px 28px color-mix(in srgb, var(--gia-brand) 40%, transparent);
+    display:flex;align-items:center;justify-content:center;transition:transform .2s, box-shadow .2s}
   .giaw-fab:hover{transform:scale(1.08) rotate(-4deg)}
   .giaw-fab .material-symbols-outlined{font-size:28px}
   /* Attention bounce when the site opens / a proactive ping arrives */
@@ -97,17 +127,33 @@ $giaWCfg = json_encode([
     background:#ef4444;color:#fff;font-size:11px;font-weight:700;line-height:18px;text-align:center;
     box-shadow:0 0 0 2px #fff;animation:giaw-pop .3s ease}
   @keyframes giaw-pop{from{transform:scale(0)}to{transform:scale(1)}}
-  .giaw-panel{position:fixed;right:20px;bottom:20px;z-index:9999;width:380px;max-width:calc(100vw - 32px);
-    height:600px;max-height:calc(100vh - 40px);background:#fff;border-radius:18px;
-    box-shadow:0 20px 60px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden}
-  .giaw-head{background:#0058E6;color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px}
-  .giaw-head .ttl{font-weight:700;font-size:.95rem;line-height:1.1}
-  .giaw-head .sub{font-size:.68rem;opacity:.85}
+  .giaw-panel{position:fixed;right:20px;bottom:20px;z-index:9999;width:384px;max-width:calc(100vw - 32px);
+    height:600px;max-height:calc(100vh - 40px);background:#fff;border-radius:20px;
+    box-shadow:0 24px 70px rgba(15,23,42,.28), 0 2px 10px rgba(15,23,42,.08);
+    border:1px solid rgba(15,23,42,.06);
+    display:flex;flex-direction:column;overflow:hidden;transform-origin:bottom right}
+  /* Panel entrance: a gentle scale+rise from the bubble, not a flat fade. */
+  .giaw-panel{animation:giaw-panel-in .34s cubic-bezier(.16,1,.3,1) both}
+  @keyframes giaw-panel-in{from{opacity:0;transform:translateY(14px) scale(.96)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){.giaw-panel{animation:none}}
+  .giaw-head{background:linear-gradient(120deg,var(--gia-brand),var(--gia-brand-dark));color:#fff;padding:13px 16px;display:flex;align-items:center;gap:11px}
+  .giaw-head .ttl{font-weight:750;font-size:1rem;line-height:1.05;letter-spacing:-.01em}
+  .giaw-head .sub{font-size:.68rem;opacity:.92;display:flex;align-items:center;gap:5px;margin-top:2px}
+  /* GIA avatar in the header — a soft glass circle with a live presence dot. */
+  .giaw-avatar{position:relative;width:38px;height:38px;flex:none;border-radius:50%;
+    background:rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}
+  .giaw-avatar .material-symbols-outlined{font-size:22px}
+  .giaw-presence{position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:50%;
+    background:#22c55e;box-shadow:0 0 0 2px var(--gia-brand)}
+  .giaw-dot-online{width:6px;height:6px;border-radius:50%;background:#4ade80;box-shadow:0 0 0 2px rgba(74,222,128,.3)}
   .giaw-close{margin-left:auto;background:none;border:0;color:#fff;cursor:pointer;opacity:.9}
-  .giaw-body{flex:1;overflow-y:auto;padding:14px;background:#f8fafc;scrollbar-width:thin}
+  .giaw-body{flex:1;overflow-y:auto;padding:14px;background:
+    radial-gradient(120% 60% at 100% 0%, color-mix(in srgb, var(--gia-brand) 6%, #fff) 0%, #f7f9fc 42%);
+    scrollbar-width:thin}
   .giaw-body::-webkit-scrollbar{width:6px}.giaw-body::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
-  .giaw-u{background:#0058E6;color:#fff;border-radius:16px 16px 4px 16px}
-  .giaw-a{background:#eef2f7;color:#0f172a;border-radius:16px 16px 16px 4px}
+  .giaw-u{background:linear-gradient(135deg,var(--gia-brand),var(--gia-brand-dark));color:#fff;border-radius:16px 16px 5px 16px;box-shadow:0 2px 8px color-mix(in srgb, var(--gia-brand) 22%, transparent)}
+  .giaw-a{background:#fff;color:#0f172a;border-radius:16px 16px 16px 5px;box-shadow:0 1px 3px rgba(15,23,42,.08);border:1px solid rgba(15,23,42,.05)}
   /* Message bubbles animate in (slide + fade) so the chat feels alive */
   .giaw-msg-in{animation:giaw-msg .32s cubic-bezier(.2,.8,.2,1) both}
   @keyframes giaw-msg{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
@@ -117,12 +163,21 @@ $giaWCfg = json_encode([
   .giaw-typing span:nth-child(2){animation-delay:.2s}.giaw-typing span:nth-child(3){animation-delay:.4s}
   @keyframes giaw-blink{0%,80%,100%{opacity:.3}40%{opacity:1}}
   .giaw-foot{border-top:1px solid #eef2f7;padding:10px 12px;background:#fff}
+  /* Composer: 16px prevents iOS Safari's zoom-on-focus (verified mobile defect). */
+  .giaw-input{font-size:16px;line-height:1.35}
   /* Mic actively listening — red pulse */
   .giaw-mic-live{background:#ef4444}
   .giaw-mic-live{animation:giaw-mic 1.1s ease-in-out infinite}
   @keyframes giaw-mic{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.5)}50%{box-shadow:0 0 0 7px rgba(239,68,68,0)}}
   @media (prefers-reduced-motion:reduce){.giaw-mic-live{animation:none}}
-  @media (max-width:420px){.giaw-panel{right:0;bottom:0;width:100vw;height:100vh;max-height:100vh;border-radius:0}}
+  /* Mobile: fill the VISUAL viewport (keyboard-aware) via JS-set vars, so the
+     composer stays above the on-screen keyboard instead of being hidden by it.
+     Falls back to 100vh/0 before JS runs or if VisualViewport is unavailable. */
+  @media (max-width:420px){
+    .giaw-panel{right:0;left:0;bottom:auto;width:100vw;border-radius:0;
+      top:var(--giaw-top,0px);
+      height:var(--giaw-vh,100vh);max-height:var(--giaw-vh,100vh)}
+  }
   @media (prefers-reduced-motion:reduce){
     .giaw-fab.giaw-bounce,.giaw-msg-in,.giaw-unread{animation:none!important}
     .giaw-fab:hover{transform:none}
@@ -132,8 +187,8 @@ $giaWCfg = json_encode([
   .giaw-teaser{position:fixed;right:20px;bottom:92px;z-index:9998;width:260px;max-width:calc(100vw - 40px);
     background:#fff;border-radius:16px 16px 16px 4px;padding:12px 14px;cursor:pointer;
     box-shadow:0 12px 32px rgba(0,0,0,.18);border:1px solid #eef2f7;animation:giaw-rise .35s ease both}
-  .giaw-teaser:hover{box-shadow:0 14px 38px rgba(0,88,230,.22)}
-  .giaw-teaser-av{color:#0058E6;font-size:20px;flex:none;margin-top:1px}
+  .giaw-teaser:hover{box-shadow:0 14px 38px color-mix(in srgb, var(--gia-brand) 24%, transparent)}
+  .giaw-teaser-av{color:var(--gia-brand);font-size:20px;flex:none;margin-top:1px}
   .giaw-teaser-txt{font-size:.8rem;line-height:1.35;color:#0f172a;margin:0}
   .giaw-teaser-x{position:absolute;top:6px;right:6px;width:20px;height:20px;border:0;background:#f1f5f9;
     border-radius:50%;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center}
@@ -141,11 +196,11 @@ $giaWCfg = json_encode([
   @keyframes giaw-rise{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}
   /* Gentle attention pulse on the bubble */
   .giaw-pulse{animation:giaw-fab-pulse 2.2s ease-in-out infinite}
-  @keyframes giaw-fab-pulse{0%,100%{box-shadow:0 8px 24px rgba(0,88,230,.35)}50%{box-shadow:0 8px 24px rgba(0,88,230,.35),0 0 0 10px rgba(0,88,230,.12)}}
+  @keyframes giaw-fab-pulse{0%,100%{box-shadow:0 8px 24px color-mix(in srgb, var(--gia-brand) 35%, transparent)}50%{box-shadow:0 8px 24px color-mix(in srgb, var(--gia-brand) 35%, transparent),0 0 0 10px color-mix(in srgb, var(--gia-brand) 12%, transparent)}}
   @media (prefers-reduced-motion:reduce){.giaw-pulse,.giaw-teaser{animation:none}}
   /* Quick-reply chips under GIA messages */
-  .giaw-qr{font-size:.72rem;font-weight:600;color:#0058E6;background:#eaf1fe;border:1px solid #d7e5fd;
-    border-radius:999px;padding:4px 10px;cursor:pointer;transition:background .15s}
+  .giaw-qr{font-size:.72rem;font-weight:600;color:var(--gia-brand);background:var(--gia-brand-soft);border:1px solid color-mix(in srgb, var(--gia-brand) 22%, #fff);
+    border-radius:999px;padding:5px 11px;cursor:pointer;transition:transform .14s ease, box-shadow .14s ease, background .14s}
   /* Side drawer: opens a result/listing page in an iframe WITHOUT leaving the chat */
   .giaw-drawer{position:fixed;top:0;right:0;z-index:10000;height:100vh;width:min(560px,100vw);
     background:#fff;box-shadow:-16px 0 48px rgba(0,0,0,.22);display:flex;flex-direction:column;
@@ -159,10 +214,11 @@ $giaWCfg = json_encode([
   .giaw-scrim{position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.35)}
   @media (max-width:600px){.giaw-drawer{width:100vw}}
   @media (prefers-reduced-motion:reduce){.giaw-drawer{animation:none}}
-  .giaw-qr:hover{background:#dbe8fe}
+  .giaw-qr:hover{background:color-mix(in srgb, var(--gia-brand) 14%, #fff);transform:translateY(-1px);box-shadow:0 3px 10px color-mix(in srgb, var(--gia-brand) 18%, transparent)}
+  @media (prefers-reduced-motion:reduce){.giaw-qr:hover{transform:none}}
 </style>
 
-<div x-data='giaWidget(<?= $giaWCfg ?>)' x-init="init()" x-cloak>
+<div class="giaw-root" x-data='giaWidget(<?= $giaWCfg ?>)' x-init="init()" x-cloak>
   <!-- Proactive teaser: a little speech bubble GIA "says" above the FAB on first
        visit / when idle. Tapping it opens the chat with that message prefilled. -->
   <div class="giaw-teaser" x-show="teaser && !open" x-transition
@@ -184,12 +240,17 @@ $giaWCfg = json_encode([
   </button>
 
   <!-- Chat panel -->
-  <div class="giaw-panel" x-show="open" x-transition.opacity x-cloak>
+  <div class="giaw-panel" x-show="open" x-transition.opacity x-cloak
+       role="dialog" aria-modal="true" aria-label="GIA — AI travel assistant chat"
+       x-ref="panel" @keydown.escape.window="open && toggle()" @keydown.tab="trapFocus($event)">
     <div class="giaw-head">
-      <span class="material-symbols-outlined">travel_explore</span>
+      <span class="giaw-avatar" aria-hidden="true">
+        <span class="material-symbols-outlined">travel_explore</span>
+        <span class="giaw-presence"></span>
+      </span>
       <div>
-        <div class="ttl">Ask GIA</div>
-        <div class="sub">AI travel assistant · you approve before any payment</div>
+        <div class="ttl">GIA</div>
+        <div class="sub"><span class="giaw-dot-online"></span>Travel assistant · online now</div>
       </div>
       <!-- Read GIA's replies aloud (browser speech synthesis). Toggle on/off. -->
       <button class="giaw-close" x-show="voiceOutputOk" @click="toggleSpeak()" x-cloak
@@ -204,7 +265,7 @@ $giaWCfg = json_encode([
     <div class="px-3 py-1.5 text-[11px] bg-emerald-50 text-emerald-700 border-b border-emerald-100 flex items-center gap-1.5" x-show="staffActive" x-cloak>
       <span class="material-symbols-outlined text-[14px]">support_agent</span> A team member is helping you on this chat.
     </div>
-    <div class="giaw-body" x-ref="scroll">
+    <div class="giaw-body" x-ref="scroll" role="log" aria-live="polite" aria-relevant="additions text" aria-label="Conversation with GIA">
       <template x-if="messages.length === 0">
         <div class="text-center py-6">
           <p class="text-slate-600 text-sm font-medium mb-3">Where would you like to go?</p>
@@ -249,7 +310,7 @@ $giaWCfg = json_encode([
                        class="w-full mb-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[12px] focus:outline-none focus:ring-2 focus:ring-blue-200">
                 <p class="text-[10px] text-red-600 mb-1" x-show="leadMsg" x-text="leadMsg"></p>
                 <div class="flex items-center gap-2">
-                  <button type="button" class="flex-1 py-1.5 rounded-lg text-white font-semibold text-[12px] disabled:opacity-60" style="background:#0058E6" :disabled="sending" @click="saveLead()">Save &amp; continue</button>
+                  <button type="button" class="flex-1 py-1.5 rounded-lg text-white font-semibold text-[12px] disabled:opacity-60" style="background:<?= $e($giaBrand) ?>" :disabled="sending" @click="saveLead()">Save &amp; continue</button>
                   <button type="button" class="text-[11px] text-slate-500 hover:text-slate-700 px-2" @click="dismissLead()">No thanks</button>
                 </div>
               </div>
@@ -291,9 +352,11 @@ $giaWCfg = json_encode([
                         </template>
                       </div>
                     </template>
-                    <!-- Live-supplier rich deep-link card (flights/cars/esim/rail/ferries) -->
+                    <!-- Live-supplier rich card (flights/cars/esim/rail/ferries): tapping
+                         runs the LIVE search IN the chat (fetch_live_offers) instead of a
+                         web drawer, so real priced options appear inline. -->
                     <template x-if="!(sr.cards && sr.cards.length) && hasSummary(sr)">
-                      <a :href="sr.listing_url?absUrl(sr.listing_url):'#'" @click.prevent="sr.listing_url && openDrawer(absUrl(sr.listing_url), summaryHeadline(sr))"
+                      <a href="#" @click.prevent="isLiveModule(sr.module||sr.kind) ? pickLive(sr) : (sr.listing_url && openDrawer(absUrl(sr.listing_url), summaryHeadline(sr)))"
                          class="giaw-card block p-2.5 hover:bg-slate-50 transition cursor-pointer">
                         <div class="flex items-center gap-1.5 mb-1">
                           <span class="material-symbols-outlined text-[16px]" style="color:var(--gia-brand)" x-text="moduleIcon(sr.module)"></span>
@@ -326,7 +389,7 @@ $giaWCfg = json_encode([
                   <span class="text-[11px] text-slate-500">total</span>
                 </div>
                 <p class="text-[11px] text-slate-500 mb-2">Nothing is charged until you approve and complete payment.</p>
-                <button type="button" class="w-full py-2 rounded-lg text-white font-semibold text-[13px] disabled:opacity-60" style="background:#0058E6" :disabled="sending" @click="approveCheckout()">
+                <button type="button" class="w-full py-2 rounded-lg text-white font-semibold text-[13px] disabled:opacity-60" style="background:<?= $e($giaBrand) ?>" :disabled="sending" @click="approveCheckout()">
                   Approve <span x-text="money(m.checkout.amount,m.checkout.currency)"></span>
                 </button>
               </div>
@@ -367,7 +430,8 @@ $giaWCfg = json_encode([
         <textarea x-model="draft" rows="1" maxlength="2000" x-ref="input"
                   @keydown.enter.prevent="if(!$event.shiftKey){ send() }" @input="autoGrow($event.target)"
                   :placeholder="listening ? 'Listening…' : 'Ask about a trip…'"
-                  class="flex-1 resize-none rounded-lg border border-slate-200 px-2.5 py-2 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-200"></textarea>
+                  aria-label="Message GIA"
+                  class="giaw-input flex-1 resize-none rounded-lg border border-slate-200 px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200"></textarea>
         <!-- Tap-to-speak: provider STT (Whisper/Gemini) when available, else the
              browser recognizer. Only shown when voice is on + some path works. -->
         <button type="button" x-show="voiceInputOk" @click="toggleMic()" :aria-pressed="listening"
@@ -376,7 +440,7 @@ $giaWCfg = json_encode([
                 :class="listening ? 'giaw-mic-live text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'" x-cloak>
           <span class="material-symbols-outlined text-[20px]" x-text="listening ? 'stop' : 'mic'"></span>
         </button>
-        <button type="submit" :disabled="sending || !draft.trim()" class="shrink-0 w-10 h-10 rounded-lg text-white flex items-center justify-center disabled:opacity-50" style="background:#0058E6">
+        <button type="submit" :disabled="sending || !draft.trim()" class="shrink-0 w-10 h-10 rounded-lg text-white flex items-center justify-center disabled:opacity-50" style="background:<?= $e($giaBrand) ?>">
           <span class="material-symbols-outlined text-[20px]">send</span>
         </button>
       </form>
@@ -391,7 +455,7 @@ $giaWCfg = json_encode([
       <div class="giaw-scrim" @click="closeDrawer()"></div>
       <div class="giaw-drawer" @keydown.escape.window="closeDrawer()">
         <div class="giaw-drawer-head">
-          <span class="material-symbols-outlined" style="color:#0058E6;font-size:20px">travel_explore</span>
+          <span class="material-symbols-outlined" style="color:<?= $e($giaBrand) ?>;font-size:20px">travel_explore</span>
           <span class="giaw-drawer-ttl" x-text="drawerTitle"></span>
           <a :href="drawerUrl" target="_blank" rel="noopener" class="giaw-drawer-btn" title="Open in new tab">
             <span class="material-symbols-outlined" style="font-size:18px">open_in_new</span>
@@ -479,16 +543,14 @@ function giaWidget(cfg){
           setTimeout(()=>{ showPing(); sessionStorage.setItem('gia_greeted','1'); }, 1800);
         } else { this.pulse=false; }
       }catch(e){ setTimeout(showPing, 1800); }
-      this.armIdle();
-      ['click','keydown','scroll','mousemove','touchstart'].forEach(ev=>
-        window.addEventListener(ev, ()=>this.armIdle(), {passive:true}));
+      this.armIntentNudge();
       // External open hook: anything on the page (e.g. the homepage AI box) can
       // open GIA and optionally send a first message via a window event:
       //   window.dispatchEvent(new CustomEvent('gia:open', {detail:{message:'...'}}))
       window.addEventListener('gia:open', (e)=>{
         const msg = (e && e.detail && e.detail.message) ? String(e.detail.message) : '';
         this.teaser=''; this.pulse=false;
-        if(!this.open){ this.open=true; this.$nextTick(()=>{ if(this.$refs.input) this.$refs.input.focus(); this.scrollDown(); }); }
+        if(!this.open){ this.open=true; this.onOpened(); }
         if(msg.trim()){ this.send(msg.trim()); }
       });
     },
@@ -507,20 +569,50 @@ function giaWidget(cfg){
         if(d && d.staff_active){ this.staffActive=true; this.subscribeRealtime(); this.startPolling(); }
       }catch(e){ /* fail-soft: start fresh */ }
     },
-    armIdle(){
+    // INTENT-BASED nudge (research: the verified engagement lever is to wait for
+    // demonstrated intent, not fire on load/idle). We nudge ONCE per session when
+    // the visitor shows buying intent: they are on a service/offer page AND have
+    // either dwelled a short while OR scrolled deep into it. On generic pages the
+    // bar is higher (longer dwell), so we never nag someone just skimming the home
+    // page. Frequency-capped by `nudged` (+ the once-per-session gia_greeted flag).
+    armIntentNudge(){
       if(this.nudged) return;
-      clearTimeout(this.idleTimer);
-      this.idleTimer=setTimeout(()=>{
-        if(this.open||this.nudged) return;
-        const c=this.ctxCopy[this.context]||this.ctxCopy[''];
+      const onOfferPage = this.context !== '';         // flights/stays/tours/umrah/...
+      const fire = ()=>{
+        if(this.open || this.nudged) return;
         this.teaser = this.context==='umrah'
-          ? "Still thinking about Umrah? I've got packages ready whenever you are 🙂"
-          : "Need a hand? I can find and book your trip in a couple of minutes.";
+          ? "Still thinking about Umrah? I've got real packages ready whenever you are 🙂"
+          : (onOfferPage
+              ? ("Want me to find the best " + (this.context || 'trip') + " options live and book it with you?")
+              : "Planning a trip? I can find real options and book it with you in a couple of minutes.");
         this.pulse=true; this.nudged=true;
-      }, 38000);
+      };
+      // Dwell: intent is assumed sooner on a service/offer page than a generic page.
+      const dwellMs = onOfferPage ? 20000 : 55000;
+      this.idleTimer = setTimeout(fire, dwellMs);
+      // Deep scroll on a service/offer page = strong intent -> nudge early.
+      if(onOfferPage){
+        this._scrollNudge = ()=>{
+          if(this.nudged) return;
+          const h=document.documentElement; const max=(h.scrollHeight - h.clientHeight);
+          if(max>400 && (h.scrollTop/max) >= 0.6){ clearTimeout(this.idleTimer); fire(); cleanup(); }
+        };
+        const cleanup = ()=>{ window.removeEventListener('scroll', this._scrollNudge); };
+        window.addEventListener('scroll', this._scrollNudge, {passive:true});
+      }
     },
-    openFromTeaser(){ const t=this.teaser; this.teaser=''; this.pulse=false; this.unread=0; this.open=true;
-      this.$nextTick(()=>{ if(this.$refs.input) this.$refs.input.focus(); if(this.messages.length===0) this.showGreeting(); this.scrollDown(); }); },
+    openFromTeaser(){ this.teaser=''; this.pulse=false; this.unread=0; if(!this.open){ this.toggle(); } },
+    // Shared "panel just opened" behaviour for any non-toggle open path: keyboard-
+    // aware sizing + mobile-safe focus (same rules as toggle()).
+    onOpened(){
+      this.syncViewport();
+      this.$nextTick(()=>{
+        if(this.messages.length===0) this.showGreeting();
+        this.scrollDown();
+        if(this.isMobile()){ if(this.$refs.panel){ this.$refs.panel.setAttribute('tabindex','-1'); this.$refs.panel.focus(); } }
+        else if(this.$refs.input){ this.$refs.input.focus(); }
+      });
+    },
     dismissTeaser(){ this.teaser=''; this.pulse=false; },
     // --- VOICE: tap-to-speak + read-aloud. PROVIDER-GRADE when the active AI
     //     provider supports it (OpenAI Whisper STT + TTS, Gemini audio-in STT),
@@ -683,17 +775,79 @@ function giaWidget(cfg){
     },
     showGreeting(){ if(this.greeted) return; this.greeted=true;
       const c=this.ctxCopy[this.context]||this.ctxCopy[''];
+      // Instant default (fast first paint), then swap in the personalized opener
+      // (name-aware line + shortcuts from the traveler's own recent activity).
+      const idx = this.messages.length;
       this.messages.push({role:'ai', text:this.greetLine(), quick:c.starters});
+      this.fetchOpener(idx);
     },
-    toggle(){ this.open=!this.open; this.teaser=''; this.pulse=false; this.unread=0;
-      if(this.open) this.$nextTick(()=>{ if(this.$refs.input) this.$refs.input.focus(); if(this.messages.length===0) this.showGreeting(); this.scrollDown(); }); },
+    async fetchOpener(idx){
+      try{
+        // Allow the GIA-authored line only for signed-in travelers.
+        const q = new URLSearchParams();
+        if(this.context) q.set('context', this.context);
+        if(this.loggedIn) q.set('llm','1');
+        const res = await fetch(this.root+'api/gia/opener'+(q.toString()?('?'+q.toString()):''),
+          {headers:{'X-CSRF-TOKEN':this.csrfToken}});
+        const d = await res.json().catch(()=>({}));
+        if(!d || d.status===false) return;
+        const m = this.messages[idx];
+        // Only replace if the user hasn't already started chatting over it.
+        if(!m || m.role!=='ai' || idx!==this.messages.length-1) return;
+        if(d.greeting && typeof d.greeting==='string'){ m.text = d.greeting; }
+        if(Array.isArray(d.shortcuts) && d.shortcuts.length){ m.quick = d.shortcuts.slice(0,3); }
+      }catch(e){ /* fail-soft: keep the instant default */ }
+    },
+    toggle(){ const wasOpen=this.open; this.open=!this.open; this.teaser=''; this.pulse=false; this.unread=0;
+      if(this.open){
+        this.syncViewport();
+        this.$nextTick(()=>{
+          if(this.messages.length===0) this.showGreeting();
+          this.scrollDown();
+          // Focus mgmt (verified a11y): move focus INTO the dialog. On mobile,
+          // focus a NON-input target (the panel) so the on-screen keyboard does
+          // not spring up uninvited; on desktop, focus the composer.
+          if(this.isMobile()){ if(this.$refs.panel){ this.$refs.panel.setAttribute('tabindex','-1'); this.$refs.panel.focus(); } }
+          else if(this.$refs.input){ this.$refs.input.focus(); }
+        });
+      } else if(wasOpen){
+        this.releaseViewport();
+        // Return focus to the launcher so keyboard users aren't stranded.
+        this.$nextTick(()=>{ const fab=this.$root && this.$root.querySelector('.giaw-fab'); if(fab) fab.focus(); });
+      }
+    },
+    isMobile(){ try{ return window.matchMedia('(max-width:420px)').matches; }catch(e){ return (window.innerWidth||1000) <= 420; } },
+    // Keyboard-aware panel sizing on mobile: track the VISUAL viewport so the
+    // composer stays above the on-screen keyboard (iOS Safari occlusion fix).
+    syncViewport(){
+      const vv=window.visualViewport; const root=this.$root;
+      if(!vv||!root||!this.isMobile()) return;
+      this._vvHandler=()=>{ root.style.setProperty('--giaw-vh', vv.height+'px'); root.style.setProperty('--giaw-top', (vv.offsetTop||0)+'px'); };
+      this._vvHandler();
+      vv.addEventListener('resize', this._vvHandler); vv.addEventListener('scroll', this._vvHandler);
+    },
+    releaseViewport(){
+      const vv=window.visualViewport, root=this.$root;
+      if(vv&&this._vvHandler){ vv.removeEventListener('resize', this._vvHandler); vv.removeEventListener('scroll', this._vvHandler); this._vvHandler=null; }
+      if(root){ root.style.removeProperty('--giaw-vh'); root.style.removeProperty('--giaw-top'); }
+    },
+    // Trap Tab focus within the open dialog (verified a11y for modal dialogs).
+    trapFocus(e){
+      if(!this.open||!this.$refs.panel) return;
+      const f=this.$refs.panel.querySelectorAll('a[href],button:not([disabled]),textarea,input,select,[tabindex]:not([tabindex="-1"])');
+      const list=Array.prototype.filter.call(f, el=>el.offsetParent!==null);
+      if(!list.length) return;
+      const first=list[0], last=list[list.length-1];
+      if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
+      else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
+    },
     autoGrow(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,100)+'px'; },
     async send(preset){
       const text=(preset!==undefined?preset:this.draft).trim();
       if(!text||this.sending) return;
       // Engaging = stop all proactive nudging for this session.
       this.teaser=''; this.pulse=false; this.nudged=true; clearTimeout(this.idleTimer);
-      if(!this.open){ this.open=true; this.$nextTick(()=>this.scrollDown()); }
+      if(!this.open){ this.open=true; this.syncViewport(); this.$nextTick(()=>this.scrollDown()); }
       this.lastUserText=text; this.messages.push({role:'user',text}); this.draft='';
       this.$nextTick(()=>{ if(this.$refs.input)this.$refs.input.style.height='auto'; this.scrollDown(); });
       await this.post({message:text});
@@ -807,6 +961,14 @@ function giaWidget(cfg){
       if(!mod||!ref){ this.send('I\'d like to book '+name); return; }
       // Explicit, unambiguous instruction for the model to call select_option.
       this.send('Please select_option module='+mod+' id='+ref+' — I want to book "'+name+'".'); },
+    // Live-module intent card tapped (flights/cars/rail/ferries/esim): run the LIVE
+    // supplier search IN the chat (GIA calls fetch_live_offers) instead of opening a
+    // web drawer — so real priced options appear inline and the user can pick one.
+    isLiveModule(mod){ return ['flights','cars','rail','ferries','esim'].indexOf(String(mod||'').toLowerCase())!==-1; },
+    pickLive(sr){ if(this.sending) return;
+      const mod=(sr&&(sr.module||sr.kind))||'';
+      if(!mod){ return; }
+      this.send('Show me the live '+mod+' options now so I can pick one.'); },
     // Open a result/listing page INSIDE a side drawer (iframe) so the visitor
     // never leaves the chat. Makes sure the panel is open so the drawer has a home.
     openDrawer(url, title){ if(!url||url==='#') return; this.open=true; this.drawerUrl=url; this.drawerTitle=title||'Details'; this.drawer=true; },

@@ -24,10 +24,26 @@ if (is_file($giaPageRt) && isset($db)) {
 // Optional initial query (e.g. the homepage AI box fallback: /gia?q=...). Bounded.
 $giaInitialQ = trim((string) ($_GET['q'] ?? ''));
 if (function_exists('mb_substr')) { $giaInitialQ = mb_substr($giaInitialQ, 0, 500); }
+
+// BRAND COLOR: drive the page off settings.brand_color (parity with the widget),
+// with derived light/dark/soft shades for gradients + washes. Falls back to the
+// long-standing blue. Fixes the prior hardcoded #0058E6 (not brand-aware).
+$giaBrand = trim((string) ($GLOBALS['app']['brand_color'] ?? ''));
+if (!preg_match('/^#[0-9a-fA-F]{6}$/', $giaBrand)) { $giaBrand = '#0058E6'; }
+$giaHexAdjust = static function (string $hex, float $factor): string {
+    $r = hexdec(substr($hex, 1, 2)); $g = hexdec(substr($hex, 3, 2)); $b = hexdec(substr($hex, 5, 2));
+    $mix = static fn($c) => max(0, min(255, (int) round($factor >= 1 ? $c + (255 - $c) * ($factor - 1) : $c * $factor)));
+    return sprintf('#%02x%02x%02x', $mix($r), $mix($g), $mix($b));
+};
+$giaBrandLight = $giaHexAdjust($giaBrand, 1.35);
+$giaBrandDark  = $giaHexAdjust($giaBrand, 0.82);
+$giaBrandSoft  = $giaHexAdjust($giaBrand, 1.88);
+$e = static fn($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+
 $giaCfg = json_encode([
     'endpoint'  => root . 'api/gia/chat',
     'csrfToken' => class_exists('CSRF') ? CSRF::getToken() : '',
-    'brand'     => '#0058E6',
+    'brand'     => $giaBrand,
     'root'      => root,
     'pusher'    => $giaPagePusher,
     'initialQuery' => $giaInitialQ,
@@ -35,7 +51,13 @@ $giaCfg = json_encode([
 ?>
 <style>
   [x-cloak]{display:none!important}
-  :root{--gia-brand:#0058E6;--gia-brand-soft:#E8F0FC;--gia-ink:#0f172a}
+  :root{
+    --gia-brand:<?= $e($giaBrand) ?>;
+    --gia-brand-light:<?= $e($giaBrandLight) ?>;
+    --gia-brand-dark:<?= $e($giaBrandDark) ?>;
+    --gia-brand-soft:<?= $e($giaBrandSoft) ?>;
+    --gia-ink:#0f172a;
+  }
   .gia-wrap{max-width:860px}
   /* Side drawer: open a result/listing page in an iframe without leaving the chat */
   .gia-drawer{position:fixed;top:0;right:0;z-index:10000;height:100vh;width:min(640px,100vw);
@@ -53,13 +75,25 @@ $giaCfg = json_encode([
   .gia-scroll{scrollbar-width:thin}
   .gia-scroll::-webkit-scrollbar{width:6px}
   .gia-scroll::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
-  .gia-bubble-user{background:var(--gia-brand);color:#fff;border-radius:18px 18px 4px 18px}
-  .gia-bubble-ai{background:#f1f5f9;color:var(--gia-ink);border-radius:18px 18px 18px 4px}
+  .gia-bubble-user{background:linear-gradient(135deg,var(--gia-brand),var(--gia-brand-dark));color:#fff;border-radius:18px 18px 5px 18px;box-shadow:0 2px 8px color-mix(in srgb,var(--gia-brand) 22%,transparent)}
+  .gia-bubble-ai{background:#fff;color:var(--gia-ink);border-radius:18px 18px 18px 5px;box-shadow:0 1px 3px rgba(15,23,42,.08);border:1px solid rgba(15,23,42,.05)}
+  /* Message entrance — gentle rise+fade (parity with the widget). */
+  .gia-msg-in{animation:gia-msg .32s cubic-bezier(.2,.8,.2,1) both}
+  @keyframes gia-msg{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){.gia-msg-in{animation:none}}
   .gia-typing span{display:inline-block;width:6px;height:6px;margin:0 1px;border-radius:50%;background:#94a3b8;animation:gia-blink 1.2s infinite both}
   .gia-typing span:nth-child(2){animation-delay:.2s}.gia-typing span:nth-child(3){animation-delay:.4s}
   @keyframes gia-blink{0%,80%,100%{opacity:.3}40%{opacity:1}}
-  .gia-card{border:1px solid #e2e8f0;border-radius:14px;background:#fff}
+  .gia-card{border:1px solid #e2e8f0;border-radius:14px;background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.06)}
   .gia-chip{font-size:.7rem;font-weight:600;letter-spacing:.03em;text-transform:uppercase;padding:3px 10px;border-radius:999px}
+  /* Starter/quick-reply chips lift on hover (parity). */
+  .gia-qr{transition:transform .14s ease, box-shadow .14s ease, background .14s}
+  .gia-qr:hover{transform:translateY(-1px);box-shadow:0 3px 10px color-mix(in srgb,var(--gia-brand) 18%,transparent)}
+  @media (prefers-reduced-motion:reduce){.gia-qr:hover{transform:none}}
+  /* 16px composer prevents iOS zoom-on-focus (parity). */
+  .gia-input{font-size:16px}
+  /* Live presence dot in the header. */
+  .gia-presence{position:absolute;right:-1px;bottom:-1px;width:12px;height:12px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 2.5px #fff}
 </style>
 
 <div class="bg-slate-50 min-h-[70vh] py-6" x-data='giaChat(<?= $giaCfg ?>)' x-init="init()" x-cloak>
@@ -67,12 +101,17 @@ $giaCfg = json_encode([
 
     <!-- Header -->
     <div class="flex items-center gap-3 mb-4">
-      <div class="w-11 h-11 rounded-full flex items-center justify-center text-white shrink-0" style="background:var(--gia-brand)">
+      <div class="relative w-11 h-11 rounded-full flex items-center justify-center text-white shrink-0"
+           style="background:linear-gradient(135deg,var(--gia-brand),var(--gia-brand-light));box-shadow:0 4px 14px color-mix(in srgb,var(--gia-brand) 30%,transparent)">
         <span class="material-symbols-outlined">travel_explore</span>
+        <span class="gia-presence" aria-hidden="true"></span>
       </div>
       <div class="flex-1">
         <h1 class="text-lg font-bold text-slate-800 leading-tight">GIA — your travel assistant</h1>
-        <p class="text-xs text-slate-500">Plan a trip in plain English. GIA searches live options and prepares a checkout — you always approve before anything is paid.</p>
+        <p class="text-xs text-slate-500 flex items-center gap-1.5">
+          <span class="inline-block w-1.5 h-1.5 rounded-full" style="background:#22c55e"></span>
+          Online now · searches live options and prepares a checkout — you always approve before anything is paid.
+        </p>
       </div>
       <button type="button" @click="newChat()" x-show="messages.length > 0"
               class="shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
@@ -91,7 +130,8 @@ $giaCfg = json_encode([
       <div class="mb-3 px-3 py-1.5 text-xs rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center gap-1.5" x-show="staffActive" x-cloak>
         <span class="material-symbols-outlined text-[15px]">support_agent</span> A team member is helping you on this chat.
       </div>
-      <div class="gia-scroll overflow-y-auto pr-1" style="max-height:52vh" x-ref="scroll">
+      <div class="gia-scroll overflow-y-auto pr-1" style="max-height:52vh" x-ref="scroll"
+           role="log" aria-live="polite" aria-relevant="additions text" aria-label="Conversation with GIA">
 
         <!-- Empty state -->
         <template x-if="messages.length === 0">
@@ -99,7 +139,8 @@ $giaCfg = json_encode([
             <p class="text-slate-600 font-medium mb-4">Where would you like to go?</p>
             <div class="flex flex-wrap gap-2 justify-center">
               <template x-for="s in starters" :key="s">
-                <button type="button" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full px-3 py-1.5 transition"
+                <button type="button" class="gia-qr text-xs rounded-full px-3 py-1.5"
+                        style="color:var(--gia-brand);background:var(--gia-brand-soft);border:1px solid color-mix(in srgb,var(--gia-brand) 22%,#fff)"
                         @click="send(s)" x-text="s"></button>
               </template>
             </div>
@@ -108,7 +149,7 @@ $giaCfg = json_encode([
 
         <!-- Messages -->
         <template x-for="(m, i) in messages" :key="i">
-          <div class="mb-4" :class="m.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
+          <div class="mb-4 gia-msg-in" :class="m.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
             <div class="max-w-[85%]">
               <div class="px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap"
                    :class="m.role === 'user' ? 'gia-bubble-user' : 'gia-bubble-ai'"
@@ -175,7 +216,7 @@ $giaCfg = json_encode([
                            a rich "See live options" card — real fares load on the
                            results page (external API too slow to fetch inline). -->
                       <template x-if="!(sr.cards && sr.cards.length) && hasSummary(sr)">
-                        <a :href="sr.listing_url ? absUrl(sr.listing_url) : '#'" @click.prevent="sr.listing_url && openDrawer(absUrl(sr.listing_url), summaryHeadline(sr))"
+                        <a href="#" @click.prevent="isLiveModule(sr.module || sr.kind) ? pickLive(sr) : (sr.listing_url && openDrawer(absUrl(sr.listing_url), summaryHeadline(sr)))"
                            class="gia-card block p-3 hover:bg-slate-50 transition cursor-pointer">
                           <div class="flex items-center gap-2 mb-1.5">
                             <span class="material-symbols-outlined text-[18px]" style="color:var(--gia-brand)" x-text="moduleIcon(sr.module)"></span>
@@ -300,11 +341,12 @@ $giaCfg = json_encode([
           <textarea x-model="draft" x-ref="input" rows="1" maxlength="2000"
                     @keydown.enter.prevent="if(!$event.shiftKey){ send() }"
                     @input="autoGrow($event.target)"
+                    aria-label="Message GIA"
                     placeholder="e.g. 2 adults from Abuja to Dubai, Nov 10-17, 4-star hotel"
-                    class="flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"></textarea>
-          <button type="submit" :disabled="sending || !draft.trim()"
+                    class="gia-input flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-200"></textarea>
+          <button type="submit" :disabled="sending || !draft.trim()" aria-label="Send message"
                   class="shrink-0 w-11 h-11 rounded-xl text-white flex items-center justify-center disabled:opacity-50"
-                  style="background:var(--gia-brand)">
+                  style="background:linear-gradient(135deg,var(--gia-brand),var(--gia-brand-dark))">
             <span class="material-symbols-outlined">send</span>
           </button>
         </form>
@@ -422,6 +464,15 @@ function giaChat(cfg) {
       const name = (c && (c.name || c.title)) || 'this option';
       if (!mod || !ref) { this.send('I\'d like to book ' + name); return; }
       this.send('Please select_option module=' + mod + ' id=' + ref + ' — I want to book "' + name + '".');
+    },
+    isLiveModule(mod) { return ['flights','cars','rail','ferries','esim'].indexOf(String(mod || '').toLowerCase()) !== -1; },
+    // Live-module intent card tapped: run the LIVE supplier search in the chat
+    // (GIA calls fetch_live_offers) rather than opening the web listing drawer.
+    pickLive(sr) {
+      if (this.sending) return;
+      const mod = (sr && (sr.module || sr.kind)) || '';
+      if (!mod) return;
+      this.send('Show me the live ' + mod + ' options now so I can pick one.');
     },
     // Same-origin payment pages load in the drawer; an external gateway URL opens
     // in a new tab (it can't be framed).

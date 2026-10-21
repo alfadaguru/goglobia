@@ -254,6 +254,12 @@ if (!empty($activeCurrencyRow)) {
     $_SESSION['app_currency_country'] = $activeCurrencyRow['country'] ?? ($_SESSION['app_currency_country'] ?? '');
     $_SESSION['app_currency_country_name'] = $activeCurrencyRow['country_name'] ?? ($_SESSION['app_currency_country_name'] ?? '');
 }
+
+// WHITE-LABEL: resolve tenant flag here (BEFORE <head> renders) so the branded
+// favicon/chrome block at the top of <head> can read it. It is re-read later in
+// the SEO block (idempotent); defining it early avoids an "undefined variable"
+// notice on every page when wl_is_tenant() isn't yet evaluated.
+$wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
 ?>
 <!DOCTYPE html>
 <html lang="<?= $_SESSION['app_language'] ?? 'en' ?>" dir="<?= $_SESSION['app_language_dir'] ?? 'ltr' ?>">
