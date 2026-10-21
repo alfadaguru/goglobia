@@ -120,16 +120,33 @@ if (!function_exists('gia_channel_send_whatsapp')) {
         }
 
         // Green API: its interactive buttons are BETA/unstable (verified in docs),
-        // so we render choices as reliable NUMBERED TEXT and reuse the hardened
-        // SENDWHATSAPP() wrapper. The traveler replies with a number/name, which the
-        // agent reads as a normal message — no callback needed.
+        // so we render choices as reliable NUMBERED TEXT. The traveler replies with
+        // a number/name, read as a normal message — no callback needed.
         $out = $hasChoices ? gia_render_text_fallback($norm) : (string) $norm['text'];
         if (trim($out) === '') { return false; }
-        if (function_exists('SENDWHATSAPP')) {
-            return (bool) SENDWHATSAPP($toPhone, '', $out);
+        // Send via the Green API provider DIRECTLY with the greenapi creds — do NOT
+        // route through SENDWHATSAPP(), which keys off settings.whatsapp_provider:
+        // if an operator set the NOTIFICATION provider to something other than
+        // greenapi, SENDWHATSAPP would use the wrong account (or fail) for GIA's
+        // chat replies. GIA's WhatsApp channel is explicitly greenapi here, so we
+        // load the greenapi credentials regardless of the global notification choice.
+        try {
+            $settings = $db->get('settings', ['whatsapp_providers_config'], ['id' => 1]) ?: [];
+            $allCfg = json_decode((string) ($settings['whatsapp_providers_config'] ?? '{}'), true);
+            $gc = (is_array($allCfg) && is_array($allCfg['greenapi'] ?? null)) ? $allCfg['greenapi'] : [];
+            if (empty($gc['instance_id']) || empty($gc['token'])) {
+                error_log('[gia] whatsapp(greenapi) send: Green API credentials not set (Settings → WhatsApp)');
+                return false;
+            }
+            $provFile = dirname(__DIR__, 1) . '/notifications/whatsapp/greenapi.php';
+            if (!class_exists('GreenapiProvider') && is_file($provFile)) { require_once $provFile; }
+            if (!class_exists('GreenapiProvider')) { return false; }
+            $prov = new \GreenapiProvider($gc);
+            return (bool) $prov->send($toPhone, '', $out);
+        } catch (\Throwable $e) {
+            error_log('[gia] whatsapp(greenapi) send: ' . $e->getMessage());
+            return false;
         }
-        error_log('[gia] whatsapp(greenapi) send: SENDWHATSAPP unavailable');
-        return false;
     }
 }
 
@@ -171,5 +188,71 @@ if (!function_exists('gia_channel_send_messenger')) {
             'message'        => $message,
         ]);
         return $r['ok'];
+    }
+}
+
+if (!function_exists('gia_greenapi_set_webhook')) {
+    /**
+     * ONE-CLICK: register GoGlobia as Green API's incoming-webhook target, so
+     * "hi" from a traveller reaches GIA without the operator editing the Green API
+     * console by hand. Calls Green API SetSettings on the INSTANCE host with:
+     *   webhookUrl = <site>/webhooks/gia/whatsapp?secret=<webhook_secret>
+     *   incomingWebhook = "yes"  (we only need inbound messages)
+     * The secret rides in the URL query (our webhook reads ?secret=), not in
+     * webhookUrlToken. Requires: greenapi creds set (Settings → WhatsApp) AND a
+     * webhook_secret set (GIA → Channels). Returns ['ok'=>bool,'message'=>string].
+     * Never logs the token.
+     */
+    function gia_greenapi_set_webhook($db): array
+    {
+        require_once __DIR__ . '/gia_channels_config.php';
+        $wa = gia_channels_config($db)['whatsapp'] ?? [];
+        $secret = trim((string) ($wa['webhook_secret'] ?? ''));
+        if ($secret === '') {
+            return ['ok' => false, 'message' => 'Set a WhatsApp webhook secret first, then save, then enable.'];
+        }
+
+        // Green API credentials from the notification config (shared, by design).
+        try {
+            $settings = $db->get('settings', ['whatsapp_providers_config'], ['id' => 1]) ?: [];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'message' => 'Could not read settings.'];
+        }
+        $allCfg = json_decode((string) ($settings['whatsapp_providers_config'] ?? '{}'), true);
+        $gc = (is_array($allCfg) && is_array($allCfg['greenapi'] ?? null)) ? $allCfg['greenapi'] : [];
+        $iid = trim((string) ($gc['instance_id'] ?? ''));
+        $tok = trim((string) ($gc['token'] ?? ''));
+        if ($iid === '' || $tok === '') {
+            return ['ok' => false, 'message' => 'Green API credentials are not set (Settings → WhatsApp).'];
+        }
+
+        // Resolve the instance host via the provider (first-4-digits rule / api_url).
+        $provFile = dirname(__DIR__, 1) . '/notifications/whatsapp/greenapi.php';
+        if (!class_exists('GreenapiProvider') && is_file($provFile)) { require_once $provFile; }
+        if (!class_exists('GreenapiProvider')) {
+            return ['ok' => false, 'message' => 'Green API provider unavailable.'];
+        }
+        $host = (new \GreenapiProvider($gc))->getBaseUrl();
+
+        // Our inbound endpoint, with the shared secret as a query param.
+        $webhookUrl = (defined('root') ? root : '/') . 'webhooks/gia/whatsapp?secret=' . rawurlencode($secret);
+
+        // SetSettings — enable incoming notifications + point them at us. We leave
+        // the other webhook types untouched where possible, but Green API's
+        // SetSettings sets what you send; we send what GIA needs.
+        $url = rtrim($host, '/') . '/waInstance' . rawurlencode($iid) . '/setSettings/' . rawurlencode($tok);
+        $r = gia_channel_http_post_json($url, [
+            'webhookUrl'          => $webhookUrl,
+            'incomingWebhook'     => 'yes',
+            'stateWebhook'        => 'no',
+            'outgoingWebhook'     => 'no',
+            'outgoingAPIMessageWebhook' => 'no',
+            'outgoingMessageWebhook'    => 'no',
+            'deviceWebhook'       => 'no',
+        ]);
+        if (!empty($r['ok'])) {
+            return ['ok' => true, 'message' => 'Green API is now sending incoming messages to GIA. Send your WhatsApp number a "hi" to test.'];
+        }
+        return ['ok' => false, 'message' => 'Green API rejected the request (HTTP ' . (int) ($r['code'] ?? 0) . '). Check the instance ID / token and that the instance is authorized.'];
     }
 }

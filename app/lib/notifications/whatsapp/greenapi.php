@@ -12,7 +12,23 @@ class GreenapiProvider {
 
     public function __construct($config) {
         $this->config = $config;
+        // Green API recommends the INSTANCE-SPECIFIC host (https://{first4ofId}.api
+        // .greenapi.com) over the generic one "to avoid technical issues". Derive it
+        // from instance_id so sends + SetSettings hit the right endpoint; an explicit
+        // config['api_url'] overrides; falls back to the generic host.
+        $explicit = trim((string) ($config['api_url'] ?? ''));
+        if ($explicit !== '' && preg_match('#^https://[a-z0-9.\-]+$#i', rtrim($explicit, '/'))) {
+            $this->baseUrl = rtrim($explicit, '/');
+        } else {
+            $iid = preg_replace('/[^0-9]/', '', (string) ($config['instance_id'] ?? ''));
+            if (strlen($iid) >= 4) {
+                $this->baseUrl = 'https://' . substr($iid, 0, 4) . '.api.greenapi.com';
+            }
+        }
     }
+
+    /** The resolved instance API host (so callers like SetSettings use the same). */
+    public function getBaseUrl() { return $this->baseUrl; }
 
     public function send($to, $to_name, $message, $subject = null, $from_name = null) {
         try {

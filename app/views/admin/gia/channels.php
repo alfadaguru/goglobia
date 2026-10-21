@@ -84,6 +84,15 @@ $tg = $channels['telegram'] ?? [];
             : $waUrl;
         $copyRow('Webhook URL (paste into your provider console)', $waShown);
       ?>
+      <?php if (($wa['mode'] ?? 'greenapi') === 'greenapi'): ?>
+        <div class="mt-3 flex items-center gap-3 flex-wrap">
+          <button type="button" id="gia-ga-webhook"
+                  class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
+            <i class="material-symbols-outlined text-[16px]">link</i> Enable incoming on Green API
+          </button>
+          <span class="text-[11px] text-gray-500">One click: points your Green API instance's incoming messages at GIA (no console trip). Set &amp; save the webhook secret first.</span>
+        </div>
+      <?php endif; ?>
     </div>
 
     <!-- MESSENGER -->
@@ -158,5 +167,17 @@ $tg = $channels['telegram'] ?? [];
         .finally(function(){ b.textContent = orig; b.disabled = false; });
     });
   });
+  // One-click: register GoGlobia as Green API's incoming-webhook target.
+  var gaBtn = document.getElementById('gia-ga-webhook');
+  if (gaBtn) {
+    gaBtn.addEventListener('click', function(){
+      var orig = gaBtn.innerHTML; gaBtn.textContent = 'Enabling…'; gaBtn.disabled = true;
+      fetch(base + '/gia/channels/greenapi-webhook', { method:'POST', headers:{'X-CSRF-TOKEN':csrf}, body: new FormData() })
+        .then(function(r){ return r.json(); })
+        .then(function(d){ showFlash(!!(d && d.status), (d && d.message) || (d && d.status ? 'Enabled.' : 'Failed.')); })
+        .catch(function(){ showFlash(false, 'Network error.'); })
+        .finally(function(){ gaBtn.innerHTML = orig; gaBtn.disabled = false; });
+    });
+  }
 })();
 </script>

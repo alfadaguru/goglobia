@@ -186,10 +186,17 @@ $router->post('/webhooks/gia/whatsapp', function () use ($db, $giaChLib, $giaChA
         $data = json_decode($raw, true);
         $parsed = gia_ch_parse_meta_whatsapp(is_array($data) ? $data : []);
     } else {
-        // Green API: shared-secret on the URL (it does not sign webhooks).
+        // Green API: it does not sign webhooks, so a shared secret on the URL
+        // (?secret=) is the ONLY authentication. It is REQUIRED — a blank secret
+        // would let anyone who finds the URL POST forged inbound messages, so we
+        // refuse inbound until the admin sets one (and Green API echoes it).
         $secret = (string) ($cfg['webhook_secret'] ?? '');
         $got = (string) ($_GET['secret'] ?? '');
-        if ($secret !== '' && !hash_equals($secret, $got)) {
+        if ($secret === '') {
+            error_log('[gia] whatsapp(greenapi) webhook: refused — no webhook_secret configured');
+            $giaChAck(403, 'secret required'); return;
+        }
+        if (!hash_equals($secret, $got)) {
             $giaChAck(403, 'bad secret'); return;
         }
         $data = json_decode($raw, true);
