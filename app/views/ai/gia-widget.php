@@ -158,6 +158,59 @@ $giaWCfg = json_encode([
   .giaw-msg-in{animation:giaw-msg .32s cubic-bezier(.2,.8,.2,1) both}
   @keyframes giaw-msg{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
   .giaw-card{border:1px solid #e2e8f0;border-radius:12px;background:#fff}
+  /* ============ PREMIUM TRAVEL CARD SYSTEM (in-chat result/offer cards) ============ */
+  .giaw-opt{display:block;border:1px solid #e8edf3;border-radius:14px;background:#fff;overflow:hidden;
+    box-shadow:0 1px 2px rgba(15,23,42,.05);cursor:pointer;transition:transform .16s ease, box-shadow .16s ease, border-color .16s}
+  .giaw-opt:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(15,23,42,.12);border-color:color-mix(in srgb,var(--gia-brand) 35%,#e8edf3)}
+  .giaw-opt-media{position:relative;height:84px;background:linear-gradient(135deg,var(--gia-brand-soft),#f3f6fb);overflow:hidden}
+  .giaw-opt-media img{width:100%;height:100%;object-fit:cover;display:block}
+  .giaw-opt-ico{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--gia-brand)}
+  .giaw-opt-ico .material-symbols-outlined{font-size:34px;opacity:.9}
+  .giaw-opt-live{position:absolute;top:8px;left:8px;display:inline-flex;align-items:center;gap:4px;
+    background:rgba(255,255,255,.92);color:#15803d;font-size:9px;font-weight:800;letter-spacing:.04em;
+    text-transform:uppercase;padding:3px 7px;border-radius:999px;box-shadow:0 1px 3px rgba(15,23,42,.12)}
+  .giaw-opt-live i{width:5px;height:5px;border-radius:50%;background:#22c55e;display:inline-block;animation:giaw-blink 1.4s infinite}
+  .giaw-opt-body{padding:9px 11px}
+  .giaw-opt-ttl{font-size:12.5px;font-weight:750;color:#0f172a;line-height:1.25;letter-spacing:-.01em}
+  .giaw-opt-sub{font-size:10.5px;color:#64748b;margin-top:1px}
+  .giaw-opt-row{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;margin-top:8px}
+  .giaw-opt-price{font-size:15px;font-weight:800;color:#0b1220;line-height:1}
+  .giaw-opt-price .cur{font-size:10px;font-weight:700;color:#64748b;margin-right:1px}
+  .giaw-opt-from{font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+  .giaw-opt-cta{display:inline-flex;align-items:center;gap:4px;background:var(--gia-brand);color:#fff;
+    font-size:11px;font-weight:700;padding:6px 12px;border-radius:9px;white-space:nowrap;
+    box-shadow:0 2px 6px color-mix(in srgb,var(--gia-brand) 28%,transparent);transition:background .14s}
+  .giaw-opt:hover .giaw-opt-cta{background:var(--gia-brand-dark)}
+  .giaw-opt-cta .material-symbols-outlined{font-size:15px}
+  /* staggered entrance as results arrive */
+  .giaw-opt{animation:giaw-card-in .36s cubic-bezier(.16,1,.3,1) both}
+  @keyframes giaw-card-in{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){.giaw-opt,.giaw-opt:hover{animation:none;transform:none}.giaw-opt-live i{animation:none}}
+  /* Checkout / payment card — the conversion moment. */
+  .giaw-pay{border:1px solid #e8edf3;border-radius:14px;background:#fff;overflow:hidden;box-shadow:0 2px 10px rgba(15,23,42,.07);
+    animation:giaw-card-in .36s cubic-bezier(.16,1,.3,1) both}
+  .giaw-pay-top{padding:12px 13px 11px;background:linear-gradient(180deg,color-mix(in srgb,var(--gia-brand) 5%,#fff),#fff)}
+  .giaw-pay-amt{font-size:24px;font-weight:850;color:#0b1220;line-height:1;margin-top:8px;letter-spacing:-.02em}
+  .giaw-pay-amt .cur{font-size:13px;font-weight:700;color:#64748b;margin-right:2px}
+  .giaw-pay-note{font-size:10.5px;color:#64748b;margin-top:4px}
+  .giaw-pay-btn{width:100%;border:0;cursor:pointer;color:#fff;font-size:13px;font-weight:750;
+    padding:11px 12px;display:flex;align-items:center;justify-content:center;gap:6px;
+    background:linear-gradient(135deg,var(--gia-brand),var(--gia-brand-dark));transition:filter .14s}
+  .giaw-pay-btn:hover{filter:brightness(1.06)}
+  .giaw-pay-btn:disabled{opacity:.6;cursor:default}
+  .giaw-pay-btn .material-symbols-outlined{font-size:17px}
+  .giaw-pay-btn--go{background:linear-gradient(135deg,#16a34a,#15803d)}
+  @media (prefers-reduced-motion:reduce){.giaw-pay{animation:none}}
+  /* Live-module summary card (tap to pull live offers in-chat). */
+  .giaw-summary{display:flex;align-items:center;gap:10px;border:1px solid #e8edf3;border-radius:14px;background:#fff;
+    padding:10px 11px;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.05);
+    transition:transform .16s ease, box-shadow .16s ease, border-color .16s;
+    animation:giaw-card-in .36s cubic-bezier(.16,1,.3,1) both}
+  .giaw-summary:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(15,23,42,.12);border-color:color-mix(in srgb,var(--gia-brand) 35%,#e8edf3)}
+  .giaw-summary-ico{width:38px;height:38px;flex:none;border-radius:10px;background:var(--gia-brand-soft);color:var(--gia-brand);
+    display:flex;align-items:center;justify-content:center}
+  .giaw-summary-ico .material-symbols-outlined{font-size:20px}
+  @media (prefers-reduced-motion:reduce){.giaw-summary,.giaw-summary:hover{animation:none;transform:none}}
   .giaw-chip{font-size:.62rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;padding:2px 8px;border-radius:999px}
   .giaw-typing span{display:inline-block;width:5px;height:5px;margin:0 1px;border-radius:50%;background:#94a3b8;animation:giaw-blink 1.2s infinite both}
   .giaw-typing span:nth-child(2){animation-delay:.2s}.giaw-typing span:nth-child(3){animation-delay:.4s}
@@ -320,29 +373,38 @@ $giaWCfg = json_encode([
               <div class="mt-1.5 space-y-1.5">
                 <template x-for="(sr,si) in m.searches" :key="si">
                   <div>
-                    <!-- REAL priced cards -->
+                    <!-- REAL priced cards — premium travel-card layout -->
                     <template x-if="sr.cards && sr.cards.length">
-                      <div class="space-y-1.5">
+                      <div class="space-y-2">
                         <template x-for="(c,ci) in sr.cards.slice(0,5)" :key="ci">
                           <a :href="sr.live ? '#' : cardUrl(sr,c)"
                              @click.prevent="sr.live ? pickOffer(sr,c) : openDrawer(cardUrl(sr,c), c.name||c.title||'Details')"
-                             class="giaw-card block overflow-hidden hover:bg-slate-50 transition cursor-pointer">
-                            <div class="flex gap-2">
+                             class="giaw-opt" :style="'animation-delay:'+(ci*60)+'ms'">
+                            <!-- Media lead: real photo if the supplier gave one, else a
+                                 branded module icon tile. A live-fare badge when applicable. -->
+                            <div class="giaw-opt-media">
                               <template x-if="c.image">
-                                <img :src="c.image" :alt="c.name||c.title||''" class="w-14 h-14 object-cover shrink-0" loading="lazy" @error="$event.target.style.display='none'">
+                                <img :src="c.image" :alt="c.name||c.title||''" loading="lazy" @error="$event.target.closest('.giaw-opt-media').querySelector('.giaw-opt-ico').style.display='flex'; $event.target.style.display='none'">
                               </template>
-                              <div class="flex-1 min-w-0 p-2">
-                                <div class="flex items-start justify-between gap-1.5">
-                                  <div class="min-w-0">
-                                    <div class="text-[11px] font-semibold text-slate-800 truncate" x-text="c.name||c.title||'Option'"></div>
-                                    <div class="text-[10px] text-slate-500 truncate" x-text="c.subtitle||c.location||''"></div>
-                                  </div>
-                                  <div class="text-[11px] font-bold text-slate-900 shrink-0" x-text="money(c.price!=null?c.price:c.adult_price, c.currency)"></div>
+                              <span class="giaw-opt-ico" :style="c.image ? 'display:none' : ''">
+                                <span class="material-symbols-outlined" x-text="moduleIcon(sr.module||sr.kind)"></span>
+                              </span>
+                              <template x-if="sr.live">
+                                <span class="giaw-opt-live"><i></i> Live fare</span>
+                              </template>
+                            </div>
+                            <div class="giaw-opt-body">
+                              <div class="giaw-opt-ttl" x-text="c.name||c.title||'Option'"></div>
+                              <div class="giaw-opt-sub" x-show="c.subtitle||c.location" x-text="c.subtitle||c.location||''"></div>
+                              <div class="giaw-opt-row">
+                                <div>
+                                  <div class="giaw-opt-from" x-text="(c.price!=null && (c.adults||c.children||c.infants)) ? 'Total' : 'From'"></div>
+                                  <div class="giaw-opt-price" x-html="moneyHtml(c.price!=null?c.price:c.adult_price, c.currency)"></div>
                                 </div>
-                                <div class="mt-1 flex items-center gap-1 text-[10px] font-semibold" style="color:var(--gia-brand)">
-                                  <span x-text="sr.live ? 'Select this' : 'View & book'"></span>
-                                  <span class="material-symbols-outlined text-[13px]">arrow_forward</span>
-                                </div>
+                                <span class="giaw-opt-cta">
+                                  <span x-text="sr.live ? 'Select' : 'View & book'"></span>
+                                  <span class="material-symbols-outlined">arrow_forward</span>
+                                </span>
                               </div>
                             </div>
                           </a>
@@ -357,14 +419,13 @@ $giaWCfg = json_encode([
                          web drawer, so real priced options appear inline. -->
                     <template x-if="!(sr.cards && sr.cards.length) && hasSummary(sr)">
                       <a href="#" @click.prevent="isLiveModule(sr.module||sr.kind) ? pickLive(sr) : (sr.listing_url && openDrawer(absUrl(sr.listing_url), summaryHeadline(sr)))"
-                         class="giaw-card block p-2.5 hover:bg-slate-50 transition cursor-pointer">
-                        <div class="flex items-center gap-1.5 mb-1">
-                          <span class="material-symbols-outlined text-[16px]" style="color:var(--gia-brand)" x-text="moduleIcon(sr.module)"></span>
-                          <span class="text-[12px] font-semibold text-slate-800" x-text="summaryHeadline(sr)"></span>
+                         class="giaw-summary">
+                        <span class="giaw-summary-ico"><span class="material-symbols-outlined" x-text="moduleIcon(sr.module)"></span></span>
+                        <div class="min-w-0 flex-1">
+                          <div class="giaw-opt-ttl truncate" x-text="summaryHeadline(sr)"></div>
+                          <div class="giaw-opt-sub truncate" x-text="summaryLines(sr).join(' · ')"></div>
                         </div>
-                        <div class="text-[10px] text-slate-500 mb-1.5" x-text="summaryLines(sr).join(' · ')"></div>
-                        <span class="inline-flex items-center gap-1 text-[11px] font-semibold" style="color:var(--gia-brand)"><span x-text="summaryCta(sr)"></span>
-                          <span class="material-symbols-outlined text-[14px]">arrow_forward</span></span>
+                        <span class="giaw-opt-cta"><span x-text="summaryCta(sr)"></span><span class="material-symbols-outlined">arrow_forward</span></span>
                       </a>
                     </template>
                     <!-- Intent-only deep-link chip -->
@@ -382,38 +443,38 @@ $giaWCfg = json_encode([
             </template>
 
             <template x-if="m.checkout">
-              <div class="mt-1.5 giaw-card p-3">
-                <span class="giaw-chip bg-amber-50 text-amber-700">Review &amp; approve</span>
-                <div class="flex items-baseline gap-1 mt-1.5 mb-2">
-                  <span class="text-xl font-bold text-slate-800" x-text="money(m.checkout.amount,m.checkout.currency)"></span>
-                  <span class="text-[11px] text-slate-500">total</span>
+              <div class="mt-2 giaw-pay">
+                <div class="giaw-pay-top">
+                  <span class="giaw-chip bg-amber-50 text-amber-700">Review &amp; approve</span>
+                  <div class="giaw-pay-amt" x-html="moneyHtml(m.checkout.amount,m.checkout.currency)"></div>
+                  <div class="giaw-pay-note">Total · nothing is charged until you approve</div>
                 </div>
-                <p class="text-[11px] text-slate-500 mb-2">Nothing is charged until you approve and complete payment.</p>
-                <button type="button" class="w-full py-2 rounded-lg text-white font-semibold text-[13px] disabled:opacity-60" style="background:<?= $e($giaBrand) ?>" :disabled="sending" @click="approveCheckout()">
+                <button type="button" class="giaw-pay-btn" :disabled="sending" @click="approveCheckout()">
+                  <span class="material-symbols-outlined">lock</span>
                   Approve <span x-text="money(m.checkout.amount,m.checkout.currency)"></span>
                 </button>
               </div>
             </template>
 
             <template x-if="m.payment && m.payment.redirect_url">
-              <div class="mt-1.5 giaw-card p-3">
-                <span class="giaw-chip bg-green-50 text-green-700">Approved — pay securely</span>
-                <p class="text-[11px] text-slate-500 mt-1.5 mb-2">Complete the secure payment right here to confirm your booking.</p>
-                <!-- Pay IN-CHAT: the secure payment page loads in the side drawer so the
-                     traveller never leaves the conversation. -->
-                <button type="button" @click="openPayment(m.payment.redirect_url)"
-                        class="block w-full py-2 rounded-lg text-white font-semibold text-[13px]" style="background:#16a34a">
-                  Pay securely now
+              <div class="mt-2 giaw-pay">
+                <div class="giaw-pay-top">
+                  <span class="giaw-chip bg-green-50 text-green-700">Approved — pay securely</span>
+                  <div class="giaw-pay-note" style="margin-top:6px">Complete payment right here to confirm your booking.</div>
+                </div>
+                <!-- Pay IN-CHAT: the secure payment page loads in the side drawer. -->
+                <button type="button" @click="openPayment(m.payment.redirect_url)" class="giaw-pay-btn giaw-pay-btn--go">
+                  <span class="material-symbols-outlined">verified_user</span> Pay securely now
                 </button>
                 <a :href="absUrl(m.payment.redirect_url)" target="_blank" rel="noopener"
-                   class="block text-center text-[10px] text-slate-400 mt-1 hover:text-slate-600">or open in a new tab</a>
+                   class="block text-center text-[10px] text-slate-400 mt-1.5 hover:text-slate-600">or open in a new tab</a>
               </div>
             </template>
 
             <template x-if="m.order_status">
-              <div class="mt-1.5 giaw-card p-2 flex items-center gap-1.5">
+              <div class="mt-2 giaw-card px-3 py-2 flex items-center gap-2">
                 <span class="giaw-chip" :class="statusClass(m.order_status.state)" x-text="statusLabel(m.order_status.state)"></span>
-                <span class="text-[11px] text-slate-600" x-show="m.order_status.pnr" x-text="'Ref: '+m.order_status.pnr"></span>
+                <span class="text-[11px] font-medium text-slate-600" x-show="m.order_status.pnr" x-text="'Ref: '+m.order_status.pnr"></span>
               </div>
             </template>
           </div>
@@ -981,6 +1042,12 @@ function giaWidget(cfg){
       if(sameOrigin){ this.openDrawer(u, 'Secure payment'); } else { window.open(u, '_blank', 'noopener'); } },
     scrollDown(){ const s=this.$refs.scroll; if(s) s.scrollTop=s.scrollHeight; },
     money(a,c){ const n=Number(a||0); return (c?c+' ':'')+n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); },
+    // Like money() but returns HTML with the currency code in a small .cur span.
+    // Currency is supplier-supplied, so escape it (rendered via x-html).
+    moneyHtml(a,c){ const n=Number(a||0);
+      const amt=n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+      const cur=String(c||'').replace(/[^A-Za-z0-9$€£₦.]/g,'').slice(0,6);
+      return (cur?'<span class="cur">'+cur+'</span>':'')+amt; },
     hasSummary(sr){ const s=sr&&sr.summary; if(!s||typeof s!=='object') return false; return !!(s.origin_label||s.origin_code||s.headline); },
     summaryHeadline(sr){ const s=sr.summary||{}; if(s.headline) return s.headline; const o=s.origin_label||s.origin_code||'', d=s.destination_label||s.destination_code||'', sep=s.trip_type==='return'?' ⇄ ':' → '; return (o&&d)?(o+sep+d):(sr.title||'Options'); },
     summaryLines(sr){ const s=sr.summary||{}; if(s.headline!==undefined){ return [s.line1,s.line2].filter(x=>x&&String(x).trim()!==''); } const out=[]; if(s.trip_label)out.push(s.trip_label); if(s.departure_date)out.push('📅 '+s.departure_date+(s.return_date?' → '+s.return_date:'')); if(s.travellers)out.push('👤 '+s.travellers); if(s.cabin)out.push(s.cabin); return out; },
