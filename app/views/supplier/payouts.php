@@ -145,8 +145,14 @@ $stateBadge = function ($s) {
         </div>
         <div class="form-control">
           <label class="block text-xs font-medium text-gray-700 mb-1">Bank</label>
-          <select name="bank_code" id="ba-bank" class="input text-sm" required><option value="">Loading banks…</option></select>
-          <input type="hidden" name="bank_name" id="ba-bank-name" value="">
+          <div class="relative" id="ba-bank-wrap">
+            <input type="text" id="ba-bank-search" class="input text-sm w-full" autocomplete="off"
+                   placeholder="Type to search your bank…" disabled>
+            <input type="hidden" name="bank_code" id="ba-bank" value="">
+            <input type="hidden" name="bank_name" id="ba-bank-name" value="">
+            <ul id="ba-bank-list" class="hidden absolute z-20 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg text-sm"></ul>
+          </div>
+          <p id="ba-bank-hint" class="text-[11px] text-gray-400 mt-1">Loading banks…</p>
         </div>
         <div class="form-control">
           <label class="block text-xs font-medium text-gray-700 mb-1">Account number</label>
@@ -244,33 +250,87 @@ $stateBadge = function ($s) {
   var meta = document.querySelector('meta[name="csrf-token"]');
   var csrf = meta ? meta.getAttribute('content') : '';
   var countrySel = document.getElementById('ba-country');
-  var bankSel = document.getElementById('ba-bank');
-  var bankName = document.getElementById('ba-bank-name');
+  var bankCode   = document.getElementById('ba-bank');        // hidden: selected code
+  var bankName   = document.getElementById('ba-bank-name');   // hidden: selected name
+  var bankSearch = document.getElementById('ba-bank-search'); // visible search box
+  var bankList   = document.getElementById('ba-bank-list');   // dropdown results
+  var bankHint   = document.getElementById('ba-bank-hint');
   var acct = document.getElementById('ba-acct');
   var verifyBtn = document.getElementById('ba-verify');
   var saveBtn = document.getElementById('ba-save');
   var resolved = document.getElementById('ba-resolved');
 
+  var BANKS = [];        // [{code,name}]
+  var activeIdx = -1;    // keyboard highlight
+
   function setResolved(msg, ok) { resolved.textContent = msg; resolved.className = 'text-xs mt-1 ' + (ok ? 'text-green-700' : 'text-red-600'); resolved.classList.remove('hidden'); }
   function invalidate() { if (saveBtn) saveBtn.disabled = true; if (resolved) resolved.classList.add('hidden'); }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  function closeList() { bankList.classList.add('hidden'); bankList.innerHTML = ''; activeIdx = -1; }
+
+  function renderList(q) {
+    q = (q || '').trim().toLowerCase();
+    var matches = !q ? BANKS.slice(0, 50)
+      : BANKS.filter(function (b) { return b.name.toLowerCase().indexOf(q) !== -1; }).slice(0, 50);
+    if (!matches.length) { bankList.innerHTML = '<li class="px-3 py-2 text-gray-400">No match</li>'; bankList.classList.remove('hidden'); return; }
+    bankList.innerHTML = matches.map(function (b, i) {
+      return '<li class="px-3 py-2 cursor-pointer hover:bg-emerald-50' + (i === activeIdx ? ' bg-emerald-50' : '') +
+             '" data-code="' + esc(b.code) + '" data-name="' + esc(b.name) + '">' + esc(b.name) + '</li>';
+    }).join('');
+    bankList.classList.remove('hidden');
+  }
+
+  function choose(code, name) {
+    bankCode.value = code; bankName.value = name;
+    bankSearch.value = name;
+    closeList(); invalidate();
+  }
 
   function loadBanks(country) {
-    if (!bankSel) return;
-    bankSel.innerHTML = '<option value="">Loading banks…</option>'; invalidate();
+    BANKS = []; bankCode.value = ''; bankName.value = '';
+    bankSearch.value = ''; bankSearch.disabled = true; bankHint.textContent = 'Loading banks…'; invalidate();
     fetch(root + 'supplier/bank-accounts/banks?country=' + encodeURIComponent(country), { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
       .then(function (res) {
-        if (!res || !res.ok || !res.banks || !res.banks.length) { bankSel.innerHTML = '<option value="">' + ((res && res.message) || 'No banks available') + '</option>'; return; }
-        var html = '<option value="">Select your bank…</option>';
-        res.banks.forEach(function (b) { html += '<option value="' + b.code + '" data-name="' + (b.name || '').replace(/"/g, '&quot;') + '">' + b.name + '</option>'; });
-        bankSel.innerHTML = html;
+        if (!res || !res.ok || !res.banks || !res.banks.length) {
+          bankHint.textContent = (res && res.message) || 'No banks available'; return;
+        }
+        BANKS = res.banks;
+        bankSearch.disabled = false;
+        bankHint.textContent = BANKS.length + ' banks — type to search.';
       })
-      .catch(function () { bankSel.innerHTML = '<option value="">Could not load banks</option>'; });
+      .catch(function () { bankHint.textContent = 'Could not load banks. Try again.'; });
   }
 
+  // Search box interactions
+  if (bankSearch) {
+    bankSearch.addEventListener('input', function () { bankCode.value = ''; bankName.value = ''; activeIdx = -1; renderList(this.value); invalidate(); });
+    bankSearch.addEventListener('focus', function () { if (BANKS.length) renderList(this.value); });
+    bankSearch.addEventListener('keydown', function (e) {
+      var items = bankList.querySelectorAll('li[data-code]');
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (items.length) { activeIdx = Math.min(activeIdx + 1, items.length - 1); renderList(this.value); } }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); if (items.length) { activeIdx = Math.max(activeIdx - 1, 0); renderList(this.value); } }
+      else if (e.key === 'Enter') { e.preventDefault(); if (activeIdx >= 0 && items[activeIdx]) { choose(items[activeIdx].getAttribute('data-code'), items[activeIdx].getAttribute('data-name')); } }
+      else if (e.key === 'Escape') { closeList(); }
+    });
+  }
+  // Click a result (delegated)
+  if (bankList) {
+    bankList.addEventListener('mousedown', function (e) {
+      var li = e.target.closest('li[data-code]'); if (!li) return;
+      e.preventDefault(); choose(li.getAttribute('data-code'), li.getAttribute('data-name'));
+    });
+  }
+  // Close the list when clicking outside
+  document.addEventListener('click', function (e) {
+    var wrap = document.getElementById('ba-bank-wrap');
+    if (wrap && !wrap.contains(e.target)) closeList();
+  });
+
   function verify() {
-    var code = bankSel.value, num = (acct.value || '').replace(/[^0-9]/g, '');
-    if (!code) { setResolved('Select your bank first.', false); return; }
+    var code = bankCode.value, num = (acct.value || '').replace(/[^0-9]/g, '');
+    if (!code) { setResolved('Search and select your bank first.', false); return; }
     if (num.length < 10) { setResolved('Enter a valid account number.', false); return; }
     verifyBtn.disabled = true; setResolved('Checking…', true);
     var body = 'bank_code=' + encodeURIComponent(code) + '&account_number=' + encodeURIComponent(num) + '&csrf_token=' + encodeURIComponent(csrf);
@@ -278,16 +338,13 @@ $stateBadge = function ($s) {
       .then(function (r) { return r.json(); })
       .then(function (res) {
         verifyBtn.disabled = false;
-        if (res && res.ok && res.account_name) {
-          setResolved('✓ ' + res.account_name, true); saveBtn.disabled = false;
-          var opt = bankSel.options[bankSel.selectedIndex]; bankName.value = opt ? (opt.getAttribute('data-name') || '') : '';
-        } else { setResolved((res && res.message) || 'Could not verify this account.', false); saveBtn.disabled = true; }
+        if (res && res.ok && res.account_name) { setResolved('✓ ' + res.account_name, true); saveBtn.disabled = false; }
+        else { setResolved((res && res.message) || 'Could not verify this account.', false); saveBtn.disabled = true; }
       })
       .catch(function () { verifyBtn.disabled = false; setResolved('Verification failed. Try again.', false); });
   }
 
   if (countrySel) { loadBanks(countrySel.value || 'NG'); countrySel.addEventListener('change', function () { loadBanks(this.value); }); }
-  if (bankSel) { bankSel.addEventListener('change', invalidate); }
   if (acct) { acct.addEventListener('input', invalidate); }
   if (verifyBtn) { verifyBtn.addEventListener('click', verify); }
 
