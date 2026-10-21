@@ -504,7 +504,7 @@ if (!function_exists('loyalty_convert_to_wallet')) {
      * points * redeem_value. Atomic-ish (points first, then wallet credit).
      * @return array ['ok'=>bool,'points_left'=>int,'wallet_balance'=>float,'amount'=>float]
      */
-    function loyalty_convert_to_wallet($db, string $userId, int $points, string $currency = ''): array
+    function loyalty_convert_to_wallet($db, string $userId, int $points, string $currency = '', string $idemKey = ''): array
     {
         $cfg = loyalty_config($db);
         if (!$cfg['enabled']) { return ['ok' => false, 'message' => 'Loyalty is disabled']; }
@@ -512,7 +512,20 @@ if (!function_exists('loyalty_convert_to_wallet')) {
         if ($points <= 0) { return ['ok' => false, 'message' => 'Points must be positive']; }
         $amount = round($points * $cfg['redeem_value'], 2);
         if ($amount <= 0) { return ['ok' => false, 'message' => 'Nothing to convert']; }
-        $red = loyalty_apply($db, $userId, $points, 'redeem', ['reason' => 'convert_to_wallet', 'note' => 'Convert ' . $points . ' pts to wallet']);
+
+        // IDEMPOTENCY (audit #34): without a stable key a retry/double-click re-ran the
+        // redeem AND re-credited the wallet (double-convert). Derive one stable key for
+        // this conversion and thread it through BOTH the points redeem and the wallet
+        // credit; loyalty_apply and txn_create both dedup on idempotency_key, so a retry
+        // finds the existing rows and is a true no-op. The caller may supply its own key
+        // (e.g. a client nonce) for tighter dedup; otherwise we bucket by user+points+time.
+        $idemKey = trim($idemKey);
+        if ($idemKey === '') { $idemKey = 'LOYCONV-' . $userId . '-' . $points . '-t' . (int) floor(time() / 120); }
+
+        $red = loyalty_apply($db, $userId, $points, 'redeem', [
+            'reason' => 'convert_to_wallet', 'note' => 'Convert ' . $points . ' pts to wallet',
+            'idempotency_key' => 'LOYRED-' . $idemKey,
+        ]);
         if (empty($red['ok'])) { return $red; }
         $currency = strtoupper(trim($currency)) ?: wallet_default_currency($db);
 
@@ -535,12 +548,16 @@ if (!function_exists('loyalty_convert_to_wallet')) {
                     'amount'      => $amount,
                     'currency'    => $currency,
                     'method'      => 'wallet',
+                    'idempotency_key' => 'LOYTXN-' . $idemKey,
                     'description' => 'Loyalty points converted (' . $points . ' pts)',
                 ]);
                 if ($convTxn && !empty($convTxn['id'])) { $convTxnId = (int) $convTxn['id']; }
             } catch (\Throwable $e) { error_log('loyalty_convert txn_create: ' . $e->getMessage()); }
         }
 
+        // wallet_apply dedups on transaction_id (not idempotency_key): passing the
+        // txn_create'd $convTxnId makes a retried credit a no-op, because txn_create
+        // above already returned the SAME existing txn id on a duplicate idemKey.
         $applyOpts = ['reason' => 'loyalty_convert', 'note' => 'Loyalty points converted (' . $points . ' pts)'];
         if ($convTxnId !== null) { $applyOpts['transaction_id'] = $convTxnId; }
         $cr = wallet_apply($db, $userId, $amount, 'credit', $currency, $applyOpts);

@@ -68,17 +68,42 @@ if (!function_exists('installments_create_schedule')) {
             $rows[] = ['seq' => 2, 'amount' => $remaining, 'due_at' => date('Y-m-d H:i:s', $now)];
         }
 
+        // RACE GUARD (audit #49): the installments_active_for() check at the top is
+        // check-then-act — two concurrent creates for the same invoice both passed it and
+        // each inserted a FULL schedule, doubling the amount owed. Serialize on the
+        // booking row (SELECT ... FOR UPDATE) and re-check existence INSIDE the lock, so
+        // the second caller sees the first's rows and returns 'already' instead of
+        // inserting a duplicate. (A UNIQUE(invoice_id,seq) is deliberately NOT used — the
+        // partial-payment split in installments_settle_payment legitimately writes two
+        // rows sharing a seq.)
+        $created = false;
         try {
-            foreach ($rows as $r) {
-                $db->insert('booking_installments', [
-                    'invoice_id' => $invoiceId, 'seq' => $r['seq'], 'amount' => $r['amount'],
-                    'currency' => strtoupper($currency) ?: 'USD', 'due_at' => $r['due_at'],
-                    'status' => 'pending', 'created_at' => date('Y-m-d H:i:s'),
-                ]);
-            }
+            $db->action(function ($db) use ($invoiceId, $rows, $currency, &$created) {
+                // Lock the booking row for this invoice to serialize concurrent creates.
+                $db->query('SELECT id FROM bookings WHERE invoice_id = :inv FOR UPDATE', [':inv' => $invoiceId]);
+                // Re-check under the lock — another request may have just created it.
+                if ((int) $db->count('booking_installments', ['invoice_id' => $invoiceId]) > 0) {
+                    $created = false; // already exists → do not duplicate
+                    return true;
+                }
+                foreach ($rows as $r) {
+                    $db->insert('booking_installments', [
+                        'invoice_id' => $invoiceId, 'seq' => $r['seq'], 'amount' => $r['amount'],
+                        'currency' => strtoupper($currency) ?: 'USD', 'due_at' => $r['due_at'],
+                        'status' => 'pending', 'created_at' => date('Y-m-d H:i:s'),
+                    ]);
+                }
+                $created = true;
+                return true;
+            });
         } catch (\Throwable $e) {
             error_log('installments_create_schedule: ' . $e->getMessage());
             return ['ok' => false, 'message' => 'Could not create schedule'];
+        }
+        if (!$created) {
+            // Lost the race (or already existed): return the existing schedule unchanged.
+            return ['ok' => true, 'already' => true,
+                'installments' => $db->select('booking_installments', '*', ['invoice_id' => $invoiceId, 'ORDER' => ['seq' => 'ASC']]) ?: []];
         }
         return ['ok' => true, 'installments' => $rows];
     }
@@ -137,8 +162,34 @@ if (!function_exists('installments_settle_payment')) {
                     if ($remaining < 0.01) { break; }
                     $due = (float) $ins['amount'];
                     if ($remaining + 0.01 >= $due) {
+                        // Covers this installment fully.
                         $db->update('booking_installments', ['status' => 'paid', 'paid_at' => $now, 'transaction_id' => $txnId], ['id' => (int) $ins['id']]);
                         $remaining = round($remaining - $due, 2);
+                    } else {
+                        // PARTIAL (audit #48): the payment is smaller than the next
+                        // installment. Previously the leftover was silently discarded —
+                        // money charged, nothing credited. Instead, split this installment
+                        // losslessly: shrink the pending part by the paid amount and insert
+                        // a matching 'paid' micro-row. SUM(amount) is unchanged (so total/
+                        // balance stay correct) while SUM(amount WHERE paid) rises by the
+                        // partial, so the money is credited and carried toward this part.
+                        $partial = $remaining;
+                        $db->update('booking_installments',
+                            ['amount' => round($due - $partial, 2)],
+                            ['id' => (int) $ins['id']]);
+                        $db->insert('booking_installments', [
+                            'invoice_id'     => $invoiceId,
+                            'seq'            => (int) $ins['seq'],
+                            'amount'         => round($partial, 2),
+                            'currency'       => (string) ($ins['currency'] ?? 'USD'),
+                            'due_at'         => $ins['due_at'] ?? null,
+                            'status'         => 'paid',
+                            'paid_at'        => $now,
+                            'transaction_id' => $txnId,
+                            'created_at'     => $now,
+                        ]);
+                        $remaining = 0.0;
+                        break;
                     }
                 }
                 $total = (float) $db->sum('booking_installments', 'amount', ['invoice_id' => $invoiceId]);
