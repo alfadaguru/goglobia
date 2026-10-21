@@ -265,6 +265,7 @@ require_once 'app/routes/admin/giaRoutes.php'; // GIA assistant reports (convers
 require_once 'app/routes/admin/depositRoutes.php';
 require_once 'app/routes/admin/supportticketRoutes.php';
 require_once 'app/routes/admin/promoCodesRoutes.php';
+require_once 'app/routes/admin/discountsRoutes.php'; // automatic discount engine (Marketing)
 endif; // admin routes
 
 // API ROUTES — only parsed on /api requests
