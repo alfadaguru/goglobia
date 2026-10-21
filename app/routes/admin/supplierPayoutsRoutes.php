@@ -16,7 +16,7 @@ $router->get(admin . '/supplier-payouts', function () use ($SECURE, $db) {
     ADMIN_AUTH();
 
     $stateFilter = strtolower(trim((string) ($_GET['state'] ?? '')));
-    $allowed = ['requested', 'approved', 'processing', 'paid', 'failed', 'rejected', 'cancelled'];
+    $allowed = ['requested', 'approved', 'processing', 'awaiting_otp', 'paid', 'failed', 'rejected', 'cancelled'];
     $where = [];
     if (in_array($stateFilter, $allowed, true)) { $where['state'] = $stateFilter; }
     $where['ORDER'] = ['id' => 'DESC'];

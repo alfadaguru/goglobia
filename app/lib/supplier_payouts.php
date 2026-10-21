@@ -284,18 +284,22 @@ if (!function_exists('supplier_payout_reserve_earnings')) {
 if (!function_exists('supplier_payout_resolve_stuck')) {
     /**
      * HIGH-3: resolve a payout frozen in 'processing' (crash/timeout between the
-     * 'processing' flip and the transfer response). Admin-invoked. Queries Paystack for
-     * the transfer by its reference and finalises deterministically:
-     *   - transfer found success/pending  -> commit the debit, state 'paid'
-     *   - transfer failed / not found      -> state 'failed', release the reservation
+     * 'processing' flip and the transfer response) OR 'awaiting_otp' (an OTP-gated
+     * transfer the admin abandoned, or whose OTP was completed/expired out of band).
+     * Admin-invoked. Queries Paystack for the transfer by its reference and finalises
+     * deterministically via the shared, atomic+idempotent finaliser:
+     *   - transfer success/pending  -> debit, state 'paid'
+     *   - transfer still 'otp'       -> (awaiting_otp only) leave it; OTP not submitted yet
+     *   - transfer failed / not found -> state 'failed', release the reservation
      * Safe to call repeatedly. Returns ['ok','state','message'].
      */
     function supplier_payout_resolve_stuck($db, int $payoutId): array
     {
         $p = $db->get('supplier_payouts', '*', ['id' => $payoutId]);
         if (!$p) { return ['ok' => false, 'message' => 'Payout not found']; }
-        if ((string) $p['state'] !== 'processing') {
-            return ['ok' => false, 'message' => 'Only a stuck "processing" payout can be resolved (state: ' . $p['state'] . ').'];
+        $state = (string) $p['state'];
+        if (!in_array($state, ['processing', 'awaiting_otp'], true)) {
+            return ['ok' => false, 'message' => 'Only a stuck "processing" or "awaiting_otp" payout can be resolved (state: ' . $state . ').'];
         }
         $gw = function_exists('paystack_dva_gateway') ? paystack_dva_gateway($db) : null;
         $secret = $gw ? paystack_dva_secret($gw) : '';
@@ -307,21 +311,37 @@ if (!function_exists('supplier_payout_resolve_stuck')) {
         $httpOk = $vres['http'] >= 200 && $vres['http'] < 300;
         $transferCode = (string) ($vres['json']['data']['transfer_code'] ?? '');
 
-        if ($httpOk && in_array($status, ['success', 'pending', 'otp'], true)) {
-            try {
-                $db->update('supplier_earnings',
-                    ['state' => 'paid', 'updated_at' => date('Y-m-d H:i:s')],
-                    ['payout_id' => $payoutId, 'state' => 'available']);
-            } catch (\Throwable $e) { error_log('resolve_stuck debit: ' . $e->getMessage()); }
-            $db->update('supplier_payouts',
-                ['state' => 'paid', 'transfer_code' => $transferCode ?: null, 'paid_at' => date('Y-m-d H:i:s')],
-                ['id' => $payoutId, 'state' => 'processing']);
-            return ['ok' => true, 'state' => 'paid', 'message' => 'Transfer confirmed with Paystack; marked paid.'];
+        // Still awaiting OTP at Paystack (status 'otp') and our row is awaiting_otp:
+        // the money has NOT moved — do nothing, the admin must submit the OTP.
+        if ($httpOk && $status === 'otp' && $state === 'awaiting_otp') {
+            return ['ok' => false, 'state' => 'awaiting_otp',
+                'message' => 'Still awaiting OTP at Paystack — submit the OTP to complete this transfer.'];
         }
-        // Not found / failed → it did not go through. Fail it and free the money.
+
+        // Accepted (success/pending) — finalise 'paid' via the shared atomic/idempotent
+        // path. For 'processing' a Paystack 'otp' status is also treated as accepted
+        // (legacy behaviour); for 'awaiting_otp' we already handled 'otp' above.
+        $accepted = $state === 'processing'
+            ? in_array($status, ['success', 'pending', 'otp'], true)
+            : in_array($status, ['success', 'pending'], true);
+
+        if ($httpOk && $accepted && function_exists('supplier_payout_finalize_transfer')) {
+            $r = supplier_payout_finalize_transfer($db, $payoutId, 'success', $transferCode, 'resolved from ' . $state);
+            return ['ok' => !empty($r['ok']), 'state' => $r['state'] ?? 'paid',
+                'message' => 'Transfer confirmed with Paystack; marked paid.'];
+        }
+
+        // Not found / failed → it did not go through. Fail it and free the money, via the
+        // shared finaliser (handles the paid-unwind edge + event + decided_by).
+        if (function_exists('supplier_payout_finalize_transfer')) {
+            $r = supplier_payout_finalize_transfer($db, $payoutId, 'failed', $transferCode, 'resolve: ' . ($status ?: 'not found'));
+            return ['ok' => !empty($r['ok']), 'state' => 'failed',
+                'message' => 'Transfer not confirmed; marked failed and released the reservation.'];
+        }
+        // Fallback (finaliser unavailable): original inline behaviour.
         $db->update('supplier_payouts',
             ['state' => 'failed', 'failure_reason' => substr('resolve: ' . ($status ?: 'not found'), 0, 255)],
-            ['id' => $payoutId, 'state' => 'processing']);
+            ['id' => $payoutId]);
         supplier_payout_release_reservation($db, $payoutId);
         return ['ok' => true, 'state' => 'failed', 'message' => 'Transfer not confirmed; marked failed and released the reservation.'];
     }
@@ -675,7 +695,10 @@ if (!function_exists('supplier_payout_finalize_transfer')) {
             if ($state === 'paid') {
                 return ['ok' => true, 'state' => 'paid', 'changed' => false, 'message' => 'Already paid.'];
             }
-            if (!in_array($state, ['processing', 'approved'], true)) {
+            // 'awaiting_otp' IS finalisable on success: an OTP-gated transfer can be
+            // confirmed by the webhook (transfer.success) even if the admin hasn't typed
+            // the OTP yet — the money moved at Paystack, so we MUST settle, not strand it.
+            if (!in_array($state, ['processing', 'approved', 'awaiting_otp'], true)) {
                 // 'failed'/'rejected'/'requested' shouldn't receive a success; don't force it.
                 return ['ok' => false, 'state' => $state, 'changed' => false, 'message' => 'Not in a finalisable state (' . $state . ').'];
             }

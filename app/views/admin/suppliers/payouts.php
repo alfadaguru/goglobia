@@ -87,11 +87,25 @@ $base = root . admin . '/supplier-payouts';
                            class="input text-xs w-28" placeholder="OTP">
                     <button type="submit" class="btn emerald text-xs">Complete</button>
                   </form>
-                  <form action="<?= $base ?>/resend-otp" method="POST" class="inline">
-                    <?= CSRF::tokenField() ?>
-                    <input type="hidden" name="id" value="<?= (int) $p['id'] ?>">
-                    <button type="submit" class="btn ghost text-[11px]">Resend OTP</button>
-                  </form>
+                  <div class="flex items-center gap-2">
+                    <form action="<?= $base ?>/resend-otp" method="POST" class="inline">
+                      <?= CSRF::tokenField() ?>
+                      <input type="hidden" name="id" value="<?= (int) $p['id'] ?>">
+                      <button type="submit" class="btn ghost text-[11px]">Resend OTP</button>
+                    </form>
+                    <form action="<?= $base ?>/resolve" method="POST" class="inline"
+                          onsubmit="return confirm('Check this transfer with Paystack and finalise it (paid, or failed+released)? Use this if the OTP was abandoned or expired.');">
+                      <?= CSRF::tokenField() ?>
+                      <input type="hidden" name="id" value="<?= (int) $p['id'] ?>">
+                      <button type="submit" class="btn ghost text-[11px]">Resolve</button>
+                    </form>
+                    <form action="<?= $base ?>/reject" method="POST" class="inline"
+                          onsubmit="return confirm('Reject this payout and release the funds back to the supplier?');">
+                      <?= CSRF::tokenField() ?>
+                      <input type="hidden" name="id" value="<?= (int) $p['id'] ?>">
+                      <button type="submit" class="btn rose text-[11px]">Reject</button>
+                    </form>
+                  </div>
                 </div>
               <?php elseif ($st === 'processing'): ?>
                 <form action="<?= $base ?>/resolve" method="POST" class="inline"
