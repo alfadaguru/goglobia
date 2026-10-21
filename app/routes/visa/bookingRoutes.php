@@ -95,6 +95,16 @@ $router->post('/api/visa/booking/submit', function () use ($SECURE, $db) {
         }
         $bookingData = json_decode($booking['data'], true);
 
+        // DOUBLE-CREATE GUARD (audit #52): consume the draft ATOMICALLY up front. The
+        // draft was only deleted at the end (line ~366), so two concurrent submits of the
+        // same hash both passed the read above and each created a booking (and each
+        // recorded promo usage). Delete-then-check-rowCount makes exactly one request the
+        // owner; a racing duplicate deletes 0 rows and is rejected. (Mirrors umrah.)
+        $claimDraft = $db->delete('logs_bookings', ['hash' => $bookingHash]);
+        if (!$claimDraft || $claimDraft->rowCount() < 1) {
+            throw new Exception('This booking is already being processed.');
+        }
+
         // GENERATE 8-CHARACTER INVOICE ID
         $invoiceId = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
 
@@ -362,8 +372,7 @@ $router->post('/api/visa/booking/submit', function () use ($SECURE, $db) {
             discount_record_use($db, $discountRow);
         }
 
-        // DELETE TEMPORARY BOOKING
-        $db->delete('logs_bookings', ['hash' => $bookingHash]);
+        // (Draft already consumed atomically at the top — audit #52. No delete here.)
 
         // CLEAR SESSION
         unset($_SESSION['booking_data']);

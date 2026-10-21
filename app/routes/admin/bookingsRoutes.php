@@ -261,6 +261,15 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
     }
 
     if ($action === 'mark_paid') {
+        // ALREADY-PAID GUARD (audit #46): without this, re-firing mark_paid on an
+        // already-paid booking re-runs NOTIFY::payment + regenerates the PDF every time,
+        // spamming the customer with repeat "payment received" emails. Short-circuit so
+        // the notify/PDF side-effects only fire on the actual unpaid→paid transition.
+        if (strtolower(trim((string) ($booking['payment_status'] ?? ''))) === 'paid') {
+            ob_clean();
+            echo json_encode(['success' => true, 'status' => true, 'message' => 'Booking is already marked paid.']);
+            exit;
+        }
         // Update payment status to paid
         $updated = $db->update('bookings', [
             'payment_status' => 'paid',

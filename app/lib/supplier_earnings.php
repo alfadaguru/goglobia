@@ -285,19 +285,30 @@ if (!function_exists('supplier_earning_release_due')) {
             $pending = $db->select('supplier_earnings', ['id', 'invoice_id', 'currency', 'created_at'],
                 ['state' => 'pending', 'ORDER' => ['id' => 'ASC'], 'LIMIT' => max(1, $limit)]) ?: [];
             $now = time();
+
+            // PERF (audit #33): batch-fetch booking_data for ALL pending invoices in ONE
+            // query, indexed by invoice_id, instead of a per-row bookings->get() inside
+            // the loop (N+1 on the clearance-cron hot path).
+            $bdByInvoice = [];
+            $invIds = array_values(array_filter(array_map(fn($e) => (string) ($e['invoice_id'] ?? ''), $pending)));
+            if ($invIds) {
+                try {
+                    $bRows = $db->select('bookings', ['invoice_id', 'booking_data'], ['invoice_id' => $invIds]) ?: [];
+                    foreach ($bRows as $br) { $bdByInvoice[(string) $br['invoice_id']] = $br['booking_data'] ?? null; }
+                } catch (\Throwable $ignore) {}
+            }
+
             foreach ($pending as $e) {
                 $cur = strtoupper((string) ($e['currency'] ?? 'NGN')) ?: 'NGN';
                 if (!isset($clearCache[$cur])) { $clearCache[$cur] = supplier_earning_clearance_days($db, $cur); }
                 $clearDays = $clearCache[$cur];
                 // Determine the clearance anchor = checkout date if known, else created_at.
                 $anchor = null;
-                try {
-                    $bd = $db->get('bookings', ['booking_data'], ['invoice_id' => $e['invoice_id']]);
-                    if ($bd && !empty($bd['booking_data'])) {
-                        $d = json_decode((string) $bd['booking_data'], true);
-                        if (is_array($d) && !empty($d['checkout'])) { $anchor = strtotime((string) $d['checkout']); }
-                    }
-                } catch (\Throwable $ignore) {}
+                $bdRaw = $bdByInvoice[(string) ($e['invoice_id'] ?? '')] ?? null;
+                if (!empty($bdRaw)) {
+                    $d = json_decode((string) $bdRaw, true);
+                    if (is_array($d) && !empty($d['checkout'])) { $anchor = strtotime((string) $d['checkout']); }
+                }
                 if ($anchor === null || $anchor === false) { $anchor = strtotime((string) ($e['created_at'] ?? 'now')); }
                 $dueAt = $anchor + ($clearDays * 86400);
                 if ($now >= $dueAt) {
