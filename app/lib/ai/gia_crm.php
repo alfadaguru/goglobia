@@ -109,6 +109,74 @@ if (!function_exists('gia_conv_get_or_create')) {
     }
 }
 
+if (!function_exists('gia_conv_get_or_create_channel')) {
+    /**
+     * Messaging-channel sibling of gia_conv_get_or_create(): find/open the
+     * conversation for a sender on a messaging channel, keyed by
+     * (channel, channel_user_id) — e.g. ('whatsapp','2349128543573'),
+     * ('telegram','12345'), ('messenger','<PSID>'). Same row shape + conv_key
+     * generation as the web resolver, so history/logging/reporting all reuse.
+     *
+     * $userId is the matched GoGlobia users.user_id when known (Phase 2 identity),
+     * else '' — a conversation can run anonymously and be linked to an account later.
+     *
+     * @param object $db
+     * @param string $channel       'whatsapp' | 'messenger' | 'telegram'
+     * @param string $channelUserId the sender's id on that channel (phone/PSID/tg-id)
+     * @param string $userId        users.user_id if already matched ('' otherwise)
+     * @param string $context       module context ('' = generic)
+     * @return array|null the conversation row, or null on failure
+     */
+    function gia_conv_get_or_create_channel($db, string $channel, string $channelUserId, string $userId = '', string $context = ''): ?array
+    {
+        $channel = strtolower(trim($channel));
+        $channelUserId = trim($channelUserId);
+        if (!function_exists('ensureGiaAnalyticsSchema') || $channel === '' || $channelUserId === '') {
+            return null;
+        }
+        ensureGiaAnalyticsSchema($db);
+        try {
+            // Resume the most recent OPEN conversation for this channel identity.
+            $row = $db->get('gia_conversations', '*', [
+                'channel'         => $channel,
+                'channel_user_id' => $channelUserId,
+                'closed'          => 0,
+                'ORDER'           => ['last_at' => 'DESC'],
+                'LIMIT'           => 1,
+            ]);
+            if (is_array($row) && !empty($row['id'])) {
+                // Link to a real account once identity is established (Phase 2).
+                if ($userId !== '' && (string) ($row['user_id'] ?? '') === '') {
+                    $db->update('gia_conversations', ['user_id' => $userId], ['id' => $row['id']]);
+                    $row['user_id'] = $userId;
+                }
+                return $row;
+            }
+
+            $convKey = bin2hex(random_bytes(16));
+            $db->insert('gia_conversations', [
+                'conv_key'        => $convKey,
+                'user_id'         => $userId !== '' ? $userId : null,
+                'context'         => $context !== '' ? $context : null,
+                'surface'         => $channel,   // reporting: surface shows the channel
+                'channel'         => $channel,
+                'channel_user_id' => $channelUserId,
+            ]);
+            $id = (int) $db->id();
+            if ($id <= 0) {
+                return null;
+            }
+            return [
+                'id' => $id, 'conv_key' => $convKey, 'user_id' => $userId,
+                'channel' => $channel, 'channel_user_id' => $channelUserId,
+            ];
+        } catch (\Throwable $e) {
+            error_log('[gia] conv_get_or_create_channel: ' . $e->getMessage());
+            return null;
+        }
+    }
+}
+
 if (!function_exists('gia_conv_history')) {
     /**
      * Rehydrate the canonical message history for a conversation so a new tab /
@@ -333,5 +401,129 @@ if (!function_exists('gia_lead_capture')) {
             error_log('[gia] lead_capture: ' . $e->getMessage());
             return ['ok' => false, 'lead_id' => 0, 'linked_user_id' => '', 'status' => ''];
         }
+    }
+}
+
+if (!function_exists('gia_user_profile')) {
+    /**
+     * Resolve a logged-in / matched user into the SAFE personalization facts GIA
+     * may know about them — so the agent can greet by name and tailor replies.
+     * Keyed on users.user_id (the long string), per this file's identity convention
+     * and gia_checkouts.user_id. Returns an empty array for guests or on any error
+     * (FAIL-SOFT — must never break the chat). This is channel-agnostic: the web
+     * route and the future messaging adapters all resolve identity the same way.
+     *
+     * Deliberately NARROW: first name + preferred currency only. It never returns
+     * email/phone/address or anything that would be PII to echo into a model prompt.
+     *
+     * @param object $db
+     * @param string $userId users.user_id ('' => guest => [])
+     * @return array{first_name?:string,full_name?:string,currency?:string,role?:string}
+     */
+    function gia_user_profile($db, string $userId): array
+    {
+        $userId = trim($userId);
+        if ($userId === '') {
+            return [];
+        }
+        try {
+            $u = $db->get('users', ['first_name', 'last_name', 'currency', 'role'], ['user_id' => $userId]);
+            if (!is_array($u) || $u === []) {
+                return [];
+            }
+            $first = trim((string) ($u['first_name'] ?? ''));
+            $last  = trim((string) ($u['last_name'] ?? ''));
+            $out = [];
+            if ($first !== '') { $out['first_name'] = $first; }
+            $full = trim($first . ' ' . $last);
+            if ($full !== '') { $out['full_name'] = $full; }
+            $cur = trim((string) ($u['currency'] ?? ''));
+            if ($cur !== '') { $out['currency'] = strtoupper($cur); }
+            $role = trim((string) ($u['role'] ?? ''));
+            if ($role !== '') { $out['role'] = $role; }
+            return $out;
+        } catch (\Throwable $e) {
+            error_log('[gia] user_profile: ' . $e->getMessage());
+            return [];
+        }
+    }
+}
+
+// ============================================================================
+// LIVE-OFFER CACHE (DB-backed) — replaces the old $_SESSION['gia_live_offers'].
+// fetch_live_offers stores each live offer's STABLE fields here keyed by
+// (conv_id, module:ref); select_option reads them back. Must be the DB (not the
+// session) so it survives stateless messaging webhooks — a PHP session does not
+// exist on a WhatsApp/Telegram/Messenger request. Short-lived + bounded.
+// ============================================================================
+
+if (!function_exists('gia_offer_cache_ensure_schema')) {
+    function gia_offer_cache_ensure_schema($db): void
+    {
+        try {
+            $db->query("CREATE TABLE IF NOT EXISTS `gia_offer_cache` (
+                `id` INT(11) NOT NULL AUTO_INCREMENT,
+                `conv_id` INT(11) NOT NULL,
+                `cache_key` VARCHAR(160) NOT NULL,
+                `payload` LONGTEXT DEFAULT NULL,
+                `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_conv_key` (`conv_id`,`cache_key`),
+                KEY `conv_id` (`conv_id`),
+                KEY `created_at` (`created_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (\Throwable $e) {
+            error_log('[gia] offer_cache schema: ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('gia_offer_cache_put')) {
+    /**
+     * Store one live offer's stable fields for a conversation. $key is the same
+     * "module:ref" the tools already use. Idempotent upsert. No-op if conv_id<=0.
+     */
+    function gia_offer_cache_put($db, int $convId, string $key, array $value): void
+    {
+        if ($convId <= 0 || $key === '') { return; }
+        gia_offer_cache_ensure_schema($db);
+        try {
+            $json = json_encode($value);
+            $exists = $db->get('gia_offer_cache', ['id'], ['conv_id' => $convId, 'cache_key' => $key]);
+            if (is_array($exists) && !empty($exists['id'])) {
+                $db->update('gia_offer_cache', ['payload' => $json], ['id' => $exists['id']]);
+            } else {
+                $db->insert('gia_offer_cache', ['conv_id' => $convId, 'cache_key' => $key, 'payload' => $json]);
+            }
+            // Bound: keep only the most recent 60 rows for this conversation.
+            $ids = $db->select('gia_offer_cache', ['id'], [
+                'conv_id' => $convId, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => [60, 1000000],
+            ]);
+            if (is_array($ids) && $ids !== []) {
+                $old = array_map(static fn($r) => (int) $r['id'], $ids);
+                if ($old !== []) { $db->delete('gia_offer_cache', ['id' => $old]); }
+            }
+        } catch (\Throwable $e) {
+            error_log('[gia] offer_cache put: ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('gia_offer_cache_get')) {
+    /** Retrieve one cached offer (decoded array) or null. */
+    function gia_offer_cache_get($db, int $convId, string $key): ?array
+    {
+        if ($convId <= 0 || $key === '') { return null; }
+        gia_offer_cache_ensure_schema($db);
+        try {
+            $row = $db->get('gia_offer_cache', ['payload'], ['conv_id' => $convId, 'cache_key' => $key]);
+            if (is_array($row) && isset($row['payload'])) {
+                $v = json_decode((string) $row['payload'], true);
+                return is_array($v) ? $v : null;
+            }
+        } catch (\Throwable $e) {
+            error_log('[gia] offer_cache get: ' . $e->getMessage());
+        }
+        return null;
     }
 }

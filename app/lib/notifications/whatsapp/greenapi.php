@@ -52,10 +52,10 @@ class GreenapiProvider {
         $instanceId = $this->config['instance_id'];
         $token = $this->config['token'];
         
+        // Green API requires the token as a URL path segment (their REST design),
+        // so it CANNOT move to a header. Therefore we must NEVER log this URL — it
+        // contains the secret token. Log only a redacted form if needed.
         $url = $this->baseUrl . "/waInstance{$instanceId}/sendMessage/{$token}";
-
-        error_log("Green API Request URL: " . $url);
-        error_log("Green API Request Data: " . json_encode($messageData));
 
         $ch = curl_init();
         curl_setopt_array($ch, [
@@ -68,16 +68,18 @@ class GreenapiProvider {
                 'Accept: application/json'
             ],
             CURLOPT_TIMEOUT => 30,
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_VERBOSE => true // Debug mode
+            // SECURITY: verify TLS certs (was false — exposed token + message to MITM).
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
         ]);
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlError = curl_error($ch);
-        
-        error_log("Green API Response - HTTP Code: $httpCode");
-        error_log("Green API CURL Error: $curlError");
+
+        if ($curlError) {
+            error_log("Green API CURL error (HTTP {$httpCode})");
+        }
 
 
         if ($curlError) {
@@ -117,8 +119,7 @@ class GreenapiProvider {
         
         // Remove leading zeros if any
         $cleaned = ltrim($cleaned, '0');
-        
-        error_log("Cleaned Phone: $cleaned");
+
         return $cleaned;
     }
 
@@ -156,23 +157,22 @@ class GreenapiProvider {
             $instanceId = $this->config['instance_id'];
             $token = $this->config['token'];
             
+            // Token is a URL path segment (Green API design) — never log this URL.
             $url = $this->baseUrl . "/waInstance{$instanceId}/getSettings/{$token}";
-
-            error_log("Green API Connection Test URL: " . $url);
 
             $ch = curl_init();
             curl_setopt_array($ch, [
                 CURLOPT_URL => $url,
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_TIMEOUT => 10,
-                CURLOPT_SSL_VERIFYPEER => false
+                // SECURITY: verify TLS certs (was false).
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
             ]);
 
             $response = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             $curlError = curl_error($ch);
-            
-            error_log("Green API Connection Test - HTTP Code: $httpCode");
 
 
             if ($curlError) {

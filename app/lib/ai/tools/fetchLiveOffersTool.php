@@ -89,21 +89,27 @@ class fetchLiveOffersTool implements giaToolInterface
 
         // Cache each offer's STABLE payload server-side keyed by ref, so select_option
         // can retrieve the authoritative fields without the model ever handling them.
-        if (!isset($_SESSION['gia_live_offers']) || !is_array($_SESSION['gia_live_offers'])) {
-            $_SESSION['gia_live_offers'] = [];
+        // DB-backed (per conversation) — NOT $_SESSION — so it survives stateless
+        // messaging webhooks (WhatsApp/Telegram/Messenger have no PHP session). The
+        // conv_id comes from the trusted tool context (route/adapter-set).
+        $convId = (int) ($context['conv_id'] ?? 0);
+        if ($convId > 0 && !function_exists('gia_offer_cache_put')) {
+            $crm = dirname(__DIR__) . '/gia_crm.php';
+            if (is_file($crm)) { require_once $crm; }
         }
         $modelOffers = [];
         foreach ($res['offers'] as $o) {
             $ref = (string) ($o['ref'] ?? '');
             if ($ref === '') { continue; }
-            // Server-side cache (stable fields + expiry flag), bounded per module.
-            $_SESSION['gia_live_offers'][$module . ':' . $ref] = [
-                'stable'   => is_array($o['stable'] ?? null) ? $o['stable'] : [],
-                'supplier' => (string) ($o['supplier'] ?? ''),
-                'title'    => (string) ($o['title'] ?? ''),
-                'expires'  => (bool) ($o['expires'] ?? false),
-                'cached_at'=> date('Y-m-d H:i:s'),
-            ];
+            if ($convId > 0 && function_exists('gia_offer_cache_put')) {
+                gia_offer_cache_put($db, $convId, $module . ':' . $ref, [
+                    'stable'   => is_array($o['stable'] ?? null) ? $o['stable'] : [],
+                    'supplier' => (string) ($o['supplier'] ?? ''),
+                    'title'    => (string) ($o['title'] ?? ''),
+                    'expires'  => (bool) ($o['expires'] ?? false),
+                    'cached_at'=> date('Y-m-d H:i:s'),
+                ]);
+            }
             // Model-facing: display only + the ref it will pass to select_option.
             $modelOffers[] = array_filter([
                 'ref'      => $ref,
@@ -113,11 +119,6 @@ class fetchLiveOffersTool implements giaToolInterface
                 'currency' => (string) ($o['currency'] ?? ''),
                 'expires'  => (bool) ($o['expires'] ?? false),
             ], static fn($v) => $v !== '' && $v !== null);
-        }
-
-        // Bound the session cache so it can't grow unbounded across many searches.
-        if (count($_SESSION['gia_live_offers']) > 60) {
-            $_SESSION['gia_live_offers'] = array_slice($_SESSION['gia_live_offers'], -60, null, true);
         }
 
         return [

@@ -69,6 +69,52 @@ class giaAgent
     }
 
     /**
+     * Append a short trusted instruction to the active system prompt (e.g. a
+     * channel's bot-disclosure requirement). Trusted/caller-supplied only — never
+     * model- or user-derived. Empty => no-op.
+     */
+    public function addSystemNote(string $note): void
+    {
+        $note = trim($note);
+        if ($note !== '') {
+            $this->systemPrompt .= "\n" . $note;
+        }
+    }
+
+    /**
+     * Personalize the agent for a KNOWN traveler. The route/adapter resolves the
+     * logged-in (or matched) user to safe facts via gia_user_profile() and passes
+     * them here; we append a short, trusted "who you're talking to" block to the
+     * active system prompt so GIA greets them by name and answers "do you know me?"
+     * truthfully. Channel-agnostic: web + every messaging adapter use this identically.
+     *
+     * Trusted input only — the caller derives this from the session/verified identity,
+     * never from the model or the user's typed text. Empty array => no-op (guest).
+     *
+     * @param array{first_name?:string,full_name?:string,currency?:string,role?:string} $profile
+     */
+    public function setUserProfile(array $profile): void
+    {
+        $first = trim((string) ($profile['first_name'] ?? ''));
+        $cur   = trim((string) ($profile['currency'] ?? ''));
+        if ($first === '' && $cur === '') {
+            return; // nothing personalizing to add
+        }
+        $facts = [];
+        if ($first !== '') {
+            $facts[] = "Their first name is {$first} — greet them by name naturally (don't overuse it) "
+                     . "and, if they ask whether you know them, warmly confirm you do.";
+        }
+        if ($cur !== '') {
+            $facts[] = "Their preferred currency is {$cur}; prefer it when showing prices.";
+        }
+        $block = "\nABOUT THIS TRAVELER (trusted — they are signed in to GoGlobia): "
+               . implode(' ', $facts)
+               . " Never reveal account internals, ids or anything beyond what helps the conversation.";
+        $this->systemPrompt .= $block;
+    }
+
+    /**
      * Run one user turn. $history is the prior canonical messages (may be empty).
      *
      * @return array{
@@ -147,8 +193,29 @@ class giaAgent
                     continue;
                 }
                 $out = $this->executeTool($call);
+                $callName = (string) ($call['name'] ?? '');
+                // IN-TURN CONTEXT FEED: a search_trip result carries each module's
+                // params+suppliers. fetch_live_offers reads these from toolContext
+                // (not from model input), so merge them NOW — otherwise the model
+                // could not run the live lookup in the SAME turn as the search (the
+                // route only refreshes the session cache AFTER the turn). This makes
+                // "search then show live options" work in one turn, on every channel.
+                if ($callName === 'search_trip' && !empty($out['ok']) && isset($out['data']['searches']) && is_array($out['data']['searches'])) {
+                    if (!isset($this->toolContext['last_search_params']) || !is_array($this->toolContext['last_search_params'])) {
+                        $this->toolContext['last_search_params'] = [];
+                    }
+                    foreach ($out['data']['searches'] as $sr) {
+                        if (!is_array($sr)) { continue; }
+                        $mod = (string) ($sr['module'] ?? ($sr['kind'] ?? ''));
+                        if ($mod === '') { continue; }
+                        $this->toolContext['last_search_params'][$mod] = [
+                            'params'    => is_array($sr['params'] ?? null) ? $sr['params'] : [],
+                            'suppliers' => is_array($sr['suppliers'] ?? null) ? $sr['suppliers'] : [],
+                        ];
+                    }
+                }
                 $toolRuns[] = [
-                    'name'  => (string) ($call['name'] ?? ''),
+                    'name'  => $callName,
                     'input' => is_array($call['input'] ?? null) ? $call['input'] : [],
                     'output' => $out,
                 ];
@@ -435,6 +502,19 @@ class giaAgent
             . "'where are you departing from?' before showing them; just show the options. Departure city "
             . "only matters for flights. The ONLY time you ask before searching is when you genuinely "
             . "cannot tell which service they mean. One question at a time, never a checklist.\n"
+            . "LIVE MODULES — ALWAYS FETCH LIVE OFFERS, NEVER STOP AT THE INTENT: for flights, cars, rail, "
+            . "ferries and eSIM, search_trip only prepares the search; it does NOT return bookable options. "
+            . "The INSTANT you have called search_trip for one of these, you MUST immediately call "
+            . "fetch_live_offers (with that module) in the SAME turn to pull the real, priced options and "
+            . "show them in the chat. Do this automatically — do not wait to be asked, and do not tell the "
+            . "traveller to click anything. A search_trip result for a live module with no cards is NOT 'no "
+            . "availability' — it just means the live lookup hasn't run yet, so run it. "
+            . "SAYING 'NO OPTIONS' — ONLY AFTER A REAL LIVE SEARCH: never tell the traveller there are no "
+            . "flights/cars/etc. unless fetch_live_offers ACTUALLY returned zero offers. When it genuinely "
+            . "returns none, say so plainly, state the exact route and date you searched live (e.g. 'I "
+            . "searched Kano -> Lagos for 21 Oct and our live airline suppliers returned nothing right "
+            . "now'), then offer concrete alternatives (a nearby date, or a different departure airport) and "
+            . "re-search. NEVER claim no availability from a search_trip intent alone.\n"
             . "USING RESULTS — RECOMMEND LIKE A TRUSTED ADVISOR: search_trip returns real options with "
             . "names and prices, AND the interface shows them to the traveller as rich cards right below "
             . "your message. So DO NOT re-list every option or repeat all the prices — the cards already "
@@ -460,10 +540,12 @@ class giaAgent
             . "fetch_live_offers for live ones). (d) reprice_trip — confirm the live price of that draft "
             . "(ALWAYS before checkout; the earlier price is not final — and for flights do this again "
             . "right before approval as fares are time-sensitive). (e) create_checkout — freeze the "
-            . "repriced total. (f) request_booking_approval — AFTER they tap Approve in the interface. "
-            . "(g) initiate_payment — begin the real payment. (h) get_order_status — check the real "
-            . "booking state. Full flow: (search_trip [+ fetch_live_offers for live modules]) -> pick -> "
-            . "select_option -> reprice_trip -> create_checkout -> (tap Approve) -> "
+            . "repriced total. (f) create_booking — turn the frozen quote into a payable booking (unpaid; "
+            . "no charge) and get its invoice reference. (g) request_booking_approval — AFTER they tap "
+            . "Approve in the interface. (h) initiate_payment — begin the real payment (needs the invoice "
+            . "from create_booking). (i) get_order_status — check the real booking state. Full flow: "
+            . "(search_trip [+ fetch_live_offers for live modules]) -> pick -> select_option -> "
+            . "reprice_trip -> create_checkout -> create_booking -> (tap Approve) -> "
             . "request_booking_approval -> initiate_payment -> get_order_status. All 10 services can book "
             . "in-chat this way. If a live fare has expired by approval time, reprice will say so — "
             . "warmly offer to pull fresh options.\n"

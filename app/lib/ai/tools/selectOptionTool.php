@@ -103,9 +103,16 @@ class selectOptionTool implements giaToolInterface
             // LIVE-SUPPLIER: the traveller picked an offer fetch_live_offers returned.
             // Its authoritative stable fields were cached server-side by ref — the
             // model never handled the pricing/token. Build the draft item from that.
+            // Read the offer fetch_live_offers cached for THIS conversation from the
+            // DB (not $_SESSION) so it works on stateless messaging webhooks too.
             $cacheKey = $module . ':' . $optionId;
-            $cached = (isset($_SESSION['gia_live_offers'][$cacheKey]) && is_array($_SESSION['gia_live_offers'][$cacheKey]))
-                ? $_SESSION['gia_live_offers'][$cacheKey] : null;
+            $convId = (int) ($context['conv_id'] ?? 0);
+            if ($convId > 0 && !function_exists('gia_offer_cache_get')) {
+                $crm = dirname(__DIR__) . '/gia_crm.php';
+                if (is_file($crm)) { require_once $crm; }
+            }
+            $cached = ($convId > 0 && function_exists('gia_offer_cache_get'))
+                ? gia_offer_cache_get($db, $convId, $cacheKey) : null;
             if ($cached === null) {
                 return ['ok' => false, 'error_code' => 'AI_OFFER_EXPIRED', 'message' => "That option isn't in view anymore — let me pull up live options again."];
             }

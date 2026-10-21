@@ -27293,6 +27293,8 @@ CREATE TABLE IF NOT EXISTS `gia_conversations` (
   `lead_id` int(11) DEFAULT NULL,
   `context` varchar(40) DEFAULT NULL,
   `surface` varchar(20) NOT NULL DEFAULT 'widget',
+  `channel` varchar(16) NOT NULL DEFAULT 'web',
+  `channel_user_id` varchar(120) DEFAULT NULL,
   `msg_count` int(11) NOT NULL DEFAULT 0,
   `token_in` int(11) NOT NULL DEFAULT 0,
   `token_out` int(11) NOT NULL DEFAULT 0,
@@ -27314,8 +27316,67 @@ CREATE TABLE IF NOT EXISTS `gia_conversations` (
   KEY `lead_id` (`lead_id`),
   KEY `last_at` (`last_at`),
   KEY `closed` (`closed`),
-  KEY `needs_human` (`needs_human`)
+  KEY `needs_human` (`needs_human`),
+  KEY `channel_user` (`channel`,`channel_user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+-- GIA messaging-channel dedupe (webhook retry idempotency)
+CREATE TABLE IF NOT EXISTS `gia_channel_seen` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `channel` varchar(16) NOT NULL,
+  `message_id` varchar(191) NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_channel_msg` (`channel`,`message_id`),
+  KEY `created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+-- GIA personalized-opener cache (per user+module/day)
+CREATE TABLE IF NOT EXISTS `gia_opener_cache` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `cache_key` varchar(191) NOT NULL,
+  `line` varchar(400) NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_cache_key` (`cache_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+-- GIA live-offer cache (per conversation) — DB-backed replacement for the old
+-- session cache, so select_option works on stateless messaging webhooks.
+CREATE TABLE IF NOT EXISTS `gia_offer_cache` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `conv_id` int(11) NOT NULL,
+  `cache_key` varchar(160) NOT NULL,
+  `payload` longtext DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_conv_key` (`conv_id`,`cache_key`),
+  KEY `conv_id` (`conv_id`),
+  KEY `created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+-- GIA channel identity links (chat <-> account, verified via one-time code)
+CREATE TABLE IF NOT EXISTS `gia_channel_links` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `channel` varchar(16) NOT NULL,
+  `channel_user_id` varchar(120) NOT NULL,
+  `user_id` varchar(255) DEFAULT NULL,
+  `code_hash` varchar(64) DEFAULT NULL,
+  `code_expires` datetime DEFAULT NULL,
+  `attempts` int(11) NOT NULL DEFAULT 0,
+  `verified` tinyint(1) NOT NULL DEFAULT 0,
+  `verified_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_channel_sender` (`channel`,`channel_user_id`),
+  KEY `user_id` (`user_id`),
+  KEY `verified` (`verified`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
@@ -28247,6 +28308,7 @@ CREATE TABLE `settings` (
   `app_settings` longtext DEFAULT NULL,
   `currency_api_key` varchar(255) DEFAULT NULL,
   `ai_configuration` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`ai_configuration`)),
+  `gia_channels_config` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
   `user_restriction` enum('0','1') NOT NULL DEFAULT '0',
   `visa_passport_required` enum('0','1') NOT NULL DEFAULT '0',
   `visa_national_id_required` enum('0','1') NOT NULL DEFAULT '0',

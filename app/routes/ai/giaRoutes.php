@@ -122,6 +122,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/selectOptionTool.php';
     require_once $aiDir . 'tools/composeTripTool.php';
     require_once $aiDir . 'tools/createCheckoutTool.php';
+    require_once $aiDir . 'tools/createBookingTool.php';
     require_once $aiDir . 'tools/requestApprovalTool.php';
     require_once $aiDir . 'tools/initiatePaymentTool.php';
     require_once $aiDir . 'tools/getOrderStatusTool.php';
@@ -199,11 +200,18 @@ $router->post('/api/gia/chat', function () use ($db) {
         $agent->registerTool(new \App\lib\ai\selectOptionTool());
         $agent->registerTool(new \App\lib\ai\composeTripTool());
         $agent->registerTool(new \App\lib\ai\createCheckoutTool());
+        $agent->registerTool(new \App\lib\ai\createBookingTool());
         $agent->registerTool(new \App\lib\ai\requestApprovalTool());
         $agent->registerTool(new \App\lib\ai\initiatePaymentTool());
         $agent->registerTool(new \App\lib\ai\getOrderStatusTool());
         $agent->registerTool(new \App\lib\ai\requestHumanTool());
         $agent->setToolContext($toolContext);
+        // Personalize for a signed-in traveler: resolve safe facts (first name,
+        // currency) from the users table and let GIA greet them by name + answer
+        // "do you know me?" truthfully. Guests resolve to [] -> no-op. Fail-soft.
+        if ($userId !== '' && function_exists('gia_user_profile')) {
+            $agent->setUserProfile(gia_user_profile($db, $userId));
+        }
         $result = $agent->run($message, $history);
     } catch (\Throwable $e) {
         error_log('[gia] route error: ' . $e->getMessage());
@@ -421,6 +429,68 @@ $router->get('/api/gia/history', function () use ($db) {
         }
     } catch (\Throwable $e) {
         error_log('[gia] history route: ' . $e->getMessage());
+    }
+    echo json_encode($out);
+});
+
+// ============================================================================
+// GET /api/gia/opener — the personalized opening line + context-aware shortcut
+// chips for THIS browser/user. Replaces the widget's fully-static greeting:
+// name-aware line + suggestions drawn from the traveler's OWN recent activity
+// (last booking / last GIA module), with sensible fallbacks. Read-only; the
+// widget shows an instant default first, then swaps in this result when it
+// arrives — so there is no delay-to-first-bubble.
+//   ?llm=1 permits ONE short agent-authored line (cached per user+module/day)
+//          when there is real personalization to justify it.
+// ============================================================================
+$router->get('/api/gia/opener', function () use ($db) {
+    header('Content-Type: application/json');
+    $out = ['status' => true, 'greeting' => '', 'shortcuts' => [], 'source' => 'static'];
+    if (!function_exists('aiTripIsEnabled') || !aiTripIsEnabled($db)) {
+        echo json_encode($out);
+        return;
+    }
+    $aiDir = dirname(__DIR__, 2) . '/lib/ai/';
+    require_once $aiDir . 'gia_analytics.php';
+    require_once $aiDir . 'gia_crm.php';
+    require_once $aiDir . 'gia_opener.php';
+
+    $browserId = function_exists('gia_browser_id') ? gia_browser_id() : '';
+    $userId    = (string) ($_SESSION['user_id'] ?? '');
+    $context   = (string) ($_GET['context'] ?? '');
+    // Only allow the (paid, cached) authored line for signed-in travelers who opt
+    // the widget into it — keeps anonymous page opens on the free, instant path.
+    $allowLlm  = ($userId !== '') && ((string) ($_GET['llm'] ?? '') === '1');
+
+    // COST GUARD: the LLM-authored opener is a real paid call (cached per
+    // user+module/day, but ?context= varies the cache key). Throttle the authoring
+    // path per user so a refresh/context loop can't fan out paid calls. On trip,
+    // we DON'T error — we just fall back to the free static greeting.
+    if ($allowLlm) {
+        if (!class_exists('RateLimiter')) {
+            $rlFile = dirname(__DIR__, 3) . '/modules/RateLimiter.php';
+            if (is_file($rlFile)) { require_once $rlFile; }
+        }
+        if (class_exists('RateLimiter')) {
+            try {
+                $rl = new RateLimiter(dirname(__DIR__, 3) . '/app/cache/rate_limiter');
+                // 6 authored openers / 10 min per user is ample for real page opens.
+                if (!$rl->attempt('gia_opener:' . $userId, 6, 600)) {
+                    $allowLlm = false;
+                }
+            } catch (\Throwable $e) {
+                $allowLlm = false; // fail closed on the paid path only
+            }
+        }
+    }
+
+    try {
+        $opener = gia_build_opener($db, $userId, $browserId, $context, $allowLlm);
+        $out['greeting']  = (string) ($opener['greeting'] ?? '');
+        $out['shortcuts'] = array_values((array) ($opener['shortcuts'] ?? []));
+        $out['source']    = (string) ($opener['source'] ?? 'static');
+    } catch (\Throwable $e) {
+        error_log('[gia] opener route: ' . $e->getMessage());
     }
     echo json_encode($out);
 });

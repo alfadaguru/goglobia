@@ -2070,7 +2070,7 @@ function sendWhatsAppNotification($userId, $templateName, $additionalData = [])
     }
 
     $userPhone = $user['phone'] ?? '';
-    $countryCode = $user['phone_country_code'] ?? '92';
+    $countryCode = $user['phone_country_code'] ?? '234';
 
     if (empty($userPhone)) {
         return false;
@@ -2188,7 +2188,7 @@ function sendWhatsAppNotification($userId, $templateName, $additionalData = [])
                 if ($roleUser['id'] == $userId)
                     continue;
 
-                $rolePhone = formatPhoneNumber($roleUser['phone'], $roleUser['phone_country_code'] ?? '92');
+                $rolePhone = formatPhoneNumber($roleUser['phone'], $roleUser['phone_country_code'] ?? '234');
                 if (!empty($rolePhone)) {
                     $roleMessage = renderWhatsAppTemplate($template, $user, $additionalData);
 
@@ -2224,7 +2224,7 @@ function sendSmsNotification($userId, $templateName, $additionalData = [])
     }
 
     $userPhone = $user['phone'] ?? '';
-    $countryCode = $user['phone_country_code'] ?? '92';
+    $countryCode = $user['phone_country_code'] ?? '234';
 
     if (empty($userPhone)) {
         return false;
@@ -2360,7 +2360,7 @@ function sendSmsNotification($userId, $templateName, $additionalData = [])
                 if ($roleUser['id'] == $userId)
                     continue;
 
-                $rolePhone = formatPhoneNumber($roleUser['phone'], $roleUser['phone_country_code'] ?? '92');
+                $rolePhone = formatPhoneNumber($roleUser['phone'], $roleUser['phone_country_code'] ?? '234');
                 if (!empty($rolePhone)) {
                     $roleMessage = renderSmsTemplate($template, $user, $additionalData);
 
