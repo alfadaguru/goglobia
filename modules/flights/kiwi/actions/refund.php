@@ -115,6 +115,10 @@ $router->post('flights/kiwi/refund', function() use ($db) {
         if (empty($refundAmount)) {
             $refundAmount = $totalAmount;
         }
+        // audit #27: clamp to the amount actually paid — a refund can never exceed it.
+        $refundAmount = (float) $refundAmount;
+        if ($totalAmount > 0 && $refundAmount > $totalAmount) { $refundAmount = $totalAmount; }
+        if ($refundAmount < 0) { $refundAmount = 0.0; }
 
         // Extract booking ID from response
         $bookingId = null;
@@ -179,8 +183,11 @@ $router->post('flights/kiwi/refund', function() use ($db) {
         // cancelled ('refund_pending' truncates); use 'cancelled'. Store details
         // in cancellation_response (there is no 'refund_response' column).
         require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
+        // audit #27: pass the validated $refundAmount so the money ACTUALLY refunded
+        // equals the logged/returned refund_amount (was null → always refunded the full
+        // price_markup regardless of a requested partial).
         $kiwiGwRefund = function_exists('refund_gateway_payment')
-            ? refund_gateway_payment($db, $booking, null, 'Kiwi flight refund')
+            ? refund_gateway_payment($db, $booking, (float) $refundAmount, 'Kiwi flight refund')
             : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
         $kiwiGatewayRefunded = ($kiwiGwRefund['status'] === 'refunded');
         $refundDetails['gateway_refund'] = $kiwiGwRefund;

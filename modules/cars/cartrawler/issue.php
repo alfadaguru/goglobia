@@ -29,6 +29,22 @@ try {
         exit;
     }
 
+    // IDEMPOTENCY GUARD (audit #23): if this booking already has a CarTrawler PNR, do
+    // NOT place another reservation. A retried payment callback / double-submit would
+    // otherwise book a SECOND real car and re-mark it paid. Return the existing PNR as
+    // success. (Mirrors the Duffel issue guard.)
+    if (!empty($booking['pnr'])) {
+        echo json_encode([
+            'status'  => true,
+            'message' => 'Booking already issued',
+            'pnr'     => $booking['pnr'],
+            'booking_reference' => $booking['pnr'],
+            'invoice_id' => $invoice_id,
+            'already_issued' => true,
+        ]);
+        exit;
+    }
+
     // Get module credentials
     $module = $db->get('modules', '*', ['name' => 'cartrawler', 'type' => 'cars']);
     if (!$module) {
