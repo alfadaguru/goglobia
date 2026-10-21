@@ -431,7 +431,24 @@ if (!function_exists('supplier_chargeback_apply')) {
                         'memo' => 'Supplier chargeback ' . $invoiceId, 'currency' => $result['currency'],
                     ]);
                     $result['gl'] = !empty($post['ok']);
-                    if (empty($post['ok'])) { $result['gl_message'] = $post['message'] ?? 'GL not posted'; }
+                    if (!empty($post['ok'])) {
+                        // Record that the GL reversal posted + its entry id on the
+                        // chargeback row (audit #10), so an un-posted reversal is
+                        // detectable/reconcilable instead of silently diverging. We do
+                        // NOT roll the chargeback back on a GL failure — the chargeback
+                        // record is authoritative; a transient GL error must not block a
+                        // legitimate clawback. A reconcile job can repost where gl_entry_id
+                        // is NULL.
+                        try {
+                            $glId = (int) ($post['entry_id'] ?? $post['id'] ?? 0);
+                            $db->update('supplier_chargebacks',
+                                ['gl_entry_id' => $glId > 0 ? $glId : null],
+                                ['id' => (int) $result['chargeback_id']]);
+                        } catch (\Throwable $e) { error_log('chargeback gl_entry_id persist: ' . $e->getMessage()); }
+                    } else {
+                        $result['gl_message'] = $post['message'] ?? 'GL not posted';
+                        error_log('supplier_chargeback_apply GL not posted (' . $invoiceId . '): ' . ($post['message'] ?? '?') . ' — chargeback stands, gl_entry_id left NULL for reconcile');
+                    }
                 } catch (\Throwable $ex) {
                     error_log('supplier_chargeback_apply GL: ' . $ex->getMessage());
                     $result['gl'] = false;

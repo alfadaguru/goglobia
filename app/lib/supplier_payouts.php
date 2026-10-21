@@ -66,6 +66,26 @@ if (!function_exists('supplier_payable_available')) {
         } catch (\Throwable $e) {
             error_log('supplier_payable_available: ' . $e->getMessage());
         }
+
+        // NET CARRIED CHARGEBACK DEBT (audit #9): when a disputed/reversed booking was
+        // already settled or reserved, the clawback is recorded as a 'debt' chargeback
+        // (mode='debt', state='applied') that must reduce what the supplier can withdraw —
+        // otherwise the platform eats the loss. Subtract un-netted applied debt per
+        // currency, clamped at 0 (never show negative; the remainder carries forward).
+        // Guarded: if the column set isn't present the read is skipped, not fatal.
+        try {
+            $debts = $db->select('supplier_chargebacks', ['currency', 'amount'],
+                ['owner_user_id' => $owner, 'state' => 'applied', 'mode' => 'debt', 'netted_at' => null]) ?: [];
+            foreach ($debts as $d) {
+                $cur = strtoupper((string) ($d['currency'] ?? 'USD'));
+                if (isset($out[$cur])) {
+                    $out[$cur] = round(max(0, $out[$cur] - (float) $d['amount']), 2);
+                }
+            }
+        } catch (\Throwable $e) {
+            // Narrow-schema install (pre-reconcile) or table absent — skip netting.
+            error_log('supplier_payable_available debt-net: ' . $e->getMessage());
+        }
         return $out;
     }
 }

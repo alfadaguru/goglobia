@@ -61,15 +61,27 @@ if (!function_exists('spayx_ensure_schema')) {
                 KEY `idx_status` (`status`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+            // NOTE (audit #9/#10): this table is written/read by TWO subsystems with
+            // different column sets. supplier_payments_ext uses status/gl_entry_id/
+            // resolution/opened_* (the ops/dispute view); supplier_settlement_ext uses
+            // owner_user_id/earning_id/mode/state/reference/applied_* (the earnings
+            // clawback). Both column families live here so BOTH subsystems work; the
+            // settlement writes previously failed silently because these columns were
+            // absent, so no chargeback debt was ever recorded.
             $db->query("CREATE TABLE IF NOT EXISTS `supplier_chargebacks` (
                 `id` int(11) NOT NULL AUTO_INCREMENT,
                 `org_id` int(11) DEFAULT NULL,
+                `owner_user_id` varchar(155) DEFAULT NULL,
                 `stay_id` int(11) DEFAULT NULL,
                 `invoice_id` varchar(64) NOT NULL,
+                `earning_id` int(11) DEFAULT NULL,
                 `amount` decimal(12,2) NOT NULL DEFAULT 0.00,
                 `currency` varchar(3) DEFAULT NULL,
                 `reason` varchar(255) DEFAULT NULL,
                 `gateway_ref` varchar(120) DEFAULT NULL,
+                `mode` varchar(20) DEFAULT NULL,
+                `state` varchar(20) DEFAULT NULL,
+                `reference` varchar(64) DEFAULT NULL,
                 `status` varchar(20) NOT NULL DEFAULT 'open',
                 `gl_entry_id` int(11) DEFAULT NULL,
                 `opened_by` varchar(155) DEFAULT NULL,
@@ -77,11 +89,37 @@ if (!function_exists('spayx_ensure_schema')) {
                 `resolved_at` datetime DEFAULT NULL,
                 `resolved_by` varchar(155) DEFAULT NULL,
                 `resolution` varchar(20) DEFAULT NULL,
+                `applied_by` varchar(155) DEFAULT NULL,
+                `applied_at` datetime DEFAULT NULL,
+                `netted_at` datetime DEFAULT NULL,
+                `created_at` datetime DEFAULT NULL,
                 PRIMARY KEY (`id`),
                 KEY `idx_invoice` (`invoice_id`),
                 KEY `idx_stay` (`stay_id`),
-                KEY `idx_status` (`status`)
+                KEY `idx_status` (`status`),
+                KEY `idx_owner_state` (`owner_user_id`,`state`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+            // Self-heal existing installs created with the narrow schema (idempotent):
+            // add the settlement-side columns if missing, so chargeback-apply stops
+            // failing silently. Also used for netting debt against payable (netted_at).
+            foreach ([
+                'owner_user_id' => "VARCHAR(155) DEFAULT NULL",
+                'earning_id'    => "INT(11) DEFAULT NULL",
+                'mode'          => "VARCHAR(20) DEFAULT NULL",
+                'state'         => "VARCHAR(20) DEFAULT NULL",
+                'reference'     => "VARCHAR(64) DEFAULT NULL",
+                'applied_by'    => "VARCHAR(155) DEFAULT NULL",
+                'applied_at'    => "DATETIME DEFAULT NULL",
+                'netted_at'     => "DATETIME DEFAULT NULL",
+                'created_at'    => "DATETIME DEFAULT NULL",
+            ] as $col => $def) {
+                try {
+                    if (!$db->query("SHOW COLUMNS FROM `supplier_chargebacks` LIKE '{$col}'")->fetch()) {
+                        $db->query("ALTER TABLE `supplier_chargebacks` ADD COLUMN `{$col}` {$def}");
+                    }
+                } catch (\Throwable $e) { error_log('supplier_chargebacks ensure col ' . $col . ': ' . $e->getMessage()); }
+            }
 
             $db->query("CREATE TABLE IF NOT EXISTS `supplier_payment_intents` (
                 `id` int(11) NOT NULL AUTO_INCREMENT,

@@ -33804,15 +33804,24 @@ CREATE TABLE IF NOT EXISTS `supplier_deposit_schedules` (
   KEY `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- supplier_chargebacks carries BOTH the ops/dispute columns (status/gl_entry_id/
+-- resolution/opened_*) used by supplier_payments_ext AND the earnings-clawback
+-- columns (owner_user_id/earning_id/mode/state/reference/applied_*/netted_at) used by
+-- supplier_settlement_ext. Both families are required or one subsystem's writes fail.
 CREATE TABLE IF NOT EXISTS `supplier_chargebacks` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `org_id` int(11) DEFAULT NULL,
+  `owner_user_id` varchar(155) DEFAULT NULL,
   `stay_id` int(11) DEFAULT NULL,
   `invoice_id` varchar(64) NOT NULL,
+  `earning_id` int(11) DEFAULT NULL,
   `amount` decimal(12,2) NOT NULL DEFAULT 0.00,
   `currency` varchar(3) DEFAULT NULL,
   `reason` varchar(255) DEFAULT NULL,
   `gateway_ref` varchar(120) DEFAULT NULL,
+  `mode` varchar(20) DEFAULT NULL,
+  `state` varchar(20) DEFAULT NULL,
+  `reference` varchar(64) DEFAULT NULL,
   `status` varchar(20) NOT NULL DEFAULT 'open',
   `gl_entry_id` int(11) DEFAULT NULL,
   `opened_by` varchar(155) DEFAULT NULL,
@@ -33820,10 +33829,15 @@ CREATE TABLE IF NOT EXISTS `supplier_chargebacks` (
   `resolved_at` datetime DEFAULT NULL,
   `resolved_by` varchar(155) DEFAULT NULL,
   `resolution` varchar(20) DEFAULT NULL,
+  `applied_by` varchar(155) DEFAULT NULL,
+  `applied_at` datetime DEFAULT NULL,
+  `netted_at` datetime DEFAULT NULL,
+  `created_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_invoice` (`invoice_id`),
   KEY `idx_stay` (`stay_id`),
-  KEY `idx_status` (`status`)
+  KEY `idx_status` (`status`),
+  KEY `idx_owner_state` (`owner_user_id`,`state`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `supplier_payment_intents` (
