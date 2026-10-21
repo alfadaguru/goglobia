@@ -519,7 +519,7 @@ if (!empty($activeCurrencyRow)) {
          partials/* ONLY WHEN A DROPDOWN IS FIRST OPENED — KEEPS FIRST-PAINT DOM SMALL -->
     <header class="sticky top-0 z-50 w-full transition-shadow duration-300" :class="scrolled ? 'shadow-md' : 'shadow-sm'" x-data="{ mobileMenuOpen: false, scrolled: (typeof window !== 'undefined' && window.scrollY > 10), parts: {}, loadPart(name) { if (!this.parts[name]) fetch('<?=root?>partials/' + name).then(r => r.ok ? r.text() : '').then(t => { if (t) this.parts[name] = t }) } }" x-init="scrolled = window.scrollY > 10" @scroll.window="scrolled = window.scrollY > 10" style="background-color: var(--header-background); color: var(--header-text-color); font-size: var(--header-font-size); border-bottom: var(--header-border-width)px solid var(--header-border-color); min-height: var(--header-height)px; padding-left: var(--header-padding-x)px; padding-right: var(--header-padding-x)px; box-shadow: var(--header-shadow);">
       <div class="container mx-auto">
-        <div class="flex items-center justify-between transition-all duration-300 ease-out" :class="scrolled ? 'h-20' : 'h-24'">
+        <div class="flex items-center justify-between transition-all duration-300 ease-out" :class="scrolled ? 'h-24' : 'h-28'">
           <!-- LOGO + NAVIGATION -->
           <?php $__wl = function_exists('wl_is_tenant') && wl_is_tenant(); ?>
           <div class="flex items-center gap-4">
@@ -541,8 +541,8 @@ if (!empty($activeCurrencyRow)) {
                    clearly noticeable. -->
               <img src="<?=versionedAssetUrl('uploads/global/logo.png')?>" alt="<?=$GLOBALS['app']['business_name']?>"
                    class="w-auto object-contain transition-all duration-300 ease-out"
-                   :style="scrolled ? 'height:60px' : 'height:76px'"
-                   style="height:76px" width="280" height="76" decoding="async">
+                   :style="scrolled ? 'height:74px' : 'height:90px'"
+                   style="height:90px" width="90" height="90" decoding="async">
             </a>
             <?php endif; ?>
 
@@ -890,8 +890,8 @@ if (!empty($activeCurrencyRow)) {
            x-transition:leave-end="opacity-0 -translate-y-2"
            @click.away="mobileMenuOpen = false"
            class="lg:hidden fixed left-0 right-0 bg-white border-b border-gray-200 shadow-2xl z-40 overflow-y-auto"
-           :style="(scrolled ? 'top:80px;max-height:calc(100vh - 80px)' : 'top:96px;max-height:calc(100vh - 96px)')"
-           style="top:96px;max-height:calc(100vh - 96px)">
+           :style="(scrolled ? 'top:96px;max-height:calc(100vh - 96px)' : 'top:112px;max-height:calc(100vh - 112px)')"
+           style="top:112px;max-height:calc(100vh - 112px)">
         <div class="px-4 py-6 space-y-4" x-data="{
           openDropdowns: {},
           toggleDropdown(id) {
