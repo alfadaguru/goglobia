@@ -358,7 +358,23 @@ function adyen_finalize_payment($db, string $invoiceId, ?string $pspReference, a
     }
 
     if (function_exists('record_transaction')) {
-        record_transaction($tokenData, $pspReference, 'success', $rawEvent);
+        // #18: record the amount ACTUALLY captured by this notification (the slice for an
+        // installment), not the full booking total that $tokenData was seeded with.
+        $tokenData['amount']   = $settledAmount;
+        $tokenData['currency'] = $settledCurrency;
+        // #17: do not insert a duplicate audit row on a replayed webhook. The 'paid'
+        // guard above catches fully-paid replays, but a partially_paid installment
+        // booking is not 'paid', so a replayed installment notification reaches here —
+        // skip if a transactions row for this pspReference already exists.
+        $alreadyRecorded = false;
+        try {
+            if ($pspReference !== '') {
+                $alreadyRecorded = (bool) $db->get('transactions', 'id', ['trx_id' => $pspReference]);
+            }
+        } catch (\Throwable $e) { /* table/col variance — fall through and record */ }
+        if (!$alreadyRecorded) {
+            record_transaction($tokenData, $pspReference, 'success', $rawEvent);
+        }
     }
 
     // STAYS no-oversell: Adyen confirms via webhook (no handle_payment_callback), so

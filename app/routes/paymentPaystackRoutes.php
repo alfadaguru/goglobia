@@ -151,9 +151,14 @@ $router->post('payment/paystack/webhook', function () use ($SECURE, $db) {
             'idempotency_key' => $idem,
             'description'     => 'Virtual account deposit ' . $reference,
         ]);
+        // RETRYABLE FAILURES (audit #31): a credit failure must NOT be ack'd 200 — that
+        // tells Paystack "processed, stop retrying" and permanently strands the
+        // customer's deposit uncredited. Return a non-2xx so Paystack re-delivers until
+        // the credit succeeds. Idempotency (PSKDVA-{reference}) makes replays safe: a
+        // retry that eventually succeeds credits exactly once.
         if (!$txn || empty($txn['id'])) {
-            error_log('PAYSTACK WEBHOOK | could not create txn for ' . $idem);
-            $ack(200, 'error');
+            error_log('PAYSTACK WEBHOOK | could not create txn for ' . $idem . ' — returning 500 for retry');
+            $ack(500, 'retry: could not record deposit');
         }
         // If txn_create returned an already-successful row (idempotent), stop.
         if (($txn['status'] ?? 'pending') === 'success') {
@@ -163,12 +168,12 @@ $router->post('payment/paystack/webhook', function () use ($SECURE, $db) {
             'gateway' => 'paystack', 'channel' => 'dedicated_nuban', 'reference' => $reference,
         ]);
         if (empty($res['ok'])) {
-            error_log('PAYSTACK WEBHOOK | credit failed for ' . $idem . ': ' . ($res['message'] ?? '?'));
-            $ack(200, 'error');
+            error_log('PAYSTACK WEBHOOK | credit failed for ' . $idem . ': ' . ($res['message'] ?? '?') . ' — returning 500 for retry');
+            $ack(500, 'retry: credit failed');
         }
     } catch (\Throwable $e) {
-        error_log('PAYSTACK WEBHOOK | exception crediting ' . $idem . ': ' . $e->getMessage());
-        $ack(200, 'error');
+        error_log('PAYSTACK WEBHOOK | exception crediting ' . $idem . ': ' . $e->getMessage() . ' — returning 500 for retry');
+        $ack(500, 'retry: exception');
     }
 
     $ack(200, 'OK');
