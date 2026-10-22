@@ -345,6 +345,33 @@ class giaAgent
             if (isset($d['searches']) && is_array($d['searches'])) {
                 $compact['options'] = $this->modelFacingOptions($d['searches']);
             }
+            // UMRAH TIERS: the dedicated umrah_tiers tool returns its priced tiers
+            // under 'umrah_tiers' (NOT 'searches'), so without this the model saw a
+            // result with ok:true but ZERO options it could describe — and then told
+            // the traveller "no bookable tiers" even though the backend returned one.
+            // Surface the tiers (and the departure) in a compact, model-facing shape
+            // so GIA can actually name and price them.
+            if (isset($d['umrah_tiers']) && is_array($d['umrah_tiers'])) {
+                $compact['umrah_tiers'] = array_slice(array_map(static function ($t) {
+                    return [
+                        'departure_tier_id' => (int) ($t['departure_tier_id'] ?? 0),
+                        'tier_label'        => (string) ($t['tier_label'] ?? 'Standard'),
+                        'room_sharing'      => (string) ($t['room_sharing'] ?? ''),
+                        'price'             => $t['price'] ?? ($t['unit_price'] ?? null),
+                        'currency'          => (string) ($t['currency'] ?? 'NGN'),
+                        'availability'      => (string) ($t['availability'] ?? 'available'),
+                    ];
+                }, $d['umrah_tiers']), 0, 10);
+                $compact['tier_count'] = count($d['umrah_tiers']);
+                if (isset($d['departure']) && is_array($d['departure'])) {
+                    $compact['departure'] = [
+                        'departure_id'   => (int) ($d['departure']['departure_id'] ?? 0),
+                        'origin_city'    => (string) ($d['departure']['origin_city'] ?? ''),
+                        'departure_date' => (string) ($d['departure']['departure_date'] ?? ''),
+                        'return_date'    => (string) ($d['departure']['return_date'] ?? ''),
+                    ];
+                }
+            }
         }
         return $compact;
     }
