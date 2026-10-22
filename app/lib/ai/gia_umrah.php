@@ -183,13 +183,33 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
             // The departure must be published + not archived (security: never price a
             // draft/closed one). Mirrors the public gate.
             $dep = $db->get('umrah_departures', '*', ['id' => $departureId, 'status' => 'published', 'archived' => 0]);
+
+            // RESILIENT ID RESOLUTION: the umrah_search card carries BOTH a
+            // departure_id AND a departure_tier_id. If the model passed the wrong
+            // one (a known failure mode — it would dead-end as "not open for
+            // booking"), recover instead of failing: treat the value as a
+            // departure_tier_id and map back to its departure. This makes the step
+            // robust no matter which of the card's two ids the model sent.
+            if (!\is_array($dep)) {
+                $dt = $db->get('umrah_departure_tiers', ['departure_id'], ['id' => $departureId]);
+                if (\is_array($dt) && (int) ($dt['departure_id'] ?? 0) > 0) {
+                    $realDep = (int) $dt['departure_id'];
+                    $dep = $db->get('umrah_departures', '*', ['id' => $realDep, 'status' => 'published', 'archived' => 0]);
+                    if (\is_array($dep)) {
+                        \error_log('[gia_umrah] tiers: recovered — model passed departure_tier_id=' . $departureId
+                            . ', resolved to departure_id=' . $realDep);
+                        $departureId = $realDep;
+                    }
+                }
+            }
+
             if (!\is_array($dep)) {
                 // DIAGNOSTIC: say WHY it failed — wrong id, or a status/archived
                 // mismatch — so a live failure is a fact in the log, not a guess.
                 $any = $db->get('umrah_departures', ['id', 'status', 'archived'], ['id' => $departureId]);
                 if (!\is_array($any)) {
-                    \error_log('[gia_umrah] tiers: no umrah_departures row with id=' . $departureId
-                        . ' (model passed a bad departure_id — it must be the card id from umrah_search)');
+                    \error_log('[gia_umrah] tiers: no umrah_departures AND no umrah_departure_tiers with id=' . $departureId
+                        . ' (model passed a value that is neither a departure_id nor a departure_tier_id)');
                 } else {
                     \error_log('[gia_umrah] tiers: departure ' . $departureId . ' exists but is gated out — status='
                         . (string) ($any['status'] ?? '') . ' archived=' . (string) ($any['archived'] ?? ''));
