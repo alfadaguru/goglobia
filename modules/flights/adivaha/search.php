@@ -150,12 +150,31 @@ $router->post('flights/adivaha/search', function () use ($db) {
 
     if ($type === 'multicity') {
         $segments = [];
-        foreach ($routes as $route) {
+        foreach ($routes as $i => $route) {
+            // Validate EACH route — a missing date would otherwise become
+            // strtotime('')===false -> date(...,false) == today, silently
+            // searching the wrong day; a missing/invalid O-D would 400 at Adivaha.
+            $rFrom = strtoupper(trim((string) ($route['from'] ?? '')));
+            $rTo   = strtoupper(trim((string) ($route['to'] ?? '')));
+            $rDateRaw = trim((string) ($route['date'] ?? ''));
+            $rTs = $rDateRaw !== '' ? strtotime($rDateRaw) : false;
+            if ($rFrom === '' || $rTo === '' || $rTs === false) {
+                echo json_encode(['status' => false, 'message' => 'Multicity route ' . ($i + 1) . ' is missing a valid origin, destination or date.']);
+                exit;
+            }
+            if ($rFrom === $rTo) {
+                echo json_encode(['status' => false, 'message' => 'Multicity route ' . ($i + 1) . ': origin and destination cannot be the same.']);
+                exit;
+            }
             $segments[] = [
-                'origin'      => strtoupper(trim((string) ($route['from'] ?? ''))),
-                'destination' => strtoupper(trim((string) ($route['to'] ?? ''))),
-                'depart_date' => date('Y-m-d', strtotime((string) ($route['date'] ?? ''))),
+                'origin'      => $rFrom,
+                'destination' => $rTo,
+                'depart_date' => date('Y-m-d', $rTs),
             ];
+        }
+        if (count($segments) < 2) {
+            echo json_encode(['status' => false, 'message' => 'Multicity search needs at least 2 valid segments.']);
+            exit;
         }
         $searchBody['segments'] = $segments;
     } else {
@@ -237,10 +256,10 @@ $router->post('flights/adivaha/search', function () use ($db) {
     //     the search origin, return leaves the destination), each with its OWN
     //     offer_id; you book by sending BOTH ids in legs[] (spec L41-49).
     // So we: build a reusable "leg group" per Adivaha offer; emit package offers as
-    // a single two-leg platform offer; and for 2x round trips, PAIR outbound ×
-    // return single-sector offers into combined platform offers that carry BOTH
-    // leg tokens in their per-leg booking_data (issue.php then sends legs[]). A
-    // one-way / multi-city offer is emitted as-is.
+    // a single two-leg platform offer; and emit each 2x single-sector offer as its
+    // OWN one-way offer (we do NOT synthesise a two-token combined round trip — the
+    // platform pipeline is single-token, so pairing would undercharge; see the file
+    // header). A one-way / multi-city offer is emitted as-is.
 
     // Build one platform "leg group" (array of flight objects) from an Adivaha
     // offer's per-leg summary(ies), plus the priced booking_data for that offer.
