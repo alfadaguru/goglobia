@@ -128,6 +128,8 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/getOrderStatusTool.php';
     require_once $aiDir . 'tools/requestHumanTool.php';
     require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow (own tools)
+    require_once $aiDir . 'gia_pending_travellers.php'; // pilgrim-collection engine
+    require_once $aiDir . 'gia_pt_web.php';             // web-native pilgrim handlers
     // CRM + analytics (persistent chat, leads, logging). Fail-soft: if these are
     // unavailable the chat still works, just without persistence/reporting.
     require_once $aiDir . 'gia_analytics.php';
@@ -193,6 +195,42 @@ $router->post('/api/gia/chat', function () use ($db) {
             ? $_SESSION['gia_last_search'] : [],
     ];
 
+    // --- UMRAH PILGRIM COLLECTION (web) intercept ---------------------------
+    //     If this web conversation is mid pilgrim-collection (a held umrah booking
+    //     is waiting for passports), a TYPED message is handled deterministically
+    //     by the collection engine BEFORE the model — exactly like the channel
+    //     dispatcher does. The model never runs during collection, so it can't
+    //     hallucinate the step or move money. Passport PHOTOS come via the separate
+    //     /api/gia/umrah/passport upload endpoint. Once the manifest is complete we
+    //     surface the two pay options (bank transfer / card) in the response. ---
+    $ptConvKey = (string) ($conv['conv_key'] ?? '');
+    if ($ptConvKey !== '' && \App\lib\ai\gia_pt_web_active($db, $ptConvKey) !== null) {
+        $pt = \App\lib\ai\gia_pt_web_handle_text($db, $ptConvKey, $message);
+        if (is_array($pt)) {
+            if ($convId > 0 && function_exists('gia_log_turn')) {
+                gia_log_turn($db, $convId, $message, (string) ($pt['reply'] ?? ''), []);
+            }
+            $out = [
+                'status'     => true,
+                'reply'      => (string) ($pt['reply'] ?? ''),
+                'error_code' => '',
+                'searches'   => [],
+                'checkout'   => null,
+                'approval'   => null,
+                'payment'    => null,
+                'order_status' => null,
+                'collecting' => !($pt['done'] ?? false),   // widget keeps the upload control visible
+                'conv_key'   => $ptConvKey,
+            ];
+            // Manifest complete -> attach the two GIA-native pay options.
+            if (!empty($pt['done']) && (string) ($pt['invoice_id'] ?? '') !== '') {
+                $out['pay_options'] = gia_web_pay_options((string) $pt['invoice_id']);
+            }
+            $respond(200, $out);
+            return;
+        }
+    }
+
     // --- Run the agent. ---
     try {
         $agent = new \App\lib\ai\giaAgent($db);
@@ -251,6 +289,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     $approval = null;   // {checkout_ref, approval_token, expires_at} from request_booking_approval
     $payment = null;    // {invoice_id, redirect_url, amount, currency} from initiate_payment
     $orderStatus = null; // {state, invoice_id, pnr, needs_ops} from get_order_status
+    $collectingUmrah = false; // true when umrah_book just started pilgrim collection
     foreach (($result['tool_runs'] ?? []) as $tr) {
         $name = (string) ($tr['name'] ?? '');
         $data = (isset($tr['output']['data']) && is_array($tr['output']['data'])) ? $tr['output']['data'] : [];
@@ -260,6 +299,22 @@ $router->post('/api/gia/chat', function () use ($db) {
         // 'searches' block; umrah_tiers returns tiers for the picked departure.
         if (($name === 'umrah_search') && isset($data['searches']) && is_array($data['searches'])) {
             $searches = array_merge($searches, $data['searches']);
+        } elseif ($name === 'umrah_book' && ($tr['output']['ok'] ?? false)
+                  && (string) ($data['module'] ?? '') === 'umrah'
+                  && !empty($data['needs_travellers']) && !empty($data['invoice_id'])) {
+            // A held, UNPAID umrah booking was just created. Umrah needs every
+            // pilgrim's passport BEFORE payment (Saudi visa), so START pilgrim
+            // collection for this web conversation and ask for the first passport.
+            // Pay options are DEFERRED until the manifest is complete (mirrors the
+            // channel flow). The widget shows the passport-upload control while
+            // 'collecting' is true.
+            $ptKey = (string) ($conv['conv_key'] ?? '');
+            $uBkId = (int) ($data['umrah_booking_id'] ?? 0);
+            $uPax  = (int) ($data['pax'] ?? 0);
+            if ($ptKey !== '' && $uBkId > 0 && $uPax > 0 && function_exists('gia_pt_start')) {
+                gia_pt_start($db, $ptKey, 'umrah', (string) $data['invoice_id'], $uBkId, $uPax);
+                $collectingUmrah = true; // flagged into the response below
+            }
         } elseif ($name === 'umrah_tiers' && isset($data['umrah_tiers']) && is_array($data['umrah_tiers'])) {
             // Present tiers as pickable cards (one per tier), carrying departure_tier_id.
             $tierCards = [];
@@ -398,6 +453,9 @@ $router->post('/api/gia/chat', function () use ($db) {
         'approval'   => $approval,
         'payment'    => $payment,
         'order_status' => $orderStatus,
+        // True right after umrah_book: a held booking is now collecting pilgrim
+        // passports — the widget shows the passport-upload control.
+        'collecting' => $collectingUmrah,
         // Lets the client tie follow-ups to this persistent conversation.
         'conv_key'   => (string) ($conv['conv_key'] ?? ''),
     ];
@@ -415,6 +473,232 @@ $router->post('/api/gia/chat', function () use ($db) {
         ];
     }
     $respond(200, $payloadOut);
+});
+
+// ----------------------------------------------------------------------------
+// gia_web_pay_options() — the two chat-native payment choices the WEB widget
+// renders once an umrah manifest is complete. We do NOT create the Paystack VA /
+// checkout here — that happens on the user's TAP (POST /api/gia/umrah/pay), so a
+// dead-end booking never provisions a virtual account. This just describes the
+// buttons the widget shows. Kept a plain function (no DB) so both the intercept
+// and the confirm path can reuse it.
+// ----------------------------------------------------------------------------
+if (!function_exists('gia_web_pay_options')) {
+    function gia_web_pay_options(string $invoiceId): array
+    {
+        return [
+            'invoice_id' => $invoiceId,
+            'options'    => [
+                ['id' => 'paybank', 'label' => 'Pay by bank transfer', 'desc' => 'Get a dedicated Nigerian account number to transfer to.'],
+                ['id' => 'paycard', 'label' => 'Pay by card / online', 'desc' => 'Pay securely with card, bank, USSD and more.'],
+            ],
+        ];
+    }
+}
+
+// ============================================================================
+// POST /api/gia/umrah/passport — upload ONE pilgrim's passport photo (web).
+// Mirrors the WhatsApp "send a passport photo" step: OCR the image, show the
+// traveller what was read, and await a typed YES (sent through /api/gia/chat,
+// handled by the pilgrim-collection intercept). Only works when THIS web
+// conversation is actively collecting pilgrims for a held umrah booking.
+// ============================================================================
+$router->post('/api/gia/umrah/passport', function () use ($db) {
+    header('Content-Type: application/json');
+    $respond = function (int $http, array $body): void { http_response_code($http); echo json_encode($body); };
+
+    if (!function_exists('aiTripIsEnabled') || !aiTripIsEnabled($db)) {
+        $respond(403, ['ok' => false, 'reply' => "I can't take passports right now.", 'error_code' => 'AI_DISABLED']);
+        return;
+    }
+    // CSRF (multipart: token in POST field or header).
+    $csrf = (string) ($_POST['csrf_token'] ?? '');
+    if (class_exists('CSRF') && method_exists('CSRF', 'validateToken') && !CSRF::validateToken($csrf)) {
+        $respond(403, ['ok' => false, 'reply' => 'Your session expired. Please refresh and try again.', 'error_code' => 'CSRF_INVALID']);
+        return;
+    }
+    // Rate-limit uploads (OCR is a paid call). Tighter than chat: 12/min, 60/hour.
+    if (!class_exists('RateLimiter')) {
+        $rlFile = dirname(__DIR__, 3) . '/modules/RateLimiter.php';
+        if (is_file($rlFile)) { require_once $rlFile; }
+    }
+    if (class_exists('RateLimiter')) {
+        $rl = new RateLimiter(dirname(__DIR__, 3) . '/app/cache/rate_limiter');
+        $rlId = 'gia_passport:' . $rl->getClientIdentifier();
+        if (!$rl->attempt($rlId . ':burst', 12, 60) || !$rl->attempt($rlId . ':hour', 60, 3600)) {
+            $respond(429, ['ok' => false, 'reply' => 'Too many uploads too fast — please wait a moment.', 'error_code' => 'AI_RATE_LIMITED']);
+            header('Retry-After: 60');
+            return;
+        }
+    }
+
+    $file = $_FILES['passport_image'] ?? null;
+    if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file($file['tmp_name'] ?? '')) {
+        $respond(400, ['ok' => false, 'reply' => 'No passport image was uploaded. Please choose a photo of the data page.', 'error_code' => 'AI_NO_FILE']);
+        return;
+    }
+    // Bound size (6 MB) + allow only image types (OCR providers accept jpg/png/webp).
+    if ((int) ($file['size'] ?? 0) > 6 * 1024 * 1024) {
+        $respond(400, ['ok' => false, 'reply' => 'That image is too large (max 6 MB). Please upload a smaller photo.', 'error_code' => 'AI_FILE_TOO_BIG']);
+        return;
+    }
+    $bytes = (string) file_get_contents($file['tmp_name']);
+    $mime  = '';
+    if (function_exists('finfo_open')) {
+        $fi = finfo_open(FILEINFO_MIME_TYPE);
+        if ($fi) { $mime = (string) finfo_file($fi, $file['tmp_name']); finfo_close($fi); }
+    }
+    if ($mime === '') { $mime = (string) ($file['type'] ?? 'image/jpeg'); }
+    if (strpos($mime, 'image/') !== 0) {
+        $respond(400, ['ok' => false, 'reply' => 'Please upload an image (JPG/PNG/WEBP) of the passport data page.', 'error_code' => 'AI_BAD_TYPE']);
+        return;
+    }
+
+    // Resolve THIS web conversation (same key the chat route uses) so the upload
+    // attaches to the right collection.
+    $aiDir = dirname(__DIR__, 2) . '/lib/ai/';
+    require_once $aiDir . 'gia_analytics.php';
+    require_once $aiDir . 'gia_crm.php';
+    require_once $aiDir . 'gia_pending_travellers.php';
+    require_once $aiDir . 'gia_pt_web.php';
+    $browserId = function_exists('gia_browser_id') ? gia_browser_id() : '';
+    $userId = (string) ($_SESSION['user_id'] ?? '');
+    $conv = function_exists('gia_conv_get_or_create')
+        ? gia_conv_get_or_create($db, $browserId, $userId, 'umrah', 'widget') : null;
+    $convKey = (string) ($conv['conv_key'] ?? '');
+    $convId  = (int) ($conv['id'] ?? 0);
+    if ($convKey === '' || \App\lib\ai\gia_pt_web_active($db, $convKey) === null) {
+        $respond(409, ['ok' => false, 'reply' => "There's no booking waiting for passports right now.", 'error_code' => 'AI_PT_NONE']);
+        return;
+    }
+
+    $res = \App\lib\ai\gia_pt_web_handle_image($db, $convKey, $bytes, $mime);
+    if ($convId > 0 && function_exists('gia_log_turn')) {
+        gia_log_turn($db, $convId, '[passport photo uploaded]', (string) ($res['reply'] ?? ''), []);
+    }
+    $respond(200, [
+        'ok'         => (bool) ($res['ok'] ?? false),
+        'reply'      => (string) ($res['reply'] ?? ''),
+        'collecting' => true, // still collecting until a typed YES completes the manifest
+        'conv_key'   => $convKey,
+    ]);
+});
+
+// ============================================================================
+// POST /api/gia/umrah/pay — the user tapped one of the two pay options for a
+// completed umrah manifest (web). 'paybank' -> Paystack dedicated virtual account
+// (bank transfer); 'paycard' -> Paystack hosted checkout page. Both are created
+// deterministically here (never by the model) via the channel-agnostic payment
+// engine. Returns the account details or the checkout URL for the widget.
+// ============================================================================
+$router->post('/api/gia/umrah/pay', function () use ($db) {
+    header('Content-Type: application/json');
+    $respond = function (int $http, array $body): void { http_response_code($http); echo json_encode($body); };
+
+    if (!function_exists('aiTripIsEnabled') || !aiTripIsEnabled($db)) {
+        $respond(403, ['ok' => false, 'message' => "Payments aren't available right now.", 'error_code' => 'AI_DISABLED']);
+        return;
+    }
+    $raw = file_get_contents('php://input') ?: '';
+    $in = json_decode($raw, true);
+    if (!is_array($in)) { $in = []; }
+    $csrf = (string) ($in['csrf_token'] ?? ($_POST['csrf_token'] ?? ''));
+    if (class_exists('CSRF') && method_exists('CSRF', 'validateToken') && !CSRF::validateToken($csrf)) {
+        $respond(403, ['ok' => false, 'message' => 'Your session expired. Please refresh and try again.', 'error_code' => 'CSRF_INVALID']);
+        return;
+    }
+
+    $kind      = (string) ($in['option'] ?? '');       // 'paybank' | 'paycard'
+    $invoiceId = (string) ($in['invoice_id'] ?? '');
+    if (!in_array($kind, ['paybank', 'paycard'], true) || $invoiceId === '' || !preg_match('/^[A-Za-z0-9\-]{4,64}$/', $invoiceId)) {
+        $respond(400, ['ok' => false, 'message' => 'Invalid payment request.', 'error_code' => 'AI_BAD_PAY_REQ']);
+        return;
+    }
+
+    // SAFETY: only let a user pay a booking whose pilgrim manifest is COMPLETE, and
+    // only one that THIS web conversation is actually handling — never an arbitrary
+    // invoice id. We bind by resolving this conversation's active collection (or the
+    // just-completed one) to the invoice.
+    $aiDir = dirname(__DIR__, 2) . '/lib/ai/';
+    require_once $aiDir . 'gia_analytics.php';
+    require_once $aiDir . 'gia_crm.php';
+    require_once $aiDir . 'gia_pending_travellers.php';
+    require_once $aiDir . 'gia_booking_payment.php';
+    $browserId = function_exists('gia_browser_id') ? gia_browser_id() : '';
+    $userId = (string) ($_SESSION['user_id'] ?? '');
+    $conv = function_exists('gia_conv_get_or_create')
+        ? gia_conv_get_or_create($db, $browserId, $userId, 'umrah', 'widget') : null;
+    $convKey = (string) ($conv['conv_key'] ?? '');
+    // Find the collection row for this conversation + invoice (any status) to prove
+    // ownership, then confirm the manifest is complete before provisioning payment.
+    $own = null;
+    if ($convKey !== '') {
+        try {
+            $own = $db->get('gia_pending_travellers', '*',
+                ['conv_key' => $convKey, 'invoice_id' => $invoiceId, 'ORDER' => ['id' => 'DESC']]);
+        } catch (\Throwable $e) { $own = null; }
+    }
+    if (!is_array($own)) {
+        $respond(409, ['ok' => false, 'message' => "I can't find that booking on this chat.", 'error_code' => 'AI_PAY_NOT_OURS']);
+        return;
+    }
+    $uBkId = (int) ($own['umrah_booking_id'] ?? 0);
+    if ($uBkId <= 0 || !function_exists('gia_pt_is_complete') || !gia_pt_is_complete($db, $uBkId)) {
+        $respond(409, ['ok' => false, 'message' => "I still need all pilgrims' passports before payment.", 'error_code' => 'AI_PAY_INCOMPLETE']);
+        return;
+    }
+
+    $email = '';
+    if ($userId !== '') {
+        try { $u = $db->get('users', ['email'], ['id' => $userId]); $email = (string) ($u['email'] ?? ''); }
+        catch (\Throwable $e) { $email = ''; }
+    }
+
+    try {
+        if ($kind === 'paybank') {
+            if (!function_exists('gia_bp_create_dva')) {
+                $respond(500, ['ok' => false, 'message' => 'Bank transfer is unavailable right now.', 'error_code' => 'AI_PAY_UNAVAIL']);
+                return;
+            }
+            $r = gia_bp_create_dva($db, $invoiceId, 'web', $email);
+            if (empty($r['ok'])) {
+                $respond(200, ['ok' => false, 'message' => (string) ($r['message'] ?? "I couldn't set up the transfer account. You can pay by card instead."), 'error_code' => 'AI_PAY_DVA']);
+                return;
+            }
+            $respond(200, [
+                'ok'             => true,
+                'method'         => 'bank',
+                'account_number' => (string) ($r['account_number'] ?? ''),
+                'bank_name'      => (string) ($r['bank_name'] ?? ''),
+                'account_name'   => (string) ($r['account_name'] ?? ''),
+                'amount'         => (float) ($r['amount'] ?? 0),
+                'currency'       => (string) ($r['currency'] ?? 'NGN'),
+                'expires_at'     => (string) ($r['expires_at'] ?? ''),
+            ]);
+            return;
+        }
+        // paycard -> hosted checkout page.
+        if (!function_exists('gia_bp_create_checkout')) {
+            $respond(500, ['ok' => false, 'message' => 'Card payment is unavailable right now.', 'error_code' => 'AI_PAY_UNAVAIL']);
+            return;
+        }
+        $r = gia_bp_create_checkout($db, $invoiceId, 'web', $email);
+        if (empty($r['ok']) || empty($r['authorization_url'])) {
+            $respond(200, ['ok' => false, 'message' => (string) ($r['message'] ?? "I couldn't start the online payment. Please try again."), 'error_code' => 'AI_PAY_CHECKOUT']);
+            return;
+        }
+        $respond(200, [
+            'ok'           => true,
+            'method'       => 'card',
+            'redirect_url' => (string) $r['authorization_url'],
+            'amount'       => (float) ($r['amount'] ?? 0),
+            'currency'     => (string) ($r['currency'] ?? ''),
+            'expires_at'   => (string) ($r['expires_at'] ?? ''),
+        ]);
+    } catch (\Throwable $e) {
+        error_log('[gia] web pay ' . $kind . ': ' . $e->getMessage());
+        $respond(500, ['ok' => false, 'message' => 'Payment setup hit an error. Please try again.', 'error_code' => 'AI_PAY_ERROR']);
+    }
 });
 
 // ============================================================================

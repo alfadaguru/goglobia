@@ -25,7 +25,25 @@
 
 if (!function_exists('gia_bp_window_minutes')) {
     /** The GIA pay window (minutes). Owner spec: 20. */
-    function gia_bp_window_minutes(): int { return 20; }
+    function gia_bp_window_minutes($db = null, string $module = ''): int
+    {
+        // Owner spec: default 20 minutes, but CONFIGURABLE PER SERVICE in GIA
+        // settings (settings.gia_service_expiry JSON, e.g. {"umrah":30}). When a
+        // db + module are given, honor the per-service value; else fall back to 20.
+        $default = 20;
+        if ($db === null || $module === '') { return $default; }
+        try {
+            if (function_exists('settingsHasColumn') && settingsHasColumn($db, 'gia_service_expiry')) {
+                $raw = $db->get('settings', 'gia_service_expiry', ['id' => 1]);
+                $cfg = is_string($raw) ? json_decode($raw, true) : (is_array($raw) ? $raw : null);
+                $m = strtolower($module);
+                if (is_array($cfg) && isset($cfg[$m]) && (int) $cfg[$m] > 0) {
+                    return max(1, min(1440, (int) $cfg[$m]));
+                }
+            }
+        } catch (\Throwable $e) { /* fall back to default */ }
+        return $default;
+    }
 }
 
 if (!function_exists('gia_bp_reminder_count')) {
@@ -224,7 +242,7 @@ if (!function_exists('gia_bp_create_dva')) {
         $bank = (string) ($d['bank']['name'] ?? '');
         $name = (string) ($d['account_name'] ?? '');
 
-        $expiresAt = date('Y-m-d H:i:s', time() + gia_bp_window_minutes() * 60);
+        $expiresAt = date('Y-m-d H:i:s', time() + gia_bp_window_minutes($db, (string) $facts['module']) * 60);
         try {
             $db->insert('gia_booking_payments', [
                 'invoice_id' => $invoiceId, 'method' => 'dva', 'status' => 'pending',
@@ -301,7 +319,7 @@ if (!function_exists('gia_bp_create_checkout')) {
         }
         $authUrl = (string) $r['json']['data']['authorization_url'];
 
-        $expiresAt = date('Y-m-d H:i:s', time() + gia_bp_window_minutes() * 60);
+        $expiresAt = date('Y-m-d H:i:s', time() + gia_bp_window_minutes($db, (string) $facts['module']) * 60);
         try {
             $db->insert('gia_booking_payments', [
                 'invoice_id' => $invoiceId, 'method' => 'checkout', 'status' => 'pending',
@@ -430,9 +448,10 @@ if (!function_exists('gia_bp_sweep')) {
     {
         gia_bp_ensure_schema($db);
         $now = time();
-        $windowSec = gia_bp_window_minutes() * 60;
         $maxReminders = gia_bp_reminder_count();
-        $slice = $windowSec > 0 ? (int) floor($windowSec / max(1, $maxReminders)) : 0;
+        // The 5 reminders are spread across EACH booking's OWN window (created ->
+        // expires_at), so a per-service expiry (e.g. umrah=30 min) is honored for
+        // reminder cadence too — not just the hard expiry. Computed per row below.
 
         $reminded = 0; $expired = 0;
         try {
@@ -478,7 +497,10 @@ if (!function_exists('gia_bp_sweep')) {
                 continue;
             }
 
-            // --- Reminders: nudge at each slice up to the cap. ---
+            // --- Reminders: nudge at each slice up to the cap. The window is THIS
+            //     booking's own created->expires span (per-service expiry aware). ---
+            $windowSec = ($expTs > $createdTs) ? ($expTs - $createdTs) : (gia_bp_window_minutes() * 60);
+            $slice = $windowSec > 0 ? (int) floor($windowSec / max(1, $maxReminders)) : 0;
             if ($slice > 0 && (int) $bp['reminders_sent'] < $maxReminders) {
                 $elapsed = $now - $createdTs;
                 $dueCount = min($maxReminders, (int) floor($elapsed / $slice));

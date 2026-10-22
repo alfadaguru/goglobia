@@ -523,6 +523,59 @@ $giaWCfg = json_encode([
     </div>
 
     <div class="giaw-foot">
+      <!-- UMRAH pilgrim collection: upload a passport photo (mirrors WhatsApp). Shown
+           only while a held umrah booking is awaiting passports. -->
+      <template x-if="collecting">
+        <div class="mb-2 giaw-card px-3 py-2.5">
+          <div class="text-[11px] font-semibold text-slate-700 mb-1.5">Add a pilgrim's passport</div>
+          <div class="text-[10.5px] text-slate-500 mb-2">Upload a clear photo of the passport data page — I'll read it and ask you to confirm. You can also type the details.</div>
+          <input type="file" accept="image/*" x-ref="passportFile" class="hidden" @change="uploadPassport($event)">
+          <button type="button" @click="triggerPassport()" :disabled="uploading"
+                  class="giaw-pay-btn" style="background:<?= $e($giaBrand) ?>">
+            <span class="material-symbols-outlined" x-text="uploading ? 'hourglass_top' : 'add_a_photo'"></span>
+            <span x-text="uploading ? 'Reading passport…' : 'Upload passport photo'"></span>
+          </button>
+        </div>
+      </template>
+
+      <!-- UMRAH pay options: appear once every pilgrim is saved. Two GIA-native
+           Paystack choices — bank transfer (dedicated account) or card/online. -->
+      <template x-if="payOptions && payOptions.options">
+        <div class="mb-2 giaw-card px-3 py-2.5">
+          <div class="text-[11px] font-semibold text-slate-700 mb-2">Choose how to pay</div>
+          <div class="flex flex-col gap-1.5">
+            <template x-for="(o, oi) in payOptions.options" :key="oi">
+              <button type="button" @click="choosePay(o.id)" :disabled="payBusy"
+                      class="w-full text-left rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-2">
+                <span class="material-symbols-outlined text-slate-500" x-text="o.id==='paybank' ? 'account_balance' : 'credit_card'"></span>
+                <span>
+                  <span class="block text-[12px] font-medium text-slate-800" x-text="o.label"></span>
+                  <span class="block text-[10px] text-slate-500" x-text="o.desc"></span>
+                </span>
+              </button>
+            </template>
+          </div>
+          <p class="text-[10px] text-slate-400 mt-1.5" x-show="payBusy">Setting up your payment…</p>
+        </div>
+      </template>
+
+      <!-- UMRAH bank-transfer details: the dedicated account to transfer to. -->
+      <template x-if="payResult && payResult.method==='bank'">
+        <div class="mb-2 giaw-pay">
+          <div class="giaw-pay-top">
+            <span class="giaw-chip bg-green-50 text-green-700">Pay by bank transfer</span>
+            <div class="giaw-pay-amt" x-html="moneyHtml(payResult.amount, payResult.currency)"></div>
+            <div class="giaw-pay-note">Transfer the exact amount to the account below. I'll confirm automatically once it arrives.</div>
+          </div>
+          <div class="px-3 py-2 text-[12px] text-slate-700">
+            <div class="flex justify-between py-0.5"><span class="text-slate-500">Bank</span><span class="font-medium" x-text="payResult.bank_name"></span></div>
+            <div class="flex justify-between py-0.5"><span class="text-slate-500">Account number</span><span class="font-semibold tracking-wide" x-text="payResult.account_number"></span></div>
+            <div class="flex justify-between py-0.5" x-show="payResult.account_name"><span class="text-slate-500">Account name</span><span class="font-medium" x-text="payResult.account_name"></span></div>
+            <div class="flex justify-between py-0.5" x-show="payResult.expires_at"><span class="text-slate-500">Pay before</span><span class="font-medium" x-text="payResult.expires_at"></span></div>
+          </div>
+        </div>
+      </template>
+
       <form @submit.prevent="send()" class="flex items-end gap-2">
         <textarea x-model="draft" rows="1" maxlength="2000" x-ref="input"
                   @keydown.enter.prevent="if(!$event.shiftKey){ send() }" @input="autoGrow($event.target)"
@@ -579,6 +632,11 @@ function giaWidget(cfg){
     staffActive:false, pollTimer:null, pusher:(cfg.pusher||{}), convKey:'', rtChannel:null, rtClient:null,
     firstName:(cfg.firstName||''), loggedIn:!!cfg.loggedIn,
     bounce:false, unread:0,
+    // UMRAH pilgrim collection + GIA-native payment (web). collecting = a held
+    // umrah booking is waiting for passport photos (shows the upload control);
+    // payOptions = {invoice_id, options[]} once the manifest is complete; payResult
+    // = the bank-transfer account or checkout redirect after the user taps an option.
+    collecting:false, uploading:false, payOptions:null, payResult:null, payBusy:false,
     // Voice. voiceOn = admin enabled it; *Ok = enabled AND we have SOME way to do
     // that half (provider OR browser). listening = mic active; speakOn = read aloud.
     //   sttServer/ttsServer = the active AI provider offers server-grade STT/TTS
@@ -950,6 +1008,52 @@ function giaWidget(cfg){
       await this.post({message:text});
     },
     async approveCheckout(){ if(this.sending) return; await this.post({message:this.lastUserText||'I approve this amount.', approved:true}); },
+    // UMRAH: upload one pilgrim's passport photo (mirrors WhatsApp's "send a photo"
+    // step). We POST the image to the dedicated endpoint; GIA OCRs it and replies
+    // with what it read, then the user types YES to confirm (handled by normal send).
+    triggerPassport(){ if(this.$refs.passportFile) this.$refs.passportFile.click(); },
+    async uploadPassport(ev){
+      const f = ev && ev.target && ev.target.files && ev.target.files[0];
+      if(ev && ev.target) ev.target.value=''; // allow re-selecting the same file
+      if(!f || this.uploading) return;
+      if(f.size > 6*1024*1024){ this.messages.push({role:'ai',text:'That image is too large (max 6 MB). Please choose a smaller photo.'}); this.$nextTick(()=>this.scrollDown()); return; }
+      this.uploading=true; this.messages.push({role:'user',text:'📎 Passport photo uploaded'}); this.$nextTick(()=>this.scrollDown());
+      try{
+        const fd=new FormData();
+        fd.append('passport_image', f, f.name||'passport');
+        fd.append('csrf_token', this.csrfToken);
+        const res=await fetch(this.root+'api/gia/umrah/passport',{method:'POST',headers:{'X-CSRF-TOKEN':this.csrfToken},body:fd});
+        const data=await res.json().catch(()=>({}));
+        this.messages.push({role:'ai',text:data.reply||'I could not read that photo. Please try again.'});
+        if(typeof data.collecting!=='undefined') this.collecting=!!data.collecting;
+        if(data.conv_key){ this.convKey=data.conv_key; }
+      }catch(e){ this.messages.push({role:'ai',text:'I could not upload that photo. Please try again.'}); }
+      finally{ this.uploading=false; this.$nextTick(()=>this.scrollDown()); }
+    },
+    // UMRAH: the user tapped a pay option (bank transfer / card). Create the real
+    // Paystack VA or checkout via the dedicated endpoint; the model never does this.
+    async choosePay(option){
+      if(this.payBusy || !this.payOptions || !this.payOptions.invoice_id) return;
+      this.payBusy=true;
+      try{
+        const res=await fetch(this.root+'api/gia/umrah/pay',{method:'POST',
+          headers:{'Content-Type':'application/json','X-CSRF-TOKEN':this.csrfToken},
+          body:JSON.stringify({option:option, invoice_id:this.payOptions.invoice_id, csrf_token:this.csrfToken})});
+        const data=await res.json().catch(()=>({}));
+        if(data.ok && data.method==='bank'){
+          this.payResult={method:'bank', account_number:data.account_number, bank_name:data.bank_name, account_name:data.account_name, amount:data.amount, currency:data.currency, expires_at:data.expires_at};
+          this.payOptions=null;
+        } else if(data.ok && data.method==='card' && data.redirect_url){
+          this.payResult={method:'card', redirect_url:data.redirect_url, amount:data.amount, currency:data.currency};
+          this.payOptions=null;
+          this.openPayment(data.redirect_url);
+        } else {
+          this.messages.push({role:'ai',text:(data.message||'I could not set up that payment. Please try the other option.')});
+          this.$nextTick(()=>this.scrollDown());
+        }
+      }catch(e){ this.messages.push({role:'ai',text:'Payment setup hit an error. Please try again.'}); this.$nextTick(()=>this.scrollDown()); }
+      finally{ this.payBusy=false; }
+    },
     async post(body){
       this.sending=true; this.$nextTick(()=>this.scrollDown());
       try{
@@ -962,6 +1066,11 @@ function giaWidget(cfg){
         if(this.speakOn) this.speak(giaReply);   // read GIA's reply aloud if voice-out is on
         if(showedValue) this.maybeOfferLead();
         if(data.conv_key){ this.convKey=data.conv_key; }
+        // UMRAH pilgrim collection: when a held booking is awaiting passports, show
+        // the upload control; when the manifest completes the server returns the two
+        // pay options. Clear the control once we're no longer collecting.
+        this.collecting = !!data.collecting;
+        if(data.pay_options && data.pay_options.options){ this.payOptions = data.pay_options; this.payResult = null; }
         // Human handoff: a staff member took over — subscribe for instant replies
         // (Pusher) AND poll as a fallback; show the banner.
         if(data.handoff || data.staff_active){ this.staffActive=true; this.subscribeRealtime(); this.startPolling(); }
