@@ -144,15 +144,41 @@ $router->post('/stays/adivaha/issue', function () use ($db) {
         if ($currency === '') $currency = 'INR';
         $nationality = adivahaH_country_iso2($rateBd['nationality'] ?? $booking['nationality'] ?? '', $db);
 
-        // Occupancy for offer/book.
+        // Occupancy for offer/book. This MUST match the occupancy the rate was
+        // quoted and paid for, or the supplier re-prices/refuses. The authoritative
+        // source is the draft's per-room rooms_data (adults + childAges per room);
+        // we build an exact room_occupancy from it. We also keep a flat
+        // rooms/adults/child_ages fallback, drawing child ages from rooms_data,
+        // then the bookings.child_ages column, then booking_data.child_ages — the
+        // top-level booking_data.child_ages is often empty (ages live in
+        // rooms_data / the child_ages column), which previously could send an
+        // adults-only occupancy and cause a price mismatch at book.
         $rooms  = max(1, (int) ($booking_data['total_rooms'] ?? $rateBd['rooms'] ?? 1));
         $adults = max(1, (int) ($booking_data['total_adults'] ?? $rateBd['adults'] ?? 2));
+
+        $roomsData = $booking_data['rooms_data'] ?? [];
+        if (is_string($roomsData)) $roomsData = json_decode($roomsData, true);
+        if (!is_array($roomsData)) $roomsData = [];
+
+        $roomOccupancy = [];
         $childAges = [];
-        if (!empty($booking_data['child_ages'])) {
-            $ca = $booking_data['child_ages'];
-            if (is_string($ca)) $ca = json_decode($ca, true);
-            if (is_array($ca)) foreach ($ca as $a) { $childAges[] = max(0, min(17, (int) $a)); }
+        foreach ($roomsData as $rd) {
+            if (!is_array($rd)) continue;
+            $occ = ['adults' => max(1, (int) ($rd['adults'] ?? 2))];
+            $ca = $rd['childAges'] ?? $rd['child_ages'] ?? [];
+            if (is_array($ca) && !empty($ca)) {
+                $occ['child_ages'] = array_map(fn($a) => max(0, min(17, (int) $a)), $ca);
+                foreach ($occ['child_ages'] as $a) { $childAges[] = $a; }
+            }
+            $roomOccupancy[] = $occ;
         }
+        // Child-ages fallback for the flat form (when rooms_data gave none).
+        if (empty($childAges)) {
+            $caSrc = $booking['child_ages'] ?? ($booking_data['child_ages'] ?? '');
+            if (is_string($caSrc)) $caSrc = json_decode($caSrc, true);
+            if (is_array($caSrc)) foreach ($caSrc as $a) { $childAges[] = max(0, min(17, (int) $a)); }
+        }
+        if (!empty($roomOccupancy)) { $rooms = count($roomOccupancy); }
 
         // 5. Build guests (pax[]) from travellers.
         $travellers = json_decode((string) $booking['travellers'], true);
@@ -210,6 +236,11 @@ $router->post('/stays/adivaha/issue', function () use ($db) {
             'check_in' => $checkIn, 'check_out' => $checkOut, 'rooms' => $rooms, 'adults' => $adults,
             'currency' => $currency,
         ];
+        // Prefer the EXACT per-room occupancy (room_occupancy replaces
+        // rooms/adults/child_ages at Adivaha, spec RoomOccupancy) so the re-price
+        // and the book match exactly what was quoted/paid; keep child_ages too as a
+        // belt-and-braces for suppliers that read the flat form.
+        if (!empty($roomOccupancy)) $offerBody['room_occupancy'] = $roomOccupancy;
         if (!empty($childAges)) $offerBody['child_ages'] = $childAges;
         foreach (['rate_key', 'room_code', 'room_name'] as $k) {
             if (!empty($rateBd[$k])) $offerBody[$k] = (string) $rateBd[$k];

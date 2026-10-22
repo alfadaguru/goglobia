@@ -82,8 +82,14 @@ $router->post('/stays/adivaha/cancel', function () use ($db) {
             exit;
         }
 
-        $cancelled = ($res['success'] && (!empty($data['success']) || $statusV === 'cancelled'))
-            || ($res['http_code'] === 409 && stripos(adivahaHExtractError($res), 'cancel') !== false);
+        // A real cancellation = 2xx with success/status 'cancelled'. For HOTELS a
+        // 409 is `not_cancellable` — an EXPLICIT FAILURE ("could not confirm the
+        // cancellation yet"), NOT a terminal success (unlike the flight API where
+        // 409 can mean "already cancelled"). So we do NOT treat any 409 as
+        // cancelled — doing so would flip the local booking to cancelled while it
+        // is still LIVE at the hotel. The only "already cancelled" case is a 2xx
+        // status 'cancelled', covered below.
+        $cancelled = $res['success'] && (!empty($data['success']) || $statusV === 'cancelled');
 
         if (!$cancelled) {
             echo json_encode(['status' => false, 'message' => 'Adivaha hotel cancel failed: ' . adivahaHExtractError($res), 'http' => $res['http_code']]);
