@@ -161,6 +161,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         require_once $aiDir . 'tools/getOrderStatusTool.php';
         require_once $aiDir . 'tools/requestHumanTool.php';
         require_once $aiDir . 'tools/verifyIdentityTool.php';
+        require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow
         require_once $aiDir . 'gia_analytics.php';
         require_once $aiDir . 'gia_crm.php';
         require_once $aiDir . 'gia_identity.php';
@@ -327,6 +328,10 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
 
         try {
             $agent = new giaAgent($db);
+            // DEDICATED umrah tools FIRST — umrah never uses the shared search.
+            $agent->registerTool(new umrahSearchTool());
+            $agent->registerTool(new umrahTiersTool());
+            $agent->registerTool(new umrahBookTool());
             $agent->registerTool(new searchTripTool());
             $agent->registerTool(new fetchLiveOffersTool());
             $agent->registerTool(new selectOptionTool());
@@ -467,7 +472,9 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
             if ($ok && $name === 'request_booking_approval' && !empty($data['checkout_ref'])) {
                 $checkoutRef = (string) $data['checkout_ref'];
             }
-            if ($ok && $name === 'create_booking' && !empty($data['invoice_id'])) {
+            // create_booking (generic) OR umrah_book (the dedicated umrah tool) both
+            // produce a held unpaid booking with an invoice to pay / collect against.
+            if ($ok && ($name === 'create_booking' || $name === 'umrah_book') && !empty($data['invoice_id'])) {
                 $invoiceId   = (string) $data['invoice_id'];
                 $payAmount   = (float) ($data['amount'] ?? 0);
                 $payCurrency = (string) ($data['currency'] ?? '');

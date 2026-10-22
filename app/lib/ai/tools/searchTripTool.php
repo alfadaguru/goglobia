@@ -80,6 +80,11 @@ class searchTripTool implements giaToolInterface
         $enabled = function_exists('aiTripEnabledModuleTypes')
             ? \aiTripEnabledModuleTypes($db)
             : [];
+        // UMRAH is handled by GIA's DEDICATED umrah tools (umrah_search/umrah_tiers/
+        // umrah_book), NOT this shared search. Strip it here so the general search
+        // never routes umrah through the web pipeline. (Does not touch web code —
+        // this only narrows what the GIA search tool looks at.)
+        $enabled = array_values(array_filter($enabled, static fn($m) => strtolower((string) $m) !== 'umrah'));
 
         $departureContext = [];
         $depCity = trim((string) ($input['departure_city'] ?? ''));

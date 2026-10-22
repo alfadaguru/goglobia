@@ -127,6 +127,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/initiatePaymentTool.php';
     require_once $aiDir . 'tools/getOrderStatusTool.php';
     require_once $aiDir . 'tools/requestHumanTool.php';
+    require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow (own tools)
     // CRM + analytics (persistent chat, leads, logging). Fail-soft: if these are
     // unavailable the chat still works, just without persistence/reporting.
     require_once $aiDir . 'gia_analytics.php';
@@ -195,6 +196,10 @@ $router->post('/api/gia/chat', function () use ($db) {
     // --- Run the agent. ---
     try {
         $agent = new \App\lib\ai\giaAgent($db);
+        // DEDICATED umrah tools FIRST — umrah uses its own flow, never search_trip.
+        $agent->registerTool(new \App\lib\ai\umrahSearchTool());
+        $agent->registerTool(new \App\lib\ai\umrahTiersTool());
+        $agent->registerTool(new \App\lib\ai\umrahBookTool());
         $agent->registerTool(new \App\lib\ai\searchTripTool());
         $agent->registerTool(new \App\lib\ai\fetchLiveOffersTool());
         $agent->registerTool(new \App\lib\ai\selectOptionTool());
@@ -250,7 +255,33 @@ $router->post('/api/gia/chat', function () use ($db) {
         $name = (string) ($tr['name'] ?? '');
         $data = (isset($tr['output']['data']) && is_array($tr['output']['data'])) ? $tr['output']['data'] : [];
         $logEvent = ($convId > 0 && function_exists('gia_log_event'));
-        if ($name === 'search_trip' && isset($data['searches']) && is_array($data['searches'])) {
+        // DEDICATED umrah tools surface cards the same way search_trip does, so the
+        // web frontend renders them with no special handling. umrah_search returns a
+        // 'searches' block; umrah_tiers returns tiers for the picked departure.
+        if (($name === 'umrah_search') && isset($data['searches']) && is_array($data['searches'])) {
+            $searches = array_merge($searches, $data['searches']);
+        } elseif ($name === 'umrah_tiers' && isset($data['umrah_tiers']) && is_array($data['umrah_tiers'])) {
+            // Present tiers as pickable cards (one per tier), carrying departure_tier_id.
+            $tierCards = [];
+            foreach ($data['umrah_tiers'] as $t) {
+                if (!is_array($t)) { continue; }
+                $tierCards[] = [
+                    'id'                => (string) ($t['departure_tier_id'] ?? ''),
+                    'departure_tier_id' => (int) ($t['departure_tier_id'] ?? 0),
+                    'kind'              => 'umrah',
+                    'name'              => (string) ($t['tier_label'] ?? 'Tier'),
+                    'title'             => (string) ($t['tier_label'] ?? 'Tier'),
+                    'subtitle'          => trim((string) ($t['room_sharing'] ?? '')),
+                    'price'             => (float) ($t['price'] ?? 0),
+                    'currency'          => (string) ($t['currency'] ?? 'NGN'),
+                    'availability'      => (string) ($t['availability'] ?? 'available'),
+                    'inclusions'        => is_array($t['inclusions'] ?? null) ? $t['inclusions'] : [],
+                ];
+            }
+            if ($tierCards !== []) {
+                $searches[] = ['module' => 'umrah', 'title' => 'Umrah tiers', 'cards' => $tierCards];
+            }
+        } elseif ($name === 'search_trip' && isset($data['searches']) && is_array($data['searches'])) {
             $searches = $data['searches'];
             // Cache each module's search params+suppliers so a later fetch_live_offers
             // (live-supplier modules) can run the supplier lookup. Route-set, not model.
