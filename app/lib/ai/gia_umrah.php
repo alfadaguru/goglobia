@@ -184,6 +184,16 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
             // draft/closed one). Mirrors the public gate.
             $dep = $db->get('umrah_departures', '*', ['id' => $departureId, 'status' => 'published', 'archived' => 0]);
             if (!\is_array($dep)) {
+                // DIAGNOSTIC: say WHY it failed — wrong id, or a status/archived
+                // mismatch — so a live failure is a fact in the log, not a guess.
+                $any = $db->get('umrah_departures', ['id', 'status', 'archived'], ['id' => $departureId]);
+                if (!\is_array($any)) {
+                    \error_log('[gia_umrah] tiers: no umrah_departures row with id=' . $departureId
+                        . ' (model passed a bad departure_id — it must be the card id from umrah_search)');
+                } else {
+                    \error_log('[gia_umrah] tiers: departure ' . $departureId . ' exists but is gated out — status='
+                        . (string) ($any['status'] ?? '') . ' archived=' . (string) ($any['archived'] ?? ''));
+                }
                 return ['ok' => false, 'tiers' => [], 'departure' => [], 'message' => 'That departure is not open for booking.'];
             }
             $rows = $db->select('umrah_departure_tiers', '*', [

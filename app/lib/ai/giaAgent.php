@@ -556,6 +556,19 @@ class giaAgent
         if ($ref !== '') {
             $opt['ref'] = $ref;
         }
+        // UMRAH: expose the EXACT ids the dedicated umrah tools require, so the model
+        // never has to infer them from a generic 'ref' (a wrong guess shows up as
+        // "that departure is not open for booking"). A umrah_search card -> its
+        // departure_id (pass to umrah_tiers); a umrah_tiers card -> its
+        // departure_tier_id (pass to umrah_book).
+        if ($module === 'umrah') {
+            if (isset($card['departure_id']) && (int) $card['departure_id'] > 0) {
+                $opt['departure_id'] = (int) $card['departure_id'];
+            }
+            if (isset($card['departure_tier_id']) && (int) $card['departure_tier_id'] > 0) {
+                $opt['departure_tier_id'] = (int) $card['departure_tier_id'];
+            }
+        }
         return $opt;
     }
 
@@ -626,9 +639,12 @@ class giaAgent
             . "UMRAH HAS ITS OWN DEDICATED TOOLS — use these for ANYTHING Umrah, and NEVER "
             . "use search_trip for Umrah: (u1) umrah_search — list our real Umrah departures "
             . "(pass a city/month only if the traveller named them). (u2) umrah_tiers — after "
-            . "they pick a departure, show its tiers + prices (pass the departure_id). (u3) "
+            . "they pick a departure, show its tiers + prices. Pass the EXACT departure_id from "
+            . "the chosen option in the umrah_search result — NEVER type a date, a guessed number, "
+            . "or anything you were not given; use the option's departure_id verbatim. (u3) "
             . "umrah_book — once they agree a tier + pilgrim count, create the held unpaid "
-            . "booking (pass the departure_tier_id). After umrah_book, the system collects each "
+            . "booking. Pass the EXACT departure_tier_id from the chosen tier in the umrah_tiers "
+            . "result (never guess it). After umrah_book, the system collects each "
             . "pilgrim's passport and then shows payment — you do NOT handle umrah payment or "
             . "passports yourself. Only ever state Umrah packages/prices that umrah_search or "
             . "umrah_tiers returned.\n"
