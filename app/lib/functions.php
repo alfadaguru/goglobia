@@ -839,6 +839,56 @@ function ensureAdivahaModule($db): void
 }
 
 /**
+ * Register the "adivaha" HOTEL supplier in the `modules` table (type='stays') so
+ * it is manageable from admin like every other hotel provider. The route files
+ * live at modules/stays/adivaha/ and are included by modules/index.php; this row
+ * makes the supplier visible in admin and enabled in the stays search fan-out
+ * (which selects stays modules with type='stays' AND status='1' AND active='1').
+ *
+ * Same credential mapping as the flight module (its OWN separate row):
+ *   c1 = API secret key, c2 = Partner ID (optional), c3 = Base URL (optional),
+ *   c4 = (reserved) token cache. Seeded DISABLED + TEST. Idempotent.
+ */
+function ensureAdivahaHotelModule($db): void
+{
+    try {
+        $exists = $db->get('modules', ['id'], ['name' => 'adivaha', 'type' => 'stays']);
+        if ($exists) return; // already registered — leave the admin-managed row alone
+
+        $db->insert('modules', [
+            'name'              => 'adivaha',
+            'active'            => '1',
+            'type'              => 'stays',
+            'status'            => '0',   // DISABLED until the owner turns it on
+            'c1'                => '', 'c2' => '', 'c3' => '', 'c4' => '', 'c5' => '', 'c6' => '',
+            'dev_mode'          => '1',   // TEST by default
+            'payment_mode'      => '1',
+            'currency'          => 'INR',
+            'module_color'      => '#1f9d8b',
+            'order'             => 41,
+            'prn_type'          => '0',
+            'markup_type_b2c'   => 'percentage',
+            'markup_b2c'        => 3,
+            'icon'              => 'hotel',
+            'markup_type_b2b'   => 'percentage',
+            'markup_b2b'        => '2',
+            'check_balance'     => '1',
+            'content_import'    => '0',
+            'import_database'   => 0,   // live API — no separate content DB
+            'logging_enabled'   => 1,
+            'tax'               => 0,
+            'tax_type'          => 'percentage',
+            'ancillaries_enabled' => 0,
+            'emd_enabled'       => 0,
+            'credentials'       => '1',
+            'ai_enabled'        => 0,
+        ]);
+    } catch (Throwable $e) {
+        error_log('ensureAdivahaHotelModule: could not register adivaha hotel module: ' . $e->getMessage());
+    }
+}
+
+/**
  * Schema for per-module / per-service payment-gateway scoping and the Pay-Later
  * engine. Idempotent — safe to run every boot.
  *
