@@ -253,7 +253,7 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers_from_search')) {
             return [[
                 'departure_tier_id' => $dtId,
                 'tier_code'         => (string) ($d['tier_code'] ?? 'standard'),
-                'tier_label'        => (string) ($d['tier_label'] ?: 'Standard'),
+                'tier_label'        => (string) (($d['tier_label'] ?? '') ?: 'Standard'),
                 'room_sharing'      => (string) ($d['room_sharing'] ?? ''),
                 'sort_order'        => 0,
                 'unit_price'        => \round($unit, 2),
@@ -400,19 +400,31 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
             }
             \usort($tiers, fn($a, $b) => $a['sort_order'] <=> $b['sort_order']);
 
-            // SELF-HEAL: if our per-tier pass produced nothing (every active tier
-            // resolved to unit<=0, or there were no active rows), but SEARCH was able
-            // to show this very departure — which it only does when the departure has
-            // a priced tier (umrahV2PublishedDepartures skips unpriced departures) —
-            // then fall back to the EXACT same data the search used, so tiers can
-            // never show less than search did. This closes the "search shows it but
-            // tiers says none" contradiction at the root, no matter the tier-state
-            // quirk, instead of dead-ending the traveller.
-            if ($tiers === []) {
-                $tiers = gia_umrah_tiers_from_search($db, $departureId, $pax);
-                if ($tiers !== []) {
-                    \error_log('[gia_umrah] tiers: per-tier pass was empty for dep=' . $departureId
-                        . ' — self-healed from umrahV2PublishedDepartures (' . \count($tiers) . ' tier(s))');
+            // SELF-HEAL: SEARCH shows a departure ONLY when it has a priced tier
+            // (umrahV2PublishedDepartures skips unpriced departures and returns the
+            // cheapest priced "from" tier). So if this departure was searchable, its
+            // "from" tier MUST be offerable here too — tiers can never show less than
+            // search did. Two cases:
+            //   (a) our per-tier pass produced nothing -> use the search fallback;
+            //   (b) our pass produced tiers but MISSED the search "from" tier (a
+            //       per-tier price/state quirk hit that row) -> append it so the
+            //       advertised entry price is always bookable.
+            // We APPEND rather than replace, so a richer multi-tier list is never
+            // clobbered by the single-tier fallback (that would under-show tiers).
+            $fallback = gia_umrah_tiers_from_search($db, $departureId, $pax);
+            if ($fallback !== []) {
+                $fb = $fallback[0];
+                $wasEmpty = ($tiers === []);   // capture BEFORE we mutate $tiers
+                $haveIt = false;
+                foreach ($tiers as $t) {
+                    if ((int) ($t['departure_tier_id'] ?? 0) === (int) ($fb['departure_tier_id'] ?? 0)) { $haveIt = true; break; }
+                }
+                if (!$haveIt) {
+                    $tiers[] = $fb;
+                    \usort($tiers, fn($a, $b) => ($a['unit_price'] ?? 0) <=> ($b['unit_price'] ?? 0));
+                    \error_log('[gia_umrah] tiers: dep=' . $departureId . ' per-tier pass '
+                        . ($wasEmpty ? 'was empty' : 'missed the search "from" tier')
+                        . ' — healed from umrahV2PublishedDepartures (tier ' . (int) ($fb['departure_tier_id'] ?? 0) . ')');
                 }
             }
 
@@ -515,9 +527,20 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_book')) {
                 'last_name'  => (string) ($lead['last_name'] ?? ''),
                 'email'      => (string) ($lead['email'] ?? ''),
                 'phone'      => (string) ($lead['phone'] ?? ''),
-                'user_id'    => $userId,
+                // Guests have no account: pass NULL (not '') so the booking records a
+                // real absence of a user, matching the hold path which already
+                // normalizes to null — avoids a stray user_id='' on guest bookings.
+                'user_id'    => $userId !== '' ? $userId : null,
             ];
-            $res = \umrah_booking_create($db, (string) $q['quote_ref'], (int) $hold['hold_id'], $leadArr, $planCode);
+            // quote_ref must be present on an ok quote; guard defensively (consistent
+            // with the ?? on quote_id above) so a malformed engine result can't pass
+            // an empty ref silently into booking_create.
+            $quoteRef = (string) ($q['quote_ref'] ?? '');
+            if ($quoteRef === '') {
+                \error_log('[gia_umrah] book: quote ok but no quote_ref for tier=' . $departureTierId);
+                return ['ok' => false, 'message' => 'Could not create the umrah booking. Please try again.'];
+            }
+            $res = \umrah_booking_create($db, $quoteRef, (int) $hold['hold_id'], $leadArr, $planCode);
             if (empty($res['ok'])) {
                 return ['ok' => false, 'message' => (string) ($res['message'] ?? 'Could not create the umrah booking.')];
             }

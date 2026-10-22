@@ -127,15 +127,34 @@ if (!function_exists('gia_bp_booking_facts')) {
         $amount = (float) ($b['price_markup'] ?? 0);
         $currency = strtoupper((string) ($b['currency_markup'] ?? 'NGN')) ?: 'NGN';
         $module = (string) ($b['module_type'] ?? $b['module'] ?? '');
-        // For umrah, the amount DUE NOW may be a deposit (installment plan) — read
-        // it from the umrah_bookings row so the VA/checkout asks for the right sum.
+        // For umrah, the amount DUE NOW may be a DEPOSIT (installment plan), not the
+        // full total. The real deposit is the first still-pending installment slice.
+        // NOTE: umrah_bookings has NO `amount_due_now` column (it only exists on
+        // umrah_quotes); the previous read of it silently failed under Medoo's
+        // default silent-error mode and left due_now = full total, so an installment
+        // customer was billed 100% up front on both DVA and card. Read the first
+        // pending umrah_installments.amount instead (seq ASC = the deposit).
         $dueNow = $amount;
         $isUmrah = ($module === 'umrah');
         if ($isUmrah) {
-            $ub = $db->get('umrah_bookings', ['amount_due_now', 'total_price', 'currency'], ['invoice_id' => $invoiceId]);
+            $ub = $db->get('umrah_bookings', ['id', 'total_price', 'balance', 'currency'], ['invoice_id' => $invoiceId]);
             if (is_array($ub)) {
-                if (($ub['amount_due_now'] ?? null) !== null && (float) $ub['amount_due_now'] > 0) { $dueNow = (float) $ub['amount_due_now']; }
                 if (!empty($ub['currency'])) { $currency = strtoupper((string) $ub['currency']); }
+                $ubId = (int) ($ub['id'] ?? 0);
+                $depositSet = false;
+                if ($ubId > 0) {
+                    $firstDue = $db->get('umrah_installments', ['amount'],
+                        ['umrah_booking_id' => $ubId, 'status' => 'pending', 'ORDER' => ['seq' => 'ASC']]);
+                    if (is_array($firstDue) && (float) ($firstDue['amount'] ?? 0) > 0) {
+                        $dueNow = (float) $firstDue['amount'];
+                        $depositSet = true;
+                    }
+                }
+                // Fallback: if no installment schedule exists (full-payment plan),
+                // the outstanding balance is the amount due now.
+                if (!$depositSet && ($ub['balance'] ?? null) !== null && (float) $ub['balance'] > 0) {
+                    $dueNow = (float) $ub['balance'];
+                }
             }
         }
         return [
@@ -368,7 +387,15 @@ if (!function_exists('gia_bp_confirm')) {
                     'sender_account' => $senderAcctL, 'sender_bank' => $senderBankL,
                     'updated_at' => date('Y-m-d H:i:s'),
                 ], ['id' => $bp['id']]);
-            } catch (\Throwable $e) { /* non-fatal */ }
+                // The booking expired UNPAID, so settle never ran and the generic
+                // bookings row has no gateway/txn. gia_bp_refund -> refund_gateway_payment
+                // reads those from the bookings row, so stamp them now or the refund
+                // can't resolve the gateway and the late money would be stranded.
+                $db->update('bookings', [
+                    'payment_gateway' => 'Paystack',
+                    'transaction_id'  => $paystackRef,
+                ], ['invoice_id' => $invoiceId]);
+            } catch (\Throwable $e) { error_log('[gia_bp] late-pay stamp: ' . $e->getMessage()); }
             $ref = gia_bp_refund($db, $invoiceId, 'Payment received after booking expired — auto refund');
             return ['ok' => true, 'status' => 'late_refunded', 'refund' => $ref];
         }
@@ -384,19 +411,37 @@ if (!function_exists('gia_bp_confirm')) {
 
         try {
             $ok = false;
+            // CRITICAL FOR REFUNDS: stamp the generic `bookings` row with the gateway
+            // + transaction reference on EVERY confirm. refund_gateway_payment()
+            // resolves the refund target from bookings.payment_gateway +
+            // bookings.transaction_id, and the GIA DVA/checkout flow never wrote
+            // those — so without this, an auto-refund (late payment, cancellation)
+            // can never find the gateway/txn and silently fails, stranding the
+            // customer's money. 'Paystack' matches the payment_gateways row that both
+            // the DVA and hosted-checkout methods use. (method label kept for audit.)
+            $gwStamp = [
+                'payment_gateway' => 'Paystack',
+                'transaction_id'  => $paystackRef,
+            ];
             if ($facts['module'] === 'umrah') {
                 require_once dirname(__DIR__) . '/umrah/services.php';
                 if (function_exists('umrah_settle_payment')) {
                     $res = umrah_settle_payment($db, $invoiceId, $amount, $currency, $paystackRef);
                     $ok = !empty($res['ok']);
                 }
+                // umrah_settle_payment updates the umrah_bookings + installments; the
+                // generic bookings row still needs the gateway/txn for refunds.
+                if ($ok) {
+                    try { $db->update('bookings', $gwStamp, ['invoice_id' => $invoiceId]); }
+                    catch (\Throwable $e) { error_log('[gia_bp] confirm umrah gw-stamp: ' . $e->getMessage()); }
+                }
             } else {
                 // Generic bookings: mark paid on the invoice (stays/flights phases
                 // extend this to run issue/confirm via the existing gateway flow).
-                $db->update('bookings', [
+                $db->update('bookings', array_merge($gwStamp, [
                     'payment_status' => 'paid', 'booking_status' => 'confirmed',
-                    'transaction_id' => $paystackRef, 'paid_at' => date('Y-m-d H:i:s'),
-                ], ['invoice_id' => $invoiceId]);
+                    'paid_at' => date('Y-m-d H:i:s'),
+                ]), ['invoice_id' => $invoiceId]);
                 $ok = true;
             }
             if (!$ok) {
@@ -477,15 +522,25 @@ if (!function_exists('gia_bp_sweep')) {
             if ($expTs > 0 && $now >= $expTs) {
                 try {
                     $db->update('gia_booking_payments', ['status' => 'expired', 'updated_at' => date('Y-m-d H:i:s')], ['id' => $bp['id']]);
-                    // Cancel the still-unpaid booking (generic row; umrah hold is also
-                    // freed by umrah_booking_expire_sweep). Never cancel a paid one.
+                    // Cancel the still-unpaid booking. Never cancel a paid one.
                     $b = $db->get('bookings', ['payment_status'], ['invoice_id' => $bp['invoice_id']]);
                     if ($b && (string) ($b['payment_status'] ?? '') !== 'paid') {
                         $db->update('bookings', ['booking_status' => 'cancelled'], ['invoice_id' => $bp['invoice_id']]);
                         if ((string) $bp['module'] === 'umrah') {
-                            $ub = $db->get('umrah_bookings', ['id', 'payment_status'], ['invoice_id' => $bp['invoice_id']]);
+                            $ub = $db->get('umrah_bookings', ['id', 'hold_id', 'payment_status'], ['invoice_id' => $bp['invoice_id']]);
                             if ($ub && (string) ($ub['payment_status'] ?? '') === 'unpaid') {
                                 $db->update('umrah_bookings', ['booking_status' => 'cancelled', 'updated_at' => date('Y-m-d H:i:s')], ['id' => (int) $ub['id']]);
+                                // RELEASE THE SEAT: once we flip the umrah_bookings row to
+                                // 'cancelled', umrah_booking_expire_sweep (which only acts on
+                                // rows still 'held') will NEVER free this hold — so the seat
+                                // would stay locked until its own TTL. Release it here so the
+                                // inventory frees immediately on cancel.
+                                $holdId = (int) ($ub['hold_id'] ?? 0);
+                                if ($holdId > 0) {
+                                    $db->update('umrah_inventory_holds',
+                                        ['state' => 'released', 'updated_at' => date('Y-m-d H:i:s')],
+                                        ['id' => $holdId, 'state' => 'held']);
+                                }
                             }
                         }
                     }
@@ -550,7 +605,23 @@ if (!function_exists('gia_bp_refund')) {
         $bp = gia_bp_get($db, $invoiceId);
         if (!$bp) { return ['ok' => false, 'message' => 'No GIA payment for ' . $invoiceId]; }
         if ((string) $bp['status'] === 'refunded') { return ['ok' => true, 'message' => 'Already refunded']; }
+        if ((string) $bp['status'] === 'refunding') { return ['ok' => true, 'message' => 'Refund already in progress']; }
         if ((string) $bp['paystack_reference'] === '') { return ['ok' => false, 'message' => 'No payment to refund yet']; }
+
+        // DOUBLE-REFUND GUARD: the Paystack/Stripe refund API call is NOT idempotent,
+        // and Paystack retries webhooks aggressively — two late 'charge.success'
+        // events for the same invoice could both reach the refund call before either
+        // writes 'refunded'. Claim the row FIRST with a conditional update (only from
+        // the current status) so just one worker proceeds; a racing second sees
+        // 'refunding' and bails above. Medoo update returns affected-row count.
+        try {
+            $claim = $db->update('gia_booking_payments',
+                ['status' => 'refunding', 'updated_at' => date('Y-m-d H:i:s')],
+                ['id' => $bp['id'], 'status' => $bp['status']]);
+            if ($claim instanceof \PDOStatement && $claim->rowCount() < 1) {
+                return ['ok' => true, 'message' => 'Refund already claimed by another worker'];
+            }
+        } catch (\Throwable $e) { /* if the claim fails we still try below, guarded by status re-read */ }
 
         try {
             require_once dirname(__DIR__) . '/payment-gateway.php';
@@ -567,9 +638,13 @@ if (!function_exists('gia_bp_refund')) {
                 return ['ok' => true, 'message' => 'Refund initiated'];
             }
             error_log('[gia_bp] refund ' . $invoiceId . ': ' . json_encode($res));
+            // Release the 'refunding' claim back to the prior status so a later
+            // webhook/cron can retry (the gateway call didn't succeed).
+            try { $db->update('gia_booking_payments', ['status' => $bp['status'], 'updated_at' => date('Y-m-d H:i:s')], ['id' => $bp['id']]); } catch (\Throwable $e) {}
             return ['ok' => false, 'message' => (string) ($res['message'] ?? 'Refund could not be initiated.')];
         } catch (\Throwable $e) {
             error_log('[gia_bp] refund ' . $invoiceId . ': ' . $e->getMessage());
+            try { $db->update('gia_booking_payments', ['status' => $bp['status'], 'updated_at' => date('Y-m-d H:i:s')], ['id' => $bp['id']]); } catch (\Throwable $e2) {}
             return ['ok' => false, 'message' => 'Refund failed.'];
         }
     }

@@ -148,6 +148,14 @@ if (!function_exists('App\\lib\\ai\\gia_pt_web_handle_image')) {
                 . "or type the details: full name, gender, date of birth, nationality, passport number and expiry."];
         }
 
+        // MERGE onto anything already typed for this pilgrim (same as the channel
+        // path), so an OCR pass that misses a field doesn't wipe a typed one.
+        $prior = \gia_pt_get_pending_confirm($row);
+        if (\is_array($prior) && $prior !== []) {
+            $merged = $prior;
+            foreach ($parsed as $k => $v) { if ($v !== '' && $v !== null) { $merged[$k] = $v; } }
+            $parsed = $merged;
+        }
         $missing = \gia_pt_missing_required($parsed);
         \gia_pt_set_pending_confirm($db, (int) $row['id'], $parsed);
         $summary = \gia_pt_summarise($parsed);

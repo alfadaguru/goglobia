@@ -363,6 +363,15 @@ if (!function_exists('gia_pt_handle_channel_message')) {
                 return $done($row, "I couldn't read that passport photo clearly. Please resend a sharper photo of the data page, "
                     . "or type the details: full name, gender, date of birth, nationality, passport number and expiry.");
             }
+            // MERGE onto anything the traveller already typed for THIS pilgrim, so an
+            // earlier typed field (e.g. passport number) isn't wiped by an OCR pass
+            // that happened to miss it. OCR values win only where non-empty.
+            $prior = gia_pt_get_pending_confirm($row);
+            if (is_array($prior) && $prior !== []) {
+                $merged = $prior;
+                foreach ($parsed as $k => $v) { if ($v !== '' && $v !== null) { $merged[$k] = $v; } }
+                $parsed = $merged;
+            }
             $missing = gia_pt_missing_required($parsed);
             gia_pt_set_pending_confirm($db, (int) $row['id'], $parsed);
             $summary = gia_pt_summarise($parsed);
