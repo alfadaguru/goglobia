@@ -200,6 +200,36 @@ $hasSeatSelection = isset($flightData['seat_selection']) && $flightData['seat_se
 // Get booking created time for timer
 $bookingCreatedAt = $_SESSION['booking_created_at'] ?? date('Y-m-d H:i:s');
 
+// ---------------------------------------------------------------------------
+// Per-provider fare-hold countdown timer. Admin enables it per flight module and
+// sets the minutes (modules.fare_timer_enabled / fare_timer_minutes; default 15).
+// The countdown is a UX hint anchored to when the booking draft was created
+// ($bookingCreatedAt); it is NOT the authority — the real expiry is the
+// supplier fare-quote/book call (which returns a clean "search again" on an
+// expired trace). On expiry we disable Pay and prompt a fresh search.
+// ---------------------------------------------------------------------------
+$fareTimerEnabled = false;
+$fareTimerMinutes = 15;
+$fareTimerDeadlineTs = 0;
+try {
+    $ftRow = $db->get('modules', ['fare_timer_enabled', 'fare_timer_minutes'], [
+        'name' => $supplierName, 'type' => 'flights',
+    ]);
+    if ($ftRow) {
+        $fareTimerEnabled = ((string) ($ftRow['fare_timer_enabled'] ?? '0')) === '1';
+        $m = (int) ($ftRow['fare_timer_minutes'] ?? 15);
+        if ($m < 1) $m = 1; if ($m > 120) $m = 120;
+        $fareTimerMinutes = $m;
+    }
+} catch (\Throwable $e) {
+    // Columns may not exist yet on an un-migrated DB — timer simply stays off.
+    $fareTimerEnabled = false;
+}
+if ($fareTimerEnabled) {
+    $createdTs = strtotime($bookingCreatedAt) ?: time();
+    $fareTimerDeadlineTs = $createdTs + ($fareTimerMinutes * 60);
+}
+
 if ($isUserLoggedIn) {
     // Fetch user details from database
     $loggedInUser = $db->get('users', [
@@ -1238,13 +1268,31 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                             <?= CSRF::tokenField() ?>
 
                             <!-- Submit Button -->
+                            <!-- Fare-hold countdown (per-provider). Shows time left; turns into a
+                                 "search again" prompt when the hold expires. -->
+                            <template x-if="fareTimerEnabled">
+                                <div class="mt-6">
+                                    <div x-show="!fareExpired"
+                                         class="flex items-center justify-center gap-2 text-sm rounded-lg py-2 px-3 bg-amber-50 text-amber-700 border border-amber-200">
+                                        <span class="material-symbols-outlined !text-[18px]">timer</span>
+                                        <span>Price held for <strong x-text="fareTimerLabel"></strong></span>
+                                    </div>
+                                    <div x-show="fareExpired"
+                                         class="flex items-center justify-center gap-2 text-sm rounded-lg py-2 px-3 bg-red-50 text-red-700 border border-red-200">
+                                        <span class="material-symbols-outlined !text-[18px]">warning</span>
+                                        <span>This fare hold has expired. Please <a href="<?= root ?>flights" class="underline font-semibold">search again</a> for current prices.</span>
+                                    </div>
+                                </div>
+                            </template>
+
                             <button type="submit" class="btn w-full mt-6"
-                                :disabled="submitting || !formData.terms_accepted"
-                                :class="{ 'opacity-50 cursor-not-allowed': !formData.terms_accepted }">
+                                :disabled="submitting || !formData.terms_accepted || fareExpired"
+                                :class="{ 'opacity-50 cursor-not-allowed': !formData.terms_accepted || fareExpired }">
                                 <span x-show="!submitting" class="material-symbols-outlined">lock</span>
                                 <span x-show="submitting"
                                     class="material-symbols-outlined animate-spin">progress_activity</span>
-                                <span x-show="!submitting"><?= T::confirm ?> <?= T::booking ?></span>
+                                <span x-show="!submitting && !fareExpired"><?= T::confirm ?> <?= T::booking ?></span>
+                                <span x-show="!submitting && fareExpired">Fare expired — search again</span>
                                 <span x-show="submitting"><?= T::processing ?>...</span>
                             </button>
 
@@ -1517,6 +1565,16 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
             bookingHash: '<?= $bookingHash ?>',
             supplierName: '<?= strtolower($supplierName) ?>',
             requiresRevalidation: <?= $requiresRevalidation ? 'true' : 'false' ?>,
+
+            // Fare-hold countdown (per-provider; admin-configured). deadline is a
+            // UNIX seconds timestamp (0 = timer off). fareExpired flips true when
+            // the clock runs out → Pay is disabled and a "search again" prompt
+            // shows. The authoritative expiry is still the server revalidate/book.
+            fareTimerEnabled: <?= $fareTimerEnabled ? 'true' : 'false' ?>,
+            fareTimerDeadline: <?= (int) $fareTimerDeadlineTs ?>,
+            fareTimerLabel: '',
+            fareExpired: false,
+            _fareTimerInt: null,
             flightData: <?= json_encode($flightData) ?>,
             searchParams: <?= json_encode($searchParams) ?>,
             search_origin: '<?= $origin ?>',
@@ -1680,6 +1738,29 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                     this.ensureAncillaryPassengers();
                     this.fetchSeatMaps();
                 }
+
+                // Start the fare-hold countdown if the provider has it enabled.
+                this.startFareTimer();
+            },
+
+            // Per-provider fare-hold countdown. Ticks once a second, formats MM:SS,
+            // and flips fareExpired (which disables Pay) when the deadline passes.
+            startFareTimer() {
+                if (!this.fareTimerEnabled || !this.fareTimerDeadline) { return; }
+                const tick = () => {
+                    const remaining = this.fareTimerDeadline - Math.floor(Date.now() / 1000);
+                    if (remaining <= 0) {
+                        this.fareTimerLabel = '00:00';
+                        this.fareExpired = true;
+                        if (this._fareTimerInt) { clearInterval(this._fareTimerInt); this._fareTimerInt = null; }
+                        return;
+                    }
+                    const m = Math.floor(remaining / 60);
+                    const s = remaining % 60;
+                    this.fareTimerLabel = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+                };
+                tick();
+                this._fareTimerInt = setInterval(tick, 1000);
             },
 
             initializePassengers() {
@@ -2581,6 +2662,14 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
 
 
             async submitBooking() {
+                // Fare-hold guard: if the countdown already expired, do not attempt
+                // to book (the trace/ratekey is almost certainly dead upstream too).
+                // Defense-in-depth beyond the disabled button.
+                if (this.fareTimerEnabled && this.fareExpired) {
+                    this.showError('This fare hold has expired. Please search again for current prices.');
+                    return;
+                }
+
                 this.submitting = true;
                 this.showBookingLoader = true;
 
@@ -2670,6 +2759,14 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
 
                             if (revalidationFailed) {
                                 this.showAlert = false;
+                                // If the server says the trace/fare EXPIRED (revalidate
+                                // returns expired:true on a 410 trace_expired / 404),
+                                // reflect it in the same fare-expired UI the countdown
+                                // uses, so Pay stays disabled and the user is prompted
+                                // to search again consistently.
+                                if (rvData.expired || rvData.data?.expired) {
+                                    this.fareExpired = true;
+                                }
                                 this.showError(rvData.message || 'Selected fare is no longer available. Please search again.');
                                 this.submitting = false;
                                 this.showBookingLoader = false;

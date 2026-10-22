@@ -758,6 +758,9 @@ function ensureCoreFixSchema($db): void
     // pass; idempotent and seeds once. See ensureModulesBookingClass() below.
     ensureModulesBookingClass($db);
 
+    // Per-provider "fare hold" countdown timer columns on `modules`. Idempotent.
+    ensureFlightFareTimerSchema($db);
+
     // Per-module / per-service payment-gateway scoping + a real Pay-Later engine.
     // Idempotent self-heal; see ensurePaymentScopingSchema() below.
     if (function_exists('ensurePaymentScopingSchema')) {
@@ -1091,6 +1094,36 @@ function ensurePaymentScopingSchema($db): void
  *   own        — OWN INVENTORY / MANUAL (local PNR, no external supplier)
  *   stub       — STUB / NOT INTEGRATED (does not actually book)
  */
+/**
+ * Per-provider "fare hold" countdown timer config on the `modules` row. A flight
+ * supplier's offers are only held for a limited window (e.g. Adivaha ~15 min),
+ * after which the fare must be re-searched. Admin can enable a visible countdown
+ * on the booking page per provider and set its minutes. Idempotent self-heal.
+ *   fare_timer_enabled  tinyint(1)  default 0  — show the countdown for this module
+ *   fare_timer_minutes  int         default 15 — countdown length in minutes
+ */
+function ensureFlightFareTimerSchema($db): void
+{
+    static $checked = false;
+    if ($checked) return;
+    $checked = true;
+
+    $cols = [
+        ['fare_timer_enabled', "ALTER TABLE `modules` ADD COLUMN `fare_timer_enabled` TINYINT(1) NOT NULL DEFAULT 0"],
+        ['fare_timer_minutes', "ALTER TABLE `modules` ADD COLUMN `fare_timer_minutes` INT NOT NULL DEFAULT 15"],
+    ];
+    foreach ($cols as [$col, $alter]) {
+        try {
+            $exists = $db->query("SHOW COLUMNS FROM `modules` LIKE " . $db->pdo->quote($col))->fetchAll();
+            if (count($exists) === 0) {
+                $db->pdo->exec($alter);
+            }
+        } catch (Throwable $e) {
+            error_log('ensureFlightFareTimerSchema: ' . $e->getMessage());
+        }
+    }
+}
+
 function ensureModulesBookingClass($db): void
 {
     static $checked = false;

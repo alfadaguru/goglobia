@@ -370,6 +370,33 @@ $moduleTypes = ['flights','stays','tours','cars','bus','rail','cruises','visa','
                                 Enable Electronic Miscellaneous Document
                             </p>
                         </div>
+
+                        <?php if (($module['type'] ?? '') === 'flights'): ?>
+                        <!-- Fare-hold countdown timer (flights) -->
+                        <div class="form-control">
+                            <label for="fare_timer_enabled" class="form-label">
+                                Fare hold timer
+                            </label>
+                            <select id="fare_timer_enabled" name="fare_timer_enabled" class="select input">
+                                <option value="0" <?= ((string) ($module['fare_timer_enabled'] ?? '0')) === '0' ? 'selected' : '' ?>>Disabled</option>
+                                <option value="1" <?= ((string) ($module['fare_timer_enabled'] ?? '0')) === '1' ? 'selected' : '' ?>>Enabled</option>
+                            </select>
+                            <p class="text-xs text-slate-500 mt-1">
+                                Show a countdown on the booking page (fares are held for a limited time).
+                            </p>
+                        </div>
+                        <div class="form-control">
+                            <label for="fare_timer_minutes" class="form-label">
+                                Fare hold minutes
+                            </label>
+                            <input type="number" id="fare_timer_minutes" name="fare_timer_minutes" class="input"
+                                   min="1" max="120" step="1"
+                                   value="<?= (int) ($module['fare_timer_minutes'] ?? 15) ?>">
+                            <p class="text-xs text-slate-500 mt-1">
+                                How long the fare is held before the customer must search again (default 15).
+                            </p>
+                        </div>
+                        <?php endif; ?>
                     </div>
                 </div>
 

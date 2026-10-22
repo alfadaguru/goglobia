@@ -74,12 +74,25 @@ $router->post('flights/adivaha/revalidate', function () use ($db) {
 
         if (!$res['success'] || !is_array($res['data'])) {
             $msg = adivahaExtractError($res);
+            // An EXPIRED trace/ratekey (the ~15-min search TTL lapsed before the
+            // user reached this step) is the common, non-error reason a re-quote
+            // fails. The live Adivaha sandbox returns HTTP 410 with
+            // error "trace_expired"; older/edge responses use 404. Treat all of
+            // these as a clean "search again" prompt and flag `expired` so the
+            // frontend can react (clear the stale draft, bounce to search), rather
+            // than showing a scary generic error.
+            $errLower = strtolower((string) ($res['data']['error'] ?? '') . ' ' . $msg);
+            $isExpired = $res['http_code'] === 410
+                || $res['http_code'] === 404
+                || strpos($errLower, 'trace_expired') !== false
+                || strpos($errLower, 'expired') !== false;
             echo json_encode([
                 'status'  => false,
-                'message' => ($res['http_code'] === 404)
-                    ? 'Selected fare is no longer available. Please search again.'
+                'expired' => $isExpired,
+                'message' => $isExpired
+                    ? 'Your fare search has expired (fares are held for about 15 minutes). Please search again to see current prices.'
                     : ('Unable to verify fare: ' . $msg),
-                'data'    => ['is_valid' => false],
+                'data'    => ['is_valid' => false, 'expired' => $isExpired],
             ]);
             exit;
         }

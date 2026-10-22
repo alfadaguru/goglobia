@@ -547,6 +547,17 @@ $router->post(admin.'/settings/modules/(\d+)', function ($moduleId) use ($SECURE
         if ($module['type'] == 'flights') {
             if (isset($_POST['ancillaries_enabled'])) $updateData['ancillaries_enabled'] = $_POST['ancillaries_enabled'] ? 1 : 0;
             if (isset($_POST['emd_enabled'])) $updateData['emd_enabled'] = $_POST['emd_enabled'] ? 1 : 0;
+            // Per-provider fare-hold countdown timer (checkbox + minutes). The
+            // minutes input is only read when present; clamp to a sane 1..120.
+            if (isset($_POST['fare_timer_enabled'])) {
+                $updateData['fare_timer_enabled'] = $_POST['fare_timer_enabled'] ? 1 : 0;
+            }
+            if (isset($_POST['fare_timer_minutes'])) {
+                $mins = (int) $_POST['fare_timer_minutes'];
+                if ($mins < 1)   $mins = 1;
+                if ($mins > 120) $mins = 120;
+                $updateData['fare_timer_minutes'] = $mins;
+            }
         }
 
         // Add credential fields (c1-c6)
