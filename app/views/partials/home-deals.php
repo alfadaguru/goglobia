@@ -28,37 +28,64 @@ $__staysUrl = function ($city) use ($__ci, $__co, $__nat) {
     $slug = strtolower(str_replace(' ', '-', trim($city)));
     return rtrim((string) root, '/') . '/stays/' . rawurlencode($slug) . '/' . $__ci . '/' . $__co . '/' . $__nat . '/1/2-0';
 };
+// Nigeria-first (home market), then international. Only cities whose image exists
+// are shown. 4 NG + 6 intl = 10.
 $__destinations = [
-    ['name' => 'Dubai',     'city' => 'Dubai',     'img' => 'dubai.jpg'],
-    ['name' => 'Istanbul',  'city' => 'Istanbul',  'img' => 'istanbul.jpg'],
-    ['name' => 'London',    'city' => 'London',    'img' => 'london.jpg'],
-    ['name' => 'Jeddah',    'city' => 'Jeddah',    'img' => 'jeddah.jpg'],
-    ['name' => 'Cape Town', 'city' => 'Cape Town', 'img' => 'capetown.jpg'],
-    ['name' => 'Paris',     'city' => 'Paris',     'img' => 'paris.jpg'],
+    ['name' => 'Lagos',          'city' => 'Lagos',          'img' => 'lagos.jpg'],
+    ['name' => 'Abuja',          'city' => 'Abuja',          'img' => 'abuja.jpg'],
+    ['name' => 'Kano',           'city' => 'Kano',           'img' => 'kano.jpg'],
+    ['name' => 'Port Harcourt',  'city' => 'Port Harcourt',  'img' => 'portharcourt.jpg'],
+    ['name' => 'Dubai',          'city' => 'Dubai',          'img' => 'dubai.jpg'],
+    ['name' => 'Istanbul',       'city' => 'Istanbul',       'img' => 'istanbul.jpg'],
+    ['name' => 'London',         'city' => 'London',         'img' => 'london.jpg'],
+    ['name' => 'Jeddah',         'city' => 'Jeddah',         'img' => 'jeddah.jpg'],
+    ['name' => 'Cape Town',      'city' => 'Cape Town',      'img' => 'capetown.jpg'],
+    ['name' => 'Paris',          'city' => 'Paris',          'img' => 'paris.jpg'],
 ];
+// Keep only destinations whose image is actually present.
+$__destinations = array_values(array_filter($__destinations, function ($d) {
+    return is_file(__DIR__ . '/../../../uploads/global/destinations/' . $d['img']);
+}));
 ?>
 
-<!-- Popular destinations — links to a real stays search (self-hosted images). -->
-<?php if ($__staysEnabled): ?>
+<!-- Popular destinations — AUTO-SCROLLING marquee; links to a real stays search. -->
+<?php if ($__staysEnabled && !empty($__destinations)): ?>
 <section class="w-full bg-white">
   <div class="container mx-auto px-4 pt-8 pb-2">
     <h2 class="text-lg sm:text-xl font-bold text-gray-900 mb-1">Popular destinations</h2>
     <p class="text-sm text-gray-500 mb-4">Trending places travellers are booking right now.</p>
-    <div class="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1" style="scrollbar-width:thin">
-      <?php foreach ($__destinations as $d):
-        $__imgPath = 'uploads/global/destinations/' . $d['img'];
-        if (!is_file(__DIR__ . '/../../../' . $__imgPath)) { continue; } // skip if asset missing
-      ?>
-        <a href="<?= htmlspecialchars($__staysUrl($d['city']), ENT_QUOTES) ?>"
-           class="group relative shrink-0 w-44 h-28 rounded-xl overflow-hidden border border-gray-100 shadow-sm" style="text-decoration:none">
-          <img src="<?= root . $__imgPath ?>" alt="<?= htmlspecialchars($d['name']) ?>" width="480" height="358"
-               loading="lazy" decoding="async" class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105">
-          <div class="absolute inset-0" style="background:linear-gradient(0deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 55%)"></div>
-          <span class="absolute left-3 bottom-2 text-white font-semibold text-sm" style="text-shadow:0 1px 3px rgba(0,0,0,.5)"><?= htmlspecialchars($d['name']) ?></span>
-        </a>
-      <?php endforeach; ?>
+  </div>
+  <!-- The track is duplicated once; the CSS marquee translates by -50% so it loops
+       seamlessly. Pauses on hover. Falls back to a normal scroll strip if the
+       animation isn't supported. -->
+  <div class="dest-marquee" style="overflow:hidden">
+    <div class="dest-track" style="display:flex;gap:12px;width:max-content;padding:0 16px 8px">
+      <?php for ($__loop = 0; $__loop < 2; $__loop++): // duplicate for seamless loop ?>
+        <?php foreach ($__destinations as $d):
+          $__imgPath = 'uploads/global/destinations/' . $d['img'];
+        ?>
+          <a href="<?= htmlspecialchars($__staysUrl($d['city']), ENT_QUOTES) ?>"
+             class="group relative shrink-0 rounded-xl overflow-hidden border border-gray-100 shadow-sm"
+             style="width:176px;height:112px;text-decoration:none"
+             <?= $__loop === 1 ? 'aria-hidden="true" tabindex="-1"' : '' ?>>
+            <img src="<?= root . $__imgPath ?>" alt="<?= htmlspecialchars($d['name']) ?>" width="480" height="358"
+                 loading="lazy" decoding="async" class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105">
+            <div class="absolute inset-0" style="background:linear-gradient(0deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 55%)"></div>
+            <span class="absolute left-3 bottom-2 text-white font-semibold text-sm" style="text-shadow:0 1px 3px rgba(0,0,0,.5)"><?= htmlspecialchars($d['name']) ?></span>
+          </a>
+        <?php endforeach; ?>
+      <?php endfor; ?>
     </div>
   </div>
+  <style>
+    .dest-track { animation: dest-scroll 40s linear infinite; }
+    .dest-marquee:hover .dest-track { animation-play-state: paused; }
+    @keyframes dest-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+    @media (prefers-reduced-motion: reduce) {
+      .dest-track { animation: none; }
+      .dest-marquee { overflow-x: auto; }
+    }
+  </style>
 </section>
 <?php endif; ?>
 

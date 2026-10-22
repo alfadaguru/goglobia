@@ -344,12 +344,11 @@ $footer_menus = array_values(array_filter(array_map(
                                    style="border:1px solid rgba(0,0,0,0.06);"
                                    onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 18px rgba(0,0,0,.12)';"
                                    onmouseout="this.style.transform='';this.style.boxShadow='';">
+                                    <!-- Full colour (no grayscale) so the accreditation
+                                         logos read as genuine, recognisable badges. -->
                                     <img src="<?= versionedAssetUrl($__certPath) ?>"
                                          alt="<?= htmlspecialchars($__c['alt']) ?>"
-                                         class="h-7 sm:h-9 w-auto object-contain transition-all duration-200"
-                                         style="filter:grayscale(1);opacity:.9;"
-                                         onmouseover="this.style.filter='grayscale(0)';this.style.opacity='1';"
-                                         onmouseout="this.style.filter='grayscale(1)';this.style.opacity='.9';"
+                                         class="h-7 sm:h-9 w-auto object-contain"
                                          loading="lazy" decoding="async">
                                 </a>
                             <?php endforeach; ?>
