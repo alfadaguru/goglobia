@@ -22,50 +22,70 @@ $router->post('/flights/adivaha/refund', function () use ($db) {
 
     if (function_exists('supplier_action_guard') && !supplier_action_guard($invoice_id)) { return; }
 
-    $booking = $db->get('bookings', '*', ['invoice_id' => $invoice_id]);
-    if (!$booking) {
-        echo json_encode(['status' => false, 'message' => 'Booking not found']);
-        exit;
-    }
+    // Wrap the whole body: if refund_gateway_payment throws AFTER moving money at
+    // the gateway but BEFORE we persist 'refunded', a naive retry would re-refund
+    // (the payment_status idempotency check below never got updated). So on any
+    // throw we record a review note and return a clean error — and we rely on
+    // refund_gateway_payment being idempotent on the gateway txn reference.
+    try {
+        $booking = $db->get('bookings', '*', ['invoice_id' => $invoice_id]);
+        if (!$booking) {
+            echo json_encode(['status' => false, 'message' => 'Booking not found']);
+            exit;
+        }
 
-    // Idempotency: don't refund twice.
-    if (($booking['payment_status'] ?? '') === 'refunded') {
-        echo json_encode(['status' => true, 'message' => 'Booking is already refunded.', 'payment_status' => 'refunded']);
-        exit;
-    }
+        // Idempotency: don't refund twice.
+        if (($booking['payment_status'] ?? '') === 'refunded') {
+            echo json_encode(['status' => true, 'message' => 'Booking is already refunded.', 'payment_status' => 'refunded']);
+            exit;
+        }
 
-    // Reverse the customer's charge on our gateway.
-    require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
-    $refund = function_exists('refund_gateway_payment')
-        ? refund_gateway_payment($db, $booking, null, 'Adivaha flight refund')
-        : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
+        // Reverse the customer's charge on our gateway.
+        require_once dirname(__DIR__, 4) . '/app/lib/payment-gateway.php';
+        $refund = function_exists('refund_gateway_payment')
+            ? refund_gateway_payment($db, $booking, null, 'Adivaha flight refund')
+            : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
 
-    if (($refund['status'] ?? '') === 'refunded') {
+        if (($refund['status'] ?? '') === 'refunded') {
+            $db->update('bookings', [
+                'payment_status'        => 'refunded',
+                'booking_status'        => 'cancelled',
+                'cancellation_status'   => 1,
+                'cancellation_response' => 'Gateway refund ' . ($refund['reference'] ?? '') . ' on ' . date('Y-m-d H:i:s'),
+            ], ['invoice_id' => $invoice_id]);
+            echo json_encode([
+                'status'         => true,
+                'message'        => 'Refund completed via ' . ($refund['gateway'] ?? 'gateway') . ' (ref ' . ($refund['reference'] ?? '') . ').',
+                'gateway_refund' => true,
+            ]);
+            exit;
+        }
+
+        // Gateway refund not completed — cancel + flag manual.
         $db->update('bookings', [
-            'payment_status'        => 'refunded',
             'booking_status'        => 'cancelled',
             'cancellation_status'   => 1,
-            'cancellation_response' => 'Gateway refund ' . ($refund['reference'] ?? '') . ' on ' . date('Y-m-d H:i:s'),
+            'cancellation_response' => 'Cancelled; gateway refund NOT automated (' . ($refund['message'] ?? 'unsupported') . '). Process the customer refund manually. Adivaha supplier refund (if any) is handled manually by their team.',
         ], ['invoice_id' => $invoice_id]);
+
         echo json_encode([
             'status'         => true,
-            'message'        => 'Refund completed via ' . ($refund['gateway'] ?? 'gateway') . ' (ref ' . ($refund['reference'] ?? '') . ').',
-            'gateway_refund' => true,
+            'message'        => 'Booking cancelled. Automated card refund was not possible (' . ($refund['message'] ?? 'unsupported') . '). Please refund the customer manually in the payment gateway. Any Adivaha supplier refund is handled manually.',
+            'gateway_refund' => false,
+            'gateway'        => $refund['gateway'] ?? '',
         ]);
-        exit;
+    } catch (Throwable $e) {
+        error_log('ADIVAHA REFUND ERROR (' . $invoice_id . '): ' . $e->getMessage());
+        // Flag for manual review; do NOT claim refunded and do NOT auto-retry a
+        // refund that may have already moved money.
+        try {
+            $db->update('bookings', [
+                'booking_payment_issue' => 'Refund threw an error (' . substr($e->getMessage(), 0, 160) . '). Verify at the gateway before any retry — money may already have moved.',
+            ], ['invoice_id' => $invoice_id]);
+        } catch (Throwable $e2) { /* ignore */ }
+        echo json_encode([
+            'status'  => false,
+            'message' => 'Refund could not be completed cleanly — flagged for manual review. Check the payment gateway before retrying (a refund may already have been issued).',
+        ]);
     }
-
-    // Gateway refund not completed — cancel + flag manual.
-    $db->update('bookings', [
-        'booking_status'        => 'cancelled',
-        'cancellation_status'   => 1,
-        'cancellation_response' => 'Cancelled; gateway refund NOT automated (' . ($refund['message'] ?? 'unsupported') . '). Process the customer refund manually. Adivaha supplier refund (if any) is handled manually by their team.',
-    ], ['invoice_id' => $invoice_id]);
-
-    echo json_encode([
-        'status'         => true,
-        'message'        => 'Booking cancelled. Automated card refund was not possible (' . ($refund['message'] ?? 'unsupported') . '). Please refund the customer manually in the payment gateway. Any Adivaha supplier refund is handled manually.',
-        'gateway_refund' => false,
-        'gateway'        => $refund['gateway'] ?? '',
-    ]);
 });

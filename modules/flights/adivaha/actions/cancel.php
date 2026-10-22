@@ -46,12 +46,16 @@ $router->post('/flights/adivaha/cancel', function () use ($db) {
         // reference as supplier_ref / order_id at issue time.
         $booking_data = json_decode((string) $booking['booking_data'], true);
         if (!is_array($booking_data)) $booking_data = [];
-        $reference = (string) (
-            $booking_data['supplier_ref']
-            ?? $booking_data['order_id']
-            ?? ($booking_data['adivaha_response']['reference'] ?? '')
-            ?? ''
-        );
+        // First NON-EMPTY reference (?? only skips null, not '' — a stored empty
+        // supplier_ref would otherwise shadow a valid order_id / response ref).
+        $reference = '';
+        foreach ([
+            $booking_data['supplier_ref'] ?? '',
+            $booking_data['order_id'] ?? '',
+            $booking_data['adivaha_response']['reference'] ?? '',
+        ] as $cand) {
+            if (trim((string) $cand) !== '') { $reference = (string) $cand; break; }
+        }
         if ($reference === '' && !empty($booking['pnr'])) {
             // Last resort — some flows store only the PNR; Adivaha matches on its
             // own booking id, so without a stored reference we cannot proceed.

@@ -36,12 +36,15 @@ $router->post('/flights/adivaha/void', function () use ($db) {
 
         $booking_data = json_decode((string) ($booking['booking_data'] ?? '{}'), true);
         if (!is_array($booking_data)) $booking_data = [];
-        $reference = (string) (
-            $booking_data['supplier_ref']
-            ?? $booking_data['order_id']
-            ?? ($booking_data['adivaha_response']['reference'] ?? '')
-            ?? ''
-        );
+        // First NON-EMPTY reference (?? only skips null, not '').
+        $reference = '';
+        foreach ([
+            $booking_data['supplier_ref'] ?? '',
+            $booking_data['order_id'] ?? '',
+            $booking_data['adivaha_response']['reference'] ?? '',
+        ] as $cand) {
+            if (trim((string) $cand) !== '') { $reference = (string) $cand; break; }
+        }
 
         // Nothing confirmed upstream → DB-level void only.
         if ($reference === '' && empty($booking['pnr'])) {

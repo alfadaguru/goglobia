@@ -94,6 +94,28 @@ $router->post('flights/adivaha/issue', function () use ($db) {
             exit;
         }
 
+        // 2b. On_hold / not-yet-ticketed idempotency: a booking can already exist at
+        // Adivaha (status on_hold) with NO local pnr yet — the pnr check above would
+        // miss it and a retried callback could book a SECOND time (relying only on
+        // Adivaha's Idempotency-Key). If we already stored a supplier reference for
+        // this invoice, the supplier booking exists → do NOT re-book.
+        $__existingBd = json_decode((string) ($booking['booking_data'] ?? ''), true);
+        $__existingRef = is_array($__existingBd)
+            ? trim((string) ($__existingBd['supplier_ref'] ?? $__existingBd['order_id'] ?? ($__existingBd['adivaha_response']['reference'] ?? '')))
+            : '';
+        if ($__existingRef !== '') {
+            echo json_encode([
+                'status'            => true,
+                'message'           => 'Booking already created with Adivaha (awaiting ticketing or confirmation).',
+                'pnr'               => (string) ($booking['pnr'] ?? ''),
+                'booking_reference' => $__existingRef,
+                'reference'         => $__existingRef,
+                'invoice_id'        => $invoice_id,
+                'already_issued'    => true,
+            ]);
+            exit;
+        }
+
         // 3. Concurrency claim on a dedicated nullable timestamp (see duffel audit #25).
         try { $db->query("ALTER TABLE `bookings` ADD COLUMN `issue_claimed_at` datetime DEFAULT NULL"); } catch (\Throwable $e) { /* exists */ }
         $claim = $db->query(
@@ -361,7 +383,12 @@ $router->post('flights/adivaha/issue', function () use ($db) {
         if ($res['http_code'] === 409 && is_array($res['data']) && ($res['data']['error'] ?? '') === 'price_changed') {
             $newTotal = (float) ($res['data']['new_total'] ?? 0);
             $newCur   = strtoupper((string) ($res['data']['currency'] ?? $displayCurrency));
-            $recheckOk = true;
+            // FAIL-CLOSED: only auto-accept the airline's new fare when we could
+            // actually RECONCILE it against what the customer paid and it passed.
+            // If reconcile is unavailable OR the 409 body carries no usable
+            // new_total (malformed/zero), we CANNOT verify the price — so we hold
+            // for review rather than accept an unverified (possibly higher) fare.
+            $recheckOk = false;
             if (function_exists('reconcilePostPaymentPrice') && $newTotal > 0) {
                 $pc = reconcilePostPaymentPrice($db, $booking, $newTotal, $newCur);
                 $recheckOk = !empty($pc['ok']);

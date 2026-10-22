@@ -27757,6 +27757,8 @@ CREATE TABLE `modules` (
   `emd_enabled` tinyint(1) DEFAULT 0,
   `credentials` enum('1','0') DEFAULT '1',
   `ai_enabled` tinyint(1) NOT NULL DEFAULT 0,
+  `fare_timer_enabled` tinyint(1) NOT NULL DEFAULT 0,
+  `fare_timer_minutes` int(11) NOT NULL DEFAULT 15,
   `booking_class` enum('real','affiliate','own','stub','') NOT NULL DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;
 
