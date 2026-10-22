@@ -35,16 +35,13 @@ $base = root . admin . '/supplier-payouts';
       <span class="px-3 py-1.5 rounded-full text-sm font-semibold <?= $payoutsLive ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700' ?>">
         Transfers: <?= $payoutsLive ? 'LIVE' : 'DISABLED' ?>
       </span>
-      <form action="<?= $base ?>/toggle-live" method="POST"
-            onsubmit="return confirm('<?= $payoutsLive
-              ? 'Disable bank payouts? Approvals will no longer send money.'
-              : 'Enable LIVE bank payouts? Approving a payout will send REAL money to the supplier\'s bank via Paystack. Make sure Paystack transfers are configured.' ?>');">
-        <?= CSRF::tokenField() ?>
-        <input type="hidden" name="enable" value="<?= $payoutsLive ? '0' : '1' ?>">
-        <button type="submit" class="btn <?= $payoutsLive ? 'secondary' : 'primary' ?> text-sm">
-          <?= $payoutsLive ? 'Disable payouts' : 'Enable payouts' ?>
-        </button>
-      </form>
+      <!-- The LIVE/DISABLED kill-switch is controlled from the Payout Settings
+           page (single source of truth: settings.supplier_payouts_live). This is
+           a read-only status pill; the duplicate one-click toggle that used to
+           POST /supplier-payouts/toggle-live was removed. -->
+      <a href="<?= root . admin ?>/supplier-payout-settings" class="btn secondary text-sm">
+        Payout settings
+      </a>
     </div>
   </div>
 
