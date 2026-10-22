@@ -281,6 +281,16 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
      */
     function gia_umrah_tiers($db, int $departureId, int $pax = 0, string $when = ''): array
     {
+        // LOUD TRACE (temporary): write the raw inputs + what the DB actually returns
+        // to a dedicated file, so a live "no tiers" leaves an unambiguous fingerprint
+        // we can read directly — no theory. Also proves WHICH version of this file is
+        // running (if this trace line is absent from the log, the deploy is stale).
+        $trace = function (string $m) {
+            $f = \dirname(__DIR__, 2) . '/app/cache/gia_umrah_trace.log';
+            @\file_put_contents($f, '[' . \date('Y-m-d H:i:s') . '] ' . $m . "\n", FILE_APPEND);
+        };
+        $trace('tiers() CALLED build=d2078ca+trace departure_id=' . $departureId . ' pax=' . $pax . ' when="' . $when . '"');
+
         if (!gia_umrah_boot($db)) {
             return ['ok' => false, 'tiers' => [], 'departure' => [], 'message' => 'Umrah is temporarily unavailable.'];
         }
@@ -343,9 +353,12 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
                     . (string) ($any['status'] ?? '') . ' archived=' . (string) ($any['archived'] ?? ''));
                 return ['ok' => false, 'tiers' => [], 'departure' => [], 'message' => 'That departure is not open for booking.'];
             }
+            $trace('resolved departure_id=' . $departureId . ' dep_status=' . (string) ($dep['status'] ?? '?'));
             $rows = $db->select('umrah_departure_tiers', '*', [
                 'departure_id' => $departureId, 'status' => 'active',
             ]) ?: [];
+            $trace('active tier rows for dep=' . $departureId . ' COUNT=' . \count($rows)
+                . ' ids=' . \json_encode(\array_map(fn($r) => (int) ($r['id'] ?? 0), $rows)));
 
             // DIAGNOSTIC: if search showed this departure as a card it HAD >=1
             // active priced tier (umrahV2PublishedDepartures skips departures with
@@ -370,6 +383,8 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
             foreach ($rows as $dt) {
                 $priced = \function_exists('umrah_price_resolve') ? \umrah_price_resolve($db, $dt) : ['unit' => 0];
                 $unit = (float) ($priced['unit'] ?? 0);
+                $trace('  tier row id=' . (int) ($dt['id'] ?? 0) . ' tier_id=' . (int) ($dt['tier_id'] ?? 0)
+                    . ' -> unit=' . $unit . ' source=' . (string) ($priced['source'] ?? '?'));
                 if ($unit <= 0) {
                     // Rows exist but priced to 0 here, yet search showed this departure
                     // (which requires a priced tier) — log the row so we see WHY.
@@ -427,6 +442,8 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
                         . ' — healed from umrahV2PublishedDepartures (tier ' . (int) ($fb['departure_tier_id'] ?? 0) . ')');
                 }
             }
+
+            $trace('RETURNING ' . \count($tiers) . ' tier(s) for dep=' . $departureId);
 
             $dep0 = (string) ($dep['departure_date'] ?? '');
             $ret0 = (string) ($dep['return_date'] ?? '');
