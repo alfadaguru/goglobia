@@ -130,6 +130,11 @@ if (!empty($enabledModules)) {
     // OTA arrangement (Flights -> Stays -> Tours -> Cars -> Visa -> rest), then the
     // admin `order` field as tiebreaker, then alphabetical. Defined here guarded
     // because the header renders before home.php.
+    // NOTE (merge of feat/supplier-payouts-live-toggle): that branch carried an
+    // OLDER count-based sort whose stated goal was "mirror the homepage tabs".
+    // main already achieves that goal — home.php was updated to this same fixed
+    // OTA order — so we keep main's newer ordering (taking the branch's version
+    // would REVERT the alignment it wanted). Branch nav change is a no-op here.
     if (!function_exists('goglobiaServicePriority')) {
         function goglobiaServicePriority($type) {
             static $rank = [
