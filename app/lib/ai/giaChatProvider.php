@@ -160,11 +160,19 @@ class giaChatProvider
                     $blocks[] = ['type' => 'text', 'text' => (string) $m['text']];
                 }
                 foreach ($m['tool_calls'] as $tc) {
+                    // Claude REQUIRES tool_use.input to be a JSON object ({}). A tool
+                    // the model calls with NO arguments round-trips as an empty PHP
+                    // array, which json_encode emits as [] (a JSON array) -> the API
+                    // rejects it: "tool_use.input: Input should be an object" (400).
+                    // This bit umrah_search specifically because its schema has no
+                    // required fields, so the model legitimately calls it with {}.
+                    // Cast an empty input to an object so it serialises as {}.
+                    $tcInput = is_array($tc['input'] ?? null) ? $tc['input'] : [];
                     $blocks[] = [
                         'type'  => 'tool_use',
                         'id'    => (string) ($tc['id'] ?? ''),
                         'name'  => (string) ($tc['name'] ?? ''),
-                        'input' => is_array($tc['input'] ?? null) ? $tc['input'] : [],
+                        'input' => $tcInput === [] ? new \stdClass() : $tcInput,
                     ];
                 }
                 $out[] = ['role' => 'assistant', 'content' => $blocks];
@@ -271,12 +279,15 @@ class giaChatProvider
             if ($role === 'assistant' && !empty($m['tool_calls'])) {
                 $tcs = [];
                 foreach ($m['tool_calls'] as $tc) {
+                    // Same empty-input guard as Claude: a no-argument call must
+                    // serialise as the JSON object "{}", not the array "[]".
+                    $tcInput = is_array($tc['input'] ?? null) ? $tc['input'] : [];
                     $tcs[] = [
                         'id'       => (string) ($tc['id'] ?? ''),
                         'type'     => 'function',
                         'function' => [
                             'name'      => (string) ($tc['name'] ?? ''),
-                            'arguments' => json_encode(is_array($tc['input'] ?? null) ? $tc['input'] : []),
+                            'arguments' => json_encode($tcInput === [] ? new \stdClass() : $tcInput),
                         ],
                     ];
                 }
@@ -390,9 +401,12 @@ class giaChatProvider
                     $parts[] = ['text' => (string) $m['text']];
                 }
                 foreach ($m['tool_calls'] as $tc) {
+                    // Same empty-input guard: a no-argument call must serialise as
+                    // the JSON object {} (Gemini functionCall.args is an object).
+                    $tcInput = is_array($tc['input'] ?? null) ? $tc['input'] : [];
                     $parts[] = ['functionCall' => [
                         'name' => (string) ($tc['name'] ?? ''),
-                        'args' => is_array($tc['input'] ?? null) ? $tc['input'] : [],
+                        'args' => $tcInput === [] ? new \stdClass() : $tcInput,
                     ]];
                 }
                 $out[] = ['role' => 'model', 'parts' => $parts];
