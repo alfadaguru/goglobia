@@ -401,8 +401,8 @@ $giaWCfg = json_encode([
                     <template x-if="sr.cards && sr.cards.length">
                       <div class="space-y-2">
                         <template x-for="(c,ci) in sr.cards.slice(0,5)" :key="ci">
-                          <a :href="sr.live ? '#' : cardUrl(sr,c)"
-                             @click.prevent="sr.live ? pickOffer(sr,c) : openDrawer(cardUrl(sr,c), c.name||c.title||'Details')"
+                          <a :href="(sr.live || isUmrahCard(sr,c)) ? '#' : cardUrl(sr,c)"
+                             @click.prevent="isUmrahCard(sr,c) ? pickUmrah(sr,c) : (sr.live ? pickOffer(sr,c) : openDrawer(cardUrl(sr,c), c.name||c.title||'Details'))"
                              class="giaw-opt" :style="'animation-delay:'+(ci*60)+'ms'">
                             <!-- Banner: the real supplier photo when present, else a
                                  generated brand-gradient banner carrying the module
@@ -438,7 +438,7 @@ $giaWCfg = json_encode([
                                   <div class="giaw-opt-price" x-html="moneyHtml(c.price!=null?c.price:c.adult_price, c.currency)"></div>
                                 </div>
                                 <span class="giaw-opt-cta">
-                                  <span x-text="sr.live ? 'Select' : 'View & book'"></span>
+                                  <span x-text="(sr.live || isUmrahCard(sr,c)) ? 'Select' : 'View & book'"></span>
                                   <span class="material-symbols-outlined">arrow_forward</span>
                                 </span>
                               </div>
@@ -1167,6 +1167,25 @@ function giaWidget(cfg){
       if(!mod||!ref){ this.send('I\'d like to book '+name); return; }
       // Explicit, unambiguous instruction for the model to call select_option.
       this.send('Please select_option module='+mod+' id='+ref+' — I want to book "'+name+'".'); },
+    // UMRAH in-chat pick (dedicated flow, no web drawer). A DEPARTURE card carries
+    // departure_id -> ask GIA for that departure's tiers (umrah_tiers). A TIER card
+    // carries departure_tier_id -> ask GIA to book that tier (umrah_book). This is
+    // what makes the umrah cards tappable end-to-end instead of a dead tap.
+    isUmrahCard(sr, c){ const k=(c&&(c.kind||c.module))||(sr&&(sr.module||sr.kind))||''; return String(k).toLowerCase()==='umrah'; },
+    pickUmrah(sr, c){ if(this.sending||!c) return;
+      const name=(c.name||c.title||'this package');
+      const tierId=parseInt(c.departure_tier_id||0,10);
+      const depId=parseInt(c.departure_id||0,10);
+      // A tier card: its title is a tier label and it carries a departure_tier_id
+      // that is NOT also the departure id -> book this tier.
+      if(tierId>0 && (sr&&/tier/i.test(sr.title||''))){
+        this.send('Book the "'+name+'" tier (departure_tier_id='+tierId+') — how many pilgrims: please proceed.');
+        return;
+      }
+      // Otherwise it's a departure card -> fetch its tiers in-chat.
+      if(depId>0){ this.send('Show me the tiers and prices for the '+name+' departure (departure_id='+depId+').'); return; }
+      if(tierId>0){ this.send('Book departure_tier_id='+tierId+'.'); return; }
+      this.send('I\'d like '+name+'.'); },
     // Live-module intent card tapped (flights/cars/rail/ferries/esim): run the LIVE
     // supplier search IN the chat (GIA calls fetch_live_offers) instead of opening a
     // web drawer — so real priced options appear inline and the user can pick one.

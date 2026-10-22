@@ -448,9 +448,13 @@ if (!function_exists('App\\lib\\ai\\gia_channel_pick_note')) {
     function gia_channel_pick_note(): string
     {
         return "PICK BUTTONS: some of your replies show tappable option buttons. When the traveler taps "
-             . "one, their next message will be EXACTLY 'pick|<module>|<ref>'. Treat that as them choosing "
-             . "that option: immediately call select_option with that module and that ref (id), then "
-             . "continue the booking flow. Do not ask them to retype it.";
+             . "one, their next message will be EXACTLY one of these — treat each as their choice and act "
+             . "immediately, never ask them to retype it:\n"
+             . "- 'pick|<module>|<ref>' -> call select_option with that module and ref (id), then continue.\n"
+             . "- 'pickdep|umrah|<departure_id>' -> they chose an Umrah DEPARTURE; call umrah_tiers with that "
+             . "departure_id to show its tiers + prices.\n"
+             . "- 'picktier|umrah|<departure_tier_id>' -> they chose an Umrah TIER; confirm pilgrim count if "
+             . "unknown, then call umrah_book with that departure_tier_id to create the held booking.";
     }
 }
 
@@ -547,6 +551,49 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
                             'buttons'  => [['id' => 'pick|stays|' . $ref, 'title' => 'Choose this room']],
                         ];
                     }
+                }
+            }
+            // UMRAH DEPARTURES (dedicated tool): umrah_search returns data.searches[].cards[]
+            // where each card is a DEPARTURE carrying departure_id. Build a native card
+            // per departure with a pick button that leads to its TIERS (umrah_tiers),
+            // NOT select_option (which would mis-treat the id as a tier id).
+            if ($ok && $name === 'umrah_search' && isset($data['searches']) && is_array($data['searches'])) {
+                foreach ($data['searches'] as $sr) {
+                    if (!is_array($sr) || empty($sr['cards']) || !is_array($sr['cards'])) { continue; }
+                    foreach ($sr['cards'] as $c) {
+                        if (!is_array($c)) { continue; }
+                        $depId = (int) ($c['departure_id'] ?? 0);
+                        if ($depId <= 0) { continue; }
+                        $price = $c['price'] ?? ($c['unit_price'] ?? null);
+                        $cur   = (string) ($c['currency'] ?? '');
+                        $sub   = trim((string) ($c['subtitle'] ?? '') . ($price !== null ? '  ' . trim($cur . ' ' . number_format((float) $price, 2)) : ''));
+                        $cards[] = [
+                            'title'    => (string) ($c['name'] ?? ($c['title'] ?? 'Umrah departure')),
+                            'subtitle' => $sub,
+                            'image'    => (string) ($c['image'] ?? ''),
+                            'buttons'  => [['id' => 'pickdep|umrah|' . $depId, 'title' => 'See tiers & prices']],
+                        ];
+                    }
+                }
+            }
+            // UMRAH TIERS (dedicated tool): umrah_tiers returns data.umrah_tiers[] — the
+            // SAME class of bug the web + model side had (the channel never rendered
+            // these). Build a native card per tier with a pick button that leads to the
+            // held booking (umrah_book) carrying the departure_tier_id.
+            if ($ok && $name === 'umrah_tiers' && !empty($data['umrah_tiers']) && is_array($data['umrah_tiers'])) {
+                foreach ($data['umrah_tiers'] as $t) {
+                    if (!is_array($t)) { continue; }
+                    $dtid = (int) ($t['departure_tier_id'] ?? 0);
+                    if ($dtid <= 0) { continue; }
+                    $price = $t['price'] ?? ($t['unit_price'] ?? null);
+                    $cur   = (string) ($t['currency'] ?? '');
+                    $sub   = trim((string) ($t['room_sharing'] ?? '') . ($price !== null ? '  ' . trim($cur . ' ' . number_format((float) $price, 2)) : ''));
+                    $cards[] = [
+                        'title'    => (string) ($t['tier_label'] ?? 'Tier'),
+                        'subtitle' => $sub,
+                        'image'    => '',
+                        'buttons'  => [['id' => 'picktier|umrah|' . $dtid, 'title' => 'Choose ' . (string) ($t['tier_label'] ?? 'tier')]],
+                    ];
                 }
             }
             // Local search cards (umrah/stays/tours/bus/visa): data.searches[].cards[].

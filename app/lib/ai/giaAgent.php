@@ -372,6 +372,68 @@ class giaAgent
                     ];
                 }
             }
+
+            // STAYS ROOMS: select_option on a property returns bookable rooms under
+            // 'stays_rooms' (same shape of bug umrah_tiers had — the model was blind
+            // to them). Surface a trimmed, model-facing list so GIA can name a room +
+            // carry its ref (stayroom:stay:room:option) into create_booking.
+            if (isset($d['stays_rooms']) && is_array($d['stays_rooms'])) {
+                $rooms = [];
+                foreach ($d['stays_rooms'] as $rm) {
+                    if (!is_array($rm)) { continue; }
+                    foreach (($rm['options'] ?? []) as $o) {
+                        if (!is_array($o)) { continue; }
+                        $rooms[] = [
+                            'ref'       => 'stayroom:' . (int) ($d['stay_id'] ?? 0) . ':' . (int) ($rm['room_id'] ?? 0) . ':' . (int) ($o['option_id'] ?? 0),
+                            'room_name' => (string) ($rm['room_name'] ?? 'Room'),
+                            'board'     => (string) ($o['board'] ?? ''),
+                            'price'     => $o['price'] ?? null,
+                            'currency'  => (string) ($o['currency'] ?? ($d['currency'] ?? '')),
+                            'free_cancellation' => !empty($o['free_cancellation']),
+                        ];
+                        if (count($rooms) >= 12) { break 2; }
+                    }
+                }
+                $compact['stays_rooms'] = $rooms;
+                if (!empty($d['need_dates'])) { $compact['need_dates'] = true; }
+                if (isset($d['property'])) { $compact['property'] = (string) $d['property']; }
+            }
+
+            // LIVE OFFERS: fetch_live_offers returns bookable offers under 'offers'
+            // (and/or 'cards'), NOT 'searches', so modelFacingOptions never ran on
+            // them — the model knew only a count. Surface a trimmed list with refs.
+            $liveList = is_array($d['offers'] ?? null) ? $d['offers'] : (is_array($d['cards'] ?? null) ? $d['cards'] : null);
+            if ($liveList !== null && !isset($compact['options'])) {
+                $compact['options'] = $this->modelFacingOptions([[
+                    'module' => (string) ($d['module'] ?? ''),
+                    'cards'  => $liveList,
+                ]]);
+            }
+
+            // BOOKING-CHAIN HANDLES + STATE: the model must pass these refs/tokens
+            // FORWARD as inputs to the next tool (draft_hash -> reprice -> checkout
+            // -> booking -> approval -> payment), and must read order state to speak
+            // truthfully about confirmation. compactToolOutput previously dropped ALL
+            // of them, so the chain was unexecutable and GIA couldn't state what it
+            // created. Pass the meaningful scalars through verbatim when present.
+            foreach ([
+                'draft_hash', 'checkout_ref', 'approval_token', 'invoice_id', 'booking_ref',
+                'umrah_booking_id', 'redirect_url', 'next', 'state', 'pnr',
+            ] as $k) {
+                if (isset($d[$k]) && (is_scalar($d[$k]))) { $compact[$k] = $d[$k]; }
+            }
+            // Money + status scalars the model may legitimately state (containment
+            // still validates any amount GIA quotes against the raw tool output).
+            foreach (['amount', 'amount_due_now', 'total', 'old_total', 'currency'] as $k) {
+                if (isset($d[$k]) && is_numeric($d[$k])) { $compact[$k] = $d[$k]; }
+            }
+            if (isset($d['currency']) && is_string($d['currency'])) { $compact['currency'] = (string) $d['currency']; }
+            foreach (['price_changed', 'already_paid', 'needs_travellers', 'needs_ops', 'time_sensitive'] as $k) {
+                if (isset($d[$k])) { $compact[$k] = (bool) $d[$k]; }
+            }
+            if (isset($d['installments']) && is_array($d['installments'])) {
+                $compact['installments'] = array_slice($d['installments'], 0, 6);
+            }
         }
         return $compact;
     }
