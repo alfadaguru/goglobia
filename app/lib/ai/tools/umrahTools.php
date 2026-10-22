@@ -116,12 +116,13 @@ if (!class_exists('App\\lib\\ai\\umrahTiersTool')) {
             return [
                 'type' => 'object',
                 'properties' => [
-                    'departure_id' => ['type' => 'integer', 'description' => 'The chosen departure id (from umrah_search cards).'],
+                    'departure_id' => ['type' => 'integer', 'description' => 'The chosen departure\'s departure_id EXACTLY as given in the umrah_search result. If you are not 100% sure of the number, omit it and pass "when" instead.'],
+                    'when'     => ['type' => 'string', 'description' => 'What the traveller said about which departure, e.g. "16th December" or "25 Dec". Always include this when they named a date/month, so the system can resolve the exact departure even without the id.'],
                     'adults'   => ['type' => 'integer', 'description' => 'Adult pilgrims.'],
                     'children' => ['type' => 'integer', 'description' => 'Child pilgrims.'],
                     'infants'  => ['type' => 'integer', 'description' => 'Infant pilgrims.'],
                 ],
-                'required' => ['departure_id'],
+                'required' => [],
             ];
         }
 
@@ -132,7 +133,7 @@ if (!class_exists('App\\lib\\ai\\umrahTiersTool')) {
             $db = $context['db'] ?? null;
             if ($db === null) { return ['ok' => false, 'error_code' => 'AI_NO_DB', 'message' => 'Umrah tiers are unavailable.']; }
             $pax = max(0, (int) ($input['adults'] ?? 0)) + max(0, (int) ($input['children'] ?? 0)) + max(0, (int) ($input['infants'] ?? 0));
-            $res = gia_umrah_tiers($db, (int) ($input['departure_id'] ?? 0), $pax);
+            $res = gia_umrah_tiers($db, (int) ($input['departure_id'] ?? 0), $pax, trim((string) ($input['when'] ?? '')));
             if (empty($res['ok'])) {
                 return ['ok' => false, 'error_code' => 'AI_UMRAH_TIERS', 'message' => (string) ($res['message'] ?? 'Could not load tiers.')];
             }

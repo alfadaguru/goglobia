@@ -159,6 +159,68 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_search')) {
     }
 }
 
+if (!function_exists('App\\lib\\ai\\gia_umrah_resolve_departure')) {
+    /**
+     * Resolve a PUBLISHED departure deterministically from what the traveller
+     * actually said — a date/month phrase ("16th december", "16 Dec", "2026-12-16",
+     * "december") and/or a bare number the model may have sent as an id but that is
+     * really a day-of-month. We match against the real departure_date of the
+     * published departures, so the CODE picks the departure (not the model guessing
+     * a numeric id). Returns the departure id, or 0 if nothing matches confidently.
+     */
+    function gia_umrah_resolve_departure($db, string $when, int $idHint = 0): int
+    {
+        $rows = $db->select('umrah_departures', ['id', 'departure_date'],
+            ['status' => 'published', 'archived' => 0, 'ORDER' => ['departure_date' => 'ASC']]) ?: [];
+        if (!$rows) { return 0; }
+
+        $when = \strtolower(\trim($when));
+        // Pull a day number from the phrase ("16th", "16 december") or the id hint
+        // (the model sent "16" as a departure_id). 1..31 only.
+        $day = 0;
+        if ($when !== '' && \preg_match('/\b([0-3]?\d)(st|nd|rd|th)?\b/', $when, $m)) {
+            $d = (int) $m[1];
+            if ($d >= 1 && $d <= 31) { $day = $d; }
+        }
+        if ($day === 0 && $idHint >= 1 && $idHint <= 31) { $day = $idHint; }
+
+        // Month name/number from the phrase, if any.
+        $monthNum = 0;
+        $months = ['january'=>1,'february'=>2,'march'=>3,'april'=>4,'may'=>5,'june'=>6,
+                   'july'=>7,'august'=>8,'september'=>9,'october'=>10,'november'=>11,'december'=>12,
+                   'jan'=>1,'feb'=>2,'mar'=>3,'apr'=>4,'jun'=>6,'jul'=>7,'aug'=>8,'sep'=>9,'sept'=>9,'oct'=>10,'nov'=>11,'dec'=>12];
+        foreach ($months as $name => $num) {
+            if ($when !== '' && \strpos($when, $name) !== false) { $monthNum = $num; break; }
+        }
+
+        // If the phrase parses as a full date, use that directly.
+        $wantYmd = '';
+        if ($when !== '') {
+            $ts = \strtotime($when);
+            if ($ts !== false && \preg_match('/\d/', $when)) { $wantYmd = \date('Y-m-d', $ts); }
+        }
+
+        $matches = [];
+        foreach ($rows as $r) {
+            $depDate = (string) ($r['departure_date'] ?? '');
+            if ($depDate === '') { continue; }
+            $dd = (int) \date('j', \strtotime($depDate));
+            $dm = (int) \date('n', \strtotime($depDate));
+            $ddYmd = \date('Y-m-d', \strtotime($depDate));
+
+            if ($wantYmd !== '' && $ddYmd === $wantYmd) { return (int) $r['id']; } // exact date wins
+            // Day (+ month if we have one) match.
+            if ($day > 0 && $dd === $day && ($monthNum === 0 || $dm === $monthNum)) {
+                $matches[] = (int) $r['id'];
+            } elseif ($day === 0 && $monthNum > 0 && $dm === $monthNum) {
+                $matches[] = (int) $r['id'];
+            }
+        }
+        // Only accept a UNIQUE match (never guess between two candidates).
+        return (\count($matches) === 1) ? $matches[0] : 0;
+    }
+}
+
 if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
     /**
      * The bookable tiers (Standard / VIP / Deluxe …) + real prices for ONE
@@ -170,27 +232,25 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
      * @param int $pax total pilgrims; row 'price' = unit x pax when given, else unit.
      * @return array{ok:bool, departure:array, tiers:array<int,array<string,mixed>>, message?:string}
      */
-    function gia_umrah_tiers($db, int $departureId, int $pax = 0): array
+    function gia_umrah_tiers($db, int $departureId, int $pax = 0, string $when = ''): array
     {
         if (!gia_umrah_boot($db)) {
             return ['ok' => false, 'tiers' => [], 'departure' => [], 'message' => 'Umrah is temporarily unavailable.'];
-        }
-        if ($departureId <= 0) {
-            return ['ok' => false, 'tiers' => [], 'departure' => [], 'message' => 'Which departure would you like?'];
         }
 
         try {
             // The departure must be published + not archived (security: never price a
             // draft/closed one). Mirrors the public gate.
-            $dep = $db->get('umrah_departures', '*', ['id' => $departureId, 'status' => 'published', 'archived' => 0]);
+            $dep = ($departureId > 0)
+                ? $db->get('umrah_departures', '*', ['id' => $departureId, 'status' => 'published', 'archived' => 0])
+                : null;
 
             // RESILIENT ID RESOLUTION: the umrah_search card carries BOTH a
             // departure_id AND a departure_tier_id. If the model passed the wrong
             // one (a known failure mode — it would dead-end as "not open for
             // booking"), recover instead of failing: treat the value as a
-            // departure_tier_id and map back to its departure. This makes the step
-            // robust no matter which of the card's two ids the model sent.
-            if (!\is_array($dep)) {
+            // departure_tier_id and map back to its departure.
+            if (!\is_array($dep) && $departureId > 0) {
                 $dt = $db->get('umrah_departure_tiers', ['departure_id'], ['id' => $departureId]);
                 if (\is_array($dt) && (int) ($dt['departure_id'] ?? 0) > 0) {
                     $realDep = (int) $dt['departure_id'];
@@ -203,17 +263,37 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
                 }
             }
 
+            // DATE/MONTH RESOLUTION (the real fix): the traveller says "16th
+            // december", not an id. Rather than trust the model to turn that into
+            // the right numeric id (it was sending a date-as-id -> dead end), resolve
+            // the departure HERE by matching $when (or a numeric id that was actually
+            // a day/month) against the published departures' real dates. Deterministic
+            // — the code picks the departure, not the model.
             if (!\is_array($dep)) {
-                // DIAGNOSTIC: say WHY it failed — wrong id, or a status/archived
-                // mismatch — so a live failure is a fact in the log, not a guess.
-                $any = $db->get('umrah_departures', ['id', 'status', 'archived'], ['id' => $departureId]);
-                if (!\is_array($any)) {
-                    \error_log('[gia_umrah] tiers: no umrah_departures AND no umrah_departure_tiers with id=' . $departureId
-                        . ' (model passed a value that is neither a departure_id nor a departure_tier_id)');
-                } else {
-                    \error_log('[gia_umrah] tiers: departure ' . $departureId . ' exists but is gated out — status='
-                        . (string) ($any['status'] ?? '') . ' archived=' . (string) ($any['archived'] ?? ''));
+                $resolved = gia_umrah_resolve_departure($db, $when, $departureId);
+                if ($resolved > 0) {
+                    $dep = $db->get('umrah_departures', '*', ['id' => $resolved, 'status' => 'published', 'archived' => 0]);
+                    if (\is_array($dep)) {
+                        \error_log('[gia_umrah] tiers: resolved departure by date/when="' . $when
+                            . '" (id arg=' . $departureId . ') -> departure_id=' . $resolved);
+                        $departureId = $resolved;
+                    }
                 }
+            }
+
+            if (!\is_array($dep)) {
+                // DIAGNOSTIC: say WHY it failed so a live failure is a fact, not a guess.
+                $any = ($departureId > 0) ? $db->get('umrah_departures', ['id', 'status', 'archived'], ['id' => $departureId]) : null;
+                if (!\is_array($any)) {
+                    \error_log('[gia_umrah] tiers: could not resolve a departure from id=' . $departureId
+                        . ' when="' . $when . '" (not an id, not a tier id, no date match)');
+                    // Couldn't identify which departure the traveller meant — ask,
+                    // rather than falsely tell them it's "closed".
+                    return ['ok' => false, 'tiers' => [], 'departure' => [],
+                        'message' => 'Which departure did you mean — tell me the date (e.g. "16 December" or "25 December") and I\'ll pull up the tiers and prices.'];
+                }
+                \error_log('[gia_umrah] tiers: departure ' . $departureId . ' exists but is gated out — status='
+                    . (string) ($any['status'] ?? '') . ' archived=' . (string) ($any['archived'] ?? ''));
                 return ['ok' => false, 'tiers' => [], 'departure' => [], 'message' => 'That departure is not open for booking.'];
             }
             $rows = $db->select('umrah_departure_tiers', '*', [
