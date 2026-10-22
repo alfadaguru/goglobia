@@ -162,6 +162,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         require_once $aiDir . 'tools/requestHumanTool.php';
         require_once $aiDir . 'tools/verifyIdentityTool.php';
         require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow
+        require_once $aiDir . 'tools/flightsTools.php'; // DEDICATED flights flow
         require_once $aiDir . 'gia_analytics.php';
         require_once $aiDir . 'gia_crm.php';
         require_once $aiDir . 'gia_identity.php';
@@ -332,6 +333,11 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             $agent->registerTool(new umrahSearchTool());
             $agent->registerTool(new umrahTiersTool());
             $agent->registerTool(new umrahBookTool());
+            // DEDICATED flights tools — flights use their own flow, never search_trip.
+            $agent->registerTool(new flightsSearchTool());
+            $agent->registerTool(new flightsSelectTool());
+            $agent->registerTool(new flightsBookTool());
+            $agent->registerTool(new flightsAddPassengerTool());
             $agent->registerTool(new searchTripTool());
             $agent->registerTool(new fetchLiveOffersTool());
             $agent->registerTool(new selectOptionTool());
@@ -454,7 +460,9 @@ if (!function_exists('App\\lib\\ai\\gia_channel_pick_note')) {
              . "- 'pickdep|umrah|<departure_id>' -> they chose an Umrah DEPARTURE; call umrah_tiers with that "
              . "departure_id to show its tiers + prices.\n"
              . "- 'picktier|umrah|<departure_tier_id>' -> they chose an Umrah TIER; confirm pilgrim count if "
-             . "unknown, then call umrah_book with that departure_tier_id to create the held booking.";
+             . "unknown, then call umrah_book with that departure_tier_id to create the held booking.\n"
+             . "- 'pickfare|<ref>' -> they chose a FLIGHT fare; call flights_select with that ref to "
+             . "reconfirm the price and the required passenger fields, then collect passengers and book.";
     }
 }
 
@@ -501,6 +509,41 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
                 if ((string) ($data['module'] ?? '') === 'umrah' && !empty($data['needs_travellers'])) {
                     $umrahCollectBookingId = (int) ($data['umrah_booking_id'] ?? 0);
                     $umrahCollectPax       = (int) ($data['pax'] ?? 0);
+                }
+            }
+
+            // FLIGHTS fare cards: flights_search returns data.searches[].cards[] (and
+            // data.flights[]). Render each as a native pickable card; a tap sends
+            // 'pickfare|<ref>' -> the model calls flights_select then flights_book.
+            if ($ok && $name === 'flights_search' && !empty($data['flights']) && is_array($data['flights'])) {
+                foreach ($data['flights'] as $c) {
+                    if (!is_array($c)) { continue; }
+                    $ref = (string) ($c['ref'] ?? ($c['id'] ?? ''));
+                    if ($ref === '') { continue; }
+                    $price = $c['price'] ?? null;
+                    $cur   = (string) ($c['currency'] ?? '');
+                    $sub   = trim((string) ($c['subtitle'] ?? '') . ($price !== null ? '  ' . trim($cur . ' ' . number_format((float) $price, 2)) : ''));
+                    $cards[] = [
+                        'title'    => (string) ($c['title'] ?? ($c['name'] ?? 'Flight')),
+                        'subtitle' => $sub,
+                        'image'    => '',
+                        'buttons'  => [['id' => 'pickfare|' . $ref, 'title' => 'Select this fare']],
+                    ];
+                }
+            }
+            // FLIGHTS manifest complete: flights_add_passenger says needs_payment ->
+            // capture the invoice + amount so the pay buttons appear (same as umrah
+            // once pilgrims are done). We read the amount from the booking row.
+            if ($ok && $name === 'flights_add_passenger' && !empty($data['needs_payment']) && !empty($data['invoice_id'])) {
+                $invoiceId = (string) $data['invoice_id'];
+                if ($db !== null) {
+                    try {
+                        $fb = $db->get('bookings', ['price_markup', 'currency_markup'], ['invoice_id' => $invoiceId]);
+                        if (is_array($fb)) {
+                            $payAmount   = (float) ($fb['price_markup'] ?? 0);
+                            $payCurrency = (string) ($fb['currency_markup'] ?? '');
+                        }
+                    } catch (\Throwable $e) { /* pay buttons still show if amount>0 elsewhere */ }
                 }
             }
 

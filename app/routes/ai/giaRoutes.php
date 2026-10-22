@@ -128,6 +128,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/getOrderStatusTool.php';
     require_once $aiDir . 'tools/requestHumanTool.php';
     require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow (own tools)
+    require_once $aiDir . 'tools/flightsTools.php'; // DEDICATED flights flow (own tools)
     require_once $aiDir . 'gia_pending_travellers.php'; // pilgrim-collection engine
     require_once $aiDir . 'gia_pt_web.php';             // web-native pilgrim handlers
     // CRM + analytics (persistent chat, leads, logging). Fail-soft: if these are
@@ -238,6 +239,11 @@ $router->post('/api/gia/chat', function () use ($db) {
         $agent->registerTool(new \App\lib\ai\umrahSearchTool());
         $agent->registerTool(new \App\lib\ai\umrahTiersTool());
         $agent->registerTool(new \App\lib\ai\umrahBookTool());
+        // DEDICATED flights tools — flights use their own flow, never search_trip.
+        $agent->registerTool(new \App\lib\ai\flightsSearchTool());
+        $agent->registerTool(new \App\lib\ai\flightsSelectTool());
+        $agent->registerTool(new \App\lib\ai\flightsBookTool());
+        $agent->registerTool(new \App\lib\ai\flightsAddPassengerTool());
         $agent->registerTool(new \App\lib\ai\searchTripTool());
         $agent->registerTool(new \App\lib\ai\fetchLiveOffersTool());
         $agent->registerTool(new \App\lib\ai\selectOptionTool());
@@ -290,6 +296,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     $payment = null;    // {invoice_id, redirect_url, amount, currency} from initiate_payment
     $orderStatus = null; // {state, invoice_id, pnr, needs_ops} from get_order_status
     $collectingUmrah = false; // true when umrah_book just started pilgrim collection
+    $payOptions = null;       // {invoice_id, options[]} when a manifest just completed (flights)
     foreach (($result['tool_runs'] ?? []) as $tr) {
         $name = (string) ($tr['name'] ?? '');
         $data = (isset($tr['output']['data']) && is_array($tr['output']['data'])) ? $tr['output']['data'] : [];
@@ -299,6 +306,13 @@ $router->post('/api/gia/chat', function () use ($db) {
         // 'searches' block; umrah_tiers returns tiers for the picked departure.
         if (($name === 'umrah_search') && isset($data['searches']) && is_array($data['searches'])) {
             $searches = array_merge($searches, $data['searches']);
+        } elseif ($name === 'flights_search' && isset($data['searches']) && is_array($data['searches'])) {
+            // Dedicated flights fares render as the same pickable cards the UI knows.
+            $searches = array_merge($searches, $data['searches']);
+        } elseif ($name === 'flights_add_passenger' && ($tr['output']['ok'] ?? false) && !empty($data['needs_payment']) && !empty($data['invoice_id'])) {
+            // Flight manifest complete -> surface the two GIA-native pay options,
+            // exactly like umrah once its pilgrims are done.
+            $payOptions = gia_web_pay_options((string) $data['invoice_id']);
         } elseif ($name === 'umrah_book' && ($tr['output']['ok'] ?? false)
                   && (string) ($data['module'] ?? '') === 'umrah'
                   && !empty($data['needs_travellers']) && !empty($data['invoice_id'])) {
@@ -456,6 +470,9 @@ $router->post('/api/gia/chat', function () use ($db) {
         // True right after umrah_book: a held booking is now collecting pilgrim
         // passports — the widget shows the passport-upload control.
         'collecting' => $collectingUmrah,
+        // Set when a manifest just completed (e.g. flights passengers all added):
+        // the widget renders the two GIA-native pay options for this invoice.
+        'pay_options' => $payOptions,
         // Lets the client tie follow-ups to this persistent conversation.
         'conv_key'   => (string) ($conv['conv_key'] ?? ''),
     ];
@@ -629,22 +646,48 @@ $router->post('/api/gia/umrah/pay', function () use ($db) {
     $conv = function_exists('gia_conv_get_or_create')
         ? gia_conv_get_or_create($db, $browserId, $userId, 'umrah', 'widget') : null;
     $convKey = (string) ($conv['conv_key'] ?? '');
-    // Find the collection row for this conversation + invoice (any status) to prove
-    // ownership, then confirm the manifest is complete before provisioning payment.
-    $own = null;
+    // Prove the invoice belongs to THIS conversation, then confirm its manifest is
+    // complete, before provisioning payment — for EITHER a dedicated umrah booking
+    // (pilgrim passports) OR a dedicated flights booking (passenger details).
+    $ownedComplete = false;
+    // (a) UMRAH: a gia_pending_travellers row for this conv + invoice, manifest done.
     if ($convKey !== '') {
         try {
             $own = $db->get('gia_pending_travellers', '*',
                 ['conv_key' => $convKey, 'invoice_id' => $invoiceId, 'ORDER' => ['id' => 'DESC']]);
         } catch (\Throwable $e) { $own = null; }
+        if (is_array($own)) {
+            $uBkId = (int) ($own['umrah_booking_id'] ?? 0);
+            if ($uBkId > 0 && function_exists('gia_pt_is_complete') && gia_pt_is_complete($db, $uBkId)) {
+                $ownedComplete = true;
+            } else {
+                $respond(409, ['ok' => false, 'message' => "I still need all pilgrims' passports before payment.", 'error_code' => 'AI_PAY_INCOMPLETE']);
+                return;
+            }
+        }
     }
-    if (!is_array($own)) {
+    // (b) FLIGHTS: an ai_trip booking stamped with this conv_key + a complete
+    //     passenger manifest (gia_flights_manifest_complete).
+    if (!$ownedComplete) {
+        require_once $aiDir . 'gia_flights.php';
+        try {
+            $fb = $db->get('bookings', ['booking_data', 'module_type', 'payment_status'], ['invoice_id' => $invoiceId]);
+        } catch (\Throwable $e) { $fb = null; }
+        if (is_array($fb) && strtolower((string) ($fb['module_type'] ?? '')) === 'ai_trip') {
+            $bd = json_decode((string) ($fb['booking_data'] ?? ''), true);
+            $bookedConv = is_array($bd) ? (string) ($bd['gia_conv_key'] ?? '') : '';
+            if ($convKey !== '' && $bookedConv !== '' && hash_equals($bookedConv, $convKey)) {
+                if (function_exists('App\\lib\\ai\\gia_flights_manifest_complete') && \App\lib\ai\gia_flights_manifest_complete($db, $invoiceId)) {
+                    $ownedComplete = true;
+                } else {
+                    $respond(409, ['ok' => false, 'message' => "I still need every passenger's details before payment.", 'error_code' => 'AI_PAY_INCOMPLETE']);
+                    return;
+                }
+            }
+        }
+    }
+    if (!$ownedComplete) {
         $respond(409, ['ok' => false, 'message' => "I can't find that booking on this chat.", 'error_code' => 'AI_PAY_NOT_OURS']);
-        return;
-    }
-    $uBkId = (int) ($own['umrah_booking_id'] ?? 0);
-    if ($uBkId <= 0 || !function_exists('gia_pt_is_complete') || !gia_pt_is_complete($db, $uBkId)) {
-        $respond(409, ['ok' => false, 'message' => "I still need all pilgrims' passports before payment.", 'error_code' => 'AI_PAY_INCOMPLETE']);
         return;
     }
 

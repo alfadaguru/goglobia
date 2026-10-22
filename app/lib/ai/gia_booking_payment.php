@@ -436,13 +436,36 @@ if (!function_exists('gia_bp_confirm')) {
                     catch (\Throwable $e) { error_log('[gia_bp] confirm umrah gw-stamp: ' . $e->getMessage()); }
                 }
             } else {
-                // Generic bookings: mark paid on the invoice (stays/flights phases
-                // extend this to run issue/confirm via the existing gateway flow).
+                // Generic bookings: mark the invoice PAID + stamp the gateway/txn.
+                // booking_status stays 'pending' until fulfilment confirms (an
+                // ai_trip flight is paid-but-not-issued until its PNR comes back).
                 $db->update('bookings', array_merge($gwStamp, [
-                    'payment_status' => 'paid', 'booking_status' => 'confirmed',
-                    'paid_at' => date('Y-m-d H:i:s'),
+                    'payment_status' => 'paid', 'paid_at' => date('Y-m-d H:i:s'),
                 ]), ['invoice_id' => $invoiceId]);
                 $ok = true;
+
+                // FLIGHTS / ai_trip: a ticket can only ISSUE after payment. Trigger
+                // the SAME proven issue path the web gateway callback uses
+                // (modules/ai_trip/ai_trip/issue), signed with the internal token so
+                // the supplier action-guard accepts this server-side loopback. That
+                // endpoint issues each item's PNR and, on failure, runs the existing
+                // auto-refund (_auto_refund_on_issue_failure) — so a paid-but-
+                // unissuable flight is refunded, never stranded. We only mark the
+                // booking 'confirmed' when the issue actually succeeds.
+                $bk = $db->get('bookings', ['module_type', 'module'], ['invoice_id' => $invoiceId]);
+                $mt = strtolower((string) ($bk['module_type'] ?? ''));
+                if ($mt === 'ai_trip') {
+                    try {
+                        gia_bp_issue_ai_trip($db, $invoiceId);
+                    } catch (\Throwable $e) {
+                        error_log('[gia_bp] ai_trip issue trigger ' . $invoiceId . ': ' . $e->getMessage());
+                    }
+                } else {
+                    // Non-issuing generic booking (e.g. a confirm-on-payment module):
+                    // payment confirms it.
+                    try { $db->update('bookings', ['booking_status' => 'confirmed'], ['invoice_id' => $invoiceId]); }
+                    catch (\Throwable $e) {}
+                }
             }
             if (!$ok) {
                 return ['ok' => false, 'message' => 'post-payment flow failed']; // retryable
@@ -457,6 +480,55 @@ if (!function_exists('gia_bp_confirm')) {
             error_log('[gia_bp] confirm ' . $invoiceId . ': ' . $e->getMessage());
             return ['ok' => false, 'message' => 'confirm exception']; // retryable
         }
+    }
+}
+
+if (!function_exists('gia_bp_issue_ai_trip')) {
+    /**
+     * Trigger the PROVEN ai_trip issue path for a just-paid GIA flight/ai_trip
+     * booking, the SAME way the web payment callback does (payment-gateway.php:
+     * 636-651): a server-side loopback POST to modules/ai_trip/ai_trip/issue,
+     * signed with supplier_internal_token so the module's action-guard accepts it.
+     * issue.php issues each item's PNR, sets booking_status='confirmed' on success,
+     * and on failure the existing _auto_refund_on_issue_failure refunds the payer —
+     * so a paid-but-unissuable flight is never stranded. We do NOT duplicate that
+     * logic here; we only kick it off and read the outcome.
+     *
+     * @return array{ok:bool, status:string, message?:string}
+     */
+    function gia_bp_issue_ai_trip($db, string $invoiceId): array
+    {
+        // Load the lib-safe HTTP helper the same guarded way gia_live_offers does.
+        if (!function_exists('aiTripHttpPost')) {
+            $helper = dirname(__DIR__) . '/../routes/ai/tripRevalidateHelper.php';
+            if (is_file($helper)) { require_once $helper; }
+        }
+        if (!function_exists('aiTripHttpPost')) {
+            error_log('[gia_bp] issue ai_trip: HTTP helper unavailable for ' . $invoiceId);
+            return ['ok' => false, 'status' => 'pending', 'message' => 'Issue helper unavailable.'];
+        }
+        $base = defined('root') ? rtrim((string) root, '/') : '';
+        $url  = $base . '/modules/ai_trip/ai_trip/issue';
+        $token = function_exists('supplier_internal_token') ? supplier_internal_token($invoiceId) : '';
+        try {
+            $resp = aiTripHttpPost($url, [
+                'invoice_id'      => $invoiceId,
+                '_internal_token' => $token,
+            ], false, 90); // issuing can be slow (supplier ticketing)
+        } catch (\Throwable $e) {
+            error_log('[gia_bp] issue ai_trip POST ' . $invoiceId . ': ' . $e->getMessage());
+            return ['ok' => false, 'status' => 'pending', 'message' => 'Issue request failed; will be retried/settled by ops.'];
+        }
+        $json = is_array($resp['json'] ?? null) ? $resp['json'] : [];
+        $issued = !empty($json['status']);
+        // issue.php has already set booking_status (confirmed on success) + handled
+        // auto-refund on failure. Reflect the outcome for the caller/log only.
+        error_log('[gia_bp] issue ai_trip ' . $invoiceId . ' -> ' . ($issued ? 'issued' : 'not-issued: ' . (string) ($json['message'] ?? 'unknown')));
+        return [
+            'ok'      => $issued,
+            'status'  => $issued ? 'confirmed' : 'pending',
+            'message' => (string) ($json['message'] ?? ''),
+        ];
     }
 }
 
