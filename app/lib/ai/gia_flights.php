@@ -135,6 +135,8 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
         $offers = [];
         $lastMsg = 'No flights found for that route and date.';
         $base = \defined('root') ? \rtrim((string) \root, '/') : '';
+        \error_log('[gia_flights] search ' . $origin . '->' . $destination . ' ' . $departDate
+            . ' suppliers=' . \json_encode($suppliers));
         foreach ($suppliers as $supplier) {
             try {
                 $url = $base . '/modules/flights/' . \rawurlencode($supplier) . '/search';
@@ -146,6 +148,10 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
             $json = \is_array($response['json'] ?? null) ? $response['json'] : [];
             $rows = (isset($json[0]) && \is_array($json[0])) ? $json
                   : (\is_array($json['data'] ?? null) ? $json['data'] : []);
+            // DIAGNOSTIC: so a live "no fares" names the supplier + row count + http,
+            // instead of a blind guess (this is how the umrah 'no tiers' was cracked).
+            \error_log('[gia_flights] search ' . $supplier . ' http=' . (int) ($response['http'] ?? 0)
+                . ' rows=' . \count($rows));
             if ($rows === []) { continue; }
 
             foreach ($rows as $offer) {

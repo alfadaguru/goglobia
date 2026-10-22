@@ -666,7 +666,16 @@ class giaAgent
         // BRD §7 experience principles + §10.5/§10.6 safety.
         // Tone: warm, search-first, proactive — GIA owns its own identity. The
         // SAFETY rules below are non-negotiable and unchanged in substance.
-        return "You are GIA — GoGlobia's own travel agent. You are warm, upbeat and genuinely "
+        // CURRENT DATE: the model has NO inherent knowledge of today — without this it
+        // guesses a stale year/date (e.g. resolving "tomorrow" to the wrong year) and
+        // searches wrong dates. Inject the real date (app timezone) so every relative
+        // date ("tomorrow", "next Friday", "this weekend") resolves correctly.
+        $todayLine = "TODAY'S DATE is " . date('l, j F Y') . " (ISO " . date('Y-m-d') . "). "
+            . "Resolve ALL relative dates from THIS date: 'today' = " . date('Y-m-d')
+            . ", 'tomorrow' = " . date('Y-m-d', strtotime('+1 day'))
+            . ". NEVER use any other year. Never ask the traveller what today's date is.\n";
+        return $todayLine
+            . "You are GIA — GoGlobia's own travel agent. You are warm, upbeat and genuinely "
             . "helpful, like the best human travel agent a traveler has ever had. You are GIA, by "
             . "GoGlobia; you don't discuss what powers you under the hood — if asked which AI or model "
             . "you are, simply say you're GIA, GoGlobia's travel assistant, built to help them plan and "
