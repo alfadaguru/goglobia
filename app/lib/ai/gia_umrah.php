@@ -221,6 +221,53 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_resolve_departure')) {
     }
 }
 
+if (!function_exists('App\\lib\\ai\\gia_umrah_tiers_from_search')) {
+    /**
+     * FALLBACK tier list sourced from umrahV2PublishedDepartures — the SAME function
+     * the search (and the website) uses successfully. Guarantees that if a departure
+     * is shown in search, its priced "from" tier is always offerable at the tiers
+     * step, even if the per-tier re-resolution in gia_umrah_tiers came up empty due
+     * to some tier-state quirk. Returns at least the departure's cheapest priced
+     * tier as a bookable entry (carrying the real departure_tier_id for umrah_book).
+     *
+     * @return array<int,array<string,mixed>> tier rows (possibly one), or [] if the
+     *         departure genuinely isn't in the published+priced set.
+     */
+    function gia_umrah_tiers_from_search($db, int $departureId, int $pax = 0): array
+    {
+        try {
+            $deps = \umrahV2PublishedDepartures($db);
+        } catch (\Throwable $e) {
+            \error_log('[gia_umrah] tiers_from_search threw: ' . $e->getMessage());
+            return [];
+        }
+        if (!\is_array($deps)) { return []; }
+        foreach ($deps as $d) {
+            if ((int) ($d['departure_id'] ?? 0) !== $departureId) { continue; }
+            $unit = (float) ($d['unit_price'] ?? 0);
+            if ($unit <= 0) { return []; } // nothing priced -> honestly empty
+            $dtId = (int) ($d['departure_tier_id'] ?? 0); // the real cheapest priced tier
+            if ($dtId <= 0) { return []; }
+            // Availability mirrors search's own computed availability.
+            $avail = (string) ($d['availability'] ?? 'available');
+            return [[
+                'departure_tier_id' => $dtId,
+                'tier_code'         => (string) ($d['tier_code'] ?? 'standard'),
+                'tier_label'        => (string) ($d['tier_label'] ?: 'Standard'),
+                'room_sharing'      => (string) ($d['room_sharing'] ?? ''),
+                'sort_order'        => 0,
+                'unit_price'        => \round($unit, 2),
+                'price'             => $pax > 0 ? \round($unit * $pax, 2) : \round($unit, 2),
+                'currency'          => \strtoupper((string) ($d['currency'] ?? 'NGN')),
+                'regular'           => null,
+                'availability'      => $avail,
+                'inclusions'        => [],
+            ]];
+        }
+        return [];
+    }
+}
+
 if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
     /**
      * The bookable tiers (Standard / VIP / Deluxe …) + real prices for ONE
@@ -352,6 +399,22 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
                 ];
             }
             \usort($tiers, fn($a, $b) => $a['sort_order'] <=> $b['sort_order']);
+
+            // SELF-HEAL: if our per-tier pass produced nothing (every active tier
+            // resolved to unit<=0, or there were no active rows), but SEARCH was able
+            // to show this very departure — which it only does when the departure has
+            // a priced tier (umrahV2PublishedDepartures skips unpriced departures) —
+            // then fall back to the EXACT same data the search used, so tiers can
+            // never show less than search did. This closes the "search shows it but
+            // tiers says none" contradiction at the root, no matter the tier-state
+            // quirk, instead of dead-ending the traveller.
+            if ($tiers === []) {
+                $tiers = gia_umrah_tiers_from_search($db, $departureId, $pax);
+                if ($tiers !== []) {
+                    \error_log('[gia_umrah] tiers: per-tier pass was empty for dep=' . $departureId
+                        . ' — self-healed from umrahV2PublishedDepartures (' . \count($tiers) . ' tier(s))');
+                }
+            }
 
             $dep0 = (string) ($dep['departure_date'] ?? '');
             $ret0 = (string) ($dep['return_date'] ?? '');
