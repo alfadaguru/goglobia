@@ -404,6 +404,19 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             return $fail('Sorry — I hit a snag just now. Please try again in a moment.', false, false, $convKey);
         }
 
+        // When the agent itself failed (e.g. the AI provider returned a non-2xx
+        // like an invalid key 401 or a retired-model 404), it carries the raw
+        // reason in `debug`/`error` for operators. The traveller only ever sees
+        // the friendly `reply`, but WITHOUT this the real cause never reached any
+        // log on the channel path — so a live "having a little trouble" was
+        // undiagnosable. Log it (operator-only) so the exact HTTP cause is visible.
+        if (($result['ok'] ?? false) !== true && (($result['error'] ?? '') !== '' || ($result['debug'] ?? '') !== '')) {
+            error_log('[gia] channel agent failed: ' . (string) ($result['error'] ?? '')
+                . ' | ' . (string) ($result['debug'] ?? '')
+                . ' | provider=' . (string) ($result['provider'] ?? '')
+                . ' model=' . (string) ($result['model'] ?? ''));
+        }
+
         $reply = trim((string) ($result['reply'] ?? ''));
         if ($reply === '') {
             $reply = "I'm here — tell me where you'd like to go and I'll find real options.";
