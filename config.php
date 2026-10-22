@@ -419,6 +419,10 @@ try {
     // doesn't have yet (no-op once they exist — see functions.php). Fixes
     // "No payment methods available" on sites updated without migrating.
     ensureCoreFixSchema($db);
+    // Register the Adivaha flight supplier as a manageable module (idempotent).
+    if (function_exists('ensureAdivahaModule')) {
+        ensureAdivahaModule($db);
+    }
     // Paystack Dedicated Virtual Accounts (NGN wallet NUBAN) — idempotent.
     if (function_exists('ensurePaystackDvaSchema')) {
         ensurePaystackDvaSchema($db);

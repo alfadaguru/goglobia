@@ -364,6 +364,7 @@ include __DIR__ . '/flights/tbo/index.php';                // TBO Air
 include __DIR__ . '/flights/flights/index.php';            // Internal flights inventory
 include __DIR__ . '/flights/kayak/index.php';                // Kayak price comparison
 include __DIR__ . '/flights/googleflights/index.php';        // Google Flights (RapidAPI)
+include __DIR__ . '/flights/adivaha/index.php';              // Adivaha (B2C NDC aggregator)
 
 // ----------------------------------------
 // TOUR MODULES - Activities and experiences

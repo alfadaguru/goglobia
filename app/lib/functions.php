@@ -763,6 +763,79 @@ function ensureCoreFixSchema($db): void
     if (function_exists('ensurePaymentScopingSchema')) {
         ensurePaymentScopingSchema($db);
     }
+
+    // Register the Adivaha flight supplier as a manageable module so it appears
+    // in admin (Settings > Modules) with full control — credentials, enable,
+    // test/live, markup. Idempotent: inserts the row only when absent; never
+    // overwrites an admin-edited row. See ensureAdivahaModule() below.
+    ensureAdivahaModule($db);
+}
+
+/**
+ * Register the "adivaha" flight supplier in the `modules` table so it is
+ * manageable from admin exactly like every other flight provider (duffel, tbo,
+ * mystifly, ...). The module's route files live at modules/flights/adivaha/ and
+ * are included by modules/index.php; this row is what makes the supplier VISIBLE
+ * in admin and ENABLED in the flight search fan-out (which selects flight
+ * modules with type='flights' AND status='1').
+ *
+ * Credential column mapping (admin Settings > Modules > Adivaha > Credentials):
+ *   c1 = API secret key   (sk_live_... / sk_test_...)
+ *   c2 = Partner ID       (optional — enables the 24h POST /token mint path;
+ *                          when empty, the raw key is used directly as Bearer,
+ *                          which the Adivaha docs accept "for convenience")
+ *   c3 = Base URL         (optional override; defaults to the Live B2C API URL
+ *                          https://backoffice.adivaha.com/b2c/api/v1)
+ *   dev_mode: '1' = TEST (expects sk_test_), '0' = LIVE (expects sk_live_)
+ *
+ * Seeded DISABLED (status='0') and in TEST mode (dev_mode='1') so it never goes
+ * live until the owner enters real credentials and flips it on in admin.
+ * Idempotent — a no-op once the row exists; failures are logged, never fatal.
+ */
+function ensureAdivahaModule($db): void
+{
+    try {
+        $exists = $db->get('modules', ['id'], ['name' => 'adivaha', 'type' => 'flights']);
+        if ($exists) {
+            return; // already registered — leave the admin-managed row untouched
+        }
+
+        $db->insert('modules', [
+            'name'              => 'adivaha',
+            'active'            => '1',   // visible / not soft-deleted
+            'type'              => 'flights',
+            'status'            => '0',   // DISABLED until the owner turns it on
+            'c1'                => '',    // API secret key (entered in admin)
+            'c2'                => '',    // Partner ID (optional)
+            'c3'                => '',    // Base URL override (optional)
+            'c4'                => '',
+            'c5'                => '',
+            'c6'                => '',
+            'dev_mode'          => '1',   // TEST mode by default
+            'payment_mode'      => '1',
+            'currency'          => 'INR', // Adivaha settles in INR (display is converted)
+            'module_color'      => '#1f9d8b',
+            'order'             => 40,
+            'prn_type'          => '0',
+            'markup_type_b2c'   => 'percentage',
+            'markup_b2c'        => 3,
+            'icon'              => 'flight_takeoff',
+            'markup_type_b2b'   => 'percentage',
+            'markup_b2b'        => '2',
+            'check_balance'     => '1',
+            'content_import'    => '0',
+            'import_database'   => 0,
+            'logging_enabled'   => 1,
+            'tax'               => 0,
+            'tax_type'          => 'percentage',
+            'ancillaries_enabled' => 1,   // Adivaha exposes SSR (seat/meal/bag)
+            'emd_enabled'       => 0,
+            'credentials'       => '1',
+            'ai_enabled'        => 0,
+        ]);
+    } catch (Throwable $e) {
+        error_log('ensureAdivahaModule: could not register adivaha module: ' . $e->getMessage());
+    }
 }
 
 /**

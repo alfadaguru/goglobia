@@ -190,6 +190,23 @@ $moduleCredentials = [
                 'placeholder' => 'Enter your Duffel API Token (starts with duffel_test_ or duffel_live_)'
             ]
         ],
+        'adivaha' => [
+            'c1' => [
+                'label' => 'API Secret Key',
+                'required' => true,
+                'placeholder' => 'Enter your Adivaha key (starts with sk_test_ or sk_live_)'
+            ],
+            'c2' => [
+                'label' => 'Partner ID (optional)',
+                'required' => false,
+                'placeholder' => 'Your Adivaha Partner ID (PID) — enables the 24h token path'
+            ],
+            'c3' => [
+                'label' => 'Base URL (optional)',
+                'required' => false,
+                'placeholder' => 'Leave blank for https://backoffice.adivaha.com/b2c/api/v1'
+            ],
+        ],
         'pkfare' => [
             'c1' => [
                 'label' => 'Partner ID',
