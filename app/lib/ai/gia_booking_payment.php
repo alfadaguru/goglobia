@@ -444,17 +444,35 @@ if (!function_exists('gia_bp_confirm')) {
                 ]), ['invoice_id' => $invoiceId]);
                 $ok = true;
 
-                // FLIGHTS / ai_trip: a ticket can only ISSUE after payment. Trigger
-                // the SAME proven issue path the web gateway callback uses
-                // (modules/ai_trip/ai_trip/issue), signed with the internal token so
-                // the supplier action-guard accepts this server-side loopback. That
-                // endpoint issues each item's PNR and, on failure, runs the existing
-                // auto-refund (_auto_refund_on_issue_failure) — so a paid-but-
-                // unissuable flight is refunded, never stranded. We only mark the
-                // booking 'confirmed' when the issue actually succeeds.
-                $bk = $db->get('bookings', ['module_type', 'module'], ['invoice_id' => $invoiceId]);
+                // Both GIA flights and GIA stays are module_type='ai_trip'; tell them
+                // apart by booking_data.gia_service so each gets the right settle.
+                $bk = $db->get('bookings', ['module_type', 'module', 'booking_data'], ['invoice_id' => $invoiceId]);
                 $mt = strtolower((string) ($bk['module_type'] ?? ''));
-                if ($mt === 'ai_trip') {
+                $bd = is_array($bk) ? (json_decode((string) ($bk['booking_data'] ?? ''), true) ?: []) : [];
+                $giaService = strtolower((string) ($bd['gia_service'] ?? ''));
+
+                if ($mt === 'ai_trip' && $giaService === 'stays') {
+                    // STAYS: consume the inventory hold (ref = invoiceId) + accrue the
+                    // supplier earning via the SAME hook the web callback uses. The GIA
+                    // Paystack path otherwise never calls stays_on_paid. Paying confirms
+                    // a stay (no ticket to issue).
+                    try {
+                        if (!function_exists('stays_on_paid')) {
+                            $slib = dirname(__DIR__) . '/stays_inventory.php';
+                            if (is_file($slib)) { require_once $slib; }
+                        }
+                        if (function_exists('stays_on_paid')) { stays_on_paid($db, $invoiceId); }
+                        $db->update('bookings', ['booking_status' => 'confirmed'], ['invoice_id' => $invoiceId]);
+                    } catch (\Throwable $e) {
+                        error_log('[gia_bp] stays settle ' . $invoiceId . ': ' . $e->getMessage());
+                    }
+                } elseif ($mt === 'ai_trip') {
+                    // FLIGHTS / ai_trip: a ticket can only ISSUE after payment. Trigger
+                    // the SAME proven issue path the web gateway callback uses
+                    // (modules/ai_trip/ai_trip/issue), signed with the internal token.
+                    // issue.php issues each PNR and, on failure, runs the existing
+                    // auto-refund — so a paid-but-unissuable flight is refunded, never
+                    // stranded. booking_status becomes 'confirmed' only when issue succeeds.
                     try {
                         gia_bp_issue_ai_trip($db, $invoiceId);
                     } catch (\Throwable $e) {
@@ -595,9 +613,23 @@ if (!function_exists('gia_bp_sweep')) {
                 try {
                     $db->update('gia_booking_payments', ['status' => 'expired', 'updated_at' => date('Y-m-d H:i:s')], ['id' => $bp['id']]);
                     // Cancel the still-unpaid booking. Never cancel a paid one.
-                    $b = $db->get('bookings', ['payment_status'], ['invoice_id' => $bp['invoice_id']]);
+                    $b = $db->get('bookings', ['payment_status', 'booking_data'], ['invoice_id' => $bp['invoice_id']]);
                     if ($b && (string) ($b['payment_status'] ?? '') !== 'paid') {
                         $db->update('bookings', ['booking_status' => 'cancelled'], ['invoice_id' => $bp['invoice_id']]);
+                        // STAYS: release the inventory hold (ref = invoice_id) so the
+                        // night can be resold immediately. stays_on_cancelled is the
+                        // same hook the web admin-cancel uses; idempotent + safe.
+                        $bdx = json_decode((string) ($b['booking_data'] ?? ''), true);
+                        if (is_array($bdx) && strtolower((string) ($bdx['gia_service'] ?? '')) === 'stays') {
+                            try {
+                                if (!function_exists('stays_on_cancelled')) {
+                                    $slib = dirname(__DIR__) . '/stays_inventory.php';
+                                    if (is_file($slib)) { require_once $slib; }
+                                }
+                                if (function_exists('stays_on_cancelled')) { stays_on_cancelled($db, (string) $bp['invoice_id']); }
+                                elseif (function_exists('stays_hold_release')) { stays_hold_release($db, (string) $bp['invoice_id']); }
+                            } catch (\Throwable $e) { error_log('[gia_bp] stays cancel release ' . $bp['invoice_id'] . ': ' . $e->getMessage()); }
+                        }
                         if ((string) $bp['module'] === 'umrah') {
                             $ub = $db->get('umrah_bookings', ['id', 'hold_id', 'payment_status'], ['invoice_id' => $bp['invoice_id']]);
                             if ($ub && (string) ($ub['payment_status'] ?? '') === 'unpaid') {

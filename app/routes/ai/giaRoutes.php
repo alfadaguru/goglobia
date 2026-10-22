@@ -129,6 +129,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/requestHumanTool.php';
     require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow (own tools)
     require_once $aiDir . 'tools/flightsTools.php'; // DEDICATED flights flow (own tools)
+    require_once $aiDir . 'tools/staysTools.php'; // DEDICATED stays flow (own tools)
     require_once $aiDir . 'gia_pending_travellers.php'; // pilgrim-collection engine
     require_once $aiDir . 'gia_pt_web.php';             // web-native pilgrim handlers
     // CRM + analytics (persistent chat, leads, logging). Fail-soft: if these are
@@ -244,6 +245,10 @@ $router->post('/api/gia/chat', function () use ($db) {
         $agent->registerTool(new \App\lib\ai\flightsSelectTool());
         $agent->registerTool(new \App\lib\ai\flightsBookTool());
         $agent->registerTool(new \App\lib\ai\flightsAddPassengerTool());
+        // DEDICATED stays tools — stays use their own flow, never search_trip.
+        $agent->registerTool(new \App\lib\ai\staysSearchTool());
+        $agent->registerTool(new \App\lib\ai\staysRoomsTool());
+        $agent->registerTool(new \App\lib\ai\staysBookTool());
         $agent->registerTool(new \App\lib\ai\searchTripTool());
         $agent->registerTool(new \App\lib\ai\fetchLiveOffersTool());
         $agent->registerTool(new \App\lib\ai\selectOptionTool());
@@ -312,6 +317,14 @@ $router->post('/api/gia/chat', function () use ($db) {
         } elseif ($name === 'flights_add_passenger' && ($tr['output']['ok'] ?? false) && !empty($data['needs_payment']) && !empty($data['invoice_id'])) {
             // Flight manifest complete -> surface the two GIA-native pay options,
             // exactly like umrah once its pilgrims are done.
+            $payOptions = gia_web_pay_options((string) $data['invoice_id']);
+        } elseif (($name === 'stays_search' || $name === 'stays_rooms') && isset($data['searches']) && is_array($data['searches'])) {
+            // Dedicated stays: properties (stays_search) and rooms (stays_rooms) both
+            // render as pickable cards the UI already knows.
+            $searches = array_merge($searches, $data['searches']);
+        } elseif ($name === 'stays_book' && ($tr['output']['ok'] ?? false) && !empty($data['needs_payment']) && !empty($data['invoice_id'])) {
+            // Stays needs no passport/passenger manifest — a held room goes straight
+            // to the two GIA-native pay options.
             $payOptions = gia_web_pay_options((string) $data['invoice_id']);
         } elseif ($name === 'umrah_book' && ($tr['output']['ok'] ?? false)
                   && (string) ($data['module'] ?? '') === 'umrah'
@@ -676,8 +689,13 @@ $router->post('/api/gia/umrah/pay', function () use ($db) {
         if (is_array($fb) && strtolower((string) ($fb['module_type'] ?? '')) === 'ai_trip') {
             $bd = json_decode((string) ($fb['booking_data'] ?? ''), true);
             $bookedConv = is_array($bd) ? (string) ($bd['gia_conv_key'] ?? '') : '';
+            $giaSvc = is_array($bd) ? strtolower((string) ($bd['gia_service'] ?? '')) : '';
             if ($convKey !== '' && $bookedConv !== '' && hash_equals($bookedConv, $convKey)) {
-                if (function_exists('App\\lib\\ai\\gia_flights_manifest_complete') && \App\lib\ai\gia_flights_manifest_complete($db, $invoiceId)) {
+                if ($giaSvc === 'stays') {
+                    // STAYS has no passenger manifest — a conv-owned, unpaid held room
+                    // is ready to pay as soon as it's booked.
+                    $ownedComplete = true;
+                } elseif (function_exists('App\\lib\\ai\\gia_flights_manifest_complete') && \App\lib\ai\gia_flights_manifest_complete($db, $invoiceId)) {
                     $ownedComplete = true;
                 } else {
                     $respond(409, ['ok' => false, 'message' => "I still need every passenger's details before payment.", 'error_code' => 'AI_PAY_INCOMPLETE']);

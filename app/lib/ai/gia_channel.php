@@ -163,6 +163,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         require_once $aiDir . 'tools/verifyIdentityTool.php';
         require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow
         require_once $aiDir . 'tools/flightsTools.php'; // DEDICATED flights flow
+        require_once $aiDir . 'tools/staysTools.php'; // DEDICATED stays flow
         require_once $aiDir . 'gia_analytics.php';
         require_once $aiDir . 'gia_crm.php';
         require_once $aiDir . 'gia_identity.php';
@@ -338,6 +339,10 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             $agent->registerTool(new flightsSelectTool());
             $agent->registerTool(new flightsBookTool());
             $agent->registerTool(new flightsAddPassengerTool());
+            // DEDICATED stays tools — stays use their own flow, never search_trip.
+            $agent->registerTool(new staysSearchTool());
+            $agent->registerTool(new staysRoomsTool());
+            $agent->registerTool(new staysBookTool());
             $agent->registerTool(new searchTripTool());
             $agent->registerTool(new fetchLiveOffersTool());
             $agent->registerTool(new selectOptionTool());
@@ -462,7 +467,11 @@ if (!function_exists('App\\lib\\ai\\gia_channel_pick_note')) {
              . "- 'picktier|umrah|<departure_tier_id>' -> they chose an Umrah TIER; confirm pilgrim count if "
              . "unknown, then call umrah_book with that departure_tier_id to create the held booking.\n"
              . "- 'pickfare|<ref>' -> they chose a FLIGHT fare; call flights_select with that ref to "
-             . "reconfirm the price and the required passenger fields, then collect passengers and book.";
+             . "reconfirm the price and the required passenger fields, then collect passengers and book.\n"
+             . "- 'pickstay|<stay_id>' -> they chose a HOTEL; ask their check-in + check-out dates if you "
+             . "don't have them, then call stays_rooms with that stay_id + the dates.\n"
+             . "- 'pick|stays|stayroom:<s>:<r>:<o>' -> they chose a ROOM; call stays_book with that ref "
+             . "and the check-in/check-out dates to create the held booking.";
     }
 }
 
@@ -545,6 +554,47 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
                         }
                     } catch (\Throwable $e) { /* pay buttons still show if amount>0 elsewhere */ }
                 }
+            }
+
+            // STAYS property + room cards: stays_search returns data.stays[]; stays_rooms
+            // returns data.stays_rooms[]. Both render as native pickable cards. A
+            // property tap sends 'pickstay|<stay_id>'; a room tap sends the room ref
+            // 'pick|stays|stayroom:...' which the model turns into stays_book.
+            if ($ok && $name === 'stays_search' && !empty($data['stays']) && is_array($data['stays'])) {
+                foreach ($data['stays'] as $c) {
+                    if (!is_array($c)) { continue; }
+                    $sid = (int) ($c['stay_id'] ?? ($c['id'] ?? 0));
+                    if ($sid <= 0) { continue; }
+                    $cards[] = [
+                        'title'    => (string) ($c['title'] ?? ($c['name'] ?? 'Hotel')),
+                        'subtitle' => (string) ($c['subtitle'] ?? ($c['location'] ?? '')),
+                        'image'    => (string) ($c['image'] ?? ''),
+                        'buttons'  => [['id' => 'pickstay|' . $sid, 'title' => 'See rooms & prices']],
+                    ];
+                }
+            }
+            if ($ok && $name === 'stays_rooms' && !empty($data['stays_rooms']) && is_array($data['stays_rooms'])) {
+                foreach ($data['stays_rooms'] as $c) {
+                    if (!is_array($c)) { continue; }
+                    $ref = (string) ($c['ref'] ?? ($c['id'] ?? ''));
+                    if (strpos($ref, 'stayroom:') !== 0) { continue; }
+                    $price = $c['price'] ?? null;
+                    $cur   = (string) ($c['currency'] ?? '');
+                    $sub   = trim((string) ($c['subtitle'] ?? '') . ($price !== null ? '  ' . trim($cur . ' ' . number_format((float) $price, 2)) : ''));
+                    $cards[] = [
+                        'title'    => (string) ($c['title'] ?? ($c['name'] ?? 'Room')),
+                        'subtitle' => $sub,
+                        'image'    => (string) ($c['image'] ?? ''),
+                        'buttons'  => [['id' => 'pick|stays|' . $ref, 'title' => 'Choose this room']],
+                    ];
+                }
+            }
+            // STAYS held -> straight to pay (no passenger manifest). Capture invoice +
+            // amount so the pay buttons appear.
+            if ($ok && $name === 'stays_book' && !empty($data['needs_payment']) && !empty($data['invoice_id'])) {
+                $invoiceId   = (string) $data['invoice_id'];
+                $payAmount   = (float) ($data['amount'] ?? 0);
+                $payCurrency = (string) ($data['currency'] ?? '');
             }
 
             // Live offers: data.module + data.cards[] (each has ref/title/price/...).

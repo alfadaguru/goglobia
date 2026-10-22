@@ -80,12 +80,12 @@ class searchTripTool implements giaToolInterface
         $enabled = function_exists('aiTripEnabledModuleTypes')
             ? \aiTripEnabledModuleTypes($db)
             : [];
-        // UMRAH and FLIGHTS are handled by GIA's DEDICATED tools (umrah_search/…,
-        // flights_search/flights_select/flights_book), NOT this shared search. Strip
-        // them here so the general search never routes them through the web pipeline
-        // (with its default-date / geolocation / $_SESSION browser assumptions).
+        // UMRAH, FLIGHTS and STAYS are handled by GIA's DEDICATED tools (umrah_*,
+        // flights_*, stays_*), NOT this shared search. Strip them here so the general
+        // search never routes them through the web pipeline (with its default-date /
+        // geolocation / $_SESSION browser assumptions).
         // (Does not touch web code — this only narrows what the GIA search tool sees.)
-        $enabled = array_values(array_filter($enabled, static fn($m) => !in_array(strtolower((string) $m), ['umrah', 'flights'], true)));
+        $enabled = array_values(array_filter($enabled, static fn($m) => !in_array(strtolower((string) $m), ['umrah', 'flights', 'stays'], true)));
 
         $departureContext = [];
         $depCity = trim((string) ($input['departure_city'] ?? ''));
