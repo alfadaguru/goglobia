@@ -408,6 +408,7 @@ include __DIR__ . '/stays/hotels/index.php';              // Custom hotel databa
 include __DIR__ . '/stays/ratehawk/index.php';              // Custom hotel database
 include __DIR__ . '/stays/tbo-holidays/index.php';         // TBO Holidays Hotel API
 include __DIR__ . '/stays/wanderbeds/index.php';           // Wanderbeds Hotel API
+include __DIR__ . '/stays/adivaha/index.php';              // Adivaha (B2C hotel aggregator)
 
 // ----------------------------------------
 // FERRIES MODULES - Ferry bookings
