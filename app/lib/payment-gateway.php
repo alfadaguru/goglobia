@@ -514,10 +514,26 @@ function handle_payment_callback($token, $action, $data = [])
                                 'paid_at'        => date('Y-m-d H:i:s'),
                             ], ['invoice_id' => $tokenData['invoice_id']]);
                         } else {
-                            // Non-installment: full amount collected → mark paid + confirmed.
+                            // Non-installment: full amount collected. Auto-issue was
+                            // SKIPPED (module/gateway dev_mode mismatch). Whether that
+                            // leaves the booking complete depends on the module:
+                            //  • Modules that DO issue a ticket (flights suppliers,
+                            //    cars, stays, etc.) now have NO ticket → mark 'pending'
+                            //    so an admin issues once the modes are aligned. Marking
+                            //    'confirmed' would mislabel a paid-but-not-issued
+                            //    booking AND, because payment_status becomes 'paid', the
+                            //    top-level idempotency guard would block any retry.
+                            //  • Modules that CONFIRM ON PAYMENT with no issue step
+                            //    (tours/tour, and the 'flight'/'visas' sentinel module
+                            //    names — mirroring the auto-issue exclusion below) are
+                            //    genuinely complete on payment → keep 'confirmed'.
+                            $dmModuleType = strtolower((string) ($booking['module_type'] ?? ''));
+                            $dmConfirmsOnPayment =
+                                in_array($dmModuleType, ['tours', 'tour'], true)
+                                || in_array($module, ['flight', 'visas'], true);
                             $db->update('bookings', [
                                 'payment_status' => 'paid',
-                                'booking_status' => 'confirmed',
+                                'booking_status' => $dmConfirmsOnPayment ? 'confirmed' : 'pending',
                                 'transaction_id' => $data['transaction_id'] ?? null,
                                 'paid_at' => date('Y-m-d H:i:s')
                             ], [
@@ -582,6 +598,7 @@ function handle_payment_callback($token, $action, $data = [])
             $bookingReference = null;
             $bookingApiError = null;
             $bookingApiResponse = null;
+            $issueWasAttempted = false; // true once we enter a module's issue endpoint
 
             // ============================================================
             // PROCESS BOOKING API ONLY IF AUTO-ISSUE IS ENABLED
@@ -601,6 +618,12 @@ function handle_payment_callback($token, $action, $data = [])
                     && !in_array(strtolower($module), ['flight', 'visas'], true)
                     && !in_array(strtolower((string)$moduleType), ['tours', 'tour'], true)
                 ) {
+                    // A supplier issue is genuinely being ATTEMPTED here (this module
+                    // has a custom booking endpoint). Used downstream so that a
+                    // FAILED/ERRORED attempt is kept 'pending' (paid-but-not-issued)
+                    // rather than force-confirmed, while confirm-on-payment modules
+                    // (tours / no endpoint) that never set this still confirm.
+                    $issueWasAttempted = true;
 
                     try {
 
@@ -1007,32 +1030,61 @@ function handle_payment_callback($token, $action, $data = [])
                     'paid_at'        => date('Y-m-d H:i:s'),
                 ], ['invoice_id' => $tokenData['invoice_id']]);
             } else {
-                $paidUpdate = [
-                    'payment_status' => 'paid',
-                    'transaction_id' => $data['transaction_id'] ?? null,
-                    'paid_at' => date('Y-m-d H:i:s'),
-                ];
-
-                $postIssueBooking = $db->get('bookings', ['booking_status', 'module_type', 'pnr'], [
+                $postIssueBooking = $db->get('bookings', ['booking_status', 'payment_status', 'module_type', 'pnr'], [
                     'invoice_id' => $tokenData['invoice_id']
                 ]);
-                // Rail: PNR issued = confirmed booking; seat assignment is polled separately on invoice.
-                $keepExistingConfirmed = ($postIssueBooking['module_type'] ?? '') === 'rail'
-                    && !empty($postIssueBooking['pnr'])
-                    && ($postIssueBooking['booking_status'] ?? '') === 'confirmed';
-                $tboIssueFailed = strtolower((string) ($booking['module'] ?? '')) === 'tbo-holidays'
-                    && !$bookingApiSuccess;
 
-                if ($tboIssueFailed) {
-                    // Payment succeeded, but no supplier confirmation exists yet.
-                    $paidUpdate['booking_status'] = 'pending';
-                } elseif (!$keepExistingConfirmed) {
-                    $paidUpdate['booking_status'] = 'confirmed';
+                // TERMINAL-STATE GUARD (platform-wide): if the issue FAILED and the
+                // failure handler already auto-refunded this booking (payment_status
+                // 'refunded' / booking_status 'cancelled'), do NOT stomp it back to
+                // paid/confirmed. Record only the transaction id + paid_at (money was
+                // collected by the gateway) and preserve the refunded/cancelled state.
+                $alreadyTerminal =
+                    in_array(strtolower((string) ($postIssueBooking['payment_status'] ?? '')), ['refunded'], true)
+                    || in_array(strtolower((string) ($postIssueBooking['booking_status'] ?? '')), ['cancelled'], true);
+
+                if ($alreadyTerminal) {
+                    $db->update('bookings', [
+                        'transaction_id' => $data['transaction_id'] ?? null,
+                        'paid_at'        => date('Y-m-d H:i:s'),
+                    ], ['invoice_id' => $tokenData['invoice_id']]);
+                } else {
+                    $paidUpdate = [
+                        'payment_status' => 'paid',
+                        'transaction_id' => $data['transaction_id'] ?? null,
+                        'paid_at' => date('Y-m-d H:i:s'),
+                    ];
+
+                    // Rail: PNR issued = confirmed booking; seat assignment is polled separately on invoice.
+                    $keepExistingConfirmed = ($postIssueBooking['module_type'] ?? '') === 'rail'
+                        && !empty($postIssueBooking['pnr'])
+                        && ($postIssueBooking['booking_status'] ?? '') === 'confirmed';
+
+                    // PAID-BUT-NOT-ISSUED FIX (platform-wide): payment succeeded. Mark
+                    // 'confirmed' EXCEPT when a supplier issue was genuinely ATTEMPTED
+                    // and did NOT succeed — that is the paid-but-not-issued case that
+                    // must stay 'pending' (and NOT become 'paid'+'confirmed' with no
+                    // PNR, which also lets the top-level idempotency guard block any
+                    // retry). "Issue attempted" ⇔ we entered a module's custom
+                    // booking endpoint ($issueWasAttempted, set true at the top of
+                    // that branch — covers success, failure AND exceptions). Modules
+                    // that CONFIRM ON PAYMENT with no issue step (tours, modules with
+                    // no custom endpoint, auto-issue-disabled) never set it, so they
+                    // keep confirming on payment exactly as before and are NOT
+                    // downgraded. Previously only tbo-holidays was exempted from the
+                    // blanket confirm; this generalises it safely to every issuing
+                    // supplier.
+                    $issueFailed = $issueWasAttempted && !$bookingApiSuccess;
+                    if (!$issueFailed && !$keepExistingConfirmed) {
+                        $paidUpdate['booking_status'] = 'confirmed';
+                    }
+                    // else (issue attempted & failed): leave booking_status as the
+                    // failure branch set it ('pending').
+
+                    $db->update('bookings', $paidUpdate, [
+                        'invoice_id' => $tokenData['invoice_id']
+                    ]);
                 }
-
-                $db->update('bookings', $paidUpdate, [
-                    'invoice_id' => $tokenData['invoice_id']
-                ]);
             }
 
             // ============================================================
@@ -2253,16 +2305,30 @@ if (!function_exists('_auto_refund_on_issue_failure')) {
 if (!function_exists('refund_gateway_payment')) {
     function refund_gateway_payment($db, $booking, $amount = null, $reason = 'Booking cancelled')
     {
-        $gatewayName = strtolower(trim((string) ($booking['payment_gateway'] ?? '')));
+        $gatewayRef  = trim((string) ($booking['payment_gateway'] ?? ''));
         $txnRef      = trim((string) ($booking['transaction_id'] ?? ''));
         $paidAmount  = (float) ($booking['price_markup'] ?? 0);
         $currency    = strtoupper(trim((string) ($booking['currency_markup'] ?? 'USD')));
         $refundAmt   = ($amount !== null) ? (float) $amount : $paidAmount;
 
-        $gateway = $db->get('payment_gateways', '*', ['name[~]' => $gatewayName]);
-        if (!$gateway) {
-            return ['status' => 'unsupported', 'message' => "Gateway '{$gatewayName}' not found/configured", 'gateway' => $gatewayName];
+        // bookings.payment_gateway stores the gateway's numeric FK id on most
+        // booking paths (selected_payment = gateway id), but some callers pass a
+        // name. Resolve BOTH: a purely-numeric value → look up by id; otherwise by
+        // name. Then derive the canonical gateway name (used by the switch below)
+        // from the resolved record — never from the raw (possibly-id) ref.
+        // (Previously this matched the raw ref against name[~], so a numeric id
+        // like "3" found no gateway and refunds silently returned 'unsupported'.)
+        $gateway = null;
+        if ($gatewayRef !== '' && ctype_digit($gatewayRef)) {
+            $gateway = $db->get('payment_gateways', '*', ['id' => (int) $gatewayRef]);
         }
+        if (!$gateway && $gatewayRef !== '') {
+            $gateway = $db->get('payment_gateways', '*', ['name[~]' => $gatewayRef]);
+        }
+        if (!$gateway) {
+            return ['status' => 'unsupported', 'message' => "Gateway '{$gatewayRef}' not found/configured", 'gateway' => $gatewayRef];
+        }
+        $gatewayName = strtolower(trim((string) ($gateway['name'] ?? $gatewayRef)));
         // PER-SERVICE CREDENTIALS: a refund must hit the SAME account the charge
         // used — overlay this booking's module/service credential overrides.
         if (is_array($booking) && function_exists('payment_gateway_apply_service_creds')) {
