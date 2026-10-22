@@ -300,6 +300,18 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
                 'departure_id' => $departureId, 'status' => 'active',
             ]) ?: [];
 
+            // DIAGNOSTIC: if search showed this departure as a card it HAD >=1
+            // active priced tier (umrahV2PublishedDepartures skips departures with
+            // none). So "0 tiers here" is a real contradiction worth logging: show
+            // how many active rows exist + each row's resolved unit price, so we see
+            // whether it's "no active rows" vs "rows exist but price resolves to 0"
+            // vs an agent-mode price difference — a fact, not a guess.
+            if ($rows === []) {
+                $allStatuses = $db->select('umrah_departure_tiers', ['id', 'status'], ['departure_id' => $departureId]) ?: [];
+                \error_log('[gia_umrah] tiers: departure_id=' . $departureId . ' has 0 ACTIVE tier rows. All tier rows: '
+                    . \json_encode($allStatuses));
+            }
+
             // Build the tier list EXACTLY as the working web detail page does
             // (app/routes/umrah/umrahV2Routes.php:150-168): a tier is shown as long
             // as it is priced (unit > 0). We DON'T add a per-tier bookable gate (the
@@ -311,7 +323,14 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
             foreach ($rows as $dt) {
                 $priced = \function_exists('umrah_price_resolve') ? \umrah_price_resolve($db, $dt) : ['unit' => 0];
                 $unit = (float) ($priced['unit'] ?? 0);
-                if ($unit <= 0) { continue; } // not priced for instant booking -> skip
+                if ($unit <= 0) {
+                    // Rows exist but priced to 0 here, yet search showed this departure
+                    // (which requires a priced tier) — log the row so we see WHY.
+                    \error_log('[gia_umrah] tiers: dep=' . $departureId . ' tier_row_id=' . (int) ($dt['id'] ?? 0)
+                        . ' resolved unit=0 (is_agent=' . (\function_exists('umrah_is_agent') ? (int) \umrah_is_agent() : -1)
+                        . '); price source=' . (string) ($priced['source'] ?? '?'));
+                    continue; // not priced for instant booking -> skip
+                }
                 $tier = $db->get('umrah_tiers', ['code', 'name', 'public_label', 'room_sharing', 'sort_order'], ['id' => (int) $dt['tier_id']]);
                 $cap  = \function_exists('umrah_capacity_for') ? \umrah_capacity_for($db, (int) $dt['id']) : ['remaining' => 0];
                 $remaining = (int) ($cap['remaining'] ?? 0);
