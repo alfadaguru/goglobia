@@ -258,6 +258,7 @@ require_once 'app/routes/admin/carsRoutes.php';
 require_once 'app/routes/admin/busRoutes.php';
 require_once 'app/routes/admin/visaRoutes.php';
 require_once 'app/routes/admin/bookingsRoutes.php';
+require_once 'app/routes/admin/bookingManagerRoutes.php'; // staff book walk-ins (flights+hotels; live/manual; DVA/manual-transfer)
 require_once 'app/routes/admin/gatewaysRoutes.php';
 require_once 'app/routes/admin/blogsRoutes.php';
 require_once 'app/routes/admin/reportsRoutes.php';

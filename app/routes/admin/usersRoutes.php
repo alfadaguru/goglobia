@@ -123,6 +123,23 @@ $router->post(admin.'/users/save', function () use ($SECURE,$db) {
             'language' => trim($_POST['language'] ?? 'en'),
         ];
 
+        // Booking Manager admin tier (0 staff / 1 admin / 2 super-admin). Only
+        // meaningful for role='admin', and — to prevent privilege self-escalation
+        // — only a SUPER-ADMIN (the logged-in editor at level 2) may set a level
+        // >= 1. A regular admin editing users can leave it staff (0) but cannot
+        // mint another senior admin. Non-admin roles are always level 0.
+        if (isset($_POST['admin_level'])) {
+            $requested = max(0, min(2, (int) $_POST['admin_level']));
+            $editorLevel = function_exists('bm_current_admin_level') ? bm_current_admin_level($db) : 0;
+            if (trim($_POST['role'] ?? '') !== 'admin') {
+                $data['admin_level'] = 0;
+            } elseif ($requested >= 1 && $editorLevel < 2) {
+                // keep whatever the user already has; do not elevate
+            } else {
+                $data['admin_level'] = $requested;
+            }
+        }
+
         // Credit reminder fields live in the agent sidebar (outside this form) and are
         // saved via AJAX. Only persist them here when they were actually posted.
         if (isset($_POST['credit_days']) && $_POST['credit_days'] !== '') {

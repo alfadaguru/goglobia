@@ -159,6 +159,32 @@ if (isset($_SESSION['error'])) {
                         </select>
                     </div>
 
+                    <?php
+                    // Booking Manager admin tier. Only a super-admin (editor
+                    // level 2) can actually change it; everyone else sees it
+                    // read-only so they understand the field without being able
+                    // to mint a senior admin (enforced again server-side in
+                    // usersRoutes.php).
+                    $bmEditorLevel = function_exists('bm_current_admin_level') ? bm_current_admin_level($db) : 0;
+                    $bmUserLevel   = (int) ($user['admin_level'] ?? 0);
+                    $bmCanEdit     = ($bmEditorLevel >= 2);
+                    $bmLevels      = [0 => 'Staff (book only)', 1 => 'Admin (verify payments)', 2 => 'Super Admin'];
+                    ?>
+                    <div class="flex flex-col gap-1 min-w-[180px]">
+                        <label for="admin_level" class="text-xs font-medium text-slate-600">Booking Manager tier</label>
+                        <select id="admin_level" name="admin_level" class="select input text-sm py-1.5 px-3" <?= $bmCanEdit ? '' : 'disabled' ?>>
+                            <?php foreach ($bmLevels as $lvl => $lbl): ?>
+                            <option value="<?= $lvl ?>" <?= $bmUserLevel === $lvl ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <?php if (!$bmCanEdit): ?>
+                            <span class="text-[11px] text-slate-400">Only a super-admin can change this tier.</span>
+                            <input type="hidden" name="admin_level" value="<?= $bmUserLevel ?>">
+                        <?php else: ?>
+                            <span class="text-[11px] text-slate-400">Applies when role is <strong>admin</strong>. Controls who can see the company bank account and verify manual transfers.</span>
+                        <?php endif; ?>
+                    </div>
+
                     <!-- Banned Status Select Box -->
                     <div class="flex flex-col gap-1 min-w-[150px]">
                         <label for="banned" class="text-xs font-medium text-slate-600"><?=T::banned_status?></label>

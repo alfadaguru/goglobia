@@ -160,6 +160,20 @@ if ($esim_count > 0) {
   $bookingsSubmenu[] = ['name' => (T::esim ?? 'eSIM') . ' ' . T::bookings, 'icon' => 'sim_card', 'url' => root.admin.'/bookings/esim'];
 }
 
+// BOOKING MANAGER — staff create bookings for walk-in customers (flights/hotels).
+// Shown when flights or stays is active. Verify-payments is the senior-admin
+// queue for manual bank transfers (the page itself gates on admin_level).
+if ($flights > 0 || $stays > 0) {
+  $bookingsSubmenu[] = ['divider' => true];
+  if ($flights > 0) {
+    $bookingsSubmenu[] = ['name' => (T::flights ?? 'Flights') . ' Booking Manager', 'icon' => 'flight_takeoff', 'url' => root.admin.'/booking-manager/flights'];
+  }
+  if ($stays > 0) {
+    $bookingsSubmenu[] = ['name' => (T::stays ?? 'Hotels') . ' Booking Manager', 'icon' => 'hotel', 'url' => root.admin.'/booking-manager/hotels'];
+  }
+  $bookingsSubmenu[] = ['name' => 'Verify Payments', 'icon' => 'verified', 'url' => root.admin.'/booking-manager/verify'];
+}
+
 // INITIALIZE ADMIN MENU STRUCTURE - Start with core menu items
 $adminMenu = [
   [

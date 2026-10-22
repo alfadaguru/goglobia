@@ -712,6 +712,24 @@ function ensureCoreFixSchema($db): void
         ['settings', 'booking_notification_email', "ALTER TABLE `settings` ADD COLUMN `booking_notification_email` VARCHAR(255) NULL DEFAULT NULL"],
         ['settings', 'visa_passport_required', "ALTER TABLE `settings` ADD COLUMN `visa_passport_required` ENUM('0','1') NOT NULL DEFAULT '0'"],
         ['settings', 'visa_national_id_required', "ALTER TABLE `settings` ADD COLUMN `visa_national_id_required` ENUM('0','1') NOT NULL DEFAULT '0'"],
+        // Admin Booking Manager — staff tier. 0 = staff (can book, but a manual
+        // bank-transfer booking goes to 'awaiting_verification'); 1 = admin; 2 =
+        // super-admin. Only level >= 1 may use/see the company manual-transfer
+        // account. Existing admins keep role='admin'; level defaults 0 and is set
+        // per user in the admin Users screen. Idempotent.
+        ['users', 'admin_level', "ALTER TABLE `users` ADD COLUMN `admin_level` TINYINT(1) NOT NULL DEFAULT 0"],
+        // Booking Manager — provenance of a booking row: web (default), api,
+        // admin_live (staff booked a live supplier), admin_manual (typed-in /
+        // offline, no supplier call). Lets reporting + the issue-gate reason about
+        // admin-created bookings. Idempotent.
+        ['bookings', 'booking_channel', "ALTER TABLE `bookings` ADD COLUMN `booking_channel` VARCHAR(20) NOT NULL DEFAULT 'web'"],
+        // Booking Manager — who created / who verified an admin booking (audit).
+        ['bookings', 'created_by_admin', "ALTER TABLE `bookings` ADD COLUMN `created_by_admin` VARCHAR(255) NULL DEFAULT NULL"],
+        ['bookings', 'payment_verified_by', "ALTER TABLE `bookings` ADD COLUMN `payment_verified_by` VARCHAR(255) NULL DEFAULT NULL"],
+        ['bookings', 'payment_verified_at', "ALTER TABLE `bookings` ADD COLUMN `payment_verified_at` DATETIME NULL DEFAULT NULL"],
+        // Booking Manager — the manual booking slip/e-ticket uploaded from another
+        // agency (stored under uploads/), kept for records. Idempotent.
+        ['bookings', 'manual_document', "ALTER TABLE `bookings` ADD COLUMN `manual_document` VARCHAR(255) NULL DEFAULT NULL"],
         // Umrah Nusuk manifest export — admin-configurable column list (Phase C).
         ['settings', 'umrah_nusuk_columns', "ALTER TABLE `settings` ADD COLUMN `umrah_nusuk_columns` VARCHAR(500) NULL DEFAULT NULL"],
         // Supplier cancel/void/refund handlers across ~16 modules write these
@@ -1075,10 +1093,17 @@ function ensurePaymentScopingSchema($db): void
     // Widen bookings.payment_status to carry the partial state for installments
     // (idempotent — only when 'partially_paid' is missing). Existing values are a
     // subset so widening is safe.
+    // Widen to carry BOTH 'partially_paid' (installments) and
+    // 'awaiting_verification' (Booking Manager manual bank transfer, not yet
+    // confirmed by an admin). Re-run only while either value is missing; existing
+    // values are a subset so widening is safe. 'awaiting_verification' means money
+    // is CLAIMED-but-UNVERIFIED — it must never be treated as 'paid' until an
+    // admin verifies (do NOT overload 'pending', which is not a valid enum value).
     try {
         $pcol = $db->query("SHOW COLUMNS FROM `bookings` LIKE 'payment_status'")->fetch(\PDO::FETCH_ASSOC);
-        if ($pcol && strpos((string) ($pcol['Type'] ?? ''), 'partially_paid') === false) {
-            $db->pdo->exec("ALTER TABLE `bookings` MODIFY `payment_status` enum('paid','unpaid','refunded','partially_paid') NOT NULL DEFAULT 'unpaid'");
+        $ptype = (string) ($pcol['Type'] ?? '');
+        if ($pcol && (strpos($ptype, 'partially_paid') === false || strpos($ptype, 'awaiting_verification') === false)) {
+            $db->pdo->exec("ALTER TABLE `bookings` MODIFY `payment_status` enum('paid','unpaid','refunded','partially_paid','awaiting_verification') NOT NULL DEFAULT 'unpaid'");
         }
     } catch (\Throwable $e) { error_log('ensurePaymentScopingSchema payment_status enum: ' . $e->getMessage()); }
 

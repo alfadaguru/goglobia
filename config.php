@@ -172,6 +172,7 @@ require_once 'app/lib/umrah/services.php';
 require_once 'app/lib/umrah/operations.php';
 require_once 'app/lib/umrah/groups.php';
 require_once 'app/lib/umrah/admin_crud.php';
+require_once 'app/lib/booking_manager.php'; // admin Booking Manager foundations
 
 // Load demo warning helper with error handling
 try {

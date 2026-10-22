@@ -478,6 +478,31 @@ if (!function_exists('gia_bp_confirm')) {
                     } catch (\Throwable $e) {
                         error_log('[gia_bp] ai_trip issue trigger ' . $invoiceId . ': ' . $e->getMessage());
                     }
+                } elseif (function_exists('bm_module_has_issue_endpoint')
+                          && function_exists('bm_settle_booking_payment')
+                          && bm_module_has_issue_endpoint($mt, strtolower((string) ($bk['module'] ?? '')))) {
+                    // ADMIN BOOKING MANAGER *live* supplier booking paid via DVA.
+                    // Its module_type is the SERVICE (flights/stays) and module is a
+                    // REAL supplier with an issue endpoint — so it must be ISSUED at
+                    // the supplier, exactly like a manual-verified live booking. The
+                    // generic confirm below would have marked it paid+confirmed WITHOUT
+                    // ever ticketing it (money owed for a trip never bought). Route it
+                    // through the single money primitive, which fires the guarded issue
+                    // loopback and, on issue failure, leaves it paid-but-not-confirmed
+                    // for ops (never falsely confirmed).
+                    try {
+                        $bmRes = bm_settle_booking_payment($db, $invoiceId, 'dva', [
+                            'transaction_id' => $paystackRef,
+                            'gateway_name'   => 'Paystack',
+                            'amount'         => $amount,
+                            'currency'       => $currency,
+                        ]);
+                        if (empty($bmRes['ok'])) {
+                            error_log('[gia_bp] BM live issue not completed ' . $invoiceId . ': ' . (string) ($bmRes['message'] ?? 'unknown'));
+                        }
+                    } catch (\Throwable $e) {
+                        error_log('[gia_bp] BM live settle ' . $invoiceId . ': ' . $e->getMessage());
+                    }
                 } else {
                     // Non-issuing generic booking (e.g. a confirm-on-payment module):
                     // payment confirms it.
