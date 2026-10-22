@@ -44,35 +44,11 @@ $router->get(admin . '/supplier-payouts', function () use ($SECURE, $db) {
     require_once views . "includes/footer.php";
 });
 
-// ----------------------------------------------------------------------------
-// POST /admin/supplier-payouts/toggle-live — flip the master kill-switch
-// (settings.supplier_payouts_live). When ON, approving a payout actually SENDS
-// money via Paystack. Admin-only + CSRF. The column is ensured by the
-// self-healing schema (functions.php) / supplier_payouts.php.
-// ----------------------------------------------------------------------------
-$router->post(admin . '/supplier-payouts/toggle-live', function () use ($SECURE, $db) {
-    ADMIN_AUTH();
-    CSRF::guard();
-    $back = root . admin . '/supplier-payouts';
-    $enable = (string) ($_POST['enable'] ?? '') === '1';
-    try {
-        // Ensure the column exists before writing (idempotent).
-        if (!$db->query("SHOW COLUMNS FROM `settings` LIKE 'supplier_payouts_live'")->fetch()) {
-            $db->query("ALTER TABLE `settings` ADD COLUMN `supplier_payouts_live` VARCHAR(1) NOT NULL DEFAULT '0'");
-        }
-        $db->update('settings', ['supplier_payouts_live' => $enable ? '1' : '0'], ['id' => 1]);
-        $_SESSION['message'] = [
-            'type' => 'success',
-            'text' => $enable
-                ? 'Bank payouts are now LIVE — approving a payout will send money to the supplier\'s bank.'
-                : 'Bank payouts disabled — approvals will no longer send money.',
-        ];
-    } catch (\Throwable $e) {
-        error_log('supplier-payouts toggle-live: ' . $e->getMessage());
-        $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not update the payouts switch.'];
-    }
-    header('Location: ' . $back); exit;
-});
+// NOTE: the duplicate POST /admin/supplier-payouts/toggle-live route (and its
+// one-click form on the payouts list page) was removed — the master kill-switch
+// (settings.supplier_payouts_live) is controlled only from POST
+// /admin/supplier-payout-settings below (single source of truth). The payouts
+// list page shows a read-only LIVE/DISABLED status pill.
 
 // ----------------------------------------------------------------------------
 // POST /admin/supplier-payouts/approve — approve + (if live) send
