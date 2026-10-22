@@ -12,16 +12,17 @@
 // each with a `segments` array of legs, each leg an array of flight objects
 // carrying a nested booking_data with the opaque offer id for revalidate/issue).
 //
-// Round trips: the platform represents a round trip as ONE offer whose `segments`
-// array holds segments[0]=outbound and segments[1]=return (the frontend normaliser
-// reads it that way). Adivaha prices a round trip two ways (round_trip.mode):
-//   • package/combined (meta.is_package / leg_count >= 2): one offer already
-//     carries both sectors -> we emit it directly as one two-leg offer.
-//   • 2x (meta.leg_count = 1): SEPARATE single-sector offers (outbound leaves the
-//     origin, return leaves the destination), each with its own offer_id. We PAIR
-//     outbound x return SERVER-SIDE (bounded) into combined offers carrying BOTH
-//     leg tokens, so the return sector is never dropped and issue.php books via
-//     legs[]. We do NOT emit a 2x sector on its own (that would strand the return).
+// Round trips: the platform's booking pipeline is SINGLE-TOKEN end to end — the
+// review page revalidates one offer_id, and the price the customer pays is that
+// one offer's price. So a round trip is only emitted as a combined trip when
+// Adivaha returns ONE offer that already carries BOTH sectors — a package/combined
+// offer (meta.is_package / leg_count >= 2; one offer_id books the whole journey,
+// spec L44-46). Adivaha "2x" single-sector offers (leg_count == 1, separate
+// outbound/return offer_ids) are each surfaced as their OWN one-way offer, priced
+// and revalidated correctly on their own; we do NOT synthesise a two-token
+// combined round trip from them (the platform cannot re-price/settle two tokens
+// as one booking — attempting it undercharged the customer). True combined 2x
+// round trips are a future phase needing real multi-token platform support.
 
 if (!function_exists('adivaha_getduration_from_minutes')) {
     /** "Hh Mm" minutes → "H:MM" display, matching the platform's duration fields. */
@@ -377,17 +378,10 @@ $router->post('flights/adivaha/search', function () use ($db) {
         ];
     };
 
-    $searchOrigin      = $type !== 'multicity' ? strtoupper(trim((string) $_POST['origin'])) : '';
-    $searchDestination = $type !== 'multicity' ? strtoupper(trim((string) $_POST['destination'])) : '';
-
     $final_array = [];
 
-    // ONE-WAY / MULTI-CITY, and ROUND packages: emit each qualifying offer as a
-    // single platform offer. 2x single-sector round offers are collected for
-    // pairing below (they are NOT emitted individually, which would strand the
-    // return — the bug this rework fixes).
-    $outbound2x = []; // [ legGroupResult, ... ]  (sectors that leave the search origin)
-    $return2x   = []; // [ legGroupResult, ... ]  (sectors that leave the destination)
+    $packagedRT = 0;  // round-trip package offers emitted (one token, both sectors)
+    $twoXsurfaced = 0; // 2x single sectors surfaced as one-ways
 
     foreach ($pollData['offers'] as $offer) {
         if (connection_aborted()) { exit; }
@@ -403,87 +397,36 @@ $router->post('flights/adivaha/search', function () use ($db) {
             continue;
         }
 
-        // Round search. A combined/package offer already carries both sectors.
+        // ROUND SEARCH.
+        //
+        // The platform books exactly ONE offer_id per booking offer (the whole
+        // review→revalidate→pay→issue pipeline is single-token: revalidate
+        // re-prices one token, the charged price is that one offer's price). So a
+        // round trip is only safe when Adivaha gives us ONE offer that already
+        // carries BOTH sectors — a package/combined offer (meta.is_package /
+        // leg_count >= 2, one offer_id books the whole journey, spec L44-46).
         if ($g['leg_count'] >= 2 || $g['is_package'] || count($g['legs']) >= 2) {
-            $final_array[] = ['segments' => $g['legs']];
+            $final_array[] = ['segments' => $g['legs']];  // one token, both legs
+            $packagedRT++;
             continue;
         }
 
-        // 2x single-sector offer: classify as outbound or return by which airport
-        // it leaves. meta.origin leaving the search origin = outbound; leaving the
-        // destination = return. Fall back to the first flight's departure code.
-        $legOrigin = strtoupper((string) (
-            $g['meta']['origin']
-            ?? ($g['legs'][0][0]->departure_code ?? '')
-        ));
-        if ($legOrigin === $searchDestination && $searchDestination !== '') {
-            $return2x[] = $g;
-        } else {
-            // default: treat as outbound (leaves origin, or origin unknown)
-            $outbound2x[] = $g;
-        }
+        // Adivaha "2x" single-sector offer (leg_count == 1): a separate outbound
+        // OR return fare with its OWN offer_id. We deliberately DO NOT synthesise a
+        // combined two-token round trip from these — the platform cannot re-price
+        // or settle two tokens as one booking (doing so undercharged the customer
+        // while both legs were booked). Instead we surface each sector as its own
+        // one-way offer: each is fully revalidated and priced correctly on its own,
+        // and the customer books each direction as a separate, correctly-priced
+        // booking. (True combined 2x round trips are a deliberate future phase that
+        // needs real multi-token support in the platform's revalidate/settle path.)
+        $final_array[] = ['segments' => $g['legs']];
+        $twoXsurfaced++;
     }
 
-    // Pair 2x sectors into combined round-trip offers. Pairing every outbound ×
-    // every return is combinatorial, so we bound it: for each outbound keep the N
-    // cheapest returns, capped at a total. Each combined offer carries BOTH leg
-    // tokens (issue.php reads them and books via legs[]). The price shown is the
-    // SUM of the two sectors' marked-up prices.
-    if (!empty($outbound2x) && !empty($return2x)) {
-        // Cheapest-first so the capped set is the most relevant.
-        usort($outbound2x, fn($a, $b) => $a['price'] <=> $b['price']);
-        usort($return2x,   fn($a, $b) => $a['price'] <=> $b['price']);
-
-        $MAX_COMBOS      = 120; // hard cap on emitted round-trip combinations
-        $RETURNS_PER_OUT = 8;   // cheapest returns paired with each outbound
-        $emitted         = 0;
-
-        foreach ($outbound2x as $out) {
-            if ($emitted >= $MAX_COMBOS) break;
-            $pairedThisOut = 0;
-            foreach ($return2x as $ret) {
-                if ($emitted >= $MAX_COMBOS) break;
-                if ($pairedThisOut >= $RETURNS_PER_OUT) break;
-
-                $outLeg = $out['legs'][0]; // [flightObj]
-                $retLeg = $ret['legs'][0];
-
-                // Combined price = outbound + return (both marked up).
-                $comboMarked = number_format($out['price'] + $ret['price'], 2, '.', '');
-                $comboActual = number_format($out['actual'] + $ret['actual'], 2, '.', '');
-
-                // Clone the flight objects so we can stamp the combined trip price
-                // onto each leg's display fields without mutating the originals
-                // (a cheap outbound may be paired with several returns).
-                $outFlight = clone $outLeg[0];
-                $retFlight = clone $retLeg[0];
-                foreach ([$outFlight, $retFlight] as $fl) {
-                    $fl->price        = $comboMarked;
-                    $fl->actual_price = $comboActual;
-                    $fl->adult_price  = $comboMarked;
-                    $fl->child_price  = $comboMarked;
-                    $fl->infant_price = $comboMarked;
-                    $fl->actual_adult_price  = $comboActual;
-                    $fl->actual_child_price  = $comboActual;
-                    $fl->actual_infant_price = $comboActual;
-                }
-
-                $final_array[] = [
-                    'segments' => [[$outFlight], [$retFlight]],
-                ];
-                $emitted++;
-                $pairedThisOut++;
-            }
-        }
-        error_log('adivaha search: paired ' . count($outbound2x) . ' outbound × ' . count($return2x)
-            . ' return 2x sectors into ' . $emitted . ' round-trip offers (cap ' . $MAX_COMBOS . ').');
-    } elseif (!empty($outbound2x) && empty($return2x)) {
-        // Only outbound single-sectors came back (supplier could not price a
-        // return). Per spec these are outbound-only; we surface them as one-way
-        // offers rather than silently dropping them, and log it.
-        foreach ($outbound2x as $out) { $final_array[] = ['segments' => $out['legs']]; }
-        error_log('adivaha search: round search returned only ' . count($outbound2x)
-            . ' outbound 2x sectors (no returns) — surfaced as one-way.');
+    if ($type !== 'oneway' && $type !== 'multicity') {
+        error_log('adivaha search: round search -> ' . $packagedRT . ' package round-trip offer(s), '
+            . $twoXsurfaced . ' single-sector (2x) offer(s) surfaced as one-ways.');
     }
 
     echo json_encode($final_array);
