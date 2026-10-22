@@ -141,6 +141,13 @@ if (!function_exists('flightCallSupplierRevalidate')) {
         if ($supplier === 'tbo' && !empty($bd)) {
             $postFields['booking_data'] = json_encode($bd);
         }
+        // Adivaha fare-quote needs the stored trace_id alongside the offer id.
+        if ($supplier === 'adivaha' && !empty($bd)) {
+            $postFields['booking_data'] = json_encode($bd);
+            if (!empty($bd['trace_id'])) {
+                $postFields['trace_id'] = $bd['trace_id'];
+            }
+        }
         // Travelport Air Price needs search_id + selections/product ids (not just offering token)
         if ($supplier === 'travelport' && !empty($bd)) {
             $postFields['booking_data'] = json_encode($bd);
