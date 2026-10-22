@@ -281,15 +281,13 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
      */
     function gia_umrah_tiers($db, int $departureId, int $pax = 0, string $when = ''): array
     {
-        // LOUD TRACE (temporary): write the raw inputs + what the DB actually returns
-        // to a dedicated file, so a live "no tiers" leaves an unambiguous fingerprint
-        // we can read directly — no theory. Also proves WHICH version of this file is
-        // running (if this trace line is absent from the log, the deploy is stale).
+        // TRACE (temporary): write the raw inputs + what the DB actually returns to
+        // the SAME system error log the rest of the app uses (not a separate file),
+        // so a live "no tiers" leaves an unambiguous fingerprint under [gia_umrah].
         $trace = function (string $m) {
-            $f = \dirname(__DIR__, 2) . '/app/cache/gia_umrah_trace.log';
-            @\file_put_contents($f, '[' . \date('Y-m-d H:i:s') . '] ' . $m . "\n", FILE_APPEND);
+            \error_log('[gia_umrah] ' . $m);
         };
-        $trace('tiers() CALLED build=d2078ca+trace departure_id=' . $departureId . ' pax=' . $pax . ' when="' . $when . '"');
+        $trace('tiers() CALLED departure_id=' . $departureId . ' pax=' . $pax . ' when="' . $when . '"');
 
         if (!gia_umrah_boot($db)) {
             return ['ok' => false, 'tiers' => [], 'departure' => [], 'message' => 'Umrah is temporarily unavailable.'];
