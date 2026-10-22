@@ -190,17 +190,21 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
                 'departure_id' => $departureId, 'status' => 'active',
             ]) ?: [];
 
+            // Build the tier list EXACTLY as the working web detail page does
+            // (app/routes/umrah/umrahV2Routes.php:150-168): a tier is shown as long
+            // as it is priced (unit > 0). We DON'T add a per-tier bookable gate (the
+            // departure-level published+not-archived check already ran above), and we
+            // DON'T drop a tier on zero remaining — we mark it sold_out, like the web.
+            // (The earlier version dropped every tier when capacity wasn't seeded,
+            //  which is why "no tiers came through" for a real, priced departure.)
             $tiers = [];
             foreach ($rows as $dt) {
-                if (!\function_exists('umrah_departure_bookable')
-                    || !\umrah_departure_bookable($db, $departureId, $dt)) { continue; }
                 $priced = \function_exists('umrah_price_resolve') ? \umrah_price_resolve($db, $dt) : ['unit' => 0];
                 $unit = (float) ($priced['unit'] ?? 0);
                 if ($unit <= 0) { continue; } // not priced for instant booking -> skip
                 $tier = $db->get('umrah_tiers', ['code', 'name', 'public_label', 'room_sharing', 'sort_order'], ['id' => (int) $dt['tier_id']]);
                 $cap  = \function_exists('umrah_capacity_for') ? \umrah_capacity_for($db, (int) $dt['id']) : ['remaining' => 0];
                 $remaining = (int) ($cap['remaining'] ?? 0);
-                if ($remaining <= 0) { continue; } // sold out -> don't offer
 
                 $incl = \json_decode((string) ($dt['inclusions'] ?? ''), true);
                 $tiers[] = [
@@ -213,7 +217,8 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
                     'price'             => $pax > 0 ? \round($unit * $pax, 2) : \round($unit, 2),
                     'currency'          => (string) ($priced['currency'] ?? 'NGN'),
                     'regular'           => $priced['promo']['regular'] ?? null,
-                    'availability'      => ($remaining <= 10) ? 'limited' : 'available',
+                    'availability'      => ($remaining <= 0) ? 'sold_out'
+                                            : (($remaining <= 10) ? 'limited' : 'available'),
                     'inclusions'        => \is_array($incl) ? $incl : [],
                 ];
             }
