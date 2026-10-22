@@ -304,7 +304,9 @@ $router->post(admin . '/gia/conversation/handoff', function () use ($SECURE, $db
 $router->get(admin . '/gia/channels', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     require_once dirname(__DIR__, 2) . '/lib/ai/gia_channels_config.php';
+    require_once dirname(__DIR__, 2) . '/lib/ai/gia_service_expiry.php';
     $channels = gia_channels_config($db);
+    $serviceExpiry = gia_service_expiry_get($db); // per-service booking expiry (minutes)
     // Webhook URLs to paste into each provider console (built from this install's base URL).
     $webhooks = [
         'telegram'  => root . 'webhooks/gia/telegram',
@@ -333,6 +335,19 @@ $router->post(admin . '/gia/channels/save', function () use ($SECURE, $db) {
     }
     $ok = gia_channels_save($db, $incoming);
     echo json_encode(['status' => $ok]);
+});
+
+// POST admin/gia/expiry/save — per-service booking expiry (minutes). Owner spec:
+// default 20, configurable per service. ADMIN_AUTH + CSRF.
+$router->post(admin . '/gia/expiry/save', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (class_exists('CSRF')) { CSRF::guard(); }
+    header('Content-Type: application/json');
+    require_once dirname(__DIR__, 2) . '/lib/ai/gia_service_expiry.php';
+    $incoming = $_POST['gia_service_expiry'] ?? [];
+    if (!is_array($incoming)) { $incoming = []; }
+    $ok = gia_service_expiry_save($db, $incoming);
+    echo json_encode(['status' => $ok, 'expiry' => gia_service_expiry_get($db)]);
 });
 
 // POST admin/gia/channels/test — lightweight connectivity check per channel.

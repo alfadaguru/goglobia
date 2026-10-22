@@ -28388,6 +28388,7 @@ CREATE TABLE `settings` (
   `currency_api_key` varchar(255) DEFAULT NULL,
   `ai_configuration` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`ai_configuration`)),
   `gia_channels_config` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+  `gia_service_expiry` text DEFAULT NULL,
   `user_restriction` enum('0','1') NOT NULL DEFAULT '0',
   `visa_passport_required` enum('0','1') NOT NULL DEFAULT '0',
   `visa_national_id_required` enum('0','1') NOT NULL DEFAULT '0',

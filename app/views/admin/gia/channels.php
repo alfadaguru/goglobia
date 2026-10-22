@@ -231,6 +231,37 @@ $enableToggle = function (string $chan, bool $enabled) use ($e) {
     </div>
   </form>
 
+  <!-- ===== Per-service booking expiry ===== -->
+  <div class="mt-8">
+    <div class="flex items-center gap-3 mb-2">
+      <i class="material-symbols-outlined text-gray-500">timer</i>
+      <h2 class="flex-1 text-base font-bold text-gray-900">Booking expiry per service</h2>
+    </div>
+    <p class="text-[12px] text-gray-500 mb-3">When GIA creates a booking, it holds for this many minutes while the traveller pays (bank transfer or card). If unpaid, it is auto-cancelled and any late payment is auto-refunded. Default is 20 minutes. Set a different window per service if you need to.</p>
+    <form id="gia-expiry-form">
+      <input type="hidden" name="csrf_token" value="<?php echo $e($csrf); ?>">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <?php foreach (($serviceExpiry ?? []) as $svc => $mins): ?>
+          <label class="block">
+            <span class="block text-[11px] font-semibold text-gray-600 mb-1 capitalize"><?php echo $e($svc); ?></span>
+            <span class="relative inline-flex items-center w-full">
+              <input type="number" min="1" max="1440" name="gia_service_expiry[<?php echo $e($svc); ?>]"
+                     value="<?php echo (int) $mins; ?>"
+                     class="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm">
+              <span class="ml-2 text-[11px] text-gray-400">min</span>
+            </span>
+          </label>
+        <?php endforeach; ?>
+      </div>
+      <div class="flex items-center gap-3 mt-4">
+        <button type="submit" class="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+          <i class="material-symbols-outlined text-[16px] align-[-3px]">save</i> Save expiry
+        </button>
+        <span id="gia-expiry-msg" class="text-xs text-gray-500"></span>
+      </div>
+    </form>
+  </div>
+
   <!-- ===== Recent webhook activity ===== -->
   <div class="mt-8">
     <div class="flex items-center gap-3 mb-2">
@@ -348,6 +379,19 @@ $enableToggle = function (string $chan, bool $enabled) use ($e) {
       .catch(function(){ showFlash(false, 'Network error while saving.'); })
       .finally(function(){ btn.disabled = false; btn.innerHTML = orig; });
   });
+
+  // ---- Save per-service booking expiry ----
+  var expForm = document.getElementById('gia-expiry-form');
+  if (expForm) {
+    expForm.addEventListener('submit', function(ev){
+      ev.preventDefault();
+      var msg = document.getElementById('gia-expiry-msg'); if (msg) msg.textContent = 'Saving…';
+      fetch(base + '/gia/expiry/save', { method:'POST', headers:{'X-CSRF-TOKEN':csrf}, body: new FormData(ev.target) })
+        .then(function(r){ return r.json(); })
+        .then(function(d){ if (msg) msg.textContent = (d && d.status) ? 'Saved.' : 'Could not save.'; })
+        .catch(function(){ if (msg) msg.textContent = 'Network error.'; });
+    });
+  }
 
   // ---- Test ----
   root.querySelectorAll('.gia-ch-test').forEach(function(b){
