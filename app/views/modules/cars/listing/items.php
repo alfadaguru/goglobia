@@ -27,9 +27,12 @@ function renderCarCard(car) {
     const currency = car.currency || 'USD';
     const supplier = car.supplier || car.supplier_name || 'N/A';
     const supplierColor = car.color || '#3B82F6';
-    // Mozio supplier badge is admin-only; other suppliers still show for everyone.
+    // Supplier identity is ADMIN-ONLY — customers must never see which supplier a
+    // car came from (Goglobia is the only provider they know). Previously this was
+    // inverted (`isAdmin || supplier!=='mozio'`), which showed every non-mozio
+    // supplier to customers.
     const isAdmin = <?= (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') ? 'true' : 'false' ?>;
-    const showSupplierBadge = isAdmin || String(supplier).toLowerCase() !== 'mozio';
+    const showSupplierBadge = isAdmin;
 
     // ============================================================================
     // IMAGE HANDLING

@@ -94,7 +94,7 @@ function esimSearchData() {
                 return;
             }
             if (!<?= $airaloModuleId ?>) {
-                this.alertMessage = 'Airalo module is not configured';
+                this.alertMessage = 'eSIM service is currently unavailable';
                 this.alertType = 'error';
                 this.showAlert = true;
                 return;

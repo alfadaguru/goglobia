@@ -194,7 +194,7 @@ if (!empty($paymentGateways)) {
                             <div class="card-header cursor-pointer" @click="orderCollapsed = !orderCollapsed">
                                 <div>
                                     <span class="card-header-icon text-[18px]">badge</span>
-                                    <h3>Airalo Order Details</h3>
+                                    <h3>Order Details</h3>
                                 </div>
                                 <span
                                     class="material-symbols-outlined text-gray-600 text-[20px] transition-transform duration-300"
@@ -202,8 +202,7 @@ if (!empty($paymentGateways)) {
                             </div>
                             <div class="card-body" x-show="!orderCollapsed" x-collapse>
                                 <p class="text-sm text-slate-600 mb-4">
-                                    Airalo does not require traveler passport or date-of-birth details for order
-                                    creation.
+                                    No traveler passport or date-of-birth details are required for this eSIM order.
                                 </p>
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
                                     <div class="form-control">
