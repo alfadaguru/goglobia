@@ -236,6 +236,27 @@ Focused on **seamlessness of the search→book experience**, ordered by impact �
 
 > **Note vs §0:** our parallel multi-supplier *search* (the progress bar + progressive merge) is a legitimate **speed** cue to keep — but it must be framed to the customer as "searching live prices," **never** "searching N suppliers" or anything that names/counts providers. Transparency of *speed*, not of *suppliers*.
 
+### 5c. STATUS — implementation outcome (2026-10-23)
+
+Worked the Tier list in order, with a firm rule: **verify the real code/data before building, and never ship a label that would show empty or inaccurate data.** The result page funnel was driven live locally (the boot bug §6 is now fixed) and every change below was screenshot-verified.
+
+**Tier 1 — DONE & merged (PR #140).**
+- **1.1 Skeleton loading — built.** Flights + stays results skeletons now MIRROR the real card (flights: airline + route timeline + price/book + meta; stays: photo + name/badges + price/book, 3→6 cards) so the fill-in reads as loading, not a jolt. Verified by screenshot.
+- **1.2 Persistent editable search — built.** (a) Applied filters now survive a search-modify reload (sessionStorage keyed by the search URL + `$watch('filters')`), restored only for the SAME route+dates; the admin-only `suppliers` filter is stripped before persisting. (b) The results-page search form defaults to a compact one-line summary (`LOS → DXB · date · pax [Modify]`) that expands to the full form; homepage include untouched. Both verified by screenshot (filter click → reload → still checked; collapsed + expanded states).
+- **1.3 Refundability + all-in price on card — DELIBERATELY SKIPPED.** Verified the data is unreliable: Duffel returns an **empty** refundable flag, so a confident "Non-refundable" label would be inaccurate and off-putting. Shipping it would be worse than the current behaviour (which shows a "Refundable" badge only when the supplier confirms it — the honest version, already present).
+
+**Tier 2 — verified ALREADY COVERED by existing code (no change needed).** The gap doc overstated these because it was written while the app couldn't boot; on inspection the codebase was already mature here:
+- **2.4 Reduce perceived reload — already handled.** Flights "Book" shows a per-card spinner + "Processing…" during the async draft save; stays card → detail opens in a **new tab** (no dead stop) and the detail page already has a room-loading skeleton + error-with-retry; booking pages already `include loading.php`.
+- **2.5 Hotel rate-matrix clarity — already built** on `details/rooms.php`. The per-rate table already shows Refundable/Non-refundable, the real cancellation **deadline text** (`cancellation_text`, where the supplier provides it — reliably Hotelbeds/TBO), board/meal plan, promotions, discount %, free-cancellation badge, and per-night + total price. That is exactly what the supplier data supports; nothing meaningful to add.
+- **2.6 Hotel reviews (score + count) — SKIPPED (data-blocked).** Only Agoda & Booking return real `review_score`/`review_count`; the main suppliers (Hotelbeds, TBO, RateHawk, Wanderbeds, Stuba) return **only star ratings, no review counts**, and conflate `rating` with `stars`. A review badge would show empty/mislabeled for most hotels — the same fake-data trap as 1.3. The card already shows a "Refundable" badge when known, which is the honest slice.
+
+**Tier 3 — remaining backlog (genuine new features, not quick wins).** These are real builds, each worth its own focused effort:
+- **Per-airline × stops price matrix** pinned above flight results (Wakanow-style) — the single most distinctive competitor feature (§5b.6 #1).
+- **Flexible-date / fare-calendar** (±3-day price view) — none of the four competitors nails this, so it's a lead, not catch-up.
+- Softer §5b patterns where our data allows: on-card Cheapest/Fastest badges, price histogram over the price slider, direction-split departure-time controls.
+
+**Honest net:** Tier 1 shipped the real seamlessness wins; Tier 2 was already in place; the display features that depend on unreliable per-supplier data (refundability confidence, review scores) were deliberately not shipped rather than fake them. The remaining high-value work is the Tier 3 feature builds above.
+
 ---
 
 ## 5b. Competitor LOOK, FILTERS & RESULTS DISPLAY — the design patterns to consider
