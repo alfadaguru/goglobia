@@ -160,19 +160,8 @@ if ($esim_count > 0) {
   $bookingsSubmenu[] = ['name' => (T::esim ?? 'eSIM') . ' ' . T::bookings, 'icon' => 'sim_card', 'url' => root.admin.'/bookings/esim'];
 }
 
-// BOOKING MANAGER — staff create bookings for walk-in customers (flights/hotels).
-// Shown when flights or stays is active. Verify-payments is the senior-admin
-// queue for manual bank transfers (the page itself gates on admin_level).
-if ($flights > 0 || $stays > 0) {
-  $bookingsSubmenu[] = ['divider' => true];
-  if ($flights > 0) {
-    $bookingsSubmenu[] = ['name' => (T::flights ?? 'Flights') . ' Booking Manager', 'icon' => 'flight_takeoff', 'url' => root.admin.'/booking-manager/flights'];
-  }
-  if ($stays > 0) {
-    $bookingsSubmenu[] = ['name' => (T::stays ?? 'Hotels') . ' Booking Manager', 'icon' => 'hotel', 'url' => root.admin.'/booking-manager/hotels'];
-  }
-  $bookingsSubmenu[] = ['name' => 'Verify Payments', 'icon' => 'verified', 'url' => root.admin.'/booking-manager/verify'];
-}
+// NOTE: the Booking Manager (staff bookings for walk-in customers) lives under
+// the Flights and Stays menu groups below, not here under Bookings.
 
 // INITIALIZE ADMIN MENU STRUCTURE - Start with core menu items
 $adminMenu = [
@@ -212,10 +201,18 @@ if ($stays > 0) {
         'icon' => 'hotel',
         'name' => T::stays,
         'url' => root.admin.'/stays',
-        'submenu' => [
+        'submenu' => array_merge([
             ['name' => T::stays, 'icon' => 'hotel', 'url' => root.admin.'/stays'],
-            ['name' => T::stays_settings, 'icon' => 'settings', 'url' => root.admin.'/stays/settings']
-        ]
+            ['name' => T::stays_settings, 'icon' => 'settings', 'url' => root.admin.'/stays/settings'],
+            // Staff booking tool for walk-in customers (hotels).
+            ['name' => 'Booking Manager', 'icon' => 'point_of_sale', 'url' => root.admin.'/booking-manager/hotels'],
+        ],
+        // Verify Payments is ONE shared queue for both services — surface it under
+        // Stays only when Flights isn't active (otherwise it lives under Flights),
+        // so it's always reachable but never duplicated.
+        ($flights > 0) ? [] : [
+            ['name' => 'Verify Payments', 'icon' => 'verified', 'url' => root.admin.'/booking-manager/verify'],
+        ])
     ];
 }
 
@@ -228,7 +225,12 @@ if ($flights > 0) {
         'submenu' => [
             ['name' => T::flights, 'icon' => 'flight_takeoff', 'url' => root.admin.'/flights'],
             ['name' => T::airlines, 'icon' => 'airlines', 'url' => root.admin.'/flights-airlines'],
-            ['name' => T::airports, 'icon' => 'airplane_ticket', 'url' => root.admin.'/flights-airports']
+            ['name' => T::airports, 'icon' => 'airplane_ticket', 'url' => root.admin.'/flights-airports'],
+            // Staff booking tool for walk-in customers (search+book or record a
+            // manual/offline booking). Verify Payments is the senior-admin queue
+            // for manual bank transfers (the page itself gates on admin_level).
+            ['name' => 'Booking Manager', 'icon' => 'point_of_sale', 'url' => root.admin.'/booking-manager/flights'],
+            ['name' => 'Verify Payments', 'icon' => 'verified', 'url' => root.admin.'/booking-manager/verify'],
         ]
     ];
 }
