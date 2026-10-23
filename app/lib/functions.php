@@ -1304,6 +1304,47 @@ function ensureFlightFareTimerSchema($db): void
     }
 }
 
+/**
+ * Correct airline reference names for IATA codes that have been REASSIGNED to a
+ * new carrier since the original flights_airlines seed was imported. The classic
+ * case: code "UN" used to be Transaero (Russian, defunct 2015) and is now United
+ * Nigeria Airlines — so a Kano->Abuja flight (UN579) was showing "Transaero
+ * Airlines". We only correct codes whose current carrier we have verified against
+ * authoritative sources (IATA member list / FlightRadar24 / airline sites), and
+ * only when the stored value is actually wrong or missing — so this never fights
+ * a future corrected seed and is safe to run on every boot (idempotent).
+ */
+function ensureAirlineNameFixes($db): void
+{
+    static $checked = false;
+    if ($checked) return;
+    $checked = true;
+
+    // VERIFIED current carriers only. Do NOT add a code here unless its present-day
+    // airline is confirmed — a wrong "fix" is worse than a stale name.
+    $fixes = [
+        'UN' => 'United Nigeria Airlines', // was "Transaero Airlines" (defunct 2015)
+        'QI' => 'Ibom Air',                // was "Cimber Air"
+        'P4' => 'Air Peace',               // was missing from the table
+        'VK' => 'ValueJet',                // Nigerian LCC
+    ];
+
+    foreach ($fixes as $code => $name) {
+        try {
+            $row = $db->get('flights_airlines', ['code', 'name'], ['code' => $code]);
+            if (!$row) {
+                // Missing entirely — insert it so name resolution has a value.
+                $db->insert('flights_airlines', ['code' => $code, 'name' => $name]);
+            } elseif ((string) ($row['name'] ?? '') !== $name) {
+                // Present but stale — correct it.
+                $db->update('flights_airlines', ['name' => $name], ['code' => $code]);
+            }
+        } catch (Throwable $e) {
+            error_log('ensureAirlineNameFixes(' . $code . '): ' . $e->getMessage());
+        }
+    }
+}
+
 function ensureModulesBookingClass($db): void
 {
     static $checked = false;

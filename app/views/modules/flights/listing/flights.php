@@ -1685,6 +1685,10 @@ try {
                             f.airlineName = f.airline;
                         }
                     });
+                    // Rebuild the airline filter list now that names are resolved, so it
+                    // shows the correct carrier (e.g. "United Nigeria Airlines") instead of
+                    // the supplier's raw/stale name (e.g. "Transaero") captured pre-resolve.
+                    this.extractFilters();
                     // Trigger reactive update but keep current page
                     const pageBeforeUpdate = this.currentPage;
                     this.sortAndFilterResults(true);
