@@ -399,15 +399,36 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
         }
     }
     ?>
+    <?php
+    // CANONICAL URL (SEO-003): a self-canonical must point at the CLEAN URL —
+    // never the request's query string. The old fallback used REQUEST_URI, so
+    // cache-busters and tracking params (?v=…, ?amp=1, utm_*) leaked into the
+    // canonical (e.g. .../flights?v=28898), which defeats consolidation. Build
+    // it from the PATH only; a route may still set $canonical explicitly when it
+    // needs a different target. (Host-level www/non-www normalisation is a 301
+    // at the server/.htaccess layer — that is the other half of SEO-003.)
+    if (!isset($canonicalUrl)) {
+        if (isset($canonical) && trim((string) $canonical) !== '') {
+            $canonicalUrl = (string) $canonical;
+        } else {
+            $__cScheme = (!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off')
+                || (($_SERVER['SERVER_PORT'] ?? '') == 443)
+                || (strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')
+                ? 'https' : 'http';
+            $__cPath = strtok((string) ($_SERVER['REQUEST_URI'] ?? '/'), '?'); // drop query string
+            $canonicalUrl = $__cScheme . '://' . ($_SERVER['HTTP_HOST'] ?? '') . $__cPath;
+        }
+    }
+    ?>
     <title><?= htmlspecialchars($seoTitle) ?></title>
     <meta name="description" content="<?= htmlspecialchars($seoDescription) ?>">
     <meta name="keywords" content="<?= htmlspecialchars($seoKeywords) ?>">
-    <link rel="canonical" href="<?= htmlspecialchars($canonical ?? ((isset($_SERVER['REQUEST_SCHEME']) ? $_SERVER['REQUEST_SCHEME'] : 'https') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'])) ?>">
+    <link rel="canonical" href="<?= htmlspecialchars($canonicalUrl) ?>">
     <meta name="author" content="<?= htmlspecialchars((string) $wlAuthor, ENT_QUOTES, 'UTF-8') ?>">
     <meta name="robots" content="<?= htmlspecialchars($robots ?? 'index, follow') ?>">
     <meta property="og:title" content="<?= htmlspecialchars($seoTitle) ?>">
     <meta property="og:description" content="<?= htmlspecialchars($seoDescription) ?>">
-    <meta property="og:url" content="<?= htmlspecialchars($canonical ?? ((isset($_SERVER['REQUEST_SCHEME']) ? $_SERVER['REQUEST_SCHEME'] : 'https') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'])) ?>">
+    <meta property="og:url" content="<?= htmlspecialchars($canonicalUrl) ?>">
     <meta property="og:image" content="<?= htmlspecialchars($wlOgImage) ?>">
     <meta property="og:site_name" content="<?= htmlspecialchars((string) $seoBrand, ENT_QUOTES, 'UTF-8') ?>">
     <meta property="og:type" content="<?= htmlspecialchars($ogType ?? 'website') ?>">

@@ -177,13 +177,21 @@ body{overflow-x:hidden;font-size:16px;line-height:28px;color:#000000;-webkit-fon
     word-wrap: normal;
     direction: ltr;
     font-feature-settings: 'liga';
-    font-display: swap;
+    /* SEO/a11y (SEO-002): the ligature TEXT is the icon name ("error",
+       "flight_takeoff", …). If the icon font fails or a crawler/AT does not
+       load it, that raw word renders as readable page content — which is what
+       an external SEO crawl saw as a literal "error" on /flights etc.
+       Clip the 1em box so the ligature source text can never spill out as a
+       visible/indexable word; the single glyph fits once the font loads.
+       font-display:block avoids the swap flash of the raw word. */
     width: 1em;
     height: 1em;
     flex-shrink: 0;
+    overflow: hidden;
+    font-display: block;
 }
-
-.material-symbols-outlined { font-display: swap; }
+/* Belt-and-suspenders: icon ligatures are decorative — never selectable as text. */
+.material-symbols-outlined { user-select: none; -webkit-user-select: none; }
 
 /* ---------------------------------------------------------------------------
    Mobile behaviour hardening (additive, no layout impact):

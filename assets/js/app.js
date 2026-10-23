@@ -220,3 +220,45 @@ window.flPanel = window.flPanel || function (triggerId, panelId, focusId) {
         form.appendChild(input);
     }, true);
 })();
+
+/* ---------------------------------------------------------------------------
+   ICON ACCESSIBILITY & SEO (SEO-002)
+   Material Symbols are rendered as text ligatures: the element's text content
+   IS the icon name ("error", "flight_takeoff", …). Screen readers and some
+   crawlers read that raw word as page content — an external SEO crawl reported
+   a literal "error" on /flights, /stays, /tours, /cars for exactly this reason.
+   Mark every icon span decorative (aria-hidden + presentation) so assistive
+   tech and semantic parsers skip the ligature name. Runs on load and on any
+   dynamically-injected content (lazy search forms, GIA widget, Alpine renders).
+--------------------------------------------------------------------------- */
+(function () {
+    'use strict';
+    function markIcons(root) {
+        var scope = (root && root.querySelectorAll) ? root : document;
+        var icons = scope.querySelectorAll('.material-symbols-outlined:not([aria-hidden]), .material-icon:not([aria-hidden])');
+        for (var i = 0; i < icons.length; i++) {
+            icons[i].setAttribute('aria-hidden', 'true');
+            icons[i].setAttribute('role', 'presentation');
+            // translate="no" keeps auto-translators from turning "flight_takeoff" into words.
+            icons[i].setAttribute('translate', 'no');
+        }
+    }
+    function init() {
+        markIcons(document);
+        if (!('MutationObserver' in window)) return;
+        var obs = new MutationObserver(function (muts) {
+            for (var m = 0; m < muts.length; m++) {
+                var added = muts[m].addedNodes;
+                for (var n = 0; n < added.length; n++) {
+                    if (added[n].nodeType === 1) { markIcons(added[n]); }
+                }
+            }
+        });
+        obs.observe(document.body, { childList: true, subtree: true });
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init, { once: true });
+    } else {
+        init();
+    }
+})();
