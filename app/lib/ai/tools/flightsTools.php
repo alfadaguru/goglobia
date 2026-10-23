@@ -33,11 +33,13 @@ if (!class_exists('App\\lib\\ai\\flightsSearchTool')) {
 
         public function description(): string
         {
-            return 'Search REAL, bookable flight fares for a route. Use this for ANY flight request. '
-                . 'You MUST have the departure city/airport, destination, and departure date before '
-                . 'calling — ask for whatever is missing; NEVER guess a date or a departure city. '
-                . 'Returns live fare cards (each carries a ref to select). Only ever describe fares '
-                . 'this tool returns.';
+            return 'Search REAL, bookable flight fares. Use this for ANY flight request. '
+                . 'ONE-WAY / ROUND-TRIP: give origin + destination + departure_date (+ return_date for '
+                . 'a round trip). MULTI-CITY (3+ stops, e.g. Lagos→Dubai→London→Lagos): instead give a '
+                . 'segments array of at least 2 legs, each {origin, destination, date}; omit the top-level '
+                . 'origin/destination/departure_date. NEVER guess a date or a city — ask for whatever is '
+                . 'missing. Returns live fare cards (each carries a ref to select). Only ever describe '
+                . 'fares this tool returns.';
         }
 
         public function inputSchema(): array
@@ -45,16 +47,32 @@ if (!class_exists('App\\lib\\ai\\flightsSearchTool')) {
             return [
                 'type' => 'object',
                 'properties' => [
-                    'origin'         => ['type' => 'string', 'description' => 'Departure city or 3-letter IATA airport code the traveller gave (e.g. "Lagos" or "LOS"). Required.'],
-                    'destination'    => ['type' => 'string', 'description' => 'Destination city or IATA code (e.g. "Dubai" or "DXB"). Required.'],
-                    'departure_date' => ['type' => 'string', 'description' => 'Departure date the traveller gave, YYYY-MM-DD. Required — never invent it.'],
-                    'return_date'    => ['type' => 'string', 'description' => 'Return date YYYY-MM-DD for a round trip; omit for one-way.'],
-                    'class'          => ['type' => 'string', 'description' => 'Cabin: economy, premium_economy, business, or first. Default economy.'],
+                    'origin'         => ['type' => 'string', 'description' => 'One-way/round-trip: departure city or 3-letter IATA code (e.g. "Lagos"/"LOS"). Omit for multi-city.'],
+                    'destination'    => ['type' => 'string', 'description' => 'One-way/round-trip: destination city or IATA code (e.g. "Dubai"/"DXB"). Omit for multi-city.'],
+                    'departure_date' => ['type' => 'string', 'description' => 'One-way/round-trip: departure date YYYY-MM-DD. Omit for multi-city. Never invent it.'],
+                    'return_date'    => ['type' => 'string', 'description' => 'Return date YYYY-MM-DD for a round trip; omit for one-way/multi-city.'],
+                    'segments'       => [
+                        'type' => 'array',
+                        'description' => 'MULTI-CITY ONLY: the legs in order, at least 2. Each is a stop of the journey. Use this INSTEAD of origin/destination/departure_date.',
+                        'items' => [
+                            'type' => 'object',
+                            'properties' => [
+                                'origin'      => ['type' => 'string', 'description' => 'This leg\'s departure city or IATA code.'],
+                                'destination' => ['type' => 'string', 'description' => 'This leg\'s arrival city or IATA code.'],
+                                'date'        => ['type' => 'string', 'description' => 'This leg\'s departure date YYYY-MM-DD.'],
+                            ],
+                            'required' => ['origin', 'destination', 'date'],
+                        ],
+                    ],
+                    'class'          => ['type' => 'string', 'description' => 'Cabin: economy, premium_economy, business, or first. Default economy (do not ask unless they want a higher cabin).'],
                     'adults'         => ['type' => 'integer', 'description' => 'Adult passengers (12+). Default 1.'],
                     'children'       => ['type' => 'integer', 'description' => 'Child passengers (2-11).'],
                     'infants'        => ['type' => 'integer', 'description' => 'Infant passengers (under 2).'],
                 ],
-                'required' => ['origin', 'destination', 'departure_date'],
+                // No static `required`: the engine enforces per-trip-type (origin/dest/date
+                // for one-way/round, >=2 valid segments for multi-city) and returns a clear
+                // "I need …" message, so a multi-city-only call isn't rejected by the schema.
+                'required' => [],
             ];
         }
 
@@ -64,7 +82,13 @@ if (!class_exists('App\\lib\\ai\\flightsSearchTool')) {
         {
             $db = $context['db'] ?? null;
             if ($db === null) { return ['ok' => false, 'error_code' => 'AI_NO_DB', 'message' => 'Flight search is unavailable.']; }
-            if (function_exists('gia_trace')) { \gia_trace('flights_search', __FILE__, 'origin=' . (string) ($input['origin'] ?? '') . ' dest=' . (string) ($input['destination'] ?? '') . ' date=' . (string) ($input['departure_date'] ?? '')); }
+            $segments = (isset($input['segments']) && is_array($input['segments'])) ? $input['segments'] : [];
+            $isMulti = count($segments) >= 2;
+            if (function_exists('gia_trace')) {
+                \gia_trace('flights_search', __FILE__, $isMulti
+                    ? ('multicity legs=' . count($segments))
+                    : ('origin=' . (string) ($input['origin'] ?? '') . ' dest=' . (string) ($input['destination'] ?? '') . ' date=' . (string) ($input['departure_date'] ?? '')));
+            }
             $convId = (int) ($context['conv_id'] ?? 0);
             $currency = strtoupper(trim((string) ($context['currency'] ?? ''))) ?: 'USD';
 
@@ -73,6 +97,8 @@ if (!class_exists('App\\lib\\ai\\flightsSearchTool')) {
                 'destination'    => (string) ($input['destination'] ?? ''),
                 'departure_date' => (string) ($input['departure_date'] ?? ''),
                 'return_date'    => (string) ($input['return_date'] ?? ''),
+                'segments'       => $segments,
+                'type'           => $isMulti ? 'multicity' : '',
                 'class'          => (string) ($input['class'] ?? 'economy'),
                 'adults'         => (int) ($input['adults'] ?? 1),
                 'children'       => (int) ($input['children'] ?? 0),

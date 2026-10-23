@@ -189,6 +189,70 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
             return ['ok' => false, 'offers' => [], 'message' => 'Flight search is temporarily unavailable.'];
         }
 
+        $class       = \strtolower(\trim((string) ($opts['class'] ?? 'economy'))) ?: 'economy';
+        $adults      = \max(1, (int) ($opts['adults'] ?? 1));
+        $children    = \max(0, (int) ($opts['children'] ?? 0));
+        $infants     = \max(0, (int) ($opts['infants'] ?? 0));
+        $currency    = \strtoupper(\trim((string) ($opts['currency'] ?? ''))) ?: 'USD';
+        $limit       = (int) ($opts['limit'] ?? 8); if ($limit <= 0) { $limit = 8; }
+
+        // MULTI-CITY: an explicit ordered list of legs (>=2), each
+        // {origin,destination,date}. Each place is resolved to IATA; a leg that can't
+        // resolve, or <2 valid legs, is rejected (never guess a route/date). The
+        // gateway wants type='multicity' + routes=JSON[{from,to,date}]
+        // (adivaha/search.php:80-179). Branch BEFORE the oneway/return path.
+        $segmentsIn = \is_array($opts['segments'] ?? null) ? $opts['segments'] : [];
+        $isMulti = \count($segmentsIn) >= 1 && (\strtolower((string) ($opts['type'] ?? '')) === 'multicity' || \count($segmentsIn) >= 2);
+        if ($isMulti) {
+            $routes = [];
+            $legMissing = [];
+            $firstOrigin = '';
+            foreach ($segmentsIn as $i => $seg) {
+                if (!\is_array($seg)) { continue; }
+                $fromRaw = \trim((string) ($seg['origin'] ?? $seg['from'] ?? ''));
+                $toRaw   = \trim((string) ($seg['destination'] ?? $seg['to'] ?? ''));
+                $dateRaw = \trim((string) ($seg['date'] ?? $seg['depart_date'] ?? $seg['departure_date'] ?? ''));
+                $from = gia_flights_to_iata($db, $fromRaw);
+                $to   = gia_flights_to_iata($db, $toRaw);
+                $ts   = $dateRaw !== '' ? \strtotime($dateRaw) : false;
+                $n = $i + 1;
+                if ($fromRaw === '' || $from === '') { $legMissing[] = 'a valid departure airport for leg ' . $n . ($fromRaw !== '' ? ' (couldn\'t match "' . $fromRaw . '")' : ''); }
+                if ($toRaw === '' || $to === '')     { $legMissing[] = 'a valid destination for leg ' . $n . ($toRaw !== '' ? ' (couldn\'t match "' . $toRaw . '")' : ''); }
+                if ($ts === false)                   { $legMissing[] = 'a date for leg ' . $n; }
+                if ($from !== '' && $to !== '' && $from === $to) { $legMissing[] = 'different airports for leg ' . $n . ' (origin and destination are the same)'; }
+                if ($from !== '' && $to !== '' && $ts !== false && $from !== $to) {
+                    if ($firstOrigin === '') { $firstOrigin = $from; }
+                    $routes[] = ['from' => $from, 'to' => $to, 'date' => \date('Y-m-d', $ts)];
+                }
+            }
+            if ($legMissing !== []) {
+                return ['ok' => false, 'offers' => [], 'need' => $legMissing,
+                    'message' => 'For a multi-city trip I need ' . \implode('; ', $legMissing) . '.'];
+            }
+            if (\count($routes) < 2) {
+                return ['ok' => false, 'offers' => [], 'need' => ['at least 2 valid legs'],
+                    'message' => 'A multi-city trip needs at least 2 legs — tell me each stop and its date.'];
+            }
+            $suppliers = gia_flights_active_suppliers($db);
+            if ($suppliers === []) {
+                \error_log('[gia_flights] no active flight supplier with a search gateway');
+                return ['ok' => false, 'offers' => [], 'message' => 'No flight supplier is available right now.'];
+            }
+            $body = [
+                'type'      => 'multicity',
+                'routes'    => \json_encode($routes), // gateway decodes this (search.php:82)
+                'class'     => $class,
+                'adults'    => (string) $adults,
+                'childrens' => (string) $children,
+                'infants'   => (string) $infants,
+                'currency'  => $currency,
+            ];
+            $searchLabel = \implode(' → ', \array_merge([$firstOrigin], \array_map(static fn($r) => $r['to'], $routes)));
+            \error_log('[gia_flights] MULTICITY search ' . $searchLabel . ' legs=' . \count($routes)
+                . ' suppliers=' . \json_encode($suppliers));
+            return gia_flights_collect($db, $suppliers, $body, $class, $adults, $children, $infants, $currency, $limit, $routes);
+        }
+
         $originRaw      = \trim((string) ($opts['origin'] ?? ''));
         $destinationRaw = \trim((string) ($opts['destination'] ?? ''));
         // Suppliers need IATA CODES, not city names (verified: adivaha returns [] for
@@ -198,12 +262,6 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
         $departDate  = \trim((string) ($opts['departure_date'] ?? ''));
         $returnDate  = \trim((string) ($opts['return_date'] ?? ''));
         $type        = \strtolower(\trim((string) ($opts['type'] ?? ''))) ?: ($returnDate !== '' ? 'return' : 'oneway');
-        $class       = \strtolower(\trim((string) ($opts['class'] ?? 'economy'))) ?: 'economy';
-        $adults      = \max(1, (int) ($opts['adults'] ?? 1));
-        $children    = \max(0, (int) ($opts['children'] ?? 0));
-        $infants     = \max(0, (int) ($opts['infants'] ?? 0));
-        $currency    = \strtoupper(\trim((string) ($opts['currency'] ?? ''))) ?: 'USD';
-        $limit       = (int) ($opts['limit'] ?? 8); if ($limit <= 0) { $limit = 8; }
 
         // HARD requirement — never guess a route or a date (the web-coupling that
         // broke umrah). If any is missing OR a city couldn't be resolved to an
@@ -237,13 +295,29 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
             'infants'        => (string) $infants,
             'currency'       => $currency,
         ];
+        \error_log('[gia_flights] search ' . $origin . '->' . $destination . ' ' . $departDate
+            . ' suppliers=' . \json_encode($suppliers));
+        // Shared supplier loop + card build (oneway/return; $routes empty).
+        return gia_flights_collect($db, $suppliers, $body, $class, $adults, $children, $infants, $currency, $limit, []);
+    }
+}
 
-        // Try each active supplier until one returns fares (supplier-agnostic).
+if (!function_exists('App\\lib\\ai\\gia_flights_collect')) {
+    /**
+     * Run the chosen supplier gateways with $body, normalise every returned offer
+     * into a GIA card (full detail + round-trip return leg OR multi-city all-legs),
+     * merge cheapest-first, cap to $limit, and report total_found for disclosure.
+     * Used by BOTH oneway/return and multi-city so the card shape stays identical.
+     *
+     * @param array $routes multi-city legs [{from,to,date}] — [] for oneway/return.
+     * @return array{ok:bool, offers:array, total_found:int, message?:string}
+     */
+    function gia_flights_collect($db, array $suppliers, array $body, string $class, int $adults, int $children, int $infants, string $currency, int $limit, array $routes = []): array
+    {
         $offers = [];
         $lastMsg = 'No flights found for that route and date.';
         $base = \defined('root') ? \rtrim((string) \root, '/') : '';
-        \error_log('[gia_flights] search ' . $origin . '->' . $destination . ' ' . $departDate
-            . ' suppliers=' . \json_encode($suppliers));
+        $isMulti = \count($routes) >= 2;
         foreach ($suppliers as $supplier) {
             try {
                 $url = $base . '/modules/flights/' . \rawurlencode($supplier) . '/search';
@@ -278,8 +352,8 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
                 if ($token === '') { continue; }
 
                 $airline = (string) ($firstSeg['airline'] ?? '');
-                $dep     = (string) ($firstSeg['departure_code'] ?? $firstSeg['departure_airport'] ?? $origin);
-                $arr     = (string) ($firstSeg['arrival_code'] ?? $firstSeg['arrival_airport'] ?? $destination);
+                $dep     = (string) ($firstSeg['departure_code'] ?? $firstSeg['departure_airport'] ?? '');
+                $arr     = (string) ($firstSeg['arrival_code'] ?? $firstSeg['arrival_airport'] ?? '');
                 $depTime = (string) ($firstSeg['departure_time'] ?? '');
                 $price   = $firstSeg['price'] ?? ($bookingData['amount'] ?? null);
                 if (\is_string($price)) { $price = (float) \str_replace(',', '', $price); }
@@ -306,37 +380,69 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
                     if (\is_string($ex) && \trim($ex) !== '') { $fareExpiresAt = \trim($ex); break; }
                 }
 
-                // Put the DEPARTURE TIME in the title so otherwise-identical fares
-                // (same airline + route + price) are DISTINCT — otherwise the model
-                // can't tell which "first one" the traveller meant and loops back to
-                // search. e.g. "Air Peace 06:30 · LOS → ABV".
-                $label = \trim(($airline !== '' ? $airline : 'Flight')
-                    . ($depTime !== '' ? ' ' . $depTime : '')
-                    . ' · ' . $dep . ' → ' . $arr);
+                $tripType = $isMulti ? 'multicity' : ($isReturn ? 'return' : 'oneway');
 
-                // Structured one-line summary the renderers show BELOW the title —
-                // stops, duration, cabin, baggage, scarcity — all real supplier data.
-                $bits = [];
-                $bits[] = $stops <= 0 ? 'Nonstop' : ($stops . ' stop' . ($stops === 1 ? '' : 's'));
-                if ($duration !== '') { $bits[] = $duration; }
-                if ($arrTime !== '') { $bits[] = 'arr ' . $arrTime; }
-                if ($isReturn) { $bits[] = 'round-trip'; }
-                if ($cabin !== '') { $bits[] = \ucwords(\str_replace('_', ' ', $cabin)); }
-                if ($refundable !== '') { $bits[] = $refundable; }
-                if ($baggage !== '' && \stripos($baggage, 'policy') === false) { $bits[] = $baggage . ' bag'; }
-                if ($seatsLeft > 0 && $seatsLeft <= 5) { $bits[] = 'only ' . $seatsLeft . ' left'; }
-                $detail = \implode(' · ', $bits);
-                // Return-leg one-liner (round-trip) so the traveller sees BOTH directions.
-                $returnLine = '';
-                if ($isReturn) {
-                    $rAir = (string) ($returnSeg['airline'] ?? '');
-                    $rDep = (string) ($returnSeg['departure_code'] ?? $returnSeg['departure_airport'] ?? $arr);
-                    $rArr = (string) ($returnSeg['arrival_code'] ?? $returnSeg['arrival_airport'] ?? $dep);
-                    $rTime = (string) ($returnSeg['departure_time'] ?? '');
-                    $rStops = (int) ($returnSeg['stops'] ?? 0);
-                    $returnLine = \trim('Return: ' . ($rAir !== '' ? $rAir . ' ' : '')
-                        . ($rTime !== '' ? $rTime . ' ' : '') . $rDep . ' → ' . $rArr
-                        . ' · ' . ($rStops <= 0 ? 'Nonstop' : $rStops . ' stop' . ($rStops === 1 ? '' : 's')));
+                if ($isMulti) {
+                    // MULTI-CITY: title shows the WHOLE journey (A → B → C) and the
+                    // detail/return_line enumerate each leg. Walk every leg group.
+                    $legGroups = \is_array($offer['segments'] ?? null) ? $offer['segments'] : [];
+                    $codes = []; $legLines = []; $totalStops = 0;
+                    foreach ($legGroups as $li => $grp) {
+                        $seg = \is_array($grp[0] ?? null) ? $grp[0] : null;
+                        if ($seg === null) { continue; }
+                        $lFrom = (string) ($seg['departure_code'] ?? $seg['departure_airport'] ?? '');
+                        $lTo   = (string) ($seg['arrival_code'] ?? $seg['arrival_airport'] ?? '');
+                        $lAir  = (string) ($seg['airline'] ?? '');
+                        $lTime = (string) ($seg['departure_time'] ?? '');
+                        $lStops = (int) ($seg['stops'] ?? 0);
+                        $totalStops += $lStops;
+                        if ($codes === [] && $lFrom !== '') { $codes[] = $lFrom; }
+                        if ($lTo !== '') { $codes[] = $lTo; }
+                        $legLines[] = \trim('Leg ' . ($li + 1) . ': ' . ($lAir !== '' ? $lAir . ' ' : '')
+                            . ($lTime !== '' ? $lTime . ' ' : '') . $lFrom . ' → ' . $lTo
+                            . ' · ' . ($lStops <= 0 ? 'Nonstop' : $lStops . ' stop' . ($lStops === 1 ? '' : 's')));
+                    }
+                    $route = \implode(' → ', $codes);
+                    $label = \trim(($airline !== '' ? $airline : 'Multi-city') . ' · ' . $route);
+                    $bits = [\count($legLines) . ' legs'];
+                    if ($cabin !== '') { $bits[] = \ucwords(\str_replace('_', ' ', $cabin)); }
+                    if ($refundable !== '') { $bits[] = $refundable; }
+                    if ($seatsLeft > 0 && $seatsLeft <= 5) { $bits[] = 'only ' . $seatsLeft . ' left'; }
+                    $detail = \implode(' · ', $bits);
+                    $returnLine = \implode("\n", $legLines); // each leg on its own line
+                } else {
+                    // Put the DEPARTURE TIME in the title so otherwise-identical fares
+                    // (same airline + route + price) are DISTINCT — otherwise the model
+                    // can't tell which "first one" the traveller meant and loops back to
+                    // search. e.g. "Air Peace 06:30 · LOS → ABV".
+                    $label = \trim(($airline !== '' ? $airline : 'Flight')
+                        . ($depTime !== '' ? ' ' . $depTime : '')
+                        . ' · ' . $dep . ' → ' . $arr);
+
+                    // Structured one-line summary the renderers show BELOW the title —
+                    // stops, duration, cabin, baggage, scarcity — all real supplier data.
+                    $bits = [];
+                    $bits[] = $stops <= 0 ? 'Nonstop' : ($stops . ' stop' . ($stops === 1 ? '' : 's'));
+                    if ($duration !== '') { $bits[] = $duration; }
+                    if ($arrTime !== '') { $bits[] = 'arr ' . $arrTime; }
+                    if ($isReturn) { $bits[] = 'round-trip'; }
+                    if ($cabin !== '') { $bits[] = \ucwords(\str_replace('_', ' ', $cabin)); }
+                    if ($refundable !== '') { $bits[] = $refundable; }
+                    if ($baggage !== '' && \stripos($baggage, 'policy') === false) { $bits[] = $baggage . ' bag'; }
+                    if ($seatsLeft > 0 && $seatsLeft <= 5) { $bits[] = 'only ' . $seatsLeft . ' left'; }
+                    $detail = \implode(' · ', $bits);
+                    // Return-leg one-liner (round-trip) so the traveller sees BOTH directions.
+                    $returnLine = '';
+                    if ($isReturn) {
+                        $rAir = (string) ($returnSeg['airline'] ?? '');
+                        $rDep = (string) ($returnSeg['departure_code'] ?? $returnSeg['departure_airport'] ?? $arr);
+                        $rArr = (string) ($returnSeg['arrival_code'] ?? $returnSeg['arrival_airport'] ?? $dep);
+                        $rTime = (string) ($returnSeg['departure_time'] ?? '');
+                        $rStops = (int) ($returnSeg['stops'] ?? 0);
+                        $returnLine = \trim('Return: ' . ($rAir !== '' ? $rAir . ' ' : '')
+                            . ($rTime !== '' ? $rTime . ' ' : '') . $rDep . ' → ' . $rArr
+                            . ' · ' . ($rStops <= 0 ? 'Nonstop' : $rStops . ' stop' . ($rStops === 1 ? '' : 's')));
+                    }
                 }
 
                 $offers[] = [
@@ -361,7 +467,7 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
                     'refundable'  => $refundable,
                     'fare_name'   => $fareName,
                     'seats_left'  => $seatsLeft,
-                    'trip_type'   => $isReturn ? 'return' : 'oneway',
+                    'trip_type'   => $tripType,
                     'return_line' => $returnLine,
                     'price'       => \is_numeric($price) ? \round((float) $price, 2) : null,
                     'currency'    => $currency,
