@@ -109,6 +109,42 @@ $conversionFactor = 1;
 if ($displayCurrencyRate > 0) {
     $conversionFactor = $baseCurrencyRate / $displayCurrencyRate;
 }
+
+// ============================================================================
+// FARE-HOLD COUNTDOWN (results page)
+// ----------------------------------------------------------------------------
+// A soft urgency hint — "fares held for mm:ss" — shown on the results list,
+// mirroring what the confirm-booking page already does. It reuses the SAME
+// admin switch as the booking timer (modules.fare_timer_enabled per flights
+// supplier), so flipping that one toggle turns on BOTH the results and the
+// booking countdowns. Default length is 15 minutes. It is NOT an authoritative
+// hold — the true expiry is the supplier re-quote at booking time — it only
+// nudges the customer to proceed. Enabled when ANY active flights module has
+// the toggle on; we use the smallest configured minutes to stay conservative.
+// ============================================================================
+$resultsFareTimerEnabled = false;
+$resultsFareTimerMinutes = 15;
+try {
+    $ftRows = $db->select('modules', ['fare_timer_enabled', 'fare_timer_minutes'], [
+        'type' => 'flights', 'status' => '1',
+    ]);
+    $minMinutes = null;
+    foreach (($ftRows ?: []) as $ftRow) {
+        if (((string) ($ftRow['fare_timer_enabled'] ?? '0')) === '1') {
+            $resultsFareTimerEnabled = true;
+            $m = (int) ($ftRow['fare_timer_minutes'] ?? 15);
+            if ($m < 1) $m = 1;
+            if ($m > 120) $m = 120;
+            if ($minMinutes === null || $m < $minMinutes) $minMinutes = $m;
+        }
+    }
+    if ($resultsFareTimerEnabled && $minMinutes !== null) {
+        $resultsFareTimerMinutes = $minMinutes;
+    }
+} catch (\Throwable $e) {
+    // fare_timer_* columns may not exist yet on an un-migrated DB — stay off.
+    $resultsFareTimerEnabled = false;
+}
 ?>
 
 <script src="<?= root ?>assets/js/noui.js"></script>
@@ -550,6 +586,33 @@ if ($displayCurrencyRate > 0) {
                 </div>
             </div>
 
+<?php if ($resultsFareTimerEnabled): ?>
+            <!-- Fare-hold countdown (admin-enabled per flights provider). Soft urgency
+                 hint; shows once results have loaded and until the hold window lapses. -->
+            <div class="container" x-show="fareTimerEnabled && searchComplete && filteredFlights.length > 0 && !fareTimerExpired" x-cloak>
+                <div class="rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 px-4 py-2.5 flex items-center gap-3">
+                    <span class="material-symbols-outlined text-amber-600 dark:text-amber-400 shrink-0" style="font-size: 22px;">timer</span>
+                    <div class="text-sm leading-tight">
+                        <span class="font-semibold text-amber-800 dark:text-amber-200">
+                            Fares held for
+                            <span class="tabular-nums font-bold" x-text="fareTimerLabel"></span>
+                        </span>
+                        <span class="text-amber-700 dark:text-amber-300 hidden sm:inline">·
+                            Book now to lock this price</span>
+                    </div>
+                </div>
+            </div>
+            <!-- Expired state: prompt a fresh search -->
+            <div class="container" x-show="fareTimerEnabled && fareTimerExpired" x-cloak>
+                <div class="rounded-xl border border-gray-300 bg-gray-50 dark:bg-gray-800 dark:border-gray-600 px-4 py-2.5 flex items-center gap-3">
+                    <span class="material-symbols-outlined text-gray-500 shrink-0" style="font-size: 22px;">update</span>
+                    <div class="text-sm text-gray-700 dark:text-gray-300">
+                        These fares have expired. Please search again for the latest prices.
+                    </div>
+                </div>
+            </div>
+<?php endif; ?>
+
             <!-- Progress Bar - Fixed Over Header (Like Stays) -->
             <div x-show="showProgressBar" x-transition:leave="transition-opacity ease-in-out duration-1000"
                 x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
@@ -845,6 +908,17 @@ if ($displayCurrencyRate > 0) {
             apiErrors: [],
             showMobileFilters: false,
             pmOpen: true,   // price-matrix expanded by default
+
+            // Fare-hold countdown (admin-enabled per provider). Same method shape and
+            // mm:ss formatting as the confirm-booking timer (booking/index.php), but the
+            // deadline is anchored client-side to when results finish loading, since the
+            // results page has no server-side booking draft to anchor to.
+            fareTimerEnabled: <?= $resultsFareTimerEnabled ? 'true' : 'false' ?>,
+            fareTimerMinutes: <?= (int) $resultsFareTimerMinutes ?>,
+            fareTimerDeadline: 0,      // UNIX seconds; set when results complete
+            fareTimerLabel: '',        // "mm:ss"
+            fareTimerExpired: false,
+            _fareTimerInt: null,
 
             // Pagination state
             currentPage: 1,
@@ -1148,6 +1222,9 @@ if ($displayCurrencyRate > 0) {
                 this.searchComplete = true;
                 this.progress = 100;
 
+                // Start the fare-hold countdown now that fares are on screen.
+                this.startFareTimer();
+
                 // console.log(`✨ Search complete! Displaying ${this.filteredFlights.length} flights`);
 
                 // Wait 2 seconds showing "Complete" message
@@ -1164,6 +1241,31 @@ if ($displayCurrencyRate > 0) {
                 // Just ensure loading is false for any edge cases
                 this.loading = false;
                 // console.log(`✅ Complete! UI cleaned up.`);
+            },
+
+            // Fare-hold countdown. Same tick/format as the confirm-booking timer
+            // (booking/index.php startFareTimer), but anchored client-side to NOW +
+            // fareTimerMinutes because the results page has no server booking draft.
+            // Soft urgency only — the real expiry is the supplier re-quote at booking.
+            startFareTimer() {
+                if (!this.fareTimerEnabled || this.fareTimerMinutes < 1) { return; }
+                if (this._fareTimerInt) { clearInterval(this._fareTimerInt); this._fareTimerInt = null; }
+                this.fareTimerExpired = false;
+                this.fareTimerDeadline = Math.floor(Date.now() / 1000) + (this.fareTimerMinutes * 60);
+                const tick = () => {
+                    const remaining = this.fareTimerDeadline - Math.floor(Date.now() / 1000);
+                    if (remaining <= 0) {
+                        this.fareTimerLabel = '00:00';
+                        this.fareTimerExpired = true;
+                        if (this._fareTimerInt) { clearInterval(this._fareTimerInt); this._fareTimerInt = null; }
+                        return;
+                    }
+                    const m = Math.floor(remaining / 60);
+                    const s = remaining % 60;
+                    this.fareTimerLabel = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+                };
+                tick();
+                this._fareTimerInt = setInterval(tick, 1000);
             },
 
             async fetchSupplier(supplier) {
