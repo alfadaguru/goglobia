@@ -5259,9 +5259,70 @@ function ensureBrandContent($db): void
             . '<p><strong>Contact us</strong></p>'
             . $contactBlock;
 
-        // Only the pages that shipped PHPTRAVELS branding are self-healed.
-        // terms-of-use and refund-policy already hold neutral, acceptable
-        // travel-agency copy with NO vendor branding, so they are left untouched.
+        // ---- CAREERS (shipped with STOLEN copy: Airbnb's mission + a false
+        //      "first Saudi website / Middle Eastern travellers" claim + a blank
+        //      company name). Replaced with honest GoGlobia copy. ----------------
+        $careers =
+            '<p><strong>Careers at ' . $brand . '</strong></p>'
+            . '<p>We are building a modern travel company for Nigeria and beyond &mdash; making it simple for people '
+            . 'to book flights, hotels, tours, Umrah and more, with honest pricing and real support. If you care about '
+            . 'great customer experiences and want to grow with an ambitious team, we would love to hear from you.</p>'
+            . '<p><strong>Who we look for</strong></p>'
+            . '<ul>'
+            . '<li>People who put the customer first and take ownership of their work.</li>'
+            . '<li>Travel consultants, customer support, operations, sales, marketing and engineering talent.</li>'
+            . '<li>Honest, dependable team players who want to build something lasting.</li>'
+            . '</ul>'
+            . '<p><strong>How to apply</strong></p>'
+            . '<p>Send your CV and a short note about the role you are interested in to '
+            . '<a href="mailto:' . $email . '">' . $email . '</a>. We review every application and will reach out if '
+            . 'there is a good fit.</p>'
+            . $contactBlock;
+
+        // ---- EXPLORE / BEST TRAVEL DEALS (shipped EMPTY — "No content available"
+        //      on pages linked from the footer). Give them real intro content. ----
+        $explore =
+            '<p>Discover where ' . $brand . ' can take you. From quick domestic hops within Nigeria to '
+            . 'international getaways, holy journeys for Umrah, and everything in between &mdash; we help you plan and '
+            . 'book your whole trip in one place.</p>'
+            . '<p><strong>Start exploring</strong></p>'
+            . '<ul>'
+            . '<li><a href="https://' . $site . '/flights">Flights</a> &mdash; domestic and international fares.</li>'
+            . '<li><a href="https://' . $site . '/stays">Hotels &amp; stays</a> &mdash; a wide choice of accommodation.</li>'
+            . '<li><a href="https://' . $site . '/tours">Tours &amp; experiences</a> &mdash; things to see and do.</li>'
+            . '<li><a href="https://' . $site . '/umrah">Umrah packages</a> &mdash; transparent, per-pilgrim pricing.</li>'
+            . '</ul>'
+            . '<p>Ready to go? Use the search on our home page to find live prices, or reach our team at '
+            . '<a href="mailto:' . $email . '">' . $email . '</a>.</p>';
+
+        $deals =
+            '<p>Looking for the best value on your next trip? ' . $brand . ' brings together competitive fares and rates '
+            . 'across flights, hotels, tours and packages, so you can travel for less.</p>'
+            . '<p><strong>How to find great deals</strong></p>'
+            . '<ul>'
+            . '<li>Search flexible dates &mdash; shifting your trip by a day or two can lower the price.</li>'
+            . '<li>Browse our popular routes and featured stays on the home page.</li>'
+            . '<li>Book early for peak periods, and sign in to keep track of your bookings.</li>'
+            . '</ul>'
+            . '<p>Prices shown are live and confirmed at booking &mdash; no hidden surprises. Questions about a fare? '
+            . 'Contact us at <a href="mailto:' . $email . '">' . $email . '</a>.</p>';
+
+        // ---- CONTACT US (shipped with FAKE data: a San Francisco address, a +1
+        //      phone and info@travelagency.com). Replaced with real GoGlobia
+        //      details. ---------------------------------------------------------
+        $contact =
+            '<p>We would love to hear from you. Whether you need help with a booking, have a question about a trip, '
+            . 'or want to plan something special, our team is here to help.</p>'
+            . '<p><strong>Address</strong><br>' . $addr . '</p>'
+            . '<p><strong>Phone / WhatsApp</strong><br><a href="tel:' . str_replace(' ', '', $phone) . '">' . $phone . '</a></p>'
+            . '<p><strong>Email</strong><br><a href="mailto:' . $email . '">' . $email . '</a></p>'
+            . '<p><strong>Website</strong><br><a href="https://' . $site . '">' . $site . '</a></p>'
+            . '<p>' . $brand . ' is the trading identity of ' . $company
+            . ', licensed by the NCAA and accredited by IATA and NANTA.</p>';
+
+        // Only the pages that shipped PHPTRAVELS branding are self-healed by the
+        // token gate below. terms-of-use and refund-policy already hold neutral,
+        // acceptable travel-agency copy with NO vendor branding, so left untouched.
         $pages = [
             'about-us'       => $about,
             'privacy-policy' => $privacy,
@@ -5283,6 +5344,44 @@ function ensureBrandContent($db): void
             }
             $db->update('cms', $update, ['id' => $row['id']]);
         }
+
+        // Helper: replace a page's content only while a predicate on the current
+        // content is true (so an admin's own edit is never clobbered), clearing
+        // tainted translations.
+        $healIf = function (string $slug, string $html, callable $shouldHeal) use ($db) {
+            $row = $db->get('cms', ['id', 'content', 'content_translations'], ['slug_url' => $slug]);
+            if (!$row) { return; }
+            $cur   = (string) ($row['content'] ?? '');
+            $trans = (string) ($row['content_translations'] ?? '');
+            if (!$shouldHeal($cur, $trans)) { return; }
+            $upd = ['content' => $html];
+            if ($trans !== '' && $shouldHeal($trans, '')) { $upd['content_translations'] = null; }
+            $db->update('cms', $upd, ['id' => $row['id']]);
+        };
+
+        // Contact Us: heal only while it still holds the shipped FAKE data.
+        $healIf('contact-us', $contact, function ($c) {
+            return stripos($c, 'travelagency.com') !== false
+                || stripos($c, 'San Francisco') !== false
+                || stripos($c, 'Market St') !== false
+                || stripos($c, '+1-234') !== false
+                || stripos($c, 'phptravels') !== false;
+        });
+
+        // Careers: heal only while it still holds the shipped STOLEN copy (Airbnb
+        // mission / false "Saudi website" claim), not an admin rewrite.
+        $healIf('careers-and-jobs', $careers, function ($c) {
+            return stripos($c, 'belong anywhere') !== false
+                || stripos($c, 'first Saudi website') !== false
+                || stripos($c, 'Middle Eastern travelers') !== false
+                || stripos($c, 'phptravels') !== false;
+        });
+
+        // Explore + Best Travel Deals: shipped EMPTY. Fill only while still empty
+        // (an admin who adds real content is never overwritten).
+        $emptyGate = function ($c) { return trim(strip_tags($c)) === ''; };
+        $healIf('explore', $explore, $emptyGate);
+        $healIf('best-travel-deals', $deals, $emptyGate);
     } catch (\Throwable $e) {
         error_log('ensureBrandContent: ' . $e->getMessage());
     }
