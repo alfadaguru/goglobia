@@ -4,9 +4,13 @@
 
 $router->get('/', function () use ($SECURE,$db) {
 
-// META DATA
-$title = $GLOBALS['app']['home_title'];
-$description = $GLOBALS['app']['meta_description'];
+// META DATA (SEO home title/description). Honour an admin-customised home_title;
+// only upgrade the bare default to a descriptive, keyword-rich home title.
+$__homeTitle = trim((string) ($GLOBALS['app']['home_title'] ?? ''));
+$title = ($__homeTitle === '' || strcasecmp($__homeTitle, 'GoGlobia') === 0 || strcasecmp($__homeTitle, 'Goglobia') === 0)
+    ? 'GoGlobia | Flights, Stays, Umrah & AI Travel Booking in Nigeria'
+    : $__homeTitle;
+$description = $GLOBALS['app']['meta_description'] ?? '';
 $header = true;
 $footer = true;
 

@@ -369,10 +369,31 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
     // those pages would otherwise render an EMPTY <title>/description (bad for
     // SEO). Fall back to the global site values from settings ($GLOBALS['app'])
     // — verified fields: home_title, meta_description, site_keywords.
-    $seoBrand       = $GLOBALS['app']['business_name'] ?? ($GLOBALS['app']['home_title'] ?? 'Goglobia');
+    $seoBrand       = $GLOBALS['app']['business_name'] ?? ($GLOBALS['app']['home_title'] ?? 'GoGlobia');
     $seoTitle       = (isset($title) && trim((string)$title) !== '') ? $title : ($GLOBALS['app']['home_title'] ?? $seoBrand);
-    $seoDescription = (isset($description) && trim((string)$description) !== '') ? $description : ($GLOBALS['app']['meta_description'] ?? '');
     $seoKeywords    = (isset($keywords) && trim((string)$keywords) !== '') ? $keywords : ($GLOBALS['app']['site_keywords'] ?? '');
+
+    // META DESCRIPTION (SEO-META): a per-page $description wins; otherwise fall
+    // back to the site setting. Then reject the shipped PLACEHOLDER ("Website
+    // meta description") and empties from ANY source — several routes pass the
+    // raw settings value (which still holds that placeholder) as $description,
+    // so the guard must run on the FINAL resolved value, not only the fallback.
+    $__realDefaultDesc = 'GoGlobia — book flights, hotels, tours, Umrah packages and more in one place, '
+        . 'with secure payments and 24/7 support. A Nigerian travel company you can trust.';
+    $seoDescription = (isset($description) && trim((string)$description) !== '')
+        ? trim((string)$description)
+        : trim((string) ($GLOBALS['app']['meta_description'] ?? ''));
+    if ($seoDescription === '' || stripos($seoDescription, 'website meta description') !== false) {
+        $seoDescription = $__realDefaultDesc;
+    }
+
+    // TITLE TEMPLATE: a page-specific $title gets the brand appended
+    // ("Flights | GoGlobia") unless it already names the brand; the home title
+    // (from settings) is left as-is.
+    if (isset($title) && trim((string)$title) !== '' && stripos($seoTitle, (string) ($GLOBALS['app']['business_name'] ?? 'GoGlobia')) === false
+        && stripos($seoTitle, 'goglobia') === false) {
+        $seoTitle = rtrim(trim((string)$title), ' -|') . ' | GoGlobia';
+    }
 
     // WHITE-LABEL (Phase 1): on a hotel's own branded site, identity in <head> is the
     // HOTEL's — brand name, OG image (hotel hero/logo), per-hotel SEO meta from the theme.

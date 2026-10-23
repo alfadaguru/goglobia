@@ -84,8 +84,10 @@ $umrahV2Results = function ($city = 'any', $month = 'any', $pax = '1') use ($SEC
     $preMonth = ($month !== 'any' && $month !== '') ? urldecode($month) : trim((string) ($_GET['month'] ?? ''));
     $prePax   = max(1, min((int) $GLOBALS['__umrah_customer_max_pax'], (int) $pax));
 
-    $title = 'Umrah packages' . ($preCity ? ' from ' . htmlspecialchars($preCity) : '') . ' | ' . ($GLOBALS['app']['business_name'] ?? 'GoGlobia');
-    $description = 'Choose your GoGlobia Umrah departure — filter by city, month, price and comfort tier.';
+    // SEO: short "GoGlobia" brand (not the long legal name) in the title.
+    $title = 'Umrah Packages' . ($preCity ? ' from ' . htmlspecialchars($preCity) : ' from Nigeria') . ' — Dates & Inclusions | GoGlobia';
+    $description = 'Book Umrah packages' . ($preCity ? ' from ' . htmlspecialchars($preCity) : ' from Nigeria (Kano, Abuja, Lagos)')
+        . ' with GoGlobia — compare departure dates, comfort tiers, inclusions and transparent per-pilgrim pricing. Flights, visa, hotels and transport handled.';
 
     require_once views . 'includes/header.php';
     require_once views . 'modules/umrah/v2/results.php';
