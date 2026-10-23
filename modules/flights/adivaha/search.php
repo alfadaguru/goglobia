@@ -314,6 +314,21 @@ $router->post('flights/adivaha/search', function () use ($db) {
         $checkedBagDisplay = !empty($baggage['checkin']) ? (string) $baggage['checkin'] : '';
         $cabinBagDisplay   = !empty($baggage['cabin'])   ? (string) $baggage['cabin']   : '';
 
+        // REAL operating carrier. Some fares come under a ticketing/virtual-carrier
+        // shell code (e.g. meta.code "W1" = World Ticket) with an empty airline name,
+        // which otherwise resolves to a wrong/foreign name. Adivaha carries the TRUE
+        // operating airline per segment in meta.segments[].operated_by (verified live:
+        // ABV->CBQ "W1" flights return operated_by "VK" = ValueJet). Prefer that code
+        // so the customer sees the airline they actually fly. Falls back to the shell
+        // code when operated_by is absent.
+        $operatingCarrierCode = '';
+        if (!empty($meta['segments']) && is_array($meta['segments'])) {
+            foreach ($meta['segments'] as $segRow) {
+                $ob = is_array($segRow) ? trim((string) ($segRow['operated_by'] ?? '')) : '';
+                if ($ob !== '') { $operatingCarrierCode = $ob; break; }
+            }
+        }
+
         $legGroups = [];
         foreach ($metaLegs as $legIdx => $leg) {
             if (!is_array($leg)) continue;
@@ -337,10 +352,24 @@ $router->post('flights/adivaha/search', function () use ($db) {
             $durMinutes = (int) ($leg['duration_minutes'] ?? 0);
             $durDisplay = !empty($leg['duration']) ? (string) $leg['duration'] : adivaha_getduration_from_minutes($durMinutes);
 
+            // Carrier the customer should see. Normally Adivaha's own leg/meta code +
+            // name are correct. But when a fare comes under a ticketing/virtual shell
+            // code (e.g. "W1" = World Ticket, with no real airline name), we instead
+            // use the real operating-carrier code from meta.segments[].operated_by
+            // (e.g. "VK" = ValueJet), so the logo + resolved name are the airline the
+            // customer actually flies rather than the shell's wrong/foreign name.
+            $legCode    = (string) ($leg['code'] ?? $meta['code'] ?? '');
+            $legAirline = (string) ($leg['airline'] ?? $meta['airline'] ?? '');
+            $shellCarrier = ($legAirline === '' || $legAirline === $legCode);
+            if ($operatingCarrierCode !== '' && $operatingCarrierCode !== $legCode && $shellCarrier) {
+                $legCode    = $operatingCarrierCode;
+                $legAirline = $operatingCarrierCode; // bare code -> resolved to real name client-side
+            }
+
             $flight = (object) [
-                'img'               => (string) ($leg['code'] ?? $meta['code'] ?? ''),
+                'img'               => $legCode,
                 'flight_no'         => (string) ($leg['flight_number'] ?? $meta['flight_number'] ?? ''),
-                'airline'           => (string) ($leg['airline'] ?? $meta['airline'] ?? ''),
+                'airline'           => $legAirline,
                 'class'             => (string) ($meta['cabin'] ?? $rawClass),
                 'baggage'           => $checkedBagDisplay !== '' ? $checkedBagDisplay : 'As per airline policy',
                 'cabin_baggage'     => $cabinBagDisplay !== '' ? $cabinBagDisplay : 'As per airline policy',

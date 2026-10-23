@@ -796,7 +796,7 @@ try {
                                                 <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30">
                                                     <td class="px-4 py-2.5">
                                                         <div class="flex items-center gap-2 min-w-0">
-                                                            <img :src="`https://pics.avs.io/200/200/${row.code}@2x.png`" :alt="row.name" class="w-9 h-9 object-contain shrink-0 rounded-md border border-gray-200 dark:border-gray-600 bg-white p-0.5" onerror="this.style.display='none'">
+                                                            <img :src="airlineLogoSrc(row.code)" :alt="row.name" class="w-11 h-11 object-contain shrink-0 rounded-md border border-gray-200 dark:border-gray-600 bg-white p-1" onerror="this.style.display='none'">
                                                             <span class="truncate text-gray-800 dark:text-gray-200" x-text="row.name"></span>
                                                         </div>
                                                     </td>
@@ -919,6 +919,19 @@ try {
             fareTimerLabel: '',        // "mm:ss"
             fareTimerExpired: false,
             _fareTimerInt: null,
+
+            // Airline-logo overrides. The avs.io CDN is keyed on IATA code, so codes
+            // that have been REASSIGNED show the wrong carrier's logo (e.g. VK = LEVEL
+            // globally but ValueJet in Nigeria; UN = United Nigeria; QI = Ibom Air).
+            // For these we serve a locally-stored correct logo and only fall back to
+            // the CDN for everything else.
+            logoOverrides: { VK: 1, UN: 1, QI: 1 },
+            logoOverrideBase: '<?= root ?>assets/img/airlines/',
+            cdnLogo(code) { return `https://pics.avs.io/200/200/${code}@2x.png`; },
+            airlineLogoSrc(code) {
+                const c = (code || '').toString().trim().toUpperCase();
+                return this.logoOverrides[c] ? (this.logoOverrideBase + c + '.png') : this.cdnLogo(c);
+            },
 
             // Pagination state
             currentPage: 1,
@@ -2363,8 +2376,8 @@ try {
                         <div class="flex items-center justify-between gap-4 py-3 ${sIdx > 0 ? 'border-t border-gray-100 dark:border-gray-700/50' : ''}">
                             <!-- Airline Logo & Info -->
                             <div class="flex items-center gap-3 w-1/4 min-w-[150px]">
-                                <div class="w-10 h-10 bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1 flex-shrink-0">
-                                    <img src="https://pics.avs.io/200/200/${firstSeg.img}@2x.png" alt="${firstSeg.airline}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
+                                <div class="w-12 h-12 bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1 flex-shrink-0">
+                                    <img src="${this.airlineLogoSrc(firstSeg.img)}" alt="${firstSeg.airline}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
                                 </div>
                                 <div class="text-start">
                                     <p class="font-semibold text-xs text-gray-900 dark:text-gray-100 leading-tight">${firstSeg.airlineName || firstSeg.airline}</p>
@@ -2424,8 +2437,8 @@ try {
                         <div class="py-3 ${sIdx > 0 ? 'border-t border-gray-200 dark:border-gray-700' : ''}">
                             <div class="flex items-center justify-between mb-2">
                                 <div class="flex items-center gap-2">
-                                    <div class="w-8 h-8 bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1">
-                                        <img src="https://pics.avs.io/200/200/${firstSeg.img}@2x.png" alt="${firstSeg.airline}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
+                                    <div class="w-11 h-11 bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1">
+                                        <img src="${this.airlineLogoSrc(firstSeg.img)}" alt="${firstSeg.airline}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
                                     </div>
                                     <div>
                                         <p class="font-semibold text-xs text-gray-900 dark:text-gray-100">${firstSeg.airlineName || firstSeg.airline}</p>
@@ -2750,7 +2763,7 @@ try {
                             <div class="flex items-start justify-between gap-3 mb-3">
                                 <div class="flex items-center gap-2.5 min-w-0">
                                     <div class="w-14 h-14 bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1 shrink-0">
-                                        <img src="https://pics.avs.io/200/200/${f.img}@2x.png" alt="${f.airline}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
+                                        <img src="${this.airlineLogoSrc(f.img)}" alt="${f.airline}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
                                     </div>
                                     <div class="min-w-0">
                                         <p class="font-bold text-sm text-gray-900 dark:text-gray-100 truncate">${f.airlineName || f.airline}</p>
@@ -2800,7 +2813,7 @@ try {
                                 <!-- Airline -->
                                 <div class="flex flex-col items-center justify-center gap-1.5 shrink-0 w-[96px]">
                                     <div class="w-16 h-16 bg-white dark:bg-gray-700 rounded-xl flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1">
-                                        <img src="https://pics.avs.io/200/200/${f.img}@2x.png" alt="${f.airline}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
+                                        <img src="${this.airlineLogoSrc(f.img)}" alt="${f.airline}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
                                     </div>
                                     <p class="text-xs font-bold text-gray-800 dark:text-gray-200 text-center leading-tight">${f.airlineName || f.airline}</p>
                                     <p class="text-[11px] text-gray-500 dark:text-gray-400 text-center"><?= T::flight ?? 'Flight' ?> ${f.flight_no || ''}</p>
@@ -2994,7 +3007,7 @@ try {
                                 <!-- Mid: flight number, class, bags -->
                                 <div class="rounded-lg p-3 border border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
                                     <div class="flex items-center gap-3 mb-3">
-                                        <img src="https://pics.avs.io/200/200/${seg.img}@2x.png" class="w-9 h-9 rounded-lg border border-gray-200 dark:border-gray-700 bg-white p-1" onerror="this.style.display='none'" />
+                                        <img src="${this.airlineLogoSrc(seg.img)}" class="w-11 h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white p-1" onerror="this.style.display='none'" />
                                         <div class="min-w-0">
                                             <p class="text-sm font-bold text-gray-900 dark:text-gray-100">${seg.airlineName || seg.airline || ''}</p>
                                             <p class="text-xs text-gray-500 dark:text-gray-400">${seg.airline || ''} · <?= T::flight ?> ${seg.flight_no || ''}</p>
