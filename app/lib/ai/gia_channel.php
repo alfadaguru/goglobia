@@ -412,7 +412,18 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
                     . "search and plan new trips without linking."
                 );
             }
-            $result = $agent->run($text, $history);
+            // DETERMINISTIC NUMERIC PICK: on WhatsApp a >3-option list is shown as a
+            // numbered TEXT list (no tap-buttons), so the traveler types "2". Map that
+            // to the exact pick-button id we showed last turn BEFORE the model runs —
+            // otherwise the model gets a naked "2" with no ref and just re-searches
+            // (the live "pick a number -> same cards reappear" loop).
+            $runText = $text;
+            $picked = gia_channel_resolve_numeric_pick($db, $convId, $text);
+            if ($picked !== '') {
+                if (function_exists('gia_trace')) { \gia_trace('numeric_pick', __FILE__, '"' . mb_substr($text, 0, 20) . '" -> ' . $picked); }
+                $runText = $picked;
+            }
+            $result = $agent->run($runText, $history);
         } catch (\Throwable $e) {
             error_log('[gia] channel_handle run: ' . $e->getMessage());
             return $fail('Sorry — I hit a snag just now. Please try again in a moment.', false, false, $convKey);
@@ -448,6 +459,10 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             'conv_key'          => $convKey,
         ]);
 
+        // Remember the ordered pick-buttons shown this turn, so a later bare-number
+        // reply ("2") resolves to the exact choice instead of re-searching.
+        gia_channel_store_choices($db, $convId, $rich);
+
         // --- Persist the turn (cross-device resume + admin reporting). ---
         if ($convId > 0 && function_exists('gia_log_turn')) {
             gia_log_turn($db, $convId, $text, $reply, is_array($result['usage'] ?? null) ? $result['usage'] : []);
@@ -474,7 +489,87 @@ if (!function_exists('App\\lib\\ai\\gia_channel_pick_note')) {
              . "- 'pickstay|<stay_id>' -> they chose a HOTEL; ask their check-in + check-out dates if you "
              . "don't have them, then call stays_rooms with that stay_id + the dates.\n"
              . "- 'pick|stays|stayroom:<s>:<r>:<o>' -> they chose a ROOM; call stays_book with that ref "
-             . "and the check-in/check-out dates to create the held booking.";
+             . "and the check-in/check-out dates to create the held booking.\n"
+             . "CRITICAL: a pick payload means the traveler ALREADY chose from the list you showed. "
+             . "NEVER run the search again (no flights_search / stays_search / umrah_search) to 'refresh' "
+             . "it — act on the ref directly. Re-searching here is a bug the traveler experiences as the "
+             . "same list reappearing. The refs you showed are still valid for the select/book step.";
+    }
+}
+
+if (!function_exists('App\\lib\\ai\\gia_channel_store_choices')) {
+    /**
+     * Persist the ORDERED pick-button ids this turn showed, so a later bare-number
+     * reply ("2") can be resolved to the exact choice. On WhatsApp a list of >3
+     * options renders as a NUMBERED TEXT LIST (no tap-buttons), so the user types a
+     * number — which otherwise reaches the model as a naked "2" with no ref, and the
+     * model just re-searches. Storing the order lets us rewrite "2" -> the 2nd id
+     * deterministically BEFORE the model runs. Reuses gia_offer_cache (conv-keyed).
+     */
+    function gia_channel_store_choices($db, int $convId, array $rich): void
+    {
+        if ($convId <= 0 || !\function_exists('gia_offer_cache_put')) { return; }
+        $ids = [];
+        // Cards are shown first (each with one pick button), then standalone buttons —
+        // same visual order the traveler sees numbered on the channel.
+        foreach (($rich['cards'] ?? []) as $c) {
+            foreach (($c['buttons'] ?? []) as $b) {
+                $id = (string) ($b['id'] ?? '');
+                if ($id !== '' && gia_channel_is_pick_id($id)) { $ids[] = $id; }
+            }
+        }
+        foreach (($rich['buttons'] ?? []) as $b) {
+            $id = (string) ($b['id'] ?? '');
+            if ($id !== '' && gia_channel_is_pick_id($id)) { $ids[] = $id; }
+        }
+        if ($ids === []) { return; }
+        \gia_offer_cache_put($db, $convId, 'last_choices', ['ids' => $ids]);
+    }
+}
+
+if (!function_exists('App\\lib\\ai\\gia_channel_is_pick_id')) {
+    /** True for the selection button-ids we teach the model to act on. */
+    function gia_channel_is_pick_id(string $id): bool
+    {
+        foreach (['pick|', 'pickfare|', 'pickdep|', 'picktier|', 'pickstay|'] as $p) {
+            if (\strncmp($id, $p, \strlen($p)) === 0) { return true; }
+        }
+        return false;
+    }
+}
+
+if (!function_exists('App\\lib\\ai\\gia_channel_resolve_numeric_pick')) {
+    /**
+     * If $text is a bare selection ("2", "option 2", "number 3", "the first one"),
+     * map it to the Nth pick-button id stored for this conversation and return that
+     * id; else return '' (leave the text untouched). This is the deterministic fix
+     * for the WhatsApp "pick a number -> GIA re-searches" loop: the number becomes a
+     * real ref the model is already taught to act on, so it never re-searches.
+     */
+    function gia_channel_resolve_numeric_pick($db, int $convId, string $text): string
+    {
+        if ($convId <= 0 || !\function_exists('gia_offer_cache_get')) { return ''; }
+        $t = \strtolower(\trim($text));
+        // Already a pick id (a real button tap) — nothing to resolve.
+        if (gia_channel_is_pick_id($t)) { return ''; }
+        $n = 0;
+        if (\preg_match('/^(?:option|number|no\.?|#)?\s*([1-9][0-9]?)\b/', $t, $m)) {
+            $n = (int) $m[1];
+        } else {
+            $words = ['first' => 1, 'second' => 2, 'third' => 3, 'fourth' => 4, 'fifth' => 5,
+                      'sixth' => 6, 'seventh' => 7, 'eighth' => 8, 'ninth' => 9, 'tenth' => 10];
+            foreach ($words as $w => $v) {
+                if (\preg_match('/\b(?:the\s+)?' . $w . '(?:\s+one)?\b/', $t)) { $n = $v; break; }
+            }
+        }
+        if ($n < 1) { return ''; }
+        // Guard: a message with real content beyond the number (dates, names, a city)
+        // is NOT a bare pick — leave it for the model. Only treat SHORT replies.
+        if (\mb_strlen($t) > 24) { return ''; }
+        $store = \gia_offer_cache_get($db, $convId, 'last_choices');
+        $ids = \is_array($store['ids'] ?? null) ? $store['ids'] : [];
+        if ($n > \count($ids)) { return ''; }
+        return (string) $ids[$n - 1];
     }
 }
 
