@@ -131,17 +131,21 @@ $__renderTile = function (array $rt) {
   </div>
 
   <?php if ($__hasLocal): ?>
-  <div <?= ($__hasLocal && $__hasIntl) ? 'x-show="frTab===\'local\'" x-cloak' : '' ?> style="overflow-x:auto">
-    <div class="flex gap-3 px-4 pb-4" style="width:max-content">
-      <?php foreach ($__routes['local'] as $rt) { echo $__renderTile($rt); } ?>
+  <div class="container mx-auto px-4" <?= ($__hasLocal && $__hasIntl) ? 'x-show="frTab===\'local\'" x-cloak' : '' ?>>
+    <div style="overflow-x:auto">
+      <div class="flex gap-3 pb-4" style="width:max-content">
+        <?php foreach ($__routes['local'] as $rt) { echo $__renderTile($rt); } ?>
+      </div>
     </div>
   </div>
   <?php endif; ?>
 
   <?php if ($__hasIntl): ?>
-  <div <?= ($__hasLocal && $__hasIntl) ? 'x-show="frTab===\'international\'" x-cloak' : '' ?> style="overflow-x:auto">
-    <div class="flex gap-3 px-4 pb-4" style="width:max-content">
-      <?php foreach ($__routes['international'] as $rt) { echo $__renderTile($rt); } ?>
+  <div class="container mx-auto px-4" <?= ($__hasLocal && $__hasIntl) ? 'x-show="frTab===\'international\'" x-cloak' : '' ?>>
+    <div style="overflow-x:auto">
+      <div class="flex gap-3 pb-4" style="width:max-content">
+        <?php foreach ($__routes['international'] as $rt) { echo $__renderTile($rt); } ?>
+      </div>
     </div>
   </div>
   <?php endif; ?>
