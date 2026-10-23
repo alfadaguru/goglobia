@@ -20,7 +20,11 @@
 @$SECURE or die('Access Denied!');
 
 if (!function_exists('umrahListingCards')) {
-    $__lf = dirname(__DIR__, 2) . '/lib/umrah/listing.php';
+    // featured.php is at app/views/modules/umrah/ — the lib is at app/lib/umrah/,
+    // so we go up THREE levels (umrah -> modules -> views -> app), not two.
+    // (dirname(__DIR__,2) pointed at app/views/lib/... which does not exist, so
+    // the function never loaded on the homepage and the section rendered empty.)
+    $__lf = dirname(__DIR__, 3) . '/lib/umrah/listing.php';
     if (is_file($__lf)) { require_once $__lf; }
 }
 
