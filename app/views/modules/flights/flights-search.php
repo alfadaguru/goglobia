@@ -839,7 +839,7 @@ function flightSearchData() {
             <input type="hidden" name="from" :value="fromSelected ? fromSelected.id : fromSearch">
 
             <!-- EXCHANGE BUTTON — POSITIONED BETWEEN FROM AND TO INPUTS -->
-            <button type="button" @click="exchangeCities()" class="w-8 h-8 p-0 rounded-full bg-[#f2f4f7] border border-[#d8dce3] hover:bg-[#e4e7ec] shadow-sm absolute inset-y-0 my-auto -right-5 z-10 hidden lg:flex items-center justify-center text-[#667085]">
+            <button type="button" @click="exchangeCities()" aria-label="Swap departure and arrival airports" title="Swap departure and arrival" class="w-8 h-8 p-0 rounded-full bg-[#f2f4f7] border border-[#d8dce3] hover:bg-[#e4e7ec] shadow-sm absolute inset-y-0 my-auto -right-5 z-10 hidden lg:flex items-center justify-center text-[#667085]">
                 <span class="material-symbols-outlined text-sm">swap_horiz</span>
             </button>
         </div>

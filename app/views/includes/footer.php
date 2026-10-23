@@ -324,7 +324,7 @@ $footer_menus = array_values(array_filter(array_map(
                 <div class="container mx-auto px-4 py-6">
                     <div class="flex flex-col items-center gap-4 lg:flex-row lg:justify-center lg:gap-8">
                         <p class="text-[11px] font-semibold uppercase tracking-wider text-center lg:text-left"
-                           style="color: var(--footer-text-color); opacity:.75;">
+                           style="color: var(--footer-text-color);">
                             Accredited &amp; Certified
                         </p>
                         <div class="flex flex-wrap items-center justify-center gap-3 sm:gap-4">

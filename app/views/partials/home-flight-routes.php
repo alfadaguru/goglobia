@@ -81,8 +81,7 @@ $__renderTile = function (array $rt) use ($__frUrl) {
     <a href="<?= htmlspecialchars($href, ENT_QUOTES) ?>"
         class="group relative shrink-0 rounded-xl overflow-hidden border border-gray-200 bg-white shadow-sm hover:shadow-md transition text-left block"
         style="width:220px;text-decoration:none"
-        data-route="<?= htmlspecialchars($rt['from'] . '-' . $rt['to'], ENT_QUOTES) ?>"
-        aria-label="Search flights <?= htmlspecialchars($rt['fromL'] . ' to ' . $rt['toL'], ENT_QUOTES) ?>">
+        data-route="<?= htmlspecialchars($rt['from'] . '-' . $rt['to'], ENT_QUOTES) ?>"><!-- a11y: no aria-label — the link's accessible name comes from its visible content (codes, cities, fares), satisfying WCAG 2.5.3 Label in Name -->
       <?php if ($imgUrl !== ''): ?>
         <div class="relative h-24 overflow-hidden bg-gray-100">
           <img src="<?= htmlspecialchars($imgUrl) ?>" alt="<?= htmlspecialchars($rt['toL']) ?>" width="440" height="192"

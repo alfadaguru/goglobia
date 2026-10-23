@@ -217,3 +217,26 @@ a, button, [role="button"], input[type="submit"], input[type="button"], label, s
 img, video {
     max-width: 100%;
 }
+
+/* ============================================================
+   ACCESSIBILITY — TEXT CONTRAST (WEB-002 / WCAG 2.2 AA, 1.4.3)
+   An axe-core audit found muted text failing the 4.5:1 minimum.
+   Darken the specific culprits to AA-passing values. These are
+   narrow overrides, not a theme change; brand accent is untouched
+   except the one active-tab case where blue sat on its own tint.
+   ------------------------------------------------------------
+   - text-gray-400 (#9ca3af, 2.5:1 on white) -> #6b7280 (4.83:1).
+     Still legible on the rare dark-bg use; most uses are on light.
+   - Small muted slate on white in the search fields.
+   - The active service tab: brand blue on a light-blue tint failed
+     (3.3:1); use blue-700 for the active label (5.99:1).
+   ============================================================ */
+.text-gray-400 { color: #6b7280 !important; }          /* AA on white */
+.text-gray-300 { color: #6b7280 !important; }           /* even lighter — same fix */
+/* Search-field muted placeholders/labels (#98a2b3 -> AA). */
+.text-\[\#98a2b3\] { color: #667085 !important; }       /* 4.97:1 */
+/* Active service-tab label: brand blue on light-blue tint -> blue-700. */
+.border-primary .capitalize { color: #1d4ed8 !important; }
+/* text-primary links (#3b82f6, blue-500) fail 4.5:1 on near-white; nudge to
+   blue-600 (#2563eb, 4.9:1+) — same brand blue, AA-compliant. */
+.text-primary { color: #2563eb !important; }

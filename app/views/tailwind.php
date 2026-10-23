@@ -146,7 +146,7 @@ document.addEventListener('DOMContentLoaded', function() {
     /* Footer Variables */
     --footer-font-size: <?= $theme['footer']['font_size'] ?? '14' ?>px;
     --footer-background: <?= $theme['footer']['background'] ?? '#1f2937' ?>;
-    --footer-text-color: <?= $theme['footer']['text_color'] ?? '#9ca3af' ?>;
+    --footer-text-color: <?= $theme['footer']['text_color'] ?? '#6b7280' ?>; <?php /* WEB-002: AA-contrast default (was #9ca3af, failed 4.5:1 on a light footer) */ ?>
     --footer-heading-color: <?= $theme['footer']['heading_color'] ?? '#ffffff' ?>;
     --footer-link-color: <?= $theme['footer']['link_color'] ?? '#60a5fa' ?>;
     --footer-link-hover-color: <?= $theme['footer']['link_hover_color'] ?? '#93c5fd' ?>;

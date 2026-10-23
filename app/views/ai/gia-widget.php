@@ -310,11 +310,19 @@ $giaWCfg = json_encode([
   </div>
 
   <!-- Floating bubble -->
-  <button type="button" class="giaw-fab" x-show="!open" @click="toggle()" aria-label="Ask GIA" style="position:fixed"
-          :class="(pulse && !open ? 'giaw-pulse ' : '') + (bounce ? 'giaw-bounce' : '')">
-    <span class="material-symbols-outlined">forum</span>
-    <span class="giaw-unread" x-show="unread > 0" x-text="unread" x-cloak></span>
-  </button>
+  <!-- FAB wrapper: the unread badge is a SIBLING of the button (not a child) so
+       it never becomes part of the button's accessible name — the button stays
+       a clean icon-only control named "Ask GIA" (WCAG 2.5.3 Label in Name). The
+       badge is decorative/informational and aria-hidden; the real unread status
+       is announced via the live region below. -->
+  <div class="giaw-fab-wrap" x-show="!open" style="position:fixed;right:20px;bottom:20px;z-index:9998" x-cloak>
+    <button type="button" class="giaw-fab" @click="toggle()" aria-label="Ask GIA"
+            :class="(pulse && !open ? 'giaw-pulse ' : '') + (bounce ? 'giaw-bounce' : '')" style="position:relative">
+      <span class="material-symbols-outlined" aria-hidden="true">forum</span>
+    </button>
+    <span class="giaw-unread" x-show="unread > 0" x-text="unread" x-cloak aria-hidden="true"></span>
+    <span class="sr-only" role="status" aria-live="polite" x-text="unread > 0 ? (unread + ' new message' + (unread>1?'s':'') + ' from GIA') : ''"></span>
+  </div>
 
   <!-- Chat panel -->
   <div class="giaw-panel" x-show="open" x-transition.opacity x-cloak
