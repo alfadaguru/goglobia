@@ -5044,6 +5044,93 @@ function ensurePromoUsageSchema($db): void
     }
 }
 
+/**
+ * Popular flight routes — admin-managed tiles shown on the homepage "Popular
+ * flight routes" strip. Each row is an origin→destination pair (airport codes)
+ * grouped as `local` (domestic NG) or `international`, optionally with a tile
+ * image. A route tile prefills the flight search box (user picks dates) and
+ * shows a REAL "from" price only when a matching featured-flight deal exists
+ * (resolved client-side from /api/flights/featured) — never a fabricated price.
+ *
+ * Idempotent: creates the table if missing and seeds a sensible NG-hub starter
+ * set ONCE (only when the table is freshly created and empty). The admin screen
+ * (/admin/flights/popular-routes) is the source of truth thereafter.
+ * Keep install/db.sql in sync with this definition.
+ */
+function ensureFlightsPopularRoutesSchema($db): void
+{
+    static $checked = false;
+    if ($checked) { return; }
+    $checked = true;
+
+    try {
+        $freshlyCreated = false;
+        if (!dbTableExists($db, 'flights_popular_routes')) {
+            $db->query("CREATE TABLE IF NOT EXISTS `flights_popular_routes` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `from_code` varchar(8) NOT NULL,
+                `to_code` varchar(8) NOT NULL,
+                `from_label` varchar(120) DEFAULT NULL,
+                `to_label` varchar(120) DEFAULT NULL,
+                `scope` enum('local','international') NOT NULL DEFAULT 'international',
+                `image` varchar(255) DEFAULT NULL,
+                `sort_order` int(11) NOT NULL DEFAULT 0,
+                `status` tinyint(1) NOT NULL DEFAULT 1,
+                `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_route` (`from_code`,`to_code`),
+                KEY `idx_scope_status` (`scope`,`status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            $freshlyCreated = true;
+        }
+
+        // One-time starter seed — only on a brand-new, empty table. Admin owns it
+        // afterwards (we never re-seed or overwrite their edits). Images reuse the
+        // destination photos already in uploads/global/destinations/ where present;
+        // a missing image just renders the clean card (handled in the view).
+        if ($freshlyCreated && (int) $db->count('flights_popular_routes', '*') === 0) {
+            $seed = [
+                // LOCAL (NG domestic) — both directions for the key hubs.
+                ['LOS', 'ABV', 'Lagos', 'Abuja',         'local', 'abuja.jpg',        10],
+                ['ABV', 'LOS', 'Abuja', 'Lagos',         'local', 'lagos.jpg',        20],
+                ['LOS', 'KAN', 'Lagos', 'Kano',          'local', 'kano.jpg',         30],
+                ['KAN', 'LOS', 'Kano',  'Lagos',         'local', 'lagos.jpg',        40],
+                ['ABV', 'PHC', 'Abuja', 'Port Harcourt', 'local', 'portharcourt.jpg', 50],
+                // INTERNATIONAL — NG hubs to top destinations.
+                ['LOS', 'DXB', 'Lagos', 'Dubai',    'international', 'dubai.jpg',    10],
+                ['LOS', 'LHR', 'Lagos', 'London',   'international', 'london.jpg',   20],
+                ['LOS', 'JED', 'Lagos', 'Jeddah',   'international', 'jeddah.jpg',   30],
+                ['ABV', 'IST', 'Abuja', 'Istanbul', 'international', 'istanbul.jpg', 40],
+                ['KAN', 'JED', 'Kano',  'Jeddah',   'international', 'jeddah.jpg',   50],
+                ['LOS', 'ACC', 'Lagos', 'Accra',    'international', null,           60],
+            ];
+            foreach ($seed as $r) {
+                // Only seed a route whose BOTH airports actually exist in this
+                // install (never create dead tiles).
+                $haveFrom = (int) $db->count('flights_airports', '*', ['code' => $r[0]]);
+                $haveTo   = (int) $db->count('flights_airports', '*', ['code' => $r[1]]);
+                if ($haveFrom < 1 || $haveTo < 1) { continue; }
+                $img = $r[5] && is_file(dirname(__DIR__) . '/../uploads/global/destinations/' . $r[5])
+                    ? 'uploads/global/destinations/' . $r[5]
+                    : null;
+                $db->insert('flights_popular_routes', [
+                    'from_code'  => $r[0],
+                    'to_code'    => $r[1],
+                    'from_label' => $r[2],
+                    'to_label'   => $r[3],
+                    'scope'      => $r[4],
+                    'image'      => $img,
+                    'sort_order' => $r[6],
+                    'status'     => 1,
+                ]);
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log('ensureFlightsPopularRoutesSchema: ' . $e->getMessage());
+    }
+}
+
 if (!function_exists('promoUserRef')) {
     /**
      * Stable per-user key for promo redemption limits: the user_id when logged

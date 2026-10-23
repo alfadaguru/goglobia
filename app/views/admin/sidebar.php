@@ -224,6 +224,7 @@ if ($flights > 0) {
         'url' => root.admin.'/flights',
         'submenu' => [
             ['name' => T::flights, 'icon' => 'flight_takeoff', 'url' => root.admin.'/flights'],
+            ['name' => 'Popular Routes', 'icon' => 'interests', 'url' => root.admin.'/flights/popular-routes'],
             ['name' => T::airlines, 'icon' => 'airlines', 'url' => root.admin.'/flights-airlines'],
             ['name' => T::airports, 'icon' => 'airplane_ticket', 'url' => root.admin.'/flights-airports'],
             // Staff booking tool for walk-in customers (search+book or record a
