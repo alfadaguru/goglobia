@@ -144,6 +144,25 @@
                             </div>
                             <?php } ?>
                         </div>
+                        <!-- FLEXIBLE DATES — one-tap nearby check-in dates (shifts both
+                             check-in + check-out, stay length preserved; no per-day prices;
+                             each chip re-runs the real search). -->
+                        <div x-show="searchParams.checkin"
+                            x-cloak class="mb-4 flex items-stretch gap-2 overflow-x-auto pb-1">
+                            <template x-for="d in flexDates()" :key="d.dmy">
+                                <button type="button"
+                                    @click="d.valid && !d.isCurrent ? goToFlexDate(d.dmy) : null"
+                                    :disabled="!d.valid || d.isCurrent"
+                                    class="shrink-0 min-w-[64px] rounded-xl border px-3 py-2 text-center transition-colors"
+                                    :class="d.isCurrent
+                                        ? 'border-blue-600 bg-blue-600 text-white cursor-default'
+                                        : (d.valid ? 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20'
+                                                   : 'border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 text-gray-300 dark:text-gray-600 cursor-not-allowed')">
+                                    <div class="text-[11px] uppercase tracking-wide" x-text="d.isCurrent ? '<?= T::selected ?? 'Selected' ?>' : d.dow"></div>
+                                    <div class="text-sm font-semibold leading-tight"><span x-text="d.day"></span> <span x-text="d.mon"></span></div>
+                                </button>
+                            </template>
+                        </div>
                         <!-- Loading Skeletons -->
                         <div x-show="loading"
                              x-transition:leave="transition ease-in duration-500"
@@ -437,6 +456,59 @@
                     }
                 } catch (e) {}
             },
+            // --- FLEXIBLE DATES (± day shortcuts) --------------------------------
+            // One-tap nearby check-in dates that RE-RUN the real search. Shifting a
+            // day moves BOTH check-in and check-out (stay length preserved). No
+            // supplier price calendar exists, so we show NO per-day prices.
+            _parseDMY(s) {
+                const m = (s || '').match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+                if (!m) return null;
+                return new Date(+m[3], +m[2] - 1, +m[1]);
+            },
+            _toDMY(d) {
+                const p = n => String(n).padStart(2, '0');
+                return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()}`;
+            },
+            _dayStart(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; },
+            flexDates() {
+                const ci = this._parseDMY(this.searchParams.checkin);
+                const co = this._parseDMY(this.searchParams.checkout);
+                if (!ci || !co) return [];
+                const today = this._dayStart(new Date());
+                const out = [];
+                for (let off = -3; off <= 3; off++) {
+                    const d = new Date(ci); d.setDate(d.getDate() + off);
+                    const ds = this._dayStart(d);
+                    out.push({
+                        off,
+                        isCurrent: off === 0,
+                        valid: ds >= today, // check-in can't be in the past
+                        dmy: this._toDMY(d),
+                        dow: d.toLocaleDateString(undefined, { weekday: 'short' }),
+                        day: d.getDate(),
+                        mon: d.toLocaleDateString(undefined, { month: 'short' }),
+                    });
+                }
+                return out;
+            },
+            goToFlexDate(newCheckinDmy) {
+                if (!newCheckinDmy || newCheckinDmy === this.searchParams.checkin) return;
+                const ci = this._parseDMY(this.searchParams.checkin);
+                const co = this._parseDMY(this.searchParams.checkout);
+                if (!ci || !co) return;
+                const nights = Math.max(1, Math.round((this._dayStart(co) - this._dayStart(ci)) / 86400000));
+                const newCi = this._parseDMY(newCheckinDmy);
+                const newCo = new Date(newCi); newCo.setDate(newCo.getDate() + nights);
+                // Swap only the two date segments in the current path; keeps the
+                // destination slug, nationality, rooms and room_configs exactly.
+                const parts = window.location.pathname.split('/').filter(Boolean);
+                const i = parts.indexOf('stays');
+                if (i === -1 || parts.length < i + 4) return;
+                parts[i + 2] = newCheckinDmy;              // check-in segment
+                parts[i + 3] = this._toDMY(newCo);         // check-out segment
+                window.location.href = '/' + parts.join('/');
+            },
+
             checkUrlHash() {
                 // Check if URL has hash (e.g., #2, #3)
                 const hash = window.location.hash.replace('#', '');
