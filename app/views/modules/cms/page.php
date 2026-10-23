@@ -93,8 +93,20 @@
     </div>
 
     <?php if (isset($slug) && $slug === 'contact-us'): ?>
-        <?php $mapUrl = $GLOBALS['app']['map_address'] ?? ''; ?>
-        <?php if (!empty($mapUrl)): ?>
+        <?php
+        // Only embed the map when the configured URL is an ACTUAL Google Maps
+        // EMBED URL. A share/short link (maps.app.goo.gl/..., google.com/maps/place/...)
+        // cannot load in an iframe and renders a wrong/blank map, so we hide it and
+        // the admin can paste a proper "Embed a map" URL in Settings → map_address.
+        // Valid embed forms:
+        //   https://www.google.com/maps/embed?...     (Google "Embed a map" output)
+        //   https://maps.google.com/maps?...output=embed
+        $mapUrl = trim((string) ($GLOBALS['app']['map_address'] ?? ''));
+        $mapIsEmbeddable = $mapUrl !== ''
+            && (stripos($mapUrl, 'google.com/maps/embed') !== false
+                || stripos($mapUrl, 'output=embed') !== false);
+        ?>
+        <?php if ($mapIsEmbeddable): ?>
         <div class="container mx-auto px-4 pb-8">
             <div class="max-w-4xl mx-auto">
                 <iframe src="<?= htmlspecialchars($mapUrl) ?>" width="100%" height="450" style="border:0; border-radius: 12px;" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
