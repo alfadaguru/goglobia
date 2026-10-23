@@ -53,6 +53,17 @@ use Medoo\Medoo;
 $root = (isset($_SERVER['HTTPS']) ? "https://" : "http://") . $_SERVER['HTTP_HOST'];
 $root .= str_replace(basename($_SERVER['SCRIPT_NAME']), '', $_SERVER['SCRIPT_NAME']);
 
+// Define the `root` constant HERE, before any library is required. Some supplier
+// libs do `@defined('root') or define('root','/')` as a fallback; if they load
+// before `root` is defined they pin it to '/', which (a) makes the later
+// define('root', $root) throw "Constant root already defined" (fatal under Whoops
+// in dev) and (b) corrupts parse_ini_file('.env') — an unquoted DB_USERNAME=root
+// gets substituted with the constant value '/', breaking DB login and bouncing the
+// whole app to /install. Defining it first makes those fallbacks harmless no-ops.
+if (!defined('root')) {
+    define('root', $root);
+}
+
 // ==================================================
 // AUTOLOADER & CORE LIBRARIES
 // ==================================================
@@ -490,7 +501,7 @@ try {
 // GLOBAL CONSTANTS
 // ==================================================
 
-define('root', $root);
+if (!defined('root')) { define('root', $root); } // already defined earlier (see APPLICATION ROOT URL)
 define('views', __DIR__ . '/app/views/');
 define('uploads', __DIR__ . '/uploads/');
 define('admin', 'admin');
