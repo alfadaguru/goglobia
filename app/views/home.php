@@ -249,12 +249,12 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
                     if (!this.searchLoaded[t]) this.searchReq[t] = false;
                 }
             },
-            // DESTINATION-TILE → SEARCH BOX (homepage "Popular destinations").
+            // DESTINATION-TILE to SEARCH BOX (homepage "Popular destinations").
             // We do NOT deep-link to a results URL with invented dates. Instead we
-            // switch to the Stays tab, drive the form's OWN live autocomplete
+            // switch to the Stays tab, drive the forms OWN live autocomplete
             // (the same hotels-destination-suggestion endpoint it uses when a user
             // types), auto-pick the first REAL system match, and leave the dates
-            // empty so the traveller chooses them — the way Booking/dnata behave.
+            // empty so the traveller chooses them, the way Booking/dnata behave.
             async prefillStayDestination(city) {
                 city = String(city || "").trim();
                 if (!city || !this.validTabs.includes("stays")) return;
@@ -280,7 +280,7 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
                 // 3) Bring the search box into view.
                 (this.$refs.panels || panel).scrollIntoView({ behavior: "smooth", block: "center" });
 
-                // 4) Open the destination panel and drive the form's LIVE search.
+                // 4) Open the destination panel and drive the forms LIVE search.
                 //    openDest() is a toggle, so set the state directly (idempotent).
                 form.destOpen = true;
                 if (typeof window.flAnchorPanel === "function") {
@@ -291,16 +291,16 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
                 form.fetchDestination();           // real AJAX to the suggestion endpoint
 
                 // 5) When real results arrive, auto-select the first match (a real
-                //    system destination with its country/type) via the form's own
-                //    selectDestination — exactly as if the user had clicked it.
+                //    system destination with its country/type) via the forms own
+                //    selectDestination, exactly as if the user had clicked it.
                 const pickDeadline = performance.now() + 8000;
                 while (performance.now() < pickDeadline) {
                     if (form.destinationSelected) return; // user already picked — leave it
                     if (!form.destinationLoading && form.destinationHasSearched) {
                         const results = Array.isArray(form.destinationResults) ? form.destinationResults : [];
                         // Prefer a CITY/AREA match over a specific hotel — selecting a
-                        // hotel would redirect straight to that hotel's page, but the
-                        // intent of a destination tile is "search this place, I'll pick
+                        // hotel would redirect straight to that hotel page, but the
+                        // intent of a destination tile is "search this place, user picks
                         // dates". Fall back to the first result if none are non-hotels.
                         const pick = results.find(r => r && !r.is_hotel && r.type !== "hotel") || results[0];
                         if (pick) {
