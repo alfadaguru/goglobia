@@ -313,81 +313,6 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
                     await new Promise(r => setTimeout(r, 80));
                 }
             },
-            // POPULAR-ROUTE TILE to FLIGHT SEARCH BOX (homepage "Popular flight
-            // routes"). Same philosophy as the stays strip: we do NOT deep-link to
-            // a results URL with invented dates (the flight route REQUIRES a date
-            // segment). Instead we switch to the Flights tab, drive the forms OWN
-            // live airport autocomplete for both From and To (the same
-            // flights-airport-suggestion endpoint the user hits when typing),
-            // auto-select the matching airport by code, and leave the dates empty
-            // for the traveller to choose.
-            async prefillFlightRoute(fromCode, toCode) {
-                fromCode = String(fromCode || "").trim().toUpperCase();
-                toCode   = String(toCode || "").trim().toUpperCase();
-                if (!fromCode || !toCode || !this.validTabs.includes("flights")) return;
-
-                this.activeTab = "flights";
-
-                // Wait for the lazy flights form to be injected + Alpine-ready.
-                const panel = document.getElementById("search-panel-flights");
-                const deadline = performance.now() + 6000;
-                while (performance.now() < deadline) {
-                    if (this.searchLoaded["flights"] && panel) {
-                        const r = panel.querySelector("[x-data]");
-                        if (r && window.Alpine && window.Alpine.$data(r)
-                            && typeof window.Alpine.$data(r).fetchFrom === "function") break;
-                    }
-                    await new Promise(r => setTimeout(r, 80));
-                }
-                const root = panel && panel.querySelector("[x-data]");
-                const form = root && window.Alpine ? window.Alpine.$data(root) : null;
-                if (!form || typeof form.fetchFrom !== "function") return;
-
-                (this.$refs.panels || panel).scrollIntoView({ behavior: "smooth", block: "center" });
-
-                // Drive the FROM autocomplete, then auto-pick the airport whose code
-                // matches. Then the same for TO. Dates are left untouched.
-                const pickByCode = async (code, setQuery, runFetch, getResults, isLoading, hasSearched, commit) => {
-                    setQuery(code);
-                    runFetch.call(form); // live suggestion fetch for this code
-                    const dl = performance.now() + 8000;
-                    while (performance.now() < dl) {
-                        if (!isLoading() && hasSearched()) {
-                            const results = getResults() || [];
-                            // Prefer an EXACT code match (a.id is the airport code),
-                            // else the first suggestion.
-                            const exact = results.find(a => a && String(a.id || "").toUpperCase() === code);
-                            const pick = exact || results[0];
-                            if (pick) commit.call(form, pick);
-                            return;
-                        }
-                        await new Promise(r => setTimeout(r, 80));
-                    }
-                };
-
-                form.fromOpen = true;
-                await pickByCode(
-                    fromCode,
-                    v => { form.fromQuery = v; },
-                    form.fetchFrom,
-                    () => form.fromResults,
-                    () => form.fromLoading,
-                    () => form.fromHasSearched,
-                    form.selectFrom
-                );
-                // selectFrom auto-focuses the To input after a short delay; give it a beat.
-                await new Promise(r => setTimeout(r, 120));
-                form.toOpen = true;
-                await pickByCode(
-                    toCode,
-                    v => { form.toQuery = v; },
-                    form.fetchTo,
-                    () => form.toResults,
-                    () => form.toLoading,
-                    () => form.toHasSearched,
-                    form.selectTo
-                );
-            },
             animateTabSwitch() {
                 const box = this.$refs.panels;
                 if (!box) return;
@@ -634,12 +559,6 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
             // Stays search box (destination only; user picks the dates).
             window.addEventListener("goglobia:pick-stay", (e) => {
                 prefillStayDestination(e && e.detail ? e.detail.city : "");
-            });
-            // Homepage "Popular flight routes" tiles ask the hero to prefill the
-            // Flights search box (From + To by code; user picks the dates).
-            window.addEventListener("goglobia:pick-flight", (e) => {
-                const d = (e && e.detail) || {};
-                prefillFlightRoute(d.from || "", d.to || "");
             });
         '>
 
