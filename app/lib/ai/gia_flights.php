@@ -203,7 +203,7 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
         $children    = \max(0, (int) ($opts['children'] ?? 0));
         $infants     = \max(0, (int) ($opts['infants'] ?? 0));
         $currency    = \strtoupper(\trim((string) ($opts['currency'] ?? ''))) ?: 'USD';
-        $limit       = (int) ($opts['limit'] ?? 6); if ($limit <= 0) { $limit = 6; }
+        $limit       = (int) ($opts['limit'] ?? 8); if ($limit <= 0) { $limit = 8; }
 
         // HARD requirement — never guess a route or a date (the web-coupling that
         // broke umrah). If any is missing OR a city couldn't be resolved to an
@@ -265,18 +265,36 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
 
             foreach ($rows as $offer) {
                 if (!\is_array($offer)) { continue; }
+                // segments is an array of LEG groups: segments[0] = outbound, segments[1]
+                // = return (round-trip package). Each group is [$flight]. Read the FULL
+                // offer, not just segments[0][0] — the supplier already gives us stops,
+                // duration, baggage, refundable, arrival time, seats and the return leg
+                // (adivaha/search.php:334-385); GIA used to drop all of it.
                 $firstSeg = $offer['segments'][0][0] ?? null;
                 if (!\is_array($firstSeg)) { continue; }
+                $returnSeg = $offer['segments'][1][0] ?? null; // round-trip inbound, if any
                 $bookingData = \is_array($firstSeg['booking_data'] ?? null) ? $firstSeg['booking_data'] : [];
                 $token = (string) ($bookingData['offer_id'] ?? ($bookingData['booking_token'] ?? ($bookingData['FareSourceCode'] ?? '')));
                 if ($token === '') { continue; }
 
                 $airline = (string) ($firstSeg['airline'] ?? '');
-                $dep     = (string) ($firstSeg['departure_code'] ?? $origin);
-                $arr     = (string) ($firstSeg['arrival_code'] ?? $destination);
+                $dep     = (string) ($firstSeg['departure_code'] ?? $firstSeg['departure_airport'] ?? $origin);
+                $arr     = (string) ($firstSeg['arrival_code'] ?? $firstSeg['arrival_airport'] ?? $destination);
                 $depTime = (string) ($firstSeg['departure_time'] ?? '');
                 $price   = $firstSeg['price'] ?? ($bookingData['amount'] ?? null);
                 if (\is_string($price)) { $price = (float) \str_replace(',', '', $price); }
+
+                // Rich detail the supplier returns (previously discarded).
+                $stops      = (int) ($firstSeg['stops'] ?? 0);
+                $duration   = (string) ($firstSeg['duration_time'] ?? $firstSeg['total_duration'] ?? '');
+                $arrTime    = (string) ($firstSeg['arrival_time'] ?? '');
+                $cabin      = (string) ($firstSeg['class'] ?? $class);
+                $baggage    = (string) ($firstSeg['baggage'] ?? '');
+                $refundable = (string) ($firstSeg['refundable'] ?? '');
+                $fareName   = (string) ($firstSeg['fare_name'] ?? '');
+                $seatsLeft  = (int) ($firstSeg['seats_remaining'] ?? 0);
+                $flightNo   = (string) ($firstSeg['flight_no'] ?? '');
+                $isReturn   = \is_array($returnSeg);
 
                 // FARE EXPIRY (critical for flights): suppliers set a hard expiry on
                 // the offer/token (duffel revalidate.php:100 rejects an offer past
@@ -292,10 +310,35 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
                 // (same airline + route + price) are DISTINCT — otherwise the model
                 // can't tell which "first one" the traveller meant and loops back to
                 // search. e.g. "Air Peace 06:30 · LOS → ABV".
-                $flightNo = (string) ($firstSeg['flight_no'] ?? '');
                 $label = \trim(($airline !== '' ? $airline : 'Flight')
                     . ($depTime !== '' ? ' ' . $depTime : '')
                     . ' · ' . $dep . ' → ' . $arr);
+
+                // Structured one-line summary the renderers show BELOW the title —
+                // stops, duration, cabin, baggage, scarcity — all real supplier data.
+                $bits = [];
+                $bits[] = $stops <= 0 ? 'Nonstop' : ($stops . ' stop' . ($stops === 1 ? '' : 's'));
+                if ($duration !== '') { $bits[] = $duration; }
+                if ($arrTime !== '') { $bits[] = 'arr ' . $arrTime; }
+                if ($isReturn) { $bits[] = 'round-trip'; }
+                if ($cabin !== '') { $bits[] = \ucwords(\str_replace('_', ' ', $cabin)); }
+                if ($refundable !== '') { $bits[] = $refundable; }
+                if ($baggage !== '' && \stripos($baggage, 'policy') === false) { $bits[] = $baggage . ' bag'; }
+                if ($seatsLeft > 0 && $seatsLeft <= 5) { $bits[] = 'only ' . $seatsLeft . ' left'; }
+                $detail = \implode(' · ', $bits);
+                // Return-leg one-liner (round-trip) so the traveller sees BOTH directions.
+                $returnLine = '';
+                if ($isReturn) {
+                    $rAir = (string) ($returnSeg['airline'] ?? '');
+                    $rDep = (string) ($returnSeg['departure_code'] ?? $returnSeg['departure_airport'] ?? $arr);
+                    $rArr = (string) ($returnSeg['arrival_code'] ?? $returnSeg['arrival_airport'] ?? $dep);
+                    $rTime = (string) ($returnSeg['departure_time'] ?? '');
+                    $rStops = (int) ($returnSeg['stops'] ?? 0);
+                    $returnLine = \trim('Return: ' . ($rAir !== '' ? $rAir . ' ' : '')
+                        . ($rTime !== '' ? $rTime . ' ' : '') . $rDep . ' → ' . $rArr
+                        . ' · ' . ($rStops <= 0 ? 'Nonstop' : $rStops . ' stop' . ($rStops === 1 ? '' : 's')));
+                }
+
                 $offers[] = [
                     'module'      => 'flights',
                     'kind'        => 'flights',
@@ -307,7 +350,19 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
                     'title'       => $label,
                     'flight_no'   => $flightNo,
                     'depart_time' => $depTime,
-                    'subtitle'    => \trim(($flightNo !== '' ? $flightNo . ' · ' : '') . \strtoupper($class)),
+                    // subtitle = the structured detail line (stops/duration/cabin/bag/scarcity).
+                    'subtitle'    => $detail !== '' ? $detail : \trim(($flightNo !== '' ? $flightNo . ' · ' : '') . \ucwords(\str_replace('_', ' ', $cabin))),
+                    // Individual fields so each renderer can lay them out as it likes.
+                    'stops'       => $stops,
+                    'duration'    => $duration,
+                    'arrival_time'=> $arrTime,
+                    'cabin'       => $cabin,
+                    'baggage'     => $baggage,
+                    'refundable'  => $refundable,
+                    'fare_name'   => $fareName,
+                    'seats_left'  => $seatsLeft,
+                    'trip_type'   => $isReturn ? 'return' : 'oneway',
+                    'return_line' => $returnLine,
                     'price'       => \is_numeric($price) ? \round((float) $price, 2) : null,
                     'currency'    => $currency,
                     'pax'         => ['adults' => $adults, 'children' => $children, 'infants' => $infants],
@@ -332,7 +387,7 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
         }
 
         if ($offers === []) {
-            return ['ok' => true, 'offers' => [], 'message' => $lastMsg];
+            return ['ok' => true, 'offers' => [], 'total_found' => 0, 'message' => $lastMsg];
         }
         // Merge across suppliers: cheapest first (priced offers ahead of unpriced),
         // then cap the combined list to $limit so the chat shows the best handful.
@@ -341,9 +396,14 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
             $pb = isset($b['price']) && \is_numeric($b['price']) ? (float) $b['price'] : \PHP_FLOAT_MAX;
             return $pa <=> $pb;
         });
-        if (\count($offers) > $limit) { $offers = \array_slice($offers, 0, $limit); }
-        \error_log('[gia_flights] merged ' . \count($offers) . ' offer(s) across ' . \count($suppliers) . ' supplier(s)');
-        return ['ok' => true, 'offers' => $offers];
+        // DISCLOSE truncation (no silent caps): keep the real total so the chat can
+        // say "showing the 8 cheapest of 23" and offer to refine — instead of
+        // pretending the capped handful is everything.
+        $totalFound = \count($offers);
+        if ($totalFound > $limit) { $offers = \array_slice($offers, 0, $limit); }
+        \error_log('[gia_flights] merged ' . $totalFound . ' offer(s) across ' . \count($suppliers)
+            . ' supplier(s); showing ' . \count($offers));
+        return ['ok' => true, 'offers' => $offers, 'total_found' => $totalFound];
     }
 }
 

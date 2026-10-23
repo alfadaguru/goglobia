@@ -632,7 +632,12 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
                     if ($ref === '') { continue; }
                     $price = $c['price'] ?? null;
                     $cur   = (string) ($c['currency'] ?? '');
-                    $sub   = trim((string) ($c['subtitle'] ?? '') . ($price !== null ? '  ' . trim($cur . ' ' . number_format((float) $price, 2)) : ''));
+                    // subtitle already carries the structured detail line (stops ·
+                    // duration · cabin · baggage · scarcity); append the price, and on a
+                    // round-trip, the return-leg one-liner so BOTH directions show.
+                    $sub = trim((string) ($c['subtitle'] ?? '') . ($price !== null ? '  ' . trim($cur . ' ' . number_format((float) $price, 2)) : ''));
+                    $retLine = trim((string) ($c['return_line'] ?? ''));
+                    if ($retLine !== '') { $sub = trim($sub . "\n" . $retLine); }
                     $cards[] = [
                         'title'    => (string) ($c['title'] ?? ($c['name'] ?? 'Flight')),
                         'subtitle' => $sub,
