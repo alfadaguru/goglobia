@@ -130,7 +130,9 @@ $__renderTile = function (array $rt) use ($__frUrl) {
           <span class="material-symbols-outlined text-blue-600">flight_takeoff</span>
           Popular flight routes
         </h2>
-        <p class="text-sm text-gray-500">Tap a route to see live fares — change the date, travellers or cabin on the results page.</p>
+        <p class="text-sm text-gray-500">Tap a route to see live fares — change the date, travellers or cabin on the results page.
+          <a href="<?= root ?>travel-directory" class="text-blue-600 font-medium hover:underline whitespace-nowrap">Browse all routes &amp; destinations &rsaquo;</a>
+        </p>
       </div>
       <?php if ($__hasLocal && $__hasIntl): ?>
       <div class="flex gap-2">

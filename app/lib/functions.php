@@ -5935,6 +5935,33 @@ function generateSitemap($db)
             // Ignore if blogs table doesn't exist
         }
 
+        // ---- SEO LANDING PAGES (SEO-005): the crawlable route/city/Umrah moat.
+        // Only the CURATED, content-backed URLs (the registries in
+        // app/routes/seo/landingRoutes.php), so the sitemap never lists thin or
+        // redirecting pages.
+        $__seoReg = __DIR__ . '/seo_registry.php';   // pure data, no side effects
+        if ((!function_exists('seoFlightRoutes') || !function_exists('seoHotelCities') || !function_exists('seoUmrahOriginCities'))
+            && is_file($__seoReg)) {
+            require_once $__seoReg;
+        }
+        if (function_exists('seoFlightRoutes')) {
+            foreach (seoFlightRoutes() as $routeSlug) {
+                $urls[] = ['loc' => $site_url . 'flights/' . $routeSlug, 'lastmod' => date('Y-m-d'), 'changefreq' => 'weekly', 'priority' => '0.7'];
+            }
+        }
+        if (function_exists('seoHotelCities')) {
+            foreach (array_keys(seoHotelCities()) as $citySlug) {
+                $urls[] = ['loc' => $site_url . 'hotels/' . $citySlug, 'lastmod' => date('Y-m-d'), 'changefreq' => 'weekly', 'priority' => '0.7'];
+            }
+        }
+        if (function_exists('seoUmrahOriginCities')) {
+            foreach (array_keys(seoUmrahOriginCities()) as $citySlug) {
+                $urls[] = ['loc' => $site_url . 'umrah/from-' . $citySlug, 'lastmod' => date('Y-m-d'), 'changefreq' => 'weekly', 'priority' => '0.7'];
+            }
+        }
+        // The discovery directory itself.
+        $urls[] = ['loc' => $site_url . 'travel-directory', 'lastmod' => date('Y-m-d'), 'changefreq' => 'weekly', 'priority' => '0.6'];
+
         // Generate XML
         $xml = '<?xml version="1.0" encoding="UTF-8"?>' . PHP_EOL;
         $xml .= '<?xml-stylesheet type="text/xsl" href="' . root . 'uploads/global/sitemap.xsl"?>' . PHP_EOL;
