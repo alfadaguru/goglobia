@@ -316,7 +316,7 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
             // POPULAR-ROUTE TILE to FLIGHT SEARCH BOX (homepage "Popular flight
             // routes"). Same philosophy as the stays strip: we do NOT deep-link to
             // a results URL with invented dates (the flight route REQUIRES a date
-            // segment). Instead we switch to the Flights tab, drive the form's OWN
+            // segment). Instead we switch to the Flights tab, drive the forms OWN
             // live airport autocomplete for both From and To (the same
             // flights-airport-suggestion endpoint the user hits when typing),
             // auto-select the matching airport by code, and leave the dates empty
