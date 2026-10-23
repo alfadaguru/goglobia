@@ -356,9 +356,18 @@ $router->post('/api/gia/chat', function () use ($db) {
             $ptKey = (string) ($conv['conv_key'] ?? '');
             $uBkId = (int) ($data['umrah_booking_id'] ?? 0);
             $uPax  = (int) ($data['pax'] ?? 0);
-            if ($ptKey !== '' && $uBkId > 0 && $uPax > 0 && function_exists('gia_pt_start')) {
+            // If the book was REUSED (double-book guard) a collection is already live
+            // for this conversation — DON'T call gia_pt_start again, it supersedes the
+            // row and resets passport progress to 0. Just keep showing the collector.
+            $reusedBooking = !empty($tr['output']['reused']);
+            $alreadyCollecting = ($ptKey !== '' && function_exists('gia_pt_active')
+                && is_array(gia_pt_active($db, $ptKey)));
+            if ($ptKey !== '' && $uBkId > 0 && $uPax > 0 && function_exists('gia_pt_start')
+                && !($reusedBooking || $alreadyCollecting)) {
                 gia_pt_start($db, $ptKey, 'umrah', (string) $data['invoice_id'], $uBkId, $uPax);
                 $collectingUmrah = true; // flagged into the response below
+            } elseif ($reusedBooking || $alreadyCollecting) {
+                $collectingUmrah = true; // collection already live — keep the control visible
             }
         } elseif ($name === 'umrah_tiers' && isset($data['umrah_tiers']) && is_array($data['umrah_tiers'])) {
             // Present tiers as pickable cards (one per tier), carrying departure_tier_id.

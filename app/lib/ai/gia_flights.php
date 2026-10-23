@@ -447,6 +447,67 @@ if (!function_exists('App\\lib\\ai\\gia_flights_pax_fields')) {
     }
 }
 
+if (!function_exists('App\\lib\\ai\\gia_flights_find_held')) {
+    /**
+     * Double-book guard. Return a book-shaped result for an EXISTING unpaid flights
+     * booking THIS conversation is already holding, or null if none.
+     *
+     * The rule is deliberately NOT "same offer_token": the model's double-call often
+     * RE-SEARCHES on a trailing "yes", so the supplier hands back the same seat under
+     * a FRESH token — token-exact matching misses it. A single chat should hold at
+     * most ONE unpaid flight at a time: during one pick->confirm flow there is exactly
+     * one intended seat. So we match on gia_conv_key (ownership) + unpaid + a recent
+     * created_at (within the longest plausible pay window) and ignore the token. Once
+     * the old hold is paid, cancelled, or aged out, a genuinely new booking proceeds.
+     *
+     * @return array|null book-shaped array (invoice_id/supplier/amount/...) or null
+     */
+    function gia_flights_find_held($db, string $convKey, string $offerToken): ?array
+    {
+        if ($convKey === '') { return null; }
+        $freshAfter = \date('Y-m-d H:i:s', \time() - 60 * 60); // ignore holds older than 60 min
+        try {
+            $rows = $db->select('bookings',
+                ['invoice_id', 'price_markup', 'currency_markup', 'adults', 'childs', 'infants', 'booking_data', 'created_at'],
+                [
+                    'module_type' => 'ai_trip',
+                    'payment_status[!]' => 'paid',
+                    'booking_status[!]' => 'cancelled',
+                    'created_at[>=]' => $freshAfter,
+                    'ORDER' => ['id' => 'DESC'],
+                    'LIMIT' => 10,
+                ]
+            );
+        } catch (\Throwable $e) { return null; }
+        if (!\is_array($rows)) { return null; }
+        foreach ($rows as $r) {
+            $bd = \json_decode((string) ($r['booking_data'] ?? ''), true);
+            if (!\is_array($bd)) { continue; }
+            if (\strtolower((string) ($bd['gia_service'] ?? '')) !== 'flights') { continue; }
+            $bdConv = (string) ($bd['gia_conv_key'] ?? '');
+            if ($bdConv === '' || !\hash_equals($bdConv, $convKey)) { continue; }
+            $amount   = (float) ($r['price_markup'] ?? 0);
+            $currency = (string) ($r['currency_markup'] ?? 'USD');
+            return [
+                'invoice_id'     => (string) ($r['invoice_id'] ?? ''),
+                'supplier'       => (string) ($bd['supplier'] ?? ''),
+                'module'         => 'flights',
+                'amount'         => $amount,
+                'amount_due_now' => $amount,
+                'currency'       => $currency,
+                'pax'            => [
+                    'adults'   => (int) ($r['adults'] ?? 1),
+                    'children' => (int) ($r['childs'] ?? 0),
+                    'infants'  => (int) ($r['infants'] ?? 0),
+                ],
+                'pax_total'      => (int) ($r['adults'] ?? 1) + (int) ($r['childs'] ?? 0) + (int) ($r['infants'] ?? 0),
+                'price_changed'  => false,
+            ];
+        }
+        return null;
+    }
+}
+
 if (!function_exists('App\\lib\\ai\\gia_flights_book')) {
     /**
      * Create a HELD, UNPAID flight booking from a PRICE-LOCKED select result, in the
@@ -474,6 +535,22 @@ if (!function_exists('App\\lib\\ai\\gia_flights_book')) {
         $children = \max(0, (int) ($pax['children'] ?? 0));
         $infants  = \max(0, (int) ($pax['infants'] ?? 0));
 
+        // 0) IDEMPOTENCY — don't double-book. The model may call flights_book twice for
+        //    the same pick (once on the choice, again on a trailing "yes") — often after
+        //    RE-SEARCHING, so the fare returns under a fresh token. If THIS conversation
+        //    already holds a recent unpaid flights booking, return that one instead of
+        //    creating a second. Checked BEFORE the (expensive, ~40s) re-price-lock.
+        $convKey = (string) ($lead['conv_key'] ?? '');
+        if ($convKey !== '') {
+            $existing = gia_flights_find_held($db, $convKey, (string) ($stable['offer_token'] ?? ''));
+            if ($existing !== null) {
+                if (\function_exists('gia_trace')) {
+                    \gia_trace('flights_book_reused', __FILE__, 'conv held ' . (string) ($existing['invoice_id'] ?? '') . ' — skipped 2nd book');
+                }
+                return $existing + ['ok' => true, 'reused' => true, 'needs_travellers' => true];
+            }
+        }
+
         // 1) RE-PRICE-LOCK now (fail-closed). Catches a fare that expired since pick,
         //    so we never create a booking the supplier can no longer honour.
         $sel = gia_flights_select($db, $stable, $pax, $currency);
@@ -488,6 +565,7 @@ if (!function_exists('App\\lib\\ai\\gia_flights_book')) {
         }
         $item = \is_array($sel['item'] ?? null) ? $sel['item'] : [];
         $raw  = \is_array($item['item']['raw'] ?? null) ? $item['item']['raw'] : (\is_array($stable['raw'] ?? null) ? $stable['raw'] : []);
+        $offerToken = (string) ($item['item']['offer_token'] ?? ($stable['offer_token'] ?? ''));
 
         // 2) Build the AITP invoice + ai_trip booking_data (cart convention).
         try { $invoiceId = 'AITP' . \strtoupper(\bin2hex(\random_bytes(5))); }
@@ -514,7 +592,7 @@ if (!function_exists('App\\lib\\ai\\gia_flights_book')) {
                 'supplier' => $supplier,
                 'price'    => $amount,
                 'currency' => $currency,
-                'item'     => ['supplier' => $supplier, 'raw' => $raw, 'offer_token' => (string) ($item['item']['offer_token'] ?? ($stable['offer_token'] ?? ''))],
+                'item'     => ['supplier' => $supplier, 'raw' => $raw, 'offer_token' => $offerToken],
             ]],
             'items_count'      => 1,
             'payable_total'    => $amount,

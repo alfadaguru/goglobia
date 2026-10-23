@@ -495,7 +495,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
         $buttons = [];
         // Payment refs seen this turn (to wire the Approve button / pay-link).
         $checkoutRef = ''; $invoiceId = ''; $payAmount = 0.0; $payCurrency = '';
-        $umrahCollectBookingId = 0; $umrahCollectPax = 0;
+        $umrahCollectBookingId = 0; $umrahCollectPax = 0; $umrahBookingReused = false;
         foreach ($toolRuns as $tr) {
             if (!is_array($tr)) { continue; }
             $name = (string) ($tr['name'] ?? '');
@@ -521,6 +521,9 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
                 if ((string) ($data['module'] ?? '') === 'umrah' && !empty($data['needs_travellers'])) {
                     $umrahCollectBookingId = (int) ($data['umrah_booking_id'] ?? 0);
                     $umrahCollectPax       = (int) ($data['pax'] ?? 0);
+                    // A REUSED booking (double-book guard) already has a live collection
+                    // — don't re-start it below (gia_pt_start resets passport progress).
+                    $umrahBookingReused    = !empty($tr['output']['reused']);
                 }
             }
 
@@ -730,8 +733,14 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
         if ($invoiceId !== '' && $umrahCollectBookingId > 0 && $umrahCollectPax > 0 && $db !== null) {
             require_once __DIR__ . '/gia_pending_travellers.php';
             $convKey = (string) ($payCtx['conv_key'] ?? '');
+            // Skip gia_pt_start if the booking was reused or a collection is already
+            // live for this conversation — starting again would reset passport progress.
+            $alreadyCollecting = ($convKey !== '' && function_exists('gia_pt_active')
+                && is_array(gia_pt_active($db, $convKey)));
             if ($convKey !== '' && function_exists('gia_pt_start')) {
-                gia_pt_start($db, $convKey, 'umrah', $invoiceId, $umrahCollectBookingId, $umrahCollectPax);
+                if (!($umrahBookingReused || $alreadyCollecting)) {
+                    gia_pt_start($db, $convKey, 'umrah', $invoiceId, $umrahCollectBookingId, $umrahCollectPax);
+                }
                 $amtLabel = trim($payCurrency . ' ' . number_format($payAmount, 2));
                 $who = $umrahCollectPax === 1 ? "the pilgrim's" : "each pilgrim's";
                 $text = trim($text . "\n\nBooking created (" . $invoiceId . ") — total " . $amtLabel . "."

@@ -203,6 +203,41 @@ if (!class_exists('App\\lib\\ai\\umrahBookTool')) {
                 'phone'      => (string) ($input['phone'] ?? ''),
                 'user_id'    => (string) ($context['account_id'] ?? ''),
             ];
+
+            // IDEMPOTENCY — don't double-book. The model may call umrah_book twice for
+            // the same pick (once on the choice, again on a trailing "yes"). If THIS
+            // conversation already has an ACTIVE pilgrim-collection (started right after
+            // the first book), that held booking IS the one being confirmed — return it
+            // instead of creating a second booking (which would also reset passport
+            // progress via gia_pt_start). Re-booking is only allowed once collection is
+            // gone (expired/superseded) or the booking is paid.
+            $convKey = (string) ($context['conv_key'] ?? '');
+            // The pilgrim-collection engine may not be loaded yet on the channel path
+            // (it loads after agent->run there), so pull it in idempotently — the guard
+            // must work on web AND WhatsApp/Telegram/Messenger.
+            if ($convKey !== '' && !function_exists('gia_pt_active')) {
+                $ptFile = __DIR__ . '/../gia_pending_travellers.php';
+                if (is_file($ptFile)) { require_once $ptFile; }
+            }
+            if ($convKey !== '' && function_exists('gia_pt_active')) {
+                $active = \gia_pt_active($db, $convKey);
+                if (is_array($active) && (int) ($active['umrah_booking_id'] ?? 0) > 0
+                    && (string) ($active['invoice_id'] ?? '') !== '') {
+                    return [
+                        'ok' => true,
+                        'reused' => true,
+                        'data' => [
+                            'invoice_id'       => (string) $active['invoice_id'],
+                            'umrah_booking_id' => (int) $active['umrah_booking_id'],
+                            'module'           => 'umrah',
+                            'pax'              => (int) ($active['pax'] ?? $pax),
+                            'needs_travellers' => true,
+                        ],
+                        'message' => 'This umrah booking is already held and awaiting pilgrim passports — continue with the passports, then payment.',
+                    ];
+                }
+            }
+
             $res = gia_umrah_book($db, (int) ($input['departure_tier_id'] ?? 0), $pax, $lead, (string) ($input['plan_code'] ?? ''));
             if (empty($res['ok'])) {
                 return ['ok' => false, 'error_code' => 'AI_UMRAH_BOOK', 'message' => (string) ($res['message'] ?? 'Could not create the umrah booking.')];
