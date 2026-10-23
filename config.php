@@ -448,6 +448,12 @@ try {
     if (function_exists('ensureFlightsPopularRoutesSchema')) {
         ensureFlightsPopularRoutesSchema($db);
     }
+    // Brand/legal content self-heal — replaces shipped PHPTRAVELS boilerplate in
+    // the CMS legal pages with GoGlobia content (only while still tainted; never
+    // clobbers admin edits). Idempotent.
+    if (function_exists('ensureBrandContent')) {
+        ensureBrandContent($db);
+    }
     // Per-user promo redemption ledger (enforces per_user_limit) — idempotent.
     if (function_exists('ensurePromoUsageSchema')) {
         ensurePromoUsageSchema($db);

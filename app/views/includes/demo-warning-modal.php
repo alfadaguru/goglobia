@@ -1,6 +1,6 @@
 <?php
 // app/views/includes/demo-warning-modal.php
-// Demo Warning Modal for phptravels.net and localhost
+// Demo/notice modal (disabled on GoGlobia — kept inert; see shouldShowDemoWarning)
 @$SECURE or die('Access Denied!');
 
 // Check if helper function exists
@@ -124,10 +124,10 @@ try {
                     <span class="material-symbols-outlined text-2xl text-slate-700 flex-shrink-0 mt-1">help</span>
                     <div class="flex-1">
                         <h3 class="text-base font-semibold text-slate-900 mb-1">Need Help or Ready for Production?</h3>
-                        <p class="text-sm text-slate-700 leading-relaxed">For comprehensive documentation, technical
-                            support, API integration guides, and assistance with moving to production, visit <a
-                                href="https://phptravels.com" target="_blank"
-                                class="text-blue-600 font-semibold hover:text-blue-700 underline">phptravels.com</a></p>
+                        <p class="text-sm text-slate-700 leading-relaxed">For help with your booking or account,
+                            contact our support team at <a
+                                href="mailto:hi@goglobia.com"
+                                class="text-blue-600 font-semibold hover:text-blue-700 underline">hi@goglobia.com</a></p>
                     </div>
                 </div>
 
@@ -136,8 +136,7 @@ try {
             <!-- Modal Footer - Sticky -->
             <div class="sticky bottom-0 px-4 py-4 border-t border-gray-200 bg-slate-50 rounded-b-lg flex flex-wrap gap-3 justify-end flex-shrink-0"
                 style="pointer-events: auto;">
-                <a href="https://phptravels.com/pricing" target="_blank" class="btn light w-full sm:w-fit">Learn More</a>
-                <button id="acknowledgeDemoWarning" class="btn w-full sm:w-fit">I Understand & Continue</button>
+                <button id="acknowledgeDemoWarning" class="btn w-full sm:w-fit">I Understand &amp; Continue</button>
             </div>
 
         </div>

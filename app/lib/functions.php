@@ -1483,7 +1483,7 @@ function getBrandName($settings = null)
         }
     }
 
-    return 'PHPTRAVELS';
+    return 'GoGlobia';
 }
 
 // Customer-facing label for a payment gateway. `payment_gateways.name` is the
@@ -2431,7 +2431,7 @@ function sendWhatsAppNotification($userId, $templateName, $additionalData = [])
                 $user['first_name'] . ' ' . $user['last_name'],
                 $message,
                 $template['subject'] ?? '',
-                $settingsData['whatsapp_sender_name'] ?? 'PHPTRAVELS'
+                $settingsData['whatsapp_sender_name'] ?? 'GoGlobia'
             );
 
             if ($sent) {
@@ -2483,7 +2483,7 @@ function sendWhatsAppNotification($userId, $templateName, $additionalData = [])
                         $roleUser['first_name'] . ' ' . $roleUser['last_name'],
                         $roleMessage,
                         $template['subject'] ?? '',
-                        $settingsData['whatsapp_sender_name'] ?? 'PHPTRAVELS'
+                        $settingsData['whatsapp_sender_name'] ?? 'GoGlobia'
                     );
 
                     if ($roleSent) {
@@ -2603,7 +2603,7 @@ function sendSmsNotification($userId, $templateName, $additionalData = [])
                 $user['first_name'] . ' ' . $user['last_name'],
                 $renderedMessage,
                 '',
-                $settingsData['sms_sender_id'] ?? 'PHPTRAVELS'
+                $settingsData['sms_sender_id'] ?? 'GoGlobia'
             );
 
             if ($sent) {
@@ -2655,7 +2655,7 @@ function sendSmsNotification($userId, $templateName, $additionalData = [])
                         $roleUser['first_name'] . ' ' . $roleUser['last_name'],
                         $roleMessage,
                         '',
-                        $settingsData['sms_sender_id'] ?? 'PHPTRAVELS'
+                        $settingsData['sms_sender_id'] ?? 'GoGlobia'
                     );
 
                     if ($roleSent) {
@@ -2729,10 +2729,10 @@ function sendEmailNotification($userId, $templateName, $additionalData = [])
         $emailConfig = json_decode($settingsData['email_providers_config'] ?? '{}', true);
         $providerConfig = $emailConfig[$emailProvider] ?? [];
 
-        $providerConfig['from_name'] = $settingsData['email_sender_name'] ?? 'PHPTRAVELS';
+        $providerConfig['from_name'] = $settingsData['email_sender_name'] ?? 'GoGlobia';
         $providerConfig['from_email'] = $settingsData['email_sender_email'] ?? 'noreply@example.com';
 
-        $senderName = $settingsData['email_sender_name'] ?? 'PHPTRAVELS';
+        $senderName = $settingsData['email_sender_name'] ?? 'GoGlobia';
         $senderEmail = $settingsData['email_sender_email'] ?? 'noreply@example.com';
 
         $providerFile = __DIR__ . '/../lib/notifications/email/' . $emailProvider . '.php';
@@ -2989,7 +2989,7 @@ function SENDEMAIL($toEmail, $toName, $subject, $htmlBody, $pdfPath = null, arra
         }
 
         // Add sender information to provider config
-        $providerConfig['from_name'] = $settings['email_sender_name'] ?? 'PHPTRAVELS';
+        $providerConfig['from_name'] = $settings['email_sender_name'] ?? 'GoGlobia';
         $providerConfig['from_email'] = $settings['email_sender_email'] ?? 'noreply@example.com';
 
         // Per-message custom headers (e.g. List-Unsubscribe for bulk campaigns).
@@ -3000,7 +3000,7 @@ function SENDEMAIL($toEmail, $toName, $subject, $htmlBody, $pdfPath = null, arra
         }
 
         // Store sender info separately for easy access
-        $senderName = $settings['email_sender_name'] ?? 'PHPTRAVELS';
+        $senderName = $settings['email_sender_name'] ?? 'GoGlobia';
         $senderEmail = $settings['email_sender_email'] ?? 'noreply@example.com';
 
         // ====================================================================
@@ -3222,9 +3222,9 @@ function GENERATE_BOOKING_PDF($invoiceId)
             }
         }
         $businessName = getBrandName($settings);
-        $businessEmail = $settings['contact_email'] ?? 'info@phptravels.com';
+        $businessEmail = $settings['contact_email'] ?? 'hi@goglobia.com';
         $businessPhone = $settings['contact_phone'] ?? '+1234567890';
-        $siteUrl = $settings['site_url'] ?? 'https://phptravels.com';
+        $siteUrl = $settings['site_url'] ?? 'https://goglobia.com';
 
         // Get payment gateway display name from ID (customer-facing label only —
         // the technical gateway record/routing is untouched by this substitution)
@@ -5128,6 +5128,163 @@ function ensureFlightsPopularRoutesSchema($db): void
         }
     } catch (\Throwable $e) {
         error_log('ensureFlightsPopularRoutesSchema: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Brand/legal content self-heal — replaces the shipped PHPTRAVELS boilerplate in
+ * the CMS legal pages (About, Privacy, Cookies, Terms, Refund) with genuine
+ * GoGlobia content, ONCE, on deploy.
+ *
+ * GATE (critical): a page is ONLY overwritten while its stored content still
+ * contains "phptravels" (case-insensitive). Once replaced with GoGlobia copy
+ * (which has no such token), it is never touched again — so an admin who later
+ * edits a legal page in the CMS editor is NEVER clobbered. Stale translated
+ * copies (content_translations) that also carry the token are cleared so the
+ * tainted translation can't resurface; the base content is re-shown instead.
+ *
+ * All facts are real/owner-confirmed: Goglobia Travelling Technologies Limited,
+ * Kano HQ, licensed by NCAA / IATA / NANTA, hi@goglobia.com, +234 912 854 3573,
+ * goglobia.com, governed by the laws of the Federal Republic of Nigeria.
+ */
+function ensureBrandContent($db): void
+{
+    static $checked = false;
+    if ($checked) { return; }
+    $checked = true;
+
+    try {
+        if (!dbTableExists($db, 'cms')) { return; }
+
+        $company = 'Goglobia Travelling Technologies Limited';
+        $brand   = 'GoGlobia';
+        $email   = 'hi@goglobia.com';
+        $phone   = '+234 912 854 3573';
+        $site    = 'goglobia.com';
+        $addr    = '8B Hajiya Aisha Plaza, 2 By Pass, Unguwar Jakada, Opposite UBA Safiyanu Street, Sharada, Kumbotso LGA, Kano 700282, Nigeria';
+
+        // Shared document footer with the real company contact block.
+        $contactBlock = '<p><strong>' . $company . '</strong><br>'
+            . $addr . '<br>'
+            . 'Email: <a href="mailto:' . $email . '">' . $email . '</a><br>'
+            . 'Phone: <a href="tel:' . str_replace(' ', '', $phone) . '">' . $phone . '</a><br>'
+            . 'Website: <a href="https://' . $site . '">' . $site . '</a></p>';
+
+        $licensing = '<p>' . $brand . ' is the trading identity of ' . $company
+            . ', a travel company registered in Nigeria and licensed by the Nigerian Civil Aviation Authority (NCAA), '
+            . 'and accredited by the International Air Transport Association (IATA) and the National Association of Nigeria Travel Agencies (NANTA).</p>';
+
+        // ---- ABOUT US ------------------------------------------------------
+        $about =
+            '<p>' . $brand . ' is a Nigerian travel company that makes it simple to plan and book your whole trip in one place &mdash; '
+            . 'flights, hotels and stays, tours, airport and visa support, Umrah packages, travel eSIMs and more.</p>'
+            . $licensing
+            . '<p>We serve travellers across Nigeria and beyond with honest pricing, secure payments and real human support. '
+            . 'Whether you are booking a quick domestic flight, a family holiday abroad, or a once-in-a-lifetime Umrah journey, '
+            . 'our goal is the same: a straightforward booking experience and dependable service from search to return.</p>'
+            . '<p><strong>What we offer</strong></p>'
+            . '<ul>'
+            . '<li>Flights &mdash; domestic and international, with fares from trusted airlines and suppliers.</li>'
+            . '<li>Hotels &amp; stays &mdash; a wide choice of accommodation at competitive rates.</li>'
+            . '<li>Tours &amp; experiences, car hire, travel insurance and eSIM data.</li>'
+            . '<li>Umrah packages with transparent, per-pilgrim pricing and flexible payment options.</li>'
+            . '<li>Visa guidance and travel documentation support.</li>'
+            . '</ul>'
+            . '<p><strong>Why travellers choose us</strong></p>'
+            . '<ul>'
+            . '<li>Licensed and accredited &mdash; NCAA licensed; IATA and NANTA accredited.</li>'
+            . '<li>Secure payments and clear, upfront pricing &mdash; no hidden surprises.</li>'
+            . '<li>Responsive customer support before, during and after your trip.</li>'
+            . '</ul>'
+            . '<p>Have a question or need help with a booking? We are here for you.</p>'
+            . $contactBlock;
+
+        // ---- PRIVACY POLICY ------------------------------------------------
+        $privacy =
+            '<p>This Privacy Policy explains how ' . $company . ' ("' . $brand . '", "we", "us" or "our") collects, uses, '
+            . 'stores and protects information about users ("you") of the ' . $site . ' website and our related services.</p>'
+            . '<p><strong>Information we collect</strong></p>'
+            . '<p>We collect information you provide when you create an account, make a booking or contact us &mdash; such as your '
+            . 'name, email address, phone number, travel and passenger details, and payment information. We also collect limited '
+            . 'technical information automatically (for example browser type, device information and IP address) to operate and '
+            . 'secure the site.</p>'
+            . '<p><strong>How we use your information</strong></p>'
+            . '<ul>'
+            . '<li>To process your bookings and payments and deliver the travel services you request.</li>'
+            . '<li>To issue tickets, vouchers, invoices and booking confirmations.</li>'
+            . '<li>To provide customer support and respond to your enquiries.</li>'
+            . '<li>To send booking updates and, where you have opted in, offers and travel information.</li>'
+            . '<li>To improve, secure and maintain our website and services, and to meet legal and regulatory obligations.</li>'
+            . '</ul>'
+            . '<p><strong>Payments</strong></p>'
+            . '<p>Payments are processed through trusted third-party payment providers. Card details are handled by those providers '
+            . 'under their own security standards; we do not store your full card number on our servers.</p>'
+            . '<p><strong>Sharing your information</strong></p>'
+            . '<p>To fulfil a booking we share the information necessary to complete it with the relevant travel suppliers '
+            . '(such as airlines, hotels and other providers) and with payment processors. We do not sell your personal '
+            . 'information. We may disclose information where required by law or to protect our rights and the safety of our users.</p>'
+            . '<p><strong>Cookies</strong></p>'
+            . '<p>We use cookies and similar technologies to keep you signed in, remember your preferences and improve your '
+            . 'experience. You can control cookies through your browser settings; see our Cookies Policy for details.</p>'
+            . '<p><strong>Data retention and security</strong></p>'
+            . '<p>We keep personal information only as long as needed for the purposes described here or as required by law, '
+            . 'and we apply appropriate measures to protect it against loss, misuse and unauthorised access.</p>'
+            . '<p><strong>Your rights</strong></p>'
+            . '<p>You may request access to, correction of, or deletion of your personal information, and you may unsubscribe '
+            . 'from marketing messages at any time. To exercise these rights, contact us using the details below.</p>'
+            . '<p><strong>Changes to this policy</strong></p>'
+            . '<p>We may update this Privacy Policy from time to time. The latest version will always be available on this page.</p>'
+            . '<p><strong>Contact us</strong></p>'
+            . $contactBlock;
+
+        // ---- COOKIES POLICY ------------------------------------------------
+        $cookies =
+            '<p>This is the Cookies Policy for ' . $brand . ' (' . $company . '), accessible at ' . $site . '.</p>'
+            . '<p><strong>What are cookies</strong></p>'
+            . '<p>Cookies are small text files stored on your device when you visit a website. They help the site work, '
+            . 'remember your preferences and understand how the site is used.</p>'
+            . '<p><strong>How we use cookies</strong></p>'
+            . '<ul>'
+            . '<li><strong>Essential cookies</strong> &mdash; needed for core features such as signing in, keeping your session '
+            . 'and remembering items in your booking as you move between pages.</li>'
+            . '<li><strong>Preference cookies</strong> &mdash; remember choices like your language and currency.</li>'
+            . '<li><strong>Analytics cookies</strong> &mdash; help us understand how visitors use the site so we can improve it.</li>'
+            . '<li><strong>Marketing cookies</strong> &mdash; where enabled, help us show relevant travel offers.</li>'
+            . '</ul>'
+            . '<p><strong>Managing cookies</strong></p>'
+            . '<p>You can control or delete cookies through your browser settings. Please note that disabling some cookies may '
+            . 'affect how parts of the site function &mdash; for example staying signed in or completing a booking.</p>'
+            . '<p><strong>Changes to this policy</strong></p>'
+            . '<p>We may update this Cookies Policy from time to time; the current version is always shown on this page.</p>'
+            . '<p><strong>Contact us</strong></p>'
+            . $contactBlock;
+
+        // Only the pages that shipped PHPTRAVELS branding are self-healed.
+        // terms-of-use and refund-policy already hold neutral, acceptable
+        // travel-agency copy with NO vendor branding, so they are left untouched.
+        $pages = [
+            'about-us'       => $about,
+            'privacy-policy' => $privacy,
+            'cookies-policy' => $cookies,
+        ];
+
+        foreach ($pages as $slug => $html) {
+            $row = $db->get('cms', ['id', 'content', 'content_translations'], ['slug_url' => $slug]);
+            if (!$row) { continue; } // page not present on this install — skip
+            $hasToken = stripos((string) ($row['content'] ?? ''), 'phptravels') !== false
+                || stripos((string) ($row['content_translations'] ?? ''), 'phptravels') !== false;
+            if (!$hasToken) { continue; } // already de-branded or admin-edited — never clobber
+
+            $update = ['content' => $html];
+            // Drop any stale translated copy that still carries the old brand so it
+            // cannot resurface; base GoGlobia content is shown until re-translated.
+            if (stripos((string) ($row['content_translations'] ?? ''), 'phptravels') !== false) {
+                $update['content_translations'] = null;
+            }
+            $db->update('cms', $update, ['id' => $row['id']]);
+        }
+    } catch (\Throwable $e) {
+        error_log('ensureBrandContent: ' . $e->getMessage());
     }
 }
 

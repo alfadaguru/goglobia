@@ -40,7 +40,7 @@ function ensureAppSettingsColumn($db): void
 {
     $defaults = json_encode([
         'theme_mode' => 'light',
-        'app_name' => 'PHPTRAVELS',
+        'app_name' => 'GoGlobia',
         'api_key' => '',
         'api_timeout' => '30',
         'btn_secondary_color' => '#f1f5f9',
@@ -674,7 +674,7 @@ $router->post('/admin/test-email', function() use ($db) {
         $message = $input['message'] ?? 'This is a test email';
         $emailProvider = $input['email_provider'] ?? 'smtp';
         $providerConfig = $input['provider_config'] ?? [];
-        $senderName = $input['sender_name'] ?? 'PHPTRAVELS';
+        $senderName = $input['sender_name'] ?? 'GoGlobia';
         $senderEmail = $input['sender_email'] ?? 'noreply@example.com';
 
         if (empty($email)) {

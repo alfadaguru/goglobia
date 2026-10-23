@@ -30,7 +30,7 @@ class SmtpProvider {
 
             $body_text = $body_text ?? strip_tags($body_html);
             $from_email = $from_email ?? $this->config['from_email'] ?? $this->config['username'];
-            $from_name = $from_name ?? $this->config['from_name'] ?? 'PHPTRAVELS';
+            $from_name = $from_name ?? $this->config['from_name'] ?? 'GoGlobia';
 
             $result = $this->sendEmailDirect($to_email, $to_name, $subject, $body_html, $body_text, $from_email, $from_name);
             
@@ -61,7 +61,7 @@ class SmtpProvider {
 
             $body_text = $body_text ?? strip_tags($body_html);
             $from_email = $from_email ?? $this->config['from_email'] ?? $this->config['username'];
-            $from_name = $from_name ?? $this->config['from_name'] ?? 'PHPTRAVELS';
+            $from_name = $from_name ?? $this->config['from_name'] ?? 'GoGlobia';
 
             $result = $this->sendEmailDirect($to_email, $to_name, $subject, $body_html, $body_text, $from_email, $from_name, $attachment_path);
             
@@ -93,7 +93,7 @@ class SmtpProvider {
         $password = $this->config['password'];
         
         $from_email = $from_email ?? $this->config['from_email'] ?? $username;
-        $from_name = $from_name ?? $this->config['from_name'] ?? 'PHPTRAVELS';
+        $from_name = $from_name ?? $this->config['from_name'] ?? 'GoGlobia';
 
         if (empty($from_email) || !filter_var($from_email, FILTER_VALIDATE_EMAIL)) {
             throw new Exception("Invalid from email address: " . $from_email);

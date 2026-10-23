@@ -651,14 +651,14 @@ $footer_menus = array_values(array_filter(array_map(
         <script defer src="https://unpkg.com/vt-notifications@latest/dist/vt-notifications.umd.js"></script>
 <?php endif; ?>
 
-<!-- Demo Warning Modal - For phptravels.net and localhost only -->
+<!-- Demo/notice modal (inert on GoGlobia; see shouldShowDemoWarning) -->
 <?php
 try {
     require_once views . "includes/demo-warning-modal.php";
 } catch (\Exception $e) {
     // Log error but don't break the page
     error_log("Demo Warning Modal Error: " . $e->getMessage());
-    if (in_array($_SERVER['HTTP_HOST'], ['localhost', '127.0.0.1', '::1', 'phptravels.net', 'www.phptravels.net'])) {
+    if (in_array($_SERVER['HTTP_HOST'], ['localhost', '127.0.0.1', '::1'])) {
         echo "<!-- Demo Modal Error: " . htmlspecialchars($e->getMessage()) . " -->";
     }
 }

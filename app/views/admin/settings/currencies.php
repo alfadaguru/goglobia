@@ -26,7 +26,6 @@ $cronUrl = root . 'update_currency_rates';
                 <h3 class="text-sm font-semibold text-gray-900">Exchange Rate API</h3>
                 <p class="text-xs text-gray-500 mt-0.5">
                     <?= T::update_rates_info ?? 'Fetch the latest exchange rates for all currencies.' ?>
-                    <a href="https://docs.phptravels.com/startup/setup/settings/currencies" target="_blank" class="underline ml-1 text-primary-600"><?= T::documentation ?? 'Learn More' ?></a>
                 </p>
             </div>
         </div>

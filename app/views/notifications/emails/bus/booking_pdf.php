@@ -263,7 +263,7 @@ $pnr        = $booking['pnr'] ?? '';
     <!-- Footer -->
     <div class="footer">
         <div class="footer-contact">
-            Questions? Contact us at <?= $settings['email_sender_email'] ?? 'support@phptravels.com' ?>
+            Questions? Contact us at <?= $settings['email_sender_email'] ?? 'hi@goglobia.com' ?>
             <?php if (!empty($settings['site_phone'])): ?> | <?= $settings['site_phone'] ?><?php endif; ?>
         </div>
         <div class="footer-note">

@@ -354,7 +354,7 @@ $router->get('/api/info', function () use ($db) {
             'success' => true,
             'data' => [
                 'base_url'          => root,
-                'site_name'         => $s['business_name']    ?? $s['site_name']    ?? 'PHPTRAVELS',
+                'site_name'         => $s['business_name']    ?? $s['site_name']    ?? 'GoGlobia',
                 'cover_image'       => root . 'uploads/global/cover.png',
                 'multi_language'    => ($s['multi_language']    ?? '1') != '0',
                 'multi_currency'    => ($s['multi_currency']    ?? '1') != '0',

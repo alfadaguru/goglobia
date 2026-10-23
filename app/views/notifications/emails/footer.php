@@ -24,7 +24,7 @@ $language = $language ?: 'en';
                             </div>
                         </div>
                         <div style="border-top: 1px solid #334155; padding-top: 24px; color: #64748b;">
-                            <p>© <?= date('Y') ?> <?= $companyName ?? 'PHPTRAVELS' ?>. All rights reserved.</p>
+                            <p>© <?= date('Y') ?> <?= $companyName ?? 'GoGlobia' ?>. All rights reserved.</p>
                             <p style="margin-top: 8px;"><?= htmlspecialchars(translateTo('automated_message_disclaimer', $language)) ?></p>
                         </div>
                     </div>

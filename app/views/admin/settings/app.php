@@ -1162,7 +1162,7 @@ function resetAppDefaults() {
     if (confirm('Reset App settings to default values?')) {
         const defaults = {
             'appThemeMode': 'light',
-            'appNameInput': 'PHPTRAVELS',
+            'appNameInput': 'GoGlobia',
             'themePrimaryColor': '#ffffff',
             'themeSecondaryColor': '#121212',
             'appBtnColor': '#2563eb',

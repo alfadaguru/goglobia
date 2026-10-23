@@ -264,10 +264,10 @@ class NOTIFY {
             $templateData = array_merge($templateData, $customerData, $bookingData);
             $templateData['settings'] = $settings; // Ensure settings are available in templates
             $templateData['language'] = $bookingLanguage;
-            $companyName = $settings['business_name'] ?? 'PHPTRAVELS';
+            $companyName = $settings['business_name'] ?? 'GoGlobia';
             $templateData['companyName'] = $companyName;
             $templateData['invoiceUrl'] = root . 'invoice/' . $module . '/' . $invoiceId;
-            $templateData['supportEmail'] = $settings['contact_email'] ?? 'support@phptravels.com';
+            $templateData['supportEmail'] = $settings['contact_email'] ?? 'hi@goglobia.com';
             $templateData['supportPhone'] = $settings['contact_phone'] ?? '';
             $templateData['customerName'] = $customerName;
             $templateData['firstName'] = $customerData['first_name'] ?? '';
@@ -806,8 +806,8 @@ class NOTIFY {
             // Prepare template data (Same as customer)
             $templateData = array_merge($vendorData, $bookingData);
             $templateData['invoiceUrl'] = root . 'invoice/' . $module . '/' . $invoiceId;
-            $templateData['companyName'] = $settings['business_name'] ?? 'PHPTRAVELS';
-            $templateData['supportEmail'] = $settings['contact_email'] ?? 'support@phptravels.com';
+            $templateData['companyName'] = $settings['business_name'] ?? 'GoGlobia';
+            $templateData['supportEmail'] = $settings['contact_email'] ?? 'hi@goglobia.com';
             $templateData['supportPhone'] = $settings['contact_phone'] ?? '';
             $templateData['customerName'] = $vendorName; // Addressee is vendor
             $templateData['firstName'] = $vendorData['first_name'] ?? '';

@@ -241,17 +241,13 @@ extract($setupData);
                 <div class="card-body">
                     <p class="text-sm text-gray-600 mb-4"><?=T::access_documentation_contact_support?></p>
                     <div class="flex flex-wrap gap-3">
-                        <a href="https://docs.phptravels.com" class="btn flex items-center gap-2">
-                            <span class="material-symbols-outlined">menu_book</span>
-                            <?=T::documentation?>
-                        </a>
-                        <a href="https://app.phptravels.com" class="btn light flex items-center gap-2">
+                        <a href="mailto:hi@goglobia.com" class="btn flex items-center gap-2">
                             <span class="material-symbols-outlined">support_agent</span>
                             <?=T::contact_support?>
                         </a>
-                        <a href="https://www.youtube.com/@PhptravelsOfficial" class="btn light flex items-center gap-2">
-                            <span class="material-symbols-outlined">video_library</span>
-                            <?=T::video_tutorials?>
+                        <a href="tel:+2349128543573" class="btn light flex items-center gap-2">
+                            <span class="material-symbols-outlined">call</span>
+                            +234 912 854 3573
                         </a>
                     </div>
                 </div>
