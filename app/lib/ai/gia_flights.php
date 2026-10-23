@@ -133,6 +133,43 @@ if (!function_exists('App\\lib\\ai\\gia_flights_active_suppliers')) {
     }
 }
 
+if (!function_exists('App\\lib\\ai\\gia_flights_to_iata')) {
+    /**
+     * Resolve a place to a 3-letter IATA airport code — because the flight supplier
+     * gateways need CODES, not city names (verified live: adivaha returns [] for
+     * "Lagos" but real fares for "LOS"). Accepts an already-valid code as-is; else
+     * looks the city/airport up in the flights_airports table. Returns '' if it
+     * can't resolve (caller then asks the traveller to clarify the airport).
+     */
+    function gia_flights_to_iata($db, string $place): string
+    {
+        $place = \trim($place);
+        if ($place === '') { return ''; }
+        // Already a 3-letter code? use it.
+        if (\preg_match('/^[A-Za-z]{3}$/', $place)) { return \strtoupper($place); }
+        try {
+            // Exact code match first (defensive), then city, then airport name.
+            $row = $db->get('flights_airports', ['code'], ['code' => \strtoupper($place), 'status' => '1']);
+            if (\is_array($row) && !empty($row['code'])) { return \strtoupper((string) $row['code']); }
+            // Prefer a major (type=large/international) airport when a city has several.
+            $row = $db->get('flights_airports', ['code'], [
+                'city' => $place, 'status' => '1',
+                'ORDER' => ['type' => 'ASC'],
+            ]);
+            if (\is_array($row) && !empty($row['code'])) { return \strtoupper((string) $row['code']); }
+            // LIKE fallback on city/airport for a looser match ("Lagos", "Lagos Nigeria").
+            $row = $db->get('flights_airports', ['code'], [
+                'OR' => ['city[~]' => $place, 'airport[~]' => $place],
+                'status' => '1',
+            ]);
+            if (\is_array($row) && !empty($row['code'])) { return \strtoupper((string) $row['code']); }
+        } catch (\Throwable $e) {
+            \error_log('[gia_flights] to_iata(' . $place . '): ' . $e->getMessage());
+        }
+        return '';
+    }
+}
+
 if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
     /**
      * Search REAL bookable flight fares for GIA, as chat-ready offer cards.
@@ -152,8 +189,12 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
             return ['ok' => false, 'offers' => [], 'message' => 'Flight search is temporarily unavailable.'];
         }
 
-        $origin      = \strtoupper(\trim((string) ($opts['origin'] ?? '')));
-        $destination = \strtoupper(\trim((string) ($opts['destination'] ?? '')));
+        $originRaw      = \trim((string) ($opts['origin'] ?? ''));
+        $destinationRaw = \trim((string) ($opts['destination'] ?? ''));
+        // Suppliers need IATA CODES, not city names (verified: adivaha returns [] for
+        // "Lagos", real fares for "LOS"). Resolve via flights_airports.
+        $origin      = gia_flights_to_iata($db, $originRaw);
+        $destination = gia_flights_to_iata($db, $destinationRaw);
         $departDate  = \trim((string) ($opts['departure_date'] ?? ''));
         $returnDate  = \trim((string) ($opts['return_date'] ?? ''));
         $type        = \strtolower(\trim((string) ($opts['type'] ?? ''))) ?: ($returnDate !== '' ? 'return' : 'oneway');
@@ -165,14 +206,17 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
         $limit       = (int) ($opts['limit'] ?? 6); if ($limit <= 0) { $limit = 6; }
 
         // HARD requirement — never guess a route or a date (the web-coupling that
-        // broke umrah). If any is missing, ask; do not invent one.
+        // broke umrah). If any is missing OR a city couldn't be resolved to an
+        // airport code, ask; do not invent one.
         $missing = [];
-        if ($origin === '')      { $missing[] = 'departure city/airport'; }
-        if ($destination === '') { $missing[] = 'destination'; }
-        if ($departDate === '')  { $missing[] = 'departure date'; }
+        if ($originRaw === '')      { $missing[] = 'departure city/airport'; }
+        elseif ($origin === '')     { $missing[] = 'a valid departure airport (I couldn\'t match "' . $originRaw . '" — try the city or its 3-letter code)'; }
+        if ($destinationRaw === '') { $missing[] = 'destination'; }
+        elseif ($destination === '') { $missing[] = 'a valid destination airport (I couldn\'t match "' . $destinationRaw . '")'; }
+        if ($departDate === '')     { $missing[] = 'departure date'; }
         if ($missing !== []) {
             return ['ok' => false, 'offers' => [], 'need' => $missing,
-                'message' => 'I need the ' . \implode(', ', $missing) . ' to search flights.'];
+                'message' => 'I need ' . \implode(', ', $missing) . ' to search flights.'];
         }
 
         $suppliers = gia_flights_active_suppliers($db);
@@ -203,7 +247,9 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
         foreach ($suppliers as $supplier) {
             try {
                 $url = $base . '/modules/flights/' . \rawurlencode($supplier) . '/search';
-                $response = \aiTripHttpPost($url, $body, false, 45);
+                // 90s (not 45): adivaha polls server-side up to ~70s before returning
+                // offers; a 45s caller timeout aborted mid-poll -> curl http=0.
+                $response = \aiTripHttpPost($url, $body, false, 90);
             } catch (\Throwable $e) {
                 \error_log('[gia_flights] search ' . $supplier . ' threw: ' . $e->getMessage());
                 continue;

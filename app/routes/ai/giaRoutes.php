@@ -271,7 +271,20 @@ $router->post('/api/gia/chat', function () use ($db) {
         if ($userId !== '' && function_exists('gia_user_profile')) {
             $agent->setUserProfile(gia_user_profile($db, $userId));
         }
+        // CRITICAL — release the PHP session lock before running the agent. A tool
+        // like flights_search loops back over HTTP to /modules/flights/<supplier>/
+        // search, whose front controller (modules/index.php) calls session_start().
+        // PHP locks a session exclusively, so that sub-request blocks waiting for
+        // THIS request to release it — a self-deadlock that stalls the whole turn
+        // until the 90s timeout (observed: adivaha loopback http=0 after 90s, while
+        // a direct curl to the same gateway returns fares in ~9s). We've finished
+        // READING the session (CSRF checked, history + context already built), and
+        // we reopen it after the agent returns to persist the turn. Everything the
+        // tools need is in $toolContext, not $_SESSION.
+        if (session_status() === PHP_SESSION_ACTIVE) { session_write_close(); }
         $result = $agent->run($message, $history);
+        // Reopen so the post-run $_SESSION writes (transcript cache, last_search) land.
+        if (session_status() !== PHP_SESSION_ACTIVE) { @session_start(); }
     } catch (\Throwable $e) {
         error_log('[gia] route error: ' . $e->getMessage());
         $respond(500, [
