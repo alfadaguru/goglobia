@@ -642,10 +642,9 @@ if (!empty($paymentGateways)) {
                         || document.querySelector('input[name="csrf_token"]')?.value || '';
                     const iso = '<?= htmlspecialchars($countryCode, ENT_QUOTES, 'UTF-8') ?>';
                     const qty = Math.max(1, Number(this.formData.airalo_order.quantity || 1));
-                    // Carry the full Airalo order (incl. package_id) + supplier so the
-                    // post-payment issue step (modules/esim/airalo/issue.php) can
-                    // actually provision the eSIM. Without these the line would fail
-                    // to issue after payment (paid but never ordered).
+                    // Carry the full eSIM order (incl. package_id) so the post-payment
+                    // issue step can provision it. The supplier is NOT carried here —
+                    // it is resolved server-side from module_id.
                     const airaloOrder = Object.assign({}, this.formData.airalo_order, {
                         package_id: String(this.selectedPackage.id || this.selectedPackage.package_id || ''),
                         quantity: qty,
@@ -654,7 +653,8 @@ if (!empty($paymentGateways)) {
                         module_id: <?= (int) ($moduleId ?? 0) ?>,
                         country: iso,
                         package_type: '<?= htmlspecialchars(strtolower($type ?? 'all'), ENT_QUOTES, 'UTF-8') ?>',
-                        supplier: 'airalo',
+                        // supplier is resolved server-side from module_id (api/esim/bookingRoutes.php)
+                        // — never sent from the client (was 'airalo', a supplier-identity leak).
                         selected_package: this.selectedPackage,
                         airalo_order: airaloOrder,
                         qty: qty,

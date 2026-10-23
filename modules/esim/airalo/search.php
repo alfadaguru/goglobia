@@ -18,7 +18,7 @@ $router->post('esim/airalo/search', function() use ($db) {
             http_response_code(503);
             echo json_encode([
                 'success' => false,
-                'message' => 'Airalo module is not enabled',
+                'message' => 'eSIM service is not available',
                 'data' => null
             ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
             return;
@@ -113,7 +113,7 @@ $router->post('esim/airalo/search', function() use ($db) {
                 'total' => $meta['total'] ?? count($results),
             ],
             'meta' => [
-                'module' => 'airalo',
+                'module' => 'esim',   // service name, not the supplier ('airalo' leaked here)
                 'service' => 'esim',
                 'environment' => $environment,
                 'api_version' => 'v2',

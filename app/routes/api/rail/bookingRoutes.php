@@ -29,9 +29,11 @@ $router->get('/api/rail/booking/([a-f0-9]{16})', function ($hash) use ($db) {
             _train_respond(false, 'Booking draft not found.', null, 404);
         }
 
+        $railDraft = json_decode($booking['data'], true);
+        if (function_exists('sanitizeCustomerResponse')) { $railDraft = sanitizeCustomerResponse($railDraft); }
         _train_respond(true, 'OK', [
             'hash'         => $booking['hash'],
-            'booking_data' => json_decode($booking['data'], true),
+            'booking_data' => $railDraft,   // supplier stripped for customers
             'created_at'   => $booking['created_at'],
         ]);
     } catch (Throwable $e) {

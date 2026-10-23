@@ -734,7 +734,7 @@ if (file_exists($routesCacheFile)) {
                                 // Do NOT overwrite currency — always use session currency
                             }
                         })
-                        .catch(e => console.warn('Supplier error [' + supplier + ']:', e))
+                        .catch(e => console.warn('A search source failed:', e))
                         .finally(() => {
                             this.completedSuppliers++;
                             this.progress = Math.round((this.completedSuppliers / this.totalSuppliers) * 100);

@@ -153,6 +153,9 @@ $router->get('/api/ferries/booking/([a-f0-9]{16})', function ($hash) use ($SECUR
             return;
         }
         $data = json_decode($booking['data'], true);
+        // Strip our supplier identity before echoing the draft to the customer
+        // (the stored draft carries 'supplier' => 'kikoto'); admins keep it.
+        if (function_exists('sanitizeCustomerResponse')) { $data = sanitizeCustomerResponse($data); }
         echo json_encode(['success' => true, 'hash' => $hash, 'booking_data' => $data]);
 
     } catch (Throwable $e) {

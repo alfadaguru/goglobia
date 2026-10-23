@@ -216,6 +216,60 @@ function ADMIN_AUTH()
     }
 }
 
+// ---------------------------------------------------------------------------
+// SUPPLIER-IDENTITY HIDING (booking-ux-flow-gap.md §0 mandate)
+// Customers must only ever see "Goglobia" as the provider — never the back-office
+// supplier/aggregator (duffel, hotelbeds, kikoto, airalo, …). "Staff" = admin ONLY
+// (agents/suppliers/customers/guests are all blocked).
+// ---------------------------------------------------------------------------
+if (!function_exists('is_staff')) {
+    /** True only for a logged-in admin — the single role allowed to see suppliers. */
+    function is_staff(): bool
+    {
+        return isset($_SESSION['user_id']) && ($_SESSION['user_role'] ?? '') === 'admin';
+    }
+}
+
+if (!function_exists('sanitizeCustomerResponse')) {
+    /**
+     * Recursively strip supplier/aggregator identity from any data about to be
+     * sent to a CUSTOMER browser (JSON responses, draft echoes, JS state). Removes
+     * the keys that carry our back-office provider identity. No-op for admins (so
+     * staff tooling still sees the real supplier). The END-travel brand (airline,
+     * hotel name, car-rental vendor, bus/ferry operator) is NOT one of these keys
+     * and is preserved.
+     *
+     * @param mixed $data array|object|scalar — returned with the keys removed.
+     * @param bool  $force strip even for admins (use when the data is definitely
+     *                     customer-bound regardless of who is logged in).
+     */
+    function sanitizeCustomerResponse($data, bool $force = false)
+    {
+        if (!$force && is_staff()) return $data; // staff keep full visibility
+        // Keys that carry OUR supplier/aggregator identity ONLY — deliberately NOT
+        // 'operator' (bus/ferry carrier = who the customer rides = legitimate),
+        // nor airline/hotel/vendor fields. '_raw' is a supplier's raw upstream blob.
+        static $strip = ['supplier', 'supplier_code', 'supplier_name', 'supplier_id',
+                         'supplier_slug', 'provider', 'aggregator', '_supplier', '_raw'];
+        if (is_array($data)) {
+            $out = [];
+            foreach ($data as $k => $v) {
+                if (is_string($k) && in_array(strtolower($k), $strip, true)) continue;
+                $out[$k] = sanitizeCustomerResponse($v, true); // already decided; recurse with force
+            }
+            return $out;
+        }
+        if (is_object($data)) {
+            foreach (get_object_vars($data) as $k => $v) {
+                if (in_array(strtolower((string) $k), $strip, true)) { unset($data->$k); continue; }
+                $data->$k = sanitizeCustomerResponse($v, true);
+            }
+            return $data;
+        }
+        return $data;
+    }
+}
+
 // SUPPLIER AUTH CHECK — gate for the self-registered supplier area.
 // Mirrors ADMIN_AUTH(): a logged-in user whose role is exactly 'supplier'. Any
 // other visitor (guest, customer, agent, admin) is bounced to login. Because

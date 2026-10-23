@@ -100,7 +100,7 @@ $router->post('/api/rail/booking/order-status', function () use ($db) {
 
         _train_respond(true, 'OK', [
             'main_order_id'   => $mainOrderId,
-            'supplier'        => $res['data'] ?? null,
+            // (removed) 'supplier' => raw upstream response — supplier never exposed.
             'order_result'    => $enriched,
             'apply_result'    => $applyResult,
             'has_seats'       => $hasSeats,
@@ -275,7 +275,7 @@ $router->post('/api/rail/booking/reschedule-status', function () use ($db) {
 
         _train_respond(true, 'OK', [
             'reschedule_status' => $rescheduleStatus,
-            'supplier'          => $res['data'] ?? null,
+            // (removed) 'supplier' => raw upstream response — supplier never exposed.
             'booking'           => $booking ? _train_invoice_view($booking) : null,
         ]);
     } catch (Throwable $e) {

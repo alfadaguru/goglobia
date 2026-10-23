@@ -106,6 +106,7 @@ $router->get('/api/umrah/booking/([a-f0-9]{16})', function ($hash) use ($db) {
             }
         }
 
+        if (function_exists('sanitizeCustomerResponse')) { $bookingData = sanitizeCustomerResponse($bookingData); }
         echo json_encode(['success' => true, 'hash' => $hash, 'booking_data' => $bookingData]);
     } catch (Exception $e) {
         http_response_code(400);

@@ -132,7 +132,6 @@ $router->get('/api/tours/featured', function () use ($SECURE, $db) {
                         $hl = json_decode($t['highlights'] ?? $t['features'] ?? '[]', true);
                         return is_array($hl) ? array_slice(array_values($hl), 0, 3) : [];
                     })($tour),
-                    'supplier' => 'tours'
                 ];
             }
 
