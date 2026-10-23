@@ -54,6 +54,7 @@ if (!class_exists('App\\lib\\ai\\staysSearchTool')) {
         {
             $db = $context['db'] ?? null;
             if ($db === null) { return ['ok' => false, 'error_code' => 'AI_NO_DB', 'message' => 'Hotel search is unavailable.']; }
+            if (function_exists('gia_trace')) { \gia_trace('stays_search', __FILE__, 'city=' . (string) ($input['city'] ?? '')); }
 
             $res = gia_stays_search($db, ['city' => (string) ($input['city'] ?? '')]);
             if (empty($res['ok'])) {
@@ -108,6 +109,7 @@ if (!class_exists('App\\lib\\ai\\staysRoomsTool')) {
         {
             $db = $context['db'] ?? null;
             if ($db === null) { return ['ok' => false, 'error_code' => 'AI_NO_DB', 'message' => 'Hotel rooms are unavailable.']; }
+            if (function_exists('gia_trace')) { \gia_trace('stays_rooms', __FILE__, 'stay_id=' . (int) ($input['stay_id'] ?? 0) . ' ci=' . (string) ($input['checkin'] ?? '') . ' co=' . (string) ($input['checkout'] ?? '')); }
 
             $res = gia_stays_rooms($db,
                 (int) ($input['stay_id'] ?? 0),
@@ -205,6 +207,7 @@ if (!class_exists('App\\lib\\ai\\staysBookTool')) {
         {
             $db = $context['db'] ?? null;
             if ($db === null) { return ['ok' => false, 'error_code' => 'AI_NO_DB', 'message' => 'Hotel booking is unavailable.']; }
+            if (function_exists('gia_trace')) { \gia_trace('stays_book', __FILE__, 'ref=' . (string) ($input['ref'] ?? '')); }
 
             // Parse the self-describing room ref: stayroom:<stay>:<room>:<option>.
             $ref = trim((string) ($input['ref'] ?? ''));

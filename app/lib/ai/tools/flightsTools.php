@@ -64,6 +64,7 @@ if (!class_exists('App\\lib\\ai\\flightsSearchTool')) {
         {
             $db = $context['db'] ?? null;
             if ($db === null) { return ['ok' => false, 'error_code' => 'AI_NO_DB', 'message' => 'Flight search is unavailable.']; }
+            if (function_exists('gia_trace')) { \gia_trace('flights_search', __FILE__, 'origin=' . (string) ($input['origin'] ?? '') . ' dest=' . (string) ($input['destination'] ?? '') . ' date=' . (string) ($input['departure_date'] ?? '')); }
             $convId = (int) ($context['conv_id'] ?? 0);
             $currency = strtoupper(trim((string) ($context['currency'] ?? ''))) ?: 'USD';
 
@@ -158,6 +159,7 @@ if (!class_exists('App\\lib\\ai\\flightsSelectTool')) {
         {
             $db = $context['db'] ?? null;
             if ($db === null) { return ['ok' => false, 'error_code' => 'AI_NO_DB', 'message' => 'Flight pricing is unavailable.']; }
+            if (function_exists('gia_trace')) { \gia_trace('flights_select', __FILE__, 'ref=' . (string) ($input['ref'] ?? '')); }
             $convId = (int) ($context['conv_id'] ?? 0);
             $ref = trim((string) ($input['ref'] ?? ''));
             if ($ref === '' || $convId <= 0 || !function_exists('gia_offer_cache_get')) {
@@ -232,6 +234,7 @@ if (!class_exists('App\\lib\\ai\\flightsBookTool')) {
         {
             $db = $context['db'] ?? null;
             if ($db === null) { return ['ok' => false, 'error_code' => 'AI_NO_DB', 'message' => 'Flight booking is unavailable.']; }
+            if (function_exists('gia_trace')) { \gia_trace('flights_book', __FILE__, 'ref=' . (string) ($input['ref'] ?? '')); }
             $convId = (int) ($context['conv_id'] ?? 0);
             $ref = trim((string) ($input['ref'] ?? ''));
             if ($ref === '' || $convId <= 0 || !function_exists('gia_offer_cache_get')) {
@@ -322,6 +325,7 @@ if (!class_exists('App\\lib\\ai\\flightsAddPassengerTool')) {
         {
             $db = $context['db'] ?? null;
             if ($db === null) { return ['ok' => false, 'error_code' => 'AI_NO_DB', 'message' => 'Unavailable.']; }
+            if (function_exists('gia_trace')) { \gia_trace('flights_add_passenger', __FILE__, 'invoice=' . (string) ($input['invoice_id'] ?? '')); }
             $invoiceId = trim((string) ($input['invoice_id'] ?? ''));
             if ($invoiceId === '') { return ['ok' => false, 'error_code' => 'AI_FLIGHTS_PAX', 'message' => 'Which booking is this passenger for?']; }
 

@@ -114,6 +114,8 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         $channel = strtolower(trim($channel));
         $channelUserId = trim($channelUserId);
         $text = trim($text);
+        if (!function_exists('gia_trace')) { $tf = __DIR__ . '/gia_trace.php'; if (is_file($tf)) { require_once $tf; } }
+        if (function_exists('gia_trace')) { \gia_trace('chat_in', __FILE__, 'surface=' . strtoupper($channel) . ' user=' . substr($channelUserId, 0, 10) . ' msg="' . mb_substr($text, 0, 80) . '"'); }
         $fail = function (string $reply, bool $skip = false, bool $handoff = false, string $convKey = '') {
             return ['ok' => false, 'reply' => $reply, 'skip' => $skip, 'conv_key' => $convKey, 'handoff' => $handoff];
         };
@@ -164,6 +166,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow
         require_once $aiDir . 'tools/flightsTools.php'; // DEDICATED flights flow
         require_once $aiDir . 'tools/staysTools.php'; // DEDICATED stays flow
+        require_once $aiDir . 'gia_trace.php'; // step tracer (breadcrumb log for diagnosis)
         require_once $aiDir . 'gia_analytics.php';
         require_once $aiDir . 'gia_crm.php';
         require_once $aiDir . 'gia_identity.php';

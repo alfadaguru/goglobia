@@ -130,6 +130,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow (own tools)
     require_once $aiDir . 'tools/flightsTools.php'; // DEDICATED flights flow (own tools)
     require_once $aiDir . 'tools/staysTools.php'; // DEDICATED stays flow (own tools)
+    require_once $aiDir . 'gia_trace.php'; // step tracer (breadcrumb log for diagnosis)
     require_once $aiDir . 'gia_pending_travellers.php'; // pilgrim-collection engine
     require_once $aiDir . 'gia_pt_web.php';             // web-native pilgrim handlers
     // CRM + analytics (persistent chat, leads, logging). Fail-soft: if these are
@@ -196,6 +197,10 @@ $router->post('/api/gia/chat', function () use ($db) {
         'last_search_params' => (isset($_SESSION['gia_last_search']) && is_array($_SESSION['gia_last_search']))
             ? $_SESSION['gia_last_search'] : [],
     ];
+
+    if (function_exists('gia_trace')) {
+        \gia_trace('chat_in', __FILE__, 'surface=WEB conv=' . $convId . ' msg="' . mb_substr($message, 0, 80) . '"');
+    }
 
     // --- UMRAH PILGRIM COLLECTION (web) intercept ---------------------------
     //     If this web conversation is mid pilgrim-collection (a held umrah booking

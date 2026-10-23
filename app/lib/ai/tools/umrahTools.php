@@ -56,6 +56,7 @@ if (!class_exists('App\\lib\\ai\\umrahSearchTool')) {
         {
             $db = $context['db'] ?? null;
             if ($db === null) { return ['ok' => false, 'error_code' => 'AI_NO_DB', 'message' => 'Umrah search is unavailable.']; }
+            if (function_exists('gia_trace')) { \gia_trace('umrah_search', __FILE__, 'city=' . (string) ($input['city'] ?? '') . ' month=' . (string) ($input['month'] ?? '')); }
 
             $pax = max(0, (int) ($input['adults'] ?? 0)) + max(0, (int) ($input['children'] ?? 0)) + max(0, (int) ($input['infants'] ?? 0));
             $monthRaw = trim((string) ($input['month'] ?? ''));
@@ -132,6 +133,7 @@ if (!class_exists('App\\lib\\ai\\umrahTiersTool')) {
         {
             $db = $context['db'] ?? null;
             if ($db === null) { return ['ok' => false, 'error_code' => 'AI_NO_DB', 'message' => 'Umrah tiers are unavailable.']; }
+            if (function_exists('gia_trace')) { \gia_trace('umrah_tiers', __FILE__, 'departure_id=' . (int) ($input['departure_id'] ?? 0) . ' when=' . (string) ($input['when'] ?? '')); }
             $pax = max(0, (int) ($input['adults'] ?? 0)) + max(0, (int) ($input['children'] ?? 0)) + max(0, (int) ($input['infants'] ?? 0));
             $res = gia_umrah_tiers($db, (int) ($input['departure_id'] ?? 0), $pax, trim((string) ($input['when'] ?? '')));
             if (empty($res['ok'])) {
@@ -187,6 +189,7 @@ if (!class_exists('App\\lib\\ai\\umrahBookTool')) {
         {
             $db = $context['db'] ?? null;
             if ($db === null) { return ['ok' => false, 'error_code' => 'AI_NO_DB', 'message' => 'Umrah booking is unavailable.']; }
+            if (function_exists('gia_trace')) { \gia_trace('umrah_book', __FILE__, 'departure_tier_id=' . (int) ($input['departure_tier_id'] ?? 0)); }
             $pax = max(0, (int) ($input['adults'] ?? 0)) + max(0, (int) ($input['children'] ?? 0)) + max(0, (int) ($input['infants'] ?? 0));
             if ($pax < 1) { $pax = 1; }
 
