@@ -31,6 +31,11 @@ $router->get('/gia', function () use ($SECURE, $db) {
 
 $router->post('/api/gia/chat', function () use ($db) {
     header('Content-Type: application/json');
+    // A turn may legitimately run long (a multi-city flight search has the supplier
+    // poll up to ~90s + a large transfer, then a model round-trip). GIA's own ceiling
+    // is MAX_WALL_SECONDS (150s); make sure the web server's PHP limit doesn't kill the
+    // request before that. 180s = GIA ceiling + headroom. Safe: GIA self-bounds anyway.
+    @set_time_limit(180);
 
     $respond = function (int $http, array $body): void {
         http_response_code($http);

@@ -217,7 +217,13 @@ $router->post('flights/adivaha/search', function () use ($db) {
     $pollUrl = $base . '/flights/search-poll?trace_id=' . urlencode($traceId)
         . '&display_currency=' . urlencode($currency);
 
-    $deadline  = microtime(true) + 70;  // hard cap; the front-end also re-queries
+    // Multi-city responses are MUCH larger (all legs × fares) and slower — a 286-712KB
+    // poll body routinely blew past a 25s per-poll cURL timeout and returned rows=0.
+    // Give multicity a longer per-poll timeout AND a longer overall deadline; oneway/
+    // return keep the tight budget.
+    $isMulti   = ($type === 'multicity');
+    $pollTimeout = $isMulti ? 40 : 25;   // per-poll cURL seconds
+    $deadline  = microtime(true) + ($isMulti ? 90 : 70);  // hard cap; front-end also re-queries
     $done      = false;
     $pollData  = null;
     $attempts  = 0;
@@ -225,7 +231,7 @@ $router->post('flights/adivaha/search', function () use ($db) {
     while (microtime(true) < $deadline) {
         if (connection_aborted()) { exit; }
         $attempts++;
-        $pollRes = adivahaApiRequest('GET', $pollUrl, null, $bearer, [], 25);
+        $pollRes = adivahaApiRequest('GET', $pollUrl, null, $bearer, [], $pollTimeout);
         if ($pollRes['success'] && is_array($pollRes['data'])) {
             $pollData = $pollRes['data'];
             if (!empty($pollData['done'])) { $done = true; break; }

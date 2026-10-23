@@ -21,10 +21,14 @@ namespace App\lib\ai;
  */
 class giaAgent
 {
-    /** Hard safety bounds (BRD §10.6 "no uncontrolled autonomous recursion"). */
+    /** Hard safety bounds (BRD §10.6 "no uncontrolled autonomous recursion").
+     *  WALL is a CEILING, not a target — fast turns still return fast. Raised to 150s
+     *  so a legitimate multi-city flight search (adivaha polls up to ~90s + a large
+     *  transfer, then a model round-trip to present it) can finish instead of tripping
+     *  AI_TIMEOUT mid-poll. */
     private const MAX_TURNS = 6;        // model round-trips per user message
     private const MAX_TOOL_CALLS = 8;   // total tool executions per user message
-    private const MAX_WALL_SECONDS = 90;
+    private const MAX_WALL_SECONDS = 150;
 
     /** Base risk ceiling (no money): R0/R1 read, R2 reversible controlled-write
      *  (reprice, freeze snapshot, record approval). R3 (start a real payment) is

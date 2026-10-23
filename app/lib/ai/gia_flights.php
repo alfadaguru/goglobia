@@ -318,12 +318,14 @@ if (!function_exists('App\\lib\\ai\\gia_flights_collect')) {
         $lastMsg = 'No flights found for that route and date.';
         $base = \defined('root') ? \rtrim((string) \root, '/') : '';
         $isMulti = \count($routes) >= 2;
+        // adivaha polls server-side (~70s oneway, up to ~90s multicity) before it
+        // returns offers; the caller timeout must outlast that + the (large) transfer
+        // or curl aborts mid-poll -> http=0/rows=0. Multi-city bodies are far bigger.
+        $httpTimeout = $isMulti ? 120 : 90;
         foreach ($suppliers as $supplier) {
             try {
                 $url = $base . '/modules/flights/' . \rawurlencode($supplier) . '/search';
-                // 90s (not 45): adivaha polls server-side up to ~70s before returning
-                // offers; a 45s caller timeout aborted mid-poll -> curl http=0.
-                $response = \aiTripHttpPost($url, $body, false, 90);
+                $response = \aiTripHttpPost($url, $body, false, $httpTimeout);
             } catch (\Throwable $e) {
                 \error_log('[gia_flights] search ' . $supplier . ' threw: ' . $e->getMessage());
                 continue;
