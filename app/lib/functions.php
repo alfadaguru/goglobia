@@ -270,6 +270,57 @@ if (!function_exists('sanitizeCustomerResponse')) {
     }
 }
 
+if (!function_exists('supplier_url_token')) {
+    /** Per-install key for the opaque supplier URL token (never transmitted). */
+    function _supplier_token_key(): string
+    {
+        $seed = (getenv('REMEMBER_ME_SECRET') ?: '') . '|' . (defined('root') ? root : __DIR__) . '|supplier-url';
+        return hash('sha256', $seed, true); // 32 raw bytes
+    }
+
+    /**
+     * Encode a supplier/aggregator name into a short OPAQUE, reversible, URL-safe
+     * token so it can sit in a customer-facing URL without revealing the supplier.
+     * AES-256-CBC (encrypt-then-MAC); falls back to a keyed, MAC'd base64 if OpenSSL
+     * is absent. supplier_from_url_token() reverses it; a tampered/foreign token
+     * decodes to '' (caller treats as unknown supplier).
+     */
+    function supplier_url_token(string $supplier): string
+    {
+        $supplier = strtolower(trim($supplier));
+        if ($supplier === '') return '';
+        $k = _supplier_token_key();
+        if (function_exists('openssl_encrypt')) {
+            $iv = substr(hash('sha256', 's|' . $supplier, true), 0, 16); // deterministic IV → stable token per supplier
+            $ct = openssl_encrypt($supplier, 'AES-256-CBC', $k, OPENSSL_RAW_DATA, $iv);
+            $mac = substr(hash_hmac('sha256', $iv . $ct, $k, true), 0, 10);
+            return rtrim(strtr(base64_encode($iv . $ct . $mac), '+/', '-_'), '=');
+        }
+        $mac = substr(hash_hmac('sha256', $supplier, $k, true), 0, 10);
+        return 'h' . rtrim(strtr(base64_encode($supplier . '|' . $mac), '+/', '-_'), '=');
+    }
+
+    /** Reverse supplier_url_token(). Returns '' for an invalid/tampered token. */
+    function supplier_from_url_token(string $token): string
+    {
+        $token = trim($token);
+        if ($token === '') return '';
+        $k = _supplier_token_key();
+        if ($token[0] === 'h') { // hmac-fallback form
+            $raw = base64_decode(strtr(substr($token, 1), '-_', '+/'), true);
+            if ($raw === false || strpos($raw, '|') === false) return '';
+            [$sup, $mac] = [substr($raw, 0, strrpos($raw, '|')), substr($raw, strrpos($raw, '|') + 1)];
+            return hash_equals(substr(hash_hmac('sha256', $sup, $k, true), 0, 10), $mac) ? $sup : '';
+        }
+        $raw = base64_decode(strtr($token, '-_', '+/'), true);
+        if ($raw === false || strlen($raw) < 32) return '';
+        $iv = substr($raw, 0, 16); $mac = substr($raw, -10); $ct = substr($raw, 16, -10);
+        if (!hash_equals(substr(hash_hmac('sha256', $iv . $ct, $k, true), 0, 10), $mac)) return '';
+        $sup = openssl_decrypt($ct, 'AES-256-CBC', $k, OPENSSL_RAW_DATA, $iv);
+        return is_string($sup) ? strtolower(trim($sup)) : '';
+    }
+}
+
 // SUPPLIER AUTH CHECK — gate for the self-registered supplier area.
 // Mirrors ADMIN_AUTH(): a logged-in user whose role is exactly 'supplier'. Any
 // other visitor (guest, customer, agent, admin) is bounced to login. Because

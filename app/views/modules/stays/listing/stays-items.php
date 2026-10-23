@@ -44,7 +44,7 @@ PERFORMANCE:
     /**
      * BUILD HOTEL URL - Simple SEO-friendly URL builder
      */
-    function buildHotelUrl(h, searchParams, roomsData) {
+    function buildHotelUrl(h, searchParams, roomsData, supplierTokens) {
         const slug = h.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
         const hotelId = h.original_id || h.hotel_id || h.id || 'unknown';
         const rooms = roomsData.map(r => {
@@ -54,7 +54,11 @@ PERFORMANCE:
 
         const hotelChain = h.original_data.chain || h.hotel_chain || '_';
 
-        return `<?= root ?>stay/${slug}/${hotelId}/${h.supplier.toLowerCase()}/${hotelChain}/${searchParams.checkin}/${searchParams.checkout}/${searchParams.nationality}/${searchParams.rooms}/${rooms}`;
+        // Opaque supplier TOKEN in the URL (never the raw supplier name). Falls back
+        // to the raw name only if the map is missing (route decodes either).
+        const supKey = String(h.supplier || '').toLowerCase();
+        const supToken = (supplierTokens && supplierTokens[supKey]) ? supplierTokens[supKey] : supKey;
+        return `<?= root ?>stay/${slug}/${hotelId}/${supToken}/${hotelChain}/${searchParams.checkin}/${searchParams.checkout}/${searchParams.nationality}/${searchParams.rooms}/${rooms}`;
     }
 
     /**
@@ -69,8 +73,8 @@ PERFORMANCE:
      */
     function renderHotelCard(h, idx) {
 
-        // Build hotel detail URL
-        const hotelUrl = buildHotelUrl(h, this.searchParams, this.roomsData);
+        // Build hotel detail URL (opaque supplier token, not the raw name)
+        const hotelUrl = buildHotelUrl(h, this.searchParams, this.roomsData, this.supplierTokens);
 
         // Star rating display - SVG stars
         const starSVG = (filled) => `
