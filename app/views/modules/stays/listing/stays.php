@@ -125,14 +125,27 @@
                              x-transition:leave-start="opacity-100"
                              x-transition:leave-end="opacity-0"
                              class="space-y-4">
-                            <template x-for="i in 3">
-                                <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 animate-pulse">
-                                    <div class="flex gap-4">
-                                        <div class="w-24 h-24 bg-gray-300 dark:bg-gray-600 rounded"></div>
-                                        <div class="flex-1 space-y-2">
-                                            <div class="h-4 bg-gray-300 dark:bg-gray-600 rounded w-3/4"></div>
-                                            <div class="h-3 bg-gray-300 dark:bg-gray-600 rounded w-1/2"></div>
-                                            <div class="h-3 bg-gray-300 dark:bg-gray-600 rounded w-2/3"></div>
+                            <!-- Skeleton MIRRORS the real hotel card (photo · name/location/
+                                 badges · price col) so the fill-in reads as loading, not a jolt. -->
+                            <template x-for="i in 6">
+                                <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-0 overflow-hidden animate-pulse">
+                                    <div class="flex flex-col sm:flex-row">
+                                        <div class="w-full h-40 sm:w-56 sm:h-auto sm:self-stretch bg-gray-200 dark:bg-gray-700 shrink-0"></div>
+                                        <div class="flex-1 p-4 flex flex-col sm:flex-row sm:justify-between gap-4">
+                                            <div class="flex-1 space-y-2.5">
+                                                <div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/5"></div>
+                                                <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded w-2/5"></div>
+                                                <div class="flex gap-2 pt-1">
+                                                    <div class="h-5 bg-gray-200 dark:bg-gray-700 rounded w-16"></div>
+                                                    <div class="h-5 bg-gray-200 dark:bg-gray-700 rounded w-20"></div>
+                                                    <div class="h-5 bg-gray-200 dark:bg-gray-700 rounded w-14"></div>
+                                                </div>
+                                            </div>
+                                            <div class="sm:w-36 shrink-0 space-y-2 sm:text-right">
+                                                <div class="h-3 bg-gray-200 dark:bg-gray-700 rounded w-10 sm:ml-auto"></div>
+                                                <div class="h-6 bg-gray-200 dark:bg-gray-700 rounded w-24 sm:ml-auto"></div>
+                                                <div class="h-8 bg-gray-200 dark:bg-gray-700 rounded-lg w-full mt-1"></div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

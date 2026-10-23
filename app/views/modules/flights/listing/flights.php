@@ -613,15 +613,49 @@ if ($displayCurrencyRate > 0) {
                                 x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
                                 class="space-y-4"
                                 :class="filteredFlights.length > 0 ? 'absolute inset-0 pointer-events-none z-10' : ''">
+                                <!-- Skeleton MIRRORS the real flight card (logo · route timeline ·
+                                     price · book) so the fill-in reads as loading, not a jolt. -->
                                 <template x-for="i in 12">
                                     <div
                                         class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 animate-pulse">
-                                        <div class="flex gap-4">
-                                            <div class="w-10 h-10 bg-gray-300 dark:bg-gray-600 rounded"></div>
-                                            <div class="flex-1 space-y-2">
-                                                <div class="h-4 bg-gray-300 dark:bg-gray-600 rounded w-3/4"></div>
-                                                <div class="h-3 bg-gray-300 dark:bg-gray-600 rounded w-1/2"></div>
+                                        <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+                                            <!-- Airline col -->
+                                            <div class="flex items-center gap-3 sm:w-40 shrink-0">
+                                                <div class="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
+                                                <div class="space-y-1.5">
+                                                    <div class="h-3.5 bg-gray-200 dark:bg-gray-700 rounded w-20"></div>
+                                                    <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded w-12"></div>
+                                                </div>
                                             </div>
+                                            <!-- Route timeline col -->
+                                            <div class="flex-1 flex items-center gap-3">
+                                                <div class="space-y-1.5">
+                                                    <div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-12"></div>
+                                                    <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded w-8"></div>
+                                                </div>
+                                                <div class="flex-1 flex items-center gap-1">
+                                                    <div class="w-1.5 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700"></div>
+                                                    <div class="flex-1 h-px bg-gray-200 dark:bg-gray-700"></div>
+                                                    <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded w-10"></div>
+                                                    <div class="flex-1 h-px bg-gray-200 dark:bg-gray-700"></div>
+                                                    <div class="w-1.5 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700"></div>
+                                                </div>
+                                                <div class="space-y-1.5">
+                                                    <div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-12"></div>
+                                                    <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded w-8"></div>
+                                                </div>
+                                            </div>
+                                            <!-- Price + book col -->
+                                            <div class="sm:w-36 shrink-0 space-y-2 sm:text-right">
+                                                <div class="h-5 bg-gray-200 dark:bg-gray-700 rounded w-24 sm:ml-auto"></div>
+                                                <div class="h-8 bg-gray-200 dark:bg-gray-700 rounded-lg w-full"></div>
+                                            </div>
+                                        </div>
+                                        <!-- meta footer -->
+                                        <div class="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/60">
+                                            <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded w-16"></div>
+                                            <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded w-14"></div>
+                                            <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded w-20"></div>
                                         </div>
                                     </div>
                                 </template>
