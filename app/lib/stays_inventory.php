@@ -411,7 +411,7 @@ if (!function_exists('stays_hold_create')) {
 
         $result = ['ok' => false, 'message' => 'Could not create hold'];
         try {
-            $db->action(function ($db) use ($stayId, $roomId, $optionId, $nights, $qty, $ref, $holdMinutes, $defaultQty, $losLength, $arrivalNight, &$result) {
+            $db->action(function ($db) use ($stayId, $roomId, $optionId, $nights, $checkout, $qty, $ref, $holdMinutes, $defaultQty, $losLength, $arrivalNight, &$result) {
                 $now = date('Y-m-d H:i:s');
 
                 // 1) Lock + verify EVERY night first (all-or-nothing). Seed a row
