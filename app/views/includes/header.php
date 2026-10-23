@@ -530,10 +530,11 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
     // -----------------------------------------------------------------------
     if (!$isAdminSidebar) {
         $ldSiteUrl = rtrim((string)($GLOBALS['app']['site_url'] ?? (defined('root') ? root : '')), '/');
+        // Organization typed as TravelAgency (factual + a Google-supported type).
         $orgLd = [
             '@context' => 'https://schema.org',
-            '@type'    => 'Organization',
-            'name'     => (string)($GLOBALS['app']['business_name'] ?? 'Goglobia'),
+            '@type'    => 'TravelAgency',
+            'name'     => (string)($GLOBALS['app']['business_name'] ?? 'GoGlobia'),
         ];
         if ($ldSiteUrl !== '')                              $orgLd['url']   = $ldSiteUrl;
         if ($ldSiteUrl !== '')                              $orgLd['logo']  = $ldSiteUrl . '/uploads/global/logo.png';
@@ -543,7 +544,18 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
             $orgLd['address'] = [
                 '@type'         => 'PostalAddress',
                 'streetAddress' => (string)$GLOBALS['app']['address'],
+                'addressCountry'=> 'NG',
             ];
+        }
+        // Social profiles (sameAs) — only real, configured URLs (no invented ones).
+        $__social = json_decode((string)($GLOBALS['app']['social_media'] ?? ''), true);
+        if (is_array($__social)) {
+            $__sameAs = [];
+            foreach (['facebook','twitter','instagram','linkedin','youtube'] as $__sk) {
+                $__u = trim((string)($__social[$__sk] ?? ''));
+                if ($__u !== '' && stripos($__u, 'http') === 0) { $__sameAs[] = $__u; }
+            }
+            if ($__sameAs) { $orgLd['sameAs'] = array_values($__sameAs); }
         }
 
         $siteLd = [
@@ -563,9 +575,41 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
                 'query-input' => 'required name=search_term_string',
             ];
         }
+        // BreadcrumbList (SEO-007) — on non-home pages, built from the URL path so
+        // navigational pages are eligible for breadcrumb rich results. Only on
+        // indexable pages (no point on noindexed private/search URLs). Labels are
+        // humanised from the path segment (slug → "Title Case").
+        $breadcrumbLd = null;
+        $__bcPath = isset($__rRel) ? $__rRel : strtok((string)($_SERVER['REQUEST_URI'] ?? '/'), '?');
+        $__bcSegs = array_values(array_filter(explode('/', trim((string)$__bcPath, '/')), 'strlen'));
+        $__bcIndexable = (($robots ?? '') === '' || stripos((string)($robots ?? ''), 'noindex') === false);
+        if ($ldSiteUrl !== '' && $__bcIndexable && !empty($__bcSegs)
+            && !preg_match('~\d{1,2}-\d{1,2}-\d{4}~', $__bcPath)) {   // skip dated result URLs
+            $__items = [[
+                '@type' => 'ListItem', 'position' => 1, 'name' => 'Home', 'item' => $ldSiteUrl . '/',
+            ]];
+            $__acc = $ldSiteUrl; $__pos = 2; $__cap = 0;
+            foreach ($__bcSegs as $__seg) {
+                if ($__cap++ >= 4) break;                 // keep breadcrumbs shallow
+                if ($__seg === 'page') continue;          // /page/ is a routing prefix, not a crumb
+                $__acc .= '/' . rawurlencode($__seg);
+                $__label = ucwords(str_replace(['-', '_'], ' ', $__seg));
+                $__items[] = ['@type' => 'ListItem', 'position' => $__pos++, 'name' => $__label, 'item' => $__acc];
+            }
+            if (count($__items) > 1) {
+                $breadcrumbLd = [
+                    '@context' => 'https://schema.org',
+                    '@type'    => 'BreadcrumbList',
+                    'itemListElement' => $__items,
+                ];
+            }
+        }
         ?>
     <script type="application/ld+json"><?= json_encode($orgLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?></script>
     <script type="application/ld+json"><?= json_encode($siteLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?></script>
+    <?php if ($breadcrumbLd): ?>
+    <script type="application/ld+json"><?= json_encode($breadcrumbLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?></script>
+    <?php endif; ?>
     <?php } ?>
 
     <!-- PWA -->
