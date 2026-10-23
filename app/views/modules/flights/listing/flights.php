@@ -686,6 +686,25 @@ if ($displayCurrencyRate > 0) {
                                 </template>
                             </div>
 
+                            <!-- FLEXIBLE DATES — one-tap nearby departure dates (no per-day
+                                 prices; each chip re-runs the real search for that date). -->
+                            <div x-show="searchParams.type !== 'multicity' && searchParams.departure_date"
+                                x-cloak class="mb-4 flex items-stretch gap-2 overflow-x-auto pb-1">
+                                <template x-for="d in flexDates()" :key="d.dmy">
+                                    <button type="button"
+                                        @click="d.valid && !d.isCurrent ? goToFlexDate(d.dmy) : null"
+                                        :disabled="!d.valid || d.isCurrent"
+                                        class="shrink-0 min-w-[64px] rounded-xl border px-3 py-2 text-center transition-colors"
+                                        :class="d.isCurrent
+                                            ? 'border-blue-600 bg-blue-600 text-white cursor-default'
+                                            : (d.valid ? 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20'
+                                                       : 'border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 text-gray-300 dark:text-gray-600 cursor-not-allowed')">
+                                        <div class="text-[11px] uppercase tracking-wide" x-text="d.isCurrent ? '<?= T::selected ?? 'Selected' ?>' : d.dow"></div>
+                                        <div class="text-sm font-semibold leading-tight"><span x-text="d.day"></span> <span x-text="d.mon"></span></div>
+                                    </button>
+                                </template>
+                            </div>
+
                             <!-- PER-AIRLINE × STOPS PRICE MATRIX (cheapest fare per cell).
                                  Shown once there are enough results; click a cell to filter. -->
                             <div id="flResultsTop"
@@ -1887,6 +1906,56 @@ if ($displayCurrencyRate > 0) {
             matrixCellActive(airlineRow, bucket) {
                 const stopVal = bucket === 'direct' ? 0 : (bucket === 'one' ? 1 : 2);
                 return this.filters.airlines.includes(airlineRow.name || airlineRow.code) && this.filters.stops.includes(stopVal);
+            },
+
+            // --- FLEXIBLE DATES (± day shortcuts) ---------------------------------
+            // No supplier returns a price calendar, so we DON'T show prices per day
+            // (that would need a search per date / fake numbers). Instead we offer a
+            // one-tap strip of nearby departure dates that RE-RUN the real search.
+            _parseDMY(s) {
+                // searchParams.departure_date is DD-MM-YYYY
+                const m = (s || '').match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+                if (!m) return null;
+                return new Date(+m[3], +m[2] - 1, +m[1]);
+            },
+            _toDMY(d) {
+                const p = n => String(n).padStart(2, '0');
+                return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()}`;
+            },
+            _dayStart(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; },
+            // The strip: current departure ±3 days, each with its offset + validity.
+            flexDates() {
+                const base = this._parseDMY(this.searchParams.departure_date);
+                if (!base || this.searchParams.type === 'multicity') return [];
+                const today = this._dayStart(new Date());
+                const ret = this.searchParams.return_date ? this._parseDMY(this.searchParams.return_date) : null;
+                const out = [];
+                for (let off = -3; off <= 3; off++) {
+                    const d = new Date(base); d.setDate(d.getDate() + off);
+                    const ds = this._dayStart(d);
+                    // a departure can't be in the past, nor on/after the return date
+                    const valid = ds >= today && (!ret || ds < this._dayStart(ret));
+                    out.push({
+                        off,
+                        isCurrent: off === 0,
+                        valid,
+                        dmy: this._toDMY(d),
+                        dow: d.toLocaleDateString(undefined, { weekday: 'short' }),
+                        day: d.getDate(),
+                        mon: d.toLocaleDateString(undefined, { month: 'short' }),
+                    });
+                }
+                return out;
+            },
+            goToFlexDate(dmy) {
+                if (!dmy || dmy === this.searchParams.departure_date) return;
+                const sp = this.searchParams;
+                const base = `<?= root ?>flights/${sp.origin}/${sp.destination}/${sp.type}/${sp.class}/`;
+                const pax = `${sp.adults || 1}/${sp.childrens || 0}/${sp.infants || 0}`;
+                const url = (sp.type === 'roundtrip' && sp.return_date)
+                    ? `${base}${dmy}/${sp.return_date}/${pax}`
+                    : `${base}${dmy}/${pax}`;
+                window.location.href = url;
             },
 
             getHour(timeStr) {
