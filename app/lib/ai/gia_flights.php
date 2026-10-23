@@ -267,14 +267,27 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
                         'offer_token' => $token,
                     ],
                 ];
-                if (\count($offers) >= $limit) { break; }
+                // Cap PER SUPPLIER so one chatty supplier can't crowd out the others,
+                // but keep going to the next supplier (no global break).
+                if (\count(\array_filter($offers, static fn($o) => $o['supplier'] === $supplier)) >= $limit) { break; }
             }
-            if ($offers !== []) { break; } // got fares from this supplier; stop.
+            // IMPORTANT: do NOT stop after the first supplier that has fares. Search
+            // EVERY admin-enabled supplier and merge, so GIA shows the best across all
+            // of them (and one supplier failing — e.g. http=0 — never zeroes the rest).
         }
 
         if ($offers === []) {
             return ['ok' => true, 'offers' => [], 'message' => $lastMsg];
         }
+        // Merge across suppliers: cheapest first (priced offers ahead of unpriced),
+        // then cap the combined list to $limit so the chat shows the best handful.
+        \usort($offers, static function ($a, $b) {
+            $pa = isset($a['price']) && \is_numeric($a['price']) ? (float) $a['price'] : \PHP_FLOAT_MAX;
+            $pb = isset($b['price']) && \is_numeric($b['price']) ? (float) $b['price'] : \PHP_FLOAT_MAX;
+            return $pa <=> $pb;
+        });
+        if (\count($offers) > $limit) { $offers = \array_slice($offers, 0, $limit); }
+        \error_log('[gia_flights] merged ' . \count($offers) . ' offer(s) across ' . \count($suppliers) . ' supplier(s)');
         return ['ok' => true, 'offers' => $offers];
     }
 }
