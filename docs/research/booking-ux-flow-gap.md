@@ -60,6 +60,12 @@ Admin-gated supplier filters/debug panels/badges were verified as **NOT leaks** 
 
 > **Legitimate "provider-ish" names to KEEP:** the rental-counter **vendor** on cars (Hertz/Avis — who the customer physically collects from), the **airline** on flights, the **hotel** name on stays, and the **bus/ferry operator** — these are the actual travel-service brand the customer flies/stays/rides with, not our back-office aggregator, and are expected. The rule targets our *supplier/aggregator* identity (duffel, hotelbeds, kikoto, viator…), not the end carrier/property.
 
+### 0.2b Owner decisions (locked 2026-10-23)
+
+- **The rule is backend-only visibility:** the supplier/aggregator identity is visible to **admin + staff**, NEVER to customers, on any surface. This means the fix pattern is **the same admin-gate already used** by the correct places (`$_SESSION['user_role']==='admin'`) — keep the supplier for admin, strip it for everyone else. Nothing is lost for staff.
+- **Customer-facing text that names a supplier → neutral, no provider named** (e.g. "Verifying final price and cancellation policy…", "Order Details"), NOT "Goglobia" in operational copy.
+- Leaks that are **structural** (supplier in the URL for everyone incl. staff; affiliate redirects to the supplier's own site) can't be solved by a gate — they go to Phase 3 / Phase 4. Staff still see the real supplier in the admin panel / booking record.
+
 ### 0.3 Recommended removal plan (phased, when you give the go-ahead)
 
 1. **Phase 1 — kill the High on-screen leaks (fast, low-risk, mostly deletions):** ferries "kikoto" badge (`ferries.php:915,1122`); cars supplier badge + checkout label (hide ALL, not just mozio); eSIM "Airalo" visible copy; stays "TBO/Wanderbeds" checkout text. These are text/markup edits with no architectural change.
