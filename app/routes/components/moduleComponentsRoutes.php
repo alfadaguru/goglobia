@@ -9,6 +9,7 @@
 // ====================================
 
 $router->get('/components/flights', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "flights Components";
     $description = "Flights layouts and content containers with colorful gradient styles";
     $header = true; 
@@ -23,6 +24,7 @@ $router->get('/components/flights', function () use ($SECURE, $db) {
 // ====================================
 
 $router->get('/components/hotels', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "hotels Components";
     $description = "Hotels layouts and content containers with colorful gradient styles";
     $header = true; 
@@ -37,6 +39,7 @@ $router->get('/components/hotels', function () use ($SECURE, $db) {
 // ====================================
 
 $router->get('/components/cars', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Cars Components";
     $description = "Cars layouts and content containers with colorful gradient styles";
     $header = true; 
@@ -51,6 +54,7 @@ $router->get('/components/cars', function () use ($SECURE, $db) {
 // ====================================
 
 $router->get('/components/tours', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Tours Components";
     $description = "Tours layouts and content containers with colorful gradient styles";
     $header = true; 

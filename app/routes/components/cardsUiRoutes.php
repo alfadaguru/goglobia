@@ -9,6 +9,7 @@
 // ====================================
 
 $router->get('/components/cards', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Card Components";
     $description = "Card layouts and content containers with colorful gradient styles";
     $header = true; 
@@ -23,6 +24,7 @@ $router->get('/components/cards', function () use ($SECURE, $db) {
 // ====================================
 
 $router->get('/components/links', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "links Components";
     $description = "Links layouts and content containers with colorful gradient styles";
     $header = true; 

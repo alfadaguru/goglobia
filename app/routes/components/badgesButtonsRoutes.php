@@ -9,6 +9,7 @@
 // ====================================
 
 $router->get('/components/badges', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Badge Components";
     $description = "Label and badge components with various styles and states";
     $header = true; 
@@ -23,6 +24,7 @@ $router->get('/components/badges', function () use ($SECURE, $db) {
 // ====================================
 
 $router->get('/components/buttons', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Button Components";
     $description = "Button styles and variations";
     $header = true; 
@@ -37,6 +39,7 @@ $router->get('/components/buttons', function () use ($SECURE, $db) {
 // ====================================
 
 $router->get('/components/progress', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Progress Components";
     $description = "Progress bars, indicators, and loading components";
     $header = true; 

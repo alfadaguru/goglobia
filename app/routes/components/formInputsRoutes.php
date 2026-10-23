@@ -9,6 +9,7 @@
 // ====================================
 
 $router->get('/components/input', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Input Components";
     $description = "Input field components and variations";
     $header = true; 
@@ -23,6 +24,7 @@ $router->get('/components/input', function () use ($SECURE, $db) {
 // ====================================
 
 $router->get('/components/textarea', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Textarea Components";
     $description = "Textarea field components with various features";
     $header = true; 
@@ -37,6 +39,7 @@ $router->get('/components/textarea', function () use ($SECURE, $db) {
 // ====================================
 
 $router->get('/components/checkbox', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Checkbox Components";
     $description = "Checkbox field components with various styles";
     $header = true; 
@@ -51,6 +54,7 @@ $router->get('/components/checkbox', function () use ($SECURE, $db) {
 // ====================================
 
 $router->get('/components/radio', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Radio Components";
     $description = "Radio button components with various styles";
     $header = true; 
@@ -65,6 +69,7 @@ $router->get('/components/radio', function () use ($SECURE, $db) {
 // ====================================
 
 $router->get('/components/switch', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Switch Components";
     $description = "Toggle switch components with various styles and states";
     $header = true; 

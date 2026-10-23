@@ -9,6 +9,7 @@
 // ====================================
 
 $router->get('/components', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     header('Location: ' . root . 'components/dashboard');
     exit();
 });
@@ -18,6 +19,7 @@ $router->get('/components', function () use ($SECURE, $db) {
 // ====================================
 
 $router->get('/components/dashboard', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Component Dashboard";
     $description = "Component library dashboard";
     $header = true; 

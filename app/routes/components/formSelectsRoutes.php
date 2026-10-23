@@ -9,6 +9,7 @@
 // ====================================
 
 $router->get('/components/select', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Select Components";
     $description = "Select field components and dropdown variations";
     $header = true; 
@@ -23,6 +24,7 @@ $router->get('/components/select', function () use ($SECURE, $db) {
 // ====================================
 
 $router->get('/components/ajax-search', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "AJAX Search Components";
     $description = "Searchable select components with AJAX data loading for flights and travel";
     $header = true; 
@@ -37,6 +39,7 @@ $router->get('/components/ajax-search', function () use ($SECURE, $db) {
 // ====================================
 
 $router->get('/components/datepicker', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Datepicker Components";
     $description = "Interactive date picker components with single and range selection";
     $header = true; 

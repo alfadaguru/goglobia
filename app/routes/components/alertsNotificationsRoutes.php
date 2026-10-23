@@ -9,6 +9,7 @@
 // ====================================
 
 $router->get('/components/alerts', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Alert Components";
     $description = "Alert message components and examples";
     $header = true; 
@@ -23,6 +24,7 @@ $router->get('/components/alerts', function () use ($SECURE, $db) {
 // ====================================
 
 $router->get('/components/notifications', function () use ($SECURE, $db) {
+    ADMIN_AUTH(); // dev-only component gallery: admins only
     $title = "Notification Components";
     $description = "Toast notifications and alert system components";
     $header = true; 
