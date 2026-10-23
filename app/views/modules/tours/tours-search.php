@@ -241,10 +241,19 @@ function tourSearchData() {
                 .replace(/\s+/g, '-')
                 .replace(/[^a-z0-9-]/g, '');
 
-            // Build tour details URL
-            const tourUrl = `<?=root?>tour/${cleanTourName}/${tour.id}/${tour.supplier || 'tours'}/${startDate}/${duration}/${travelersFormat}/${tourType}`;
+            // Build tour details URL with an OPAQUE supplier token (never the name).
+            const tourSupplierTokens = <?php
+                $__tt = [];
+                if (isset($db) && is_object($db)) {
+                    $__tourMods = $db->select('modules', ['name'], ['type' => 'tours', 'status' => 1, 'active' => 1]) ?: [];
+                    foreach ($__tourMods as $__m) { $__n = strtolower($__m['name']); $__tt[$__n] = function_exists('supplier_url_token') ? supplier_url_token($__n) : $__n; }
+                }
+                echo json_encode($__tt);
+            ?>;
+            const tourSupKey = String(tour.supplier || 'tours').toLowerCase();
+            const tourSupToken = tourSupplierTokens[tourSupKey] || tourSupKey;
+            const tourUrl = `<?=root?>tour/${cleanTourName}/${tour.id}/${tourSupToken}/${startDate}/${duration}/${travelersFormat}/${tourType}`;
 
-            console.log('Redirecting to tour details:', tourUrl);
             window.location.href = tourUrl;
         },
 

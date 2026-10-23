@@ -326,9 +326,11 @@ function hotelSearchData() {
             // The supplier segment is an OPAQUE token, never the raw supplier name.
             const hotelChain = hotel.chain || '_';
             const supplierTokens = <?php
-                $__stayMods = $db->select('modules', ['name'], ['type' => 'stays', 'status' => 1, 'active' => 1]) ?: [];
                 $__supTok = [];
-                foreach ($__stayMods as $__m) { $__n = strtolower($__m['name']); $__supTok[$__n] = function_exists('supplier_url_token') ? supplier_url_token($__n) : $__n; }
+                if (isset($db) && is_object($db)) {
+                    $__stayMods = $db->select('modules', ['name'], ['type' => 'stays', 'status' => 1, 'active' => 1]) ?: [];
+                    foreach ($__stayMods as $__m) { $__n = strtolower($__m['name']); $__supTok[$__n] = function_exists('supplier_url_token') ? supplier_url_token($__n) : $__n; }
+                }
                 echo json_encode($__supTok);
             ?>;
             const supKey = String(hotel.supplier || 'hotels').toLowerCase();
