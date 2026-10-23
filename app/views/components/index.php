@@ -5,7 +5,7 @@
         <section id="dashboard-section" class="component-section">
             <div class="bg-white rounded-lg p-6 shadow-sm">
                 <h1 class="text-2xl font-bold text-gray-900 mb-4">Component Library</h1>
-                <p class="text-gray-600 mb-6">Welcome to the PHPTRAVELS component library. Select a component from the sidebar to view examples and implementation details.</p>
+                <p class="text-gray-600 mb-6">Welcome to the GoGlobia component library. Select a component from the sidebar to view examples and implementation details.</p>
                 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div class="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg">

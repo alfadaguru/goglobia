@@ -191,7 +191,7 @@ if (needswarnStyle('', 'logo') ||
 }
 
 // Check Notifications Tab (Email settings)
-if (needswarnStyle(getSetting($settingsData, 'email_sender_name', 'PHPTRAVELS'), 'email_sender_name') ||
+if (needswarnStyle(getSetting($settingsData, 'email_sender_name', 'GoGlobia'), 'email_sender_name') ||
     needswarnStyle(getSetting($settingsData, 'email_sender_email', 'noreply@phptravels.com'), 'email_sender_email')) {
     $tabWarnings['notifications'] = true;
 }
@@ -220,8 +220,8 @@ if (needswarnStyle($socialMedia['facebook'] ?? '', 'social_facebook') ||
 }
 
 // Check Apps Tab
-if (needswarnStyle(getSetting($settingsData, 'android_store', 'https://play.google.com/store/apps/details?id=com.phptravels'), 'android_store') ||
-    needswarnStyle(getSetting($settingsData, 'ios_store', 'https://apps.apple.com/app/phptravels/id123456789'), 'ios_store')) {
+if (needswarnStyle(getSetting($settingsData, 'android_store', ''), 'android_store') ||
+    needswarnStyle(getSetting($settingsData, 'ios_store', ''), 'ios_store')) {
     $tabWarnings['apps'] = true;
 }
 
@@ -883,11 +883,11 @@ $messageSuccess = false;
                         <!-- Sender Name -->
                         <div class="form-control">
                             <label><?=T::sender_name?></label>
-                            <input type="text" name="email_sender_name" class="input <?= needswarnStyle(getSetting($settingsData, 'email_sender_name', 'PHPTRAVELS')) ? 'border-yellow-500' : '' ?>"
-                                value="<?= htmlspecialchars(getSetting($settingsData, 'email_sender_name', 'PHPTRAVELS')) ?>"
+                            <input type="text" name="email_sender_name" class="input <?= needswarnStyle(getSetting($settingsData, 'email_sender_name', 'GoGlobia')) ? 'border-yellow-500' : '' ?>"
+                                value="<?= htmlspecialchars(getSetting($settingsData, 'email_sender_name', 'GoGlobia')) ?>"
                                 placeholder="<?=T::your_company_name?>"
                                 oninput="validateDefaultValue(this, 'email_sender_name')">
-                            <div class="default-warning <?= needswarnStyle(getSetting($settingsData, 'email_sender_name', 'PHPTRAVELS')) ? '' : 'hidden' ?>">
+                            <div class="default-warning <?= needswarnStyle(getSetting($settingsData, 'email_sender_name', 'GoGlobia')) ? '' : 'hidden' ?>">
                                 <p class="text-xs text-yellow-600 mt-1"><?=T::please_change_this_default_value?></p>
                             </div>
                         </div>
@@ -1749,13 +1749,13 @@ $messageSuccess = false;
                             <div class="form-control">
                                 <label><?=T::google_play_store?></label>
                                 <input type="url" name="android_store" id="androidStore" class="input"
-                                    value="<?= htmlspecialchars(getSetting($settingsData, 'android_store', 'https://play.google.com/store/apps/details?id=com.phptravels')) ?>">
+                                    value="<?= htmlspecialchars(getSetting($settingsData, 'android_store', '')) ?>">
                             </div>
                         </div>
                         <div>
                             <div class="form-control">
                                 <label><?=T::apple_app_store?></label>
-                                <input type="url" name="ios_store" id="iosStore" class="input" value="<?= htmlspecialchars(getSetting($settingsData, 'ios_store', 'https://apps.apple.com/app/phptravels/id123456789')) ?>">
+                                <input type="url" name="ios_store" id="iosStore" class="input" value="<?= htmlspecialchars(getSetting($settingsData, 'ios_store', '')) ?>">
                             </div>
                         </div>
                         <div>

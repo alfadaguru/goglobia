@@ -1025,11 +1025,11 @@ $notifCount = count($recentNotifBookings);
 
 <?php
     // Show setup progress alert only on admin pages that contain 'admin' in URL.
-    // HIDDEN ON localhost AND phptravels.net (DEV/DEMO ENVIRONMENTS).
+    // HIDDEN on local dev hosts.
     $current_uri  = $_SERVER['REQUEST_URI'] ?? '';
     $alertHost    = strtolower(explode(':', $_SERVER['HTTP_HOST'] ?? '')[0]);
     $alertHost    = preg_replace('/^www\./', '', $alertHost);
-    $hiddenHosts  = ['localhost', '127.0.0.1', '::1', 'phptravels.net'];
+    $hiddenHosts  = ['localhost', '127.0.0.1', '::1'];
     if (!in_array($alertHost, $hiddenHosts, true)
         && strpos($current_uri, admin) !== false
         && strpos($current_uri, '/get-started') === false) {

@@ -54,7 +54,7 @@
                        id="db_database"
                        value="<?= $module['database'] ?? '' ?>"
                        class="input w-full"
-                       placeholder="phptravels_hotelbeds">
+                       placeholder="goglobia_hotelbeds">
             </div>
 
             <div>

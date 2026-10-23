@@ -113,7 +113,7 @@ class ResendProvider
     private function basePayload($to_email, $to_name, $subject, $body_html, $body_text, $from_email, $from_name)
     {
         $from_email = $from_email ?: ($this->config['from_email'] ?? 'onboarding@resend.dev');
-        $from_name  = $from_name  ?: ($this->config['from_name']  ?? 'PHPTRAVELS');
+        $from_name  = $from_name  ?: ($this->config['from_name']  ?? 'GoGlobia');
         $body_text  = $body_text  ?: trim(strip_tags($body_html));
 
         // Resend accepts "Name <email>" or a bare address. Only wrap in "Name <...>" when

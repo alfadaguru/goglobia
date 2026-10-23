@@ -930,7 +930,7 @@ $defaultModuleTab = $availableModuleTabs[0] ?? 'credentials';
                                            id="db_database"
                                            value="<?= $module['database'] ?? '' ?>"
                                            class="input w-full"
-                                           placeholder="phptravels_hotelbeds">
+                                           placeholder="goglobia_hotelbeds">
                                 </div>
 
                                 <div>
@@ -1261,14 +1261,6 @@ $defaultModuleTab = $availableModuleTabs[0] ?? 'credentials';
                             <span class="material-symbols-outlined text-gray-600 text-lg">help</span>
                             <h3 class="text-sm font-semibold text-gray-900"><?=T::help?> & <?=T::documentation?></h3>
                         </div>
-                    </div>
-                    <div class="p-4 space-y-2">
-                        <a href="https://docs.phptravels.com/modules/<?= strtolower($module['type']) ?>/<?= strtolower($module['name']) ?>"
-                           target="_blank"
-                           class="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800">
-                            <span class="material-symbols-outlined text-sm">description</span>
-                            <?=T::setup_documentation?>
-                        </a>
                     </div>
                 </div>
 

@@ -11,6 +11,11 @@
  * @return bool
  */
 function shouldShowDemoWarning() {
+    // GoGlobia: the demo/upsell modal is a leftover from the upstream vendor and
+    // must NEVER show on our brand. Disabled unconditionally. (The rest of the
+    // function is kept intact so the include and acknowledge endpoints stay valid.)
+    return false;
+
     // Check if user already acknowledged in session
     if (isset($_SESSION['demo_warning_acknowledged']) && $_SESSION['demo_warning_acknowledged'] === true) {
         // Check if 7 days have passed since acknowledgement

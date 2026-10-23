@@ -175,7 +175,7 @@ $router->post('/api/ai/reverse-geocode', function () use ($SECURE, $db) {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => $connectTimeout,
             CURLOPT_TIMEOUT => $requestTimeout,
-            CURLOPT_USERAGENT => 'PHPTravels/1.0',
+            CURLOPT_USERAGENT => 'GoGlobia/1.0',
             CURLOPT_HTTPHEADER => ['Accept-Language: en'],
         ]);
         $response = curl_exec($ch);

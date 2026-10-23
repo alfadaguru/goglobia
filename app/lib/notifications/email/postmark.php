@@ -26,7 +26,7 @@ class PostmarkProvider {
 
             $body_text = $body_text ?? strip_tags($body_html);
             $from_email = $from_email ?? $this->config['from_email'] ?? 'noreply@example.com';
-            $from_name = $from_name ?? $this->config['from_name'] ?? 'PHPTRAVELS';
+            $from_name = $from_name ?? $this->config['from_name'] ?? 'GoGlobia';
 
             $result = $this->sendViaPostmark($to_email, $to_name, $subject, $body_html, $body_text, $from_email, $from_name);
             
@@ -47,7 +47,7 @@ class PostmarkProvider {
 
             $body_text = $body_text ?? strip_tags($body_html);
             $from_email = $from_email ?? $this->config['from_email'] ?? 'noreply@example.com';
-            $from_name = $from_name ?? $this->config['from_name'] ?? 'PHPTRAVELS';
+            $from_name = $from_name ?? $this->config['from_name'] ?? 'GoGlobia';
 
             $result = $this->sendViaPostmarkWithAttachment($to_email, $to_name, $subject, $body_html, $body_text, $attachment_path, $from_email, $from_name);
             
@@ -245,7 +245,7 @@ class PostmarkProvider {
             $serverToken = $this->config['server_token'];
             $messageStream = $this->config['message_stream'] ?? 'outbound';
             $from_email = $from_email ?? $this->config['from_email'] ?? 'noreply@example.com';
-            $from_name = $from_name ?? $this->config['from_name'] ?? 'PHPTRAVELS';
+            $from_name = $from_name ?? $this->config['from_name'] ?? 'GoGlobia';
             
             $endpoint = "https://api.postmarkapp.com/email/withTemplate";
             

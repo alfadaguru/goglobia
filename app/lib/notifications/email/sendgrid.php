@@ -26,7 +26,7 @@ class SendGridProvider {
 
             $body_text = $body_text ?? strip_tags($body_html);
             $from_email = $from_email ?? $this->config['from_email'] ?? 'noreply@example.com';
-            $from_name = $from_name ?? $this->config['from_name'] ?? 'PHPTRAVELS';
+            $from_name = $from_name ?? $this->config['from_name'] ?? 'GoGlobia';
 
             $result = $this->sendViaSendGrid($to_email, $to_name, $subject, $body_html, $body_text, $from_email, $from_name);
             
@@ -145,7 +145,7 @@ class SendGridProvider {
 
             $apiKey = $this->config['api_key'];
             $from_email = $from_email ?? $this->config['from_email'] ?? 'noreply@example.com';
-            $from_name = $from_name ?? $this->config['from_name'] ?? 'PHPTRAVELS';
+            $from_name = $from_name ?? $this->config['from_name'] ?? 'GoGlobia';
             
             $endpoint = "https://api.sendgrid.com/v3/mail/send";
             
@@ -220,7 +220,7 @@ class SendGridProvider {
                 'personalizations' => [],
                 'from' => [
                     'email' => $this->config['from_email'] ?? 'noreply@example.com',
-                    'name' => $this->config['from_name'] ?? 'PHPTRAVELS'
+                    'name' => $this->config['from_name'] ?? 'GoGlobia'
                 ],
                 'content' => [
                     [

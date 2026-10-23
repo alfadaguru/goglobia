@@ -591,16 +591,6 @@ try {
                             <h3 class="text-sm font-semibold text-gray-900"><?=T::help?> & <?=T::documentation?></h3>
                         </div>
                     </div>
-                    <div class="p-4 space-y-2">
-
-                            <a href="https://docs.phptravels.com/payments/<?= str_replace(' ', '-', strtolower($gateway['name'])) ?>"
-                               target="_blank"
-                               class="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800">
-                                <span class="material-symbols-outlined text-sm">description</span>
-                                <?=T::setup_documentation?>
-                            </a>
-
-                     </div>
                 </div>
 
             </div>

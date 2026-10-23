@@ -26,7 +26,7 @@ class MailchimpProvider {
 
             $body_text = $body_text ?? strip_tags($body_html);
             $from_email = $from_email ?? $this->config['from_email'] ?? 'noreply@example.com';
-            $from_name = $from_name ?? $this->config['from_name'] ?? 'PHPTRAVELS';
+            $from_name = $from_name ?? $this->config['from_name'] ?? 'GoGlobia';
 
             $result = $this->sendViaMailchimp($to_email, $to_name, $subject, $body_html, $body_text, $from_email, $from_name);
             

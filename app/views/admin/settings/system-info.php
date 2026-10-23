@@ -93,7 +93,7 @@ foreach ($directories as $name => $path) {
 
 // Application information
 $app_info = [
-    'name' => $db->get('settings', 'business_name', ['id' => 1]) ?? 'PHPTRAVELS',
+    'name' => $db->get('settings', 'business_name', ['id' => 1]) ?? 'GoGlobia',
     'version' => $db->get('settings', 'version', ['id' => 1]) ?? '10.0.0',
     'license_key' => $db->get('settings', 'license_key', ['id' => 1]) ?? 'N/A',
     'installed' => file_exists(dirname(__DIR__, 4) . '/.env') ? 'Yes' : 'No',

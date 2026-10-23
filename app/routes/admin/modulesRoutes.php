@@ -864,7 +864,7 @@ function makeAPIRequest($url, $data, $method = 'GET') {
         CURLOPT_TIMEOUT => 30,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_USERAGENT => 'PHPTravels-API-Test/1.0'
+        CURLOPT_USERAGENT => 'GoGlobia-API-Test/1.0'
     ]);
 
     if ($method === 'POST') {

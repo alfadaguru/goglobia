@@ -277,12 +277,6 @@ $defaultCategory = array_key_first($categoriesWithCount) ?? 'all';
                             <span class="material-symbols-outlined text-sm">settings</span>
                             <?=T::settings?>
                         </a>
-                        <a href="https://docs.phptravels.com/modules/<?= strtolower($module['type']) ?>/<?= strtolower($module['name']) ?>"
-                           target="_blank"
-                           class="btn light w-full p-2 h-9">
-                            <span class="material-symbols-outlined text-sm">description</span>
-                            <?=T::docs?>
-                        </a>
                     </div>
                 </div>
             </div>
