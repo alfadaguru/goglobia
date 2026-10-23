@@ -38,6 +38,69 @@ if (!function_exists('App\\lib\\ai\\gia_flights_boot')) {
     }
 }
 
+if (!function_exists('App\\lib\\ai\\gia_flights_ensure_window_column')) {
+    /**
+     * Idempotently add modules.gia_pay_window_min — the admin-configurable payment
+     * window (minutes) PER flight provider. Default 15. Self-healing (house pattern):
+     * if the DB user lacks ALTER, the resolver below still falls back to 15.
+     */
+    function gia_flights_ensure_window_column($db): void
+    {
+        static $done = false;
+        if ($done) { return; }
+        $done = true;
+        try {
+            $col = $db->query("SHOW COLUMNS FROM `modules` LIKE 'gia_pay_window_min'")->fetchAll();
+            if (!$col) {
+                $db->query("ALTER TABLE `modules` ADD COLUMN `gia_pay_window_min` SMALLINT NOT NULL DEFAULT 15");
+            }
+        } catch (\Throwable $e) {
+            \error_log('[gia_flights] ensure window column: ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('App\\lib\\ai\\gia_flights_pay_window')) {
+    /**
+     * The effective flight payment window (minutes) = the TIGHTER of:
+     *   (a) the admin per-provider window (modules.gia_pay_window_min, default 15), and
+     *   (b) the supplier's REAL fare expiry (fare_expires_at) converted to minutes-from-now.
+     * We never promise longer than the fare actually lives — so a traveller can't pay
+     * into a window that outlasts the fare and then fail to issue. Floors at 1 minute.
+     *
+     * @param string $supplier       the flight supplier slug
+     * @param string $fareExpiresAt  supplier hard expiry (any strtotime-parseable) or ''
+     * @return int minutes (>=1)
+     */
+    function gia_flights_pay_window($db, string $supplier, string $fareExpiresAt = ''): int
+    {
+        // (a) admin per-provider window.
+        $adminMin = 15;
+        try {
+            gia_flights_ensure_window_column($db);
+            $row = $db->get('modules', ['gia_pay_window_min'], ['type' => 'flights', 'name' => \strtolower(\trim($supplier))]);
+            if (\is_array($row) && (int) ($row['gia_pay_window_min'] ?? 0) > 0) {
+                $adminMin = (int) $row['gia_pay_window_min'];
+            }
+        } catch (\Throwable $e) { /* default 15 */ }
+        $adminMin = \max(1, \min(1440, $adminMin));
+
+        // (b) supplier fare expiry, as whole minutes from now (if provided + future).
+        $effective = $adminMin;
+        $fareExpiresAt = \trim($fareExpiresAt);
+        if ($fareExpiresAt !== '') {
+            $ts = \strtotime($fareExpiresAt);
+            if ($ts !== false && $ts > \time()) {
+                $fareMin = (int) \floor(($ts - \time()) / 60);
+                if ($fareMin >= 1) { $effective = \min($effective, $fareMin); }
+                // If the fare expires in <1 min, keep the admin floor of 1 — the
+                // pre-pay re-revalidation in gia_flights_book will fail it anyway.
+            }
+        }
+        return \max(1, $effective);
+    }
+}
+
 if (!function_exists('App\\lib\\ai\\gia_flights_active_suppliers')) {
     /**
      * The flight suppliers the admin has ACTIVE, read from the modules table the
