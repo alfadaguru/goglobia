@@ -133,12 +133,51 @@ if (!function_exists('App\\lib\\ai\\gia_flights_active_suppliers')) {
     }
 }
 
+if (!function_exists('App\\lib\\ai\\gia_flights_city_hub')) {
+    /**
+     * The PRIMARY international airport for a city name, or '' if unmapped. Needed
+     * because flights_airports has no hub/size signal, so a generic city query picks
+     * an arbitrary (often wrong) airport — "London"->STN, "New York"/"Paris"->a
+     * heliport. Mirrors the web's curated hub list
+     * (aiSearchService::cityAirportAliases) PLUS the Nigerian cities GIA serves, so
+     * chat and web pick the same primary hub. Case/padding-insensitive.
+     *
+     * @return string 3-letter IATA (upper) or '' when the city isn't in the map
+     */
+    function gia_flights_city_hub(string $place): string
+    {
+        $key = \strtolower(\trim($place));
+        if ($key === '') { return ''; }
+        static $hubs = [
+            // Nigeria (GIA's core market)
+            'lagos' => 'LOS', 'abuja' => 'ABV', 'kano' => 'KAN', 'port harcourt' => 'PHC',
+            'enugu' => 'ENU', 'kaduna' => 'KAD', 'benin' => 'BNI', 'ibadan' => 'IBA',
+            'owerri' => 'QOW', 'calabar' => 'CBQ', 'maiduguri' => 'MIU', 'sokoto' => 'SKO',
+            'yola' => 'YOL', 'ilorin' => 'ILR', 'asaba' => 'ABB', 'uyo' => 'QUO',
+            // Major international hubs (mirror aiSearchService::cityAirportAliases)
+            'london' => 'LHR', 'new york' => 'JFK', 'paris' => 'CDG', 'tokyo' => 'NRT',
+            'dubai' => 'DXB', 'abu dhabi' => 'AUH', 'doha' => 'DOH', 'istanbul' => 'IST',
+            'cairo' => 'CAI', 'jeddah' => 'JED', 'riyadh' => 'RUH', 'dammam' => 'DMM',
+            'bangkok' => 'BKK', 'singapore' => 'SIN', 'kuala lumpur' => 'KUL',
+            'madrid' => 'MAD', 'barcelona' => 'BCN', 'rome' => 'FCO', 'toronto' => 'YYZ',
+            'manchester' => 'MAN', 'muscat' => 'MCT', 'sharjah' => 'SHJ', 'bahrain' => 'BAH',
+            'kuwait' => 'KWI', 'tehran' => 'IKA', 'delhi' => 'DEL', 'mumbai' => 'BOM',
+            'beijing' => 'PEK', 'orlando' => 'MCO', 'lahore' => 'LHE', 'karachi' => 'KHI',
+            'islamabad' => 'ISB', 'accra' => 'ACC', 'nairobi' => 'NBO', 'johannesburg' => 'JNB',
+            'amsterdam' => 'AMS', 'frankfurt' => 'FRA', 'washington' => 'IAD',
+            'los angeles' => 'LAX', 'chicago' => 'ORD', 'atlanta' => 'ATL', 'houston' => 'IAH',
+            'addis ababa' => 'ADD', 'addis' => 'ADD',
+        ];
+        return $hubs[$key] ?? '';
+    }
+}
+
 if (!function_exists('App\\lib\\ai\\gia_flights_to_iata')) {
     /**
      * Resolve a place to a 3-letter IATA airport code — because the flight supplier
      * gateways need CODES, not city names (verified live: adivaha returns [] for
      * "Lagos" but real fares for "LOS"). Accepts an already-valid code as-is; else
-     * looks the city/airport up in the flights_airports table. Returns '' if it
+     * consults the primary-hub map, then the flights_airports table. Returns '' if it
      * can't resolve (caller then asks the traveller to clarify the airport).
      */
     function gia_flights_to_iata($db, string $place): string
@@ -147,6 +186,14 @@ if (!function_exists('App\\lib\\ai\\gia_flights_to_iata')) {
         if ($place === '') { return ''; }
         // Already a 3-letter code? use it.
         if (\preg_match('/^[A-Za-z]{3}$/', $place)) { return \strtoupper($place); }
+        // PRIMARY-HUB MAP (checked before the generic city query). flights_airports has
+        // NO hub/size signal — every row is type='airport' — so a bare city query picks
+        // an arbitrary airport: "London" resolved to STN (Stansted), "New York" to JRA
+        // and "Paris" to JPU (both HELIPORTS). A city with several airports should map
+        // to its primary international hub. Mirrors the web's curated list
+        // (aiSearchService::cityAirportAliases) so chat and web agree.
+        $hub = gia_flights_city_hub($place);
+        if ($hub !== '') { return $hub; }
         try {
             // Exact code match first (defensive), then city, then airport name.
             $row = $db->get('flights_airports', ['code'], ['code' => \strtoupper($place), 'status' => '1']);
