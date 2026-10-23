@@ -149,6 +149,10 @@ require_once 'app/routes/users/agencyRoutes.php';
 require_once 'app/routes/users/agencySignupRoutes.php';
 require_once 'app/routes/users/agentApiRoutes.php';
 
+// SEO LANDING PAGES (evergreen route/city pages) — registered BEFORE the flight
+// listing routes so single-segment /flights/{from}-to-{to} matches here first.
+require_once 'app/routes/seo/landingRoutes.php';
+
 // FLIGHTS ROUTES
 require_once 'app/routes/flights/bookingRoutes.php';
 require_once 'app/routes/flights/invoiceRoutes.php';
