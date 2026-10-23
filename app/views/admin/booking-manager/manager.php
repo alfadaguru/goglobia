@@ -81,11 +81,25 @@ $isHotel = ($svc === 'hotels');
             <select class="select input" x-model="live.class"><option value="economy">Economy</option><option value="business">Business</option><option value="first">First</option></select>
           </label>
           <?php else: ?>
-          <label class="form-control"><span class="form-label">Destination (city/code)</span><input class="input" x-model="live.destination" placeholder="DEL"></label>
+          <!-- Destination city (autocomplete against the seeded locations table) -->
+          <div class="form-control relative sm:col-span-2">
+            <span class="form-label">Destination</span>
+            <input class="input" x-model="ac.dest.q" @input.debounce.250ms="acCity()" @focus="acCity()" @blur="acCityBlur()" placeholder="City or country" autocomplete="off">
+            <div class="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto" x-show="ac.dest.open && ac.dest.items.length" x-cloak>
+              <template x-for="(c,i) in ac.dest.items" :key="i">
+                <button type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50" @mousedown.prevent="acPickCity(c)">
+                  <span class="font-medium" x-text="c.city"></span>
+                  <span class="text-slate-400 text-xs" x-text="' · '+c.country"></span>
+                </button>
+              </template>
+            </div>
+          </div>
           <label class="form-control"><span class="form-label">Check-in</span><input type="date" class="input" x-model="live.checkin"></label>
           <label class="form-control"><span class="form-label">Check-out</span><input type="date" class="input" x-model="live.checkout"></label>
           <label class="form-control"><span class="form-label">Rooms</span><input type="number" min="1" class="input" x-model.number="live.rooms"></label>
           <label class="form-control"><span class="form-label">Adults</span><input type="number" min="1" class="input" x-model.number="live.adults"></label>
+          <label class="form-control"><span class="form-label">Children</span><input type="number" min="0" class="input" x-model.number="live.children"></label>
+          <label class="form-control"><span class="form-label">Guest nationality</span><input class="input" x-model="live.nationality" placeholder="NG" maxlength="2"></label>
           <?php endif; ?>
           <label class="form-control"><span class="form-label">Currency</span><input class="input" x-model="live.currency" :placeholder="baseCurrency"></label>
         </div>
@@ -98,17 +112,43 @@ $isHotel = ($svc === 'hotels');
         <!-- Live results -->
         <div class="mt-4 space-y-2" x-show="results.length">
           <template x-for="(r,idx) in results" :key="idx">
-            <div class="border border-slate-200 rounded-lg p-3 flex items-center justify-between gap-3"
+            <div class="border border-slate-200 rounded-lg p-3"
                  :class="selectedOffer===idx ? 'ring-2 ring-emerald-500 bg-emerald-50' : ''">
-              <div class="min-w-0">
-                <div class="font-medium text-slate-800 text-sm truncate" x-text="r.label"></div>
-                <div class="text-xs text-slate-500" x-text="r.sub"></div>
-                <div class="text-[10px] uppercase tracking-wide text-slate-400 mt-0.5" x-text="r.supplier"></div>
+              <div class="flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="font-medium text-slate-800 text-sm truncate" x-text="r.label"></div>
+                  <div class="text-xs text-slate-500" x-text="r.sub"></div>
+                  <div class="text-[10px] uppercase tracking-wide text-slate-400 mt-0.5" x-text="r.supplier"></div>
+                </div>
+                <div class="text-right shrink-0">
+                  <div class="font-semibold tabular-nums" x-text="r.price_label"></div>
+                  <!-- Flights select the offer directly; hotels require picking a room rate below. -->
+                  <template x-if="!isHotel">
+                    <button class="btn sm mt-1" :class="selectedOffer===idx ? 'primary' : 'outline'" @click="selectOffer(idx)" x-text="selectedOffer===idx ? 'Selected' : 'Select'"></button>
+                  </template>
+                  <template x-if="isHotel">
+                    <button class="btn sm mt-1 outline" @click="r._open=!r._open" x-text="r._open ? 'Hide rooms' : 'Choose room'"></button>
+                  </template>
+                </div>
               </div>
-              <div class="text-right shrink-0">
-                <div class="font-semibold tabular-nums" x-text="r.price_label"></div>
-                <button class="btn sm mt-1" :class="selectedOffer===idx ? 'primary' : 'outline'" @click="selectOffer(idx)" x-text="selectedOffer===idx ? 'Selected' : 'Select'"></button>
-              </div>
+              <!-- Hotel room options (rate selection) -->
+              <template x-if="isHotel && r._open">
+                <div class="mt-3 border-t border-slate-100 pt-2 space-y-1">
+                  <template x-for="(ro,ri) in (r.raw.room_options||[])" :key="ri">
+                    <div class="flex items-center justify-between gap-2 text-xs py-1">
+                      <div class="min-w-0">
+                        <span class="font-medium text-slate-700" x-text="ro.room_id||ro.room_name||('Room '+(ri+1))"></span>
+                        <span class="text-slate-400" x-text="(ro.board_name? ' · '+ro.board_name:'')+(ro.refundable? ' · refundable':'')"></span>
+                      </div>
+                      <div class="flex items-center gap-2 shrink-0">
+                        <span class="tabular-nums font-medium" x-text="(r.raw.currency||'')+' '+Number(ro.total_price||ro.price||0).toLocaleString()"></span>
+                        <button class="btn sm" :class="(selectedOffer===idx && selectedRoom===ri)?'primary':'outline'" @click="selectRoom(idx,ri)" x-text="(selectedOffer===idx && selectedRoom===ri)?'Selected':'Select'"></button>
+                      </div>
+                    </div>
+                  </template>
+                  <p class="text-[11px] text-slate-400" x-show="!(r.raw.room_options||[]).length">No bookable rooms returned for this hotel.</p>
+                </div>
+              </template>
             </div>
           </template>
         </div>
@@ -327,16 +367,16 @@ function bookingMgr() {
     isSenior: <?= !empty($bm['is_senior']) ? 'true' : 'false' ?>,
 
     mode: 'manual',
-    live: { type:'oneway', origin:'', destination:'', departure_date:'', return_date:'', adults:1, children:0, class:'economy', rooms:1, checkin:'', checkout:'', currency:'' },
-    // Airport autocomplete state (origin/destination for live flight search).
-    // origin/destination hold the resolved IATA code; .q is the visible text.
-    ac: { origin:{q:'',items:[],open:false}, destination:{q:'',items:[],open:false} },
+    live: { type:'oneway', origin:'', destination:'', destination_country:'', departure_date:'', return_date:'', adults:1, children:0, class:'economy', rooms:1, checkin:'', checkout:'', nationality:'', currency:'' },
+    // Autocomplete state. Flights: origin/destination hold the resolved IATA code.
+    // Hotels: dest.q is the visible city text; live.destination holds the chosen city.
+    ac: { origin:{q:'',items:[],open:false}, destination:{q:'',items:[],open:false}, dest:{q:'',items:[],open:false} },
     manual: { segments:[], pnr:'', hotel_name:'', hotel_stars:0, hotel_address:'', hotel_city:'', hotel_country:'', checkin:'', checkout:'', room_type:'', board_type:'', rooms:1, nights:1 },
     cust: { first_name:'', last_name:'', email:'', phone:'' },
     pax: [{ type:'adult', title:'Mr', first_name:'', last_name:'', passport_number:'' }],
     price: { sell:0, cost:0, currency:'' },
 
-    searching:false, searched:false, results:[], selectedOffer:null, selectedRaw:null, selectedSupplier:'',
+    searching:false, searched:false, results:[], selectedOffer:null, selectedRaw:null, selectedSupplier:'', selectedRoom:null,
     creating:false, created:false, invoiceId:'', clientToken:'',
     paying:false, dva:null, manualPay:false, settleMsg:'', settleMsgOk:false,
 
@@ -389,21 +429,51 @@ function bookingMgr() {
     },
     acBlur(which){ setTimeout(()=>{ this.ac[which].open=false; }, 150); },
 
+    // ---- City/destination autocomplete for hotels (reuses admin stays endpoint)
+    async acCity(){
+      const q=(this.ac.dest.q||'').trim(); if(q.length<2){ this.ac.dest.items=[]; this.ac.dest.open=false; return; }
+      try{
+        const res=await fetch(this.base+'admin/stays/search-locations',{method:'POST',body:this.form({search:q})});
+        const data=await res.json();
+        this.ac.dest.items=(data&&data.locations)?data.locations:[];
+        this.ac.dest.open=true;
+      }catch(e){ this.ac.dest.items=[]; this.ac.dest.open=false; }
+    },
+    acPickCity(c){ this.ac.dest.q=c.city+', '+c.country; this.ac.dest.open=false; this.live.destination=c.city; this.live.destination_country=c.country_code||''; },
+    acCityBlur(){ setTimeout(()=>{ this.ac.dest.open=false; }, 150); },
+
+    // Hotel: pick a specific room rate on a hotel result (carries the rate_key).
+    selectRoom(idx,ri){
+      this.selectedOffer=idx; this.selectedRoom=ri;
+      const r=this.results[idx]; this.selectedRaw=r.raw; this.selectedSupplier=r.supplier;
+      const ro=(r.raw.room_options||[])[ri]||{};
+      this.price.sell=Number(ro.total_price||ro.price||r.price_num||0)||this.price.sell;
+      this.price.currency=r.raw.currency||this.price.currency;
+    },
+
     // Flight date to the website's DD-MM-YYYY wire format (input gives YYYY-MM-DD).
     fmtDate(d){ if(!d) return ''; const p=String(d).split('-'); return (p.length===3)?`${p[2]}-${p[1]}-${p[0]}`:d; },
 
     async runSearch(){
-      if(!this.isHotel){
+      if(this.isHotel){
+        if(!this.live.destination){ alert('Pick a destination city'); return; }
+        if(!this.live.checkin||!this.live.checkout){ alert('Pick check-in and check-out dates'); return; }
+      } else {
         if(!this.live.origin||!this.live.destination){ alert('Pick a From and To airport'); return; }
         if(!this.live.departure_date){ alert('Pick a departure date'); return; }
       }
       if(!this.suppliers.length){ alert('No live suppliers are enabled.'); return; }
-      this.searching=true; this.searched=false; this.results=[]; this.selectedOffer=null; this.selectedRaw=null;
+      this.searching=true; this.searched=false; this.results=[]; this.selectedOffer=null; this.selectedRaw=null; this.selectedRoom=null;
 
       // Build the shared search params using the SAME names the website sends to
-      // each supplier (note: childrens, DD-MM-YYYY dates).
+      // each supplier (hotels: children/rooms_data/nationality; flights: childrens;
+      // dates in DD-MM-YYYY).
       const base = this.isHotel
-        ? { service:this.service, destination:this.live.destination, checkin:this.live.checkin, checkout:this.live.checkout, rooms:this.live.rooms, adults:this.live.adults, currency:this.live.currency||this.baseCurrency }
+        ? { service:this.service, destination:this.live.destination, destination_country:this.live.destination_country||'',
+            checkin:this.fmtDate(this.live.checkin), checkout:this.fmtDate(this.live.checkout),
+            rooms:this.live.rooms, adults:this.live.adults, children:this.live.children,
+            rooms_data:JSON.stringify([{adults:this.live.adults, children:this.live.children, childAges:[]}]),
+            nationality:(this.live.nationality||'').toUpperCase(), currency:this.live.currency||this.baseCurrency }
         : { service:this.service, origin:this.live.origin, destination:this.live.destination, type:this.live.type,
             class:this.live.class, departure_date:this.fmtDate(this.live.departure_date),
             return_date:this.fmtDate(this.live.return_date), adults:this.live.adults,
@@ -451,6 +521,7 @@ function bookingMgr() {
       if(!this.cust.first_name||!this.cust.last_name||!this.cust.email){ alert('Customer first/last name and email are required'); return; }
       if(!(this.price.sell>0)){ alert('Enter a selling price'); return; }
       if(this.mode==='live' && this.selectedRaw===null){ alert('Select a supplier offer first'); return; }
+      if(this.mode==='live' && this.isHotel && this.selectedRoom===null){ alert('Choose a room rate on the selected hotel first'); return; }
       this.creating=true;
       try{
         const payload = {
@@ -462,9 +533,18 @@ function bookingMgr() {
         };
         if(this.mode==='live'){
           payload.supplier=this.selectedSupplier;   // the supplier THIS offer came from
-          const r=this.selectedRaw; const seg=(r.segments&&r.segments[0]&&r.segments[0][0])?r.segments[0][0]:r;
-          payload.offer_booking_data = JSON.stringify(seg.booking_data || r.booking_data || r);
-          if(this.isHotel){ payload.selected_rooms = JSON.stringify(r.room_options||[]); }
+          const r=this.selectedRaw;
+          if(this.isHotel){
+            // The CHOSEN room rate carries the booking handle (rate_key); send that
+            // room + the hotel context, not the whole room_options array.
+            const room=(r.room_options||[])[this.selectedRoom]||{};
+            payload.offer_booking_data = JSON.stringify(room.booking_data || room);
+            payload.selected_rooms = JSON.stringify([room]);
+            payload.hotel_context = JSON.stringify({ name:r.name, stars:r.stars, location:r.location, address:r.address, checkin:this.fmtDate(this.live.checkin), checkout:this.fmtDate(this.live.checkout) });
+          } else {
+            const seg=(r.segments&&r.segments[0]&&r.segments[0][0])?r.segments[0][0]:r;
+            payload.offer_booking_data = JSON.stringify(seg.booking_data || r.booking_data || r);
+          }
         } else {
           if(this.isHotel){ Object.assign(payload,{hotel_name:this.manual.hotel_name,hotel_stars:this.manual.hotel_stars,hotel_address:this.manual.hotel_address,hotel_city:this.manual.hotel_city,hotel_country:this.manual.hotel_country,checkin:this.manual.checkin,checkout:this.manual.checkout,room_type:this.manual.room_type,board_type:this.manual.board_type,rooms:this.manual.rooms,nights:this.manual.nights}); }
           else {

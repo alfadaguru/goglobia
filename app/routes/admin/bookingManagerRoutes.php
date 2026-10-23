@@ -254,9 +254,37 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
         $bookingChannel = 'admin_live';
         $bookingData = ['flight_data' => $offerBd, 'booking_data' => $offerBd, 'admin_created' => true];
         if ($serviceType === 'stays') {
-            // Hotels store selected_rooms[].option.booking_data.
-            $bookingData = ['selected_rooms' => $_POST['selected_rooms'] ?? [], 'booking_data' => $offerBd, 'admin_created' => true];
-            if (is_string($bookingData['selected_rooms'])) { $bookingData['selected_rooms'] = json_decode($bookingData['selected_rooms'], true) ?: []; }
+            // Hotels: the console sends the CHOSEN room rate (carries rate_key) as
+            // offer_booking_data + selected_rooms=[room], plus a hotel_context blob.
+            // Persist both the raw room (so the supplier issue reads its rate_key)
+            // AND a voucher-friendly selected_rooms[].option shape + hotel fields.
+            $rooms = $_POST['selected_rooms'] ?? [];
+            if (is_string($rooms)) { $rooms = json_decode($rooms, true) ?: []; }
+            $ctx = $_POST['hotel_context'] ?? '';
+            if (is_string($ctx)) { $ctx = json_decode($ctx, true) ?: []; }
+            $room0 = (is_array($rooms) && isset($rooms[0]) && is_array($rooms[0])) ? $rooms[0] : [];
+            $voucherRooms = [[
+                'room_name'  => (string) ($room0['room_id'] ?? $room0['room_name'] ?? 'Room'),
+                'quantity'   => 1,
+                'booking_data' => $offerBd,
+                'option'     => [
+                    'board_name'    => (string) ($room0['board_name'] ?? ''),
+                    'rate_comments' => (string) ($room0['rate_comments'] ?? ''),
+                    'booking_data'  => $offerBd,
+                ],
+            ]];
+            $bookingData = [
+                'admin_created'  => true,
+                'booking_data'   => $offerBd,
+                'selected_rooms' => $voucherRooms,
+                'raw_room'       => $room0,
+                'hotel_name'     => (string) ($ctx['name'] ?? ''),
+                'hotel_stars'    => (int) ($ctx['stars'] ?? 0),
+                'hotel_address'  => (string) ($ctx['address'] ?? ''),
+                'hotel_city'     => (string) ($ctx['location'] ?? ''),
+                'checkin'        => (string) ($ctx['checkin'] ?? ''),
+                'checkout'       => (string) ($ctx['checkout'] ?? ''),
+            ];
         }
     } else {
         // MANUAL: typed-in details → branded voucher, NO supplier call. The
