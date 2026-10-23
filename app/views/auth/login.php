@@ -223,14 +223,6 @@ $licenseBlocked = !empty($_SESSION['lic_err']);
                         </button>
                     </div>
 
-                    <?php if (str_contains($_SERVER['REQUEST_URI'], '/admin/')): ?>
-                    <div class="alert-info">
-                        <span class="material-symbols-outlined">info</span>
-                        <p>
-                            <strong><?= T::default_credentials ?>:</strong> admin@example.com / password
-                        </p>
-                    </div>
-                    <?php endif; ?>
                 </form>
 
                 <?php if (!str_contains($_SERVER['REQUEST_URI'], '/admin/')): ?>
