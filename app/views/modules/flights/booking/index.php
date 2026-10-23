@@ -190,6 +190,28 @@ if (empty($flightData) || empty($searchParams)) {
 // Get countries for nationality dropdown
 $countries = $db->select('countries', ['iso', 'nicename', 'phonecode'], ['status' => 'active', 'ORDER' => ['nicename' => 'ASC']]);
 
+// ============================================================================
+// DOMESTIC vs INTERNATIONAL DETECTION
+// ----------------------------------------------------------------------------
+// Owner rule: a trip is DOMESTIC when the origin and destination airports are
+// in the SAME country. For domestic travel we only need name/phone/email, so
+// passport / nationality / passport-expiry (and the passport-scan UI) are NOT
+// required — this keeps domestic booking seamless. Country is resolved from the
+// flights_airports table (populated with full country names, e.g. "Nigeria").
+// If either airport's country is unknown, we FAIL SAFE to international (ask for
+// passport) so we never under-collect for a genuine international trip.
+// ============================================================================
+$originCountry = '';
+$destinationCountry = '';
+if (!empty($origin)) {
+    $originCountry = (string) ($db->get('flights_airports', 'country', ['code' => strtoupper($origin)]) ?: '');
+}
+if (!empty($destination)) {
+    $destinationCountry = (string) ($db->get('flights_airports', 'country', ['code' => strtoupper($destination)]) ?: '');
+}
+$isDomestic = ($originCountry !== '' && $destinationCountry !== ''
+    && strcasecmp(trim($originCountry), trim($destinationCountry)) === 0);
+
 // Check if user is logged in and fetch user data
 $isUserLoggedIn = isset($_SESSION['user_id']) && !empty($_SESSION['user_id']);
 $loggedInUser = null;
@@ -418,8 +440,10 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                         </h4>
 
                                         <?php
-                                        $passportScanPassengerKey = 'adult_0';
-                                        require views . 'modules/flights/booking/partials/passport-scan.php';
+                                        if (!$isDomestic) {
+                                            $passportScanPassengerKey = 'adult_0';
+                                            require views . 'modules/flights/booking/partials/passport-scan.php';
+                                        }
                                         ?>
 
                                         <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
@@ -450,6 +474,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                         </div>
 
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                            <?php if (!$isDomestic): ?>
                                             <div>
                                                 <label class="block text-sm font-medium text-slate-700 mb-2">
                                                     <?= T::nationality ?> <span class="text-red-500">*</span>
@@ -463,6 +488,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                     <?php endforeach; ?>
                                                 </select>
                                             </div>
+                                            <?php endif; ?>
 
                                             <div>
                                                 <label class="block text-sm font-medium text-slate-700 mb-2">
@@ -496,6 +522,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                             </div>
                                         </div>
 
+                                        <?php if (!$isDomestic): ?>
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                             <div>
                                                 <label class="block text-sm font-medium text-slate-700 mb-2">
@@ -538,6 +565,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                 </div>
                                             </div>
                                         </div>
+                                        <?php endif; ?>
 
                                         <!-- Help text for lead traveler -->
                                         <p class="text-xs text-gray-500 mt-2" x-show="!formData.booking_for_someone_else">
@@ -556,8 +584,10 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                 </h3>
 
                                                 <?php
-                                                $passportScanPassengerKey = 'adult_' . $adultIndex;
-                                                require views . 'modules/flights/booking/partials/passport-scan.php';
+                                                if (!$isDomestic) {
+                                                    $passportScanPassengerKey = 'adult_' . $adultIndex;
+                                                    require views . 'modules/flights/booking/partials/passport-scan.php';
+                                                }
                                                 ?>
 
                                                 <div class="space-y-4">
@@ -596,6 +626,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                     </div>
 
                                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                        <?php if (!$isDomestic): ?>
                                                         <div>
                                                             <label class="block text-sm font-medium text-slate-700 mb-2">
                                                                 <?= T::nationality ?> <span class="text-red-500">*</span>
@@ -609,6 +640,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                                 <?php endforeach; ?>
                                                             </select>
                                                         </div>
+                                                        <?php endif; ?>
 
                                                         <div>
                                                             <label class="block text-sm font-medium text-slate-700 mb-2">
@@ -642,6 +674,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                         </div>
                                                     </div>
 
+                                                    <?php if (!$isDomestic): ?>
                                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                         <div>
                                                             <label class="block text-sm font-medium text-slate-700 mb-2">
@@ -687,6 +720,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                             </div>
                                                         </div>
                                                     </div>
+                                                    <?php endif; ?>
                                                 </div>
                                             </div>
                                     <?php endfor; ?>
@@ -702,8 +736,10 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                 </h3>
 
                                                 <?php
-                                                $passportScanPassengerKey = 'child_' . $childIndex;
-                                                require views . 'modules/flights/booking/partials/passport-scan.php';
+                                                if (!$isDomestic) {
+                                                    $passportScanPassengerKey = 'child_' . $childIndex;
+                                                    require views . 'modules/flights/booking/partials/passport-scan.php';
+                                                }
                                                 ?>
 
                                                 <div class="space-y-4">
@@ -740,6 +776,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                     </div>
 
                                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                        <?php if (!$isDomestic): ?>
                                                         <div>
                                                             <label class="block text-sm font-medium text-slate-700 mb-2">
                                                                 <?= T::nationality ?> <span class="text-red-500">*</span>
@@ -753,6 +790,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                                 <?php endforeach; ?>
                                                             </select>
                                                         </div>
+                                                        <?php endif; ?>
 
                                                         <div>
                                                             <label class="block text-sm font-medium text-slate-700 mb-2">
@@ -786,6 +824,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                         </div>
                                                     </div>
 
+                                                    <?php if (!$isDomestic): ?>
                                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                         <div>
                                                             <label class="block text-sm font-medium text-slate-700 mb-2">
@@ -831,6 +870,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                             </div>
                                                         </div>
                                                     </div>
+                                                    <?php endif; ?>
                                                 </div>
                                             </div>
                                     <?php endfor; ?>
@@ -846,8 +886,10 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                 </h3>
 
                                                 <?php
-                                                $passportScanPassengerKey = 'infant_' . $infantIndex;
-                                                require views . 'modules/flights/booking/partials/passport-scan.php';
+                                                if (!$isDomestic) {
+                                                    $passportScanPassengerKey = 'infant_' . $infantIndex;
+                                                    require views . 'modules/flights/booking/partials/passport-scan.php';
+                                                }
                                                 ?>
 
                                                 <div class="space-y-4">
@@ -884,6 +926,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                     </div>
 
                                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                        <?php if (!$isDomestic): ?>
                                                         <div>
                                                             <label class="block text-sm font-medium text-slate-700 mb-2">
                                                                 <?= T::nationality ?> <span class="text-red-500">*</span>
@@ -897,6 +940,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                                 <?php endforeach; ?>
                                                             </select>
                                                         </div>
+                                                        <?php endif; ?>
 
                                                         <div>
                                                             <label class="block text-sm font-medium text-slate-700 mb-2">
@@ -932,6 +976,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                         </div>
                                                     </div>
 
+                                                    <?php if (!$isDomestic): ?>
                                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                         <div>
                                                             <label class="block text-sm font-medium text-slate-700 mb-2">
@@ -977,6 +1022,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                             </div>
                                                         </div>
                                                     </div>
+                                                    <?php endif; ?>
                                                 </div>
                                             </div>
                                     <?php endfor; ?>
@@ -1580,6 +1626,9 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
             search_origin: '<?= $origin ?>',
             search_destination: '<?= $destination ?>',
             search_date: '<?= $departureDate ?>',
+
+            // Domestic trip (same country both ends) -> passport not required.
+            isDomestic: <?= $isDomestic ? 'true' : 'false' ?>,
 
             currency: '<?= $currency ?>',
             displayCurrency: '<?= $displayCurrencyCode ?>',

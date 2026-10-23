@@ -448,6 +448,11 @@ try {
     if (function_exists('ensureFlightsPopularRoutesSchema')) {
         ensureFlightsPopularRoutesSchema($db);
     }
+    // Correct airline names for reassigned IATA codes (e.g. UN was Transaero,
+    // now United Nigeria). Idempotent; only touches verified codes.
+    if (function_exists('ensureAirlineNameFixes')) {
+        ensureAirlineNameFixes($db);
+    }
     // Brand/legal content self-heal — replaces shipped PHPTRAVELS boilerplate in
     // the CMS legal pages with GoGlobia content (only while still tainted; never
     // clobbers admin edits). Idempotent.

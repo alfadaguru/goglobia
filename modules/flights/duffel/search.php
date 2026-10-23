@@ -309,10 +309,21 @@ $router->post('flights/duffel/search', function() use ($db) {
                         }
                     }
 
+                    // Carrier to SHOW the customer = the MARKETING carrier (the airline
+                    // they booked with, e.g. United Nigeria / UN579). Duffel also returns
+                    // the OPERATING carrier, which for a wet-lease/codeshare is the aircraft
+                    // operator and can be a different, unexpected name (e.g. "Transaero").
+                    // Showing the marketing carrier gives the correct airline + flight number
+                    // and keeps the lease relationship invisible to the customer. Fall back
+                    // to the operating carrier if a marketing carrier is ever missing.
+                    $marketingCarrier = $key['marketing_carrier'] ?? $key['operating_carrier'];
+                    $marketingFlightNo = $key['marketing_carrier_flight_number']
+                        ?? $key['operating_carrier_flight_number'];
+
                     $sub_array[] = (object)[
-                        'img' => $key['operating_carrier']['iata_code'],
-                        'flight_no' => $key['operating_carrier_flight_number'],
-                        'airline' => $key['operating_carrier']['name'],
+                        'img' => $marketingCarrier['iata_code'],
+                        'flight_no' => $marketingFlightNo,
+                        'airline' => $marketingCarrier['name'],
                         'class' => $key['passengers'][0]['cabin_class'],
                         'baggage' => $checkedBagDisplay ?: 'No checked baggage',
                         'cabin_baggage' => $cabinBagDisplay ?: 'Cabin bag included',

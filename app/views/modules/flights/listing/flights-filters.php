@@ -157,7 +157,7 @@
                         <span class="material-symbols-outlined text-gray-500 text-lg">payments</span>
                         <span class="font-semibold text-gray-900 dark:text-gray-100 text-sm"><?= T::price ?></span>
                         <span class="text-xs text-gray-500 dark:text-gray-400">
-                            $<span x-text="priceRange.min"></span> - $<span x-text="priceRange.max"></span>
+                            <span x-text="sessionCurrency"></span> <span x-text="Number(priceRange.min).toLocaleString()"></span> - <span x-text="sessionCurrency"></span> <span x-text="Number(priceRange.max).toLocaleString()"></span>
                         </span>
                     </div>
                     <span class="material-symbols-outlined text-gray-400 text-lg"
@@ -170,14 +170,13 @@
                     x-transition:leave-start="opacity-100 translate-y-0"
                     x-transition:leave-end="opacity-0 -translate-y-1" class="pb-2 space-y-3">
                     <div class="flex justify-between text-xs text-gray-400 dark:text-gray-500 pt-2">
-                        <span>$<span x-text="priceRange.min"></span></span>
-                        <span>$<span x-text="priceRange.max"></span></span>
+                        <span><span x-text="sessionCurrency"></span> <span x-text="Number(priceRange.min).toLocaleString()"></span></span>
+                        <span><span x-text="sessionCurrency"></span> <span x-text="Number(priceRange.max).toLocaleString()"></span></span>
                     </div>
                     <div id="priceSlider" class="mx-4 my-4"></div>
                     <div class="text-center">
                         <span class="text-gray-800 dark:text-gray-200 font-semibold text-sm">
-                            $<span x-text="filters.priceRange[0]"></span> - $<span
-                                x-text="filters.priceRange[1]"></span>
+                            <span x-text="sessionCurrency"></span> <span x-text="Number(filters.priceRange[0]).toLocaleString()"></span> - <span x-text="sessionCurrency"></span> <span x-text="Number(filters.priceRange[1]).toLocaleString()"></span>
                         </span>
                     </div>
                     <div class="text-center text-xs text-gray-500 dark:text-gray-400">

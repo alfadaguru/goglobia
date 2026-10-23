@@ -382,7 +382,9 @@ $moduleTypes = ['flights','stays','tours','cars','bus','rail','cruises','visa','
                                 <option value="1" <?= ((string) ($module['fare_timer_enabled'] ?? '0')) === '1' ? 'selected' : '' ?>>Enabled</option>
                             </select>
                             <p class="text-xs text-slate-500 mt-1">
-                                Show a countdown on the booking page (fares are held for a limited time).
+                                Show a "fares held for mm:ss" countdown on BOTH the flight
+                                search-results page and the confirm-booking page (fares are
+                                held for a limited time). One switch controls both.
                             </p>
                         </div>
                         <div class="form-control">

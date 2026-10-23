@@ -109,6 +109,42 @@ $conversionFactor = 1;
 if ($displayCurrencyRate > 0) {
     $conversionFactor = $baseCurrencyRate / $displayCurrencyRate;
 }
+
+// ============================================================================
+// FARE-HOLD COUNTDOWN (results page)
+// ----------------------------------------------------------------------------
+// A soft urgency hint — "fares held for mm:ss" — shown on the results list,
+// mirroring what the confirm-booking page already does. It reuses the SAME
+// admin switch as the booking timer (modules.fare_timer_enabled per flights
+// supplier), so flipping that one toggle turns on BOTH the results and the
+// booking countdowns. Default length is 15 minutes. It is NOT an authoritative
+// hold — the true expiry is the supplier re-quote at booking time — it only
+// nudges the customer to proceed. Enabled when ANY active flights module has
+// the toggle on; we use the smallest configured minutes to stay conservative.
+// ============================================================================
+$resultsFareTimerEnabled = false;
+$resultsFareTimerMinutes = 15;
+try {
+    $ftRows = $db->select('modules', ['fare_timer_enabled', 'fare_timer_minutes'], [
+        'type' => 'flights', 'status' => '1',
+    ]);
+    $minMinutes = null;
+    foreach (($ftRows ?: []) as $ftRow) {
+        if (((string) ($ftRow['fare_timer_enabled'] ?? '0')) === '1') {
+            $resultsFareTimerEnabled = true;
+            $m = (int) ($ftRow['fare_timer_minutes'] ?? 15);
+            if ($m < 1) $m = 1;
+            if ($m > 120) $m = 120;
+            if ($minMinutes === null || $m < $minMinutes) $minMinutes = $m;
+        }
+    }
+    if ($resultsFareTimerEnabled && $minMinutes !== null) {
+        $resultsFareTimerMinutes = $minMinutes;
+    }
+} catch (\Throwable $e) {
+    // fare_timer_* columns may not exist yet on an un-migrated DB — stay off.
+    $resultsFareTimerEnabled = false;
+}
 ?>
 
 <script src="<?= root ?>assets/js/noui.js"></script>
@@ -550,6 +586,33 @@ if ($displayCurrencyRate > 0) {
                 </div>
             </div>
 
+<?php if ($resultsFareTimerEnabled): ?>
+            <!-- Fare-hold countdown (admin-enabled per flights provider). Soft urgency
+                 hint; shows once results have loaded and until the hold window lapses. -->
+            <div class="container" x-show="fareTimerEnabled && searchComplete && filteredFlights.length > 0 && !fareTimerExpired" x-cloak>
+                <div class="rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 px-4 py-2.5 flex items-center gap-3">
+                    <span class="material-symbols-outlined text-amber-600 dark:text-amber-400 shrink-0" style="font-size: 22px;">timer</span>
+                    <div class="text-sm leading-tight">
+                        <span class="font-semibold text-amber-800 dark:text-amber-200">
+                            Fares held for
+                            <span class="tabular-nums font-bold" x-text="fareTimerLabel"></span>
+                        </span>
+                        <span class="text-amber-700 dark:text-amber-300 hidden sm:inline">·
+                            Book now to lock this price</span>
+                    </div>
+                </div>
+            </div>
+            <!-- Expired state: prompt a fresh search -->
+            <div class="container" x-show="fareTimerEnabled && fareTimerExpired" x-cloak>
+                <div class="rounded-xl border border-gray-300 bg-gray-50 dark:bg-gray-800 dark:border-gray-600 px-4 py-2.5 flex items-center gap-3">
+                    <span class="material-symbols-outlined text-gray-500 shrink-0" style="font-size: 22px;">update</span>
+                    <div class="text-sm text-gray-700 dark:text-gray-300">
+                        These fares have expired. Please search again for the latest prices.
+                    </div>
+                </div>
+            </div>
+<?php endif; ?>
+
             <!-- Progress Bar - Fixed Over Header (Like Stays) -->
             <div x-show="showProgressBar" x-transition:leave="transition-opacity ease-in-out duration-1000"
                 x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
@@ -733,7 +796,7 @@ if ($displayCurrencyRate > 0) {
                                                 <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30">
                                                     <td class="px-4 py-2.5">
                                                         <div class="flex items-center gap-2 min-w-0">
-                                                            <img :src="`https://pics.avs.io/120/60/${row.code}@2x.png`" :alt="row.name" class="w-8 h-5 object-contain shrink-0" onerror="this.style.display='none'">
+                                                            <img :src="`https://pics.avs.io/200/200/${row.code}@2x.png`" :alt="row.name" class="w-9 h-9 object-contain shrink-0 rounded-md border border-gray-200 dark:border-gray-600 bg-white p-0.5" onerror="this.style.display='none'">
                                                             <span class="truncate text-gray-800 dark:text-gray-200" x-text="row.name"></span>
                                                         </div>
                                                     </td>
@@ -845,6 +908,17 @@ if ($displayCurrencyRate > 0) {
             apiErrors: [],
             showMobileFilters: false,
             pmOpen: true,   // price-matrix expanded by default
+
+            // Fare-hold countdown (admin-enabled per provider). Same method shape and
+            // mm:ss formatting as the confirm-booking timer (booking/index.php), but the
+            // deadline is anchored client-side to when results finish loading, since the
+            // results page has no server-side booking draft to anchor to.
+            fareTimerEnabled: <?= $resultsFareTimerEnabled ? 'true' : 'false' ?>,
+            fareTimerMinutes: <?= (int) $resultsFareTimerMinutes ?>,
+            fareTimerDeadline: 0,      // UNIX seconds; set when results complete
+            fareTimerLabel: '',        // "mm:ss"
+            fareTimerExpired: false,
+            _fareTimerInt: null,
 
             // Pagination state
             currentPage: 1,
@@ -1148,6 +1222,9 @@ if ($displayCurrencyRate > 0) {
                 this.searchComplete = true;
                 this.progress = 100;
 
+                // Start the fare-hold countdown now that fares are on screen.
+                this.startFareTimer();
+
                 // console.log(`✨ Search complete! Displaying ${this.filteredFlights.length} flights`);
 
                 // Wait 2 seconds showing "Complete" message
@@ -1164,6 +1241,31 @@ if ($displayCurrencyRate > 0) {
                 // Just ensure loading is false for any edge cases
                 this.loading = false;
                 // console.log(`✅ Complete! UI cleaned up.`);
+            },
+
+            // Fare-hold countdown. Same tick/format as the confirm-booking timer
+            // (booking/index.php startFareTimer), but anchored client-side to NOW +
+            // fareTimerMinutes because the results page has no server booking draft.
+            // Soft urgency only — the real expiry is the supplier re-quote at booking.
+            startFareTimer() {
+                if (!this.fareTimerEnabled || this.fareTimerMinutes < 1) { return; }
+                if (this._fareTimerInt) { clearInterval(this._fareTimerInt); this._fareTimerInt = null; }
+                this.fareTimerExpired = false;
+                this.fareTimerDeadline = Math.floor(Date.now() / 1000) + (this.fareTimerMinutes * 60);
+                const tick = () => {
+                    const remaining = this.fareTimerDeadline - Math.floor(Date.now() / 1000);
+                    if (remaining <= 0) {
+                        this.fareTimerLabel = '00:00';
+                        this.fareTimerExpired = true;
+                        if (this._fareTimerInt) { clearInterval(this._fareTimerInt); this._fareTimerInt = null; }
+                        return;
+                    }
+                    const m = Math.floor(remaining / 60);
+                    const s = remaining % 60;
+                    this.fareTimerLabel = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+                };
+                tick();
+                this._fareTimerInt = setInterval(tick, 1000);
             },
 
             async fetchSupplier(supplier) {
@@ -1583,6 +1685,10 @@ if ($displayCurrencyRate > 0) {
                             f.airlineName = f.airline;
                         }
                     });
+                    // Rebuild the airline filter list now that names are resolved, so it
+                    // shows the correct carrier (e.g. "United Nigeria Airlines") instead of
+                    // the supplier's raw/stale name (e.g. "Transaero") captured pre-resolve.
+                    this.extractFilters();
                     // Trigger reactive update but keep current page
                     const pageBeforeUpdate = this.currentPage;
                     this.sortAndFilterResults(true);
@@ -2643,11 +2749,11 @@ if ($displayCurrencyRate > 0) {
                         <div class="block lg:hidden">
                             <div class="flex items-start justify-between gap-3 mb-3">
                                 <div class="flex items-center gap-2.5 min-w-0">
-                                    <div class="w-11 h-11 bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1.5 shrink-0">
+                                    <div class="w-14 h-14 bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1 shrink-0">
                                         <img src="https://pics.avs.io/200/200/${f.img}@2x.png" alt="${f.airline}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
                                     </div>
                                     <div class="min-w-0">
-                                        <p class="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">${f.airlineName || f.airline}</p>
+                                        <p class="font-bold text-sm text-gray-900 dark:text-gray-100 truncate">${f.airlineName || f.airline}</p>
                                         <p class="text-xs text-gray-500 dark:text-gray-400"><?= T::flight ?? 'Flight' ?> ${f.flight_no || ''}</p>
                                     </div>
                                 </div>
@@ -2692,11 +2798,11 @@ if ($displayCurrencyRate > 0) {
                         <div class="hidden lg:block">
                             <div class="flex items-stretch gap-5">
                                 <!-- Airline -->
-                                <div class="flex flex-col items-center justify-center gap-1.5 shrink-0 w-[88px]">
-                                    <div class="w-12 h-12 bg-white dark:bg-gray-700 rounded-xl flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1.5">
+                                <div class="flex flex-col items-center justify-center gap-1.5 shrink-0 w-[96px]">
+                                    <div class="w-16 h-16 bg-white dark:bg-gray-700 rounded-xl flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1">
                                         <img src="https://pics.avs.io/200/200/${f.img}@2x.png" alt="${f.airline}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
                                     </div>
-                                    <p class="text-[11px] font-semibold text-gray-800 dark:text-gray-200 text-center leading-tight">${f.airlineName || f.airline}</p>
+                                    <p class="text-xs font-bold text-gray-800 dark:text-gray-200 text-center leading-tight">${f.airlineName || f.airline}</p>
                                     <p class="text-[11px] text-gray-500 dark:text-gray-400 text-center"><?= T::flight ?? 'Flight' ?> ${f.flight_no || ''}</p>
                                 </div>
 
