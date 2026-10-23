@@ -518,9 +518,34 @@ if ($displayCurrencyRate > 0) {
     <div class="w-full h-full bg-gray-100 dark:bg-gray-900">
         <div class="flex flex-col gap-4">
 
-            <!-- Search Form -->
-            <div class="container py-5 pb-2">
-                <div class="card overflow-visible bg-white border border-gray-200 rounded-2xl p-5 relative">
+            <!-- Search Form — collapsed to a compact "Modify" summary on results;
+                 expands to the full form. Homepage include (index.php) is unaffected. -->
+            <div class="container py-5 pb-2" x-data="{ expanded: false }">
+                <!-- Collapsed summary bar -->
+                <div x-show="!expanded"
+                    class="card bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl px-4 sm:px-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:border-blue-300 transition-colors"
+                    @click="expanded = true">
+                    <div class="flex items-center gap-2.5 min-w-0 text-sm">
+                        <span class="material-symbols-outlined text-blue-600 shrink-0" style="font-size: 20px;">flight_takeoff</span>
+                        <span class="font-semibold text-gray-900 dark:text-gray-100 truncate" x-text="(searchParams.origin || '') + ' → ' + (searchParams.destination || '')"></span>
+                        <span class="text-gray-300 dark:text-gray-600">·</span>
+                        <span class="text-gray-600 dark:text-gray-300 truncate" x-text="searchParams.departure_date + (searchParams.return_date ? ' – ' + searchParams.return_date : '')"></span>
+                        <span class="text-gray-300 dark:text-gray-600 hidden sm:inline">·</span>
+                        <span class="text-gray-600 dark:text-gray-300 hidden sm:inline" x-text="((+searchParams.adults||0)+(+searchParams.childrens||0)+(+searchParams.infants||0)) + ' pax · ' + (searchParams.class || 'economy')"></span>
+                    </div>
+                    <button type="button" class="btn-outline shrink-0 inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 rounded-lg px-3 py-1.5" @click.stop="expanded = true">
+                        <span class="material-symbols-outlined" style="font-size: 18px;">tune</span>
+                        <span><?= T::modify ?></span>
+                    </button>
+                </div>
+                <!-- Expanded full form -->
+                <div x-show="expanded" x-collapse class="card overflow-visible bg-white border border-gray-200 rounded-2xl p-5 relative">
+                    <div class="flex justify-end -mt-1 -mr-1 mb-1">
+                        <button type="button" class="text-gray-400 hover:text-gray-700 inline-flex items-center gap-1 text-xs" @click="expanded = false">
+                            <span class="material-symbols-outlined" style="font-size: 18px;">expand_less</span>
+                            Close
+                        </button>
+                    </div>
                     <?php include views . "modules/flights/flights-search.php"; ?>
                 </div>
             </div>
