@@ -733,7 +733,7 @@ if ($displayCurrencyRate > 0) {
                                                 <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30">
                                                     <td class="px-4 py-2.5">
                                                         <div class="flex items-center gap-2 min-w-0">
-                                                            <img :src="`https://pics.avs.io/120/60/${row.code}@2x.png`" :alt="row.name" class="w-8 h-5 object-contain shrink-0" onerror="this.style.display='none'">
+                                                            <img :src="`https://pics.avs.io/200/200/${row.code}@2x.png`" :alt="row.name" class="w-9 h-9 object-contain shrink-0 rounded-md border border-gray-200 dark:border-gray-600 bg-white p-0.5" onerror="this.style.display='none'">
                                                             <span class="truncate text-gray-800 dark:text-gray-200" x-text="row.name"></span>
                                                         </div>
                                                     </td>
@@ -2643,11 +2643,11 @@ if ($displayCurrencyRate > 0) {
                         <div class="block lg:hidden">
                             <div class="flex items-start justify-between gap-3 mb-3">
                                 <div class="flex items-center gap-2.5 min-w-0">
-                                    <div class="w-11 h-11 bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1.5 shrink-0">
+                                    <div class="w-14 h-14 bg-white dark:bg-gray-700 rounded-lg flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1 shrink-0">
                                         <img src="https://pics.avs.io/200/200/${f.img}@2x.png" alt="${f.airline}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
                                     </div>
                                     <div class="min-w-0">
-                                        <p class="font-semibold text-sm text-gray-900 dark:text-gray-100 truncate">${f.airlineName || f.airline}</p>
+                                        <p class="font-bold text-sm text-gray-900 dark:text-gray-100 truncate">${f.airlineName || f.airline}</p>
                                         <p class="text-xs text-gray-500 dark:text-gray-400"><?= T::flight ?? 'Flight' ?> ${f.flight_no || ''}</p>
                                     </div>
                                 </div>
@@ -2692,11 +2692,11 @@ if ($displayCurrencyRate > 0) {
                         <div class="hidden lg:block">
                             <div class="flex items-stretch gap-5">
                                 <!-- Airline -->
-                                <div class="flex flex-col items-center justify-center gap-1.5 shrink-0 w-[88px]">
-                                    <div class="w-12 h-12 bg-white dark:bg-gray-700 rounded-xl flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1.5">
+                                <div class="flex flex-col items-center justify-center gap-1.5 shrink-0 w-[96px]">
+                                    <div class="w-16 h-16 bg-white dark:bg-gray-700 rounded-xl flex items-center justify-center border border-gray-200 dark:border-gray-600 p-1">
                                         <img src="https://pics.avs.io/200/200/${f.img}@2x.png" alt="${f.airline}" class="w-full h-full object-contain" onerror="this.style.display='none'" />
                                     </div>
-                                    <p class="text-[11px] font-semibold text-gray-800 dark:text-gray-200 text-center leading-tight">${f.airlineName || f.airline}</p>
+                                    <p class="text-xs font-bold text-gray-800 dark:text-gray-200 text-center leading-tight">${f.airlineName || f.airline}</p>
                                     <p class="text-[11px] text-gray-500 dark:text-gray-400 text-center"><?= T::flight ?? 'Flight' ?> ${f.flight_no || ''}</p>
                                 </div>
 
