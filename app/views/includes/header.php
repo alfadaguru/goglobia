@@ -446,7 +446,67 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
     <meta name="keywords" content="<?= htmlspecialchars($seoKeywords) ?>">
     <link rel="canonical" href="<?= htmlspecialchars($canonicalUrl) ?>">
     <meta name="author" content="<?= htmlspecialchars((string) $wlAuthor, ENT_QUOTES, 'UTF-8') ?>">
-    <meta name="robots" content="<?= htmlspecialchars($robots ?? 'index, follow') ?>">
+    <?php
+    // ROBOTS / INDEXATION POLICY (SEO-008). A route can set $robots explicitly;
+    // otherwise decide by URL. NOINDEX (but still FOLLOW, so link equity flows
+    // and Google can READ the directive — never robots.txt-block these) for:
+    //  - account / auth / wallet / booking-management / checkout / invoices
+    //  - search-result permutations (any non-whitelisted path carrying a query
+    //    string: ?date=, ?v=, sort/filter/currency params, etc.)
+    //  - admin
+    // Evergreen service, destination, route, package, guide, CMS and blog pages
+    // stay indexable.
+    if (!isset($robots)) {
+        $__rPath  = strtolower(strtok((string) ($_SERVER['REQUEST_URI'] ?? '/'), '?'));
+        $__rBase  = defined('root') ? parse_url((string) root, PHP_URL_PATH) : '';
+        $__rRel   = $__rBase && strpos($__rPath, strtolower($__rBase)) === 0
+            ? '/' . ltrim(substr($__rPath, strlen($__rBase)), '/') : $__rPath;
+        $__rQuery = (string) ($_SERVER['QUERY_STRING'] ?? '');
+
+        // Private / thin / transactional path prefixes → noindex.
+        $__noindexPrefixes = [
+            '/login', '/signup', '/register', '/logout', '/forgot-password', '/reset-password',
+            '/verify-email', '/verify', '/otp', '/account', '/profile', '/dashboard',
+            '/wallet', '/bookings', '/my-trips', '/cart', '/checkout', '/invoice/',
+            '/payment', '/pay/', '/order', '/orders', '/confirmation', '/admin/', '/supplier/',
+            '/agent/', '/license', '/install',
+        ];
+        $__isNoindex = false;
+        foreach ($__noindexPrefixes as $__p) {
+            if ($__rRel === rtrim($__p, '/') || strpos($__rRel, $__p) === 0) { $__isNoindex = true; break; }
+        }
+
+        $__searchPaths = ['/flights', '/stays', '/tours', '/cars', '/visa', '/esim',
+                          '/bus', '/rail', '/ferries', '/cruises', '/umrah', '/hotels'];
+
+        // (a) Search-result / filter permutations via QUERY STRING on a service
+        // path → noindex (the clean landing is canonical). Ignore framework/noise
+        // params: `url` (the .htaccess rewrite target on EVERY page) and `v`.
+        if (!$__isNoindex && $__rQuery !== '') {
+            parse_str($__rQuery, $__qp);
+            unset($__qp['v'], $__qp['url']);
+            if (!empty($__qp)) {
+                foreach ($__searchPaths as $__sp) {
+                    if (strpos($__rRel, $__sp) === 0) { $__isNoindex = true; break; }
+                }
+            }
+        }
+
+        // (b) Deep PATH-based search RESULT URLs (dated, volatile, thin) →
+        // noindex. Flights/stays results encode a date + pax in the path, e.g.
+        // /flights/los/dxb/oneway/economy/24-10-2026/1/0/0 or
+        // /stays/dubai/14-11-2026/18-11-2026/NG/1/2-0. A clean service landing
+        // like /flights (<=1 segment after the service) stays indexable; a URL
+        // carrying a DD-MM-YYYY date segment is a specific search and is not.
+        if (!$__isNoindex && preg_match('~/\d{1,2}-\d{1,2}-\d{4}(/|$)~', $__rRel)) {
+            foreach ($__searchPaths as $__sp) {
+                if (strpos($__rRel, $__sp) === 0) { $__isNoindex = true; break; }
+            }
+        }
+        $robots = $__isNoindex ? 'noindex, follow' : 'index, follow';
+    }
+    ?>
+    <meta name="robots" content="<?= htmlspecialchars($robots) ?>">
     <meta property="og:title" content="<?= htmlspecialchars($seoTitle) ?>">
     <meta property="og:description" content="<?= htmlspecialchars($seoDescription) ?>">
     <meta property="og:url" content="<?= htmlspecialchars($canonicalUrl) ?>">
