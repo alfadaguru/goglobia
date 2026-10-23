@@ -255,21 +255,37 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
         $bookingData = ['flight_data' => $offerBd, 'booking_data' => $offerBd, 'admin_created' => true];
         if ($serviceType === 'stays') {
             // Hotels: the console sends the CHOSEN rate as selected_rooms=
-            //   [{room_name, quantity, option:{rate_key, total_price, board_name,...}}]
+            //   [{room_name, quantity, option:{<handle>, total_price, board_name,...}}]
             // plus offer_booking_data (the same option) and a hotel_context blob.
-            // We MUST persist the option VERBATIM so the supplier issue finds
-            // selected_rooms[].option.rate_key (hotelbeds issue.php reads exactly
-            // that and throws "Missing rate_key" otherwise).
+            // We persist the option VERBATIM so each supplier's issue.php finds the
+            // booking handle under the key IT uses — it is supplier-specific:
+            //   hotelbeds/hotelston -> option.rate_key
+            //   ratehawk            -> option.book_hash
+            //   tbo-holidays        -> option.booking_code
+            //   wanderbeds          -> option.offer_id
+            //   stuba/adivaha       -> option.booking_data.{room_id,rate_key,...}
+            // So we must NOT require a specific key — only that SOME handle exists.
             $rooms = $_POST['selected_rooms'] ?? [];
             if (is_string($rooms)) { $rooms = json_decode($rooms, true) ?: []; }
             $ctx = $_POST['hotel_context'] ?? '';
             if (is_string($ctx)) { $ctx = json_decode($ctx, true) ?: []; }
             if (!is_array($rooms) || !isset($rooms[0]) || !is_array($rooms[0])
-                || empty($rooms[0]['option']) || !is_array($rooms[0]['option'])
-                || (string) ($rooms[0]['option']['rate_key'] ?? '') === '') {
+                || empty($rooms[0]['option']) || !is_array($rooms[0]['option'])) {
                 bmAdminJson(['status' => false, 'message' => 'Live hotel booking needs a selected room rate.'], 422);
             }
             $opt = $rooms[0]['option'];
+            // Accept ANY of the known supplier handle keys (flat or nested under
+            // booking_data). Reject only when NONE is present — that means the
+            // console sent a room group instead of a bookable rate, which would
+            // strand the booking at issue after payment.
+            $bd = (isset($opt['booking_data']) && is_array($opt['booking_data'])) ? $opt['booking_data'] : [];
+            $handle = '';
+            foreach (['rate_key', 'book_hash', 'booking_code', 'offer_id', 'id'] as $k) {
+                if ((string) ($opt[$k] ?? ($bd[$k] ?? '')) !== '') { $handle = (string) ($opt[$k] ?? $bd[$k]); break; }
+            }
+            if ($handle === '' && empty($bd)) {
+                bmAdminJson(['status' => false, 'message' => 'That room rate is missing its booking reference — reselect the rate and try again.'], 422);
+            }
             $voucherRooms = [[
                 'room_name'    => (string) ($rooms[0]['room_name'] ?? 'Room'),
                 'quantity'     => max(1, (int) ($rooms[0]['quantity'] ?? 1)),
