@@ -78,7 +78,8 @@ function renderCarCard(car) {
     // ============================================================================
     const carSlug = carName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     const carId = car.car_id || car.id || 'unknown';
-    const detailUrl = `<?=root?>car/${carSlug}/${carId}/${supplier}`;
+    // Supplier name removed from the URL (the /car/{slug} route resolves by slug).
+    const detailUrl = `<?=root?>car/${carSlug}/${carId}`;
 
     // ============================================================================
     // SAFELY ESCAPE STRINGS FOR HTML

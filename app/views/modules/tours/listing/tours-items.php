@@ -9,15 +9,18 @@
 /**
  * BUILD TOUR URL - SEO-friendly URL builder
  */
-function buildTourUrl(t, searchParams) {
+function buildTourUrl(t, searchParams, supplierTokens) {
     const slug = t.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     const tourId = t.original_id || t.tour_id || t.id || 'unknown';
     const tourType = (t.tour_type || 'tour').toLowerCase().replace(/\s+/g, '-');
-    
+
     const adults = searchParams.adults || 1;
     const children = searchParams.children || 0;
 
-    return `<?=root?>tour/${slug}/${tourId}/${t.supplier.toLowerCase()}/${searchParams.start_date}/${searchParams.duration}/${adults}-${children}`;
+    // Opaque supplier TOKEN in the URL, never the raw name (route decodes it).
+    const supKey = String(t.supplier || '').toLowerCase();
+    const supToken = (supplierTokens && supplierTokens[supKey]) ? supplierTokens[supKey] : supKey;
+    return `<?=root?>tour/${slug}/${tourId}/${supToken}/${searchParams.start_date}/${searchParams.duration}/${adults}-${children}`;
 }
 
 /**
@@ -30,8 +33,8 @@ function renderTourCard(t, idx, searchParams) {
     // Ensure searchParams is passed correctly
     const searchData = searchParams || this?.searchParams || {};
     
-    // Build tour detail URL
-    const tourUrl = buildTourUrl(t, searchData);
+    // Build tour detail URL (opaque supplier token, not the raw name)
+    const tourUrl = buildTourUrl(t, searchData, this?.supplierTokens);
 
     // Star rating display - SVG stars
     const starSVG = (filled) => `

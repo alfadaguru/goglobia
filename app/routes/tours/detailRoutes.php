@@ -21,7 +21,13 @@ $router->get('/tour/(.*)', function ($params) use ($SECURE,$db) {
     // Extract URL parameters
     $tourName = str_replace('-', ' ', $urlParts[0]);
     $tourId = $urlParts[1];
+    // Segment 2 is an OPAQUE supplier token (supplier-identity hiding); decode
+    // server-side, backward-compatible with a legacy raw supplier slug.
     $supplier = $urlParts[2];
+    if (function_exists('supplier_from_url_token')) {
+        $decoded = supplier_from_url_token($urlParts[2]);
+        if ($decoded !== '') { $supplier = $decoded; }
+    }
     $departureDate = $urlParts[3];
     $duration = $urlParts[4];
     $travelersStr = $urlParts[5]; // Format: "2-2" or "2"
