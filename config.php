@@ -443,6 +443,11 @@ try {
     if (function_exists('ensurePaystackDvaSchema')) {
         ensurePaystackDvaSchema($db);
     }
+    // Popular flight routes (homepage strip, admin-managed) — idempotent; seeds
+    // NG-hub starter routes once on a fresh table.
+    if (function_exists('ensureFlightsPopularRoutesSchema')) {
+        ensureFlightsPopularRoutesSchema($db);
+    }
     // Per-user promo redemption ledger (enforces per_user_limit) — idempotent.
     if (function_exists('ensurePromoUsageSchema')) {
         ensurePromoUsageSchema($db);

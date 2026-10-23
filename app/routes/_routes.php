@@ -248,6 +248,7 @@ require_once 'app/routes/admin/menusRoutes.php';
 require_once 'app/routes/admin/staysRoutes.php';
 require_once 'app/routes/admin/staysSettingsRoutes.php';
 require_once 'app/routes/admin/flightsRoutes.php';
+require_once 'app/routes/admin/flightsPopularRoutesRoutes.php';
 require_once 'app/routes/admin/airlinesRoutes.php';
 require_once 'app/routes/admin/airportsRoutes.php';
 require_once 'app/routes/admin/locationsRoutes.php';

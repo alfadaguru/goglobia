@@ -5283,6 +5283,29 @@ INSERT INTO `flights` (`id`, `user_id`, `status`, `featured`, `flight_type`, `fl
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `flights_popular_routes`
+-- Admin-managed homepage "Popular flight routes" strip (see
+-- ensureFlightsPopularRoutesSchema in app/lib/functions.php).
+--
+
+CREATE TABLE IF NOT EXISTS `flights_popular_routes` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `from_code` varchar(8) NOT NULL,
+  `to_code` varchar(8) NOT NULL,
+  `from_label` varchar(120) DEFAULT NULL,
+  `to_label` varchar(120) DEFAULT NULL,
+  `scope` enum('local','international') NOT NULL DEFAULT 'international',
+  `image` varchar(255) DEFAULT NULL,
+  `sort_order` int(11) NOT NULL DEFAULT 0,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_route` (`from_code`,`to_code`),
+  KEY `idx_scope_status` (`scope`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
 -- Table structure for table `flights_airlines`
 --
 
