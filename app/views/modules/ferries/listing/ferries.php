@@ -272,10 +272,7 @@ if (file_exists($routesCacheFile)) {
                                 <?= T::suppliers ?? 'suppliers' ?>...</span>
                             <span x-show="sailings.length > 0 && completedSuppliers < totalSuppliers">
                                 <?= T::showing ?? 'Showing' ?> <span x-text="filteredSailings.length"></span> sailings •
-                                <?= T::loading_from ?? 'Loading from' ?> <span
-                                    x-text="totalSuppliers - completedSuppliers"></span>
-                                <?= T::more_supplier ?? 'more supplier' ?><span
-                                    x-show="(totalSuppliers - completedSuppliers) > 1">s</span>...
+                                <?= T::loading_more_results ?? 'loading more results' ?>...
                             </span>
                         </span>
                         <span x-show="searchComplete" class="text-green-600">
@@ -315,7 +312,7 @@ if (file_exists($routesCacheFile)) {
                         <strong
                             x-show="!loading && activeRawSailings.length === 0 && searched"><?= T::no_results ?? 'No sailings found.' ?></strong>
                         <p class="text-xs text-gray-400 mt-0.5"
-                            x-text="loading ? '<?= T::searching_multiple_suppliers ?? 'Searching multiple suppliers' ?>...' : (availableSuppliers.length ? '<?= T::found_from ?? 'From' ?> ' + availableSuppliers.length + ' supplier(s)' : '')">
+                            x-text="loading ? '<?= T::searching_live_prices ?? 'Searching live prices' ?>...' : ''">
                         </p>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto">
@@ -737,7 +734,7 @@ if (file_exists($routesCacheFile)) {
                                 // Do NOT overwrite currency — always use session currency
                             }
                         })
-                        .catch(e => console.warn('Supplier error [' + supplier + ']:', e))
+                        .catch(e => console.warn('A search source failed:', e))
                         .finally(() => {
                             this.completedSuppliers++;
                             this.progress = Math.round((this.completedSuppliers / this.totalSuppliers) * 100);
@@ -902,7 +899,8 @@ if (file_exists($routesCacheFile)) {
                 const accs = s.accommodations || [];
                 const company = s.shipping_company || {};
                 const svc = this._getMergedServices(s);
-                const sup = s._supplier || '';
+                // Supplier badge is ADMIN-ONLY — customers see only Goglobia as provider.
+                const sup = (<?= (($_SESSION['user_role'] ?? '') === 'admin') ? 'true' : 'false' ?>) ? (s._supplier || '') : '';
                 const bookable = this._sailingBookable(s);
 
                 const initialPrice = accs.length ? this.convertPrice(this.accPrice(accs[0])) : 0;
@@ -1098,7 +1096,8 @@ if (file_exists($routesCacheFile)) {
                 const company = s.shipping_company || {};
                 const outboundCompany = outbound.shipping_company || {};
                 const bookable = this._sailingBookable(s) && this._sailingBookable(outbound);
-                const sup = s._supplier || outbound._supplier || '';
+                // Supplier badge is ADMIN-ONLY — customers see only Goglobia.
+                const sup = (<?= (($_SESSION['user_role'] ?? '') === 'admin') ? 'true' : 'false' ?>) ? (s._supplier || outbound._supplier || '') : '';
 
                 const outboundPriceDisplay = outboundAccs.length ? this.convertPrice(this.accPrice(outboundAccs[0])) : 0;
                 const returnPriceDisplay = returnAccs.length ? this.convertPrice(this.accPrice(returnAccs[0])) : 0;

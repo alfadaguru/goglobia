@@ -622,9 +622,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                 :class="prebookError ? 'border-red-200 bg-red-50 dark:border-red-700 dark:bg-red-900/20' : 'border-blue-200 bg-blue-50 dark:border-blue-700 dark:bg-blue-900/20'">
                                 <p class="text-sm font-semibold"
                                     :class="prebookError ? 'text-red-700 dark:text-red-300' : 'text-blue-700 dark:text-blue-300'"
-                                    x-text="prebookError || (supplier === 'wanderbeds'
-                                        ? 'Verifying Wanderbeds availability, cancellation policy and hotel conditions…'
-                                        : 'Verifying final TBO price, cancellation policy and hotel charges…')"></p>
+                                    x-text="prebookError || 'Verifying final price, availability and cancellation policy…'"></p>
                             </div>
 
                             <!-- Hotel / Room Conditions (TBO rate_conditions + Wanderbeds Avail remarks) -->
@@ -669,7 +667,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                         <input type="checkbox" name="tbo_terms_accepted"
                                             x-model="formData.tbo_terms_accepted" class="mt-1" required>
                                         <span class="text-xs text-amber-900 dark:text-amber-200">
-                                            I acknowledge the final TBO cancellation policy, rate conditions, and mandatory hotel-payable supplements shown in the booking summary.
+                                            I acknowledge the final cancellation policy, rate conditions, and mandatory hotel-payable supplements shown in the booking summary.
                                         </span>
                                     </label>
                                 </div>

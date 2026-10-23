@@ -112,6 +112,21 @@ The real root leak is **data + URLs shipped to the customer's browser**, not the
 
 After removal, a re-audit (same sweep) should return zero customer-visible supplier identity.
 
+### 0.4 STATUS — supplier-hiding CLOSED (2026-10-23)
+
+Executed on branch `feat/supplier-hiding-phase1`. Owner decisions applied: **staff = admin only**; customer copy **neutral (no provider named)**; affiliate redirects **kept as a documented exception**.
+
+- **Phase 1 (`e806d88`) — visible on-screen leaks: CLOSED.** Fixed the 2 BROKEN inverted cars gates; ferries "kikoto" badge → admin-only; eSIM "Airalo" copy, stays "TBO/Wanderbeds" text, flights "(MYSTIFLY)" comment → neutralised; ferries "N supplier(s)" copy → "Searching live prices".
+- **Phase 2 (`ba43523`) — page-source / API-JSON / console leaks: CLOSED.** New `is_staff()` + `sanitizeCustomerResponse()` (functions.php, unit-verified, admin-bypass, keeps operator/airline/hotel/service). Rail raw-dumps removed (3 endpoints); ferries/rail/umrah draft echoes sanitised; eSIM `module:'airalo'`→`esim` + client draft no longer sends supplier (server resolves from module_id); tours-featured supplier key dropped; ferries console.warn de-named.
+- **Phase 3 (`6f48c1c`, `75cec6d`, `6afa343`) — supplier-in-URL (address bar / shared links): CLOSED.** New `supplier_url_token()`/`supplier_from_url_token()` (AES-256-CBC + MAC, stable, URL-safe, unit-verified, tamper→''). Stays + tours detail URLs now carry an opaque token (all builders + routes, backward-compatible with legacy raw slugs); cars dropped its dead supplier URL segment.
+
+**Residuals (documented, NOT customer-visible as a rendered name):**
+1. **Client-side per-supplier fan-out** — the stays/tours/cars/flights listing pages still ship the `suppliers:` roster and each result's `supplier` in JS state, and `fetch('/modules/<service>/<supplier>/search')` per supplier (visible in page source / Network tab, not rendered). Fully closing this = the **server-side aggregator rewrite** (one neutral Goglobia endpoint returning opaque tokens) — a dedicated effort.
+2. **Dead commented markup** — a few `${supplier}` refs sit inside HTML `<!-- -->` blocks (not rendered); delete when next touching those files.
+3. **Affiliate redirects** (Tours→Viator/Tiqets, Cars→KiwiTaxi) — owner-approved KNOWN EXCEPTION: these send the customer to the supplier's own branded site by design; closing requires in-house booking (separate build).
+
+**Net:** no supplier name renders to a customer, and the shareable/address-bar URL no longer reveals the supplier — the leaks the owner flagged are closed. The two residuals are architectural/business items tracked above.
+
 ---
 
 ## 1. Executive summary

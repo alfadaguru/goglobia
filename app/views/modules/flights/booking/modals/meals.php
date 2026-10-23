@@ -1,4 +1,4 @@
-<!-- MEAL SELECTION MODAL (MYSTIFLY) -->
+<!-- MEAL SELECTION MODAL -->
 <div class="fixed inset-0 z-[200] overflow-y-auto" x-show="ancillaries.showMealModal" x-data="{
         localMeals: {},
         sync() {

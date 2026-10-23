@@ -145,7 +145,9 @@ $router->post('/api/rail/search', function () use ($db) {
             'billable_passengers' => $billablePassengers,
             'trains'              => $data['data']['data'] ?? [],
             'seat_classes'        => _train_seat_classes_for_api(),
-            'supplier'            => $data,
+            // (removed) 'supplier' => $data — dumped the entire raw upstream
+            // supplier response to the customer. Supplier identity is never
+            // exposed; the client never needed this blob.
         ]);
     } catch (Throwable $e) {
         _train_respond(false, $e->getMessage(), null, 500);

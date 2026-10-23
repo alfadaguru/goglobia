@@ -675,7 +675,8 @@ if ($stayAmenityCurrency === '') {
                 }).join('/');
 
                 const chain = '<?= $hotelChain ?: "_" ?>';
-                const url = `<?= root ?>stay/<?= strtolower(str_replace(' ', '-', preg_replace('/[^a-zA-Z0-9\\s-]/', '', $hotelName))) ?>/<?= $hotelId ?>/<?= $supplier ?>/${chain}/${checkin}/${checkout}/${this.nationality}/${this.roomsData.length}/${roomConfigs}`;
+                // Opaque supplier token in the URL (never the raw supplier name).
+                const url = `<?= root ?>stay/<?= strtolower(str_replace(' ', '-', preg_replace('/[^a-zA-Z0-9\\s-]/', '', $hotelName))) ?>/<?= $hotelId ?>/<?= function_exists('supplier_url_token') ? supplier_url_token($supplier) : $supplier ?>/${chain}/${checkin}/${checkout}/${this.nationality}/${this.roomsData.length}/${roomConfigs}`;
                 location.href = url;
             }
         }

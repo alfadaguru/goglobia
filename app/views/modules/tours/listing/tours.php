@@ -236,8 +236,12 @@
                 $moduleNames[] = $module['name'];
             }
             $moduleNames = array_unique($moduleNames);
+            // Opaque supplier->token map for tour-detail URLs (never the raw name).
+            $tourSupTokens = [];
+            foreach ($moduleNames as $mn) { $k = strtolower($mn); $tourSupTokens[$k] = function_exists('supplier_url_token') ? supplier_url_token($k) : $k; }
             ?>
             suppliers: <?php echo json_encode(array_values($moduleNames)); ?>,
+            supplierTokens: <?php echo json_encode($tourSupTokens); ?>,
             <?php
             $allInclusionsFromDB = $db->select('tours_settings', ['setting_label'], ['setting_type' => 'inclusion', 'status' => 1]);
             $allExclusionsFromDB = $db->select('tours_settings', ['setting_label'], ['setting_type' => 'exclusion', 'status' => 1]);

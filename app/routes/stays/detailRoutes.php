@@ -27,7 +27,14 @@ $router->get('/stay/(.*)', function ($params) use ($SECURE,$db) {
     // Extract URL parameters with chain
     $hotelName = str_replace('-', ' ', $urlParts[0]);
     $hotelId = $urlParts[1];
+    // Segment 2 is an OPAQUE supplier token (supplier-identity hiding): decode it
+    // back to the real supplier server-side. Backward-compatible — a legacy raw
+    // supplier slug (old links) still works when the token doesn't decode.
     $supplier = strtolower($urlParts[2]);
+    if (function_exists('supplier_from_url_token')) {
+        $decoded = supplier_from_url_token($urlParts[2]);
+        if ($decoded !== '') { $supplier = $decoded; }
+    }
     $hotelChain = $urlParts[3]; //Extract chain (will be '_' for non-Travelport)
     $checkin = $urlParts[4];
     $checkout = $urlParts[5];

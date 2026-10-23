@@ -939,7 +939,9 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                                 <div class="min-w-0">
                                                     <span
                                                         class="font-bold text-gray-900 text-sm block truncate"><?= $carName ?></span>
-                                                    <?php if (!$isMozio || ($_SESSION['user_role'] ?? '') === 'admin'): ?>
+                                                    <?php if (($_SESSION['user_role'] ?? '') === 'admin'): ?>
+                                                    <!-- Supplier name is ADMIN-ONLY (customers see only Goglobia).
+                                                         Was `!$isMozio || admin`, which showed every non-mozio supplier. -->
                                                     <span
                                                         class="text-[10px] text-gray-500 uppercase"><?= $supplierName ?></span>
                                                     <?php endif; ?>

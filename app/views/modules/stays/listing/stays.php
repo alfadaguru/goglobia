@@ -288,11 +288,19 @@
             }
             // Remove duplicates if any
             $moduleNames = array_unique($moduleNames);
+            // Opaque supplier->token map so hotel-detail URLs carry a token, not the
+            // raw supplier name (supplier-identity hiding). The client builds the
+            // detail URL from this map; the /stay route decodes it server-side.
+            $supplierTokenMap = [];
+            foreach ($moduleNames as $mn) {
+                $supplierTokenMap[$mn] = function_exists('supplier_url_token') ? supplier_url_token($mn) : $mn;
+            }
             ?>
             // ========================================
             // CONFIGURATION - Suppliers and filter options
             // ========================================
             suppliers: <?php echo json_encode(array_values($moduleNames)); ?>,
+            supplierTokens: <?php echo json_encode($supplierTokenMap); ?>,
             <?php
             $accommodationTypes = $db->select('stays_settings', ['name'], ['setting_type' => 'accommodation', 'status' => 1]);
             $accommodationTypeNames = array_column($accommodationTypes, 'name');

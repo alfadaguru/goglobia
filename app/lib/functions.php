@@ -216,6 +216,111 @@ function ADMIN_AUTH()
     }
 }
 
+// ---------------------------------------------------------------------------
+// SUPPLIER-IDENTITY HIDING (booking-ux-flow-gap.md §0 mandate)
+// Customers must only ever see "Goglobia" as the provider — never the back-office
+// supplier/aggregator (duffel, hotelbeds, kikoto, airalo, …). "Staff" = admin ONLY
+// (agents/suppliers/customers/guests are all blocked).
+// ---------------------------------------------------------------------------
+if (!function_exists('is_staff')) {
+    /** True only for a logged-in admin — the single role allowed to see suppliers. */
+    function is_staff(): bool
+    {
+        return isset($_SESSION['user_id']) && ($_SESSION['user_role'] ?? '') === 'admin';
+    }
+}
+
+if (!function_exists('sanitizeCustomerResponse')) {
+    /**
+     * Recursively strip supplier/aggregator identity from any data about to be
+     * sent to a CUSTOMER browser (JSON responses, draft echoes, JS state). Removes
+     * the keys that carry our back-office provider identity. No-op for admins (so
+     * staff tooling still sees the real supplier). The END-travel brand (airline,
+     * hotel name, car-rental vendor, bus/ferry operator) is NOT one of these keys
+     * and is preserved.
+     *
+     * @param mixed $data array|object|scalar — returned with the keys removed.
+     * @param bool  $force strip even for admins (use when the data is definitely
+     *                     customer-bound regardless of who is logged in).
+     */
+    function sanitizeCustomerResponse($data, bool $force = false)
+    {
+        if (!$force && is_staff()) return $data; // staff keep full visibility
+        // Keys that carry OUR supplier/aggregator identity ONLY — deliberately NOT
+        // 'operator' (bus/ferry carrier = who the customer rides = legitimate),
+        // nor airline/hotel/vendor fields. '_raw' is a supplier's raw upstream blob.
+        static $strip = ['supplier', 'supplier_code', 'supplier_name', 'supplier_id',
+                         'supplier_slug', 'provider', 'aggregator', '_supplier', '_raw'];
+        if (is_array($data)) {
+            $out = [];
+            foreach ($data as $k => $v) {
+                if (is_string($k) && in_array(strtolower($k), $strip, true)) continue;
+                $out[$k] = sanitizeCustomerResponse($v, true); // already decided; recurse with force
+            }
+            return $out;
+        }
+        if (is_object($data)) {
+            foreach (get_object_vars($data) as $k => $v) {
+                if (in_array(strtolower((string) $k), $strip, true)) { unset($data->$k); continue; }
+                $data->$k = sanitizeCustomerResponse($v, true);
+            }
+            return $data;
+        }
+        return $data;
+    }
+}
+
+if (!function_exists('supplier_url_token')) {
+    /** Per-install key for the opaque supplier URL token (never transmitted). */
+    function _supplier_token_key(): string
+    {
+        $seed = (getenv('REMEMBER_ME_SECRET') ?: '') . '|' . (defined('root') ? root : __DIR__) . '|supplier-url';
+        return hash('sha256', $seed, true); // 32 raw bytes
+    }
+
+    /**
+     * Encode a supplier/aggregator name into a short OPAQUE, reversible, URL-safe
+     * token so it can sit in a customer-facing URL without revealing the supplier.
+     * AES-256-CBC (encrypt-then-MAC); falls back to a keyed, MAC'd base64 if OpenSSL
+     * is absent. supplier_from_url_token() reverses it; a tampered/foreign token
+     * decodes to '' (caller treats as unknown supplier).
+     */
+    function supplier_url_token(string $supplier): string
+    {
+        $supplier = strtolower(trim($supplier));
+        if ($supplier === '') return '';
+        $k = _supplier_token_key();
+        if (function_exists('openssl_encrypt')) {
+            $iv = substr(hash('sha256', 's|' . $supplier, true), 0, 16); // deterministic IV → stable token per supplier
+            $ct = openssl_encrypt($supplier, 'AES-256-CBC', $k, OPENSSL_RAW_DATA, $iv);
+            $mac = substr(hash_hmac('sha256', $iv . $ct, $k, true), 0, 10);
+            return rtrim(strtr(base64_encode($iv . $ct . $mac), '+/', '-_'), '=');
+        }
+        $mac = substr(hash_hmac('sha256', $supplier, $k, true), 0, 10);
+        return 'h' . rtrim(strtr(base64_encode($supplier . '|' . $mac), '+/', '-_'), '=');
+    }
+
+    /** Reverse supplier_url_token(). Returns '' for an invalid/tampered token. */
+    function supplier_from_url_token(string $token): string
+    {
+        $token = trim($token);
+        if ($token === '') return '';
+        $k = _supplier_token_key();
+        if ($token[0] === 'h') { // hmac-fallback form
+            $raw = base64_decode(strtr(substr($token, 1), '-_', '+/'), true);
+            if ($raw === false || strpos($raw, '|') === false) return '';
+            [$sup, $mac] = [substr($raw, 0, strrpos($raw, '|')), substr($raw, strrpos($raw, '|') + 1)];
+            return hash_equals(substr(hash_hmac('sha256', $sup, $k, true), 0, 10), $mac) ? $sup : '';
+        }
+        $raw = base64_decode(strtr($token, '-_', '+/'), true);
+        if ($raw === false || strlen($raw) < 32) return '';
+        $iv = substr($raw, 0, 16); $mac = substr($raw, -10); $ct = substr($raw, 16, -10);
+        if (!hash_equals(substr(hash_hmac('sha256', $iv . $ct, $k, true), 0, 10), $mac)) return '';
+        $sup = openssl_decrypt($ct, 'AES-256-CBC', $k, OPENSSL_RAW_DATA, $iv);
+        return is_string($sup) ? strtolower(trim($sup)) : '';
+    }
+}
+
 // SUPPLIER AUTH CHECK — gate for the self-registered supplier area.
 // Mirrors ADMIN_AUTH(): a logged-in user whose role is exactly 'supplier'. Any
 // other visitor (guest, customer, agent, admin) is bounced to login. Because
