@@ -184,6 +184,55 @@ try {
                                 </button>
                             </template>
                         </div>
+
+                        <!-- BEST RATES BY STAR × BOARD MATRIX (cheapest total per cell).
+                             x-show anchors on hotels.length (reactive) so it re-evaluates
+                             when results arrive; click a star row to filter. -->
+                        <div id="stResultsTop" x-show="!loading && hotels.length >= 2 && stayMatrix().hasMatrix"
+                            x-cloak class="mb-4 card bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden">
+                            <button type="button" @click="smOpen = !smOpen"
+                                class="w-full flex items-center justify-between gap-2 px-4 py-3 text-left">
+                                <span class="inline-flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                    <span class="material-symbols-outlined text-blue-600" style="font-size: 20px;">grid_view</span>
+                                    Best rates by star &amp; board
+                                </span>
+                                <span class="material-symbols-outlined text-gray-400 transition-transform" :class="smOpen ? 'rotate-180' : ''" style="font-size: 20px;">expand_more</span>
+                            </button>
+                            <div x-show="smOpen" x-collapse class="overflow-x-auto border-t border-gray-100 dark:border-gray-700">
+                                <table class="w-full text-sm min-w-[520px]">
+                                    <thead>
+                                        <tr class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                            <th class="text-left font-medium px-4 py-2">Star rating</th>
+                                            <template x-for="bd in stayMatrix().boards" :key="bd.key">
+                                                <th class="text-center font-medium px-3 py-2" x-text="bd.label"></th>
+                                            </template>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-50 dark:divide-gray-700/50">
+                                        <template x-for="row in stayMatrix().stars" :key="row.star">
+                                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer"
+                                                @click="pickStayCell(row.star)"
+                                                :class="stayCellActive(row.star) ? 'bg-blue-50 dark:bg-blue-900/20' : ''">
+                                                <td class="px-4 py-2.5">
+                                                    <span class="inline-flex items-center gap-0.5 text-amber-500">
+                                                        <template x-for="i in row.star" :key="i">
+                                                            <span class="material-symbols-outlined" style="font-size: 16px;">star</span>
+                                                        </template>
+                                                    </span>
+                                                </td>
+                                                <template x-for="bd in stayMatrix().boards" :key="bd.key">
+                                                    <td class="px-3 py-2.5 text-center">
+                                                        <span x-show="row.cells[bd.key] !== undefined" class="font-semibold tabular-nums text-blue-700 dark:text-blue-300" x-text="matrixPriceLabel(row.cells[bd.key])"></span>
+                                                        <span x-show="row.cells[bd.key] === undefined" class="text-gray-300 dark:text-gray-600">—</span>
+                                                    </td>
+                                                </template>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
                         <!-- Loading Skeletons -->
                         <div x-show="loading"
                              x-transition:leave="transition ease-in duration-500"
@@ -352,6 +401,7 @@ try {
             searchComplete: false,   // All suppliers finished flag
             showProgressBar: true,   // Display progress bar
             showMobileFilters: false, // Mobile filter sidebar visibility
+            smOpen: true,            // star×board rate matrix expanded by default
 
             // ========================================
             // PAGINATION STATE - Infinite scroll management
@@ -1251,6 +1301,73 @@ try {
 
                 this.sortAndFilterResults();
             },
+
+            // --- BEST RATES BY STAR × BOARD MATRIX --------------------------------
+            // Hotels have no "airline × stops" axis; the honest analogue is a grid of
+            // star tier (rows) × board/meal plan (columns), each cell the cheapest
+            // total price for that combination across the full result pool. No
+            // supplier dimension (customers only ever see Goglobia). Built from
+            // this.hotels + each hotel's room_options[].options[].
+            _boardBucket(name) {
+                const s = (name || '').toString().toLowerCase();
+                if (!s || /room only|room-only|self cater/.test(s)) return 'room_only';
+                if (/all[- ]?inclusive|all in/.test(s)) return 'all';
+                if (/full board|full-board|fb\b/.test(s)) return 'full';
+                if (/half board|half-board|hb\b/.test(s)) return 'half';
+                if (/breakfast|b&b|bed and breakfast|bb\b/.test(s)) return 'breakfast';
+                return 'room_only';
+            },
+            stayMatrix() {
+                const pool = (this.hotels || []).filter(h => h && (h.stars > 0));
+                if (pool.length < 2) return { stars: [], boards: [], hasMatrix: false };
+                // bucket order + labels for the columns we actually find
+                const order = ['room_only', 'breakfast', 'half', 'full', 'all'];
+                const labels = { room_only: 'Room only', breakfast: 'Breakfast', half: 'Half board', full: 'Full board', all: 'All-inclusive' };
+                const seenBoards = {};
+                const byStar = {};
+                for (const h of pool) {
+                    const star = parseInt(h.stars) || 0;
+                    if (star < 1) continue;
+                    if (!byStar[star]) byStar[star] = { star, cells: {}, min: Infinity };
+                    const row = byStar[star];
+                    const opts = [];
+                    for (const grp of (h.room_options || [])) {
+                        for (const o of (grp.options || [])) opts.push(o);
+                    }
+                    // if a hotel has no per-rate board breakdown, fall back to its headline price as "room only"
+                    if (opts.length === 0 && h.price > 0) opts.push({ board_name: '', total_price: h.price });
+                    for (const o of opts) {
+                        const price = parseFloat(o.total_price || o.price || 0);
+                        if (!(price > 0)) continue;
+                        const bucket = this._boardBucket(o.board_name || o.board);
+                        seenBoards[bucket] = true;
+                        if (row.cells[bucket] === undefined || price < row.cells[bucket]) row.cells[bucket] = price;
+                        if (price < row.min) row.min = price;
+                    }
+                }
+                const boards = order.filter(b => seenBoards[b]).map(b => ({ key: b, label: labels[b] }));
+                const stars = Object.values(byStar).filter(r => r.min < Infinity).sort((a, b) => b.star - a.star);
+                return { stars, boards, hasMatrix: stars.length >= 2 && boards.length >= 1 };
+            },
+            matrixCurrency() {
+                const h = (this.hotels || []).find(x => x && x.currency);
+                return h ? h.currency : (this.searchParams.currency || '');
+            },
+            matrixPriceLabel(v) {
+                if (v === null || v === undefined) return '—';
+                return this.matrixCurrency() + ' ' + Math.round(v).toLocaleString();
+            },
+            pickStayCell(star) {
+                this.filters.starRatings = [parseInt(star)];
+                this.sortAndFilterResults();
+                this.$nextTick(() => {
+                    document.getElementById('stResultsTop')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+            },
+            stayCellActive(star) {
+                return (this.filters.starRatings || []).map(s => parseInt(s)).includes(parseInt(star));
+            },
+
             getResultsCount() {
                 // Name search / active UI filters: show what is actually listed
                 if (this.filters.nameSearch) {
