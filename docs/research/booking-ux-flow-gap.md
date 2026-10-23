@@ -3,9 +3,71 @@
 **Date:** 2026-10-23
 **Lens:** The **customer search → book experience** — UI/UX and how *seamless/easy/fast* the journey is. **Not** payment methods (covered separately in `booking-flow-competitor-gap.md`).
 **Dimensions judged:** (1) step count & friction, (2) speed & responsiveness, (3) clarity & guidance, (4) visual-design polish.
+**Also includes:** §0 a mandate + full audit on **hiding our suppliers from customers** (owner directive), and §5b a deep dive on competitor **looks, filters, and results display**.
 **Method:** Each competitor funnel was **driven live in a real headless browser** (Playwright/Chromium, desktop 1366×1000 + mobile 390×844), clicking search → results → detail → toward checkout, stopping before payment, with screenshots at every step. This is first-hand interaction data, not help-page inference. Our own funnel was to be driven locally but is **blocked by a committed boot bug** (see §6) — our flow is described from source + the earlier baseline map.
 
 > Screenshots for every step live in the session scratchpad (filenames cited inline). They are the evidence behind each judgment.
+
+---
+
+## 0. ⚠️ MANDATE — customers must NEVER see our suppliers (hide across ALL services)
+
+**Owner directive (2026-10-23):** a customer must only ever see **Goglobia** as the service provider. The underlying third-party supplier (duffel, hotelbeds, ratehawk, mystifly, tbo-holidays, wanderbeds, kikoto, viator, tiqets, kiwitaxi, airalo, …) must **never** be exposed to the customer — not on a card, not in the address bar, not in page source, not in an API response, not in the browser console, not in an email/PDF, and never by redirecting the customer to the supplier's own site.
+
+This is a **remove-everywhere task across all services**, documented here from a read-only audit (file:line). **Nothing has been removed yet** — this is the plan; execution awaits go-ahead.
+
+### 0.1 The root cause (why this keeps happening)
+
+Three themes, found consistently across the audit:
+
+1. **No central brand-sanitizer exists.** There is no `sanitizeCustomerResponse()` / `brandProvider()` / `hideSupplier()` helper — every route and view must remember to strip the supplier itself, and many don't. The durable fix is **one central sanitizer** (server-side) that unsets `supplier`/`module`/`provider` from any customer-bound JSON, plus a single JS brand constant, and then routing every sink through them.
+2. **Client-side supplier fan-out.** For tours (and cars/stays search), the *browser* calls `modules/<service>/<supplier>/search` directly, which structurally forces the supplier slug into client JS, the URL, and the Network tab. Fully closing those requires moving the fan-out **server-side behind one neutral Goglobia aggregator endpoint** that returns an **opaque per-result token** the gateway maps back to a supplier server-side.
+3. **Inconsistent partial hiding.** Some places hide *one* supplier (e.g. cars hides only `mozio`; stays hides the badge for admins but leaks the slug in the URL for everyone). The rule must be uniform: hide **all** suppliers from **all** non-admin users.
+
+### 0.2 Consolidated leak inventory (all services)
+
+Severity: **High** = customer sees a supplier name/brand on-screen or is redirected to the supplier's site · **Med** = in page-source / API-JSON / data-attr / console (not visually rendered but retrievable) · **Low** = dead/commented markup or benign self-name.
+
+Admin-gated supplier filters/debug panels/badges were verified as **NOT leaks** (gates confirmed) and are excluded below.
+
+| Service | File:line | What leaks / customer sees | Sev | Fix |
+|---|---|---|---|---|
+| **Tours** | `details/tour.php:814-816` (src `viator/details.php:591`, `tiqets/details.php:671`) | **Book opens viator.com / tiqets.com** (full supplier brand + checkout) | **High** | Keep booking internal; drop `redirect_url`/`*_product_url` from detail response |
+| **Tours** | `listing/tours.php:232-240,503`; `tours-search.php:245`; `tour.php:19,685,695,761,844`; `booking/index.php:47,694,811,818,829` | Supplier slug in URL path, view-source, POST body, `bookingData` JSON | Med | Opaque token; resolve server-side; `unset` supplier before encode |
+| **Tours** | `tours.php:356,471`; `booking/index.php:823` | Supplier slug in browser **console.log** | Med | Remove logs |
+| **Cars** | `listing/items.php:148-153` | Badge "cartrawler / discover cars / kiwitaxi" on **every card** (only mozio was hidden) | **High** | Remove badge / hide ALL / show "Goglobia" |
+| **Cars** | `booking/index.php:942-944` | Supplier slug under car name on **checkout** (only mozio hidden) | **High** | Remove for customers / "Goglobia" |
+| **Cars** | `listing/items.php:302-308` | KiwiTaxi "Book" **opens kiwitaxi.com** (affiliate) | **High\*** | Product decision — intentional affiliate redirect |
+| **Cars** | `booking/index.php:1187`; `items.php:78`; `cars.php:633-634`; `invoice/index.php:91,118,129,379` + `mozio-*` IDs | `carData` JSON (supplier/_raw) in source; supplier in detail URL; search JSON; mozio in invoice route/IDs/Stripe redirect | Med | Strip supplier/_raw; drop URL segment; neutralize route/ID names; proxy external URL |
+| **eSIM** | `esim-search.php:97`; `booking/index.php:197,205-206` | **"Airalo"** in error toast + "Airalo Order Details" heading + body copy | **High** | → "eSIM"/"Order Details"/generic |
+| **eSIM** | `booking/index.php:658`; `airalo/search.php:21,89,95,116` | `supplier:'airalo'`, `slug`, `operator`, `module:'airalo'`, "Airalo … not enabled" in client JS / search JSON | Med | Drop from customer response; server attaches by module_id |
+| **Stays** | `listing/stays-items.php:57`; `stays-search.php:327,329,330`; `details/stay.php:678`; route `detailRoutes.php:30` | **Supplier slug in the hotel-detail URL** (`/stay/{name}/{id}/{supplier}/…`) → **address bar, history, shared links**; + console.log of the URL | **High** | Replace URL segment with opaque token; resolve supplier server-side from hotel_id; remove console.log |
+| **Stays** | `booking/index.php:626-627,672` | Visible text **"Verifying Wanderbeds…"** / **"final TBO cancellation policy…"** on checkout | Med-High | Replace brand with "Goglobia"/generic wording |
+| **Stays** | `booking/index.php:1130`; `details/rooms.php:644,693,730,1542` | `supplier:'<brand>'` in Alpine state + `modules/stays/<supplier>/rooms` endpoint path in source/network | Med | Neutralize client value; keep routing server-side |
+| **Stays** | `hotelbeds/search.php:547,1533`; `tbo-holidays/search.php:298` (+ other suppliers) | `'supplier'=>'<brand>'` in search JSON (feeds the URL leak) | Med | Replace brand with opaque routing token |
+| **Flights** | `booking/index.php:1566` | `supplierName:'<brand>'` in page-source Alpine state (duffel/mystifly/travelport) | Med | Neutralize client value |
+| **Flights** | `booking/modals/meals.php:1` | HTML comment **"(MYSTIFLY)"** ships in page source | Med | Remove "(MYSTIFLY)" |
+| **Flights** | `listing/flights.php:1116,1119` | `console.table` logs supplier (gated by `?price_audit=1` — any visitor can add it) | Med | Drop supplier field / admin-gate server-side |
+| **Flights** | `duffel/search.php:350`; `mystifly/search.php:318,332` (+ others) | `'supplier'=>'<brand>'` in search JSON | Med | Replace brand with opaque routing token |
+| **Ferries** | `listing/ferries.php:915,1122` | **"kikoto" badge on every sailing card** (one-way + round-trip renderers; NOT admin-gated) | **High** | Delete the `sup` badge from both renderers |
+| **Ferries** | `api/ferries/bookingRoutes.php:102,156`; `listing/ferries.php:740` | Draft echoes `"supplier":"kikoto"` on booking-page load; `console.warn` prints kikoto on error | Med | `unset` supplier before echo; drop from log |
+| **Rail** | `api/rail/searchRoutes.php:148`; `invoiceRoutes.php:103,278` | **Entire raw upstream supplier API response dumped** into customer search / order-status / reschedule JSON (`'supplier'=>$data`) — worst API leak | Med-High | Remove the key (`=> null`) |
+| **Rail** | `api/rail/bookingRoutes.php:68`→`33-38` | Draft returns `"supplier":"train"` | Med | unset after decode |
+| **Umrah** | `api/umrah/bookingRoutes.php:109,238`; `listing/umrah.php:356,471`; `booking/index.php:47,1593`; `details/umrah.php:1283,1310` | `supplier` in draft JSON / console / URL — value is the **benign literal "umrah"** | Low | Strip for consistency; low impact |
+| **Tours (API)** | `api/tours/featuredRoutes.php:135` | `'supplier'=>'tours'` in featured JSON | Med | Remove key |
+
+**Verified clean (no action):** Visa (own-managed, no supplier integration), Bus (operator/carrier name is legitimate — it's who the customer rides), all email + PDF voucher templates across every service, flights & stays invoices. Supplier filters/debug badges that ARE admin-gated (`flights-filters.php:314`, `flights.php:68`, `stays-filters.php:188,212`, `stays-items.php:179`, `ferries-filters.php:219`, cars `filter.php:156`) are correctly gated and excluded.
+
+> **Legitimate "provider-ish" names to KEEP:** the rental-counter **vendor** on cars (Hertz/Avis — who the customer physically collects from), the **airline** on flights, the **hotel** name on stays, and the **bus/ferry operator** — these are the actual travel-service brand the customer flies/stays/rides with, not our back-office aggregator, and are expected. The rule targets our *supplier/aggregator* identity (duffel, hotelbeds, kikoto, viator…), not the end carrier/property.
+
+### 0.3 Recommended removal plan (phased, when you give the go-ahead)
+
+1. **Phase 1 — kill the High on-screen leaks (fast, low-risk, mostly deletions):** ferries "kikoto" badge (`ferries.php:915,1122`); cars supplier badge + checkout label (hide ALL, not just mozio); eSIM "Airalo" visible copy; stays "TBO/Wanderbeds" checkout text. These are text/markup edits with no architectural change.
+2. **Phase 2 — strip supplier from customer-bound JSON/JS/console:** add a central `sanitizeCustomerResponse()` and route every `/api/*` and `/modules/*` customer response through it (fixes rail raw-dump, ferries/rail/umrah drafts, airalo/featured keys, flights/stays booking JS state, all console logs). One helper, many call sites.
+3. **Phase 3 — the address-bar leak (architectural):** replace the stays hotel-detail URL supplier segment (and tours/cars supplier-in-URL) with an **opaque token** resolved server-side; move client-side supplier fan-out behind a neutral Goglobia aggregator endpoint. Biggest effort; do last.
+4. **Phase 4 — product decisions:** the tours→Viator/Tiqets and cars→KiwiTaxi **affiliate redirects** hand the customer to the supplier's branded site by design. Hiding them means **bringing those bookings in-house** (or accepting the exposure) — a business call, not just code.
+
+After removal, a re-audit (same sweep) should return zero customer-visible supplier identity.
 
 ---
 
@@ -113,6 +175,77 @@ Focused on **seamlessness of the search→book experience**, ordered by impact �
 8. **Lean on our multi-supplier transparency + passport OCR + GIA assistant** as visible trust/seamlessness cues — these are things competitors don't have.
 
 **Explicitly avoid the dark patterns we observed** — pre-checked paid add-ons (Wakanow ₦8.5k, Travelstart +$3 WhatsApp), aggressive urgency banners (TravelWings "44 people looking"), and mid-funnel price-change interrupts (TravelWings hotels). They erode trust; our fare-timer + honest revalidation is the better model.
+
+> **Note vs §0:** our parallel multi-supplier *search* (the progress bar + progressive merge) is a legitimate **speed** cue to keep — but it must be framed to the customer as "searching live prices," **never** "searching N suppliers" or anything that names/counts providers. Transparency of *speed*, not of *suppliers*.
+
+---
+
+## 5b. Competitor LOOK, FILTERS & RESULTS DISPLAY — the design patterns to consider
+
+This section goes deeper on exactly what you asked: how the four competitors **look**, the **filters** they offer, and how they **display search results** — the concrete UI we should weigh. All backed by live-capture screenshots (filenames cited; in the session scratchpad).
+
+### 5b.1 Result-card anatomy — what goes on a card and where
+
+**Flights (the strong model = Travelstart card + Wakanow value triptych):**
+- **On-card quick-tab badges** — "✿ Cheapest" (green) / "▶▶ Fastest" / "✦ Recommended" (lavender) placed on the *matching* result, not just as sort controls — Travelstart (`ts_f9_results.png`).
+- **Airline logo + name + flight number** (`KQ533`) + cabin + **baggage icons** (`7kg | 2×23kg`) inline on the card — Travelstart, dnata, Wakanow all show baggage on the card; we show it only at checkout.
+- **Per-leg timeline:** bold departure time — line with a mid-node labeled "14h15m / 1 Stop · NBO" — bold arrival time + a red **"+1 Day"** flag; outbound and return stacked in one card — Travelstart/dnata.
+- **Best stop/route visualization = TravelWings** (`tw_fl_10_fare_detail.png`): a node per stop, each labeled with its **segment flight number + cabin** and layover airport — every leg readable inline.
+- **Price block (right), with tax clarity:** dnata shows **"Price per adult AED 5,624 (Total AED 11,248) · Includes all taxes and fees"** (`dn_fl_6_results.png`) — the clearest. Wakanow shows a **triptych per card** — Full Pay / PRIME (member) / Pay Small Small (instalment) (`F_7b_results_full.png`) — directly relevant to our PaySmallSmall feature.
+- **Color-anchored CTA** in a consistent corner (Wakanow orange "Book Now" top-right; dnata/Travelstart blue "Select/Book now" right).
+
+**Hotels (the strong model = dnata/Travelstart card):**
+- **Large photo / carousel** left (dnata has the biggest imagery, `dn_ht_7_results_scrolled.png`), **wishlist heart** overlay.
+- **Review-score as a colored square + word + count** — "8 Very Good (1,212)" / "4.6 Excellent (3,063)" with a fill bar — Travelstart & dnata. A **much stronger trust cue than bare stars** (which is all we and TravelWings show).
+- **Board/meal plan** on the card ("Room Only / All Inclusive") + **"Local charges payable at hotel"** (dnata) — sets expectations early.
+- **Price: per-night AND total**, with "`3 nights, 1 room, incl. taxes & fees`", strikethrough original + **discount pill** ("10% off") — Travelstart (`ts_h8b_results_full.png`).
+- **Anti-pattern (TravelWings `tw_ht_6b_results_priced.png`):** icon-only amenity strip with no labels, **no price-per-night, no review score** on the card — reads dated and low-trust. Don't copy.
+
+### 5b.2 Filter sets — the exact controls (richest → thinnest)
+
+**Flight filters:**
+- **dnata — richest:** Number of stops (checkbox) · **Outbound Departure Times = dual-handle range slider** · **Return Departure Times = second range slider** (direction-specific time *sliders*, unique) · Airline (checkbox) · **Total price = slider + numeric Min/Max inputs**; all collapsible accordions (`dn_fl_6_results.png`).
+- **TravelWings:** Stops (3 big toggle buttons) · Depart/Arrival toggle · **Timing = 2×2 time-band icon grid** · **Fare Type (Refundable / Non-Refundable)** · **Airlines with per-airline price** · Price (`tw_fl_8_results.png`).
+- **Travelstart:** Stops (toggle buttons) · **Airline checkboxes each showing that airline's cheapest price** · **Departure Times split by direction** (from-Lagos / from-Dubai), each a 2×2 time-band icon grid · Baggage — in a **drawer/overlay**, not an always-open rail (`ts_f10_filters.png`).
+- **Wakanow — thinnest:** Stops · Checked Bags · Price slider · Departure Time (Morning/Afternoon tiles) (`F_7b_results_full.png`).
+
+**Hotel filters:**
+- **dnata — richest:** **Board type (full meal-plan checklist:** Room Only / B&B / Half / Full / All-Inclusive / Self-Catering — only dnata) · Star rating · **Review rating** · **Resort/neighborhood checklist** · price slider · amenities · **"Total price | Per person" toggle** (`dn_ht_6_results.png`, `dn_ht_7_results_scrolled.png`).
+- **Travelstart:** Property name · **Price-per-night with a real HISTOGRAM** above the slider (only histogram of the four) · Popular (Free cancellation) · **distance-from-centre** · (star/review below) (`ts_h8b_results_full.png`).
+- **TravelWings:** hotel name · location · Price slider · **Distance slider** (unusual, useful) · star/amenities below (`tw_ht_6b_results_priced.png`).
+- **Wakanow — thinnest:** Hotel name · Star rating · Price-per-night slider · Popular (Free cancellation, Breakfast) (`H_7b_results_full.png`).
+
+Control-type takeaway: **checkboxes** for stops/airlines/board/stars; **sliders** for price and (dnata) departure-time ranges; **histogram** over the price slider (Travelstart) to show distribution; **a left always-open rail** (dnata/Wakanow/TravelWings) reads as more discoverable than Travelstart's filter **drawer**.
+
+### 5b.3 Sort & the standout comparison devices
+- **Sort chips, not dropdowns:** Wakanow renders **Cheapest / Fastest / Earliest** as one-tap chips (`F_7b_results_full.png`); TravelWings uses **Price / Duration / Departure / Arrival** button chips. Faster than a hidden dropdown (dnata/Travelstart bury sort in a "Sort by: Recommended" link).
+- **⭐ The single best feature of any site — Wakanow's per-airline price matrix:** a grid of **airlines × stop-count** with the cheapest fare in each cell, pinned above the results (`F_7b_results_full.png`). Google-Flights/Kayak-class; nothing else has it. High-impact to adopt.
+
+### 5b.4 Results-display mechanics
+- **Loading state:** Travelstart & TravelWings use **skeleton cards that mirror the real layout** (`ts_f7_results_3s.png`, `tw_fl_8_results.png`); dnata renders **complete** (no flicker); Wakanow masks a long wait with a progress bar + branded interstitial. **Skeletons or complete-render — never a blank wait.**
+- **Result count always shown:** "248 flights found" / "191 Flights found" / "298 Hotel results" — set expectations.
+- **Map:** hotels have a **List | Map toggle + persistent map thumbnail** (all but Wakanow); Travelstart's inline map panel is cleanest.
+- **Tax/price transparency on every card:** "includes all taxes and fees" (dnata), "incl. taxes & fees" (Travelstart) — remove end-of-funnel price surprise.
+- **Per-night vs total / per-person vs total toggles** (dnata) — explicit, reduces confusion.
+
+### 5b.5 Visual-system one-liners (for our own art direction)
+- **Wakanow:** navy + orange(action)/blue(loyalty)/green(score). **Premium, dense-with-value.**
+- **Travelstart:** white + cyan/teal, orange stars, green score/discount. **Cleanest, modern-SaaS.**
+- **dnata:** green/blue, big photography, accordion filters. **Corporate, transparent, trustworthy.**
+- **TravelWings:** red brand, yellow tags, greyscale icons, hero banner. **Dated — the cautionary example.**
+
+### 5b.6 The 10 concrete patterns worth adopting (ranked)
+1. **Per-airline × stops price matrix** pinned above flight results (Wakanow) — highest-impact single feature.
+2. **On-card Cheapest/Fastest/Recommended badges** + the same as one-tap sort chips (Travelstart + Wakanow).
+3. **Review-score as a colored square + word + count + fill bar** on hotel cards (Travelstart/dnata) — beats bare stars.
+4. **Airline filter checkboxes that each show that airline's cheapest price** (Travelstart/TravelWings).
+5. **Direction-specific departure-time control** — dnata dual-handle range sliders per leg, or Travelstart's 2×2 time-band grids.
+6. **Price histogram above the price slider** for hotels/flights (Travelstart).
+7. **Board/meal-plan + neighborhood/resort filters** for hotels (dnata).
+8. **"Includes all taxes & fees" on every card + per-night/per-person vs total toggles** (dnata/Travelstart).
+9. **Baggage icons + refundability on the flight card** (all but us) — we show these only at checkout.
+10. **List/Map toggle + persistent map** on hotel results (all but Wakanow).
+   *(Loyalty/BNPL price triptych per card — Wakanow — is covered in the payment doc, but note it renders well on the card and fits our PaySmallSmall.)*
 
 ---
 
