@@ -686,6 +686,55 @@ if ($displayCurrencyRate > 0) {
                                 </template>
                             </div>
 
+                            <!-- PER-AIRLINE × STOPS PRICE MATRIX (cheapest fare per cell).
+                                 Shown once there are enough results; click a cell to filter. -->
+                            <div id="flResultsTop"
+                                x-show="!loading && searchParams.type !== 'multicity' && flights.length >= 2 && priceMatrix().hasMatrix"
+                                x-cloak class="mb-4 card bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden">
+                                <button type="button" @click="pmOpen = !pmOpen"
+                                    class="w-full flex items-center justify-between gap-2 px-4 py-3 text-left">
+                                    <span class="inline-flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                        <span class="material-symbols-outlined text-blue-600" style="font-size: 20px;">grid_view</span>
+                                        Best fares by airline
+                                    </span>
+                                    <span class="material-symbols-outlined text-gray-400 transition-transform" :class="pmOpen ? 'rotate-180' : ''" style="font-size: 20px;">expand_more</span>
+                                </button>
+                                <div x-show="pmOpen" x-collapse class="overflow-x-auto border-t border-gray-100 dark:border-gray-700">
+                                    <table class="w-full text-sm min-w-[520px]">
+                                        <thead>
+                                            <tr class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                                <th class="text-left font-medium px-4 py-2"><?= T::airline ?? 'Airline' ?></th>
+                                                <th class="text-center font-medium px-3 py-2"><?= T::direct ?? 'Direct' ?></th>
+                                                <th class="text-center font-medium px-3 py-2">1 <?= T::stop ?? 'stop' ?></th>
+                                                <th class="text-center font-medium px-3 py-2">2+ <?= T::stop ?? 'stop' ?>s</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-50 dark:divide-gray-700/50">
+                                            <template x-for="row in priceMatrix().airlines" :key="row.code || row.name">
+                                                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                                                    <td class="px-4 py-2.5">
+                                                        <div class="flex items-center gap-2 min-w-0">
+                                                            <img :src="`https://pics.avs.io/120/60/${row.code}@2x.png`" :alt="row.name" class="w-8 h-5 object-contain shrink-0" onerror="this.style.display='none'">
+                                                            <span class="truncate text-gray-800 dark:text-gray-200" x-text="row.name"></span>
+                                                        </div>
+                                                    </td>
+                                                    <template x-for="bucket in ['direct','one','two']" :key="bucket">
+                                                        <td class="px-3 py-2.5 text-center">
+                                                            <button type="button" x-show="row[bucket] !== null"
+                                                                @click="pickMatrixCell(row, bucket)"
+                                                                class="inline-block w-full rounded-lg px-2 py-1.5 font-semibold tabular-nums transition-colors"
+                                                                :class="matrixCellActive(row, bucket) ? 'bg-blue-600 text-white' : 'text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30'"
+                                                                x-text="matrixPriceLabel(row[bucket])"></button>
+                                                            <span x-show="row[bucket] === null" class="text-gray-300 dark:text-gray-600">—</span>
+                                                        </td>
+                                                    </template>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
                             <!-- Flight Cards -->
                             <div x-show="filteredFlights.length > 0"
                                 x-transition:enter="transition-opacity ease-out duration-350"
@@ -776,6 +825,7 @@ if ($displayCurrencyRate > 0) {
             initialized: false,
             apiErrors: [],
             showMobileFilters: false,
+            pmOpen: true,   // price-matrix expanded by default
 
             // Pagination state
             currentPage: 1,
@@ -1788,6 +1838,55 @@ if ($displayCurrencyRate > 0) {
 
             applyFilters() {
                 this.sortAndFilterResults();
+            },
+
+            // --- PER-AIRLINE × STOPS PRICE MATRIX ----------------------------------
+            // Google-Flights / Kayak-style grid pinned above the results: one row per
+            // airline, columns = Direct / 1 stop / 2+ stops, each cell the cheapest
+            // fare for that airline+stop-count. Built from the full result pool
+            // (this.flights), so it reflects everything found, not the current filter.
+            priceMatrix() {
+                const pool = this.flights.filter(f => f && !f.isMultiCity && typeof f.price === 'number' && f.price > 0);
+                if (pool.length < 2) return { airlines: [], hasMatrix: false };
+                const byAirline = {};
+                for (const f of pool) {
+                    const code = (f.img || f.airline || '').toString().trim();
+                    const name = (f.airlineName || this.airlineNamesCache?.[f.airline] || f.airline || code || 'Airline').toString();
+                    const key = code || name;
+                    if (!key) continue;
+                    const bucket = f.stops <= 0 ? 'direct' : (f.stops === 1 ? 'one' : 'two');
+                    if (!byAirline[key]) byAirline[key] = { code, name, direct: null, one: null, two: null, min: Infinity };
+                    const row = byAirline[key];
+                    if (row[bucket] === null || f.price < row[bucket]) row[bucket] = f.price;
+                    if (f.price < row.min) row.min = f.price;
+                }
+                // sort airlines by their cheapest overall fare, cap to a sensible number
+                const airlines = Object.values(byAirline).sort((a, b) => a.min - b.min).slice(0, 12);
+                return { airlines, hasMatrix: airlines.length >= 2 };
+            },
+            matrixCurrency() {
+                const f = this.flights.find(x => x && x.currency);
+                return f ? f.currency : (this.searchParams.currency || '');
+            },
+            matrixPriceLabel(v) {
+                if (v === null || v === undefined) return '—';
+                return this.matrixCurrency() + ' ' + Math.round(v).toLocaleString();
+            },
+            // Click a matrix cell → filter results to that airline + stop bucket and
+            // scroll to the list. Reuses the normal filter path (so it persists too).
+            pickMatrixCell(airlineRow, bucket) {
+                const stopVal = bucket === 'direct' ? 0 : (bucket === 'one' ? 1 : 2);
+                // airlines filter matches on airlineName || airline (see sortAndFilterResults)
+                this.filters.airlines = [airlineRow.name || airlineRow.code];
+                this.filters.stops = [stopVal];
+                this.sortAndFilterResults();
+                this.$nextTick(() => {
+                    document.getElementById('flResultsTop')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+            },
+            matrixCellActive(airlineRow, bucket) {
+                const stopVal = bucket === 'direct' ? 0 : (bucket === 'one' ? 1 : 2);
+                return this.filters.airlines.includes(airlineRow.name || airlineRow.code) && this.filters.stops.includes(stopVal);
             },
 
             getHour(timeStr) {
