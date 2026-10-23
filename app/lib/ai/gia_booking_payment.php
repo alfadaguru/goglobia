@@ -122,7 +122,7 @@ if (!function_exists('gia_bp_booking_facts')) {
      */
     function gia_bp_booking_facts($db, string $invoiceId): array
     {
-        $b = $db->get('bookings', ['invoice_id', 'price_markup', 'currency_markup', 'module_type', 'module', 'email', 'payment_status', 'booking_data'], ['invoice_id' => $invoiceId]);
+        $b = $db->get('bookings', ['invoice_id', 'price_markup', 'currency_markup', 'module_type', 'module', 'email', 'phone', 'phone_country_code', 'payment_status', 'booking_data'], ['invoice_id' => $invoiceId]);
         if (!is_array($b)) { return []; }
         $amount = (float) ($b['price_markup'] ?? 0);
         $currency = strtoupper((string) ($b['currency_markup'] ?? 'NGN')) ?: 'NGN';
@@ -157,14 +157,53 @@ if (!function_exists('gia_bp_booking_facts')) {
                 }
             }
         }
+        // Phone for the Paystack customer record (Paystack REQUIRES a phone to
+        // assign a dedicated virtual account). GIA bookings often carry no contact
+        // phone (the traveller only gives passport fields), so fall back to the
+        // site's configured support number. Normalised to +234 E.164-ish digits.
+        $phone = gia_bp_normalise_phone(
+            (string) ($b['phone'] ?? ''),
+            (string) ($b['phone_country_code'] ?? '')
+        );
+        if ($phone === '') {
+            $cfg = $db->get('settings', ['contact_phone'], ['id' => 1]);
+            $phone = gia_bp_normalise_phone((string) ($cfg['contact_phone'] ?? ''), '');
+        }
+        if ($phone === '') { $phone = '+2348000000000'; } // last-resort valid NG format
         return [
             'amount'   => round($amount, 2),
             'due_now'  => round($dueNow, 2),
             'currency' => $currency,
             'module'   => $module !== '' ? $module : 'booking',
             'email'    => trim((string) ($b['email'] ?? '')),
+            'phone'    => $phone,
             'paid'     => (string) ($b['payment_status'] ?? '') === 'paid',
         ];
+    }
+}
+
+if (!function_exists('gia_bp_normalise_phone')) {
+    /** Build a +234 E.164-ish phone from a raw number + optional country code.
+     *  Returns '' if there aren't enough digits to be a usable phone. */
+    function gia_bp_normalise_phone(string $raw, string $cc = ''): string
+    {
+        $raw = trim($raw);
+        if ($raw === '') { return ''; }
+        // Already E.164 with a leading '+': keep digits after it.
+        if (strpos($raw, '+') === 0) {
+            $digits = preg_replace('/\D/', '', $raw);
+            return $digits !== '' && strlen($digits) >= 10 ? '+' . $digits : '';
+        }
+        $ccDigits  = preg_replace('/\D/', '', $cc);
+        $numDigits = preg_replace('/\D/', '', $raw);
+        if ($numDigits === '') { return ''; }
+        // Local Nigerian form (0803...) -> drop the leading 0, prefix 234.
+        if ($ccDigits === '' && strlen($numDigits) >= 10 && $numDigits[0] === '0') {
+            $numDigits = '234' . substr($numDigits, 1);
+        } elseif ($ccDigits !== '') {
+            $numDigits = $ccDigits . ltrim($numDigits, '0');
+        }
+        return strlen($numDigits) >= 10 ? '+' . $numDigits : '';
     }
 }
 
@@ -230,7 +269,7 @@ if (!function_exists('gia_bp_create_dva')) {
             'email'      => $email,
             'first_name' => $svcLabel,
             'last_name'  => $invoiceId,
-            'phone'      => '',
+            'phone'      => (string) ($facts['phone'] ?? ''),
         ]);
         if (!($r['http'] === 200 && !empty($r['json']['data']['customer_code']))) {
             $msg = (string) ($r['json']['message'] ?? ($r['error'] ?: 'Could not set up the transfer account.'));
