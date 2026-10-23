@@ -288,7 +288,14 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
                     if (\is_string($ex) && \trim($ex) !== '') { $fareExpiresAt = \trim($ex); break; }
                 }
 
-                $label = \trim(($airline !== '' ? $airline : 'Flight') . ' · ' . $dep . ' → ' . $arr);
+                // Put the DEPARTURE TIME in the title so otherwise-identical fares
+                // (same airline + route + price) are DISTINCT — otherwise the model
+                // can't tell which "first one" the traveller meant and loops back to
+                // search. e.g. "Air Peace 06:30 · LOS → ABV".
+                $flightNo = (string) ($firstSeg['flight_no'] ?? '');
+                $label = \trim(($airline !== '' ? $airline : 'Flight')
+                    . ($depTime !== '' ? ' ' . $depTime : '')
+                    . ' · ' . $dep . ' → ' . $arr);
                 $offers[] = [
                     'module'      => 'flights',
                     'kind'        => 'flights',
@@ -298,7 +305,9 @@ if (!function_exists('App\\lib\\ai\\gia_flights_search')) {
                     'id'          => \substr(\md5($supplier . '|' . $token), 0, 16),
                     'name'        => $label,
                     'title'       => $label,
-                    'subtitle'    => \trim(($depTime !== '' ? 'Departs ' . $depTime : '') . ' · ' . \strtoupper($class)),
+                    'flight_no'   => $flightNo,
+                    'depart_time' => $depTime,
+                    'subtitle'    => \trim(($flightNo !== '' ? $flightNo . ' · ' : '') . \strtoupper($class)),
                     'price'       => \is_numeric($price) ? \round((float) $price, 2) : null,
                     'currency'    => $currency,
                     'pax'         => ['adults' => $adults, 'children' => $children, 'infants' => $infants],
