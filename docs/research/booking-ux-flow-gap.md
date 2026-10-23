@@ -65,6 +65,43 @@ Admin-gated supplier filters/debug panels/badges were verified as **NOT leaks** 
 - **The rule is backend-only visibility:** the supplier/aggregator identity is visible to **admin + staff**, NEVER to customers, on any surface. This means the fix pattern is **the same admin-gate already used** by the correct places (`$_SESSION['user_role']==='admin'`) — keep the supplier for admin, strip it for everyone else. Nothing is lost for staff.
 - **Customer-facing text that names a supplier → neutral, no provider named** (e.g. "Verifying final price and cancellation policy…", "Order Details"), NOT "Goglobia" in operational copy.
 - Leaks that are **structural** (supplier in the URL for everyone incl. staff; affiliate redirects to the supplier's own site) can't be solved by a gate — they go to Phase 3 / Phase 4. Staff still see the real supplier in the admin panel / booking record.
+- **"Staff" = `role === 'admin'` ONLY** (locked 2026-10-23). The platform has three logged-in roles — `admin`, `agent` (B2B sub-agents), `supplier` — and only **admin** may see the back-office supplier. Agents, supplier-users, plain customers, and guests are all blocked.
+
+### 0.2c ⚠️ Gate double-check — "just admin-gate it" is NOT sufficient by itself
+
+A rigorous re-audit of the EXISTING gates found two failure modes that mean several current "gates" are false security — the fix must account for these:
+
+1. **Client-side gates leak in page source.** Gates implemented as a **JavaScript** `if` / `x-show` (where the PHP role is echoed into the page as `const isAdmin = true/false`) still **ship the supplier string in the DOM / JS state** to every customer — the badge is only *visually* hidden; view-source reveals it. Example: `cars/listing/items.php:31-32` sets `const supplier = car.supplier` and `const isAdmin = <?=…?>` in JS. **Fix must gate in PHP** so the supplier value is never emitted to a non-admin browser at all — not a JS/x-show toggle.
+2. **Inverted / partial logic.** `cars/listing/items.php:32` — `showSupplierBadge = isAdmin || supplier!=='mozio'` — hides ONLY mozio; cartrawler/discover_cars/kiwitaxi **show to every customer**. Same inverted pattern at `cars/booking/index.php:942` (`!$isMozio || admin`). These are BROKEN gates, not strict gates.
+
+**Guest default is safe:** every gate uses `isset(…) && === 'admin'`, so an unauthenticated guest correctly falls through to HIDE.
+
+**Implication:** the fix is a single server-side helper (e.g. `is_staff()` = `($_SESSION['user_role'] ?? '') === 'admin'`) used in **PHP** to decide whether the supplier is emitted — replacing both the client-side toggles and the inverted conditions. Phase 1 must fix the BROKEN/LEAKY gates, not just add gates to the ungated leaks.
+
+#### 0.2c.1 Per-gate verdict (verified, adversarial)
+
+**Architectural reality behind every row:** the listing pages (flights/stays/cars/tours/ferries) are client-side Alpine apps that ship `suppliers: <?= json_encode($supplierNames) ?>` to **every** visitor (e.g. `flights.php:753`, `cars.php:423`, `stays.php:295`), then the browser `fetch()`es `/<module>/<supplier>/search` per supplier and stores `supplier` in each result's JS state (`cars.php:633-635`). So a PHP `if admin` that hides a *widget* does nothing about the supplier strings already shipped to the customer's browser/network tab.
+
+| Gate (file:line) | Verdict | Why |
+|---|---|---|
+| cars `items.php:31-32` (`showSupplierBadge`) | **BROKEN** | `isAdmin \|\| supplier!=='mozio'` → non-admin sees every badge EXCEPT mozio. Hides exactly one supplier. |
+| cars `booking/index.php:942` (`!$isMozio \|\| admin`) | **BROKEN** | Same inversion, server-side, on the booking page — prints every non-mozio supplier name to customers. |
+| stays `stays-items.php:181,469` (badge) | **LEAKY-ANYWAY** | Badge PHP-gated, BUT `:57` builds `hotelUrl=.../stay/.../${h.supplier}/...` rendered UNGATED in the visible `<a href>` at `:121,:270`; `:230` branches on `h.supplier==='hotelbeds'` ungated. |
+| tours `tours-items.php:143,281` (badge) | **LEAKY-ANYWAY** | Badge gated, BUT `:20` builds `tourUrl=.../tour/.../${t.supplier}/...` rendered UNGATED at `:92,:262`. |
+| cars `items.php:78` (detailUrl) | **LEAKY-ANYWAY** | `.../car/.../${supplier}` — supplier in the visible link for everyone. |
+| flights `flights.php:68,645` (`$showSupplierDebug`) | **LEAKY-ANYWAY** | Debug panel correctly gated, BUT `:753` ships the `suppliers:[…]` roster + per-result `supplier` in JS state to every browser. |
+| flights `flights-filters.php:314`; stays `stays-filters.php:188`; ferries `ferries-filters.php:219`; cars `filter.php:156`, `cars.php:156,233` | **LEAKY-ANYWAY** | Filter widgets correctly gated, but the supplier roster + per-result `supplier` are shipped to every browser regardless. |
+| tours `tours-filters.php:190` | **LEAKY-ANYWAY** | As above. |
+| stays `stays.php:50,87,95,107` | **SOLID (copy only)** | Only switches wording ("from N suppliers" vs "Searching stays"); no supplier NAME here. Still: avoid "N suppliers" copy per §5b note. |
+| stays `stays-items.php:318` | **SOLID but DEAD** | Entire block is inside a `/* */` comment; never rendered. |
+
+**Role semantics: SOLID.** `user_role` = raw `users.role`; gates use exact `=== 'admin'`; no customer-type role satisfies it; unset/guest defaults to HIDE (safe). Minor: `agent`/`supplier` staff are treated as customers (can't see badges) — not a leak, and per the locked decision ("admin only") that is the INTENDED behaviour.
+
+#### 0.2c.2 What this means for the plan
+
+The real root leak is **data + URLs shipped to the customer's browser**, not the UI widgets. So:
+- **Phase 1 (fast) narrows to the two BROKEN gates** (cars `items.php:32`, `booking/index.php:942`) + the plain visible-text leaks (ferries "kikoto" badge, eSIM "Airalo" copy, stays "TBO/Wanderbeds" text) — real, safe, visible wins.
+- **The LEAKY-ANYWAY gates can't be "fixed" by Phase 1** — they need Phase 2 (strip `supplier` from the JSON/JS state the browser receives) and Phase 3 (opaque token instead of supplier-in-URL; server-side role-aware aggregating search instead of per-supplier `fetch`). Adding/▸tightening the widget gate alone would be false comfort.
 
 ### 0.3 Recommended removal plan (phased, when you give the go-ahead)
 
