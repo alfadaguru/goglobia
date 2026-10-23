@@ -254,30 +254,32 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
         $bookingChannel = 'admin_live';
         $bookingData = ['flight_data' => $offerBd, 'booking_data' => $offerBd, 'admin_created' => true];
         if ($serviceType === 'stays') {
-            // Hotels: the console sends the CHOSEN room rate (carries rate_key) as
-            // offer_booking_data + selected_rooms=[room], plus a hotel_context blob.
-            // Persist both the raw room (so the supplier issue reads its rate_key)
-            // AND a voucher-friendly selected_rooms[].option shape + hotel fields.
+            // Hotels: the console sends the CHOSEN rate as selected_rooms=
+            //   [{room_name, quantity, option:{rate_key, total_price, board_name,...}}]
+            // plus offer_booking_data (the same option) and a hotel_context blob.
+            // We MUST persist the option VERBATIM so the supplier issue finds
+            // selected_rooms[].option.rate_key (hotelbeds issue.php reads exactly
+            // that and throws "Missing rate_key" otherwise).
             $rooms = $_POST['selected_rooms'] ?? [];
             if (is_string($rooms)) { $rooms = json_decode($rooms, true) ?: []; }
             $ctx = $_POST['hotel_context'] ?? '';
             if (is_string($ctx)) { $ctx = json_decode($ctx, true) ?: []; }
-            $room0 = (is_array($rooms) && isset($rooms[0]) && is_array($rooms[0])) ? $rooms[0] : [];
+            if (!is_array($rooms) || !isset($rooms[0]) || !is_array($rooms[0])
+                || empty($rooms[0]['option']) || !is_array($rooms[0]['option'])
+                || (string) ($rooms[0]['option']['rate_key'] ?? '') === '') {
+                bmAdminJson(['status' => false, 'message' => 'Live hotel booking needs a selected room rate.'], 422);
+            }
+            $opt = $rooms[0]['option'];
             $voucherRooms = [[
-                'room_name'  => (string) ($room0['room_id'] ?? $room0['room_name'] ?? 'Room'),
-                'quantity'   => 1,
-                'booking_data' => $offerBd,
-                'option'     => [
-                    'board_name'    => (string) ($room0['board_name'] ?? ''),
-                    'rate_comments' => (string) ($room0['rate_comments'] ?? ''),
-                    'booking_data'  => $offerBd,
-                ],
+                'room_name'    => (string) ($rooms[0]['room_name'] ?? 'Room'),
+                'quantity'     => max(1, (int) ($rooms[0]['quantity'] ?? 1)),
+                'booking_data' => $opt,                 // carries rate_key
+                'option'       => $opt,                 // issue.php reads option.rate_key
             ]];
             $bookingData = [
                 'admin_created'  => true,
-                'booking_data'   => $offerBd,
+                'booking_data'   => $opt,
                 'selected_rooms' => $voucherRooms,
-                'raw_room'       => $room0,
                 'hotel_name'     => (string) ($ctx['name'] ?? ''),
                 'hotel_stars'    => (int) ($ctx['stars'] ?? 0),
                 'hotel_address'  => (string) ($ctx['address'] ?? ''),
@@ -385,6 +387,25 @@ $router->post(admin . '/booking-manager/pay', function () use ($SECURE, $db) {
 
     $isManualBooking = strtolower((string) ($booking['module'] ?? '')) === 'manual';
 
+    // MUTUAL EXCLUSION OF TENDERS (money-safety). A booking must carry only ONE
+    // live payment method at a time, or the customer could be given both a virtual
+    // account AND the company bank details and pay twice (the DVA webhook and the
+    // senior-verify settler key on different columns, so only one gets reconciled).
+    //   - If a manual transfer is already parked (awaiting_verification), refuse a
+    //     new tender; a senior must verify or it must be reset.
+    //   - If a DVA already exists for this invoice, refuse manual_transfer.
+    $pstatus = strtolower((string) ($booking['payment_status'] ?? ''));
+    if (in_array($method, ['dva', 'manual_transfer'], true) && $pstatus === 'awaiting_verification') {
+        bmAdminJson(['status' => false, 'message' => 'A manual transfer is already awaiting verification for this booking. Verify (or reset) it before starting another payment method.'], 409);
+    }
+    if ($method === 'manual_transfer') {
+        require_once dirname(__DIR__, 3) . '/app/lib/ai/gia_booking_payment.php';
+        $existingDva = function_exists('gia_bp_get') ? gia_bp_get($db, $invoiceId) : null;
+        if (is_array($existingDva) && in_array(strtolower((string) ($existingDva['status'] ?? '')), ['pending', 'paid'], true)) {
+            bmAdminJson(['status' => false, 'message' => 'A virtual account was already issued for this booking. Use that, or wait for it to expire, before taking a manual transfer.'], 409);
+        }
+    }
+
     if ($method === 'dva') {
         require_once dirname(__DIR__, 3) . '/app/lib/ai/gia_booking_payment.php';
         if (!function_exists('gia_bp_create_dva')) { bmAdminJson(['status' => false, 'message' => 'Bank-transfer (virtual account) is unavailable.'], 503); }
@@ -464,17 +485,58 @@ $router->post(admin . '/booking-manager/verify', function () use ($SECURE, $db) 
 });
 
 // ---------------------------------------------------------------------------
+// POST /admin/booking-manager/retry-issue — senior re-fires the supplier issue
+// for a PAID-but-unissued live booking (issue failed after payment). Safe: the
+// money primitive's issue-only recovery path re-issues without re-charging.
+// ---------------------------------------------------------------------------
+$router->post(admin . '/booking-manager/retry-issue', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (!bmAdminCsrfOk()) { bmAdminJson(['status' => false, 'message' => 'Security token expired — refresh and retry.'], 403); }
+    if (!bm_is_senior_admin($db)) { bmAdminJson(['status' => false, 'message' => 'Only an admin or super-admin can retry an issue.'], 403); }
+
+    $invoiceId = trim((string) ($_POST['invoice_id'] ?? ''));
+    $booking   = $invoiceId !== '' ? $db->get('bookings', '*', ['invoice_id' => $invoiceId]) : null;
+    if (!$booking) { bmAdminJson(['status' => false, 'message' => 'Booking not found.'], 404); }
+    if (strtolower((string) ($booking['payment_status'] ?? '')) !== 'paid') {
+        bmAdminJson(['status' => false, 'message' => 'Only a PAID booking can be re-issued.'], 422);
+    }
+    if (!empty($booking['pnr'])) {
+        bmAdminJson(['status' => true, 'already_issued' => true, 'message' => 'This booking already has a PNR.']);
+    }
+    // method is cosmetic here — bm_settle takes the issue-only recovery path for a
+    // paid live booking with no PNR, and never re-charges / re-audits.
+    $res = bm_settle_booking_payment($db, $invoiceId, 'manual_verified', [
+        'amount'   => (float) $booking['price_markup'],
+        'currency' => $booking['currency_markup'] ?? 'NGN',
+    ]);
+    bmAdminJson(['status' => !empty($res['ok']), 'settle' => $res, 'message' => $res['message'] ?? '']);
+});
+
+// ---------------------------------------------------------------------------
 // GET /admin/booking-manager/verify — the verification queue (senior only).
 // ---------------------------------------------------------------------------
 $router->get(admin . '/booking-manager/verify', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     $isSenior = bm_is_senior_admin($db);
-    $pending = $isSenior ? ($db->select('bookings',
-        ['invoice_id', 'first_name', 'last_name', 'email', 'module', 'module_type', 'booking_status', 'payment_status', 'price_markup', 'currency_markup', 'created_by_admin', 'created_at'],
+    $cols = ['invoice_id', 'first_name', 'last_name', 'email', 'module', 'module_type', 'booking_status', 'payment_status', 'price_markup', 'currency_markup', 'created_by_admin', 'pnr', 'created_at'];
+    $pending = $isSenior ? ($db->select('bookings', $cols,
         ['payment_status' => 'awaiting_verification', 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 200]
     ) ?: []) : [];
 
-    $GLOBALS['bmVerify'] = ['is_senior' => $isSenior, 'pending' => $pending];
+    // Ops queue: PAID live bookings that never got a PNR (issue failed after
+    // payment). Money is collected but the trip was not bought — surface it so a
+    // senior can retry the issue or refund, instead of it hiding in the error log.
+    // A live booking that issued becomes booking_status='confirmed' (+ a PNR), so
+    // "paid AND not confirmed AND admin_live" is the reliable stranded signal —
+    // no fragile pnr null-vs-'' test needed.
+    $stranded = $isSenior ? ($db->select('bookings', $cols, [
+        'payment_status' => 'paid',
+        'booking_status[!]' => 'confirmed',
+        'booking_channel[~]' => 'admin_live',
+        'ORDER' => ['id' => 'DESC'], 'LIMIT' => 200,
+    ]) ?: []) : [];
+
+    $GLOBALS['bmVerify'] = ['is_senior' => $isSenior, 'pending' => $pending, 'stranded' => $stranded];
     $title = 'Payment Verification'; $description = ''; $header = true; $footer = true;
     require_once views . 'includes/header.php';
     require_once views . 'admin/booking-manager/verify.php';

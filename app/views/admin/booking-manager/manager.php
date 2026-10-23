@@ -131,19 +131,25 @@ $isHotel = ($svc === 'hotels');
                   </template>
                 </div>
               </div>
-              <!-- Hotel room options (rate selection) -->
+              <!-- Hotel rate selection. room_options[] are room GROUPS; the bookable
+                   rates (price + rate_key) live in group.options[]. -->
               <template x-if="isHotel && r._open">
-                <div class="mt-3 border-t border-slate-100 pt-2 space-y-1">
-                  <template x-for="(ro,ri) in (r.raw.room_options||[])" :key="ri">
-                    <div class="flex items-center justify-between gap-2 text-xs py-1">
-                      <div class="min-w-0">
-                        <span class="font-medium text-slate-700" x-text="ro.room_id||ro.room_name||('Room '+(ri+1))"></span>
-                        <span class="text-slate-400" x-text="(ro.board_name? ' · '+ro.board_name:'')+(ro.refundable? ' · refundable':'')"></span>
-                      </div>
-                      <div class="flex items-center gap-2 shrink-0">
-                        <span class="tabular-nums font-medium" x-text="(r.raw.currency||'')+' '+Number(ro.total_price||ro.price||0).toLocaleString()"></span>
-                        <button class="btn sm" :class="(selectedOffer===idx && selectedRoom===ri)?'primary':'outline'" @click="selectRoom(idx,ri)" x-text="(selectedOffer===idx && selectedRoom===ri)?'Selected':'Select'"></button>
-                      </div>
+                <div class="mt-3 border-t border-slate-100 pt-2 space-y-2">
+                  <template x-for="(grp,gi) in (r.raw.room_options||[])" :key="gi">
+                    <div>
+                      <div class="text-[11px] font-semibold text-slate-600 mb-1" x-text="grp.room_name||grp.room_id||('Room '+(gi+1))"></div>
+                      <template x-for="(ro,ri) in (grp.options||[])" :key="ri">
+                        <div class="flex items-center justify-between gap-2 text-xs py-1 pl-2">
+                          <div class="min-w-0">
+                            <span class="text-slate-600" x-text="ro.board_name||'Room only'"></span>
+                            <span class="text-slate-400" x-text="(ro.refundable? ' · refundable':' · non-refundable')"></span>
+                          </div>
+                          <div class="flex items-center gap-2 shrink-0">
+                            <span class="tabular-nums font-medium" x-text="(r.raw.currency||'')+' '+Number(ro.total_price||0).toLocaleString()"></span>
+                            <button class="btn sm" :class="(selectedOffer===idx && selectedGroup===gi && selectedRoom===ri)?'primary':'outline'" @click="selectRoom(idx,gi,ri)" x-text="(selectedOffer===idx && selectedGroup===gi && selectedRoom===ri)?'Selected':'Select'"></button>
+                          </div>
+                        </div>
+                      </template>
                     </div>
                   </template>
                   <p class="text-[11px] text-slate-400" x-show="!(r.raw.room_options||[]).length">No bookable rooms returned for this hotel.</p>
@@ -376,11 +382,12 @@ function bookingMgr() {
     pax: [{ type:'adult', title:'Mr', first_name:'', last_name:'', passport_number:'' }],
     price: { sell:0, cost:0, currency:'' },
 
-    searching:false, searched:false, results:[], selectedOffer:null, selectedRaw:null, selectedSupplier:'', selectedRoom:null,
+    searching:false, searched:false, results:[], selectedOffer:null, selectedRaw:null, selectedSupplier:'', selectedGroup:null, selectedRoom:null, selectedOption:null, selectedRoomName:'',
     creating:false, created:false, invoiceId:'', clientToken:'',
     paying:false, dva:null, manualPay:false, settleMsg:'', settleMsgOk:false,
 
-    init(){ this.clientToken = (Date.now().toString(36) + Math.random().toString(36).slice(2,8)); this.manual.segments=[this.blankSeg()]; },
+    init(){ this.clientToken = this.newToken(); this.manual.segments=[this.blankSeg()]; },
+    newToken(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); },
 
     blankSeg(){ return { airline:'', flight_number:'', airline_code:'', from:'', to:'', depart:'', arrive:'',
       _alItems:[], _alOpen:false, _fromText:'', _fromItems:[], _fromOpen:false, _toText:'', _toItems:[], _toOpen:false }; },
@@ -442,12 +449,17 @@ function bookingMgr() {
     acPickCity(c){ this.ac.dest.q=c.city+', '+c.country; this.ac.dest.open=false; this.live.destination=c.city; this.live.destination_country=c.country_code||''; },
     acCityBlur(){ setTimeout(()=>{ this.ac.dest.open=false; }, 150); },
 
-    // Hotel: pick a specific room rate on a hotel result (carries the rate_key).
-    selectRoom(idx,ri){
-      this.selectedOffer=idx; this.selectedRoom=ri;
+    // Hotel: pick a specific RATE. room_options[gi] is a room group; the bookable
+    // rate (price + rate_key) is group.options[ri]. We keep that option verbatim so
+    // the stored selected_rooms[].option carries the rate_key the supplier needs.
+    selectRoom(idx,gi,ri){
+      this.selectedOffer=idx; this.selectedGroup=gi; this.selectedRoom=ri;
       const r=this.results[idx]; this.selectedRaw=r.raw; this.selectedSupplier=r.supplier;
-      const ro=(r.raw.room_options||[])[ri]||{};
-      this.price.sell=Number(ro.total_price||ro.price||r.price_num||0)||this.price.sell;
+      const grp=(r.raw.room_options||[])[gi]||{};
+      const opt=(grp.options||[])[ri]||{};
+      this.selectedOption=opt;
+      this.selectedRoomName=grp.room_name||grp.room_id||'Room';
+      this.price.sell=Number(opt.total_price||0)||this.price.sell;
       this.price.currency=r.raw.currency||this.price.currency;
     },
 
@@ -463,7 +475,7 @@ function bookingMgr() {
         if(!this.live.departure_date){ alert('Pick a departure date'); return; }
       }
       if(!this.suppliers.length){ alert('No live suppliers are enabled.'); return; }
-      this.searching=true; this.searched=false; this.results=[]; this.selectedOffer=null; this.selectedRaw=null; this.selectedRoom=null;
+      this.searching=true; this.searched=false; this.results=[]; this.selectedOffer=null; this.selectedRaw=null; this.selectedGroup=null; this.selectedRoom=null; this.selectedOption=null;
 
       // Build the shared search params using the SAME names the website sends to
       // each supplier (hotels: children/rooms_data/nationality; flights: childrens;
@@ -498,7 +510,9 @@ function bookingMgr() {
       if(!Array.isArray(list)) list=[];
       return list.map(it=>{
         if(this.isHotel){
-          const price=Number(it.price||it.display_price||0);
+          // Hotelbeds/DB suppliers expose the hotel-level price as min_total_price /
+          // display_price, not `price`. Use the real keys, newest-website order.
+          const price=Number(it.min_total_price||it.display_price||it.price||0);
           return { supplier, label: it.name||'Hotel', sub: (it.stars?it.stars+'★ · ':'')+(it.location||''), price_num:price, price_label:(it.currency||'')+' '+price.toLocaleString(), raw: it };
         }
         const seg = (it.segments && it.segments[0] && it.segments[0][0]) ? it.segments[0][0] : it;
@@ -535,11 +549,12 @@ function bookingMgr() {
           payload.supplier=this.selectedSupplier;   // the supplier THIS offer came from
           const r=this.selectedRaw;
           if(this.isHotel){
-            // The CHOSEN room rate carries the booking handle (rate_key); send that
-            // room + the hotel context, not the whole room_options array.
-            const room=(r.room_options||[])[this.selectedRoom]||{};
-            payload.offer_booking_data = JSON.stringify(room.booking_data || room);
-            payload.selected_rooms = JSON.stringify([room]);
+            // The CHOSEN rate (group.options[ri]) carries the booking handle
+            // (rate_key). Send it as both offer_booking_data AND the
+            // selected_rooms[].option so the supplier issue reads option.rate_key.
+            const opt=this.selectedOption||{};
+            payload.offer_booking_data = JSON.stringify(opt);
+            payload.selected_rooms = JSON.stringify([{ room_name:this.selectedRoomName||'Room', quantity:1, option:opt }]);
             payload.hotel_context = JSON.stringify({ name:r.name, stars:r.stars, location:r.location, address:r.address, checkin:this.fmtDate(this.live.checkin), checkout:this.fmtDate(this.live.checkout) });
           } else {
             const seg=(r.segments&&r.segments[0]&&r.segments[0][0])?r.segments[0][0]:r;
@@ -558,7 +573,13 @@ function bookingMgr() {
         const file=this.$refs.manualDoc; if(this.mode==='manual'&&file&&file.files&&file.files[0]) f.append('manual_document',file.files[0]);
         const res=await fetch(this.base+'admin/booking-manager/create',{method:'POST',body:f});
         const data=await res.json();
-        if(data.status){ this.created=true; this.invoiceId=data.invoice_id; }
+        if(data.status){
+          this.created=true; this.invoiceId=data.invoice_id;
+          // Mint a fresh idempotency token so the NEXT booking can't dedup into
+          // this one. (This booking already exists; its create button is disabled,
+          // so no retry re-uses the old token.)
+          this.clientToken = this.newToken();
+        }
         else alert(data.message||'Could not create the booking');
       }catch(e){ alert('Create failed'); }
       this.creating=false;

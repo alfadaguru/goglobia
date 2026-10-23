@@ -5,8 +5,9 @@
 // (marks paid + issues a live booking / confirms a manual one).
 @$SECURE or die('Access Denied!');
 
-$v    = $GLOBALS['bmVerify'] ?? ['is_senior' => false, 'pending' => []];
-$csrf = $_SESSION['csrf_token'] ?? '';
+$v        = $GLOBALS['bmVerify'] ?? ['is_senior' => false, 'pending' => [], 'stranded' => []];
+$stranded = $v['stranded'] ?? [];
+$csrf     = $_SESSION['csrf_token'] ?? '';
 ?>
 <div class="container py-6" x-data="bmVerify()">
   <div class="flex items-center justify-between flex-wrap gap-3 mb-5">
@@ -57,6 +58,40 @@ $csrf = $_SESSION['csrf_token'] ?? '';
       </table>
     </div>
     <p class="text-sm mt-3" :class="msgOk?'text-emerald-700':'text-red-600'" x-show="msg" x-text="msg"></p>
+
+    <!-- Paid-but-unissued live bookings (issue failed after payment) -->
+    <?php if (!empty($stranded)): ?>
+      <div class="mt-8">
+        <h2 class="text-lg font-semibold text-red-700 flex items-center gap-2"><span class="material-symbols-outlined">error</span>Paid — not issued</h2>
+        <p class="text-sm text-slate-600 mt-1 mb-3">These live bookings were paid but the supplier could not issue a ticket. Retry the issue, or refund the customer.</p>
+        <div class="card table-container overflow-x-auto">
+          <table class="table w-full text-sm">
+            <thead><tr class="text-left text-slate-500 border-b border-slate-100">
+              <th class="px-4 py-3 font-medium">Invoice</th>
+              <th class="px-4 py-3 font-medium">Customer</th>
+              <th class="px-4 py-3 font-medium">Service</th>
+              <th class="px-4 py-3 font-medium">Amount</th>
+              <th class="px-4 py-3 font-medium">Action</th>
+            </tr></thead>
+            <tbody class="divide-y divide-slate-100">
+              <?php foreach ($stranded as $b): $inv = $b['invoice_id']; ?>
+                <tr x-show="!done['<?= htmlspecialchars($inv, ENT_QUOTES) ?>']">
+                  <td class="px-4 py-3 font-mono text-slate-700"><?= htmlspecialchars($inv) ?></td>
+                  <td class="px-4 py-3"><?= htmlspecialchars(trim(($b['first_name'] ?? '') . ' ' . ($b['last_name'] ?? ''))) ?><br><span class="text-xs text-slate-400"><?= htmlspecialchars($b['email'] ?? '') ?></span></td>
+                  <td class="px-4 py-3"><?= htmlspecialchars(ucfirst((string) ($b['module_type'] ?? ''))) ?> · <?= htmlspecialchars((string) ($b['module'] ?? '')) ?></td>
+                  <td class="px-4 py-3 font-semibold tabular-nums"><?= htmlspecialchars((string) ($b['currency_markup'] ?? '')) ?> <?= number_format((float) ($b['price_markup'] ?? 0), 2) ?></td>
+                  <td class="px-4 py-3">
+                    <button class="btn outline sm" @click="retry('<?= htmlspecialchars($inv, ENT_QUOTES) ?>')" :disabled="busy['<?= htmlspecialchars($inv, ENT_QUOTES) ?>']">
+                      <span class="material-symbols-outlined">refresh</span><span>Retry issue</span>
+                    </button>
+                  </td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    <?php endif; ?>
   <?php endif; ?>
 </div>
 
@@ -75,6 +110,18 @@ function bmVerify(){
         this.msgOk=!!data.status; this.msg=(data.settle&&data.settle.message)||data.message||'';
         if(data.status){ this.done[inv]=true; }
       }catch(e){ this.msgOk=false; this.msg='Verification failed'; }
+      this.busy[inv]=false;
+    },
+    async retry(inv){
+      if(!confirm('Retry issuing this paid booking at the supplier?')) return;
+      this.busy[inv]=true; this.msg='';
+      try{
+        const f=new FormData(); f.append('csrf_token',this.csrf); f.append('invoice_id',inv);
+        const res=await fetch(this.base+'admin/booking-manager/retry-issue',{method:'POST',body:f});
+        const data=await res.json();
+        this.msgOk=!!data.status; this.msg=(data.settle&&data.settle.message)||data.message||'';
+        if(data.status){ this.done[inv]=true; }
+      }catch(e){ this.msgOk=false; this.msg='Retry failed'; }
       this.busy[inv]=false;
     }
   };
