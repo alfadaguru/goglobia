@@ -249,6 +249,70 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
                     if (!this.searchLoaded[t]) this.searchReq[t] = false;
                 }
             },
+            // DESTINATION-TILE → SEARCH BOX (homepage "Popular destinations").
+            // We do NOT deep-link to a results URL with invented dates. Instead we
+            // switch to the Stays tab, drive the form's OWN live autocomplete
+            // (the same hotels-destination-suggestion endpoint it uses when a user
+            // types), auto-pick the first REAL system match, and leave the dates
+            // empty so the traveller chooses them — the way Booking/dnata behave.
+            async prefillStayDestination(city) {
+                city = String(city || "").trim();
+                if (!city || !this.validTabs.includes("stays")) return;
+
+                // 1) Switch to the Stays tab (its $watch triggers loadSearch).
+                this.activeTab = "stays";
+
+                // 2) Wait until the lazy stays form is actually injected + Alpine-ready.
+                const panel = document.getElementById("search-panel-stays");
+                const deadline = performance.now() + 6000;
+                while (performance.now() < deadline) {
+                    if (this.searchLoaded["stays"] && panel) {
+                        const root = panel.querySelector("[x-data]");
+                        if (root && window.Alpine && window.Alpine.$data(root)
+                            && typeof window.Alpine.$data(root).fetchDestination === "function") break;
+                    }
+                    await new Promise(r => setTimeout(r, 80));
+                }
+                const root = panel && panel.querySelector("[x-data]");
+                const form = root && window.Alpine ? window.Alpine.$data(root) : null;
+                if (!form || typeof form.fetchDestination !== "function") return;
+
+                // 3) Bring the search box into view.
+                (this.$refs.panels || panel).scrollIntoView({ behavior: "smooth", block: "center" });
+
+                // 4) Open the destination panel and drive the form's LIVE search.
+                //    openDest() is a toggle, so set the state directly (idempotent).
+                form.destOpen = true;
+                if (typeof window.flAnchorPanel === "function") {
+                    try { window.flAnchorPanel("st_dest_trigger", "st_dest_panel"); } catch (e) {}
+                }
+                form.destQuery = city;
+                form.destinationSelected = null;   // clear any restored pick
+                form.fetchDestination();           // real AJAX to the suggestion endpoint
+
+                // 5) When real results arrive, auto-select the first match (a real
+                //    system destination with its country/type) via the form's own
+                //    selectDestination — exactly as if the user had clicked it.
+                const pickDeadline = performance.now() + 8000;
+                while (performance.now() < pickDeadline) {
+                    if (form.destinationSelected) return; // user already picked — leave it
+                    if (!form.destinationLoading && form.destinationHasSearched) {
+                        const results = Array.isArray(form.destinationResults) ? form.destinationResults : [];
+                        // Prefer a CITY/AREA match over a specific hotel — selecting a
+                        // hotel would redirect straight to that hotel's page, but the
+                        // intent of a destination tile is "search this place, I'll pick
+                        // dates". Fall back to the first result if none are non-hotels.
+                        const pick = results.find(r => r && !r.is_hotel && r.type !== "hotel") || results[0];
+                        if (pick) {
+                            // selectDestination() commits the pick AND closes the
+                            // panel + clears destQuery itself — nothing else to do.
+                            form.selectDestination(pick);
+                        }
+                        return; // either picked a match, or no results — stop
+                    }
+                    await new Promise(r => setTimeout(r, 80));
+                }
+            },
             animateTabSwitch() {
                 const box = this.$refs.panels;
                 if (!box) return;
@@ -491,6 +555,11 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
                 }
             });
             window.addEventListener("hashchange", () => syncFromHash());
+            // Homepage "Popular destinations" tiles ask the hero to prefill the
+            // Stays search box (destination only; user picks the dates).
+            window.addEventListener("goglobia:pick-stay", (e) => {
+                prefillStayDestination(e && e.detail ? e.detail.city : "");
+            });
         '>
 
       <!-- Hero Text -->

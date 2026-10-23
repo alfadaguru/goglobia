@@ -18,16 +18,13 @@ $__toursEnabled  = in_array('tours', $__enabledTypes, true);
 $__staysEnabled  = in_array('stays', $__enabledTypes, true);
 if (!$__toursEnabled && !$__staysEnabled) { return; } // nothing to show
 
-// Destinations strip — self-hosted images in uploads/global/destinations/. Each
-// links to a COMPLETE, valid stays search URL so it lands on real results:
-//   /stays/{city}/{DD-MM-YYYY checkin}/{DD-MM-YYYY checkout}/{nat}/{rooms}/{adults-children}
-$__ci = date('d-m-Y', strtotime('+14 days'));
-$__co = date('d-m-Y', strtotime('+18 days'));
-$__nat = strtoupper(substr((string) ($GLOBALS['app']['country'] ?? 'NG'), 0, 2)) ?: 'NG';
-$__staysUrl = function ($city) use ($__ci, $__co, $__nat) {
-    $slug = strtolower(str_replace(' ', '-', trim($city)));
-    return rtrim((string) root, '/') . '/stays/' . rawurlencode($slug) . '/' . $__ci . '/' . $__co . '/' . $__nat . '/1/2-0';
-};
+// Destinations strip — self-hosted images in uploads/global/destinations/.
+// A tile does NOT deep-link to a results URL with invented dates (that is not
+// how Booking/Expedia/dnata behave). Instead it PREFILLS the hero Stays search
+// box: it drives the form's own LIVE destination autocomplete (the same
+// suggestion endpoint the user hits when typing), auto-picks the first real
+// system match, and leaves the dates empty for the traveller to choose. The JS
+// hook is window event "goglobia:pick-stay" (handled by the hero in home.php).
 // Nigeria-first (home market), then international. Only cities whose image exists
 // are shown. 4 NG + 6 intl = 10.
 $__destinations = [
@@ -64,15 +61,17 @@ $__destinations = array_values(array_filter($__destinations, function ($d) {
         <?php foreach ($__destinations as $d):
           $__imgPath = 'uploads/global/destinations/' . $d['img'];
         ?>
-          <a href="<?= htmlspecialchars($__staysUrl($d['city']), ENT_QUOTES) ?>"
-             class="group relative shrink-0 rounded-xl overflow-hidden border border-gray-100 shadow-sm"
-             style="width:176px;height:112px;text-decoration:none"
+          <button type="button"
+             onclick="window.dispatchEvent(new CustomEvent('goglobia:pick-stay',{detail:{city:<?= htmlspecialchars(json_encode($d['city']), ENT_QUOTES) ?>}}))"
+             class="group relative shrink-0 rounded-xl overflow-hidden border border-gray-100 shadow-sm text-left"
+             style="width:176px;height:112px;cursor:pointer"
+             aria-label="Search stays in <?= htmlspecialchars($d['name'], ENT_QUOTES) ?>"
              <?= $__loop === 1 ? 'aria-hidden="true" tabindex="-1"' : '' ?>>
             <img src="<?= root . $__imgPath ?>" alt="<?= htmlspecialchars($d['name']) ?>" width="480" height="358"
                  loading="lazy" decoding="async" class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105">
             <div class="absolute inset-0" style="background:linear-gradient(0deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 55%)"></div>
             <span class="absolute left-3 bottom-2 text-white font-semibold text-sm" style="text-shadow:0 1px 3px rgba(0,0,0,.5)"><?= htmlspecialchars($d['name']) ?></span>
-          </a>
+          </button>
         <?php endforeach; ?>
       <?php endfor; ?>
     </div>
