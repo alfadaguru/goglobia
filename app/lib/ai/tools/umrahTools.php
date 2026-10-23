@@ -144,7 +144,10 @@ if (!class_exists('App\\lib\\ai\\umrahTiersTool')) {
                 'data' => ['umrah_tiers' => $res['tiers'], 'departure' => $res['departure']],
                 'message' => $res['tiers'] === []
                     ? 'That departure has no bookable tiers right now.'
-                    : 'Showing ' . count($res['tiers']) . ' tier(s). Each carries a departure_tier_id — pass the chosen one to umrah_book.',
+                    : 'Showing ' . count($res['tiers']) . ' tier(s), each with a departure_tier_id. '
+                        . 'Ask the traveller to confirm the tier + pilgrim count ONCE. The moment they '
+                        . 'confirm (yes / the tier name / a number), call umrah_book with that '
+                        . 'departure_tier_id — do NOT call umrah_tiers again.',
             ];
         }
     }
