@@ -107,6 +107,16 @@ if (!class_exists('App\\lib\\ai\\flightsSearchTool')) {
                     'name'            => (string) ($o['name'] ?? 'Flight'),
                     'title'           => (string) ($o['title'] ?? 'Flight'),
                     'subtitle'        => (string) ($o['subtitle'] ?? ''),
+                    // Structured detail the supplier returns — renderers show these.
+                    'stops'           => (int) ($o['stops'] ?? 0),
+                    'duration'        => (string) ($o['duration'] ?? ''),
+                    'arrival_time'    => (string) ($o['arrival_time'] ?? ''),
+                    'cabin'           => (string) ($o['cabin'] ?? ''),
+                    'baggage'         => (string) ($o['baggage'] ?? ''),
+                    'refundable'      => (string) ($o['refundable'] ?? ''),
+                    'seats_left'      => (int) ($o['seats_left'] ?? 0),
+                    'trip_type'       => (string) ($o['trip_type'] ?? 'oneway'),
+                    'return_line'     => (string) ($o['return_line'] ?? ''),
                     'price'           => $o['price'] ?? null,
                     'currency'        => (string) ($o['currency'] ?? $currency),
                     'fare_expires_at' => (string) ($o['fare_expires_at'] ?? ''),
@@ -114,16 +124,28 @@ if (!class_exists('App\\lib\\ai\\flightsSearchTool')) {
                 ];
             }
 
+            // Honest overflow disclosure (no silent caps): tell the model when there
+            // were MORE fares than we showed, so it can offer to refine (cheapest,
+            // earliest, nonstop, a specific airline) instead of implying 8 is all.
+            $totalFound = (int) ($res['total_found'] ?? count($cards));
+            $shown = count($cards);
+            $more = max(0, $totalFound - $shown);
+            $msg = $shown === 0
+                ? 'No bookable fares came back for that route and date. Offer to try nearby dates.'
+                : 'Showing the ' . $shown . ' cheapest real fare(s)'
+                    . ($more > 0 ? ' of ' . $totalFound . ' found — there are ' . $more . ' more; if none suit, offer to narrow by time of day, nonstop only, or a specific airline, then re-search.' : '.')
+                    . ' Each card has a ref — pass the chosen ref to flights_select. Fares expire fast; reconfirm the price before payment.';
+
             return [
                 'ok' => true,
                 'data' => [
-                    'module'   => 'flights',
-                    'searches' => [['module' => 'flights', 'kind' => 'flights', 'title' => 'Flights', 'cards' => $cards, 'live' => true]],
-                    'flights'  => $cards, // also surfaced directly for the model
+                    'module'      => 'flights',
+                    'searches'    => [['module' => 'flights', 'kind' => 'flights', 'title' => 'Flights', 'cards' => $cards, 'live' => true]],
+                    'flights'     => $cards, // also surfaced directly for the model
+                    'total_found' => $totalFound,
+                    'shown'       => $shown,
                 ],
-                'message' => $cards === []
-                    ? 'No bookable fares came back for that route and date. Offer to try nearby dates.'
-                    : 'Showing ' . count($cards) . ' real fare(s). Each has a ref — pass the chosen ref to flights_select. Fares expire fast; reconfirm the price before payment.',
+                'message' => $msg,
             ];
         }
     }

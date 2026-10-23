@@ -455,8 +455,10 @@ class giaAgent
     private function modelFacingOptions(array $searches): array
     {
         $out = [];
-        $perModuleCap = 4;   // at most N real options per module block
-        $totalCap = 10;      // and never more than this across all modules
+        $perModuleCap = 8;   // at most N real options per module block (matches the
+                             // flight search cap so the model isn't blind to fares it
+                             // showed the user — it can recommend any of them)
+        $totalCap = 12;      // and never more than this across all modules
 
         foreach ($searches as $entry) {
             if (!is_array($entry)) {
@@ -658,6 +660,14 @@ class giaAgent
                 $opt['departure_tier_id'] = (int) $card['departure_tier_id'];
             }
         }
+        // FLIGHTS: surface the structured detail so the model can compare fares
+        // (stops/round-trip) without re-deriving them — the subtitle already carries
+        // the human line, these let it reason precisely.
+        if ($module === 'flights') {
+            if (isset($card['stops'])) { $opt['stops'] = (int) $card['stops']; }
+            if (!empty($card['trip_type'])) { $opt['trip_type'] = (string) $card['trip_type']; }
+            if (!empty($card['return_line'])) { $opt['return'] = (string) $card['return_line']; }
+        }
         return $opt;
     }
 
@@ -762,7 +772,14 @@ class giaAgent
             . "search_trip/fetch_live_offers for flights: (f1) flights_search — real bookable fares. "
             . "You MUST already have the departure city/airport, destination and departure date; ask "
             . "for whatever is missing and NEVER guess a date or a departure city (no 'today', no "
-            . "assumed origin). (f2) flights_select — after they pick a fare, reconfirm "
+            . "assumed origin). DON'T INTERROGATE: default cabin to economy WITHOUT asking, but if the "
+            . "traveller says business/first (or a return date / 'round trip'), pass that through "
+            . "(class, return_date). Each fare card already shows airline, time, stops, duration, cabin, "
+            . "baggage and price — so keep your own words SHORT: one line pointing to a good pick (by "
+            . "name+price exactly as the tool returned), never re-list every fare. If the tool says more "
+            . "fares were found than shown, you may offer to narrow (morning/evening, nonstop only, a "
+            . "specific airline) and re-search — but only if the shown ones don't suit. (f2) "
+            . "flights_select — after they pick a fare, reconfirm "
             . "the live price and get the exact passenger fields this fare needs. "
             . "CRITICAL — DO NOT RE-SEARCH ON A PICK: once flights_search has returned fares, when the "
             . "traveller chooses one — 'the first one', 'the 06:30', 'yes', a number, or the airline/"

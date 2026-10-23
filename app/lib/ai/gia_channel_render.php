@@ -149,15 +149,23 @@ if (!function_exists('gia_render_whatsapp_interactive')) {
     function gia_render_whatsapp_interactive(array $norm): ?array
     {
         // Gather all choices (top-level + card buttons), dedupe by id, keep order.
+        // A card's choice carries the card's TITLE + SUBTITLE as its label/description
+        // so a WhatsApp list row shows the real fare detail (airline/time/stops/price),
+        // not just the generic button text ("Select this fare").
         $choices = [];
         $seen = [];
-        $push = function ($b) use (&$choices, &$seen) {
+        $push = function ($b, $desc = '', $label = '') use (&$choices, &$seen) {
             $id = (string) ($b['id'] ?? ''); $t = (string) ($b['title'] ?? '');
             if ($id === '' || $t === '' || isset($seen[$id])) { return; }
-            $seen[$id] = true; $choices[] = ['id' => $id, 'title' => $t];
+            $seen[$id] = true;
+            $choices[] = ['id' => $id, 'title' => $label !== '' ? $label : $t, 'description' => $desc];
         };
         foreach ($norm['buttons'] as $b) { $push($b); }
-        foreach ($norm['cards'] as $c) { foreach ($c['buttons'] as $b) { $push($b); } }
+        foreach ($norm['cards'] as $c) {
+            $cardLabel = (string) ($c['title'] ?? '');
+            $cardDesc  = (string) ($c['subtitle'] ?? '');
+            foreach ($c['buttons'] as $b) { $push($b, $cardDesc, $cardLabel); }
+        }
         if ($choices === []) { return null; }
 
         $bodyText = $norm['text'] !== '' ? gia_render_clip($norm['text'], 1024) : 'Please choose:';
@@ -173,13 +181,18 @@ if (!function_exists('gia_render_whatsapp_interactive')) {
             return ['type' => 'button', 'body' => ['text' => $bodyText], 'action' => ['buttons' => $buttons]];
         }
 
-        // >3 choices -> list (max 10 rows).
+        // >3 choices -> list (max 10 rows). WA list rows support a `description`
+        // (<=72 chars) under the title — use it to show the fare detail + price so a
+        // row reads "Air Peace 06:30 · LOS → ABV" / "Nonstop · 1h 10m · NGN 119,216".
         $rows = [];
         foreach (array_slice($choices, 0, 10) as $c) {
-            $rows[] = [
+            $row = [
                 'id'    => substr($c['id'], 0, 200),
                 'title' => gia_render_clip($c['title'], 24), // WA list row title cap
             ];
+            $desc = gia_render_clip((string) ($c['description'] ?? ''), 72);
+            if ($desc !== '') { $row['description'] = $desc; }
+            $rows[] = $row;
         }
         return [
             'type'   => 'list',

@@ -571,7 +571,7 @@ $giaWCfg = json_encode([
             <div class="flex justify-between py-0.5"><span class="text-slate-500">Bank</span><span class="font-medium" x-text="payResult.bank_name"></span></div>
             <div class="flex justify-between py-0.5"><span class="text-slate-500">Account number</span><span class="font-semibold tracking-wide" x-text="payResult.account_number"></span></div>
             <div class="flex justify-between py-0.5" x-show="payResult.account_name"><span class="text-slate-500">Account name</span><span class="font-medium" x-text="payResult.account_name"></span></div>
-            <div class="flex justify-between py-0.5" x-show="payResult.expires_at"><span class="text-slate-500">Pay before</span><span class="font-medium" x-text="payResult.expires_at"></span></div>
+            <div class="flex justify-between py-0.5" x-show="payResult.expires_at"><span class="text-slate-500">Pay before it expires</span><span class="font-medium" x-text="expiryLabel(payResult.expires_at)"></span></div>
           </div>
         </div>
       </template>
@@ -1044,7 +1044,7 @@ function giaWidget(cfg){
           this.payResult={method:'bank', account_number:data.account_number, bank_name:data.bank_name, account_name:data.account_name, amount:data.amount, currency:data.currency, expires_at:data.expires_at};
           this.payOptions=null;
         } else if(data.ok && data.method==='card' && data.redirect_url){
-          this.payResult={method:'card', redirect_url:data.redirect_url, amount:data.amount, currency:data.currency};
+          this.payResult={method:'card', redirect_url:data.redirect_url, amount:data.amount, currency:data.currency, expires_at:data.expires_at};
           this.payOptions=null;
           this.openPayment(data.redirect_url);
         } else {
@@ -1212,6 +1212,15 @@ function giaWidget(cfg){
       const amt=n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
       const cur=String(c||'').replace(/[^A-Za-z0-9$€£₦.]/g,'').slice(0,6);
       return (cur?'<span class="cur">'+cur+'</span>':'')+amt; },
+    // Friendly countdown for a pay/fare deadline (parity with WhatsApp "~N min").
+    // Accepts an ISO/"Y-m-d H:i:s" (server UTC) string; shows minutes remaining.
+    expiryLabel(ts){ if(!ts) return ''; let t=String(ts).trim().replace(' ','T');
+      if(!/[zZ]|[+\-]\d\d:?\d\d$/.test(t)) t+='Z'; // server times are UTC
+      const ms=Date.parse(t); if(isNaN(ms)) return '';
+      const mins=Math.round((ms-Date.now())/60000);
+      if(mins<=0) return 'expired — please start again';
+      if(mins<60) return 'in about '+mins+' min';
+      const h=Math.floor(mins/60), m=mins%60; return 'in about '+h+'h'+(m?' '+m+'m':''); },
     hasSummary(sr){ const s=sr&&sr.summary; if(!s||typeof s!=='object') return false; return !!(s.origin_label||s.origin_code||s.headline); },
     summaryHeadline(sr){ const s=sr.summary||{}; if(s.headline) return s.headline; const o=s.origin_label||s.origin_code||'', d=s.destination_label||s.destination_code||'', sep=s.trip_type==='return'?' ⇄ ':' → '; return (o&&d)?(o+sep+d):(sr.title||'Options'); },
     summaryLines(sr){ const s=sr.summary||{}; if(s.headline!==undefined){ return [s.line1,s.line2].filter(x=>x&&String(x).trim()!==''); } const out=[]; if(s.trip_label)out.push(s.trip_label); if(s.departure_date)out.push('📅 '+s.departure_date+(s.return_date?' → '+s.return_date:'')); if(s.travellers)out.push('👤 '+s.travellers); if(s.cabin)out.push(s.cabin); return out; },
