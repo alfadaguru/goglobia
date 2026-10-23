@@ -38,21 +38,41 @@ $isHotel = ($svc === 'hotels');
       <!-- ============ LIVE MODE: supplier search ============ -->
       <div class="card p-4" x-show="mode==='live'">
         <h2 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2"><span class="material-symbols-outlined text-lg">travel_explore</span>Search a live supplier</h2>
+        <p class="text-xs text-slate-500 mb-3">Searches every enabled supplier at once (same as the website) and shows the combined offers.</p>
         <div class="grid sm:grid-cols-2 gap-3">
-          <label class="form-control"><span class="form-label">Supplier</span>
-            <select class="select input" x-model="live.supplier">
-              <option value="">Choose…</option>
-              <template x-for="s in suppliers" :key="s"><option :value="s" x-text="s"></option></template>
-            </select>
-          </label>
           <?php if (!$isHotel): ?>
           <label class="form-control"><span class="form-label">Trip type</span>
             <select class="select input" x-model="live.type">
               <option value="oneway">One way</option><option value="return">Round trip</option>
             </select>
           </label>
-          <label class="form-control"><span class="form-label">From (IATA)</span><input class="input" x-model="live.origin" placeholder="DEL"></label>
-          <label class="form-control"><span class="form-label">To (IATA)</span><input class="input" x-model="live.destination" placeholder="BOM"></label>
+          <div></div>
+          <!-- From airport (autocomplete against flights_airports) -->
+          <div class="form-control relative">
+            <span class="form-label">From</span>
+            <input class="input" x-model="ac.origin.q" @input.debounce.250ms="acSearch('origin')" @focus="acSearch('origin')" @blur="acBlur('origin')" placeholder="City, airport or code" autocomplete="off">
+            <div class="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto" x-show="ac.origin.open && ac.origin.items.length" x-cloak>
+              <template x-for="(a,i) in ac.origin.items" :key="i">
+                <button type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50" @mousedown.prevent="acPick('origin',a)">
+                  <span class="font-medium" x-text="a.city + ' (' + a.code + ')'"></span>
+                  <span class="text-slate-400 text-xs block" x-text="a.airport + ' · ' + a.country"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+          <!-- To airport -->
+          <div class="form-control relative">
+            <span class="form-label">To</span>
+            <input class="input" x-model="ac.destination.q" @input.debounce.250ms="acSearch('destination')" @focus="acSearch('destination')" @blur="acBlur('destination')" placeholder="City, airport or code" autocomplete="off">
+            <div class="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto" x-show="ac.destination.open && ac.destination.items.length" x-cloak>
+              <template x-for="(a,i) in ac.destination.items" :key="i">
+                <button type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50" @mousedown.prevent="acPick('destination',a)">
+                  <span class="font-medium" x-text="a.city + ' (' + a.code + ')'"></span>
+                  <span class="text-slate-400 text-xs block" x-text="a.airport + ' · ' + a.country"></span>
+                </button>
+              </template>
+            </div>
+          </div>
           <label class="form-control"><span class="form-label">Depart</span><input type="date" class="input" x-model="live.departure_date"></label>
           <label class="form-control" x-show="live.type==='return'"><span class="form-label">Return</span><input type="date" class="input" x-model="live.return_date"></label>
           <label class="form-control"><span class="form-label">Adults</span><input type="number" min="1" class="input" x-model.number="live.adults"></label>
@@ -83,6 +103,7 @@ $isHotel = ($svc === 'hotels');
               <div class="min-w-0">
                 <div class="font-medium text-slate-800 text-sm truncate" x-text="r.label"></div>
                 <div class="text-xs text-slate-500" x-text="r.sub"></div>
+                <div class="text-[10px] uppercase tracking-wide text-slate-400 mt-0.5" x-text="r.supplier"></div>
               </div>
               <div class="text-right shrink-0">
                 <div class="font-semibold tabular-nums" x-text="r.price_label"></div>
@@ -102,11 +123,44 @@ $isHotel = ($svc === 'hotels');
         <div class="space-y-3">
           <template x-for="(seg,i) in manual.segments" :key="i">
             <div class="grid sm:grid-cols-3 gap-2 border border-slate-200 rounded-lg p-3">
-              <label class="form-control"><span class="form-label">Airline</span><input class="input" x-model="seg.airline" placeholder="Air Peace"></label>
+              <!-- Airline (autocomplete against flights_airlines; auto-fills code) -->
+              <div class="form-control relative">
+                <span class="form-label">Airline</span>
+                <input class="input" x-model="seg.airline" @input.debounce.250ms="segAirline(seg)" @focus="segAirline(seg)" @blur="segBlur(seg,'al')" placeholder="Air Peace" autocomplete="off">
+                <div class="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto" x-show="seg._alOpen && seg._alItems && seg._alItems.length" x-cloak>
+                  <template x-for="(a,k) in seg._alItems" :key="k">
+                    <button type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50" @mousedown.prevent="segPickAirline(seg,a)">
+                      <span class="font-medium" x-text="a.name"></span><span class="text-slate-400 text-xs" x-text="' ('+(a.iata||a.code||'')+')'"></span>
+                    </button>
+                  </template>
+                </div>
+              </div>
               <label class="form-control"><span class="form-label">Flight #</span><input class="input" x-model="seg.flight_number" placeholder="P47123"></label>
               <label class="form-control"><span class="form-label">Airline code</span><input class="input" x-model="seg.airline_code" placeholder="P4"></label>
-              <label class="form-control"><span class="form-label">From (IATA)</span><input class="input" x-model="seg.from" placeholder="LOS"></label>
-              <label class="form-control"><span class="form-label">To (IATA)</span><input class="input" x-model="seg.to" placeholder="ABV"></label>
+              <!-- From airport -->
+              <div class="form-control relative">
+                <span class="form-label">From</span>
+                <input class="input" x-model="seg._fromText" @input.debounce.250ms="segAirport(seg,'from')" @focus="segAirport(seg,'from')" @blur="segBlur(seg,'from')" placeholder="City / airport / code" autocomplete="off">
+                <div class="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto" x-show="seg._fromOpen && seg._fromItems && seg._fromItems.length" x-cloak>
+                  <template x-for="(a,k) in seg._fromItems" :key="k">
+                    <button type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50" @mousedown.prevent="segPickAirport(seg,'from',a)">
+                      <span class="font-medium" x-text="a.city+' ('+a.code+')'"></span><span class="text-slate-400 text-xs block" x-text="a.airport"></span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+              <!-- To airport -->
+              <div class="form-control relative">
+                <span class="form-label">To</span>
+                <input class="input" x-model="seg._toText" @input.debounce.250ms="segAirport(seg,'to')" @focus="segAirport(seg,'to')" @blur="segBlur(seg,'to')" placeholder="City / airport / code" autocomplete="off">
+                <div class="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto" x-show="seg._toOpen && seg._toItems && seg._toItems.length" x-cloak>
+                  <template x-for="(a,k) in seg._toItems" :key="k">
+                    <button type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50" @mousedown.prevent="segPickAirport(seg,'to',a)">
+                      <span class="font-medium" x-text="a.city+' ('+a.code+')'"></span><span class="text-slate-400 text-xs block" x-text="a.airport"></span>
+                    </button>
+                  </template>
+                </div>
+              </div>
               <div></div>
               <label class="form-control"><span class="form-label">Departs</span><input type="datetime-local" class="input" x-model="seg.depart"></label>
               <label class="form-control"><span class="form-label">Arrives</span><input type="datetime-local" class="input" x-model="seg.arrive"></label>
@@ -273,17 +327,23 @@ function bookingMgr() {
     isSenior: <?= !empty($bm['is_senior']) ? 'true' : 'false' ?>,
 
     mode: 'manual',
-    live: { supplier:'', type:'oneway', origin:'', destination:'', departure_date:'', return_date:'', adults:1, children:0, class:'economy', rooms:1, checkin:'', checkout:'', currency:'' },
-    manual: { segments:[{airline:'',flight_number:'',airline_code:'',from:'',to:'',depart:'',arrive:''}], pnr:'', hotel_name:'', hotel_stars:0, hotel_address:'', hotel_city:'', hotel_country:'', checkin:'', checkout:'', room_type:'', board_type:'', rooms:1, nights:1 },
+    live: { type:'oneway', origin:'', destination:'', departure_date:'', return_date:'', adults:1, children:0, class:'economy', rooms:1, checkin:'', checkout:'', currency:'' },
+    // Airport autocomplete state (origin/destination for live flight search).
+    // origin/destination hold the resolved IATA code; .q is the visible text.
+    ac: { origin:{q:'',items:[],open:false}, destination:{q:'',items:[],open:false} },
+    manual: { segments:[], pnr:'', hotel_name:'', hotel_stars:0, hotel_address:'', hotel_city:'', hotel_country:'', checkin:'', checkout:'', room_type:'', board_type:'', rooms:1, nights:1 },
     cust: { first_name:'', last_name:'', email:'', phone:'' },
     pax: [{ type:'adult', title:'Mr', first_name:'', last_name:'', passport_number:'' }],
     price: { sell:0, cost:0, currency:'' },
 
-    searching:false, searched:false, results:[], selectedOffer:null, selectedRaw:null,
+    searching:false, searched:false, results:[], selectedOffer:null, selectedRaw:null, selectedSupplier:'',
     creating:false, created:false, invoiceId:'', clientToken:'',
     paying:false, dva:null, manualPay:false, settleMsg:'', settleMsgOk:false,
 
-    init(){ this.clientToken = (Date.now().toString(36) + Math.random().toString(36).slice(2,8)); },
+    init(){ this.clientToken = (Date.now().toString(36) + Math.random().toString(36).slice(2,8)); this.manual.segments=[this.blankSeg()]; },
+
+    blankSeg(){ return { airline:'', flight_number:'', airline_code:'', from:'', to:'', depart:'', arrive:'',
+      _alItems:[], _alOpen:false, _fromText:'', _fromItems:[], _fromOpen:false, _toText:'', _toItems:[], _toOpen:false }; },
 
     get isInternational(){
       // Flights only: different origin/destination countries can't be known
@@ -293,36 +353,90 @@ function bookingMgr() {
       return false;
     },
 
-    addSegment(){ this.manual.segments.push({airline:'',flight_number:'',airline_code:'',from:'',to:'',depart:'',arrive:''}); },
+    addSegment(){ this.manual.segments.push(this.blankSeg()); },
+
+    // ---- Manual-segment autocomplete (airline + from/to airport) -----------
+    async segAirline(seg){
+      const q=(seg.airline||'').trim(); if(q.length<2){ seg._alItems=[]; seg._alOpen=false; return; }
+      try{ const res=await fetch(this.base+'admin/flights/search-airlines',{method:'POST',body:this.form({search:q})}); const d=await res.json(); seg._alItems=(d&&d.airlines)?d.airlines:[]; seg._alOpen=true; }catch(e){ seg._alItems=[]; seg._alOpen=false; }
+    },
+    segPickAirline(seg,a){ seg.airline=a.name; seg.airline_code=(a.iata||a.code||''); seg._alOpen=false; },
+    async segAirport(seg,side){
+      const txt=(side==='from'?seg._fromText:seg._toText||'').trim(); if(txt.length<2){ if(side==='from'){seg._fromItems=[];seg._fromOpen=false;}else{seg._toItems=[];seg._toOpen=false;} return; }
+      try{ const res=await fetch(this.base+'admin/flights/search-airports',{method:'POST',body:this.form({search:txt})}); const d=await res.json(); const items=(d&&d.airports)?d.airports:[]; if(side==='from'){seg._fromItems=items;seg._fromOpen=true;}else{seg._toItems=items;seg._toOpen=true;} }catch(e){}
+    },
+    segPickAirport(seg,side,a){ if(side==='from'){ seg.from=a.code; seg._fromText=a.city+' ('+a.code+')'; seg._fromOpen=false; } else { seg.to=a.code; seg._toText=a.city+' ('+a.code+')'; seg._toOpen=false; } },
+    segBlur(seg,which){ setTimeout(()=>{ if(which==='al')seg._alOpen=false; else if(which==='from')seg._fromOpen=false; else seg._toOpen=false; },150); },
     addPax(t){ this.pax.push({ type:t, title: t==='child'?'Mstr':'Mr', first_name:'', last_name:'', passport_number:'' }); },
 
     form(o){ const f=new FormData(); f.append('csrf_token',this.csrf); for(const k in o){ let v=o[k]; if(v===null||v===undefined) v=''; if(typeof v==='object') v=JSON.stringify(v); f.append(k,v);} return f; },
 
-    async runSearch(){
-      if(!this.live.supplier){ alert('Choose a supplier'); return; }
-      this.searching=true; this.searched=false; this.results=[];
+    // ---- Airport autocomplete (reuses the admin flights endpoint) ----------
+    async acSearch(which){
+      const st=this.ac[which]; const q=(st.q||'').trim();
+      if(q.length<2){ st.items=[]; st.open=false; return; }
       try{
-        const p = Object.assign({ service:this.service, supplier:this.live.supplier }, this.live);
-        if(!p.currency) p.currency=this.baseCurrency;
-        const res = await fetch(this.base+'admin/booking-manager/search',{method:'POST',body:this.form(p)});
-        const data = await res.json();
-        this.results = this.normalize(data);
-      }catch(e){ alert('Search failed'); }
+        const res=await fetch(this.base+'admin/flights/search-airports',{method:'POST',body:this.form({search:q})});
+        const data=await res.json();
+        st.items=(data&&data.airports)?data.airports:[];
+        st.open=true;
+      }catch(e){ st.items=[]; st.open=false; }
+    },
+    acPick(which,a){
+      this.ac[which].q = a.city+' ('+a.code+') · '+a.airport;
+      this.ac[which].open=false;
+      this.live[which]=a.code;            // the IATA code the supplier search needs
+    },
+    acBlur(which){ setTimeout(()=>{ this.ac[which].open=false; }, 150); },
+
+    // Flight date to the website's DD-MM-YYYY wire format (input gives YYYY-MM-DD).
+    fmtDate(d){ if(!d) return ''; const p=String(d).split('-'); return (p.length===3)?`${p[2]}-${p[1]}-${p[0]}`:d; },
+
+    async runSearch(){
+      if(!this.isHotel){
+        if(!this.live.origin||!this.live.destination){ alert('Pick a From and To airport'); return; }
+        if(!this.live.departure_date){ alert('Pick a departure date'); return; }
+      }
+      if(!this.suppliers.length){ alert('No live suppliers are enabled.'); return; }
+      this.searching=true; this.searched=false; this.results=[]; this.selectedOffer=null; this.selectedRaw=null;
+
+      // Build the shared search params using the SAME names the website sends to
+      // each supplier (note: childrens, DD-MM-YYYY dates).
+      const base = this.isHotel
+        ? { service:this.service, destination:this.live.destination, checkin:this.live.checkin, checkout:this.live.checkout, rooms:this.live.rooms, adults:this.live.adults, currency:this.live.currency||this.baseCurrency }
+        : { service:this.service, origin:this.live.origin, destination:this.live.destination, type:this.live.type,
+            class:this.live.class, departure_date:this.fmtDate(this.live.departure_date),
+            return_date:this.fmtDate(this.live.return_date), adults:this.live.adults,
+            childrens:this.live.children, infants:0, currency:this.live.currency||this.baseCurrency };
+
+      // Fan out to EVERY enabled supplier in parallel, exactly like the website,
+      // and merge offers as each responds (progressive).
+      await Promise.allSettled(this.suppliers.map(async (supplier)=>{
+        try{
+          const res=await fetch(this.base+'admin/booking-manager/search',{method:'POST',body:this.form(Object.assign({supplier},base))});
+          const data=await res.json();
+          const rows=this.normalize(data, supplier);
+          if(rows.length){ this.results=this.results.concat(rows).sort((a,b)=>a.price_num-b.price_num); }
+        }catch(e){ /* one supplier failing must not sink the rest */ }
+      }));
+
       this.searching=false; this.searched=true;
     },
-    normalize(data){
+    normalize(data, supplier){
       // Accept both wrapped {results:[...]} (hotels) and bare flight arrays.
       let list = Array.isArray(data) ? data : (data.results || data.offers || []);
       if(!Array.isArray(list)) list=[];
       return list.map(it=>{
         if(this.isHotel){
-          return { label: it.name||'Hotel', sub: (it.stars?it.stars+'★ · ':'')+(it.location||''), price_label:(it.currency||'')+' '+Number(it.price||it.display_price||0).toLocaleString(), raw: it };
+          const price=Number(it.price||it.display_price||0);
+          return { supplier, label: it.name||'Hotel', sub: (it.stars?it.stars+'★ · ':'')+(it.location||''), price_num:price, price_label:(it.currency||'')+' '+price.toLocaleString(), raw: it };
         }
         const seg = (it.segments && it.segments[0] && it.segments[0][0]) ? it.segments[0][0] : it;
-        return { label:(seg.airline||'')+' '+(seg.flight_no||''), sub:(seg.departure_code||seg.departure_airport||'')+' → '+(seg.arrival_code||seg.arrival_airport||''), price_label:(seg.currency||'')+' '+Number(it.price||seg.price||0).toLocaleString(), raw: it };
+        const price=Number(it.price||seg.price||0);
+        return { supplier, label:(seg.airline||'')+' '+(seg.flight_no||''), sub:(seg.departure_code||seg.departure_airport||'')+' → '+(seg.arrival_code||seg.arrival_airport||''), price_num:price, price_label:(seg.currency||'')+' '+price.toLocaleString(), raw: it };
       });
     },
-    selectOffer(i){ this.selectedOffer=i; this.selectedRaw=this.results[i].raw;
+    selectOffer(i){ this.selectedOffer=i; this.selectedRaw=this.results[i].raw; this.selectedSupplier=this.results[i].supplier;
       // prefill price from the offer
       const r=this.results[i].raw; const seg=(r.segments&&r.segments[0]&&r.segments[0][0])?r.segments[0][0]:r;
       this.price.sell = Number(r.price||seg.price||r.display_price||0)||this.price.sell;
@@ -347,13 +461,17 @@ function bookingMgr() {
           pnr: this.manual.pnr||'',
         };
         if(this.mode==='live'){
-          payload.supplier=this.live.supplier;
+          payload.supplier=this.selectedSupplier;   // the supplier THIS offer came from
           const r=this.selectedRaw; const seg=(r.segments&&r.segments[0]&&r.segments[0][0])?r.segments[0][0]:r;
           payload.offer_booking_data = JSON.stringify(seg.booking_data || r.booking_data || r);
           if(this.isHotel){ payload.selected_rooms = JSON.stringify(r.room_options||[]); }
         } else {
           if(this.isHotel){ Object.assign(payload,{hotel_name:this.manual.hotel_name,hotel_stars:this.manual.hotel_stars,hotel_address:this.manual.hotel_address,hotel_city:this.manual.hotel_city,hotel_country:this.manual.hotel_country,checkin:this.manual.checkin,checkout:this.manual.checkout,room_type:this.manual.room_type,board_type:this.manual.board_type,rooms:this.manual.rooms,nights:this.manual.nights}); }
-          else { payload.segments = JSON.stringify(this.manual.segments); }
+          else {
+            // strip the UI-only autocomplete helper fields before sending
+            const segs=this.manual.segments.map(s=>({ airline:s.airline, flight_number:s.flight_number, airline_code:s.airline_code, from:s.from, to:s.to, depart:s.depart, arrive:s.arrive }));
+            payload.segments = JSON.stringify(segs);
+          }
         }
         // multipart to allow the slip upload
         const f=this.form(payload);

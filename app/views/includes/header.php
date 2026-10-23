@@ -304,6 +304,8 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
 
     <!-- CRITICAL FIRST-PAINT CSS (OVERLAY-ONLY LOADER, NEVER HIDE BODY) -->
     <style>
+      /* Hide Alpine-cloaked elements until Alpine initializes (prevents flash). */
+      [x-cloak] { display: none !important; }
       /* LOCK SCROLL ONLY WHILE THE LOADER OVERLAY IS VISIBLE (AUTO-RELEASES ON FADE) */
       html:has(.page-loader:not(.hide)) { overflow: hidden; }
       .page-loader { position: fixed; inset: 0; background: #fff; z-index: 999999; display: flex; align-items: center; justify-content: center; opacity: 1; transition: opacity .18s ease-out; will-change: opacity; }
