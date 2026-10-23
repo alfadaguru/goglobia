@@ -825,8 +825,41 @@ if ($displayCurrencyRate > 0) {
                 window.flightSearchInitialized = true;
 
                 this.loadSearchParams();
+                // Restore filters a customer applied before modifying the search — but
+                // ONLY for the SAME route+dates (a different search resets them, since
+                // airline/stop filters are meaningless on a new route).
+                this.restoreFilters();
+                // Persist filters whenever they change (deep watch) so the restore above
+                // has something to read after a search-modify reload. Fires only on real
+                // filter changes, never during result streaming.
+                this.$watch('filters', () => this.saveFilters());
                 this.preloadCommonAirlines();
                 this.searchFlights();
+            },
+
+            // --- Filter persistence across a search-modify reload -------------------
+            _filterKey() {
+                return 'fl_filters:' + (window.location.pathname || '');
+            },
+            saveFilters() {
+                try {
+                    // Never persist the supplier filter (admin-only; keeps supplier
+                    // identity out of sessionStorage for customers).
+                    const { suppliers, ...persist } = this.filters;
+                    sessionStorage.setItem(this._filterKey(), JSON.stringify(persist));
+                } catch (e) {}
+            },
+            restoreFilters() {
+                try {
+                    const raw = sessionStorage.getItem(this._filterKey());
+                    if (!raw) return;
+                    const saved = JSON.parse(raw);
+                    if (saved && typeof saved === 'object') {
+                        // Merge onto defaults so a schema change can't break it.
+                        this.filters = Object.assign({}, this.filters, saved);
+                        if (Array.isArray(saved.priceRange)) { this.priceRange = { min: saved.priceRange[0], max: saved.priceRange[1] }; }
+                    }
+                } catch (e) {}
             },
 
             // Pre-load most common airlines to avoid API calls during search

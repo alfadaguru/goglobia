@@ -384,8 +384,33 @@
                 if (initialized) return;
                 initialized = true;
                 this.loadSearchParams();
+                // Restore filters applied before a search-modify reload, ONLY for the
+                // same destination+dates (a different search resets them).
+                this.restoreFilters();
+                this.$watch('filters', () => this.saveFilters());
                 this.checkUrlHash();
                 this.searchHotels();
+            },
+            // --- Filter persistence across a search-modify reload ------------------
+            _filterKey() { return 'st_filters:' + (window.location.pathname || ''); },
+            saveFilters() {
+                try {
+                    // Never persist the supplier filter (admin-only; keeps supplier
+                    // identity out of sessionStorage for customers).
+                    const { suppliers, ...persist } = this.filters;
+                    sessionStorage.setItem(this._filterKey(), JSON.stringify(persist));
+                } catch (e) {}
+            },
+            restoreFilters() {
+                try {
+                    const raw = sessionStorage.getItem(this._filterKey());
+                    if (!raw) return;
+                    const saved = JSON.parse(raw);
+                    if (saved && typeof saved === 'object') {
+                        this.filters = Object.assign({}, this.filters, saved);
+                        if (Array.isArray(saved.priceRange)) { this.priceRange = { min: saved.priceRange[0], max: saved.priceRange[1] }; }
+                    }
+                } catch (e) {}
             },
             checkUrlHash() {
                 // Check if URL has hash (e.g., #2, #3)
