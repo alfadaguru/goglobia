@@ -518,9 +518,34 @@ if ($displayCurrencyRate > 0) {
     <div class="w-full h-full bg-gray-100 dark:bg-gray-900">
         <div class="flex flex-col gap-4">
 
-            <!-- Search Form -->
-            <div class="container py-5 pb-2">
-                <div class="card overflow-visible bg-white border border-gray-200 rounded-2xl p-5 relative">
+            <!-- Search Form — collapsed to a compact "Modify" summary on results;
+                 expands to the full form. Homepage include (index.php) is unaffected. -->
+            <div class="container py-5 pb-2" x-data="{ expanded: false }">
+                <!-- Collapsed summary bar -->
+                <div x-show="!expanded"
+                    class="card bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl px-4 sm:px-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:border-blue-300 transition-colors"
+                    @click="expanded = true">
+                    <div class="flex items-center gap-2.5 min-w-0 text-sm">
+                        <span class="material-symbols-outlined text-blue-600 shrink-0" style="font-size: 20px;">flight_takeoff</span>
+                        <span class="font-semibold text-gray-900 dark:text-gray-100 truncate" x-text="(searchParams.origin || '') + ' → ' + (searchParams.destination || '')"></span>
+                        <span class="text-gray-300 dark:text-gray-600">·</span>
+                        <span class="text-gray-600 dark:text-gray-300 truncate" x-text="searchParams.departure_date + (searchParams.return_date ? ' – ' + searchParams.return_date : '')"></span>
+                        <span class="text-gray-300 dark:text-gray-600 hidden sm:inline">·</span>
+                        <span class="text-gray-600 dark:text-gray-300 hidden sm:inline" x-text="((+searchParams.adults||0)+(+searchParams.childrens||0)+(+searchParams.infants||0)) + ' pax · ' + (searchParams.class || 'economy')"></span>
+                    </div>
+                    <button type="button" class="btn-outline shrink-0 inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 rounded-lg px-3 py-1.5" @click.stop="expanded = true">
+                        <span class="material-symbols-outlined" style="font-size: 18px;">tune</span>
+                        <span><?= T::modify ?></span>
+                    </button>
+                </div>
+                <!-- Expanded full form -->
+                <div x-show="expanded" x-collapse class="card overflow-visible bg-white border border-gray-200 rounded-2xl p-5 relative">
+                    <div class="flex justify-end -mt-1 -mr-1 mb-1">
+                        <button type="button" class="text-gray-400 hover:text-gray-700 inline-flex items-center gap-1 text-xs" @click="expanded = false">
+                            <span class="material-symbols-outlined" style="font-size: 18px;">expand_less</span>
+                            Close
+                        </button>
+                    </div>
                     <?php include views . "modules/flights/flights-search.php"; ?>
                 </div>
             </div>
@@ -613,15 +638,49 @@ if ($displayCurrencyRate > 0) {
                                 x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
                                 class="space-y-4"
                                 :class="filteredFlights.length > 0 ? 'absolute inset-0 pointer-events-none z-10' : ''">
+                                <!-- Skeleton MIRRORS the real flight card (logo · route timeline ·
+                                     price · book) so the fill-in reads as loading, not a jolt. -->
                                 <template x-for="i in 12">
                                     <div
                                         class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 animate-pulse">
-                                        <div class="flex gap-4">
-                                            <div class="w-10 h-10 bg-gray-300 dark:bg-gray-600 rounded"></div>
-                                            <div class="flex-1 space-y-2">
-                                                <div class="h-4 bg-gray-300 dark:bg-gray-600 rounded w-3/4"></div>
-                                                <div class="h-3 bg-gray-300 dark:bg-gray-600 rounded w-1/2"></div>
+                                        <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+                                            <!-- Airline col -->
+                                            <div class="flex items-center gap-3 sm:w-40 shrink-0">
+                                                <div class="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
+                                                <div class="space-y-1.5">
+                                                    <div class="h-3.5 bg-gray-200 dark:bg-gray-700 rounded w-20"></div>
+                                                    <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded w-12"></div>
+                                                </div>
                                             </div>
+                                            <!-- Route timeline col -->
+                                            <div class="flex-1 flex items-center gap-3">
+                                                <div class="space-y-1.5">
+                                                    <div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-12"></div>
+                                                    <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded w-8"></div>
+                                                </div>
+                                                <div class="flex-1 flex items-center gap-1">
+                                                    <div class="w-1.5 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700"></div>
+                                                    <div class="flex-1 h-px bg-gray-200 dark:bg-gray-700"></div>
+                                                    <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded w-10"></div>
+                                                    <div class="flex-1 h-px bg-gray-200 dark:bg-gray-700"></div>
+                                                    <div class="w-1.5 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700"></div>
+                                                </div>
+                                                <div class="space-y-1.5">
+                                                    <div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-12"></div>
+                                                    <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded w-8"></div>
+                                                </div>
+                                            </div>
+                                            <!-- Price + book col -->
+                                            <div class="sm:w-36 shrink-0 space-y-2 sm:text-right">
+                                                <div class="h-5 bg-gray-200 dark:bg-gray-700 rounded w-24 sm:ml-auto"></div>
+                                                <div class="h-8 bg-gray-200 dark:bg-gray-700 rounded-lg w-full"></div>
+                                            </div>
+                                        </div>
+                                        <!-- meta footer -->
+                                        <div class="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/60">
+                                            <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded w-16"></div>
+                                            <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded w-14"></div>
+                                            <div class="h-2.5 bg-gray-200 dark:bg-gray-700 rounded w-20"></div>
                                         </div>
                                     </div>
                                 </template>
@@ -791,8 +850,41 @@ if ($displayCurrencyRate > 0) {
                 window.flightSearchInitialized = true;
 
                 this.loadSearchParams();
+                // Restore filters a customer applied before modifying the search — but
+                // ONLY for the SAME route+dates (a different search resets them, since
+                // airline/stop filters are meaningless on a new route).
+                this.restoreFilters();
+                // Persist filters whenever they change (deep watch) so the restore above
+                // has something to read after a search-modify reload. Fires only on real
+                // filter changes, never during result streaming.
+                this.$watch('filters', () => this.saveFilters());
                 this.preloadCommonAirlines();
                 this.searchFlights();
+            },
+
+            // --- Filter persistence across a search-modify reload -------------------
+            _filterKey() {
+                return 'fl_filters:' + (window.location.pathname || '');
+            },
+            saveFilters() {
+                try {
+                    // Never persist the supplier filter (admin-only; keeps supplier
+                    // identity out of sessionStorage for customers).
+                    const { suppliers, ...persist } = this.filters;
+                    sessionStorage.setItem(this._filterKey(), JSON.stringify(persist));
+                } catch (e) {}
+            },
+            restoreFilters() {
+                try {
+                    const raw = sessionStorage.getItem(this._filterKey());
+                    if (!raw) return;
+                    const saved = JSON.parse(raw);
+                    if (saved && typeof saved === 'object') {
+                        // Merge onto defaults so a schema change can't break it.
+                        this.filters = Object.assign({}, this.filters, saved);
+                        if (Array.isArray(saved.priceRange)) { this.priceRange = { min: saved.priceRange[0], max: saved.priceRange[1] }; }
+                    }
+                } catch (e) {}
             },
 
             // Pre-load most common airlines to avoid API calls during search
