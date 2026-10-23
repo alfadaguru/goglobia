@@ -27,6 +27,20 @@ if (!in_array('flights', array_column($GLOBALS['modules'] ?? [], 'type'), true))
 
 $__frCur = strtoupper((string) ($_SESSION['app_currency'] ?? ($GLOBALS['app']['default_currency'] ?? 'USD')));
 
+// A route tile links STRAIGHT to flight results for a sensible default date
+// (tomorrow) — the results page lets the traveller change the date, pax, cabin
+// and trip type freely, so there is no need to make them re-type the route. This
+// matches how the existing Featured Flights cards link, and dnata/Wakanow route
+// tiles. URL: /flights/{FROM}/{TO}/oneway/economy/{DD-MM-YYYY}/{adults}/{children}/{infants}
+$__frDate     = date('d-m-Y', strtotime('+1 day'));
+$__frAdults   = max(1, (int) ($_SESSION['flight_adults'] ?? $_SESSION['adults'] ?? 1));
+$__frChildren = max(0, (int) ($_SESSION['flight_children'] ?? $_SESSION['children'] ?? 0));
+$__frInfants  = max(0, (int) ($_SESSION['flight_infants'] ?? $_SESSION['infants'] ?? 0));
+$__frUrl = function (string $from, string $to) use ($__frDate, $__frAdults, $__frChildren, $__frInfants) {
+    return rtrim((string) root, '/') . '/flights/' . strtolower($from) . '/' . strtolower($to)
+        . '/oneway/economy/' . $__frDate . '/' . $__frAdults . '/' . $__frChildren . '/' . $__frInfants;
+};
+
 // Pull the admin-managed routes, grouped by scope.
 $__routesRaw = $db->select('flights_popular_routes', '*', [
     'status' => 1,
@@ -58,14 +72,15 @@ $__hasLocal = !empty($__routes['local']);
 $__hasIntl  = !empty($__routes['international']);
 $__firstTab = $__hasLocal ? 'local' : 'international';
 
-// Render one tile. $prefix identifies which group (for stable alt text only).
-$__renderTile = function (array $rt) {
+// Render one tile — a direct link to flight results for the default date
+// (traveller changes date/pax/cabin on the results page).
+$__renderTile = function (array $rt) use ($__frUrl) {
     $imgUrl = $rt['img'] !== '' ? (rtrim((string) root, '/') . '/' . ltrim($rt['img'], '/')) : '';
+    $href   = $__frUrl($rt['from'], $rt['to']);
     ob_start(); ?>
-    <button type="button"
-        onclick="window.dispatchEvent(new CustomEvent('goglobia:pick-flight',{detail:{from:<?= htmlspecialchars(json_encode($rt['from']), ENT_QUOTES) ?>,to:<?= htmlspecialchars(json_encode($rt['to']), ENT_QUOTES) ?>}}))"
-        class="group relative shrink-0 rounded-xl overflow-hidden border border-gray-200 bg-white shadow-sm hover:shadow-md transition text-left"
-        style="width:220px;cursor:pointer"
+    <a href="<?= htmlspecialchars($href, ENT_QUOTES) ?>"
+        class="group relative shrink-0 rounded-xl overflow-hidden border border-gray-200 bg-white shadow-sm hover:shadow-md transition text-left block"
+        style="width:220px;text-decoration:none"
         data-route="<?= htmlspecialchars($rt['from'] . '-' . $rt['to'], ENT_QUOTES) ?>"
         aria-label="Search flights <?= htmlspecialchars($rt['fromL'] . ' to ' . $rt['toL'], ENT_QUOTES) ?>">
       <?php if ($imgUrl !== ''): ?>
@@ -93,15 +108,15 @@ $__renderTile = function (array $rt) {
           <span class="truncate max-w-[45%] text-right"><?= htmlspecialchars($rt['toL']) ?></span>
         </div>
         <!-- Price slot: filled with a REAL deal price by JS if one exists; else the
-             fallback 'Search fares' label stays. -->
+             fallback 'View fares' label stays (the tile links to live results). -->
         <div class="flex items-center justify-between">
           <span class="text-[11px] text-gray-400">One way</span>
           <span class="fr-price text-xs font-semibold text-blue-600" data-route="<?= htmlspecialchars($rt['from'] . '-' . $rt['to'], ENT_QUOTES) ?>">
-            Search fares ›
+            View fares ›
           </span>
         </div>
       </div>
-    </button>
+    </a>
     <?php
     return ob_get_clean();
 };
@@ -115,7 +130,7 @@ $__renderTile = function (array $rt) {
           <span class="material-symbols-outlined text-blue-600">flight_takeoff</span>
           Popular flight routes
         </h2>
-        <p class="text-sm text-gray-500">Tap a route to search live fares — you pick the dates.</p>
+        <p class="text-sm text-gray-500">Tap a route to see live fares — change the date, travellers or cabin on the results page.</p>
       </div>
       <?php if ($__hasLocal && $__hasIntl): ?>
       <div class="flex gap-2">
