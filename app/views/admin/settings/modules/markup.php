@@ -185,3 +185,39 @@ document.addEventListener("DOMContentLoaded", function() {
         </div>
     </div>
 </div>
+
+<?php if (($module['type'] ?? '') === 'flights'): ?>
+<!-- Fare-hold countdown timer (flights only). Controls the "fares held for mm:ss"
+     countdown on BOTH the flight search-results page and the confirm-booking page.
+     Saved by the POST /settings/modules/{id} handler (fare_timer_enabled / minutes). -->
+<div class="bg-white rounded-lg border border-gray-200 mt-4">
+    <div class="px-4 py-3 border-b border-gray-200">
+        <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-gray-600 text-lg">timer</span>
+            <h3 class="text-sm font-semibold text-gray-900">Fare Hold Timer</h3>
+        </div>
+    </div>
+    <div class="p-4 space-y-3">
+        <p class="text-xs text-gray-500 -mt-1">
+            Shows a "fares held for mm:ss" countdown on BOTH the flight search-results
+            page and the confirm-booking page, because supplier fares can change. One
+            switch controls both pages.
+        </p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Fare hold timer</label>
+                <select name="fare_timer_enabled" class="input select w-full">
+                    <option value="0" <?= ((string) ($module['fare_timer_enabled'] ?? '0')) === '0' ? 'selected' : '' ?>>Disabled</option>
+                    <option value="1" <?= ((string) ($module['fare_timer_enabled'] ?? '0')) === '1' ? 'selected' : '' ?>>Enabled</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Fare hold minutes</label>
+                <input type="number" name="fare_timer_minutes" min="1" max="120" step="1"
+                       value="<?= (int) ($module['fare_timer_minutes'] ?? 15) ?>" class="input w-full" placeholder="15">
+                <p class="text-xs text-gray-400 mt-1">How long the fare is held before the customer must search again (1–120, default 15).</p>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
