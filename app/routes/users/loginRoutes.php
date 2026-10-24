@@ -138,6 +138,8 @@ $router->post('/login', function () use ($SECURE, $db) {
         exit;
     }
 
+    // Identifier may be an email OR a phone number (same field). Keep the POST
+    // key 'email' for form/back-compat; resolveLoginIdentifier() figures out which.
     $email = trim($_POST['email'] ?? '');
     $password = trim($_POST['password'] ?? '');
     if (empty($email) || empty($password)) {
@@ -146,7 +148,14 @@ $router->post('/login', function () use ($SECURE, $db) {
         exit;
     }
 
-    $user = $db->get('users', '*', ['email' => $email]);
+    $resolved = resolveLoginIdentifier($db, $email);
+    if ($resolved['reason'] === 'ambiguous_phone') {
+        // That phone is on more than one account — can't tell which; use email.
+        $_SESSION['login_error'] = 'ambiguous_phone';
+        header('Location: ' . root . 'login');
+        exit;
+    }
+    $user = $resolved['user'];
     if (!$user) {
         $_SESSION['login_error'] = 'invalid';
         header('Location: ' . root . 'login');
@@ -432,6 +441,7 @@ $router->post('/api/booking/quick-login', function () use ($SECURE, $db) {
         exit;
     }
 
+    // Identifier may be email OR phone (same field) — resolveLoginIdentifier decides.
     $email = trim($_POST['email'] ?? '');
     $password = trim($_POST['password'] ?? '');
 
@@ -441,7 +451,13 @@ $router->post('/api/booking/quick-login', function () use ($SECURE, $db) {
         exit;
     }
 
-    $user = $db->get('users', '*', ['email' => $email]);
+    $resolved = resolveLoginIdentifier($db, $email);
+    if ($resolved['reason'] === 'ambiguous_phone') {
+        $_SESSION['login_error'] = 'ambiguous_phone';
+        header('Location: ' . $redirectTo);
+        exit;
+    }
+    $user = $resolved['user'];
     if (!$user) {
         $_SESSION['login_error'] = 'invalid';
         header('Location: ' . $redirectTo);
