@@ -1104,6 +1104,19 @@ function handle_payment_callback($token, $action, $data = [])
             }
 
             // ============================================================
+            // REFERRAL: if the buyer was referred and this is their FIRST paid
+            // booking, hold a referral reward (credited to the referrer after the
+            // refund window). Central, idempotent, no-op when the program is off.
+            // ============================================================
+            if (function_exists('referral_on_booking_paid')) {
+                try {
+                    referral_on_booking_paid($db, (string) $tokenData['invoice_id']);
+                } catch (\Throwable $e) {
+                    error_log('referral_on_booking_paid: ' . $e->getMessage());
+                }
+            }
+
+            // ============================================================
             // RAIL: ISSUE AFTER PAYMENT IS MARKED PAID
             // ============================================================
             if (($booking['module_type'] ?? '') === 'rail') {
@@ -2288,6 +2301,10 @@ if (!function_exists('_auto_refund_on_issue_failure')) {
                     'booking_payment_issue' => 'Auto-refunded: supplier issue failed. ' . substr($error, 0, 180),
                 ], ['invoice_id' => $invoiceId]);
                 error_log('AUTO-REFUND OK | invoice=' . $invoiceId . ' gateway=' . $gwName . ' ref=' . ($res['reference'] ?? '?'));
+                // Referral clawback: a refunded qualifying booking reverses its reward.
+                if (function_exists('referral_reverse_reward')) {
+                    try { referral_reverse_reward($db, (string) $invoiceId); } catch (\Throwable $e) { error_log('referral clawback (auto): ' . $e->getMessage()); }
+                }
             } else {
                 // Refund API couldn't process it — leave the booking 'pending' (as the
                 // caller already set) and flag for admin; do NOT claim refunded.

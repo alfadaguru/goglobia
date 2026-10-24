@@ -432,3 +432,112 @@ if (!function_exists('referral_reverse_reward')) {
         return ['ok' => true, 'message' => 'Referral reward reversed'];
     }
 }
+
+if (!function_exists('referral_is_first_paid_booking')) {
+    /**
+     * True if the given invoice is the referee's FIRST paid booking — the single
+     * qualifying event. We count the user's paid bookings; this invoice qualifies
+     * only when it is the earliest paid one (so a reward is granted once, on the
+     * first conversion, never on a later booking).
+     */
+    function referral_is_first_paid_booking($db, string $userId, string $invoiceId): bool
+    {
+        $userId = trim($userId); $invoiceId = trim($invoiceId);
+        if ($userId === '' || $invoiceId === '') { return false; }
+        // Earliest paid booking for this user (by created_at, then invoice_id).
+        $first = $db->get('bookings', ['invoice_id'], [
+            'user_id'        => $userId,
+            'payment_status' => 'paid',
+            'ORDER'          => ['created_at' => 'ASC', 'invoice_id' => 'ASC'],
+            'LIMIT'          => 1,
+        ]);
+        return $first && (string) ($first['invoice_id'] ?? '') === $invoiceId;
+    }
+}
+
+if (!function_exists('referral_on_booking_paid')) {
+    /**
+     * CENTRAL reward hook — call this once a booking is confirmed PAID (safe to
+     * call more than once; fully idempotent). If the buyer was referred and this is
+     * their FIRST paid booking (and the booking meets the min-amount rule), it
+     * creates the referral reward in HOLD. The referrer's wallet is credited later,
+     * on RELEASE, after the hold window (so a refund in the window cleanly reverses).
+     *
+     * No-op when: program disabled, no pending referral, not the first paid booking,
+     * under the minimum, or a monthly cap is reached.
+     *
+     * @return array{ok:bool, message:string, reward_id?:int}
+     */
+    function referral_on_booking_paid($db, string $invoiceId): array
+    {
+        $invoiceId = trim($invoiceId);
+        if ($invoiceId === '') { return ['ok' => false, 'message' => 'Missing invoice']; }
+
+        $cfg = referral_config($db);
+        if (!$cfg['enabled']) { return ['ok' => false, 'message' => 'Referral program not active']; }
+        ensureReferralSchema($db);
+
+        // Already rewarded for this invoice? idempotent no-op.
+        if ($db->has('referral_rewards', ['invoice_id' => $invoiceId])) {
+            return ['ok' => true, 'message' => 'Already processed'];
+        }
+
+        $booking = $db->get('bookings', ['invoice_id', 'user_id', 'payment_status', 'price_markup', 'currency_markup', 'created_at'], ['invoice_id' => $invoiceId]);
+        if (!$booking) { return ['ok' => false, 'message' => 'Booking not found']; }
+        if (strtolower((string) ($booking['payment_status'] ?? '')) !== 'paid') {
+            return ['ok' => false, 'message' => 'Booking not paid'];
+        }
+        $buyerId = trim((string) ($booking['user_id'] ?? ''));
+        if ($buyerId === '') { return ['ok' => false, 'message' => 'Guest booking — no referral']; }
+
+        // Must have a PENDING referral (attached at signup) and be the first paid booking.
+        $referral = referral_pending_for_referee($db, $buyerId);
+        if (!$referral) { return ['ok' => false, 'message' => 'No pending referral for this user']; }
+        if (!referral_is_first_paid_booking($db, $buyerId, $invoiceId)) {
+            return ['ok' => false, 'message' => 'Not the first paid booking']; // reward only on first conversion
+        }
+
+        // Minimum booking amount (fraud control; 0 = no minimum).
+        $amount = (float) ($booking['price_markup'] ?? 0);
+        if ($cfg['min_booking_amount'] > 0 && $amount + 0.01 < $cfg['min_booking_amount']) {
+            return ['ok' => false, 'message' => 'Below minimum booking amount'];
+        }
+
+        // Monthly cap per referrer (0 = unlimited): count rewards created this month.
+        if ($cfg['cap_per_month'] > 0) {
+            $monthStart = date('Y-m-01 00:00:00');
+            $thisMonth = (int) $db->count('referral_rewards', [
+                'referrer_id' => (string) $referral['referrer_id'],
+                'created_at[>=]' => $monthStart,
+            ]);
+            if ($thisMonth >= $cfg['cap_per_month']) {
+                return ['ok' => false, 'message' => 'Referrer monthly cap reached'];
+            }
+        }
+
+        return referral_record_reward($db, (int) $referral['id'], $invoiceId);
+    }
+}
+
+if (!function_exists('referral_referee_discount_for')) {
+    /**
+     * The discount a referee is entitled to on their FIRST booking, for the checkout
+     * to apply (the referee's half of the double-sided reward). Returns 0 unless the
+     * program is enabled, the user has a pending referral, and they have no prior paid
+     * booking yet. Capped at the order amount.
+     */
+    function referral_referee_discount_for($db, string $userId, float $orderAmount): float
+    {
+        $cfg = referral_config($db);
+        if (!$cfg['enabled'] || $cfg['referee_amount'] <= 0) { return 0.0; }
+        $userId = trim($userId);
+        if ($userId === '') { return 0.0; }
+        ensureReferralSchema($db);
+
+        if (!referral_pending_for_referee($db, $userId)) { return 0.0; }
+        // Only on the first booking — if they already have a paid booking, no referee discount.
+        if ($db->has('bookings', ['user_id' => $userId, 'payment_status' => 'paid'])) { return 0.0; }
+
+        return round(min((float) $cfg['referee_amount'], max(0.0, $orderAmount)), 2);
+    }
+}
