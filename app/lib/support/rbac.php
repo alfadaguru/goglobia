@@ -14,7 +14,9 @@
 //
 // All functions are global (namespace-free) + function_exists-guarded so this
 // file is safe to require more than once (config.php + route files).
-@$SECURE or die('Access Denied!');
+// NOTE: this is a LIBRARY (loaded from config.php during bootstrap, BEFORE
+// $SECURE is set), so it must NOT carry the `@$SECURE or die` route/view guard —
+// doing so kills the whole app at boot. No other app/lib file carries it.
 
 if (!function_exists('ensureSupportRbacSchema')) {
     /**
