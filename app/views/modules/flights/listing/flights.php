@@ -969,7 +969,7 @@ try {
             initialized: false,
             apiErrors: [],
             showMobileFilters: false,
-            pmOpen: true,   // price-matrix expanded by default
+            pmOpen: false,  // "Best fares by airline" collapsed by default; user clicks to expand
 
             // Fare-hold countdown (admin-enabled per provider). Same method shape and
             // mm:ss formatting as the confirm-booking timer (booking/index.php), but the
