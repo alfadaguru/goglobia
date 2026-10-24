@@ -6,6 +6,7 @@ $router->get(admin.'/dashboard', function () use ($SECURE,$db) {
 
 // ADMIN AUTH CHECK
 ADMIN_AUTH();
+admin_require($db, 'dashboard', 'view');
 
 // META DATA
 $title = 'Dashboard';

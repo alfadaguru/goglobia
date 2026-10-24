@@ -133,6 +133,7 @@ if (!function_exists('campaignSeedStarters')) {
 // ================================ LIST
 $router->get(admin.'/campaign-templates', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'view');
     if (function_exists('ensureCampaignTemplateSchema')) { ensureCampaignTemplateSchema($db); }
     campaignSeedStarters($db); // lazy one-time seed of the built-in starters
     $title = 'Campaign Templates'; $description = ''; $header = true; $footer = true;
@@ -144,6 +145,7 @@ $router->get(admin.'/campaign-templates', function () use ($SECURE, $db) {
 // ================================ CREATE / EDIT (form)
 $router->get(admin.'/campaign-templates/create', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'add');
     if (function_exists('ensureCampaignTemplateSchema')) { ensureCampaignTemplateSchema($db); }
     $title = 'New Template'; $description = ''; $header = true; $footer = true;
     $_GET['id'] = 0;
@@ -153,6 +155,7 @@ $router->get(admin.'/campaign-templates/create', function () use ($SECURE, $db) 
 });
 $router->get(admin.'/campaign-templates/edit/([0-9]+)', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'edit');
     if (function_exists('ensureCampaignTemplateSchema')) { ensureCampaignTemplateSchema($db); }
     $title = 'Edit Template'; $description = ''; $header = true; $footer = true;
     $_GET['id'] = (int) $id;
@@ -164,6 +167,7 @@ $router->get(admin.'/campaign-templates/edit/([0-9]+)', function ($id) use ($SEC
 // ================================ SAVE (blocks -> rendered HTML)
 $router->post(admin.'/campaign-templates/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'edit');
     CSRF::verifyRequest();
     if (function_exists('ensureCampaignTemplateSchema')) { ensureCampaignTemplateSchema($db); }
 
@@ -208,6 +212,7 @@ $router->post(admin.'/campaign-templates/save', function () use ($SECURE, $db) {
 // ================================ DELETE (non-system only)
 $router->post(admin.'/campaign-templates/delete', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'delete');
     CSRF::verifyRequest();
     $id = (int) ($_POST['id'] ?? 0);
     try {
@@ -226,6 +231,7 @@ $router->post(admin.'/campaign-templates/delete', function () use ($SECURE, $db)
 // ================================ JSON: fetch a template's HTML (composer picker)
 $router->get(admin.'/campaign-templates/html/([0-9]+)', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'view');
     header('Content-Type: application/json');
     $t = $db->get('email_templates_library', ['id', 'name', 'body_html'], ['id' => (int) $id]);
     if (!$t) { http_response_code(404); echo json_encode(['success' => false]); exit; }

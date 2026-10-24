@@ -10,6 +10,7 @@ $router->get(admin.'/finance/transactions(.*)', function ($user_id) use ($SECURE
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'transactions', 'view');
 
     // META DATA
     $title = T::transactions_management;
@@ -26,6 +27,7 @@ $router->get(admin.'/finance/transactions(.*)', function ($user_id) use ($SECURE
 // ================================ POST /finance/transactions
 $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'transactions', 'add');
     // CSRF (audit money-integrity): this POST moves money / adjusts a credit line,
     // so it must carry a valid token. Was previously unguarded.
     if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_POST['_token'] ?? ''))) {
@@ -238,6 +240,7 @@ $router->post(admin.'/user-search-suggestion', function () use ($SECURE,$db) {
     // admin-only. (Duplicate registration of the same path also exists in
     // creditsRoutes.php — both guarded so whichever the router binds is safe.)
     ADMIN_AUTH();
+    admin_require($db, 'transactions', 'view');
     // CLEAN ALL OUTPUT BUFFERS
     while (ob_get_level()) {
         ob_end_clean();

@@ -13,6 +13,7 @@
 // ---- LIST / SCREEN --------------------------------------------------------
 $router->get(admin.'/flights/popular-routes', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'flights', 'view');
     if (function_exists('ensureFlightsPopularRoutesSchema')) {
         ensureFlightsPopularRoutesSchema($db);
     }
@@ -28,6 +29,7 @@ $router->get(admin.'/flights/popular-routes', function () use ($SECURE, $db) {
 // ---- CREATE / UPDATE (single JSON endpoint) -------------------------------
 $router->post(admin.'/flights/popular-routes/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'flights', 'edit');
     CSRF::guard();
     header('Content-Type: application/json; charset=utf-8');
 
@@ -94,6 +96,7 @@ $router->post(admin.'/flights/popular-routes/save', function () use ($SECURE, $d
 // ---- TOGGLE STATUS --------------------------------------------------------
 $router->post(admin.'/flights/popular-routes/toggle', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'flights', 'edit');
     CSRF::guard();
     header('Content-Type: application/json; charset=utf-8');
     $id = (int) ($_POST['id'] ?? 0);
@@ -108,6 +111,7 @@ $router->post(admin.'/flights/popular-routes/toggle', function () use ($SECURE, 
 // ---- DELETE ---------------------------------------------------------------
 $router->post(admin.'/flights/popular-routes/delete', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'flights', 'delete');
     CSRF::guard();
     header('Content-Type: application/json; charset=utf-8');
     $id = (int) ($_POST['id'] ?? 0);

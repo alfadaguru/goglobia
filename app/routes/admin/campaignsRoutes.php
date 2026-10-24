@@ -15,6 +15,7 @@ require_once __DIR__ . '/../../lib/campaigns.php';
 // ================================ LIST
 $router->get(admin.'/campaigns', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'view');
     if (function_exists('ensureCampaignSchema'))  { ensureCampaignSchema($db); }
     if (function_exists('ensureNewsletterSchema')) { ensureNewsletterSchema($db); }
     $title = 'Email Campaigns'; $description = ''; $header = true; $footer = true;
@@ -26,6 +27,7 @@ $router->get(admin.'/campaigns', function () use ($SECURE, $db) {
 // ================================ CREATE (form)
 $router->get(admin.'/campaigns/create', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'add');
     if (function_exists('ensureCampaignSchema')) { ensureCampaignSchema($db); }
     $title = 'New Campaign'; $description = ''; $header = true; $footer = true;
     $_GET['id'] = 0;
@@ -37,6 +39,7 @@ $router->get(admin.'/campaigns/create', function () use ($SECURE, $db) {
 // ================================ EDIT (form)
 $router->get(admin.'/campaigns/edit/([0-9]+)', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'edit');
     if (function_exists('ensureCampaignSchema')) { ensureCampaignSchema($db); }
     $title = 'Edit Campaign'; $description = ''; $header = true; $footer = true;
     $_GET['id'] = (int) $id;
@@ -48,6 +51,7 @@ $router->get(admin.'/campaigns/edit/([0-9]+)', function ($id) use ($SECURE, $db)
 // ================================ SAVE (create/update draft)
 $router->post(admin.'/campaigns/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'edit');
     CSRF::verifyRequest();
     if (function_exists('ensureCampaignSchema')) { ensureCampaignSchema($db); }
 
@@ -126,6 +130,7 @@ $router->post(admin.'/campaigns/save', function () use ($SECURE, $db) {
 // ================================ SEND (inline batched, resume-safe)
 $router->post(admin.'/campaigns/send', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'edit');
     CSRF::verifyRequest();
     if (function_exists('ensureCampaignSchema'))  { ensureCampaignSchema($db); }
     if (function_exists('ensureNewsletterSchema')) { ensureNewsletterSchema($db); }
@@ -173,6 +178,7 @@ $router->post(admin.'/campaigns/send', function () use ($SECURE, $db) {
 // touch the campaign status or the send log.
 $router->post(admin.'/campaigns/test', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'edit');
     CSRF::verifyRequest();
     if (function_exists('ensureCampaignSchema')) { ensureCampaignSchema($db); }
 
@@ -233,6 +239,7 @@ $router->post(admin.'/campaigns/test', function () use ($SECURE, $db) {
 // ================================ DELETE
 $router->post(admin.'/campaigns/delete', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'delete');
     CSRF::verifyRequest();
     $id = (int) ($_POST['id'] ?? 0);
     try {
@@ -255,6 +262,7 @@ $router->post(admin.'/campaigns/delete', function () use ($SECURE, $db) {
 // ------------------------------- LIST (filter + search + paginate)
 $router->get(admin.'/campaigns/subscribers', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'view');
     if (function_exists('ensureNewsletterSchema')) { ensureNewsletterSchema($db); }
     $title = 'Subscribers'; $description = ''; $header = true; $footer = true;
     require_once views."includes/header.php";
@@ -265,6 +273,7 @@ $router->get(admin.'/campaigns/subscribers', function () use ($SECURE, $db) {
 // ------------------------------- EXPORT (CSV of the current filter)
 $router->get(admin.'/campaigns/subscribers/export', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'view');
     if (function_exists('ensureNewsletterSchema')) { ensureNewsletterSchema($db); }
 
     $where = [];
@@ -314,6 +323,7 @@ $router->get(admin.'/campaigns/subscribers/export', function () use ($SECURE, $d
 // ------------------------------- PER-ROW ACTION (unsubscribe / resubscribe / delete)
 $router->post(admin.'/campaigns/subscribers/action', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'campaigns', 'edit');
     CSRF::verifyRequest();
     if (function_exists('ensureNewsletterSchema')) { ensureNewsletterSchema($db); }
 

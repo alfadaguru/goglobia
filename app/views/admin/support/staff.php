@@ -1,33 +1,35 @@
 <?php
-// app/views/admin/support/staff.php — Support staff list.
-// support_staff joined to users (name/email/phone) + the role name. Style
-// mirrors app/views/admin/campaigns/campaigns.php.
-@$SECURE or die('Access Denied!');
+// app/views/admin/support/staff.php — Employees list (users_roles consolidation).
+// Employees ARE users with role in (admin, employee), joined to users_roles for
+// the role name. Style mirrors app/views/admin/campaigns/campaigns.php.
+@$SECURE or die('Access Denie'.'d!');
 
-// Join support_staff -> users (for display) and -> support_roles (role name).
-// user_id is a VARCHAR FK to users.user_id; role_id -> support_roles.id.
-$staff = $db->select('support_staff', [
-    '[>]users'          => ['user_id' => 'user_id'],
-    '[>]support_roles'  => ['role_id' => 'id'],
+// users (role admin/employee) -> users_roles (role name). role_id -> users_roles.id;
+// admins with no role_id still list (their role name falls back to "Admin").
+$staff = $db->select('users', [
+    '[>]users_roles' => ['role_id' => 'id'],
 ], [
-    'support_staff.id',
-    'support_staff.user_id',
-    'support_staff.display_name',
-    'support_staff.phone',
-    'support_staff.shift_group',
-    'support_staff.status',
+    'users.user_id',
     'users.first_name',
     'users.last_name',
     'users.email',
-    'support_roles.name (role_name)',
+    'users.role',
+    'users.shift_group',
+    'users.nudge_phone',
+    'users.phone',
+    'users.status',
+    'users_roles.type_name (role_name)',
 ], [
-    'ORDER' => ['support_staff.id' => 'DESC'],
+    'users.role' => ['admin', 'employee'],
+    'ORDER' => ['users.role' => 'ASC', 'users.first_name' => 'ASC'],
 ]) ?: [];
 
 $statusBadge = function (string $s): string {
     $map = [
-        'active'    => 'background:#dcfce7;color:#166534',
-        'suspended' => 'background:#fee2e2;color:#991b1b',
+        'active'   => 'background:#dcfce7;color:#166534',
+        'inactive' => 'background:#fee2e2;color:#991b1b',
+        'pending'  => 'background:#fef9c3;color:#854d0e',
+        'rejected' => 'background:#fee2e2;color:#991b1b',
     ];
     $style = $map[$s] ?? $map['active'];
     return '<span style="' . $style . ';font-size:11px;font-weight:700;padding:2px 10px;border-radius:999px;text-transform:uppercase;letter-spacing:.04em">' . htmlspecialchars($s) . '</span>';
@@ -46,12 +48,12 @@ $statusBadge = function (string $s): string {
 
   <div class="flex items-center justify-between mb-5">
     <div>
-      <h1 class="text-xl font-bold text-gray-900">Support Staff</h1>
-      <p class="text-sm text-gray-500 mt-0.5"><?= number_format(count($staff)) ?> staff member<?= count($staff) === 1 ? '' : 's' ?> &middot; an existing user elevated with a support role</p>
+      <h1 class="text-xl font-bold text-gray-900">Employees</h1>
+      <p class="text-sm text-gray-500 mt-0.5"><?= number_format(count($staff)) ?> employee<?= count($staff) === 1 ? '' : 's' ?> &middot; a user granted a role with admin-panel access</p>
     </div>
     <a href="<?= root.admin ?>/support/staff/create"
        class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition">
-      <span class="material-symbols-outlined !text-[18px]">add</span> Add staff
+      <span class="material-symbols-outlined !text-[18px]">add</span> Add employee
     </a>
   </div>
 
@@ -79,24 +81,34 @@ $statusBadge = function (string $s): string {
           <?php foreach ($staff as $s): ?>
             <?php
               $fullName = trim(($s['first_name'] ?? '') . ' ' . ($s['last_name'] ?? ''));
-              $label    = $s['display_name'] ?: ($fullName !== '' ? $fullName : $s['user_id']);
+              $label    = $fullName !== '' ? $fullName : $s['user_id'];
+              $isAdmin  = (($s['role'] ?? '') === 'admin');
+              $roleName = $s['role_name'] ?: ($isAdmin ? 'Admin' : '—');
+              $phone    = $s['nudge_phone'] ?: ($s['phone'] ?: '');
+              $uid      = (string) $s['user_id'];
             ?>
             <tr class="border-b border-gray-50 hover:bg-gray-50">
               <td class="px-4 py-3">
-                <div class="font-semibold text-gray-900"><?= htmlspecialchars((string) $label) ?></div>
+                <div class="font-semibold text-gray-900"><?= htmlspecialchars((string) $label) ?>
+                  <?php if ($isAdmin): ?><span style="background:#ede9fe;color:#5b21b6;font-size:10px;font-weight:700;padding:1px 7px;border-radius:999px;margin-left:4px">ADMIN</span><?php endif; ?>
+                </div>
                 <div class="text-xs text-gray-500 truncate" style="max-width:320px"><?= htmlspecialchars((string) ($s['email'] ?? '')) ?></div>
               </td>
-              <td class="px-4 py-3 text-gray-700"><?= htmlspecialchars((string) ($s['role_name'] ?? '—')) ?></td>
+              <td class="px-4 py-3 text-gray-700"><?= htmlspecialchars((string) $roleName) ?></td>
               <td class="px-4 py-3 text-gray-700"><?= htmlspecialchars((string) ($s['shift_group'] ?: '—')) ?></td>
-              <td class="px-4 py-3 text-gray-700"><?= htmlspecialchars((string) ($s['phone'] ?: '—')) ?></td>
+              <td class="px-4 py-3 text-gray-700"><?= htmlspecialchars((string) ($phone ?: '—')) ?></td>
               <td class="px-4 py-3"><?= $statusBadge((string) ($s['status'] ?? 'active')) ?></td>
               <td class="px-4 py-3 text-right whitespace-nowrap">
-                <a href="<?= root.admin ?>/support/staff/edit/<?= (int) $s['id'] ?>" class="text-blue-600 hover:underline font-medium">Edit</a>
-                <form method="POST" action="<?= root.admin ?>/support/staff/delete" class="inline ml-3" onsubmit="return confirm('Remove this staff member? This only removes their support access, not their user account.');">
-                  <?= CSRF::tokenField() ?>
-                  <input type="hidden" name="id" value="<?= (int) $s['id'] ?>">
-                  <button type="submit" class="text-red-600 hover:underline font-medium">Remove</button>
-                </form>
+                <?php if ($isAdmin): ?>
+                  <span class="text-gray-400" title="Manage admins in Users">Admin</span>
+                <?php else: ?>
+                  <a href="<?= root.admin ?>/support/staff/edit/<?= urlencode($uid) ?>" class="text-blue-600 hover:underline font-medium">Edit</a>
+                  <form method="POST" action="<?= root.admin ?>/support/staff/delete" class="inline ml-3" onsubmit="return confirm('Remove this employee? This demotes them to a customer — it does not delete their account.');">
+                    <?= CSRF::tokenField() ?>
+                    <input type="hidden" name="user_id" value="<?= htmlspecialchars($uid, ENT_QUOTES) ?>">
+                    <button type="submit" class="text-red-600 hover:underline font-medium">Remove</button>
+                  </form>
+                <?php endif; ?>
               </td>
             </tr>
           <?php endforeach; ?>

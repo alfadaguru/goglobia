@@ -20,6 +20,7 @@
 $router->get(admin.'/updates/database', function () use ($SECURE,$db) {
 
     ADMIN_AUTH(); // Admin authentication check
+    admin_require($db, 'database', 'view');
 
     $title = 'Database Update';
     $description = 'Sync the database schema with install/db.sql';
@@ -37,6 +38,7 @@ $router->get(admin.'/updates/database', function () use ($SECURE,$db) {
 $router->post(admin.'/updates/database/apply', function () use ($SECURE,$db) {
 
     ADMIN_AUTH(); // Admin authentication check
+    admin_require($db, 'database', 'edit');
     // CSRF: this applies real CREATE TABLE / ALTER TABLE migrations, so it is a
     // state-changing admin action and must not be triggerable cross-site. The SQL
     // itself comes only from install/db.sql (never the client), but a CSRF could

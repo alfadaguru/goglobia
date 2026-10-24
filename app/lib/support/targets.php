@@ -25,10 +25,12 @@ if (!function_exists('ensureSupportTargetSchema')) {
         if ($checked) { return; }
         $checked = true;
         try {
+            // staff_id = the target's assigned employee = users.user_id (VARCHAR)
+            // after the RBAC consolidation (S3); previously support_staff.id (INT).
             $db->query("CREATE TABLE IF NOT EXISTS `support_targets` (
                 `id` INT(11) NOT NULL AUTO_INCREMENT,
                 `scope` ENUM('staff','gia','team') NOT NULL DEFAULT 'staff',
-                `staff_id` INT(11) DEFAULT NULL,
+                `staff_id` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
                 `metric` ENUM('held','paid','revenue') NOT NULL DEFAULT 'held',
                 `product` VARCHAR(40) DEFAULT NULL,
                 `period` ENUM('daily','weekly','monthly') NOT NULL DEFAULT 'monthly',
@@ -43,6 +45,21 @@ if (!function_exists('ensureSupportTargetSchema')) {
                 KEY `idx_scope` (`scope`,`staff_id`),
                 KEY `idx_active` (`active`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+            // S3 migration: flip a pre-existing INT staff_id to VARCHAR. Old INT
+            // values referenced support_staff.id (dropped) with no valid user_id
+            // mapping; support_targets had 0 rows at migration time, so clearing
+            // staff-scoped rows is safe. Guarded by column type (runs once).
+            try {
+                $col = $db->query("SHOW COLUMNS FROM `support_targets` LIKE 'staff_id'")
+                           ->fetch(\PDO::FETCH_ASSOC);
+                if ($col && stripos((string) $col['Type'], 'int') !== false) {
+                    $db->query("UPDATE `support_targets` SET `staff_id` = NULL WHERE `scope` = 'staff'");
+                    $db->query("ALTER TABLE `support_targets` MODIFY `staff_id` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL");
+                }
+            } catch (\Throwable $e) {
+                error_log('ensureSupportTargetSchema(migrate): ' . $e->getMessage());
+            }
         } catch (\Throwable $e) {
             error_log('ensureSupportTargetSchema: ' . $e->getMessage());
         }
@@ -107,14 +124,14 @@ if (!function_exists('support_target_actual')) {
         if ($product !== '' && strtolower($product) !== 'any') {
             $where['context'] = $product;
         }
-        // Scope filter.
+        // Scope filter. staff_id + assigned_staff_id are users.user_id (VARCHAR).
         if ($scope === 'staff') {
-            $sid = (int) ($target['staff_id'] ?? 0);
-            if ($sid <= 0) { return $metric === 'revenue' ? 0.0 : 0; }
+            $sid = (string) ($target['staff_id'] ?? '');
+            if ($sid === '') { return $metric === 'revenue' ? 0.0 : 0; }
             $where['assigned_staff_id'] = $sid;
         } elseif ($scope === 'gia') {
-            // GIA handled it alone: no human took over (assigned_staff_id NULL or 0).
-            $where['OR'] = ['assigned_staff_id' => null, 'assigned_staff_id ' => 0];
+            // GIA handled it alone: no human took over (assigned_staff_id NULL).
+            $where['assigned_staff_id'] = null;
         }
         // team -> no staff filter.
 
@@ -201,15 +218,15 @@ if (!function_exists('support_targets_all')) {
                 } elseif ($scope === 'team') {
                     $who = 'Team';
                 } else {
-                    $who = 'Staff #' . (int) ($t['staff_id'] ?? 0);
-                    $s = $db->get('support_staff', ['user_id', 'display_name'], ['id' => (int) ($t['staff_id'] ?? 0)]);
-                    if (is_array($s)) {
-                        $nm = (string) ($s['display_name'] ?? '');
-                        if ($nm === '' && !empty($s['user_id'])) {
-                            $u = $db->get('users', ['first_name', 'last_name'], ['user_id' => $s['user_id']]);
-                            if (is_array($u)) { $nm = trim((string) ($u['first_name'] ?? '') . ' ' . (string) ($u['last_name'] ?? '')); }
+                    // staff_id IS users.user_id (S3) — resolve the name directly.
+                    $sid = (string) ($t['staff_id'] ?? '');
+                    $who = $sid !== '' ? ('Staff ' . $sid) : 'Staff';
+                    if ($sid !== '') {
+                        $u = $db->get('users', ['first_name', 'last_name'], ['user_id' => $sid]);
+                        if (is_array($u)) {
+                            $nm = trim((string) ($u['first_name'] ?? '') . ' ' . (string) ($u['last_name'] ?? ''));
+                            if ($nm !== '') { $who = $nm; }
                         }
-                        if ($nm !== '') { $who = $nm; }
                     }
                 }
                 $p['who'] = $who;
@@ -258,28 +275,30 @@ if (!function_exists('support_leaderboard')) {
 
         $board = [];
         try {
-            $staff = $db->select('support_staff', ['id', 'user_id', 'display_name'], ['ORDER' => ['id' => 'ASC']]);
+            // Staff are the employees themselves (users with role admin/employee).
+            // staff_id / assigned_staff_id = users.user_id (VARCHAR) after S3.
+            $staff = $db->select('users', ['user_id', 'first_name', 'last_name'],
+                ['role' => ['admin', 'employee'], 'status' => 'active', 'ORDER' => ['first_name' => 'ASC']]);
             if (!is_array($staff)) { $staff = []; }
             foreach ($staff as $s) {
-                $sid = (int) $s['id'];
+                $sid = (string) $s['user_id'];
                 $rows = $db->select('gia_conversations', ['conv_key', 'booking_count', 'revenue'],
                     ['assigned_staff_id' => $sid, 'started_at[<>]' => [$fromDt, $toDt], 'LIMIT' => 100000]);
                 $rows = is_array($rows) ? $rows : [];
                 $t = $tally($rows);
-                $nm = (string) ($s['display_name'] ?? '');
-                if ($nm === '' && !empty($s['user_id'])) {
-                    $u = $db->get('users', ['first_name', 'last_name'], ['user_id' => $s['user_id']]);
-                    if (is_array($u)) { $nm = trim((string) ($u['first_name'] ?? '') . ' ' . (string) ($u['last_name'] ?? '')); }
-                }
+                $nm = trim((string) ($s['first_name'] ?? '') . ' ' . (string) ($s['last_name'] ?? ''));
                 // attendance hours over the window
                 $secs = 0;
                 if (function_exists('support_attendance_range')) {
                     $days = support_attendance_range($db, $sid, date('Y-m-d', strtotime($from)), date('Y-m-d', strtotime($to)));
                     foreach ((is_array($days) ? $days : []) as $d) { $secs += (int) ($d['worked_seconds'] ?? 0); }
                 }
+                // Skip employees with no handled chats AND no attendance — keeps
+                // the board to people who actually did something in the window.
+                if ($t['chats_handled'] === 0 && $secs === 0) { continue; }
                 $board[] = [
                     'staff_id'         => $sid,
-                    'name'             => $nm !== '' ? $nm : ('Staff #' . $sid),
+                    'name'             => $nm !== '' ? $nm : ('Staff ' . $sid),
                     'is_gia'           => false,
                     'chats_handled'    => $t['chats_handled'],
                     'held'             => $t['held'],
@@ -288,13 +307,13 @@ if (!function_exists('support_leaderboard')) {
                     'attendance_hours' => round($secs / 3600, 1),
                 ];
             }
-            // GIA row: chats with no human assigned.
+            // GIA row: chats with no human assigned (assigned_staff_id NULL).
             $giaRows = $db->select('gia_conversations', ['conv_key', 'booking_count', 'revenue'],
-                ['OR' => ['assigned_staff_id' => null, 'assigned_staff_id ' => 0], 'started_at[<>]' => [$fromDt, $toDt], 'LIMIT' => 100000]);
+                ['assigned_staff_id' => null, 'started_at[<>]' => [$fromDt, $toDt], 'LIMIT' => 100000]);
             $giaRows = is_array($giaRows) ? $giaRows : [];
             $gt = $tally($giaRows);
             $board[] = [
-                'staff_id'         => 0,
+                'staff_id'         => '',
                 'name'             => 'GIA (AI)',
                 'is_gia'           => true,
                 'chats_handled'    => $gt['chats_handled'],

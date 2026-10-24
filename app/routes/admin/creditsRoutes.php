@@ -10,6 +10,7 @@ $router->get(admin.'/finance/credits(.*)', function ($user_id) use ($SECURE,$db)
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'transactions', 'view');
 
     // META DATA
     $title = T::credits_management;
@@ -23,6 +24,7 @@ $router->get(admin.'/finance/credits(.*)', function ($user_id) use ($SECURE,$db)
 // ================================ POST /finance/credits
 $router->post(admin.'/finance/credits', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'transactions', 'add');
     // CSRF (audit money-integrity): this POST credits/debits an agent wallet, so
     // it must carry a valid token. Was previously unguarded.
     if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_POST['_token'] ?? ''))) {
@@ -179,6 +181,7 @@ $router->post(admin.'/user-search-suggestion', function () use ($SECURE,$db) {
     // unauthenticated request could enumerate/exfiltrate user data (proven over
     // HTTP). Admin-only.
     ADMIN_AUTH();
+    admin_require($db, 'transactions', 'view');
     // CLEAN ALL OUTPUT BUFFERS
     while (ob_get_level()) {
         ob_end_clean();

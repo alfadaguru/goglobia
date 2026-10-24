@@ -9,6 +9,7 @@ PROMO CODES ROUTES START
 // ================================ GET /promo-codes - LIST ALL PROMO CODES
 $router->get(admin.'/promo-codes', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'promo_codes', 'view');
     $title = T::promo_codes_management;
     $description = '';
     $header = true;
@@ -23,6 +24,7 @@ $router->get(admin.'/promo-codes', function () use ($SECURE,$db) {
 // from the promo_code_usage ledger — the per-redemption detail behind used_count.
 $router->get(admin.'/promo-codes/usage/([0-9]+)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'promo_codes', 'view');
     $id = (int) $id;
     $promo = $db->get('promo_codes', '*', ['id' => $id]);
     if (!$promo) {
@@ -42,6 +44,7 @@ $router->get(admin.'/promo-codes/usage/([0-9]+)', function ($id) use ($SECURE,$d
 // ================================ GET /promo-codes/add - ADD NEW PROMO CODE FORM
 $router->get(admin.'/promo-codes/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'promo_codes', 'add');
     $mode = 'add';
     
     $title = T::add_promo_code;
@@ -56,6 +59,7 @@ $router->get(admin.'/promo-codes/add', function () use ($SECURE,$db) {
 // ================================ POST /promo-codes/add - ADD NEW PROMO CODE
 $router->post(admin.'/promo-codes/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'promo_codes', 'add');
     CSRF::guard();
     
     $code = strtoupper(trim($_POST['code'] ?? ''));
@@ -150,6 +154,7 @@ $router->post(admin.'/promo-codes/add', function () use ($SECURE,$db) {
 // ================================ GET /promo-codes/edit/{id} - EDIT PROMO CODE FORM
 $router->get(admin.'/promo-codes/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'promo_codes', 'edit');
     $mode = 'edit';
     $promo_id = intval($id);
     
@@ -172,6 +177,7 @@ $router->get(admin.'/promo-codes/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /promo-codes/edit/{id} - UPDATE PROMO CODE
 $router->post(admin.'/promo-codes/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'promo_codes', 'edit');
     $promo_id = intval($id);
     
     $promo = $db->get('promo_codes', '*', ['id' => $promo_id]);
@@ -267,6 +273,7 @@ $router->post(admin.'/promo-codes/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /promo-codes/delete - DELETE PROMO CODE
 $router->post(admin.'/promo-codes/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'promo_codes', 'delete');
     CSRF::guard();
     $promo_id = intval($_POST['id'] ?? 0);
     
@@ -300,6 +307,7 @@ $router->post(admin.'/promo-codes/delete', function () use ($SECURE,$db) {
 // ================================ POST /promo-codes/generate - GENERATE RANDOM CODE (AJAX)
 $router->post(admin.'/promo-codes/generate', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'promo_codes', 'add');
     CSRF::guard();
     header('Content-Type: application/json');
     
@@ -333,6 +341,7 @@ PROMO CODES ROUTES END
 // ================================ GET /promo-codes/search-items - SEARCH ITEMS FOR TARGETING (AJAX)
 $router->get(admin.'/promo-codes/search-items', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'promo_codes', 'view');
     header('Content-Type: application/json');
     
     $module = $_GET['module'] ?? '';
@@ -523,6 +532,7 @@ $router->get(admin.'/promo-codes/search-items', function () use ($SECURE,$db) {
 // ================================ GET /promo-codes/get-items - GET ITEMS BY IDS (AJAX)
 $router->get(admin.'/promo-codes/get-items', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'promo_codes', 'view');
     header('Content-Type: application/json');
     
     $module = $_GET['module'] ?? '';

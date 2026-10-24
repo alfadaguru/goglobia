@@ -10,6 +10,7 @@ FLIGHTS ROUTES START
 $router->get(admin.'/flights', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'flights', 'view');
 
     // META DATA
     $title = T::flights_management;
@@ -26,6 +27,7 @@ $router->get(admin.'/flights', function () use ($SECURE,$db) {
 $router->get(admin.'/flights/add', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'flights', 'add');
 
     // SET MODE
     $mode = 'add';
@@ -60,6 +62,7 @@ $router->get(admin.'/flights/add', function () use ($SECURE,$db) {
 $router->post(admin.'/flights/add', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'flights', 'add');
     CSRF::guard();
 
     $user_id = trim($_POST['user_id'] ?? 0);
@@ -373,6 +376,7 @@ $router->post(admin.'/flights/add', function () use ($SECURE,$db) {
 $router->get(admin.'/flights/edit/(.*)', function ($id) use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'flights', 'edit');
 
     // SET MODE
     $mode = 'edit';
@@ -446,6 +450,7 @@ $router->get(admin.'/flights/edit/(.*)', function ($id) use ($SECURE,$db) {
 $router->post(admin.'/flights/edit/(.*)', function ($id) use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'flights', 'edit');
 
     $flight_id = intval($id);
     
@@ -666,6 +671,7 @@ $router->post(admin.'/flights/edit/(.*)', function ($id) use ($SECURE,$db) {
 $router->post(admin.'/flights/delete', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'flights', 'delete');
     CSRF::guard();
 
     $flight_id = intval($_POST['id'] ?? 0);
@@ -721,6 +727,7 @@ $router->post(admin.'/flights/delete', function () use ($SECURE,$db) {
 $router->get(admin.'/flights/view/(.*)', function ($id) use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'flights', 'view');
 
     // SET MODE
     $mode = 'view';
@@ -806,6 +813,7 @@ $router->get(admin.'/flights/view/(.*)', function ($id) use ($SECURE,$db) {
 $router->post(admin.'/flights/search-airlines', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'flights', 'view');
     
     header('Content-Type: application/json');
     
@@ -839,6 +847,7 @@ $router->post(admin.'/flights/search-airlines', function () use ($SECURE,$db) {
 $router->post(admin.'/flights/search-airports', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'flights', 'view');
     
     header('Content-Type: application/json');
     
@@ -873,6 +882,7 @@ $router->post(admin.'/flights/search-airports', function () use ($SECURE,$db) {
 $router->post(admin.'/flights/search-users', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'flights', 'view');
     
     header('Content-Type: application/json');
     

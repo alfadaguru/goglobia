@@ -4,7 +4,7 @@
 @$SECURE or die('Access Denied!');
 
 $targets = function_exists('support_targets_all') ? support_targets_all($db) : [];
-$canSet  = function_exists('support_can') && support_can($db, 'targets.set');
+$canSet  = function_exists('admin_can') && admin_can($db, 'support_targets', 'edit');
 $csrf    = (class_exists('CSRF') && method_exists('CSRF', 'getToken')) ? CSRF::getToken() : '';
 
 $scopeBadge = function (string $s): string {

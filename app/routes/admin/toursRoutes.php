@@ -9,6 +9,7 @@ TOURS ROUTES START
 // ================================ GET /tours - LIST ALL TOURS
 $router->get(admin.'/tours', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'tours', 'view');
     $title = T::tours_management ?? 'Tours Management';
     $description = '';
     $header = true;
@@ -21,6 +22,7 @@ $router->get(admin.'/tours', function () use ($SECURE,$db) {
 // ================================ GET /tours/add - ADD NEW TOUR FORM
 $router->get(admin.'/tours/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'tours', 'add');
     $mode = 'add';
     
     $tour_types = $db->select('tours_settings', ['id', 'setting_label', 'translations'], ['setting_type' => 'tour_type', 'status' => 1]);
@@ -40,6 +42,7 @@ $router->get(admin.'/tours/add', function () use ($SECURE,$db) {
 // ================================ POST /tours/add - ADD NEW TOUR
 $router->post(admin.'/tours/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'tours', 'add');
     CSRF::guard();
     
     $name = trim($_POST['tour_name'] ?? '');
@@ -244,6 +247,7 @@ $router->post(admin.'/tours/add', function () use ($SECURE,$db) {
 // ================================ GET /tours/edit/{id} - EDIT TOUR FORM
 $router->get(admin.'/tours/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'tours', 'edit');
     $mode = 'edit';
     $tour_id = intval($id);
     
@@ -318,6 +322,7 @@ $router->get(admin.'/tours/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /tours/edit/{id} - UPDATE TOUR
 $router->post(admin.'/tours/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'tours', 'edit');
     $tour_id = intval($id);
     
     $tour = $db->get('tours', '*', ['id' => $tour_id]);
@@ -608,6 +613,7 @@ $router->post(admin.'/tours/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /tours/delete - DELETE TOUR
 $router->post(admin.'/tours/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'tours', 'delete');
     CSRF::guard();
     $tour_id = intval($_POST['id'] ?? 0);
     
@@ -684,6 +690,7 @@ $router->post(admin.'/tours/delete', function () use ($SECURE,$db) {
 // ================================ POST /tours/search-users - AJAX USER SEARCH
 $router->post(admin.'/tours/search-users', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'tours', 'view');
     header('Content-Type: application/json');
 
     $search = trim($_POST['search'] ?? '');
@@ -713,6 +720,7 @@ $router->post(admin.'/tours/search-users', function () use ($SECURE,$db) {
 // ================================ POST /tours/search-locations - AJAX LOCATION SEARCH
 $router->post(admin.'/tours/search-locations', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'tours', 'view');
     header('Content-Type: application/json');
     
     $search = trim($_POST['search'] ?? '');
@@ -750,6 +758,7 @@ TOURS SETTINGS ROUTES START
 // ================================ GET /tours/settings - LIST SETTINGS
 $router->get(admin.'/tours/settings', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'tours', 'view');
 
     $title = T::tours_settings_management ?? 'Tours Settings Management';
     $description = '';
@@ -766,6 +775,7 @@ $router->get(admin.'/tours/settings', function () use ($SECURE,$db) {
 // ================================ GET /tours/settings/edit/{id} - EDIT SETTING
 $router->get(admin.'/tours/settings/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'tours', 'edit');
 
     $settingId = intval($id);
     $setting = $db->get('tours_settings', '*', ['id' => $settingId]);
@@ -805,6 +815,7 @@ $router->get(admin.'/tours/settings/edit/(.*)', function ($id) use ($SECURE,$db)
 // ================================ POST /tours/settings/save - SAVE SETTING
 $router->post(admin.'/tours/settings/save', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'tours', 'edit');
     CSRF::guard();
 
     $setting_id = intval($_POST['id'] ?? 0);
@@ -916,6 +927,7 @@ $router->post(admin.'/tours/settings/save', function () use ($SECURE,$db) {
 // ================================ POST /tours/settings/delete - DELETE SETTING
 $router->post(admin.'/tours/settings/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'tours', 'delete');
     CSRF::guard();
 
     $setting_id = intval($_POST['id'] ?? 0);

@@ -10,6 +10,7 @@ AIRPORTS ROUTES START
 $router->get(admin.'/flights-airports', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'airports', 'view');
 
     // META DATA
     $title = 'Airports Management';
@@ -27,6 +28,7 @@ $router->get(admin.'/flights-airports/add', function () use ($SECURE,$db) {
     
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'airports', 'add');
 
     // SET MODE
     $mode = 'add';
@@ -46,6 +48,7 @@ $router->get(admin.'/flights-airports/add', function () use ($SECURE,$db) {
 $router->post(admin.'/flights-airports/add', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'airports', 'add');
     CSRF::guard();
 
     // FORM DATA VALIDATION
@@ -142,6 +145,7 @@ $router->post(admin.'/flights-airports/add', function () use ($SECURE,$db) {
 $router->get(admin.'/flights-airports/edit/(.*)', function ($id) use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'airports', 'edit');
 
     // SET MODE
     $mode = 'edit';
@@ -175,6 +179,7 @@ $router->get(admin.'/flights-airports/edit/(.*)', function ($id) use ($SECURE,$d
 $router->post(admin.'/flights-airports/edit/(.*)', function ($id) use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'airports', 'edit');
 
     $airport_id = intval($id);
     
@@ -277,6 +282,7 @@ $router->post(admin.'/flights-airports/edit/(.*)', function ($id) use ($SECURE,$
 $router->post(admin.'/flights-airports/delete', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'airports', 'delete');
     CSRF::guard();
 
     $airport_id = intval($_POST['id'] ?? 0);
@@ -345,6 +351,7 @@ $router->post(admin.'/flights-airports/delete', function () use ($SECURE,$db) {
 $router->get(admin.'/flights-airports/view/(.*)', function ($id) use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'airports', 'view');
 
     // SET MODE
     $mode = 'view';

@@ -9,6 +9,7 @@ UMRAH ROUTES START
 // ================================ GET /umrah - LIST ALL UMRAH PACKAGES
 $router->get(admin.'/umrah', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'view');
     $title = T::umrah_management ?? 'Umrah Management';
     $description = '';
     $header = true;
@@ -21,6 +22,7 @@ $router->get(admin.'/umrah', function () use ($SECURE,$db) {
 // ================================ GET /umrah/add - ADD NEW UMRAH FORM
 $router->get(admin.'/umrah/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'add');
     $mode = 'add';
 
     $umrah_types = $db->select('umrah_settings', ['id', 'setting_label', 'translations'], ['setting_type' => 'umrah_type', 'status' => 1]);
@@ -42,6 +44,7 @@ $router->get(admin.'/umrah/add', function () use ($SECURE,$db) {
 // ================================ POST /umrah/add - ADD NEW UMRAH PACKAGE
 $router->post(admin.'/umrah/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'add');
     CSRF::verifyRequest(); // form posts a CSRF token (manage-umrah.php)
 
     $name = trim($_POST['umrah_name'] ?? '');
@@ -509,6 +512,7 @@ $router->post(admin.'/umrah/add', function () use ($SECURE,$db) {
 // ================================ GET /umrah/edit/{id} - EDIT UMRAH FORM
 $router->get(admin.'/umrah/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     $mode = 'edit';
     $umrah_id = intval($id);
 
@@ -577,6 +581,7 @@ $router->get(admin.'/umrah/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /umrah/edit/{id} - UPDATE UMRAH PACKAGE
 $router->post(admin.'/umrah/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::verifyRequest(); // form posts a CSRF token (manage-umrah.php)
     $umrah_id = intval($id);
 
@@ -1088,6 +1093,7 @@ $router->post(admin.'/umrah/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /umrah/delete - DELETE UMRAH PACKAGE
 $router->post(admin.'/umrah/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'delete');
     CSRF::verifyRequest(); // state-changing delete — require CSRF token
     $umrah_id = intval($_POST['id'] ?? 0);
 
@@ -1204,6 +1210,7 @@ $router->post(admin.'/umrah/delete', function () use ($SECURE,$db) {
 // ================================ POST /umrah/search-users - AJAX USER SEARCH
 $router->post(admin.'/umrah/search-users', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'view');
     header('Content-Type: application/json');
 
     $search = trim($_POST['search'] ?? '');
@@ -1242,6 +1249,7 @@ UMRAH SETTINGS ROUTES START
 // ================================ GET /umrah/settings - LIST SETTINGS
 $router->get(admin.'/umrah/settings', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'view');
 
     $title = T::umrah_settings_management ?? 'Umrah Settings Management';
     $description = '';
@@ -1258,6 +1266,7 @@ $router->get(admin.'/umrah/settings', function () use ($SECURE,$db) {
 // ================================ GET /umrah/settings/edit/{id} - EDIT SETTING
 $router->get(admin.'/umrah/settings/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
 
     $settingId = intval($id);
     $setting = $db->get('umrah_settings', '*', ['id' => $settingId]);
@@ -1292,6 +1301,7 @@ $router->get(admin.'/umrah/settings/edit/(.*)', function ($id) use ($SECURE,$db)
 // ================================ POST /umrah/settings/save - SAVE SETTING
 $router->post(admin.'/umrah/settings/save', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::verifyRequest(); // form posts a CSRF token (umrah-settings.php)
 
     $setting_id = intval($_POST['id'] ?? 0);
@@ -1409,6 +1419,7 @@ $router->post(admin.'/umrah/settings/save', function () use ($SECURE,$db) {
 // ================================ POST /umrah/settings/delete - DELETE SETTING
 $router->post(admin.'/umrah/settings/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'delete');
     CSRF::verifyRequest(); // state-changing delete — require CSRF token
 
     $setting_id = intval($_POST['id'] ?? 0);
@@ -1465,6 +1476,7 @@ UMRAH SETTINGS ROUTES END
 // ================================ POST /umrah/search-users - AJAX USER SEARCH
 $router->post(admin."/umrah/search-users", function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'view');
     header("Content-Type: application/json");
  
     $search = trim($_POST["search"] ?? "");
@@ -1494,6 +1506,7 @@ $router->post(admin."/umrah/search-users", function () use ($SECURE,$db) {
 // ================================ POST /umrah/search-locations - AJAX LOCATION SEARCH
 $router->post(admin."/umrah/search-locations", function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'view');
     header("Content-Type: application/json");
     
     $search = trim($_POST["search"] ?? "");

@@ -12,6 +12,7 @@
 // ADMIN PAGE — manage an agent's API access (keys + service matrix + fees).
 $router->get(admin.'/users/api-access/(.+)', function ($user_id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'agent_api', 'view');
 
     $agent = $db->get('users', ['user_id', 'role', 'first_name', 'last_name', 'email'], ['user_id' => $user_id]);
     // Only meaningful for agents, but show a clear message rather than 404.
@@ -35,6 +36,7 @@ $router->get(admin.'/users/api-access/(.+)', function ($user_id) use ($SECURE, $
 // LIST an agent's keys (prefixes only — never the secret) + service matrix.
 $router->post(admin.'/users/api-keys/list', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'agent_api', 'view');
     header('Content-Type: application/json');
     if (!CSRF::validateToken($_POST['csrf_token'] ?? '')) {
         echo json_encode(['success' => false, 'message' => 'Invalid form submission']); exit;
@@ -57,6 +59,7 @@ $router->post(admin.'/users/api-keys/list', function () use ($SECURE, $db) {
 // GENERATE a new key for an agent. Returns the full key ONCE.
 $router->post(admin.'/users/api-keys/generate', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'agent_api', 'edit');
     header('Content-Type: application/json');
     if (!CSRF::validateToken($_POST['csrf_token'] ?? '')) {
         echo json_encode(['success' => false, 'message' => 'Invalid form submission']); exit;
@@ -86,6 +89,7 @@ $router->post(admin.'/users/api-keys/generate', function () use ($SECURE, $db) {
 // REVOKE a key (constrained to the owning agent for safety).
 $router->post(admin.'/users/api-keys/revoke', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'agent_api', 'edit');
     header('Content-Type: application/json');
     if (!CSRF::validateToken($_POST['csrf_token'] ?? '')) {
         echo json_encode(['success' => false, 'message' => 'Invalid form submission']); exit;
@@ -105,6 +109,7 @@ $router->post(admin.'/users/api-keys/revoke', function () use ($SECURE, $db) {
 // SET per-service enablement + fee for an agent (upsert one service row).
 $router->post(admin.'/users/api-services/set', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'agent_api', 'edit');
     header('Content-Type: application/json');
     if (!CSRF::validateToken($_POST['csrf_token'] ?? '')) {
         echo json_encode(['success' => false, 'message' => 'Invalid form submission']); exit;

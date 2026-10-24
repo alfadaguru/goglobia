@@ -7,6 +7,7 @@ $router->get(admin.'/notification-templates', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'notification_templates', 'view');
 
     // META DATA
     $title = 'Notification Templates';
@@ -25,6 +26,7 @@ $router->get(admin.'/notification-templates/edit/(.*)', function ($id) use ($SEC
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'notification_templates', 'view');
 
     // META DATA
     $title = 'Edit Notification Template';
@@ -45,6 +47,7 @@ $router->post(admin.'/notification-templates/manage', function () use ($SECURE,$
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'notification_templates', 'edit');
 
     // CSRF Token Validation
     CSRF::verifyRequest();
@@ -101,6 +104,7 @@ $router->post(admin.'/notification-templates/toggle-status', function () use ($S
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'notification_templates', 'edit');
 
     // CSRF Token Validation
     CSRF::verifyRequest();

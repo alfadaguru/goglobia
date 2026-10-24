@@ -11,6 +11,7 @@ $router->get(admin.'/finance/deposit', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'transactions', 'view');
 
     // META DATA
     $title = 'Deposits Management';

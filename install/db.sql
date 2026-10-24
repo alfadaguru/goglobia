@@ -27416,7 +27416,7 @@ CREATE TABLE IF NOT EXISTS `gia_conversations` (
   `closed` tinyint(1) NOT NULL DEFAULT 0,
   `needs_human` tinyint(1) NOT NULL DEFAULT 0,
   `staff_active` tinyint(1) NOT NULL DEFAULT 0,
-  `assigned_staff_id` int(11) DEFAULT NULL,
+  `assigned_staff_id` varchar(255) DEFAULT NULL,
   `assigned_at` datetime DEFAULT NULL,
   `flagged` tinyint(1) NOT NULL DEFAULT 0,
   `campaign_id` int(11) DEFAULT NULL,
@@ -27534,7 +27534,7 @@ CREATE TABLE IF NOT EXISTS `gia_messages` (
   `role` enum('user','assistant') NOT NULL,
   `text` mediumtext DEFAULT NULL,
   `is_staff` tinyint(1) NOT NULL DEFAULT 0,
-  `staff_id` int(11) DEFAULT NULL,
+  `staff_id` varchar(255) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `conv_id` (`conv_id`),
@@ -27569,45 +27569,39 @@ CREATE TABLE IF NOT EXISTS `gia_events` (
 -- --------------------------------------------------------
 
 --
--- Table structure for table `support_roles`
--- Customer Support module (docs/support/CUSTOMER_SUPPORT_MODULE_SPEC.md §2) —
--- named capability bundles (permissions = JSON array of cap slugs). is_system=1
--- rows are the 4 LOCKED defaults (admin/support_lead/support_agent/marketing);
--- admins may add custom (is_system=0) roles. Mirrors ensureSupportRbacSchema.
---
-
-CREATE TABLE IF NOT EXISTS `support_roles` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `name` varchar(80) NOT NULL,
-  `slug` varchar(80) NOT NULL,
-  `is_system` tinyint(1) NOT NULL DEFAULT 0,
-  `permissions` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
-  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_slug` (`slug`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
+-- Customer Support RBAC (support_roles / support_staff) was consolidated onto the
+-- company-wide `users_roles` + `users` layer in the Employee RBAC consolidation
+-- (docs/support/EMPLOYEE_RBAC_CONSOLIDATION.md). Those two tables were dropped; an
+-- employee is now a `users` row with role='employee' + role_id (FK users_roles.id)
+-- + shift_group + nudge_phone. The users_roles governance columns (kind/slug/
+-- base_type/status/…) and the users RBAC columns are added at boot by
+-- ensureAdminRbacSchema() (app/lib/admin_rbac.php).
 -- --------------------------------------------------------
 
 --
--- Table structure for table `support_staff`
--- A users row elevated into a support employee: user_id FKs users.user_id
--- (VARCHAR), role_id FKs support_roles.id. Adds the support-specific fields
--- (display name, nudge phone, shift group, status). Mirrors ensureSupportRbacSchema.
+-- Table structure for table `admin_activity_log`
+-- Employee RBAC consolidation (S7): one row per gated admin/employee request —
+-- who, area, action, allowed/denied, method, path, ip, ua, ts. Written by
+-- admin_activity_record() from admin_require(); mirrors ensureAdminActivitySchema().
 --
 
-CREATE TABLE IF NOT EXISTS `support_staff` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `user_id` varchar(255) NOT NULL,
-  `role_id` int(11) DEFAULT NULL,
-  `display_name` varchar(120) DEFAULT NULL,
-  `phone` varchar(32) DEFAULT NULL,
-  `shift_group` varchar(60) DEFAULT NULL,
-  `status` enum('active','suspended') NOT NULL DEFAULT 'active',
+CREATE TABLE IF NOT EXISTS `admin_activity_log` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `user_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `user_name` varchar(255) DEFAULT NULL,
+  `role_name` varchar(120) DEFAULT NULL,
+  `area` varchar(60) NOT NULL,
+  `action` varchar(40) NOT NULL,
+  `allowed` tinyint(1) NOT NULL DEFAULT 1,
+  `method` varchar(10) DEFAULT NULL,
+  `path` varchar(512) DEFAULT NULL,
+  `ip` varchar(64) DEFAULT NULL,
+  `user_agent` varchar(255) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_user` (`user_id`),
-  KEY `idx_role` (`role_id`)
+  KEY `idx_user` (`user_id`),
+  KEY `idx_area` (`area`),
+  KEY `idx_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -27622,7 +27616,7 @@ CREATE TABLE IF NOT EXISTS `support_staff` (
 
 CREATE TABLE IF NOT EXISTS `support_attendance` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
-  `staff_id` int(11) NOT NULL,
+  `staff_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
   `work_date` date NOT NULL,
   `clock_in` datetime NOT NULL,
   `clock_out` datetime DEFAULT NULL,
@@ -27643,7 +27637,7 @@ CREATE TABLE IF NOT EXISTS `support_attendance` (
 
 CREATE TABLE IF NOT EXISTS `support_heartbeat` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
-  `staff_id` int(11) NOT NULL,
+  `staff_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
   `last_beat` datetime NOT NULL,
   `status` enum('online','idle','offline') NOT NULL DEFAULT 'online',
   `session_id` varchar(64) DEFAULT NULL,
@@ -27663,7 +27657,7 @@ CREATE TABLE IF NOT EXISTS `support_heartbeat` (
 
 CREATE TABLE IF NOT EXISTS `support_shifts` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
-  `staff_id` int(11) NOT NULL,
+  `staff_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
   `shift_date` date NOT NULL,
   `start_time` time DEFAULT NULL,
   `end_time` time DEFAULT NULL,

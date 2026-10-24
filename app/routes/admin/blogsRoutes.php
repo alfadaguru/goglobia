@@ -9,6 +9,7 @@ BLOGS ROUTES START
 // ================================ GET /blogs - LIST ALL BLOGS
 $router->get(admin.'/blogs', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'view');
     $title = T::blogs_management ?? 'Blogs Management';
     $description = '';
     $header = true;
@@ -21,6 +22,7 @@ $router->get(admin.'/blogs', function () use ($SECURE,$db) {
 // ================================ GET /blogs/add - ADD NEW BLOG FORM
 $router->get(admin.'/blogs/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'add');
     $mode = 'add';
     
     // Get categories for dropdown
@@ -38,6 +40,7 @@ $router->get(admin.'/blogs/add', function () use ($SECURE,$db) {
 // ================================ POST /blogs/add - ADD NEW BLOG
 $router->post(admin.'/blogs/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'add');
     CSRF::guard();
 
     $post_title = trim($_POST['post_title'] ?? '');
@@ -136,6 +139,7 @@ $router->post(admin.'/blogs/add', function () use ($SECURE,$db) {
 // ================================ GET /blogs/edit/{id} - EDIT BLOG FORM
 $router->get(admin.'/blogs/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'view');
     $mode = 'edit';
     $blog_id = intval($id);
     
@@ -174,6 +178,7 @@ $router->get(admin.'/blogs/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /blogs/edit/{id} - UPDATE BLOG
 $router->post(admin.'/blogs/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'edit');
     CSRF::guard();
     $blog_id = intval($id);
     
@@ -299,6 +304,7 @@ $router->post(admin.'/blogs/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /blogs/delete - DELETE BLOG
 $router->post(admin.'/blogs/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'delete');
     CSRF::guard();
     $blog_id = intval($_POST['id'] ?? 0);
     
@@ -350,6 +356,7 @@ BLOG CATEGORIES ROUTES START
 // ================================ GET /blogs/categories - LIST CATEGORIES
 $router->get(admin.'/blogs/categories', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'view');
     $title = T::blog_categories_management ?? 'Blog Categories Management';
     $description = '';
     $header = true;
@@ -362,6 +369,7 @@ $router->get(admin.'/blogs/categories', function () use ($SECURE,$db) {
 // ================================ GET /blogs/categories/get/{id} - GET CATEGORY DATA (AJAX)
 $router->get(admin.'/blogs/categories/get/(\d+)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'view');
     $category = $db->get('blog_categories', '*', ['id' => intval($id)]);
     if ($category) {
         echo json_encode(['success' => true, 'data' => $category]);
@@ -373,6 +381,7 @@ $router->get(admin.'/blogs/categories/get/(\d+)', function ($id) use ($SECURE,$d
 // ================================ POST /blogs/categories/add - ADD CATEGORY (AJAX)
 $router->post(admin.'/blogs/categories/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'add');
     CSRF::guard();
 
     $cat_name = trim($_POST['cat_name'] ?? '');
@@ -409,6 +418,7 @@ $router->post(admin.'/blogs/categories/add', function () use ($SECURE,$db) {
 // ================================ POST /blogs/categories/update/{id} - UPDATE CATEGORY (AJAX)
 $router->post(admin.'/blogs/categories/update/(\d+)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'edit');
     CSRF::guard();
     $cat_id = intval($id);
     
@@ -445,6 +455,7 @@ $router->post(admin.'/blogs/categories/update/(\d+)', function ($id) use ($SECUR
 // ================================ POST /blogs/categories/delete/{id} - DELETE CATEGORY (AJAX)
 $router->post(admin.'/blogs/categories/delete/(\d+)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'delete');
     CSRF::guard();
     $cat_id = intval($id);
     

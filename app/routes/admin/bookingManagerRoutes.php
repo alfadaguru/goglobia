@@ -71,6 +71,7 @@ if (!function_exists('bmCompanyBankAccount')) {
 // ---------------------------------------------------------------------------
 $bmRenderManager = function ($svc) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
     $serviceType = ($svc === 'hotels') ? 'stays' : 'flights';
 
     // Active suppliers for LIVE mode (data-driven, same as the storefront fan-out).
@@ -119,6 +120,7 @@ $router->get(admin . '/booking-manager/hotels',  function () use ($bmRenderManag
 // ---------------------------------------------------------------------------
 $router->post(admin . '/booking-manager/search', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
     if (!bmAdminCsrfOk()) { bmAdminJson(['status' => false, 'message' => 'Security token expired — refresh and retry.'], 403); }
 
     $serviceType = (strtolower((string) ($_POST['service'] ?? 'flights')) === 'hotels') ? 'stays' : 'flights';
@@ -167,6 +169,7 @@ $router->post(admin . '/booking-manager/search', function () use ($SECURE, $db) 
 // ---------------------------------------------------------------------------
 $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'add');
     if (!bmAdminCsrfOk()) { bmAdminJson(['status' => false, 'message' => 'Security token expired — refresh and retry.'], 403); }
 
     $mode        = strtolower(trim((string) ($_POST['mode'] ?? 'manual')));          // 'manual' | 'live'
@@ -391,6 +394,7 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
 // ---------------------------------------------------------------------------
 $router->post(admin . '/booking-manager/pay', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
     if (!bmAdminCsrfOk()) { bmAdminJson(['status' => false, 'message' => 'Security token expired — refresh and retry.'], 403); }
 
     $invoiceId = trim((string) ($_POST['invoice_id'] ?? ''));
@@ -476,6 +480,7 @@ $router->post(admin . '/booking-manager/pay', function () use ($SECURE, $db) {
 // ---------------------------------------------------------------------------
 $router->post(admin . '/booking-manager/verify', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
     if (!bmAdminCsrfOk()) { bmAdminJson(['status' => false, 'message' => 'Security token expired — refresh and retry.'], 403); }
     if (!bm_is_senior_admin($db)) { bmAdminJson(['status' => false, 'message' => 'Only an admin or super-admin can verify a manual payment.'], 403); }
 
@@ -507,6 +512,7 @@ $router->post(admin . '/booking-manager/verify', function () use ($SECURE, $db) 
 // ---------------------------------------------------------------------------
 $router->post(admin . '/booking-manager/retry-issue', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
     if (!bmAdminCsrfOk()) { bmAdminJson(['status' => false, 'message' => 'Security token expired — refresh and retry.'], 403); }
     if (!bm_is_senior_admin($db)) { bmAdminJson(['status' => false, 'message' => 'Only an admin or super-admin can retry an issue.'], 403); }
 
@@ -533,6 +539,7 @@ $router->post(admin . '/booking-manager/retry-issue', function () use ($SECURE, 
 // ---------------------------------------------------------------------------
 $router->get(admin . '/booking-manager/verify', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
     $isSenior = bm_is_senior_admin($db);
     $cols = ['invoice_id', 'first_name', 'last_name', 'email', 'module', 'module_type', 'booking_status', 'payment_status', 'price_markup', 'currency_markup', 'created_by_admin', 'pnr', 'created_at'];
     $pending = $isSenior ? ($db->select('bookings', $cols,

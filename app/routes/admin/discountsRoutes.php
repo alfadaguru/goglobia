@@ -75,6 +75,7 @@ if (!function_exists('_discount_row_from_post')) {
 // ================================ LIST
 $router->get(admin.'/discounts', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'discounts', 'view');
     if (function_exists('ensureDiscountSchema')) { ensureDiscountSchema($db); }
     $title = 'Discounts'; $description = ''; $header = true; $footer = true;
     require_once views."includes/header.php";
@@ -85,6 +86,7 @@ $router->get(admin.'/discounts', function () use ($SECURE, $db) {
 // ================================ CREATE / EDIT form
 $router->get(admin.'/discounts/add', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'discounts', 'add');
     if (function_exists('ensureDiscountSchema')) { ensureDiscountSchema($db); }
     $mode = 'add'; $discount = null;
     $title = 'Add Discount'; $description = ''; $header = true; $footer = true;
@@ -95,6 +97,7 @@ $router->get(admin.'/discounts/add', function () use ($SECURE, $db) {
 
 $router->get(admin.'/discounts/edit/([0-9]+)', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'discounts', 'edit');
     if (function_exists('ensureDiscountSchema')) { ensureDiscountSchema($db); }
     $discount = $db->get('discounts', '*', ['id' => (int) $id]);
     if (!$discount) {
@@ -111,6 +114,7 @@ $router->get(admin.'/discounts/edit/([0-9]+)', function ($id) use ($SECURE, $db)
 // ================================ SAVE (add or edit)
 $router->post(admin.'/discounts/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'discounts', 'edit');
     CSRF::verifyRequest();
     if (function_exists('ensureDiscountSchema')) { ensureDiscountSchema($db); }
 
@@ -136,6 +140,7 @@ $router->post(admin.'/discounts/save', function () use ($SECURE, $db) {
 // ================================ DELETE
 $router->post(admin.'/discounts/delete', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'discounts', 'delete');
     CSRF::verifyRequest();
     $id = (int) ($_POST['id'] ?? 0);
     try {
@@ -150,6 +155,7 @@ $router->post(admin.'/discounts/delete', function () use ($SECURE, $db) {
 // ================================ TOGGLE STATUS (JSON)
 $router->post(admin.'/discounts/toggle', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'discounts', 'edit');
     $token = $_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
     if (!CSRF::validateToken((string) $token)) {
         header('Content-Type: application/json'); http_response_code(419);

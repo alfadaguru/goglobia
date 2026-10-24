@@ -8,6 +8,7 @@ $router->get(admin.'/users', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'users', 'view');
 
     // META DATA
     $title = 'Users';
@@ -27,6 +28,7 @@ $router->post(admin.'/users', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'users', 'view');
 
     // Start output buffering to prevent header errors
     ob_start();
@@ -52,6 +54,7 @@ $router->get(admin.'/users/edit/(.+)', function ($user_id) use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'users', 'view');
 
     // META DATAz
     $title = 'Edit User';
@@ -71,6 +74,7 @@ $router->get(admin.'/users/add', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'users', 'add');
 
     // META DATA
     $title = 'Add User';
@@ -90,6 +94,7 @@ $router->post(admin.'/users/save', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'users', 'edit');
 
     // Handle form submission
     if ($_POST && isset($_POST['action']) && $_POST['action'] === 'save_user') {
@@ -236,6 +241,7 @@ $router->post(admin.'/users/notes', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'users', 'edit');
 
     if ($_POST && isset($_POST['action'])) {
 
@@ -399,6 +405,7 @@ $router->get(admin.'/users/manage-funds/(.+)', function ($user_id) use ($SECURE,
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'users', 'edit');
 
     // META DATA
     $title = 'Manage Funds';
@@ -418,6 +425,7 @@ $router->post(admin.'/users/process-manage-funds', function () use ($SECURE,$db)
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'users', 'edit');
 
     // Handle form submission
     if ($_POST && isset($_POST['action']) && $_POST['action'] === 'add_funds') {
@@ -713,6 +721,7 @@ $router->post(admin.'/users/update-credit-days', function () use ($SECURE,$db) {
     // could change any agent's credit terms (proven: anon set credit_payment_days
     // to 999). The 'Invalid request'/action gate is NOT authentication.
     ADMIN_AUTH();
+    admin_require($db, 'users', 'edit');
     CSRF::guard();
 
     // Handle AJAX request
@@ -798,6 +807,7 @@ $router->post(admin.'/users/update-markup', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'users', 'edit');
     CSRF::guard();
 
     // Handle AJAX request

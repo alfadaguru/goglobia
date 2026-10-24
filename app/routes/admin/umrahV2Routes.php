@@ -42,6 +42,7 @@ if (!function_exists('umrahV2AdminDeleteLocalImage')) {
 // ---- DASHBOARD PAGE: GET admin/umrah-manager ----------------------------
 $router->get(admin.'/umrah-manager', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'view');
 
     // "Show archived" toggle (?archived=1). Default hides archived records.
     $showArchived = (int) ($_GET['archived'] ?? 0) === 1;
@@ -118,6 +119,7 @@ $router->get(admin.'/umrah-manager', function () use ($SECURE, $db) {
 // ---- CREATE DEPARTURE: POST admin/umrah-manager/departures/create -------
 $router->post(admin.'/umrah-manager/departures/create', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'add');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
 
@@ -141,6 +143,7 @@ $router->post(admin.'/umrah-manager/departures/create', function () use ($SECURE
 // PNG). Updates umrah_departures.hero_image / gallery (JSON array).
 $router->post(admin.'/umrah-manager/departures/images', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $depId = (int) ($_POST['departure_id'] ?? 0);
@@ -182,6 +185,7 @@ $router->post(admin.'/umrah-manager/departures/images', function () use ($SECURE
 // LIST (JSON): GET admin/umrah-manager/media?service=umrah[&archived=1]
 $router->get(admin.'/umrah-manager/media', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'view');
     $service = preg_replace('/[^a-z0-9_\-]/', '', strtolower($_GET['service'] ?? 'umrah')) ?: 'umrah';
     $inclArch = (int) ($_GET['archived'] ?? 0) === 1;
     umrahV2AdminJson(['success' => true, 'images' => umrah_media_list($db, $service, $inclArch)]);
@@ -189,6 +193,7 @@ $router->get(admin.'/umrah-manager/media', function () use ($SECURE, $db) {
 // UPLOAD a file into the library.
 $router->post(admin.'/umrah-manager/media/upload', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'add');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     if (!isset($_FILES['image']) || ($_FILES['image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
@@ -207,6 +212,7 @@ $router->post(admin.'/umrah-manager/media/upload', function () use ($SECURE, $db
 // ADD an external URL to the library.
 $router->post(admin.'/umrah-manager/media/add-url', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'add');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $url = trim((string) ($_POST['url'] ?? ''));
@@ -218,6 +224,7 @@ $router->post(admin.'/umrah-manager/media/add-url', function () use ($SECURE, $d
 // ARCHIVE / RESTORE a library image.
 $router->post(admin.'/umrah-manager/media/archive', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'delete');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $r = umrah_media_set_archived($db, (int) ($_POST['id'] ?? 0), (int) ($_POST['archive'] ?? 1) === 1);
@@ -226,6 +233,7 @@ $router->post(admin.'/umrah-manager/media/archive', function () use ($SECURE, $d
 // PICK a library image onto a departure (hero, or add to gallery).
 $router->post(admin.'/umrah-manager/departures/images/pick', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $depId = (int) ($_POST['departure_id'] ?? 0);
@@ -247,6 +255,7 @@ $router->post(admin.'/umrah-manager/departures/images/pick', function () use ($S
 // ---- IMAGES: seed VERIFIED real Umrah photos on all departures ---------
 $router->post(admin.'/umrah-manager/images/seed-verified', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     if (!function_exists('umrah_admin_seed_verified_images')) { umrahV2AdminJson(['success' => false, 'message' => 'Unavailable'], 500); }
@@ -257,6 +266,7 @@ $router->post(admin.'/umrah-manager/images/seed-verified', function () use ($SEC
 // ---- IMAGES: clear all external/stock images (keep real uploads) -------
 $router->post(admin.'/umrah-manager/images/clear-external', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     if (!function_exists('umrah_admin_clear_external_images')) { umrahV2AdminJson(['success' => false, 'message' => 'Unavailable'], 500); }
@@ -267,6 +277,7 @@ $router->post(admin.'/umrah-manager/images/clear-external', function () use ($SE
 // ---- IMAGES: apply a departure's hero+gallery to ALL departures --------
 $router->post(admin.'/umrah-manager/departures/images/apply-all', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     if (!function_exists('umrah_admin_images_apply_to_all')) { umrahV2AdminJson(['success' => false, 'message' => 'Unavailable'], 500); }
@@ -277,6 +288,7 @@ $router->post(admin.'/umrah-manager/departures/images/apply-all', function () us
 // ---- IMAGES: delete a departure image (hero or one gallery entry) -------
 $router->post(admin.'/umrah-manager/departures/images/delete', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'delete');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $depId = (int) ($_POST['departure_id'] ?? 0);
@@ -307,6 +319,7 @@ $router->post(admin.'/umrah-manager/departures/images/delete', function () use (
 // ---- PACKAGES (templates) ----------------------------------------------
 $router->post(admin.'/umrah-manager/templates/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     if (!function_exists('umrah_admin_template_save')) { umrahV2AdminJson(['success' => false, 'message' => 'CRUD unavailable'], 500); }
@@ -315,6 +328,7 @@ $router->post(admin.'/umrah-manager/templates/save', function () use ($SECURE, $
 });
 $router->post(admin.'/umrah-manager/templates/archive', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'delete');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $archive = (int) ($_POST['archive'] ?? 1) === 1;
@@ -325,6 +339,7 @@ $router->post(admin.'/umrah-manager/templates/archive', function () use ($SECURE
 // ---- TIERS -------------------------------------------------------------
 $router->post(admin.'/umrah-manager/tiers/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     if (!function_exists('umrah_admin_tier_save')) { umrahV2AdminJson(['success' => false, 'message' => 'CRUD unavailable'], 500); }
@@ -333,6 +348,7 @@ $router->post(admin.'/umrah-manager/tiers/save', function () use ($SECURE, $db) 
 });
 $router->post(admin.'/umrah-manager/tiers/archive', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'delete');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $archive = (int) ($_POST['archive'] ?? 1) === 1;
@@ -343,6 +359,7 @@ $router->post(admin.'/umrah-manager/tiers/archive', function () use ($SECURE, $d
 // ---- PAYMENT PLANS -----------------------------------------------------
 $router->post(admin.'/umrah-manager/plans/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     if (!function_exists('umrah_admin_plan_save')) { umrahV2AdminJson(['success' => false, 'message' => 'CRUD unavailable'], 500); }
@@ -351,6 +368,7 @@ $router->post(admin.'/umrah-manager/plans/save', function () use ($SECURE, $db) 
 });
 $router->post(admin.'/umrah-manager/plans/archive', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'delete');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $archive = (int) ($_POST['archive'] ?? 1) === 1;
@@ -361,6 +379,7 @@ $router->post(admin.'/umrah-manager/plans/archive', function () use ($SECURE, $d
 // ---- DEPARTURE edit + archive/restore ----------------------------------
 $router->post(admin.'/umrah-manager/departures/update', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     if (!function_exists('umrah_admin_departure_update')) { umrahV2AdminJson(['success' => false, 'message' => 'CRUD unavailable'], 500); }
@@ -369,6 +388,7 @@ $router->post(admin.'/umrah-manager/departures/update', function () use ($SECURE
 });
 $router->post(admin.'/umrah-manager/departures/archive', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'delete');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $archive = (int) ($_POST['archive'] ?? 1) === 1;
@@ -379,6 +399,7 @@ $router->post(admin.'/umrah-manager/departures/archive', function () use ($SECUR
 // ---- BULK CREATE 12th/28th: POST admin/umrah-manager/departures/bulk ----
 $router->post(admin.'/umrah-manager/departures/bulk', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $templateId = (int) ($_POST['template_id'] ?? 0);
@@ -406,6 +427,7 @@ $router->post(admin.'/umrah-manager/departures/bulk', function () use ($SECURE, 
 // ---- CLONE DEPARTURE: POST admin/umrah-manager/departures/clone ---------
 $router->post(admin.'/umrah-manager/departures/clone', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'add');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $srcId = (int) ($_POST['departure_id'] ?? 0);
@@ -424,6 +446,7 @@ $router->post(admin.'/umrah-manager/departures/clone', function () use ($SECURE,
 // ---- PUBLISH / CLOSE / DRAFT: POST admin/umrah-manager/departures/status
 $router->post(admin.'/umrah-manager/departures/status', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $id = (int) ($_POST['departure_id'] ?? 0);
@@ -448,6 +471,7 @@ $router->post(admin.'/umrah-manager/departures/status', function () use ($SECURE
 // ---- SET PRICE / CAPACITY: POST admin/umrah-manager/departures/pricing --
 $router->post(admin.'/umrah-manager/departures/pricing', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $id = (int) ($_POST['departure_id'] ?? 0);
@@ -481,6 +505,7 @@ $router->post(admin.'/umrah-manager/departures/pricing', function () use ($SECUR
 // ---- SET ORIGIN CITY: POST admin/umrah-manager/departures/origin --------
 $router->post(admin.'/umrah-manager/departures/origin', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $id = (int) ($_POST['departure_id'] ?? 0);
@@ -495,6 +520,7 @@ $router->post(admin.'/umrah-manager/departures/origin', function () use ($SECURE
 // Update ONE departure-tier: B2C regular/promo, B2B net/promo, capacity, status.
 $router->post(admin.'/umrah-manager/departures/tier-pricing', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'umrah', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $dtId = (int) ($_POST['departure_tier_id'] ?? 0);
@@ -544,6 +570,7 @@ $router->post(admin.'/umrah-manager/departures/tier-pricing', function () use ($
 // ---- QUOTE-REQUEST INBOX: GET admin/umrah-manager/quote-requests --------
 $router->get(admin.'/umrah-manager/quote-requests', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
     $status = trim((string) ($_GET['status'] ?? ''));
     $where = ['ORDER' => ['id' => 'DESC'], 'LIMIT' => 300];
     if (in_array($status, ['new', 'in_review', 'quoted', 'converted', 'closed'], true)) { $where['status'] = $status; }
@@ -561,6 +588,7 @@ $router->get(admin.'/umrah-manager/quote-requests', function () use ($SECURE, $d
 // ---- QUOTE-REQUEST RESPOND: POST admin/umrah-manager/quote-requests/respond
 $router->post(admin.'/umrah-manager/quote-requests/respond', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $id = (int) ($_POST['id'] ?? 0);
@@ -586,6 +614,7 @@ $router->post(admin.'/umrah-manager/quote-requests/respond', function () use ($S
 // ---- BOOKINGS LIST: GET admin/umrah-manager/bookings -------------------
 $router->get(admin.'/umrah-manager/bookings', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
     $bookings = $db->select('umrah_bookings', '*', ['ORDER' => ['id' => 'DESC'], 'LIMIT' => 200]) ?: [];
     $title = 'Umrah Bookings'; $description = ''; $header = true; $footer = true;
     require_once views . 'includes/header.php';
@@ -600,6 +629,7 @@ $router->get(admin.'/umrah-manager/bookings', function () use ($SECURE, $db) {
 // ?departure=ID, ?from=YYYY-MM-DD, ?to=YYYY-MM-DD.
 $router->get(admin.'/umrah-manager/bookings/export', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
 
     // Build a whitelisted WHERE from query params (never trust raw input into SQL
     // shapes beyond these known keys/values).
@@ -726,6 +756,7 @@ $router->get(admin.'/umrah-manager/bookings/export', function () use ($SECURE, $
 // Visa / ticket / rooming batch view for a departure's travellers.
 $router->get(admin.'/umrah-manager/operations/([0-9]+)', function ($departureId) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
     $departure = $db->get('umrah_departures', '*', ['id' => (int) $departureId]);
     if (!$departure) { header('Location: ' . root . 'admin/umrah-manager'); exit; }
     // All travellers on confirmed/held bookings for this departure.
@@ -753,6 +784,7 @@ $router->get(admin.'/umrah-manager/operations/([0-9]+)', function ($departureId)
 // ---- SET TRAVELLER STATUS: POST .../operations/traveller-status ---------
 $router->post(admin.'/umrah-manager/operations/traveller-status', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $tid = (int) ($_POST['traveller_id'] ?? 0);
@@ -772,6 +804,7 @@ $router->post(admin.'/umrah-manager/operations/traveller-status', function () us
 // ---- VERIFY DOCUMENT: POST .../operations/verify-document --------------
 $router->post(admin.'/umrah-manager/operations/verify-document', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $docId = (int) ($_POST['document_id'] ?? 0);
@@ -791,6 +824,7 @@ $router->post(admin.'/umrah-manager/operations/verify-document', function () use
 // (no traversal) and serves inline with the stored MIME.
 $router->get(admin.'/umrah-manager/document/([0-9]+)', function ($docId) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
     $doc = $db->get('umrah_documents', ['file_path', 'mime', 'original_name'], ['id' => (int) $docId]);
     if (!$doc || empty($doc['file_path'])) { http_response_code(404); die('Document not found'); }
 
@@ -816,6 +850,7 @@ $router->get(admin.'/umrah-manager/document/([0-9]+)', function ($docId) use ($S
 // ---- HOTEL / TRANSPORT ALLOCATION: POST .../operations/allocate --------
 $router->post(admin.'/umrah-manager/operations/allocate', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $kind = trim($_POST['kind'] ?? '');
@@ -857,6 +892,7 @@ $router->post(admin.'/umrah-manager/operations/allocate', function () use ($SECU
 // ---- ROOM ASSIGN: POST .../operations/assign-room ----------------------
 $router->post(admin.'/umrah-manager/operations/assign-room', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $allocId = (int) ($_POST['hotel_allocation_id'] ?? 0);
@@ -899,6 +935,7 @@ $router->post(admin.'/umrah-manager/operations/assign-room', function () use ($S
 // ---- AGENT GROUPS ADMIN (Phase C): list + status/visa + Nusuk export ----
 $router->get(admin.'/umrah-manager/groups', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
     $status = trim((string) ($_GET['status'] ?? ''));
     $where = ['ORDER' => ['id' => 'DESC'], 'LIMIT' => 300];
     if (in_array($status, ['draft','pending','submitted','queried','accepted','rejected','paid','processing','confirmed','approved','partially_approved','completed','cancelled'], true)) { $where['status'] = $status; }
@@ -922,6 +959,7 @@ $router->get(admin.'/umrah-manager/groups', function () use ($SECURE, $db) {
 // Admin: drive a group's status + visa_status (full flexibility).
 $router->post(admin.'/umrah-manager/groups/status', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $gid = (int) ($_POST['group_id'] ?? 0);
@@ -933,6 +971,7 @@ $router->post(admin.'/umrah-manager/groups/status', function () use ($SECURE, $d
 // Members of a group (JSON) — for the admin manage drawer visa/doc grid.
 $router->get(admin.'/umrah-manager/groups/([0-9]+)/members', function ($gid) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
     $rows = $db->select('umrah_group_members',
         ['id', 'first_name', 'last_name', 'gender', 'visa_status', 'refund_amount', 'visa_doc', 'ticket_doc', 'hotel_doc'],
         ['group_id' => (int) $gid, 'ORDER' => ['id' => 'ASC']]) ?: [];
@@ -942,6 +981,7 @@ $router->get(admin.'/umrah-manager/groups/([0-9]+)/members', function ($gid) use
 // REVIEW a submitted group: accept | query | reject (with comment). No charge.
 $router->post(admin.'/umrah-manager/groups/review', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     if (!function_exists('umrah_group_review')) { umrahV2AdminJson(['success' => false, 'message' => 'Unavailable'], 500); }
@@ -953,6 +993,7 @@ $router->post(admin.'/umrah-manager/groups/review', function () use ($SECURE, $d
 // (refunds only). $_POST['outcomes'] = JSON {member_id: 'approved'|'rejected'}.
 $router->post(admin.'/umrah-manager/groups/visa', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     if (!function_exists('umrah_group_set_visa')) { umrahV2AdminJson(['success' => false, 'message' => 'Unavailable'], 500); }
@@ -970,6 +1011,7 @@ $router->post(admin.'/umrah-manager/groups/visa', function () use ($SECURE, $db)
 // mirrored to the traveller's umrah_documents so the customer/agent sees it.
 $router->post(admin.'/umrah-manager/groups/member-doc', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
     CSRF::guard();
     if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
     $gid = (int) ($_POST['group_id'] ?? 0);
@@ -1010,6 +1052,7 @@ $router->post(admin.'/umrah-manager/groups/member-doc', function () use ($SECURE
 // (all travellers on that departure).
 $router->get(admin.'/umrah-manager/manifest', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
     $groupId = (int) ($_GET['group'] ?? 0);
     $departureId = (int) ($_GET['departure'] ?? 0);
 

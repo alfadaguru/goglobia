@@ -79,6 +79,7 @@ if (!function_exists('seoLandingLines')) {
 // ---- LIST / SCREEN --------------------------------------------------------
 $router->get(admin.'/seo/landing-pages', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'seo', 'view');
     if (function_exists('ensureSeoLandingSchema')) {
         ensureSeoLandingSchema($db);
     }
@@ -94,6 +95,7 @@ $router->get(admin.'/seo/landing-pages', function () use ($SECURE, $db) {
 // ---- CREATE / UPDATE (single JSON endpoint) -------------------------------
 $router->post(admin.'/seo/landing-pages/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'seo', 'edit');
     CSRF::guard();
     header('Content-Type: application/json; charset=utf-8');
     if (function_exists('ensureSeoLandingSchema')) { ensureSeoLandingSchema($db); }
@@ -208,6 +210,7 @@ $router->post(admin.'/seo/landing-pages/save', function () use ($SECURE, $db) {
 // ---- TOGGLE STATUS --------------------------------------------------------
 $router->post(admin.'/seo/landing-pages/toggle', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'seo', 'edit');
     CSRF::guard();
     header('Content-Type: application/json; charset=utf-8');
     $id  = (int) ($_POST['id'] ?? 0);
@@ -222,6 +225,7 @@ $router->post(admin.'/seo/landing-pages/toggle', function () use ($SECURE, $db) 
 // ---- DELETE ---------------------------------------------------------------
 $router->post(admin.'/seo/landing-pages/delete', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'seo', 'delete');
     CSRF::guard();
     header('Content-Type: application/json; charset=utf-8');
     $id = (int) ($_POST['id'] ?? 0);

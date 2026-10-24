@@ -22,7 +22,7 @@ $router->get(admin.'/support/desk', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     require_once dirname(__DIR__, 2) . '/lib/support/livedesk.php';
     ensureSupportDeskSchema($db);
-    if (!support_can($db, 'chat.view')) { http_response_code(403); die('Access Denied!'); }
+    if (!admin_can($db, 'support_desk', 'view')) { http_response_code(403); die('Access Denied!'); }
 
     $title = 'Live Desk'; $description = ''; $header = true; $footer = true;
     require_once views."includes/header.php";
@@ -38,10 +38,9 @@ $router->get(admin.'/support/desk/queue', function () use ($SECURE, $db) {
     require_once dirname(__DIR__, 2) . '/lib/support/livedesk.php';
     ensureSupportDeskSchema($db);
     header('Content-Type: application/json');
-    if (!support_can($db, 'chat.view')) { http_response_code(403); echo json_encode(['status' => false, 'message' => 'Forbidden']); return; }
+    if (!admin_can($db, 'support_desk', 'view')) { http_response_code(403); echo json_encode(['status' => false, 'message' => 'Forbidden']); return; }
 
-    $staff   = support_current_staff($db);
-    $staffId = (int) ($staff['id'] ?? 0);
+    $staffId = admin_staff_id($db);
     $filter  = (string) ($_GET['filter'] ?? 'all');
 
     $rows = support_desk_queue($db, $filter, 50, $staffId);
@@ -56,7 +55,7 @@ $router->get(admin.'/support/desk/messages', function () use ($SECURE, $db) {
     require_once dirname(__DIR__, 2) . '/lib/support/livedesk.php';
     ensureSupportDeskSchema($db);
     header('Content-Type: application/json');
-    if (!support_can($db, 'chat.view')) { http_response_code(403); echo json_encode(['status' => false, 'message' => 'Forbidden']); return; }
+    if (!admin_can($db, 'support_desk', 'view')) { http_response_code(403); echo json_encode(['status' => false, 'message' => 'Forbidden']); return; }
 
     $id    = (int) ($_GET['id'] ?? 0);
     $since = (int) ($_GET['since'] ?? 0);
@@ -87,10 +86,9 @@ $router->post(admin.'/support/desk/reply', function () use ($SECURE, $db) {
     require_once dirname(__DIR__, 2) . '/lib/support/livedesk.php';
     ensureSupportDeskSchema($db);
     header('Content-Type: application/json');
-    if (!support_can($db, 'chat.takeover')) { http_response_code(403); echo json_encode(['status' => false, 'message' => 'Forbidden']); return; }
+    if (!admin_can($db, 'support_desk', 'edit')) { http_response_code(403); echo json_encode(['status' => false, 'message' => 'Forbidden']); return; }
 
-    $staff   = support_current_staff($db);
-    $staffId = (int) ($staff['id'] ?? 0);
+    $staffId = admin_staff_id($db);
     $id      = (int) ($_POST['id'] ?? 0);
     $text    = trim((string) ($_POST['text'] ?? ''));
     if ($id <= 0 || $text === '') { echo json_encode(['status' => false, 'message' => 'Missing message.']); return; }
@@ -108,17 +106,16 @@ $router->post(admin.'/support/desk/takeover', function () use ($SECURE, $db) {
     require_once dirname(__DIR__, 2) . '/lib/support/livedesk.php';
     ensureSupportDeskSchema($db);
     header('Content-Type: application/json');
-    if (!support_can($db, 'chat.takeover')) { http_response_code(403); echo json_encode(['status' => false, 'message' => 'Forbidden']); return; }
+    if (!admin_can($db, 'support_desk', 'edit')) { http_response_code(403); echo json_encode(['status' => false, 'message' => 'Forbidden']); return; }
 
-    $staff   = support_current_staff($db);
-    $staffId = (int) ($staff['id'] ?? 0);
+    $staffId = admin_staff_id($db);
 
-    // Name to announce to the customer: the staff display_name, else their
-    // users.first_name (support_current_staff carries user_id for the lookup).
-    $displayName = trim((string) ($staff['display_name'] ?? ''));
-    if ($displayName === '' && !empty($staff['user_id'])) {
+    // Name to announce to the customer: the staff member's users.first_name
+    // (the staff key IS users.user_id now).
+    $displayName = '';
+    if ($staffId !== '') {
         try {
-            $fn = $db->get('users', 'first_name', ['user_id' => (string) $staff['user_id']]);
+            $fn = $db->get('users', 'first_name', ['user_id' => $staffId]);
             $displayName = trim((string) ($fn ?? ''));
         } catch (\Throwable $e) {
             error_log('[support] desk takeover name lookup: ' . $e->getMessage());

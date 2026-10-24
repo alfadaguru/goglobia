@@ -1,78 +1,60 @@
 <?php
-// app/views/admin/support/roles-manage.php — create/edit a support role.
-// A checkbox grid of the full capability catalogue (the single source of truth is
-// support_capability_catalogue() in app/lib/support/rbac.php). Editing a SYSTEM
-// role is allowed for its capabilities, but the name is editable while the slug +
-// is_system are LOCKED (§7); the Admin role is always-all and its grid is locked.
-// Gated by the route via support_can('roles.manage'); POST -> /support/roles/save.
-@$SECURE or die('Access Denied!');
+// app/views/admin/support/roles-manage.php — create/edit a role (users_roles).
+// A checkbox grid of the full area x action catalogue (single source of truth =
+// admin_area_catalogue() in app/lib/admin_rbac.php). A granted action posts as
+// permissions[<area>][<action>]; the save route stores it as '' (presence =
+// granted). The Admin role is all-access and its grid is locked.
+// Gated by the route via admin_can('users_roles','edit'); POST -> /support/roles/save.
+@$SECURE or die('Access Denie'.'d!');
 
 $rid = (int) ($_GET['id'] ?? 0);
-$r = $rid > 0 ? $db->get('support_roles', '*', ['id' => $rid]) : null;
+$r = $rid > 0 ? $db->get('users_roles', '*', ['id' => $rid]) : null;
 if ($rid > 0 && !$r) {
     $_SESSION['message'] = ['type' => 'error', 'text' => 'Role not found.'];
     redirect(root . admin . '/support/roles');
     return;
 }
 
-$isSystem = $r && (int) $r['is_system'] === 1;
-$isAdmin  = $isSystem && ($r['slug'] ?? '') === 'admin'; // always-all, locked grid
+$isAdmin  = $r && ((strtolower((string) ($r['base_type'] ?? '')) === 'admin')
+    || (strtolower((string) ($r['type_name'] ?? '')) === 'admin')); // always-all, locked grid
+$isSystem = $r && ((strtolower((string) ($r['kind'] ?? '')) === 'system') || ((int) $rid <= 5));
 
-// Current caps for the checkbox state. '*' (admin) implies every cap ticked.
+// Current grants for the checkbox state: $current[$area][$action] = ''.
 $current = [];
 if ($r && !empty($r['permissions'])) {
     $decoded = json_decode((string) $r['permissions'], true);
     if (is_array($decoded)) { $current = $decoded; }
 }
-$hasAll = in_array('*', $current, true);
 
-$catalogue = function_exists('support_capability_catalogue') ? support_capability_catalogue() : [];
+$catalogue = function_exists('admin_area_catalogue') ? admin_area_catalogue() : [];
 
-// Human labels + grouping for the grid (keys are the exact cap slugs from the
-// catalogue; any slug not listed falls under "Other").
-$capLabels = [
-    'chat.view'            => 'View live chats',
-    'chat.takeover'        => 'Take over / release a chat',
-    'chat.assign'          => 'Assign / reassign chats',
-    'tickets.view'         => 'View tickets',
-    'tickets.manage'       => 'Reply / manage tickets',
-    'bookings.view'        => 'View bookings',
-    'bookings.notes'       => 'Add booking internal notes',
-    'bookings.resend'      => 'Resend voucher / invoice',
-    'bookings.money'       => 'Money actions (refund / cancel / void)',
-    'users.view'           => 'View users directory',
-    'attendance.view_self' => 'View own attendance',
-    'attendance.view_all'  => 'View team attendance',
-    'shifts.manage'        => 'Manage shifts / roster',
-    'campaigns.manage'     => 'Manage ad campaigns',
-    'campaigns.analytics'  => 'View campaign analytics',
-    'targets.view'         => 'View targets',
-    'targets.set'          => 'Set targets',
-    'roles.manage'         => 'Manage support roles',
-    'staff.manage'         => 'Manage support staff',
-    'dashboard.view'       => 'View support dashboard',
+// Human labels for areas + actions. Any area/action not listed falls back to a
+// title-cased version of the slug, so the grid always covers the full catalogue.
+$areaLabels = [
+    'dashboard' => 'Dashboard', 'users' => 'Users', 'users_roles' => 'Roles',
+    'employees' => 'Employees', 'bookings' => 'Bookings', 'transactions' => 'Transactions',
+    'settings' => 'Settings', 'modules' => 'Modules', 'cms' => 'CMS pages',
+    'logs' => 'System logs', 'languages' => 'Languages', 'currencies' => 'Currencies',
+    'payment_gateways' => 'Payment gateways', 'notification_templates' => 'Notification templates',
+    'reports' => 'Reports', 'suppliers' => 'Suppliers',
+    'support_dashboard' => 'Support dashboard', 'support_desk' => 'Live chat desk',
+    'support_tickets' => 'Support tickets', 'support_attendance' => 'Attendance',
+    'support_shifts' => 'Shifts', 'support_campaigns' => 'Ad campaigns',
+    'support_targets' => 'Targets',
 ];
-$capGroups = [
-    'Live chat'     => ['chat.view', 'chat.takeover', 'chat.assign'],
-    'Tickets'       => ['tickets.view', 'tickets.manage'],
-    'Bookings'      => ['bookings.view', 'bookings.notes', 'bookings.resend', 'bookings.money'],
-    'Users'         => ['users.view'],
-    'Attendance'    => ['attendance.view_self', 'attendance.view_all', 'shifts.manage'],
-    'Campaigns'     => ['campaigns.manage', 'campaigns.analytics'],
-    'Targets'       => ['targets.view', 'targets.set'],
-    'Administration'=> ['roles.manage', 'staff.manage', 'dashboard.view'],
+$actionLabels = [
+    'page_access' => 'Open', 'view' => 'View', 'add' => 'Add', 'edit' => 'Edit',
+    'delete' => 'Delete', 'view_all' => 'View all', 'refund' => 'Refund',
+    'cancel' => 'Cancel', 'void' => 'Void',
 ];
-// Fold any catalogue cap not explicitly grouped into an "Other" bucket so the
-// grid always covers the complete catalogue even if rbac.php adds new caps.
-$grouped = [];
-foreach ($capGroups as $g) { foreach ($g as $c) { $grouped[$c] = true; } }
-$other = array_values(array_diff($catalogue, array_keys($grouped)));
-if (!empty($other)) { $capGroups['Other'] = $other; }
+$label = function (string $slug, array $map): string {
+    return $map[$slug] ?? ucwords(str_replace('_', ' ', $slug));
+};
 
 $v = function ($k, $d = '') use ($r) { return htmlspecialchars((string) ($r[$k] ?? $d), ENT_QUOTES); };
 ?>
 
-<div class="container my-4" style="max-width:900px">
+<div class="container my-4" style="max-width:960px">
   <?php if (isset($_SESSION['message'])): ?>
     <div class="mb-4 flex items-center gap-2 p-3 rounded-lg"
          style="<?= $_SESSION['message']['type'] === 'success' ? 'background:#dcfce7;color:#166534' : 'background:#fee2e2;color:#991b1b' ?>">
@@ -98,12 +80,12 @@ $v = function ($k, $d = '') use ($r) { return htmlspecialchars((string) ($r[$k] 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label class="block text-sm font-semibold text-gray-700 mb-1">Role name</label>
-          <input type="text" name="name" value="<?= $v('name') ?>" required
+          <input type="text" name="name" value="<?= $v('type_name') ?>" required <?= $isAdmin ? 'readonly' : '' ?>
                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
         </div>
         <div>
           <label class="block text-sm font-semibold text-gray-700 mb-1">Slug <span class="text-gray-400 font-normal">(auto)</span></label>
-          <input type="text" value="<?= $isSystem ? $v('slug') : '' ?>" readonly disabled
+          <input type="text" value="<?= $rid > 0 ? $v('slug') : '' ?>" readonly disabled
                  placeholder="<?= $rid > 0 ? '' : 'derived from the name on save' ?>"
                  class="w-full rounded-lg border border-gray-200 bg-gray-100 px-3 py-2.5 text-sm text-gray-500">
           <?php if ($isSystem): ?>
@@ -115,7 +97,7 @@ $v = function ($k, $d = '') use ($r) { return htmlspecialchars((string) ($r[$k] 
 
     <div class="rounded-xl border border-gray-100 p-4">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-sm font-bold text-gray-900">Capabilities</h3>
+        <h3 class="text-sm font-bold text-gray-900">Permissions</h3>
         <?php if (!$isAdmin): ?>
           <div class="flex items-center gap-3 text-xs">
             <button type="button" class="text-blue-600 hover:underline" onclick="document.querySelectorAll('.cap-cb').forEach(c=>c.checked=true)">Select all</button>
@@ -126,34 +108,48 @@ $v = function ($k, $d = '') use ($r) { return htmlspecialchars((string) ($r[$k] 
 
       <?php if ($isAdmin): ?>
         <div class="rounded-lg p-3 text-sm" style="background:#ecfdf5;color:#065f46">
-          The <strong>Admin</strong> role always has <strong>all capabilities</strong> and cannot be narrowed.
+          The <strong>Admin</strong> role always has <strong>full access</strong> to every area and cannot be narrowed.
         </div>
       <?php else: ?>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
-          <?php foreach ($capGroups as $groupName => $caps): ?>
-            <?php if (empty($caps)) continue; ?>
-            <div>
-              <div class="text-xs font-bold uppercase tracking-wide text-gray-400 mb-2"><?= htmlspecialchars($groupName) ?></div>
-              <?php foreach ($caps as $cap): ?>
-                <?php $checked = $hasAll || in_array($cap, $current, true); ?>
-                <label class="flex items-start gap-2 mb-2 cursor-pointer">
-                  <input type="checkbox" class="cap-cb mt-0.5" name="permissions[]" value="<?= htmlspecialchars($cap, ENT_QUOTES) ?>" <?= $checked ? 'checked' : '' ?>>
-                  <span class="text-sm text-gray-800"><?= htmlspecialchars($capLabels[$cap] ?? $cap) ?>
-                    <span class="block text-[11px] text-gray-400"><code><?= htmlspecialchars($cap) ?></code></span>
-                  </span>
-                </label>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <tbody>
+              <?php foreach ($catalogue as $area => $actions): ?>
+                <tr class="border-b border-gray-50">
+                  <td class="py-2 pr-4 align-top font-medium text-gray-800 whitespace-nowrap">
+                    <?= htmlspecialchars($label($area, $areaLabels)) ?>
+                    <span class="block text-[11px] text-gray-400"><code><?= htmlspecialchars($area) ?></code></span>
+                  </td>
+                  <td class="py-2">
+                    <div class="flex flex-wrap gap-x-5 gap-y-1">
+                      <?php foreach ($actions as $action): ?>
+                        <?php $checked = isset($current[$area][$action]); ?>
+                        <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                          <input type="checkbox" class="cap-cb" name="permissions[<?= htmlspecialchars($area, ENT_QUOTES) ?>][<?= htmlspecialchars($action, ENT_QUOTES) ?>]" value="1" <?= $checked ? 'checked' : '' ?>>
+                          <span class="text-gray-700"><?= htmlspecialchars($label($action, $actionLabels)) ?></span>
+                        </label>
+                      <?php endforeach; ?>
+                    </div>
+                  </td>
+                </tr>
               <?php endforeach; ?>
-            </div>
-          <?php endforeach; ?>
+            </tbody>
+          </table>
         </div>
       <?php endif; ?>
     </div>
 
+    <?php if (!$isAdmin): ?>
     <div class="mt-5 flex items-center gap-3">
       <button type="submit" class="rounded-lg bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-black transition">
         <?= $rid > 0 ? 'Save changes' : 'Create role' ?>
       </button>
       <a href="<?= root.admin ?>/support/roles" class="text-sm text-gray-500 hover:text-gray-700">Cancel</a>
     </div>
+    <?php else: ?>
+    <div class="mt-5">
+      <a href="<?= root.admin ?>/support/roles" class="text-sm text-gray-500 hover:text-gray-700">← Back to roles</a>
+    </div>
+    <?php endif; ?>
   </form>
 </div>

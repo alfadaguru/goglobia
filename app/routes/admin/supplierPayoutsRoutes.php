@@ -14,6 +14,7 @@
 // ----------------------------------------------------------------------------
 $router->get(admin . '/supplier-payouts', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'supplier_payouts', 'view');
 
     $stateFilter = strtolower(trim((string) ($_GET['state'] ?? '')));
     $allowed = ['requested', 'approved', 'processing', 'awaiting_otp', 'paid', 'failed', 'rejected', 'cancelled'];
@@ -55,6 +56,7 @@ $router->get(admin . '/supplier-payouts', function () use ($SECURE, $db) {
 // ----------------------------------------------------------------------------
 $router->post(admin . '/supplier-payouts/approve', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'supplier_payouts', 'edit');
     CSRF::guard();
     $id = (int) ($_POST['id'] ?? 0);
     $back = root . admin . '/supplier-payouts';
@@ -75,6 +77,7 @@ $router->post(admin . '/supplier-payouts/approve', function () use ($SECURE, $db
 // ----------------------------------------------------------------------------
 $router->post(admin . '/supplier-payouts/reject', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'supplier_payouts', 'edit');
     CSRF::guard();
     $id = (int) ($_POST['id'] ?? 0);
     $reason = trim((string) ($_POST['reason'] ?? ''));
@@ -98,6 +101,7 @@ $router->post(admin . '/supplier-payouts/reject', function () use ($SECURE, $db)
 // ----------------------------------------------------------------------------
 $router->post(admin . '/supplier-payouts/resolve', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'supplier_payouts', 'edit');
     CSRF::guard();
     $id = (int) ($_POST['id'] ?? 0);
     $back = root . admin . '/supplier-payouts';
@@ -119,6 +123,7 @@ $router->post(admin . '/supplier-payouts/resolve', function () use ($SECURE, $db
 // ----------------------------------------------------------------------------
 $router->post(admin . '/supplier-payouts/otp', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'supplier_payouts', 'edit');
     CSRF::guard();
     $id = (int) ($_POST['id'] ?? 0);
     $otp = trim((string) ($_POST['otp'] ?? ''));
@@ -140,6 +145,7 @@ $router->post(admin . '/supplier-payouts/otp', function () use ($SECURE, $db) {
 // ----------------------------------------------------------------------------
 $router->post(admin . '/supplier-payouts/resend-otp', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'supplier_payouts', 'edit');
     CSRF::guard();
     $id = (int) ($_POST['id'] ?? 0);
     $back = root . admin . '/supplier-payouts';
@@ -160,6 +166,7 @@ $router->post(admin . '/supplier-payouts/resend-otp', function () use ($SECURE, 
 // ----------------------------------------------------------------------------
 $router->get(admin . '/supplier-payout-settings', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'supplier_payouts', 'view');
     if (function_exists('supplier_payouts_ext_ensure_schema')) { supplier_payouts_ext_ensure_schema($db); }
 
     $settings  = function_exists('supplier_payout_settings') ? supplier_payout_settings($db) : ['enabled' => false, 'methods' => ['bank_transfer'], 'currencies' => []];
@@ -178,6 +185,7 @@ $router->get(admin . '/supplier-payout-settings', function () use ($SECURE, $db)
 // ----------------------------------------------------------------------------
 $router->post(admin . '/supplier-payout-settings', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'supplier_payouts', 'edit');
     CSRF::guard();
     $back = root . admin . '/supplier-payout-settings';
     if (!function_exists('supplier_payout_settings_save')) {

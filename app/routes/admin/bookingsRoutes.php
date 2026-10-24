@@ -7,6 +7,7 @@ $router->get(admin.'/bookings', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
 
     // META DATA
     $title = T::bookings;
@@ -22,6 +23,7 @@ $router->get(admin.'/bookings/edit/(.*)', function ($invoice_id) use ($SECURE,$d
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
 
     // META DATA
     $title = T::edit . ' ' . T::booking;
@@ -37,6 +39,7 @@ $router->get(admin.'/bookings/document/([^/]+)/(\d+)/(passport|national_id_front
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
 
     $booking = $db->get('bookings', ['invoice_id', 'module_type', 'travellers'], ['invoice_id' => $invoice_id]);
 
@@ -118,6 +121,7 @@ $router->post(admin.'/bookings/edit/(.*)', function ($invoice_id) use ($SECURE,$
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
     // CSRF: this handler writes booking_status/payment_status/prices from $_POST.
     // guard() is fail-closed on POST and a no-op otherwise (form or AJAX aware).
     CSRF::guard();
@@ -224,6 +228,7 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
     // CSRF: state-changing admin action (JSON). guard() emits a JSON 403 for
     // AJAX callers on a bad/missing token and is a no-op on non-POST.
     CSRF::guard();
@@ -421,6 +426,7 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
     }
 
     if ($action === 'void_booking') {
+        admin_require($db, 'bookings', 'void');
         $_POST['invoice_id'] = $invoice_id;
         $_POST['module_type'] = $booking['module_type'];
 
@@ -455,6 +461,7 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
     }
 
     if ($action === 'cancel_booking') {
+        admin_require($db, 'bookings', 'cancel');
         $_POST['invoice_id'] = $invoice_id;
         $_POST['module_type'] = $booking['module_type'];
 
@@ -489,6 +496,7 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
     }
 
     if ($action === 'refund_request') {
+        admin_require($db, 'bookings', 'refund');
         $_POST['invoice_id'] = $invoice_id;
         $_POST['module_type'] = $booking['module_type'];
 
@@ -532,6 +540,7 @@ $router->get(admin.'/bookings/(.*)', function ($module) use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
 
 
     // META DATA

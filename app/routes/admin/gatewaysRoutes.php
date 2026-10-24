@@ -9,6 +9,7 @@ LOCATIONS ROUTES START
 // ================================ GET / locations - LIST LOCATIONS
 $router->get(admin.'/settings/gateways', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'payment_gateways', 'view');
 
     $title = T::gateways_management ?? 'Gateways Management';
     $header = true;
@@ -21,6 +22,7 @@ $router->get(admin.'/settings/gateways', function () use ($SECURE,$db) {
 // Gateway edit page
 $router->get(admin.'/settings/gateway/edit/(\d+)', function ($gatewayId) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'payment_gateways', 'view');
 
     // Get gateway details
     $gateway = $db->get('payment_gateways', '*', ['id' => $gatewayId]);
@@ -124,6 +126,7 @@ $router->post(admin.'/settings/gateway/update/(\d+)', function ($gatewayId) use 
         }
         ob_start();
 
+        admin_require($db, 'payment_gateways', 'edit');
         if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'admin') {
             ob_clean();
             header('Content-Type: application/json');
@@ -168,6 +171,7 @@ $router->post(admin.'/settings/gateway/update/(\d+)', function ($gatewayId) use 
 
     // ADMIN AUTH CHECK for regular requests
     ADMIN_AUTH();
+    admin_require($db, 'payment_gateways', 'edit');
 
     // Get gateway details first
     $gateway = $db->get('payment_gateways', '*', ['id' => $gatewayId]);
@@ -237,6 +241,7 @@ $router->post(admin.'/settings/gateway/ajax-update', function () use ($db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'payment_gateways', 'edit');
     CSRF::guard();
 
     // Disable profiler/debug for AJAX requests
@@ -326,6 +331,7 @@ $router->post(admin.'/settings/gateway/ajax-update', function () use ($db) {
 // ============================================================================
 $router->get(admin.'/settings/payment-scoping', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'payment_gateways', 'view');
 
     // All module types + their suppliers, from the modules registry.
     $moduleRows = $db->select('modules', ['type', 'name'], ['status' => '1', 'ORDER' => ['type' => 'ASC', 'name' => 'ASC']]) ?: [];
@@ -375,6 +381,7 @@ $router->get(admin.'/settings/payment-scoping', function () use ($SECURE,$db) {
 // Save the gateway allow-list for a scope.
 $router->post(admin.'/settings/payment-scoping/gateways', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'payment_gateways', 'edit');
     CSRF::guard();
     header('Content-Type: application/json');
 
@@ -418,6 +425,7 @@ $router->post(admin.'/settings/payment-scoping/gateways', function () use ($SECU
 // Save the Pay-Later rule for a scope.
 $router->post(admin.'/settings/payment-scoping/pay-later', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'payment_gateways', 'edit');
     CSRF::guard();
     header('Content-Type: application/json');
 
@@ -457,6 +465,7 @@ $router->post(admin.'/settings/payment-scoping/pay-later', function () use ($SEC
 // Save the PaySmallSmall (installment) rule for a scope.
 $router->post(admin.'/settings/payment-scoping/pay-small-small', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'payment_gateways', 'edit');
     CSRF::guard();
     header('Content-Type: application/json');
 
