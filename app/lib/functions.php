@@ -5425,21 +5425,45 @@ function ensureBlogContent($db): void
             $catId[$slug] = (int) $db->id();
         }
 
+        // Per-post hero image is OPTIONAL and supplied by you, not invented here:
+        // drop a file named by the post slug into uploads/blogs/ (e.g.
+        // uploads/blogs/umrah-from-kano-complete-guide-to-departures-packages-what-to-expect.jpg)
+        // and this resolver attaches it. Supported extensions below. Returns the
+        // stored path (/uploads/blogs/<slug>.<ext>) or null if no file is present.
+        $uploadsDir = dirname(__DIR__, 1) . '/../uploads/blogs/';
+        $resolveImg = function (string $slug) use ($uploadsDir): ?string {
+            if ($slug === '') { return null; }
+            foreach (['jpg', 'jpeg', 'png', 'webp', 'gif'] as $ext) {
+                if (is_file($uploadsDir . $slug . '.' . $ext)) {
+                    return '/uploads/blogs/' . $slug . '.' . $ext;
+                }
+            }
+            return null;
+        };
+
         $order = 0;
         foreach ($posts as $p) {
             $title = trim((string) ($p['title'] ?? ''));
             $body  = (string) ($p['body_html'] ?? '');
             if ($title === '' || $body === '') { continue; }
 
-            // Slug-guard: skip if a post with this exact title's slug already
-            // exists (idempotent re-run; never duplicate / clobber).
+            // Derive the canonical slug for this post (same rule the app uses).
             $slug = generateUniqueSlug($title, 'blogs', 'post_slug', $db);
-            // generateUniqueSlug auto-appends -1, -2 on collision; to make this a
-            // true skip-if-exists, check the base slug ourselves.
             $baseSlug = transliterateString($title);
             $baseSlug = trim((string) $baseSlug, '-');
-            if ($baseSlug !== '' && $db->get('blogs', 'id', ['post_slug' => $baseSlug])) {
-                continue; // already seeded (or an admin already used this slug)
+            $postSlug = $baseSlug !== '' ? $baseSlug : $slug;
+
+            $img = $resolveImg($postSlug);
+
+            // Already seeded? Then DON'T re-insert — but DO top up the image if the
+            // post still has none and you've now added a matching file. Never
+            // overwrite an image an admin already set.
+            $existing = $baseSlug !== '' ? $db->get('blogs', ['id', 'post_img'], ['post_slug' => $baseSlug]) : null;
+            if ($existing) {
+                if ($img !== null && empty($existing['post_img'])) {
+                    $db->update('blogs', ['post_img' => $img], ['id' => (int) $existing['id']]);
+                }
+                continue;
             }
 
             $catSlug = (string) ($p['category'] ?? 'nigeria-travel');
@@ -5450,10 +5474,10 @@ function ensureBlogContent($db): void
 
             $db->insert('blogs', [
                 'post_title'       => $title,
-                'post_slug'        => $baseSlug !== '' ? $baseSlug : $slug,
+                'post_slug'        => $postSlug,
                 'post_desc'        => $body,
                 'post_category'    => $category,
-                'post_img'         => null,
+                'post_img'         => $img, // null until you drop uploads/blogs/<slug>.<ext>
                 'meta_title'       => trim((string) ($p['meta_title'] ?? '')) ?: null,
                 'meta_description' => trim((string) ($p['meta_description'] ?? '')) ?: null,
                 'meta_keywords'    => trim((string) ($p['meta_keywords'] ?? '')) ?: null,
