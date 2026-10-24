@@ -255,14 +255,19 @@ PERFORMANCE:
                                 </p>
 
                                 <!-- Price + per night in same line -->
-                                <div class="flex items-baseline gap-2">
-                                    <p class="text-2xl font-bold text-gray-900 dark:text-gray-100 leading-none mb-0">
-                                        ${h.currency} ${h.price_per_night.toFixed(2)}
+                                <div class="flex items-baseline gap-1.5">
+                                    <p class="text-2xl font-extrabold text-gray-900 dark:text-gray-100 leading-none mb-0 tabular-nums tracking-tight">
+                                        ${this.money(h.price_per_night, h.currency)}
                                     </p>
-                                    <p class="text-sm text-gray-500 dark:text-gray-400 mb-0"><?= T::per ?> <?= T::night ?> </p>
+                                    <p class="text-sm text-gray-500 dark:text-gray-400 mb-0">/ <?= T::night ?></p>
                                 </div>
                                 <!-- Total -->
-                                <p class="text-xs text-gray-500 dark:text-gray-400 mb-0"> ${h.currency} ${h.price.toFixed(2)} <?= T::total ?> </p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mb-0 mt-0.5 tabular-nums">${this.money(h.price, h.currency)} <?= T::total ?></p>
+                                <p class="text-[11px] text-green-600 dark:text-green-400 font-medium mt-0.5 flex items-center gap-1">
+                                    <span class="material-symbols-outlined" style="font-size:13px;">check_circle</span>
+                                    Includes taxes &amp; fees
+                                </p>
+                                ${this.renderStayPayOptions(h)}
                             ` : `
                                 <p class="text-sm text-amber-600 dark:text-amber-400 font-semibold">   <?= T::contact ?> <?= T::for ?> <?= T::pricing ?></p>
                             `}
@@ -420,8 +425,8 @@ PERFORMANCE:
 
                                         <td class="px-3 py-2 text-right">
                                             <div class="inline-flex flex-col items-end">
-                                                <span class="text-base font-bold text-green-600 dark:text-green-400">
-                                                    ${h.currency} ${room.min_price_per_night.toFixed(2)}
+                                                <span class="text-base font-bold text-green-600 dark:text-green-400 tabular-nums">
+                                                    ${this.money(room.min_price_per_night, h.currency)}
                                                 </span>
                                                 <span class="text-xs text-gray-500 dark:text-gray-400">
                                                     <?= T::per ?> <?= T::night ?>
