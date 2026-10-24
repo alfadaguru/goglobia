@@ -5244,7 +5244,19 @@ function ensureSeoLandingSchema($db): void
         // only slugs are inserted that (a) are new defaults and (b) have never
         // been seeded before (tracked by the recorded version). Existing slugs are
         // left untouched, so admin content is safe.
-        $SEO_LANDING_SEED_VERSION = 2; // v2: +kaduna, sokoto, maiduguri, ilorin, port-harcourt, enugu (umrah origins)
+        // Each entry is one shipped batch of NEW default slugs, keyed by the
+        // version that introduced it. To add more default pages later: append the
+        // slugs/content to the *Defaults() registry AND add a batch here with the
+        // next version number, then bump $SEO_LANDING_SEED_VERSION. A batch is
+        // applied to an existing install exactly once (when applied < that
+        // version) and is skipped on fresh installs (already full-seeded above).
+        $SEO_LANDING_SEED_BATCHES = [
+            // v2: more Umrah departure cities.
+            2 => ['umrah_origin' => ['kaduna', 'sokoto', 'maiduguri', 'ilorin', 'port-harcourt', 'enugu']],
+            // v3: more hotel-city destinations (pilgrimage, Gulf, Africa, Asia).
+            3 => ['hotel_city' => ['makkah', 'madinah', 'abu-dhabi', 'doha', 'cairo', 'accra', 'johannesburg', 'nairobi', 'kuala-lumpur']],
+        ];
+        $SEO_LANDING_SEED_VERSION = 3;
 
         // Ensure the tracking column exists BEFORE we read it (idempotent ALTER),
         // else an existing install throws "unknown column" and aborts the top-up.
@@ -5255,27 +5267,34 @@ function ensureSeoLandingSchema($db): void
 
         $applied = (int) ($db->get('settings', 'seo_landing_seed_version', ['id' => 1]) ?: 0);
         if ($applied < $SEO_LANDING_SEED_VERSION && !$fresh) {
-            // Only the slugs introduced at version 2 (so a v1 install gets exactly
-            // these six, and a fresh install — already full-seeded above — skips).
-            $v2UmrahSlugs = ['kaduna', 'sokoto', 'maiduguri', 'ilorin', 'port-harcourt', 'enugu'];
-            if ($applied < 2 && function_exists('seoUmrahOriginCitiesDefaults')) {
-                $defaults = seoUmrahOriginCitiesDefaults();
-                // Continue sort_order after the existing umrah rows.
-                $maxOrder = (int) ($db->max('seo_landing_pages', 'sort_order', ['type' => 'umrah_origin']) ?: 0);
-                foreach ($v2UmrahSlugs as $slug) {
-                    if (!isset($defaults[$slug])) { continue; }
-                    // Skip if the admin already has a row for this slug (added or
-                    // deleted-then-recreated) — never clobber or duplicate.
-                    if ((int) $db->count('seo_landing_pages', '*', ['type' => 'umrah_origin', 'slug' => $slug]) > 0) { continue; }
-                    $d = $defaults[$slug];
-                    $db->insert('seo_landing_pages', [
-                        'type'       => 'umrah_origin',
-                        'slug'       => $slug,
-                        'title'      => $d['name'] ?? null,
-                        'data'       => json_encode($d, JSON_UNESCAPED_UNICODE),
-                        'status'     => 1,
-                        'sort_order' => $maxOrder += 10,
-                    ]);
+            $defaultsFor = [
+                'flight_route' => 'seoFlightRouteDataDefaults',
+                'hotel_city'   => 'seoHotelCitiesDefaults',
+                'umrah_origin' => 'seoUmrahOriginCitiesDefaults',
+            ];
+            foreach ($SEO_LANDING_SEED_BATCHES as $ver => $byType) {
+                if ($applied >= $ver) { continue; } // already applied this batch
+                foreach ($byType as $type => $slugs) {
+                    $fn = $defaultsFor[$type] ?? null;
+                    if (!$fn || !function_exists($fn)) { continue; }
+                    $defaults = $fn();
+                    // Continue sort_order after the existing rows of this type.
+                    $maxOrder = (int) ($db->max('seo_landing_pages', 'sort_order', ['type' => $type]) ?: 0);
+                    foreach ($slugs as $slug) {
+                        if (!isset($defaults[$slug])) { continue; }
+                        // Never clobber or duplicate a row the admin already has
+                        // (added, or deleted-then-recreated) — skip if present.
+                        if ((int) $db->count('seo_landing_pages', '*', ['type' => $type, 'slug' => $slug]) > 0) { continue; }
+                        $d = $defaults[$slug];
+                        $db->insert('seo_landing_pages', [
+                            'type'       => $type,
+                            'slug'       => $slug,
+                            'title'      => $d['name'] ?? null,
+                            'data'       => json_encode($d, JSON_UNESCAPED_UNICODE),
+                            'status'     => 1,
+                            'sort_order' => $maxOrder += 10,
+                        ]);
+                    }
                 }
             }
         }
