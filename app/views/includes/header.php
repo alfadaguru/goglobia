@@ -706,7 +706,7 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
             <?php endif; ?>
 
             <!-- DESKTOP NAVIGATION -->
-            <nav class="hidden xl:flex items-center gap-0.5 font-medium">
+            <nav class="hidden lg:flex items-center gap-0.5 font-medium">
             <!-- INLINE SERVICES (platform only — hidden on a hotel's own site).
                  First N services promoted into the bar; the rest live in "More". -->
             <?php if (!$__wl && !empty($inlineServices)): ?>
@@ -819,7 +819,7 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
             </a>
             <?php else: ?>
             <!-- DESKTOP CONTROL GROUP — ALL CONTROLS IN ONE ROUNDED-FULL PILL BAR -->
-            <div class="hidden xl:flex items-center gap-1 p-1 bg-white border border-gray-200 rounded-full shadow-sm">
+            <div class="hidden lg:flex items-center gap-1 p-1 bg-white border border-gray-200 rounded-full shadow-sm">
             <!-- COMBINED CURRENCY + LANGUAGE SWITCHER - DESKTOP ONLY -->
             <?php
             $showLang = ($GLOBALS['app']['multi_language'] ?? '1') != '0';
@@ -1027,7 +1027,7 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
             <?php endif; /* $__wl */ ?>
 
             <!-- MOBILE MENU BUTTON -->
-            <button @click="mobileMenuOpen = !mobileMenuOpen" class="xl:hidden inline-flex items-center justify-center p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-full border border-gray-200 transition-all duration-200">
+            <button @click="mobileMenuOpen = !mobileMenuOpen" class="lg:hidden inline-flex items-center justify-center p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-full border border-gray-200 transition-all duration-200">
               <span class="material-symbols-outlined !text-[24px]" x-text="mobileMenuOpen ? 'close' : 'menu'">menu</span>
             </button>
           </div>
@@ -1045,7 +1045,7 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
            @click.away="mobileMenuOpen = false"
            x-effect="document.body.style.overflow = mobileMenuOpen ? 'hidden' : ''"
            @keydown.escape.window="mobileMenuOpen = false"
-           class="xl:hidden fixed left-0 right-0 bg-white border-b border-gray-200 shadow-2xl z-40 overflow-y-auto"
+           class="lg:hidden fixed left-0 right-0 bg-white border-b border-gray-200 shadow-2xl z-40 overflow-y-auto"
            :style="(scrolled ? 'top:96px;max-height:calc(100vh - 96px)' : 'top:112px;max-height:calc(100vh - 112px)')"
            style="top:112px;max-height:calc(100vh - 112px)">
         <div class="px-4 py-6 space-y-4" x-data="{
