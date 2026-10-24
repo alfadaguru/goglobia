@@ -26,6 +26,40 @@ $router->get(admin.'/support', function () use ($SECURE, $db) {
         exit;
     }
 
+    // --- Live dashboard data (all fail-soft: a helper error must NOT blank the
+    //     page). The view reads $supportDash if present, else shows tiles only. ---
+    $supportDash = [
+        'agents_online' => null, 'needs_human' => null,
+        'today_held' => null, 'today_paid' => null, 'today_revenue' => null,
+        'targets' => [], 'leaderboard' => [],
+        'can_targets' => support_can($db, 'targets.view'),
+        'can_board'   => support_can($db, 'attendance.view_all') || support_can($db, 'campaigns.analytics'),
+    ];
+    try {
+        if (function_exists('support_who_online')) {
+            $supportDash['agents_online'] = count(support_who_online($db));
+        }
+        if (function_exists('support_desk_queue')) {
+            $supportDash['needs_human'] = count(support_desk_queue($db, 'needs_human', 100));
+        }
+        // Today's held/paid/revenue via a team/any "held"-style window using the
+        // targets engine's actual() over a today window (reuse, don't re-implement).
+        if (function_exists('support_target_actual')) {
+            $todayT = ['scope' => 'team', 'metric' => 'held', 'product' => '', 'period' => 'daily', 'target_value' => 0];
+            $supportDash['today_held'] = support_target_actual($db, $todayT, date('Y-m-d'));
+            $supportDash['today_paid'] = support_target_actual($db, ['scope' => 'team', 'metric' => 'paid', 'product' => '', 'period' => 'daily', 'target_value' => 0], date('Y-m-d'));
+            $supportDash['today_revenue'] = support_target_actual($db, ['scope' => 'team', 'metric' => 'revenue', 'product' => '', 'period' => 'daily', 'target_value' => 0], date('Y-m-d'));
+        }
+        if ($supportDash['can_targets'] && function_exists('support_targets_all')) {
+            $supportDash['targets'] = array_slice(support_targets_all($db), 0, 6);
+        }
+        if ($supportDash['can_board'] && function_exists('support_leaderboard')) {
+            $supportDash['leaderboard'] = array_slice(support_leaderboard($db, date('Y-m-01'), date('Y-m-d')), 0, 6);
+        }
+    } catch (\Throwable $e) {
+        error_log('[support] dashboard data: ' . $e->getMessage());
+    }
+
     $title = 'Customer Support'; $description = ''; $header = true; $footer = true;
     require_once views."includes/header.php";
     require_once "app/views/admin/support/home.php";

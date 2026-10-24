@@ -189,6 +189,7 @@ require_once 'app/lib/support/livedesk.php'; // Customer Support — Phase 2 Liv
 require_once 'app/lib/support/attendance.php'; // Customer Support — Phase 3 attendance/presence/shift engine (clock-in/out + heartbeat + nudge data)
 require_once 'app/lib/support/shifts.php';     // Customer Support — Phase 3 shift roster + nudge-due helpers (schema owned by attendance.php)
 require_once 'app/lib/support/campaigns.php';  // Customer Support — Phase 4 ad campaign registry + GIA attribution (schema owned here)
+require_once 'app/lib/support/targets.php';     // Customer Support — Phase 5 agent/GIA/team targets + leaderboard
 
 // Load demo warning helper with error handling
 try {
@@ -524,6 +525,11 @@ try {
     // GIA campaign attribution columns. Idempotent.
     if (function_exists('ensureAdCampaignSchema')) {
         ensureAdCampaignSchema($db);
+    }
+    // Customer Support P5 Targets — support_targets (agent/GIA/team conversion
+    // goals + leaderboard). Idempotent.
+    if (function_exists('ensureSupportTargetSchema')) {
+        ensureSupportTargetSchema($db);
     }
     // Umrah redesign (docs/UMRAH-PHASE1-BUILD-PLAN.md) — schema + seeds, idempotent.
     if (function_exists('ensureUmrahSchema')) {

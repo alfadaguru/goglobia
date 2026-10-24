@@ -420,6 +420,7 @@ $adminMenu = array_merge($adminMenu, [
             ['name' => 'Attendance', 'icon' => 'schedule', 'url' => root.admin.'/support/attendance'],
             ['name' => 'Ad Campaigns', 'icon' => 'campaign', 'url' => root.admin.'/support/campaigns'],
             ['name' => 'Conversion', 'icon' => 'trending_up', 'url' => root.admin.'/support/conversion'],
+            ['name' => 'Targets', 'icon' => 'target', 'url' => root.admin.'/support/targets'],
             ['name' => 'Shifts', 'icon' => 'calendar_month', 'url' => root.admin.'/support/shifts'],
             ['name' => 'Support Tickets', 'icon' => 'confirmation_number', 'url' => root.admin.'/support/tickets'],
             ['name' => 'Roles', 'icon' => 'admin_panel_settings', 'url' => root.admin.'/support/roles'],
