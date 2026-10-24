@@ -264,6 +264,23 @@ $router->post('/signup', function () use ($SECURE, $db) {
                 'source' => 'web'
             ]);
 
+            // PHONE VERIFY (optional): if the new account has a phone, issue a
+            // purpose-scoped OTP and deliver it over WhatsApp (SMS fallback). This
+            // is non-blocking — email verification still gates status=active; the
+            // phone OTP only sets users.phone_verified when confirmed at
+            // /verify-phone. Fire-and-forget; failures are logged, never fatal.
+            if ($phone !== '' && function_exists('otp_issue') && function_exists('sendOtpWhatsApp')) {
+                try {
+                    $otpRes = otp_issue($db, $insert_data['user_id'], 'phone_verify');
+                    if (!empty($otpRes['ok'])) {
+                        sendOtpWhatsApp($db, $phone, $phone_country_code, $otpRes['code'], $first_name);
+                        $_SESSION['pending_phone_verify_user'] = $insert_data['user_id'];
+                    }
+                } catch (\Throwable $e) {
+                    error_log('signup phone-verify otp: ' . $e->getMessage());
+                }
+            }
+
             $notificationResults = sendNotification($userId, 'signup_welcome', []);
 
             $emailSent = $notificationResults['email'] ?? false;
@@ -277,6 +294,14 @@ $router->post('/signup', function () use ($SECURE, $db) {
                 $_SESSION['success'] = T::success_registration_complete;
             } else {
                 $_SESSION['success'] = T::success_registration_no_email;
+            }
+
+            // If a phone was provided, send them to the (optional, skippable)
+            // phone-verify step where the WhatsApp OTP just issued can be entered.
+            // Otherwise the usual login redirect (email verification handles that).
+            if (!empty($_SESSION['pending_phone_verify_user'])) {
+                header('Location: ' . root . 'verify-phone');
+                exit;
             }
 
             header('Location: ' . root . 'login');
@@ -293,4 +318,99 @@ $router->post('/signup', function () use ($SECURE, $db) {
         header('Location: ' . $redirectUrl);
         exit;
     }
+});
+
+// ============================================================================
+// PHONE VERIFICATION (optional) — confirm users.phone via a WhatsApp OTP.
+// Reached after a signup that supplied a phone ($_SESSION['pending_phone_verify_user']),
+// or by a logged-in user who wants to verify their number. Uses the shared OTP
+// engine (app/lib/otp.php), purpose 'phone_verify'. Non-blocking: it only sets
+// users.phone_verified; it never gates login/activation (email handles that).
+// ============================================================================
+$router->get('/verify-phone', function () use ($SECURE, $db) {
+    // Who is verifying: a just-signed-up user, or the logged-in user.
+    $uid = (string) ($_SESSION['pending_phone_verify_user'] ?? $_SESSION['user_id'] ?? '');
+    if ($uid === '') {
+        header('Location: ' . root . 'login');
+        exit;
+    }
+    $u = $db->get('users', ['phone', 'phone_country_code', 'phone_verified'], ['user_id' => $uid]);
+    if (!$u || trim((string) ($u['phone'] ?? '')) === '') {
+        // Nothing to verify.
+        header('Location: ' . root . (isset($_SESSION['user_id']) ? 'dashboard' : 'login'));
+        exit;
+    }
+    if ((int) ($u['phone_verified'] ?? 0) === 1) {
+        unset($_SESSION['pending_phone_verify_user']);
+        header('Location: ' . root . (isset($_SESSION['user_id']) ? 'dashboard' : 'login'));
+        exit;
+    }
+    // Masked phone for display (show only last 3 digits).
+    $digits = preg_replace('/\D/', '', (string) $u['phone']);
+    $maskedPhone = strlen($digits) > 3 ? str_repeat('•', max(0, strlen($digits) - 3)) . substr($digits, -3) : $digits;
+
+    $title = T::verify_phone ?? 'Verify your phone';
+    $header = true;
+    $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "auth/verify-phone.php";
+    require_once views . "includes/footer.php";
+});
+
+$router->post('/verify-phone', function () use ($SECURE, $db) {
+    if (!CSRF::validateToken($_POST['csrf_token'] ?? '')) {
+        $_SESSION['verify_phone_error'] = 'Security check failed. Please try again.';
+        header('Location: ' . root . 'verify-phone');
+        exit;
+    }
+    $uid  = (string) ($_SESSION['pending_phone_verify_user'] ?? $_SESSION['user_id'] ?? '');
+    $code = trim($_POST['otp'] ?? '');
+    if ($uid === '') {
+        header('Location: ' . root . 'login');
+        exit;
+    }
+    $res = otp_verify($db, $uid, 'phone_verify', $code);
+    if (!empty($res['ok'])) {
+        try {
+            $db->update('users', ['phone_verified' => 1], ['user_id' => $uid]);
+        } catch (\Throwable $e) {
+            error_log('verify-phone set flag: ' . $e->getMessage());
+        }
+        unset($_SESSION['pending_phone_verify_user']);
+        if (function_exists('logUserActivity')) {
+            $row = $db->get('users', ['id'], ['user_id' => $uid]);
+            if ($row) { logUserActivity($db, $row['id'], 'phone_verified', 'Phone verified via OTP'); }
+        }
+        $_SESSION['verify_phone_success'] = 'Your phone number has been verified.';
+        header('Location: ' . root . (isset($_SESSION['user_id']) ? 'dashboard' : 'login'));
+        exit;
+    }
+    $_SESSION['verify_phone_error'] = $res['message'] ?? 'Verification failed.';
+    header('Location: ' . root . 'verify-phone');
+    exit;
+});
+
+$router->post('/verify-phone/resend', function () use ($SECURE, $db) {
+    if (!CSRF::validateToken($_POST['csrf_token'] ?? '')) {
+        $_SESSION['verify_phone_error'] = 'Security check failed. Please try again.';
+        header('Location: ' . root . 'verify-phone');
+        exit;
+    }
+    $uid = (string) ($_SESSION['pending_phone_verify_user'] ?? $_SESSION['user_id'] ?? '');
+    if ($uid === '') {
+        header('Location: ' . root . 'login');
+        exit;
+    }
+    $u = $db->get('users', ['phone', 'phone_country_code', 'first_name'], ['user_id' => $uid]);
+    if ($u && trim((string) ($u['phone'] ?? '')) !== '') {
+        $res = otp_issue($db, $uid, 'phone_verify');
+        if (!empty($res['ok'])) {
+            sendOtpWhatsApp($db, $u['phone'], $u['phone_country_code'] ?? '', $res['code'], $u['first_name'] ?? '');
+            $_SESSION['verify_phone_success'] = 'A new code has been sent.';
+        } else {
+            $_SESSION['verify_phone_error'] = $res['message'] ?? 'Please wait before requesting another code.';
+        }
+    }
+    header('Location: ' . root . 'verify-phone');
+    exit;
 });
