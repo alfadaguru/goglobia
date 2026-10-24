@@ -95,13 +95,13 @@ $__destinations = array_values(array_filter($__destinations, function ($d) {
      /api/tours/featured; hidden entirely until data confirms items exist.
      ================================================================ -->
 <section class="w-full bg-white"
-         x-data='homeDeals(<?= json_encode([
+         x-data="homeDeals(<?= htmlspecialchars(json_encode([
             "url"      => rtrim((string) root, "/") . "/api/tours/featured?currency=" . $__dealsCur,
             "root"     => (string) root,
             "cur"      => $__dealsCur,
             "adults"   => $__dealsAdults,
             "children" => $__dealsChildren,
-         ]) ?>'
+         ]), ENT_QUOTES) ?>)"
          x-init="init()"
          x-show="deals.length > 0" x-cloak>
   <div class="container mx-auto px-4 pt-8 pb-8">

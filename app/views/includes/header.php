@@ -138,8 +138,10 @@ if (!empty($enabledModules)) {
     if (!function_exists('goglobiaServicePriority')) {
         function goglobiaServicePriority($type) {
             static $rank = [
-                'flights' => 1, 'stays' => 2, 'tours' => 3, 'cars' => 4, 'visa' => 5,
-                'umrah' => 6, 'cruises' => 7, 'rail' => 8, 'bus' => 9, 'ferries' => 10,
+                // Umrah is a flagship service for this market, so it is promoted
+                // into the inline nav ahead of Cars (Cars moves into "More").
+                'flights' => 1, 'stays' => 2, 'tours' => 3, 'umrah' => 4, 'visa' => 5,
+                'cars' => 6, 'cruises' => 7, 'rail' => 8, 'bus' => 9, 'ferries' => 10,
                 'esim' => 11, 'insurance' => 12,
             ];
             return $rank[strtolower((string)$type)] ?? 999;
