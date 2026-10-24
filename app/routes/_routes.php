@@ -276,6 +276,8 @@ require_once 'app/routes/admin/supportStaffRoutes.php'; // Customer Support — 
 require_once 'app/routes/admin/supportShiftsRoutes.php';// Customer Support — Phase 3 shift roster (assign/edit + nudge bookkeeping)
 require_once 'app/routes/admin/supportDeskRoutes.php';  // Customer Support — Live Chat Desk (multi-channel takeover)
 require_once 'app/routes/admin/supportAttendanceRoutes.php'; // Customer Support — attendance (clock/heartbeat/presence board)
+require_once 'app/routes/admin/supportCampaignsRoutes.php'; // Customer Support — Phase 4 GIA ad-campaign registry CRUD
+require_once 'app/routes/admin/supportConversionRoutes.php'; // Customer Support — Phase 4 ad-campaign conversion analytics (read-only report)
 require_once 'app/routes/admin/promoCodesRoutes.php';
 require_once 'app/routes/admin/discountsRoutes.php'; // automatic discount engine (Marketing)
 endif; // admin routes

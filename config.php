@@ -188,6 +188,7 @@ require_once 'app/lib/support/rbac.php';     // Customer Support module — Phas
 require_once 'app/lib/support/livedesk.php'; // Customer Support — Phase 2 Live Chat Desk engine (channel-aware staff reply/takeover)
 require_once 'app/lib/support/attendance.php'; // Customer Support — Phase 3 attendance/presence/shift engine (clock-in/out + heartbeat + nudge data)
 require_once 'app/lib/support/shifts.php';     // Customer Support — Phase 3 shift roster + nudge-due helpers (schema owned by attendance.php)
+require_once 'app/lib/support/campaigns.php';  // Customer Support — Phase 4 ad campaign registry + GIA attribution (schema owned here)
 
 // Load demo warning helper with error handling
 try {
@@ -518,6 +519,11 @@ try {
     // tables are owned here). Idempotent.
     if (function_exists('ensureSupportAttendanceSchema')) {
         ensureSupportAttendanceSchema($db);
+    }
+    // Customer Support P4 Ad Campaigns — creates the ad-campaign registry +
+    // GIA campaign attribution columns. Idempotent.
+    if (function_exists('ensureAdCampaignSchema')) {
+        ensureAdCampaignSchema($db);
     }
     // Umrah redesign (docs/UMRAH-PHASE1-BUILD-PLAN.md) — schema + seeds, idempotent.
     if (function_exists('ensureUmrahSchema')) {

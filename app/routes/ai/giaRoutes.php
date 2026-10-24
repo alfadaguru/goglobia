@@ -276,6 +276,65 @@ $router->post('/api/gia/chat', function () use ($db) {
         if ($userId !== '' && function_exists('gia_user_profile')) {
             $agent->setUserProfile(gia_user_profile($db, $userId));
         }
+
+        // --- AD-CAMPAIGN ATTRIBUTION (Support P4, spec §7) -------------------
+        //     If this visitor arrived from a registered ad, resolve the campaign,
+        //     first-touch stamp it onto the conversation, and hand GIA a short
+        //     campaign-aware note so it acknowledges the offer. Conversion is
+        //     tracked per campaign (ad -> chat -> held -> paid) off the stamped
+        //     campaign_id. EVERYTHING here is function_exists-guarded and wrapped
+        //     in try/catch: a campaigns bug must NEVER break the chat (fail-soft).
+        try {
+            if (!function_exists('ad_campaign_resolve') && is_file(root . 'app/lib/support/campaigns.php')) {
+                require_once root . 'app/lib/support/campaigns.php';
+            }
+            if (function_exists('ad_campaign_resolve')) {
+                // Source params: prefer src params carried on THIS chat POST (the
+                // widget passthrough), else the landing cookie / live $_GET.
+                $srcParams = [];
+                if (isset($input['src']) && is_array($input['src'])) {
+                    foreach (['utm_source', 'utm_campaign', 'utm_medium', 'fbclid', 'gclid', 'ttclid'] as $k) {
+                        if (isset($input['src'][$k]) && is_string($input['src'][$k]) && $input['src'][$k] !== '') {
+                            $srcParams[$k] = substr($input['src'][$k], 0, 191);
+                        }
+                    }
+                }
+                if (!$srcParams && function_exists('gia_landing_source')) {
+                    $srcParams = gia_landing_source();
+                }
+                if (!$srcParams && function_exists('ad_campaign_capture_from_request')) {
+                    $srcParams = ad_campaign_capture_from_request();
+                }
+
+                // A campaign already stamped on the conv wins (first-touch persists).
+                $campaign = null;
+                $existingCid = (int) ($conv['campaign_id'] ?? 0);
+                if ($existingCid > 0 && function_exists('ad_campaign_resolve')) {
+                    try {
+                        $campaign = $db->get('gia_ad_campaigns', '*', ['id' => $existingCid]);
+                        if (!is_array($campaign)) { $campaign = null; }
+                    } catch (\Throwable $e) { $campaign = null; }
+                }
+                if ($campaign === null && $srcParams) {
+                    $campaign = ad_campaign_resolve($db, $srcParams);
+                    // First-touch: stamp only if the conv has no campaign yet.
+                    if (is_array($campaign) && !empty($campaign['id'])
+                        && $existingCid <= 0 && $convId > 0
+                        && function_exists('ad_campaign_stamp_conversation')) {
+                        ad_campaign_stamp_conversation($db, $convId, (int) $campaign['id']);
+                    }
+                }
+
+                // Make GIA campaign-aware for this attributed conversation.
+                if (is_array($campaign) && !empty($campaign['id'])
+                    && function_exists('ad_campaign_system_note')) {
+                    $agent->addSystemNote(ad_campaign_system_note($campaign));
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('[gia] ad-campaign attribution: ' . $e->getMessage());
+        }
+
         // CRITICAL — release the PHP session lock before running the agent. A tool
         // like flights_search loops back over HTTP to /modules/flights/<supplier>/
         // search, whose front controller (modules/index.php) calls session_start().

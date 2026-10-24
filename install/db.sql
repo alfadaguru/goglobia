@@ -27393,6 +27393,7 @@ CREATE TABLE IF NOT EXISTS `gia_conversations` (
   `assigned_staff_id` int(11) DEFAULT NULL,
   `assigned_at` datetime DEFAULT NULL,
   `flagged` tinyint(1) NOT NULL DEFAULT 0,
+  `campaign_id` int(11) DEFAULT NULL,
   `started_at` datetime NOT NULL DEFAULT current_timestamp(),
   `last_at` datetime DEFAULT NULL ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
@@ -27403,8 +27404,37 @@ CREATE TABLE IF NOT EXISTS `gia_conversations` (
   KEY `last_at` (`last_at`),
   KEY `closed` (`closed`),
   KEY `needs_human` (`needs_human`),
-  KEY `channel_user` (`channel`,`channel_user_id`)
+  KEY `channel_user` (`channel`,`channel_user_id`),
+  KEY `idx_campaign` (`campaign_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+-- Customer Support — Phase 4: GIA ad-campaign registry.
+-- One row per registered ad campaign / offer (Meta / TikTok / Google / other).
+-- A visitor arriving from a registered ad is attributed to the campaign
+-- (gia_conversations.campaign_id) so GIA answers campaign-aware, and the
+-- conversion funnel (ad -> chat -> held booking -> paid booking) is tracked
+-- per campaign. Self-healed at runtime by ensureAdCampaignSchema()
+-- (app/lib/support/campaigns.php).
+CREATE TABLE IF NOT EXISTS `gia_ad_campaigns` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `platform` enum('meta','tiktok','google','other') NOT NULL DEFAULT 'other',
+  `name` varchar(191) NOT NULL,
+  `offer_intent` varchar(255) DEFAULT NULL,
+  `offer_product` varchar(50) DEFAULT NULL,
+  `utm_source` varchar(100) DEFAULT NULL,
+  `utm_campaign` varchar(100) DEFAULT NULL,
+  `utm_medium` varchar(50) DEFAULT NULL,
+  `match_key` varchar(120) DEFAULT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `starts_at` datetime DEFAULT NULL,
+  `ends_at` datetime DEFAULT NULL,
+  `created_by` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_active` (`active`),
+  KEY `idx_match` (`match_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 -- GIA messaging-channel dedupe (webhook retry idempotency)

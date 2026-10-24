@@ -46,7 +46,79 @@ if (!function_exists('gia_browser_id')) {
             ]);
         }
         $_COOKIE['gia_bid'] = $bid;
+        // First-touch ad-source capture (sibling of the browser id). If this
+        // landing carries ad params and no gia_src cookie exists yet, persist a
+        // JSON snapshot (30-day) so the ad source survives across pages until
+        // the chat starts. Never overwrite an existing cookie (first-touch).
+        gia_capture_landing_source();
         return $bid;
+    }
+}
+
+if (!function_exists('gia_capture_landing_source')) {
+    /**
+     * Fail-soft, first-touch ad-source capture. If the current request has any
+     * recognised ad params in $_GET and no gia_src cookie is set yet, write a
+     * 30-day gia_src cookie holding a JSON map of just the present params.
+     * No-op if a gia_src cookie already exists or headers are already sent.
+     */
+    function gia_capture_landing_source(): void
+    {
+        if (!empty($_COOKIE['gia_src'])) {
+            return; // first-touch: never overwrite an existing source
+        }
+        $keys = ['utm_source', 'utm_campaign', 'utm_medium', 'fbclid', 'gclid', 'ttclid'];
+        $src = [];
+        foreach ($keys as $k) {
+            if (isset($_GET[$k]) && $_GET[$k] !== '') {
+                // keep it small + safe; cookie is non-authoritative metadata
+                $src[$k] = substr((string) $_GET[$k], 0, 256);
+            }
+        }
+        if (!$src) {
+            return; // no ad params on this landing
+        }
+        $json = json_encode($src);
+        if (!is_string($json)) {
+            return;
+        }
+        if (!headers_sent()) {
+            $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+            @setcookie('gia_src', $json, [
+                'expires'  => time() + 2592000, // 30 days
+                'path'     => '/',
+                'secure'   => $secure,
+                'httponly' => false,
+                'samesite' => 'Lax',
+            ]);
+        }
+        $_COOKIE['gia_src'] = $json;
+    }
+}
+
+if (!function_exists('gia_landing_source')) {
+    /**
+     * Return the captured ad-source as an array. Prefers the decoded gia_src
+     * cookie (first-touch, survives across pages); falls back to the live
+     * $_GET ad params on the current request. Returns [] if none. Fail-soft.
+     */
+    function gia_landing_source(): array
+    {
+        $cookie = (string) ($_COOKIE['gia_src'] ?? '');
+        if ($cookie !== '') {
+            $decoded = json_decode($cookie, true);
+            if (is_array($decoded) && $decoded) {
+                return $decoded;
+            }
+        }
+        $keys = ['utm_source', 'utm_campaign', 'utm_medium', 'fbclid', 'gclid', 'ttclid'];
+        $src = [];
+        foreach ($keys as $k) {
+            if (isset($_GET[$k]) && $_GET[$k] !== '') {
+                $src[$k] = substr((string) $_GET[$k], 0, 256);
+            }
+        }
+        return $src;
     }
 }
 
