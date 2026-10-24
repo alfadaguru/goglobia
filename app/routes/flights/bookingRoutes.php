@@ -833,6 +833,21 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
 
         $alreadyRevalidated = !empty($flightData['revalidated']);
         $revalidateFile = __DIR__ . '/../../../modules/flights/' . strtolower($supplierName) . '/revalidate.php';
+
+        // GUARDRAIL (money-safety): a live supplier fare MUST be re-checked against the
+        // supplier right before we take payment, or we risk charging a stale price and
+        // desyncing from the supplier. If a supplier module has no revalidate.php we do
+        // NOT silently book at the stale search price — we refuse. The only exception is
+        // the internal 'flights' module (manually-created local fares with no external
+        // supplier to re-quote). This protects us the day any live supplier without a
+        // revalidate endpoint (e.g. amadeus_enterprise, kiwi, pkfare, sabre) is enabled.
+        $noRevalidateAllowed = ['flights'];
+        if (!$alreadyRevalidated && !file_exists($revalidateFile)
+            && !in_array(strtolower($supplierName), $noRevalidateAllowed, true)) {
+            error_log('flight booking BLOCKED: supplier "' . $supplierName . '" has no revalidate.php — refusing to book a stale/unverified fare.');
+            throw new Exception('We could not re-confirm this fare with the airline, so nothing was charged. Please search again for current prices.');
+        }
+
         if (!$alreadyRevalidated && file_exists($revalidateFile)) {
             $oldPrice = (float)($input['base_price'] ?? $flightData['actual_price'] ?? $flightData['price'] ?? 0);
             $currency = strtoupper($input['base_currency'] ?? $flightData['currency'] ?? 'USD');

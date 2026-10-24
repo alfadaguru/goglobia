@@ -1331,9 +1331,38 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                 </div>
                             </template>
 
+                            <!-- Price-change consent: the fare went UP on re-check. We never
+                                 charge the higher price without the customer explicitly accepting. -->
+                            <div x-show="priceChange && priceChange.direction === 'up'" x-cloak
+                                 class="mt-6 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 p-4">
+                                <div class="flex items-start gap-2.5">
+                                    <span class="material-symbols-outlined text-amber-600 dark:text-amber-400 shrink-0">price_change</span>
+                                    <div class="min-w-0">
+                                        <p class="text-sm font-bold text-amber-800 dark:text-amber-200">The airline updated this fare</p>
+                                        <p class="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                                            The price changed from
+                                            <span class="line-through" x-text="priceChange ? (priceChange.currency + ' ' + Number(priceChange.oldAmt).toLocaleString()) : ''"></span>
+                                            to
+                                            <strong class="tabular-nums" x-text="priceChange ? (priceChange.currency + ' ' + Number(priceChange.newAmt).toLocaleString()) : ''"></strong>
+                                            while you were booking. Nothing has been charged. Do you want to continue at the new price?
+                                        </p>
+                                        <div class="flex flex-wrap gap-2 mt-3">
+                                            <button type="button" @click="acceptPriceChange()"
+                                                class="btn py-2 px-4 text-sm font-semibold">
+                                                Accept new price &amp; continue
+                                            </button>
+                                            <button type="button" @click="declinePriceChange()"
+                                                class="py-2 px-4 text-sm font-semibold rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
+                                                Cancel
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <button type="submit" class="btn w-full mt-6"
-                                :disabled="submitting || !formData.terms_accepted || fareExpired"
-                                :class="{ 'opacity-50 cursor-not-allowed': !formData.terms_accepted || fareExpired }">
+                                :disabled="submitting || !formData.terms_accepted || fareExpired || (priceChange && priceChange.direction === 'up')"
+                                :class="{ 'opacity-50 cursor-not-allowed': !formData.terms_accepted || fareExpired || (priceChange && priceChange.direction === 'up') }"
                                 <span x-show="!submitting" class="material-symbols-outlined">lock</span>
                                 <span x-show="submitting"
                                     class="material-symbols-outlined animate-spin">progress_activity</span>
@@ -1607,6 +1636,16 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
             showAlert: false,
             alertType: 'error',
             alertMessage: '',
+
+            // Price-change consent gate. When the supplier revalidate returns a price
+            // that is HIGHER than what the customer saw, we do NOT silently charge the
+            // new amount — we stop, show old vs new, and require an explicit "Accept"
+            // before continuing to payment (industry standard; avoids bait-and-switch
+            // disputes and chargebacks). A price DECREASE is applied automatically (we
+            // book the cheaper fare) but still shown. priceChange holds the pending
+            // prompt; priceChangeAccepted lets the re-submit proceed past the gate.
+            priceChange: null,            // { oldAmt, newAmt, currency, direction }
+            priceChangeAccepted: false,
 
             bookingHash: '<?= $bookingHash ?>',
             supplierName: '<?= strtolower($supplierName) ?>',
@@ -2710,6 +2749,20 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
 
 
 
+            // Customer explicitly accepts the higher revalidated fare, then we resume
+            // the booking (the re-run passes the price-change gate via priceChangeAccepted).
+            acceptPriceChange() {
+                this.priceChangeAccepted = true;
+                this.priceChange = null;
+                this.submitBooking();
+            },
+            // Customer declines the higher fare — abandon this attempt, prompt a fresh search.
+            declinePriceChange() {
+                this.priceChange = null;
+                this.priceChangeAccepted = false;
+                this.showError('No problem — the fare changed, so nothing was charged. Please search again for current prices.');
+            },
+
             async submitBooking() {
                 // Fare-hold guard: if the countdown already expired, do not attempt
                 // to book (the trace/ratekey is almost certainly dead upstream too).
@@ -2822,18 +2875,43 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                 return;
                             }
 
-                            if (rvData.data?.price_changed) {
+                            if (rvData.data?.price_changed && rvData.data.new_price) {
+                                const oldBase = this.subtotalBase;
+                                const newBase = Number(rvData.data.new_price) || oldBase;
+                                const isIncrease = newBase > oldBase + 0.01;
+
+                                // Apply the revalidated supplier price + recompute our totals
+                                // either way (we always book the price the supplier confirmed).
                                 this.actualPriceBase = rvData.data.actual_price || this.actualPriceBase;
-                                if (rvData.data.new_price) {
-                                    this.markupPriceBase = rvData.data.new_price;
-                                    this.commissionBase = this.markupPriceBase - this.actualPriceBase;
-                                    this.subtotalBase = this.markupPriceBase;
-                                    this.subtotalDisplay = this.convertToDisplay(this.subtotalBase);
+                                this.markupPriceBase = newBase;
+                                this.commissionBase = this.markupPriceBase - this.actualPriceBase;
+                                this.subtotalBase = this.markupPriceBase;
+                                this.subtotalDisplay = this.convertToDisplay(this.subtotalBase);
+
+                                if (isIncrease && !this.priceChangeAccepted) {
+                                    // PRICE WENT UP — stop and require explicit consent. Do NOT
+                                    // charge the higher amount without the customer accepting it.
+                                    this.priceChange = {
+                                        oldAmt: this.convertToDisplay(oldBase),
+                                        newAmt: this.subtotalDisplay,
+                                        currency: this.displayCurrency,
+                                        direction: 'up'
+                                    };
+                                    this.showAlert = false;
+                                    this.submitting = false;
+                                    this.showBookingLoader = false;
+                                    return; // wait for the customer to Accept (re-runs submitBooking)
                                 }
-                                this.alertType = 'warning';
-                                this.alertMessage = `Fare price has changed to ${rvData.data.currency} ${rvData.data.new_price}. Proceeding with updated price.`;
+
+                                // Price DECREASE (or already-accepted increase): proceed, but
+                                // make the change visible rather than silently pocketing it.
+                                this.alertType = isIncrease ? 'warning' : 'success';
+                                this.alertMessage = isIncrease
+                                    ? `Updated fare accepted: ${this.displayCurrency} ${this.subtotalDisplay}.`
+                                    : `Good news — the fare dropped to ${this.displayCurrency} ${this.subtotalDisplay}.`;
                                 this.showAlert = true;
-                                await new Promise(r => setTimeout(r, 2500));
+                                this.priceChange = null;
+                                await new Promise(r => setTimeout(r, 1500));
                             } else {
                                 this.showAlert = false;
                             }
