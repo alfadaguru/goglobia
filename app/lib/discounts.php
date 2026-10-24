@@ -379,6 +379,18 @@ if (!function_exists('apply_booking_discounts')) {
             $promoJson = $pr['json'] ?? null;
         }
 
+        // 2b. REFERRAL — the referee's half of a referral: a fixed, platform-funded
+        // discount on their FIRST booking. Stacks on the post-auto-and-promo subtotal
+        // and is treated exactly like a promo for the floor/charge math below (folded
+        // into $promoDisc so it can never push the charge below supplier cost). Only
+        // applies when the user has a pending referral and no prior paid booking.
+        $referralDisc = 0.0;
+        if (function_exists('referral_referee_discount_for') && !empty($args['user_id'])) {
+            $afterPromo = max(0.0, $base - $autoDisc - $promoDisc);
+            $referralDisc = (float) referral_referee_discount_for($db, (string) $args['user_id'], $afterPromo);
+            if ($referralDisc > 0) { $promoDisc += $referralDisc; }
+        }
+
         // 3. Money model.
         if ($isSupplierProduct) {
             // Platform-funded: customer pays base - (auto+promo); supplier net is
@@ -423,6 +435,7 @@ if (!function_exists('apply_booking_discounts')) {
             'total'               => round($total, 2),
             'auto_discount'       => round($autoDisc, 2),
             'promo_discount'      => round($promoDisc, 2),
+            'referral_discount'   => round(min($referralDisc, $promoDisc), 2), // referee's share (folded into promo for the charge math)
             'total_discount'      => round($autoDisc + $promoDisc, 2),
             'platform_funded'     => round($platformFunded, 2),
             'promo_json'          => $promoJson,

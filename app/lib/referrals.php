@@ -274,7 +274,16 @@ if (!function_exists('referral_pending_for_referee')) {
         if ($refereeId === '') { return null; }
         ensureReferralSchema($db);
         $row = $db->get('referrals', '*', ['referee_id' => $refereeId, 'status' => 'pending']);
-        return is_array($row) ? $row : null;
+        if (!is_array($row)) { return null; }
+        // Self-heal: if a reward row already exists for this referral (the status
+        // UPDATE in referral_record_reward didn't land — e.g. a mid-request DB blip),
+        // the referral is NOT really pending. Repair the status and stop treating it
+        // as eligible, so a second booking can never create a duplicate reward.
+        if ($db->has('referral_rewards', ['referral_id' => (int) $row['id']])) {
+            $db->update('referrals', ['status' => 'qualified'], ['id' => (int) $row['id']]);
+            return null;
+        }
+        return $row;
     }
 }
 
@@ -444,11 +453,13 @@ if (!function_exists('referral_is_first_paid_booking')) {
     {
         $userId = trim($userId); $invoiceId = trim($invoiceId);
         if ($userId === '' || $invoiceId === '') { return false; }
-        // Earliest paid booking for this user (by created_at, then invoice_id).
+        // Earliest paid booking for this user, by true insertion order (bookings.id),
+        // so two bookings sharing a created_at second still order deterministically by
+        // when they were actually created (not lexicographically by invoice_id).
         $first = $db->get('bookings', ['invoice_id'], [
             'user_id'        => $userId,
             'payment_status' => 'paid',
-            'ORDER'          => ['created_at' => 'ASC', 'invoice_id' => 'ASC'],
+            'ORDER'          => ['id' => 'ASC'],
             'LIMIT'          => 1,
         ]);
         return $first && (string) ($first['invoice_id'] ?? '') === $invoiceId;
