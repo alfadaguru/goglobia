@@ -541,3 +541,66 @@ if (!function_exists('referral_referee_discount_for')) {
         return round(min((float) $cfg['referee_amount'], max(0.0, $orderAmount)), 2);
     }
 }
+
+if (!function_exists('referral_release_sweep')) {
+    /**
+     * CRON worker (P4). For every HOLD reward whose hold window has passed:
+     *   - safety net: if the qualifying booking is no longer 'paid' (refunded by any
+     *     path we didn't hook directly), REVERSE instead of release.
+     *   - otherwise RELEASE: credit the referrer's wallet and notify both parties.
+     * Idempotent (status-guarded + wallet transaction_id de-dupe). Safe to run often.
+     *
+     * @return array{released:int, reversed:int, skipped:int}
+     */
+    function referral_release_sweep($db): array
+    {
+        ensureReferralSchema($db);
+        $out = ['released' => 0, 'reversed' => 0, 'skipped' => 0];
+
+        $due = $db->select('referral_rewards', ['id', 'invoice_id', 'referrer_id', 'referee_id', 'referrer_amount', 'currency'], [
+            'status'            => 'hold',
+            'hold_expires_at[<=]' => date('Y-m-d H:i:s'),
+            'LIMIT'             => 200,
+        ]);
+        if (!is_array($due)) { return $out; }
+
+        foreach ($due as $r) {
+            $invoiceId = (string) ($r['invoice_id'] ?? '');
+            // Safety net: booking must still be paid (catches refund paths not hooked).
+            $bk = $db->get('bookings', ['payment_status'], ['invoice_id' => $invoiceId]);
+            $paid = $bk && strtolower((string) ($bk['payment_status'] ?? '')) === 'paid';
+            if (!$paid) {
+                $rev = referral_reverse_reward($db, $invoiceId);
+                if (!empty($rev['ok'])) { $out['reversed']++; } else { $out['skipped']++; }
+                continue;
+            }
+
+            $rel = referral_release_reward($db, (int) $r['id']);
+            if (!empty($rel['ok']) && ($rel['credited'] ?? 0) >= 0) {
+                $out['released']++;
+                // Notify both parties (best-effort; never block the sweep).
+                try {
+                    $amt = number_format((float) ($r['referrer_amount'] ?? 0), 2);
+                    $ccy = (string) ($r['currency'] ?? '');
+                    $referrer = $db->get('users', ['email', 'first_name'], ['user_id' => (string) $r['referrer_id']]);
+                    if ($referrer && !empty($referrer['email']) && function_exists('SENDEMAIL')) {
+                        SENDEMAIL(
+                            (string) $referrer['email'],
+                            (string) ($referrer['first_name'] ?? 'there'),
+                            'Your referral reward is here 🎉',
+                            '<p>Good news, ' . htmlspecialchars((string) ($referrer['first_name'] ?? 'there')) . '!</p>'
+                            . '<p>Someone you referred completed their first booking, so <strong>' . $ccy . ' ' . $amt . '</strong> '
+                            . 'has been added to your wallet — ready to spend on your next trip.</p>'
+                            . '<p>Thanks for sharing GoGlobia. Keep referring to keep earning!</p>'
+                        );
+                    }
+                } catch (\Throwable $e) {
+                    error_log('referral notify: ' . $e->getMessage());
+                }
+            } else {
+                $out['skipped']++;
+            }
+        }
+        return $out;
+    }
+}
