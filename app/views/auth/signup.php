@@ -146,6 +146,15 @@
           <!-- Hidden User Type Field -->
           <input type="hidden" name="user_type" value="<?= isset($isAgent) && $isAgent ? 'agent' : 'customer' ?>">
 
+          <!-- Referral code (from ?ref=CODE link or a stored cookie/session). Carried
+               into signup so the new customer is attached to their referrer. -->
+          <?php
+            $__ref = strtoupper(trim((string) ($_GET['ref'] ?? $_COOKIE['gg_ref'] ?? $_SESSION['pending_ref_code'] ?? '')));
+            $__ref = preg_replace('/[^A-Z0-9]/', '', $__ref); // codes are [A-Z0-9] only
+            if ($__ref !== '') { $_SESSION['pending_ref_code'] = $__ref; }
+          ?>
+          <input type="hidden" name="ref" value="<?= htmlspecialchars($__ref) ?>">
+
           <!-- Name Fields -->
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="form-control">
