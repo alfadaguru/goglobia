@@ -156,6 +156,15 @@ $router->post('/api/gia/chat', function () use ($db) {
         : null;
     $convId = (int) ($conv['id'] ?? 0);
 
+    // PERSONALISATION FALLBACK (Phase 6): if the PHP session has no user_id (e.g.
+    // it expired, or the widget is embedded where the session cookie isn't shared)
+    // but THIS conversation is already linked to an account, treat that linked
+    // user as the account for personalisation + account tools. The link is only
+    // ever set by a trusted path (login at capture time, or a verified channel
+    // link), so this cannot be spoofed by the client. Falls back to lead-less
+    // guest when neither exists.
+    $effectiveUserId = $userId !== '' ? $userId : (string) ($conv['user_id'] ?? '');
+
     // --- HUMAN HANDOFF: if a staff member has taken over this conversation, GIA
     //     pauses — we record the traveller's message for the agent to see, but do
     //     NOT call the model. The widget keeps polling /history for staff replies. ---
@@ -193,7 +202,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     // (a real UI button). The model cannot fabricate it — request_booking_approval
     // reads this, not the conversation.
     $toolContext = [
-        'account_id'    => (string) ($_SESSION['user_id'] ?? ''),
+        'account_id'    => $effectiveUserId,
         'user_approved' => ($input['approved'] ?? null) === true,
         'currency'      => (string) ($_SESSION['app_currency'] ?? 'USD'),
         // Conversation handle so request_human can flag/alert the right chat.
@@ -278,17 +287,19 @@ $router->post('/api/gia/chat', function () use ($db) {
         // Personalize for a signed-in traveler: resolve safe facts (first name,
         // currency) from the users table and let GIA greet them by name + answer
         // "do you know me?" truthfully. Guests resolve to [] -> no-op. Fail-soft.
-        if ($userId !== '' && function_exists('gia_user_profile')) {
-            $agent->setUserProfile(gia_user_profile($db, $userId));
+        if ($effectiveUserId !== '' && function_exists('gia_user_profile')) {
+            $agent->setUserProfile(gia_user_profile($db, $effectiveUserId));
         }
 
         // ACCOUNT AWARENESS: give GIA a one-line head-start on the signed-in
         // traveller's upcoming trips so it can be proactively helpful ("you have
         // a flight on the 3rd — want to check in?"). Full detail is on demand via
         // the get_my_account tool. Cheap single read; fail-soft; guests skipped.
-        if ($userId !== '' && function_exists('gia_user_snapshot')) {
+        // Uses $effectiveUserId so a session-less but account-linked conversation
+        // still gets personalised (Phase 6).
+        if ($effectiveUserId !== '' && function_exists('gia_user_snapshot')) {
             try {
-                $__snap = gia_user_snapshot($db, $userId);
+                $__snap = gia_user_snapshot($db, $effectiveUserId);
                 $__line = function_exists('gia_user_summary_line') ? gia_user_summary_line($__snap) : '';
                 if ($__line !== '') {
                     $agent->addSystemNote('ACCOUNT CONTEXT (trusted): ' . $__line
