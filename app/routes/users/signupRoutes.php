@@ -203,6 +203,23 @@ $router->post('/signup', function () use ($SECURE, $db) {
         if ($result && $userId) {
             logUserActivity($db, $userId, 'signup', 'User registered successfully');
 
+            // REFERRAL — mint this new customer their own shareable code, and (if they
+            // arrived via someone's code) attach them as a referee. referral_attach()
+            // enforces the fraud rules (program-enabled, valid code, no self-referral,
+            // one referrer per referee). All no-ops when the program is disabled.
+            if (function_exists('referral_get_or_mint_code')) {
+                try {
+                    referral_get_or_mint_code($db, $insert_data['user_id']);
+                    $refCodeIn = strtoupper(trim((string) ($_POST['ref'] ?? $_SESSION['pending_ref_code'] ?? '')));
+                    if ($refCodeIn !== '' && function_exists('referral_attach')) {
+                        referral_attach($db, $insert_data['user_id'], $refCodeIn);
+                    }
+                    unset($_SESSION['pending_ref_code']);
+                } catch (\Throwable $e) {
+                    error_log('signup referral: ' . $e->getMessage());
+                }
+            }
+
             // Trigger signup webhook
             triggerWebhook('users/signup', 'signup.success', [
                 'user_id' => $insert_data['user_id'],

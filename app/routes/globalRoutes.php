@@ -2,6 +2,27 @@
 // app/routes/globalRoutes.php
 @$SECURE or die('Access Denied!');
 
+// ========================================================= referral landing  /r/{code}
+// A shareable referral link. Remembers the code (cookie + session, 30 days) so the
+// referrer gets credited even if the friend browses around before signing up, then
+// sends them to signup with the code pre-filled. No-op if the code is malformed.
+$router->get('/r/([A-Za-z0-9]{4,32})', function ($code) use ($SECURE, $db) {
+    $code = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string) $code));
+    if ($code !== '') {
+        $_SESSION['pending_ref_code'] = $code;
+        // 30-day cookie, site-wide, lax so it survives the signup navigation.
+        @setcookie('gg_ref', $code, [
+            'expires'  => time() + 30 * 86400,
+            'path'     => '/',
+            'secure'   => !empty($_SERVER['HTTPS']),
+            'httponly' => false,
+            'samesite' => 'Lax',
+        ]);
+    }
+    header('Location: ' . root . 'signup?ref=' . urlencode($code));
+    exit;
+});
+
 // ========================================================= flights-airport-suggestion
 $router->post('/flights-airport-suggestion', function () use ($SECURE, $db) {
     // Clean all output buffers and disable profiler
