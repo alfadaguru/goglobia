@@ -260,6 +260,30 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
         }
     }
 
+    // RESEND VOUCHER / INVOICE — re-email the booking PDF to the customer. A
+    // read-only action (no state change), so it is allowed even on cancelled/
+    // voided bookings. Reuses the proven GENERATE_BOOKING_PDF + NOTIFY::resend
+    // path (same as the payment email). Support agents often need exactly this.
+    if ($action === 'resend_voucher') {
+        try {
+            $module = (string) ($booking['module'] ?? $booking['module_type'] ?? '');
+            $pdfPath = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($invoice_id) : null;
+            if (class_exists('NOTIFY')) {
+                NOTIFY::resend($module, $booking, [
+                    'invoice_id'  => $invoice_id,
+                    'amount'      => $booking['price_markup'] ?? '',
+                    'currency'    => $booking['currency_markup'] ?? ($booking['currency'] ?? ''),
+                    'module_type' => ucfirst($module),
+                ], $pdfPath);
+            }
+            echo json_encode(['success' => true, 'status' => true, 'message' => 'Voucher re-sent to ' . ($booking['email'] ?: 'the customer') . '.']);
+        } catch (\Throwable $e) {
+            error_log('[admin] resend_voucher ' . $invoice_id . ': ' . $e->getMessage());
+            echo json_encode(['success' => false, 'status' => false, 'message' => 'Could not re-send the voucher.']);
+        }
+        exit;
+    }
+
     if ($action === 'mark_paid') {
         // ALREADY-PAID GUARD (audit #46): without this, re-firing mark_paid on an
         // already-paid booking re-runs NOTIFY::payment + regenerates the PDF every time,

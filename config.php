@@ -190,6 +190,7 @@ require_once 'app/lib/support/attendance.php'; // Customer Support — Phase 3 a
 require_once 'app/lib/support/shifts.php';     // Customer Support — Phase 3 shift roster + nudge-due helpers (schema owned by attendance.php)
 require_once 'app/lib/support/campaigns.php';  // Customer Support — Phase 4 ad campaign registry + GIA attribution (schema owned here)
 require_once 'app/lib/support/targets.php';     // Customer Support — Phase 5 agent/GIA/team targets + leaderboard
+require_once 'app/lib/support/tickets_ext.php'; // Customer Support — Phase 6 ticket extensions (booking link + SLA + internal notes)
 
 // Load demo warning helper with error handling
 try {
@@ -530,6 +531,11 @@ try {
     // goals + leaderboard). Idempotent.
     if (function_exists('ensureSupportTargetSchema')) {
         ensureSupportTargetSchema($db);
+    }
+    // Customer Support P6 ticket extensions — tickets.related_invoice/sla_due_at/
+    // is_internal (link a ticket to a booking + soft SLA + internal note). Idempotent.
+    if (function_exists('ensureSupportTicketExtSchema')) {
+        ensureSupportTicketExtSchema($db);
     }
     // Umrah redesign (docs/UMRAH-PHASE1-BUILD-PLAN.md) — schema + seeds, idempotent.
     if (function_exists('ensureUmrahSchema')) {

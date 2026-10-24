@@ -392,3 +392,37 @@ $router->post(admin.'/support/tickets/delete', function () use ($SECURE,$db) {
     }
 
 });
+
+// ============================================================================
+// P6 — RAISE A SUPPORT TICKET FROM A BOOKING. Posted from the admin booking edit
+// page so a support agent can open a ticket already linked to the invoice (SLA +
+// related_invoice pre-filled). Reuses support_ticket_create_for_booking().
+// ============================================================================
+$router->post(admin . '/support/tickets/from-booking', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    if (class_exists('CSRF')) { CSRF::guard(); }
+    header('Content-Type: application/json');
+    if (function_exists('ensureSupportTicketExtSchema')) { ensureSupportTicketExtSchema($db); }
+
+    $invoice  = trim((string) ($_POST['invoice_id'] ?? ''));
+    $subject  = trim((string) ($_POST['subject'] ?? ''));
+    $desc     = trim((string) ($_POST['desc'] ?? ''));
+    $priority = in_array($_POST['priority'] ?? '', ['low', 'normal', 'high'], true) ? $_POST['priority'] : 'normal';
+    if ($invoice === '') { echo json_encode(['success' => false, 'message' => 'Missing invoice.']); exit; }
+
+    $booking = $db->get('bookings', '*', ['invoice_id' => $invoice]);
+    if (!$booking) { echo json_encode(['success' => false, 'message' => 'Booking not found.']); exit; }
+
+    if (!function_exists('support_ticket_create_for_booking')) {
+        echo json_encode(['success' => false, 'message' => 'Ticketing is unavailable.']); exit;
+    }
+    $ticketId = support_ticket_create_for_booking($db, $booking, $subject, $desc, $priority);
+    if ($ticketId === '') { echo json_encode(['success' => false, 'message' => 'Could not raise the ticket.']); exit; }
+    echo json_encode([
+        'success'   => true,
+        'ticket_id' => $ticketId,
+        'url'       => root . admin . '/support/ticket/' . $ticketId,
+        'message'   => 'Ticket ' . $ticketId . ' raised for ' . $invoice . '.',
+    ]);
+    exit;
+});
