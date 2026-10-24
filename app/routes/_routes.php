@@ -273,6 +273,7 @@ require_once 'app/routes/admin/supportticketRoutes.php';
 require_once 'app/routes/admin/supportRoutes.php';      // Customer Support — Phase 1 shell (landing + nav)
 require_once 'app/routes/admin/supportRolesRoutes.php'; // Customer Support — RBAC roles CRUD
 require_once 'app/routes/admin/supportStaffRoutes.php'; // Customer Support — staff/employee CRUD
+require_once 'app/routes/admin/supportDeskRoutes.php';  // Customer Support — Live Chat Desk (multi-channel takeover)
 require_once 'app/routes/admin/promoCodesRoutes.php';
 require_once 'app/routes/admin/discountsRoutes.php'; // automatic discount engine (Marketing)
 endif; // admin routes

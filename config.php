@@ -185,6 +185,7 @@ require_once 'app/lib/umrah/groups.php';
 require_once 'app/lib/umrah/admin_crud.php';
 require_once 'app/lib/booking_manager.php'; // admin Booking Manager foundations
 require_once 'app/lib/support/rbac.php';     // Customer Support module — Phase 1 RBAC + employee foundation
+require_once 'app/lib/support/livedesk.php'; // Customer Support — Phase 2 Live Chat Desk engine (channel-aware staff reply/takeover)
 
 // Load demo warning helper with error handling
 try {
@@ -504,6 +505,11 @@ try {
         if (function_exists('support_seed_default_roles')) {
             support_seed_default_roles($db);
         }
+    }
+    // Customer Support P2 Live Chat Desk — adds assigned_staff_id/assigned_at +
+    // gia_messages.staff_id. Idempotent.
+    if (function_exists('ensureSupportDeskSchema')) {
+        ensureSupportDeskSchema($db);
     }
     // Umrah redesign (docs/UMRAH-PHASE1-BUILD-PLAN.md) — schema + seeds, idempotent.
     if (function_exists('ensureUmrahSchema')) {

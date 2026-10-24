@@ -416,6 +416,7 @@ $adminMenu = array_merge($adminMenu, [
         'icon' => 'support_agent', 'name' => 'Support', 'url' => root.'#',
         'submenu' => [
             ['name' => 'Support Home', 'icon' => 'dashboard', 'url' => root.admin.'/support'],
+            ['name' => 'Live Chat Desk', 'icon' => 'forum', 'url' => root.admin.'/support/desk'],
             ['name' => 'Support Tickets', 'icon' => 'confirmation_number', 'url' => root.admin.'/support/tickets'],
             ['name' => 'Roles', 'icon' => 'admin_panel_settings', 'url' => root.admin.'/support/roles'],
             ['name' => 'Staff', 'icon' => 'badge', 'url' => root.admin.'/support/staff']
