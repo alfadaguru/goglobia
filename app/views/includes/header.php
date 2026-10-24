@@ -706,7 +706,7 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
             <?php endif; ?>
 
             <!-- DESKTOP NAVIGATION -->
-            <nav class="hidden lg:flex items-center gap-0.5 font-medium">
+            <nav class="hidden xl:flex items-center gap-0.5 font-medium">
             <!-- INLINE SERVICES (platform only — hidden on a hotel's own site).
                  First N services promoted into the bar; the rest live in "More". -->
             <?php if (!$__wl && !empty($inlineServices)): ?>
@@ -721,7 +721,12 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
             <!-- MORE ▾ : overflow services + CMS menus (About/Contact/Blog). Only
                  rendered when there's something to put in it. -->
             <?php
-            $__hasMore = (!$__wl && !empty($overflowServices)) || !empty($header_menus) || !empty($header_standalone);
+            // Partner registration links (Agent / Supplier) live in the "More" menu,
+            // not on the Sign Up button. Only shown when the operator enables them.
+            $__showAgentReg    = (($GLOBALS['app']['user_registration'] ?? '1') != '0') && (($GLOBALS['app']['agent_registration'] ?? 0) != 0);
+            $__showSupplierReg = (($GLOBALS['app']['user_registration'] ?? '1') != '0') && (($GLOBALS['app']['supplier_registration'] ?? '0') === '1');
+            $__hasPartnerLinks = !$__wl && ($__showAgentReg || $__showSupplierReg);
+            $__hasMore = (!$__wl && !empty($overflowServices)) || !empty($header_menus) || !empty($header_standalone) || $__hasPartnerLinks;
             if ($__hasMore):
             ?>
             <div class="relative group">
@@ -777,6 +782,26 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
                     </a>
                   <?php endforeach; endif; ?>
 
+                  <!-- PARTNER REGISTRATION (Agent / Supplier) — moved off the Sign Up button -->
+                  <?php if ($__hasPartnerLinks): ?>
+                    <?php if ((!$__wl && !empty($overflowServices)) || !empty($header_menus) || !empty($header_standalone)): ?>
+                    <div class="my-1 border-t border-gray-100"></div>
+                    <?php endif; ?>
+                    <div class="px-2 pt-1.5 pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Partner with us</div>
+                    <?php if ($__showAgentReg): ?>
+                    <a href="<?=root?>agent-signup" class="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-900 hover:bg-gray-100 rounded transition-colors">
+                      <span class="material-symbols-outlined !text-[18px] text-gray-500">business_center</span>
+                      <span><?= T::agent ?> <?= T::signup ?></span>
+                    </a>
+                    <?php endif; ?>
+                    <?php if ($__showSupplierReg): ?>
+                    <a href="<?=root?>supplier-signup" class="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-900 hover:bg-gray-100 rounded transition-colors">
+                      <span class="material-symbols-outlined !text-[18px] text-gray-500">storefront</span>
+                      <span>Become a Supplier</span>
+                    </a>
+                    <?php endif; ?>
+                  <?php endif; ?>
+
                 </div>
             </div>
             <?php endif; ?>
@@ -794,7 +819,7 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
             </a>
             <?php else: ?>
             <!-- DESKTOP CONTROL GROUP — ALL CONTROLS IN ONE ROUNDED-FULL PILL BAR -->
-            <div class="hidden lg:flex items-center gap-1 p-1 bg-white border border-gray-200 rounded-full shadow-sm">
+            <div class="hidden xl:flex items-center gap-1 p-1 bg-white border border-gray-200 rounded-full shadow-sm">
             <!-- COMBINED CURRENCY + LANGUAGE SWITCHER - DESKTOP ONLY -->
             <?php
             $showLang = ($GLOBALS['app']['multi_language'] ?? '1') != '0';
@@ -989,50 +1014,20 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
             </a>
 
             <?php if ($showSignupDesktop): ?>
-            <?php if (($GLOBALS['app']['agent_registration'] ?? 0) != 0): ?>
-            <!-- SIGNUP DROPDOWN (WHEN AGENT REGISTRATION ENABLED) -->
-            <div class="relative group">
-              <button class="btn !rounded-full flex items-center gap-1.5">
-                <span class="material-symbols-outlined !text-[18px]">person_add</span>
-                <span><?= T::signup ?></span>
-                <span class="material-symbols-outlined !text-[16px] transition-transform group-hover:rotate-180">expand_more</span>
-              </button>
-              <!-- INVISIBLE BRIDGE TO PREVENT DROPDOWN CLOSE -->
-              <div class="absolute top-full right-0 h-2 w-full pointer-events-none group-hover:pointer-events-auto"></div>
-              <div class="absolute top-full right-0 mt-2 w-56 rounded-2xl border border-gray-200 bg-white shadow-xl opacity-0 invisible translate-y-[-8px] transition-all duration-200 ease-out group-hover:opacity-100 group-hover:visible group-hover:translate-y-0 z-50 overflow-hidden">
-                <div class="p-2">
-                  <a href="<?=root?>signup" class="flex items-center gap-3 px-4 py-3 text-gray-700 hover:text-primary hover:bg-primary/5 rounded-xl transition-all duration-150">
-                    <span class="material-symbols-outlined !text-[18px] text-primary">person</span>
-                    <span class="font-medium"><?= T::customer ?? 'Customer' ?> <?= T::signup ?></span>
-                  </a>
-                  <a href="<?=root?>agent-signup" class="flex items-center gap-3 px-4 py-3 text-gray-700 hover:text-primary hover:bg-primary/5 rounded-xl transition-all duration-150">
-                    <span class="material-symbols-outlined !text-[18px] text-primary">business_center</span>
-                    <span class="font-medium"><?= T::agent ?> <?= T::signup ?></span>
-                  </a>
-                  <?php // Supplier signup — only when the operator has opened registration. ?>
-                  <?php if (($GLOBALS['app']['supplier_registration'] ?? '0') === '1'): ?>
-                  <a href="<?=root?>supplier-signup" class="flex items-center gap-3 px-4 py-3 text-gray-700 hover:text-primary hover:bg-primary/5 rounded-xl transition-all duration-150">
-                    <span class="material-symbols-outlined !text-[18px] text-primary">storefront</span>
-                    <span class="font-medium">Become a Supplier</span>
-                  </a>
-                  <?php endif; ?>
-                </div>
-              </div>
-            </div>
-            <?php else: ?>
-            <!-- SIMPLE SIGNUP BUTTON (WHEN AGENT REGISTRATION DISABLED) -->
+            <!-- SIGN UP IS A PLAIN CUSTOMER BUTTON — goes straight to customer signup.
+                 Agent / Supplier registration live in the "More" menu (and the mobile
+                 menu) under "Partner with us", so this button stays simple. -->
             <a href="<?=root?>signup" class="inline-flex btn !rounded-full">
               <span class="material-symbols-outlined !text-[18px]">person_add</span>
               <span><?= T::signup ?></span>
             </a>
             <?php endif; ?>
             <?php endif; ?>
-            <?php endif; ?>
             </div><!-- END DESKTOP CONTROL GROUP -->
             <?php endif; /* $__wl */ ?>
 
             <!-- MOBILE MENU BUTTON -->
-            <button @click="mobileMenuOpen = !mobileMenuOpen" class="lg:hidden inline-flex items-center justify-center p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-full border border-gray-200 transition-all duration-200">
+            <button @click="mobileMenuOpen = !mobileMenuOpen" class="xl:hidden inline-flex items-center justify-center p-2 text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-full border border-gray-200 transition-all duration-200">
               <span class="material-symbols-outlined !text-[24px]" x-text="mobileMenuOpen ? 'close' : 'menu'">menu</span>
             </button>
           </div>
@@ -1050,7 +1045,7 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
            @click.away="mobileMenuOpen = false"
            x-effect="document.body.style.overflow = mobileMenuOpen ? 'hidden' : ''"
            @keydown.escape.window="mobileMenuOpen = false"
-           class="lg:hidden fixed left-0 right-0 bg-white border-b border-gray-200 shadow-2xl z-40 overflow-y-auto"
+           class="xl:hidden fixed left-0 right-0 bg-white border-b border-gray-200 shadow-2xl z-40 overflow-y-auto"
            :style="(scrolled ? 'top:96px;max-height:calc(100vh - 96px)' : 'top:112px;max-height:calc(100vh - 112px)')"
            style="top:112px;max-height:calc(100vh - 112px)">
         <div class="px-4 py-6 space-y-4" x-data="{
@@ -1261,9 +1256,12 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
               </div>
             </div>
             <?php else: ?>
-            <!-- MOBILE AUTH BUTTONS — LOGIN + SIGNUP ON ONE ROW, TEXT CENTERED -->
+            <!-- MOBILE AUTH — LOGIN + a PLAIN customer SIGN UP button on one row.
+                 Agent / Supplier registration are a separate "Partner with us" group
+                 below, so Sign Up stays a simple customer action. -->
             <?php $showSignup = ($GLOBALS['app']['user_registration'] ?? '1') != '0'; ?>
-            <?php $agentReg = ($GLOBALS['app']['agent_registration'] ?? 0) != 0; ?>
+            <?php $mShowAgentReg    = $showSignup && (($GLOBALS['app']['agent_registration'] ?? 0) != 0); ?>
+            <?php $mShowSupplierReg = $showSignup && (($GLOBALS['app']['supplier_registration'] ?? '0') === '1'); ?>
             <?php
             if (!isset($loginHref)) {
                 $loginHref = root . 'login';
@@ -1274,49 +1272,32 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
                 <span class="material-symbols-outlined !text-[18px]">login</span>
                 <span><?= T::login ?></span>
               </a>
-
               <?php if ($showSignup): ?>
-                <?php if ($agentReg): ?>
-                <!-- SIGNUP DROPDOWN -->
-                <div class="space-y-2 relative">
-                  <button @click="toggleDropdown('mobileSignup')" class="btn light w-full justify-center">
-                    <span class="material-symbols-outlined !text-[18px]">person_add</span>
-                    <span><?= T::signup ?></span>
-                    <span class="material-symbols-outlined !text-[16px] transition-transform" :class="openDropdowns['mobileSignup'] ? 'rotate-180' : ''">expand_more</span>
-                  </button>
-                  <div x-show="openDropdowns['mobileSignup']"
-                       x-transition:enter="transition ease-out duration-200"
-                       x-transition:enter-start="opacity-0 -translate-y-1"
-                       x-transition:enter-end="opacity-100 translate-y-0"
-                       x-transition:leave="transition ease-in duration-150"
-                       x-transition:leave-start="opacity-100 translate-y-0"
-                       x-transition:leave-end="opacity-0 -translate-y-1"
-                       class="space-y-1 pt-1">
-                    <a href="<?=root?>signup" class="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-primary hover:bg-primary/5 rounded-lg transition-colors">
-                      <span class="material-symbols-outlined !text-[16px]">person</span>
-                      <span><?= T::customer ?? 'Customer' ?> <?= T::signup ?></span>
-                    </a>
-                    <a href="<?=root?>agent-signup" class="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-primary hover:bg-primary/5 rounded-lg transition-colors">
-                      <span class="material-symbols-outlined !text-[16px]">business_center</span>
-                      <span><?= T::agent ?> <?= T::signup ?></span>
-                    </a>
-                    <?php if (($GLOBALS['app']['supplier_registration'] ?? '0') === '1'): ?>
-                    <a href="<?=root?>supplier-signup" class="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-primary hover:bg-primary/5 rounded-lg transition-colors">
-                      <span class="material-symbols-outlined !text-[16px]">storefront</span>
-                      <span>Become a Supplier</span>
-                    </a>
-                    <?php endif; ?>
-                  </div>
-                </div>
-                <?php else: ?>
-                <!-- SIMPLE SIGNUP BUTTON -->
-                <a href="<?=root?>signup" class="btn light justify-center">
-                  <span class="material-symbols-outlined !text-[18px]">person_add</span>
-                  <span><?= T::signup ?></span>
-                </a>
-                <?php endif; ?>
+              <a href="<?=root?>signup" class="btn light justify-center">
+                <span class="material-symbols-outlined !text-[18px]">person_add</span>
+                <span><?= T::signup ?></span>
+              </a>
               <?php endif; ?>
             </div>
+
+            <?php if ($mShowAgentReg || $mShowSupplierReg): ?>
+            <!-- PARTNER WITH US (Agent / Supplier) — on the menu, off the Sign Up button -->
+            <div class="pt-1">
+              <div class="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Partner with us</div>
+              <?php if ($mShowAgentReg): ?>
+              <a href="<?=root?>agent-signup" class="flex items-center gap-2 px-3 py-2.5 text-sm font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 rounded-lg transition-colors">
+                <span class="material-symbols-outlined !text-[18px] text-gray-500">business_center</span>
+                <span><?= T::agent ?> <?= T::signup ?></span>
+              </a>
+              <?php endif; ?>
+              <?php if ($mShowSupplierReg): ?>
+              <a href="<?=root?>supplier-signup" class="flex items-center gap-2 px-3 py-2.5 mt-2 text-sm font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 rounded-lg transition-colors">
+                <span class="material-symbols-outlined !text-[18px] text-gray-500">storefront</span>
+                <span>Become a Supplier</span>
+              </a>
+              <?php endif; ?>
+            </div>
+            <?php endif; ?>
             <?php endif; ?>
           </div>
         </div>
