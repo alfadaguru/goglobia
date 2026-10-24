@@ -25,6 +25,71 @@ $footer_menus = array_values(array_filter(array_map(
     $temp['parents']
 )));
 
+// --------------------------------------------------------------------------
+// COMPANY COLUMN: force the desired order and surface the signup CTAs.
+// The Company menu is CMS-driven, but we curate it here (in the view, so it
+// ships via the file updater — no DB migration) to:
+//   1. drop the "Cookies Policy" item from this column,
+//   2. add "Become an Agent" (/agent-signup) + "Become a Supplier"
+//      (/supplier-signup) as link items,
+//   3. render the column in a fixed order:
+//      Contact Us, About Us, Become an Agent, Become a Supplier,
+//      Privacy Policy, Terms and Conditions.
+// Any other CMS children in that column are kept, appended after the known
+// ones, so nothing a site owner adds in CMS silently disappears.
+foreach ($footer_menus as &$__menu) {
+    $__slugs = array_map(
+        fn($c) => strtolower(trim((string) ($c['slug_url'] ?? ''))),
+        $__menu['children']
+    );
+    // Identify the Company column by the presence of about-us / contact-us.
+    $__isCompany = (bool) array_intersect(['about-us', 'contact-us'], $__slugs);
+    if (!$__isCompany) {
+        continue;
+    }
+
+    // Index existing CMS children by slug so we can place them in order and
+    // drop the ones we don't want to show here.
+    $__bySlug = [];
+    foreach ($__menu['children'] as $__c) {
+        $__bySlug[strtolower(trim((string) ($__c['slug_url'] ?? '')))] = $__c;
+    }
+    $__drop = ['cookies-policy'];                 // hidden from this column (CMS row untouched)
+    $__ordered = ['contact-us', 'about-us'];      // top of the column, in order
+
+    $__company = [];
+    foreach ($__ordered as $__s) {
+        if (isset($__bySlug[$__s])) {
+            $__company[] = $__bySlug[$__s];
+            unset($__bySlug[$__s]);
+        }
+    }
+
+    // CTA links (absolute href, not a CMS page/ slug).
+    $__company[] = ['page_name' => 'Become an Agent',    'href' => root . 'agent-signup'];
+    $__company[] = ['page_name' => 'Become a Supplier',  'href' => root . 'supplier-signup'];
+
+    // Legal links next, in the requested order.
+    foreach (['privacy-policy', 'terms-of-use', 'terms-and-conditions'] as $__s) {
+        if (isset($__bySlug[$__s])) {
+            $__company[] = $__bySlug[$__s];
+            unset($__bySlug[$__s]);
+        }
+    }
+
+    // Keep any remaining CMS children (except the dropped ones) so custom
+    // pages added in admin still appear.
+    foreach ($__bySlug as $__s => $__c) {
+        if (in_array($__s, $__drop, true)) {
+            continue;
+        }
+        $__company[] = $__c;
+    }
+
+    $__menu['children'] = $__company;
+}
+unset($__menu);
+
 ?>
 
 <?php if (($footer ?? true) !== false) { ?>
@@ -157,7 +222,7 @@ $footer_menus = array_values(array_filter(array_map(
                                                 <ul class="space-y-2.5">
                                                     <?php foreach ($menu['children'] as $child): ?>
                                                             <li>
-                                                                <a href="<?= root ?>page/<?= htmlspecialchars($child['slug_url']) ?>"
+                                                                <a href="<?= isset($child['href']) ? htmlspecialchars($child['href']) : root . 'page/' . htmlspecialchars($child['slug_url']) ?>"
                                                                     class="relative inline-block no-underline pb-[2px] text-sm after:content-[''] after:absolute after:bottom-0 after:left-0 after:w-full after:h-[2px] after:rounded-[1px] after:bg-[var(--footer-link-color,#2563eb)] after:scale-x-0 after:origin-left after:transition-transform after:duration-500 after:ease-in-out hover:after:scale-x-100"
                                                                     style="color: var(--footer-text-color);"
                                                                     onmouseover="this.style.color='var(--footer-link-color)'"
