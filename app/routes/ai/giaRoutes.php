@@ -134,6 +134,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/requestHumanTool.php';
     require_once $aiDir . 'tools/userAccountTool.php';   // full account awareness (all bookings/wallet/loyalty)
     require_once $aiDir . 'tools/updateProfileTool.php'; // allow-listed profile update
+    require_once $aiDir . 'tools/registerAccountTool.php'; // passwordless phone-OTP account signup
     require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow (own tools)
     require_once $aiDir . 'tools/flightsTools.php'; // DEDICATED flights flow (own tools)
     require_once $aiDir . 'tools/staysTools.php'; // DEDICATED stays flow (own tools)
@@ -283,6 +284,7 @@ $router->post('/api/gia/chat', function () use ($db) {
         $agent->registerTool(new \App\lib\ai\requestHumanTool());
         $agent->registerTool(new \App\lib\ai\userAccountTool());
         $agent->registerTool(new \App\lib\ai\updateProfileTool());
+        $agent->registerTool(new \App\lib\ai\registerAccountTool());
         $agent->setToolContext($toolContext);
         // Personalize for a signed-in traveler: resolve safe facts (first name,
         // currency) from the users table and let GIA greet them by name + answer
