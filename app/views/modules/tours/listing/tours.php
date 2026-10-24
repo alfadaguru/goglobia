@@ -4,8 +4,18 @@
 // Frontend interface for searching tours with real-time filtering and sorting
 // ============================================================================
 // app/views/modules/tours/tours.php
-@$SECURE or die('Access Denied!'); 
+@$SECURE or die('Access Denied!');
 
+// Pay-options (real engine; shown only when enabled for 'tours'). No fake amounts.
+$tourPssEnabled = false; $tourLaterEnabled = false; $tourPssFirstPct = 0.0;
+try {
+    if (function_exists('pay_small_small_is_enabled_for') && pay_small_small_is_enabled_for($db, 'tours', '')) {
+        $tourPssEnabled = true;
+        $s = pay_small_small_summary_for($db, 'tours', '', 100.0);
+        if (is_array($s)) { $tourPssFirstPct = round((float) ($s['first_amount'] ?? 0), 4); }
+    }
+    if (function_exists('pay_later_is_enabled_for') && pay_later_is_enabled_for($db, 'tours', '')) { $tourLaterEnabled = true; }
+} catch (\Throwable $e) { $tourPssEnabled = false; $tourLaterEnabled = false; }
 ?>
 
 <!-- Include noUiSlider CSS and JS -->
@@ -34,6 +44,19 @@
             <div class="container py-5 pb-2">
                 <div class="card overflow-visible bg-white border border-gray-200 rounded-2xl p-5 relative">
                     <?php include views."modules/tours/tours-search.php"; ?>
+                </div>
+                <!-- Bold navy context bar (matches flights/stays) -->
+                <div x-show="searchParams.destination" x-cloak
+                    class="mt-3 rounded-2xl px-4 sm:px-5 py-3 flex items-center gap-3"
+                    style="background:linear-gradient(100deg,#172554,#1e3a8a);box-shadow:0 8px 24px -14px rgba(23,37,84,.55)">
+                    <span class="shrink-0 w-9 h-9 rounded-xl grid place-items-center" style="background:rgba(255,255,255,.14)">
+                        <span class="material-symbols-outlined text-white" style="font-size: 20px;">tour</span>
+                    </span>
+                    <div class="min-w-0">
+                        <div class="font-extrabold text-white text-[15px] sm:text-base truncate tracking-tight" x-text="searchParams.destination || ''"></div>
+                        <div class="text-[12px] sm:text-[12.5px] truncate" style="color:#c7d2fe"
+                            x-text="(searchParams.start_date || '') + (searchParams.travelers ? ' · ' + searchParams.travelers + ' traveller(s)' : '') + (searchParams.tour_type && searchParams.tour_type !== 'any' ? ' · ' + searchParams.tour_type : '')"></div>
+                    </div>
                 </div>
             </div>
             <!-- Progress Bar -->
@@ -115,6 +138,20 @@
                                 </div>
                             </template>
                         </div>
+                        <!-- Summary strip: Cheapest / Top rated / Available -->
+                        <div x-show="filteredTours.length > 0 && tourSummary().length > 0" x-cloak
+                             class="grid grid-cols-3 gap-2.5 sm:gap-3 mb-4">
+                            <template x-for="s in tourSummary()" :key="s.key">
+                                <div class="rounded-xl border px-3 py-2.5 flex flex-col gap-0.5"
+                                    :class="s.best ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'">
+                                    <span class="text-[9.5px] sm:text-[10px] uppercase tracking-wider font-bold text-gray-400 dark:text-gray-500" x-text="s.label"></span>
+                                    <span class="text-sm sm:text-[17px] font-extrabold tabular-nums leading-tight"
+                                        :class="s.best ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-gray-100'" x-text="s.value"></span>
+                                    <span class="text-[10px] sm:text-[11px] text-gray-500 dark:text-gray-400 truncate" x-text="s.sub"></span>
+                                </div>
+                            </template>
+                        </div>
+
                         <!-- Tour Cards -->
                         <div x-show="filteredTours.length > 0"
                              x-transition:enter="transition ease-out duration-300"
@@ -252,6 +289,54 @@
             allInclusions: <?php echo json_encode($allInclusionsNames); ?>,
             allExclusions: <?php echo json_encode($allExclusionsNames); ?>,
             searchParams: {},
+
+            // Pay-options on the card (real engine; only shown when enabled for tours)
+            tourPssEnabled: <?= $tourPssEnabled ? 'true' : 'false' ?>,
+            tourLaterEnabled: <?= $tourLaterEnabled ? 'true' : 'false' ?>,
+            tourPssFirstPct: <?= (float) $tourPssFirstPct ?>,
+            money(amount, currency) {
+                const n = Number(amount) || 0;
+                const ccy = currency || this.currency || '';
+                return ccy + ' ' + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+            },
+            renderTourPayOptions(t) {
+                if (!this.tourPssEnabled && !this.tourLaterEnabled) return '';
+                let chips = '';
+                if (this.tourPssEnabled && this.tourPssFirstPct > 0) {
+                    const firstNow = (Number(t.price) || 0) * (this.tourPssFirstPct / 100);
+                    chips += `<div class="flex-1 rounded-lg border border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20 px-2 py-1.5">
+                        <div class="text-[9px] uppercase tracking-wide font-bold text-amber-700 dark:text-amber-400 leading-none">Pay small small</div>
+                        <div class="text-[13px] font-extrabold text-amber-700 dark:text-amber-300 tabular-nums mt-0.5 leading-none">${this.money(firstNow, t.currency)}</div>
+                        <div class="text-[9.5px] text-amber-600/80 dark:text-amber-400/80 mt-0.5 leading-none">now · rest later</div>
+                    </div>`;
+                }
+                if (this.tourLaterEnabled) {
+                    chips += `<div class="flex-1 rounded-lg border border-blue-200 dark:border-blue-700/50 bg-blue-50 dark:bg-blue-900/20 px-2 py-1.5">
+                        <div class="text-[9px] uppercase tracking-wide font-bold text-blue-700 dark:text-blue-400 leading-none">Pay later</div>
+                        <div class="text-[13px] font-extrabold text-blue-700 dark:text-blue-300 mt-0.5 leading-none">Reserve now</div>
+                        <div class="text-[9.5px] text-blue-600/80 dark:text-blue-400/80 mt-0.5 leading-none">pay before deadline</div>
+                    </div>`;
+                }
+                return `<div class="flex gap-1.5 mt-2.5">${chips}</div>`;
+            },
+            // Summary strip: Cheapest / Top rated / Available tours
+            tourSummary() {
+                const pool = (this.filteredTours || []).filter(t => t && Number(t.price) > 0);
+                if (pool.length === 0) return [];
+                const score = t => (Number(t.rating) || 0) || (Number(t.stars) || 0);
+                let cheapest = pool[0], topRated = pool[0];
+                for (const t of pool) {
+                    if (Number(t.price) < Number(cheapest.price)) cheapest = t;
+                    if (score(t) > score(topRated)) topRated = t;
+                }
+                const out = [
+                    { key: 'cheapest', best: true, label: 'Cheapest', value: this.money(cheapest.price, cheapest.currency), sub: (cheapest.name || cheapest.title || '') },
+                ];
+                if (score(topRated) > 0) out.push({ key: 'rated', best: false, label: 'Top rated', value: score(topRated).toFixed(1) + ' ★', sub: (topRated.name || topRated.title || '') });
+                out.push({ key: 'count', best: false, label: 'Available', value: String(pool.length), sub: 'tours' });
+                return out;
+            },
+
             sortBy: 'price_low',
 
             filters: {
