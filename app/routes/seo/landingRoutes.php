@@ -32,7 +32,30 @@ $router->get('/flights/([a-z][a-z-]*-to-[a-z][a-z-]*)', function ($slug) use ($S
 
     // Resolve each slug to a REAL airport (by city name or IATA code). A route
     // whose endpoints aren't real airports is not a landing page — send to search.
-    $resolve = function (string $s) use ($db) {
+    //
+    // Several city names map to MANY airports in the DB (e.g. "London" has YXU in
+    // Canada and LOZ in the US alongside LHR; "Istanbul" has ISL/SAW alongside
+    // IST; "Doha" has DIA/XOZ alongside DOH). A plain first-row match can pick the
+    // wrong one (London, Canada!), putting a wrong airport on the page. For these
+    // ambiguous cities we pin the canonical primary hub; everything else falls back
+    // to the city/code match as before.
+    $preferredHub = [
+        'london'    => 'LHR',
+        'istanbul'  => 'IST',
+        'doha'      => 'DOH',
+        'dubai'     => 'DXB',
+        'cairo'     => 'CAI',
+        'jeddah'    => 'JED',
+        'madinah'   => 'MED',
+        'abu-dhabi' => 'AUH',
+    ];
+    $resolve = function (string $s) use ($db, $preferredHub) {
+        $slug = strtolower($s);
+        if (isset($preferredHub[$slug])) {
+            $row = $db->get('flights_airports', ['code', 'city', 'country', 'airport'],
+                ['AND' => ['status' => '1', 'code' => $preferredHub[$slug]]]);
+            if ($row) { return $row; }
+        }
         $name = ucwords(str_replace('-', ' ', $s));
         // Prefer an exact city match, then a code match; pick the busiest/first.
         $row = $db->get('flights_airports', ['code', 'city', 'country', 'airport'],

@@ -99,6 +99,34 @@ if (!function_exists('seoFlightRouteDataDefaults')) {
             'lagos-to-cairo'   => ['duration' => 'about 5h 30m', 'airlines' => ['EgyptAir', 'Ethiopian Airlines'], 'note' => 'Connects Lagos with Cairo for tourism, trade and onward Middle East links.'],
             'lagos-to-johannesburg' => ['duration' => 'about 6h direct', 'airlines' => ['Air Peace', 'South African Airways', 'Ethiopian Airlines'], 'note' => 'Links Lagos with South Africa’s commercial hub; direct and one-stop options serve business and leisure travellers.'],
             'lagos-to-nairobi' => ['duration' => 'about 5h 30m', 'airlines' => ['Kenya Airways', 'Ethiopian Airlines'], 'note' => 'Connects Lagos with Nairobi, a key East African hub for business and safari tourism.'],
+
+            // ---- MORE DOMESTIC (south-east/south-south returns + new hubs) ----
+            'enugu-to-lagos'        => ['duration' => 'about 1h', 'airlines' => ['Air Peace', 'United Nigeria', 'Ibom Air'], 'note' => 'The return leg from the south-east to Lagos; demand peaks sharply after the December festive period.'],
+            'enugu-to-abuja'        => ['duration' => 'about 50m', 'airlines' => ['Air Peace', 'United Nigeria'], 'note' => 'A short hop from the south-east to the capital for business, government and family travel.'],
+            'kaduna-to-lagos'       => ['duration' => 'about 1h 25m', 'airlines' => ['Air Peace', 'United Nigeria'], 'note' => 'Links northern Kaduna State back to Lagos; a practical alternative to long road journeys.'],
+            'lagos-to-benin'        => ['duration' => 'about 45m', 'airlines' => ['Air Peace', 'United Nigeria'], 'note' => 'A quick hop to Benin City in Edo State — one of the shorter domestic sectors from Lagos.'],
+            'lagos-to-asaba'        => ['duration' => 'about 1h', 'airlines' => ['Air Peace', 'United Nigeria', 'Ibom Air'], 'note' => 'Serves Asaba and the Delta region; a convenient gateway to the south-south by air rather than road.'],
+            'lagos-to-calabar'      => ['duration' => 'about 1h 15m', 'airlines' => ['Air Peace', 'Ibom Air', 'United Nigeria'], 'note' => 'Connects Lagos with Calabar, a popular destination around the Cross River Carnival in December.'],
+            'lagos-to-uyo'          => ['duration' => 'about 1h', 'airlines' => ['Ibom Air', 'Air Peace', 'United Nigeria'], 'note' => 'Serves Akwa Ibom State; Ibom Air, the state carrier, operates frequent services on this route.'],
+            'abuja-to-maiduguri'    => ['duration' => 'about 1h 30m', 'airlines' => ['Air Peace', 'Max Air'], 'note' => 'Links the capital with Borno State in the north-east; book ahead as frequency is lighter than the main trunk routes.'],
+            'abuja-to-sokoto'       => ['duration' => 'about 1h 20m', 'airlines' => ['Air Peace', 'Max Air'], 'note' => 'Connects the capital with the north-west; demand rises around the Umrah and Hajj seasons.'],
+            'lagos-to-ilorin'       => ['duration' => 'about 55m', 'airlines' => ['Air Peace', 'United Nigeria'], 'note' => 'A short link to Kwara State in north-central Nigeria, useful for business and university travel.'],
+
+            // ---- INTERNATIONAL RETURN LEGS (rich content both ways) ----
+            'dubai-to-lagos'   => ['duration' => 'about 8h direct', 'airlines' => $gulf, 'note' => 'The return leg from the UAE to Lagos; direct and one-stop options are available — compare total journey time, not just price.'],
+            'london-to-lagos'  => ['duration' => 'about 6h 30m direct', 'airlines' => $toUK, 'note' => 'A heavily flown long-haul return from the UK to Lagos; summer and December are the busiest periods, so book early.'],
+            'jeddah-to-lagos'  => ['duration' => 'about 7h (often one stop)', 'airlines' => $toKSA, 'note' => 'The return from Saudi Arabia to Lagos, commonly flown after Umrah or Hajj; most services connect through a hub.'],
+            'istanbul-to-lagos'=> ['duration' => 'about 7h direct', 'airlines' => $toTR, 'note' => 'Direct services connect Istanbul back to Lagos; a popular hub for travellers returning from Europe and Asia.'],
+            'accra-to-lagos'   => ['duration' => 'about 55m', 'airlines' => $africa, 'note' => 'The return hop from Ghana — among the busiest and most frequent West African international sectors.'],
+
+            // ---- NEW INTERNATIONAL (matching the hotel-city destinations) ----
+            'lagos-to-abu-dhabi'   => ['duration' => 'about 8–11h (often one stop)', 'airlines' => ['Etihad Airways', 'Qatar Airways', 'Emirates'], 'note' => 'Connects Lagos with the UAE capital, usually via a Gulf hub; check UAE visa requirements before booking.'],
+            'lagos-to-doha'        => ['duration' => 'about 7h 30m direct', 'airlines' => ['Qatar Airways'], 'note' => 'Qatar Airways links Lagos to Doha, a major stopover hub for onward connections across the Gulf, Asia and beyond.'],
+            'abuja-to-doha'        => ['duration' => 'about 8h (direct or one stop)', 'airlines' => ['Qatar Airways'], 'note' => 'Connects the capital with Doha for business, transit and onward travel; compare direct versus one-stop timings.'],
+            'lagos-to-kuala-lumpur'=> ['duration' => 'about 15–18h (one or two stops)', 'airlines' => ['Qatar Airways', 'Emirates', 'Etihad Airways'], 'note' => 'A long-haul route to Malaysia, routed via a Gulf hub; popular for trade, study and halal-friendly travel.'],
+            'abuja-to-cairo'       => ['duration' => 'about 6h (often one stop)', 'airlines' => ['EgyptAir', 'Ethiopian Airlines'], 'note' => 'Connects the capital with Cairo for tourism, trade and onward Middle East links.'],
+            'abuja-to-accra'       => ['duration' => 'about 1h 30m (direct or one stop)', 'airlines' => $africa, 'note' => 'Links Abuja with Ghana’s capital; a short regional route served directly and via connections.'],
+            'kano-to-madinah'      => ['duration' => 'about 6–9h (direct in season / one stop)', 'airlines' => ['Max Air', 'Saudia', 'FlyNas'], 'note' => 'Kano is a major northern pilgrimage gateway; seasonal direct services to Madinah run, otherwise connect via a hub. See Umrah from Kano.'],
         ];
     }
 }

@@ -5255,8 +5255,18 @@ function ensureSeoLandingSchema($db): void
             2 => ['umrah_origin' => ['kaduna', 'sokoto', 'maiduguri', 'ilorin', 'port-harcourt', 'enugu']],
             // v3: more hotel-city destinations (pilgrimage, Gulf, Africa, Asia).
             3 => ['hotel_city' => ['makkah', 'madinah', 'abu-dhabi', 'doha', 'cairo', 'accra', 'johannesburg', 'nairobi', 'kuala-lumpur']],
+            // v4: more flight routes — extra domestic, international return legs,
+            // and new international routes matching the hotel-city destinations.
+            4 => ['flight_route' => [
+                'enugu-to-lagos', 'enugu-to-abuja', 'kaduna-to-lagos',
+                'lagos-to-benin', 'lagos-to-asaba', 'lagos-to-calabar', 'lagos-to-uyo',
+                'abuja-to-maiduguri', 'abuja-to-sokoto', 'lagos-to-ilorin',
+                'dubai-to-lagos', 'london-to-lagos', 'jeddah-to-lagos', 'istanbul-to-lagos', 'accra-to-lagos',
+                'lagos-to-abu-dhabi', 'lagos-to-doha', 'abuja-to-doha', 'lagos-to-kuala-lumpur',
+                'abuja-to-cairo', 'abuja-to-accra', 'kano-to-madinah',
+            ]],
         ];
-        $SEO_LANDING_SEED_VERSION = 3;
+        $SEO_LANDING_SEED_VERSION = 4;
 
         // Ensure the tracking column exists BEFORE we read it (idempotent ALTER),
         // else an existing install throws "unknown column" and aborts the top-up.
