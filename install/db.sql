@@ -31705,6 +31705,7 @@ CREATE TABLE `users` (
   `password` varchar(255) NOT NULL,
   `banned` tinyint(1) DEFAULT 0,
   `email_verified` tinyint(1) DEFAULT 0,
+  `phone_verified` tinyint(1) NOT NULL DEFAULT 0,
   `last_login` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
@@ -31728,6 +31729,7 @@ CREATE TABLE `users` (
   `reset_token_expires` timestamp NULL DEFAULT NULL,
   `otp` varchar(10) DEFAULT NULL,
   `otp_expires` datetime DEFAULT NULL,
+  `otp_type` varchar(20) DEFAULT NULL,
   `login_attempts` int(11) DEFAULT 0,
   `locked_until` timestamp NULL DEFAULT NULL,
   `currency` varchar(255) DEFAULT NULL,
@@ -32289,7 +32291,8 @@ ALTER TABLE `users`
   ADD UNIQUE KEY `email` (`email`),
   ADD KEY `idx_email` (`email`),
   ADD KEY `idx_role` (`role`),
-  ADD KEY `idx_status` (`status`);
+  ADD KEY `idx_status` (`status`),
+  ADD KEY `idx_users_phone` (`phone`);
 
 --
 -- Indexes for table `users_roles`
