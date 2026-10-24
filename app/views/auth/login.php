@@ -38,6 +38,8 @@ $licenseBlocked = !empty($_SESSION['lic_err']);
                                 </p>
                             <?php endif; ?>
                         </div>
+                    <?php elseif ($_SESSION['login_error'] === 'ambiguous_phone'): ?>
+                        <p>That phone number is linked to more than one account. Please log in with your email instead.</p>
                     <?php elseif ($_SESSION['login_error'] === 'banned'): ?>
                         <p><?= T::error_account_banned ?></p>
                     <?php elseif ($_SESSION['login_error'] === 'email_not_verified'): ?>
@@ -151,19 +153,20 @@ $licenseBlocked = !empty($_SESSION['lic_err']);
                     <input type="hidden" name="redirect" value="<?= htmlspecialchars($loginRedirectField, ENT_QUOTES) ?>">
                     <?php endif; ?>
 
+                    <?php $__isAdminLogin = str_contains($_SERVER['REQUEST_URI'], '/admin/'); ?>
                     <div class="form-control">
                         <label for="email" class="text-sm font-medium text-gray-700 mb-2">
-                            <?= str_contains($_SERVER['REQUEST_URI'], '/admin/') ? T::admin_email : T::email_address ?>
+                            <?= $__isAdminLogin ? T::admin_email : (T::email_or_phone ?? 'Email or phone') ?>
                         </label>
                         <div class="input-group">
-                            <span class="input-icon-left material-symbols-outlined">email</span>
+                            <span class="input-icon-left material-symbols-outlined"><?= $__isAdminLogin ? 'email' : 'account_circle' ?></span>
                             <input
                                 id="email"
                                 name="email"
-                                type="email"
+                                type="<?= $__isAdminLogin ? 'email' : 'text' ?>"
                                 required
                                 class="input-with-icon"
-                                placeholder="<?= T::email_address ?>"
+                                placeholder="<?= $__isAdminLogin ? T::email_address : (T::email_or_phone ?? 'Email or phone') ?>"
                                 value="<?php echo htmlspecialchars($_POST['email'] ?? ''); ?>"
                             >
                         </div>

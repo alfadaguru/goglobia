@@ -2493,6 +2493,67 @@ function normalizePhoneForStorage($phone, $countryIso, $db)
     return preg_replace('/[^\d]/', '', $phone);
 }
 
+/**
+ * Resolve a login identifier (email OR phone) to a single users row.
+ *
+ * GIA phone-auth workstream, Phase 3: login accepts either an email address or
+ * a phone number in the same field. Email lookups are exact (email is UNIQUE).
+ * Phone lookups compare on digits — exact first, then last-10-digits (handles
+ * national-vs-international stored formats), mirroring gia_identity_phone_match.
+ *
+ * SHARED-PHONE SAFETY: users.phone is intentionally NOT unique (multiple
+ * accounts may share a number). If a phone matches more than one account the
+ * result is AMBIGUOUS, so we return null with reason='ambiguous_phone' and the
+ * caller tells the user to log in with their email. We never silently pick one
+ * account for a shared number.
+ *
+ * @return array{user:?array, reason:string}
+ *   reason ∈ 'email' | 'phone' | 'not_found' | 'ambiguous_phone'
+ */
+function resolveLoginIdentifier($db, string $identifier): array
+{
+    $identifier = trim($identifier);
+    if ($identifier === '') {
+        return ['user' => null, 'reason' => 'not_found'];
+    }
+
+    // Email path — exact, unique.
+    if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
+        $u = $db->get('users', '*', ['email' => $identifier]);
+        return ['user' => $u ?: null, 'reason' => $u ? 'email' : 'not_found'];
+    }
+
+    // Phone path — compare on digits.
+    $digits = preg_replace('/\D/', '', $identifier);
+    if ($digits === '') {
+        return ['user' => null, 'reason' => 'not_found'];
+    }
+
+    // Exact stored match first.
+    $exact = $db->select('users', '*', ['phone' => $digits]);
+    $matches = is_array($exact) ? $exact : [];
+
+    // Fall back to last-10-digits match (national vs international storage).
+    if (count($matches) === 0 && strlen($digits) >= 10) {
+        $last10 = substr($digits, -10);
+        try {
+            $matches = $db->select('users', '*', ['phone[~]' => '%' . $last10]) ?: [];
+        } catch (\Throwable $e) {
+            error_log('resolveLoginIdentifier phone LIKE: ' . $e->getMessage());
+            $matches = [];
+        }
+    }
+
+    if (count($matches) === 0) {
+        return ['user' => null, 'reason' => 'not_found'];
+    }
+    if (count($matches) > 1) {
+        // Shared number across accounts — ambiguous, force email login.
+        return ['user' => null, 'reason' => 'ambiguous_phone'];
+    }
+    return ['user' => $matches[0], 'reason' => 'phone'];
+}
+
 function sendWhatsAppNotification($userId, $templateName, $additionalData = [])
 {
     global $db;

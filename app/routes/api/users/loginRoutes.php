@@ -33,7 +33,17 @@ $router->post('/api/login', function () use ($db) {
         exit;
     }
 
-    $user = $db->get('users', '*', ['email' => $email]);
+    // Identifier may be an email OR a phone number (same field).
+    $resolved = resolveLoginIdentifier($db, $email);
+    if ($resolved['reason'] === 'ambiguous_phone') {
+        echo json_encode([
+            'status' => 'error',
+            'code' => 'AMBIGUOUS_PHONE',
+            'message' => 'That phone number is linked to more than one account. Please log in with your email.'
+        ]);
+        exit;
+    }
+    $user = $resolved['user'];
 
     if (!$user) {
         echo json_encode([
