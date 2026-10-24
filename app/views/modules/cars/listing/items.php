@@ -6,6 +6,38 @@
 @$SECURE or die('Access Denied!'); ?>
 
 <script>
+// Price formatting + pay-options for car cards. Standalone (not component methods)
+// because renderCarCard's outer body is not bound to the Alpine component `this`.
+// Pay-options are gated on the REAL engine (PHP-injected) and show the real first
+// slice; both are OFF for cars now, so the chips render nothing until enabled.
+const CAR_PSS_ENABLED  = <?= $carPssEnabled ? 'true' : 'false' ?>;
+const CAR_LATER_ENABLED = <?= $carLaterEnabled ? 'true' : 'false' ?>;
+const CAR_PSS_FIRST_PCT = <?= (float) $carPssFirstPct ?>;
+function carMoney(amount, currency) {
+    const n = Number(amount) || 0;
+    return (currency || '') + ' ' + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+}
+function carPayOptions(price, currency) {
+    if (!CAR_PSS_ENABLED && !CAR_LATER_ENABLED) return '';
+    let chips = '';
+    if (CAR_PSS_ENABLED && CAR_PSS_FIRST_PCT > 0) {
+        const firstNow = (Number(price) || 0) * (CAR_PSS_FIRST_PCT / 100);
+        chips += `<div class="flex-1 rounded-lg border border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20 px-2 py-1.5">
+            <div class="text-[9px] uppercase tracking-wide font-bold text-amber-700 dark:text-amber-400 leading-none">Pay small small</div>
+            <div class="text-[13px] font-extrabold text-amber-700 dark:text-amber-300 tabular-nums mt-0.5 leading-none">${carMoney(firstNow, currency)}</div>
+            <div class="text-[9.5px] text-amber-600/80 dark:text-amber-400/80 mt-0.5 leading-none">now · rest later</div>
+        </div>`;
+    }
+    if (CAR_LATER_ENABLED) {
+        chips += `<div class="flex-1 rounded-lg border border-blue-200 dark:border-blue-700/50 bg-blue-50 dark:bg-blue-900/20 px-2 py-1.5">
+            <div class="text-[9px] uppercase tracking-wide font-bold text-blue-700 dark:text-blue-400 leading-none">Pay later</div>
+            <div class="text-[13px] font-extrabold text-blue-700 dark:text-blue-300 mt-0.5 leading-none">Reserve now</div>
+            <div class="text-[9.5px] text-blue-600/80 dark:text-blue-400/80 mt-0.5 leading-none">pay before deadline</div>
+        </div>`;
+    }
+    return `<div class="flex gap-1.5 mt-2.5">${chips}</div>`;
+}
+
 /**
  * ============================================================================
  * RENDER CAR CARD
@@ -240,14 +272,19 @@ function renderCarCard(car) {
                         <!-- PRICE DISPLAY -->
                         <div>
                             <p class="text-xs text-gray-500 dark:text-gray-400 mb-1"><?=T::total?> <?=T::price?></p>
-                            <p class="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                                ${currency} ${price.toFixed(2)}
+                            <p class="text-2xl font-extrabold text-gray-900 dark:text-gray-100 tabular-nums tracking-tight">
+                                ${carMoney(price, currency)}
                             </p>
                             ${pricePerDay > 0 && (car.service_type || 'rental') === 'rental' && pricePerDay < price ? `
-                                <p class="text-xs text-gray-500 dark:text-gray-400">
-                                    ${currency} ${pricePerDay.toFixed(2)} <?=T::per?> <?=T::day?>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+                                    ${carMoney(pricePerDay, currency)} <?=T::per?> <?=T::day?>
                                 </p>
                             ` : ''}
+                            <p class="text-[11px] text-green-600 dark:text-green-400 font-medium mt-1 flex items-center gap-1">
+                                <span class="material-symbols-outlined" style="font-size:13px;">check_circle</span>
+                                Includes taxes &amp; fees
+                            </p>
+                            ${carPayOptions(price, currency)}
                         </div>
 
                         <!-- BOOK NOW BUTTON -->

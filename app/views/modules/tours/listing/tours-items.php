@@ -249,15 +249,17 @@ function renderTourCard(t, idx, searchParams) {
                         <div class="w-full sm:w-auto">
                             <p class="text-xs text-gray-500 dark:text-gray-400 mb-0.5"><?=T::from?></p>
                             <!-- Price + per person in same line -->
-                            <div class="flex items-baseline gap-2">
-                                <p class="text-2xl font-bold text-gray-900 dark:text-gray-100 leading-none mb-0">
-                                    ${t.currency || 'USD'} ${(t.price || 0).toFixed(2)}
+                            <div class="flex items-baseline gap-1.5">
+                                <p class="text-2xl font-extrabold text-gray-900 dark:text-gray-100 leading-none mb-0 tabular-nums tracking-tight">
+                                    ${this.money(t.price, t.currency)}
                                 </p>
                                 <p class="text-sm text-gray-500 dark:text-gray-400 mb-0"><?=T::per?> <?=T::person?></p>
                             </div>
-                            <p class="text-xs text-gray-500 dark:text-gray-400 mb-0">
-                                ${t.currency || 'USD'} ${(t.price_per_person || 0).toFixed(2)}
+                            <p class="text-[11px] text-green-600 dark:text-green-400 font-medium mt-1 flex items-center gap-1">
+                                <span class="material-symbols-outlined" style="font-size:13px;">check_circle</span>
+                                Includes taxes &amp; fees
                             </p>
+                            ${this.renderTourPayOptions(t)}
                         </div>
 
                         <!-- Book Button -->

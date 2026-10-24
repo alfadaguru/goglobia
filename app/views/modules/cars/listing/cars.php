@@ -10,6 +10,17 @@
 // app/views/modules/cars/listing/cars.php
 @$SECURE or die('Access Denied!');
 
+// Pay-options (real engine; shown only when enabled for 'cars'). No fake amounts.
+$carPssEnabled = false; $carLaterEnabled = false; $carPssFirstPct = 0.0;
+try {
+    if (function_exists('pay_small_small_is_enabled_for') && pay_small_small_is_enabled_for($db, 'cars', '')) {
+        $carPssEnabled = true;
+        $s = pay_small_small_summary_for($db, 'cars', '', 100.0);
+        if (is_array($s)) { $carPssFirstPct = round((float) ($s['first_amount'] ?? 0), 4); }
+    }
+    if (function_exists('pay_later_is_enabled_for') && pay_later_is_enabled_for($db, 'cars', '')) { $carLaterEnabled = true; }
+} catch (\Throwable $e) { $carPssEnabled = false; $carLaterEnabled = false; }
+
 $isAdmin = isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin';
 
 // ============================================================================
@@ -135,6 +146,20 @@ include __DIR__ . '/items.php';
             <div class="container py-5 pb-2">
                 <div class="card overflow-visible bg-white border border-gray-200 rounded-2xl p-5 relative">
                     <?php include views."modules/cars/cars-search.php"; ?>
+                </div>
+                <!-- Bold navy context bar (matches flights/stays/tours) -->
+                <div x-show="searchParams.pickup || searchParams.pickup_location" x-cloak
+                    class="mt-3 rounded-2xl px-4 sm:px-5 py-3 flex items-center gap-3"
+                    style="background:linear-gradient(100deg,#172554,#1e3a8a);box-shadow:0 8px 24px -14px rgba(23,37,84,.55)">
+                    <span class="shrink-0 w-9 h-9 rounded-xl grid place-items-center" style="background:rgba(255,255,255,.14)">
+                        <span class="material-symbols-outlined text-white" style="font-size: 20px;">directions_car</span>
+                    </span>
+                    <div class="min-w-0">
+                        <div class="font-extrabold text-white text-[15px] sm:text-base truncate tracking-tight"
+                            x-text="(searchParams.pickup || searchParams.pickup_location || '') + (searchParams.dropoff && searchParams.dropoff !== (searchParams.pickup||searchParams.pickup_location) ? ' → ' + searchParams.dropoff : '')"></div>
+                        <div class="text-[12px] sm:text-[12.5px] truncate" style="color:#c7d2fe"
+                            x-text="(searchParams.pickup_date || '') + (searchParams.return_date ? ' – ' + searchParams.return_date : '')"></div>
+                    </div>
                 </div>
             </div>
 
@@ -273,6 +298,20 @@ include __DIR__ . '/items.php';
                             </template>
                         </div>
 
+                        <!-- Summary strip: Cheapest / Available -->
+                        <div x-show="filteredCars.length > 0 && carSummary().length > 0" x-cloak
+                             class="grid grid-cols-2 gap-2.5 sm:gap-3 mb-4">
+                            <template x-for="s in carSummary()" :key="s.key">
+                                <div class="rounded-xl border px-3 py-2.5 flex flex-col gap-0.5"
+                                    :class="s.best ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'">
+                                    <span class="text-[9.5px] sm:text-[10px] uppercase tracking-wider font-bold text-gray-400 dark:text-gray-500" x-text="s.label"></span>
+                                    <span class="text-sm sm:text-[17px] font-extrabold tabular-nums leading-tight"
+                                        :class="s.best ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-gray-100'" x-text="s.value"></span>
+                                    <span class="text-[10px] sm:text-[11px] text-gray-500 dark:text-gray-400 truncate" x-text="s.sub"></span>
+                                </div>
+                            </template>
+                        </div>
+
                         <!-- CAR CARDS -->
                         <div x-show="filteredCars.length > 0"
                              x-transition:enter="transition ease-out duration-300"
@@ -402,6 +441,27 @@ function carSearch() {
         // ========================================
         cars: [],                // All loaded cars from all suppliers
         filteredCars: [],        // Filtered and sorted cars
+
+        money(amount, currency) {
+            const n = Number(amount) || 0;
+            const ccy = currency || (this.searchParams && this.searchParams.currency) || '';
+            return ccy + ' ' + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+        },
+        // (Car card pay-options are standalone carPayOptions() in items.php, since
+        // renderCarCard is not bound to the component `this`.)
+        // Summary strip: Cheapest / Available
+        carSummary() {
+            const pool = (this.filteredCars || []).filter(c => c && parseFloat(c.price || c.total_price || c.display_price || 0) > 0);
+            if (pool.length === 0) return [];
+            const px = c => parseFloat(c.price || c.total_price || c.display_price || 0);
+            let cheapest = pool[0];
+            for (const c of pool) { if (px(c) < px(cheapest)) cheapest = c; }
+            const name = c => (c.name || c.car_name || c.vehicle || c.model || '');
+            return [
+                { key: 'cheapest', best: true, label: 'Cheapest', value: this.money(px(cheapest), cheapest.currency), sub: name(cheapest) },
+                { key: 'count', best: false, label: 'Available', value: String(pool.length), sub: 'cars' },
+            ];
+        },
         loading: true,           // Search in progress — starts true so the "no cars found"
                                   // empty state can't flash before init() even starts searching
         progress: 0,             // Progress percentage (0-100)
