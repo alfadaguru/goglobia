@@ -165,6 +165,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         require_once $aiDir . 'tools/verifyIdentityTool.php';
         require_once $aiDir . 'tools/userAccountTool.php';   // full account awareness (all bookings/wallet/loyalty)
         require_once $aiDir . 'tools/updateProfileTool.php'; // allow-listed profile update
+        require_once $aiDir . 'tools/registerAccountTool.php'; // passwordless phone-OTP account signup
         require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow
         require_once $aiDir . 'tools/flightsTools.php'; // DEDICATED flights flow
         require_once $aiDir . 'tools/staysTools.php'; // DEDICATED stays flow
@@ -379,6 +380,11 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             if (($toolContext['account_id'] ?? '') !== '') {
                 $agent->registerTool(new userAccountTool());
                 $agent->registerTool(new updateProfileTool());
+            } else {
+                // No account on this chat yet — let GIA create one from name +
+                // phone with a WhatsApp OTP (the tool self-gates and only ever
+                // activates after the code is confirmed).
+                $agent->registerTool(new registerAccountTool());
             }
             $agent->setToolContext($toolContext);
             // Teach GIA how to act on a tapped option button ('pick|module|ref').

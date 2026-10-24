@@ -173,3 +173,126 @@ if (!function_exists('gia_user_summary_line')) {
         return "You have {$n} upcoming {$plural} on your account.";
     }
 }
+
+if (!function_exists('gia_find_user_by_phone')) {
+    /**
+     * Find a single account by phone (digits / last-10). Returns the users row or
+     * null; '' user_id signals none. Used by registration to block duplicates and
+     * offer "log in instead". Returns the FIRST match (shared numbers are rare and
+     * registration simply refuses to create a second account on the same number).
+     */
+    function gia_find_user_by_phone($db, string $phone): ?array
+    {
+        $digits = preg_replace('/\D/', '', trim($phone));
+        if ($digits === '') { return null; }
+        try {
+            $hit = $db->get('users', ['id', 'user_id', 'status', 'email', 'phone', 'phone_verified'], ['phone' => $digits]);
+            if (!$hit && strlen($digits) >= 10) {
+                $rows = $db->select('users', ['id', 'user_id', 'status', 'email', 'phone', 'phone_verified'], ['phone[~]' => '%' . substr($digits, -10)]) ?: [];
+                $hit = $rows[0] ?? null;
+            }
+            return is_array($hit) && $hit !== [] ? $hit : null;
+        } catch (\Throwable $e) {
+            error_log('gia_find_user_by_phone: ' . $e->getMessage());
+            return null;
+        }
+    }
+}
+
+if (!function_exists('gia_register_user')) {
+    /**
+     * Create a passwordless, phone-first customer account (status inactive,
+     * phone_verified 0) ready for a 'signup' OTP. Reuses an earlier ABANDONED
+     * attempt for the same phone (inactive + unverified + no email) instead of
+     * spawning a second phantom row. Returns ['ok','user_id','reuse'] or
+     * ['ok'=>false,'error'] ('exists' when a real account already owns the phone).
+     *
+     * @param string $countryCode ISO or numeric; phone stored national-digits.
+     */
+    function gia_register_user($db, string $firstName, string $lastName, string $phone, string $countryCode): array
+    {
+        $firstName = trim(preg_replace('/[\x00-\x1F\x7F]/', '', $firstName));
+        $lastName  = trim(preg_replace('/[\x00-\x1F\x7F]/', '', $lastName));
+        if ($firstName === '') {
+            return ['ok' => false, 'error' => 'name_required', 'message' => 'I need your name to set up the account.'];
+        }
+        if (trim($phone) === '') {
+            return ['ok' => false, 'error' => 'phone_required', 'message' => 'I need a phone number to set up the account.'];
+        }
+        if (function_exists('validatePhoneForCountry') && !validatePhoneForCountry($phone, $countryCode, $db)) {
+            return ['ok' => false, 'error' => 'phone_invalid', 'message' => 'That phone number does not look valid.'];
+        }
+        $national = function_exists('normalizePhoneForStorage')
+            ? normalizePhoneForStorage($phone, $countryCode, $db)
+            : preg_replace('/\D/', '', $phone);
+        $code = function_exists('getPhoneCode') ? getPhoneCode($countryCode, $db) : $countryCode;
+
+        // Already an account on this number?
+        $existing = gia_find_user_by_phone($db, $national);
+        if ($existing) {
+            // "Abandoned" = an inactive, unverified, passwordless shell from a prior
+            // attempt — recognised by the placeholder email (or an empty one from
+            // older rows). A real account (verified, or with a real email) is NEVER
+            // reused; registration refuses it below.
+            $exEmail = trim((string) ($existing['email'] ?? ''));
+            $isPlaceholderEmail = $exEmail === '' || substr($exEmail, -strlen('@no-email.goglobia.local')) === '@no-email.goglobia.local';
+            $isAbandoned = (string) ($existing['status'] ?? '') === 'inactive'
+                && (int) ($existing['phone_verified'] ?? 0) === 0
+                && $isPlaceholderEmail;
+            if (!$isAbandoned) {
+                return ['ok' => false, 'error' => 'exists', 'message' => 'There is already an account on that number — I can help you log in instead.'];
+            }
+            // Reuse the abandoned shell; refresh the name.
+            try {
+                $db->update('users', [
+                    'first_name' => $firstName,
+                    'last_name'  => $lastName,
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ], ['id' => (int) $existing['id']]);
+            } catch (\Throwable $e) {
+                error_log('gia_register_user reuse: ' . $e->getMessage());
+            }
+            return ['ok' => true, 'user_id' => (string) $existing['user_id'], 'reuse' => true];
+        }
+
+        if (!function_exists('generateUserId')) {
+            return ['ok' => false, 'error' => 'db', 'message' => 'Account setup is unavailable right now.'];
+        }
+        $curr = $db->get('currencies', 'name', ['default' => 1]) ?: 'USD';
+
+        // Mint a unique user_id.
+        $uid = generateUserId();
+        for ($i = 0; $i < 5 && $db->has('users', ['user_id' => $uid]); $i++) { $uid = generateUserId(); }
+
+        // users.email is NOT NULL + UNIQUE, so a passwordless account can't use ''
+        // (the 2nd one would collide). Synthesise a unique, non-routable placeholder
+        // tied to the user_id; it's clearly internal and can be replaced when the
+        // traveller later adds a real email.
+        $placeholderEmail = 'phone-' . $uid . '@no-email.goglobia.local';
+
+        try {
+            $db->insert('users', [
+                'user_id'            => $uid,
+                'first_name'         => $firstName,
+                'last_name'          => $lastName,
+                'email'              => $placeholderEmail, // unique placeholder (see note); real email added later
+                'phone'              => $national,
+                'phone_country_code' => $code,
+                'password'           => '',              // passwordless — login is via phone OTP
+                'role'               => 'customer',
+                'status'             => 'inactive',      // flips to active on OTP verify
+                'banned'             => 0,
+                'email_verified'     => 0,
+                'phone_verified'     => 0,
+                'currency'           => $curr,
+                'login_attempts'     => 0,
+                'created_at'         => date('Y-m-d H:i:s'),
+                'updated_at'         => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) {
+            error_log('gia_register_user insert: ' . $e->getMessage());
+            return ['ok' => false, 'error' => 'db', 'message' => 'Could not set up the account just now.'];
+        }
+        return ['ok' => true, 'user_id' => $uid, 'reuse' => false];
+    }
+}
