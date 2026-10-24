@@ -525,6 +525,10 @@ try {
     if (function_exists('ensureAdminRbacSchema')) {
         ensureAdminRbacSchema($db);
     }
+    // Employee activity log (S7) — one row per gated admin/employee request.
+    if (function_exists('ensureAdminActivitySchema')) {
+        ensureAdminActivitySchema($db);
+    }
     // Customer Support P2 Live Chat Desk — adds assigned_staff_id/assigned_at +
     // gia_messages.staff_id. Idempotent.
     if (function_exists('ensureSupportDeskSchema')) {

@@ -521,7 +521,15 @@ if (!function_exists('admin_require')) {
      */
     function admin_require($db, string $area, string $action = 'view'): void
     {
-        if (admin_can($db, $area, $action)) {
+        $allowed = admin_can($db, $area, $action);
+
+        // Activity log (S7): every gated admin/employee request is recorded —
+        // allowed OR denied — so page views and actions are both captured. Logged
+        // at most once per request (admin_require may be called twice on handlers
+        // with an ajax branch). Fail-soft.
+        admin_activity_record($db, $area, $action, $allowed);
+
+        if ($allowed) {
             return;
         }
 
@@ -544,5 +552,89 @@ if (!function_exists('admin_require')) {
         $_SESSION['flash_error'] = 'You do not have permission to access that area.';
         header('Location: ' . root . 'admin');
         exit;
+    }
+}
+
+if (!function_exists('ensureAdminActivitySchema')) {
+    /**
+     * Idempotent self-healing schema for the employee activity log (S7). One row
+     * per gated admin/employee request: who, area, action, method, path, allowed,
+     * ip, ua, ts. Request-static guarded. Follows the repo ensure-* pattern.
+     */
+    function ensureAdminActivitySchema($db): void
+    {
+        static $checked = false;
+        if ($checked) {
+            return;
+        }
+        $checked = true;
+        try {
+            $db->query("CREATE TABLE IF NOT EXISTS `admin_activity_log` (
+                `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+                `user_id` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+                `user_name` VARCHAR(255) DEFAULT NULL,
+                `role_name` VARCHAR(120) DEFAULT NULL,
+                `area` VARCHAR(60) NOT NULL,
+                `action` VARCHAR(40) NOT NULL,
+                `allowed` TINYINT(1) NOT NULL DEFAULT 1,
+                `method` VARCHAR(10) DEFAULT NULL,
+                `path` VARCHAR(512) DEFAULT NULL,
+                `ip` VARCHAR(64) DEFAULT NULL,
+                `user_agent` VARCHAR(255) DEFAULT NULL,
+                `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                KEY `idx_user` (`user_id`),
+                KEY `idx_area` (`area`),
+                KEY `idx_created` (`created_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (\Throwable $e) {
+            error_log('ensureAdminActivitySchema: ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('admin_activity_record')) {
+    /**
+     * Insert one activity row for the current admin/employee request. Deduped per
+     * request (a handler with an ajax branch calls admin_require twice). No-op if
+     * there is no logged-in user. Fail-soft — a logging error never blocks the
+     * request.
+     */
+    function admin_activity_record($db, string $area, string $action, bool $allowed): void
+    {
+        static $logged = false;
+        if ($logged) {
+            return; // one row per request
+        }
+        if (empty($_SESSION['user_id'])) {
+            return;
+        }
+        $logged = true;
+
+        try {
+            ensureAdminActivitySchema($db);
+
+            $role = admin_current_role($db);
+            $ip = $_SERVER['HTTP_CF_CONNECTING_IP']
+                ?? (explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '')[0]
+                ?: ($_SERVER['REMOTE_ADDR'] ?? ''));
+            $path = (string) ($_SERVER['REQUEST_URI'] ?? '');
+
+            $db->insert('admin_activity_log', [
+                'user_id'    => (string) $_SESSION['user_id'],
+                'user_name'  => (string) ($_SESSION['user_name'] ?? ''),
+                'role_name'  => (string) ($role['type_name'] ?? ''),
+                'area'       => $area,
+                'action'     => $action,
+                'allowed'    => $allowed ? 1 : 0,
+                'method'     => (string) ($_SERVER['REQUEST_METHOD'] ?? ''),
+                'path'       => substr($path, 0, 512),
+                'ip'         => substr(trim((string) $ip), 0, 64),
+                'user_agent' => substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255),
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) {
+            error_log('admin_activity_record: ' . $e->getMessage());
+        }
     }
 }

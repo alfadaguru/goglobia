@@ -27579,6 +27579,34 @@ CREATE TABLE IF NOT EXISTS `gia_events` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `admin_activity_log`
+-- Employee RBAC consolidation (S7): one row per gated admin/employee request —
+-- who, area, action, allowed/denied, method, path, ip, ua, ts. Written by
+-- admin_activity_record() from admin_require(); mirrors ensureAdminActivitySchema().
+--
+
+CREATE TABLE IF NOT EXISTS `admin_activity_log` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `user_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `user_name` varchar(255) DEFAULT NULL,
+  `role_name` varchar(120) DEFAULT NULL,
+  `area` varchar(60) NOT NULL,
+  `action` varchar(40) NOT NULL,
+  `allowed` tinyint(1) NOT NULL DEFAULT 1,
+  `method` varchar(10) DEFAULT NULL,
+  `path` varchar(512) DEFAULT NULL,
+  `ip` varchar(64) DEFAULT NULL,
+  `user_agent` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_area` (`area`),
+  KEY `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `support_attendance`
 -- Customer Support module Phase 3 (docs/support/CUSTOMER_SUPPORT_MODULE_SPEC.md
 -- §7). One row per clock-in session: OPEN = clock_out IS NULL; worked_seconds

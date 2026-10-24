@@ -16,6 +16,7 @@ $areas = [
     ['icon' => 'campaign',             'name' => 'Campaigns',   'blurb' => 'Ad campaigns, attribution & conversion.',       'url' => null,                                 'area' => 'support_campaigns',  'action' => 'edit'],
     ['icon' => 'admin_panel_settings', 'name' => 'Roles',       'blurb' => 'Capability bundles for support staff.',         'url' => root.admin.'/support/roles',          'area' => 'users_roles',        'action' => 'edit'],
     ['icon' => 'badge',                'name' => 'Staff',       'blurb' => 'Provision employees & assign roles.',           'url' => root.admin.'/support/staff',          'area' => 'employees',          'action' => 'edit'],
+    ['icon' => 'history',              'name' => 'Activity',    'blurb' => 'Employee activity log — every action & page view.', 'url' => root.admin.'/employees/activity',    'area' => 'employees',          'action' => 'view'],
 ];
 ?>
 

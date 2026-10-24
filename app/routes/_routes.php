@@ -280,6 +280,7 @@ require_once 'app/routes/admin/supportAttendanceRoutes.php'; // Customer Support
 require_once 'app/routes/admin/supportCampaignsRoutes.php'; // Customer Support — Phase 4 GIA ad-campaign registry CRUD
 require_once 'app/routes/admin/supportConversionRoutes.php'; // Customer Support — Phase 4 ad-campaign conversion analytics (read-only report)
 require_once 'app/routes/admin/supportTargetsRoutes.php'; // Customer Support — Phase 5 agent/GIA/team targets CRUD
+require_once 'app/routes/admin/employeesRoutes.php';    // Employee RBAC — activity log viewer (S7)
 require_once 'app/routes/admin/promoCodesRoutes.php';
 require_once 'app/routes/admin/discountsRoutes.php'; // automatic discount engine (Marketing)
 endif; // admin routes
