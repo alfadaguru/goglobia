@@ -7,22 +7,66 @@
 // real, specific content; anything not listed redirects (no thin auto-pages).
 // ============================================================================
 
+if (!function_exists('seoFlightRouteData')) {
+    /**
+     * Per-route content registry — each entry carries GENUINELY DISTINCT, factual
+     * copy (approx flight time, airlines known to serve the route, and a route-
+     * specific note) so every landing page is unique and useful, not a template
+     * clone. Airlines named are real carriers present in the system / that fly the
+     * route; durations are approximate and framed as such. The page view falls
+     * back to generic content for any route without an entry here.
+     *
+     * @return array<string,array{duration:string,airlines:string[],note:string}>
+     */
+    function seoFlightRouteData(): array
+    {
+        // Common airline sets, reused where accurate.
+        $ngDom   = ['Air Peace', 'Arik Air', 'Ibom Air', 'United Nigeria', 'Green Africa', 'Dana Air'];
+        $gulf    = ['Emirates', 'Qatar Airways', 'Etihad Airways'];
+        $toUK    = ['British Airways', 'Virgin Atlantic', 'Qatar Airways', 'Air France'];
+        $toKSA   = ['Saudia', 'EgyptAir', 'Qatar Airways', 'Ethiopian Airlines'];
+        $toTR    = ['Turkish Airlines', 'EgyptAir'];
+        $africa  = ['Ethiopian Airlines', 'Kenya Airways', 'Air Peace', 'EgyptAir'];
+
+        return [
+            // ---- DOMESTIC (both directions) ----
+            'lagos-to-abuja'        => ['duration' => 'about 1h 15m', 'airlines' => $ngDom, 'note' => 'The busiest domestic route in Nigeria, with frequent daily departures — ideal for business day-trips between the commercial and administrative capitals.'],
+            'abuja-to-lagos'        => ['duration' => 'about 1h 15m', 'airlines' => $ngDom, 'note' => 'Frequent daily flights connect the capital back to Lagos; early-morning and evening slots fill up fastest around weekends.'],
+            'lagos-to-kano'         => ['duration' => 'about 1h 30m', 'airlines' => ['Air Peace', 'Arik Air', 'Max Air', 'Azman Air'], 'note' => 'Links southern commercial Lagos with the north’s largest city; a common first leg for Kano-based Umrah travellers heading via Lagos.'],
+            'kano-to-lagos'         => ['duration' => 'about 1h 30m', 'airlines' => ['Air Peace', 'Arik Air', 'Max Air', 'Azman Air'], 'note' => 'A key north–south link; book early around festive and Hajj/Umrah seasons when demand from Kano peaks.'],
+            'lagos-to-port-harcourt'=> ['duration' => 'about 1h', 'airlines' => ['Air Peace', 'Ibom Air', 'United Nigeria'], 'note' => 'A short, high-frequency hop serving the oil-and-gas corridor — popular with business travellers to Rivers State.'],
+            'port-harcourt-to-lagos'=> ['duration' => 'about 1h', 'airlines' => ['Air Peace', 'Ibom Air', 'United Nigeria'], 'note' => 'Regular daily departures back to Lagos; the GRA and Trans-Amadi business districts drive strong weekday demand.'],
+            'abuja-to-kano'         => ['duration' => 'about 55m', 'airlines' => ['Air Peace', 'Max Air', 'Azman Air'], 'note' => 'A quick northern hop between the capital and Kano — one of the shortest scheduled sectors in the country.'],
+            'kano-to-abuja'         => ['duration' => 'about 55m', 'airlines' => ['Air Peace', 'Max Air', 'Azman Air'], 'note' => 'Short and frequent; convenient for connecting onward from Abuja to the rest of Nigeria.'],
+            'abuja-to-port-harcourt'=> ['duration' => 'about 1h 10m', 'airlines' => ['Air Peace', 'Ibom Air', 'United Nigeria'], 'note' => 'Connects the capital with the south-south business hub; useful for government-and-energy sector travel.'],
+            'port-harcourt-to-abuja'=> ['duration' => 'about 1h 10m', 'airlines' => ['Air Peace', 'Ibom Air', 'United Nigeria'], 'note' => 'Daily services link Rivers State back to the capital for meetings and connections.'],
+            'lagos-to-enugu'        => ['duration' => 'about 1h', 'airlines' => ['Air Peace', 'United Nigeria', 'Ibom Air'], 'note' => 'The main gateway to the south-east; demand spikes sharply around the December festive period.'],
+            'abuja-to-enugu'        => ['duration' => 'about 50m', 'airlines' => ['Air Peace', 'United Nigeria'], 'note' => 'A short link from the capital into the south-east, popular for family and holiday travel.'],
+            'lagos-to-kaduna'       => ['duration' => 'about 1h 25m', 'airlines' => ['Air Peace', 'United Nigeria'], 'note' => 'Serves northern Kaduna State from Lagos; a practical alternative to long-distance road travel.'],
+
+            // ---- INTERNATIONAL (NG hubs → top destinations) ----
+            'lagos-to-dubai'   => ['duration' => 'about 8h direct', 'airlines' => $gulf, 'note' => 'A top international route for Nigerian travellers — shopping, business and leisure. Direct and one-stop options are available; check UAE visa requirements before booking.'],
+            'abuja-to-dubai'   => ['duration' => 'about 8–11h (often one stop)', 'airlines' => $gulf, 'note' => 'Usually routed with one connection via a Gulf hub; compare total journey time, not just price.'],
+            'lagos-to-london'  => ['duration' => 'about 6h 30m direct', 'airlines' => $toUK, 'note' => 'One of the most-flown long-haul routes from Nigeria for business, study and family visits. Direct services run to London Heathrow.'],
+            'abuja-to-london'  => ['duration' => 'about 7h (direct or one stop)', 'airlines' => $toUK, 'note' => 'Direct and connecting options serve Heathrow; book early for the summer and December peaks.'],
+            'lagos-to-jeddah'  => ['duration' => 'about 7h (often one stop)', 'airlines' => $toKSA, 'note' => 'A principal gateway for Umrah and Hajj from Lagos. For a fully handled trip, see our Umrah packages which bundle flights, visa, hotels and transport.'],
+            'kano-to-jeddah'   => ['duration' => 'about 6–9h (direct in season / one stop)', 'airlines' => ['Max Air', 'Saudia', 'FlyNas'], 'note' => 'Kano is a major northern departure point for Umrah; seasonal direct services run, otherwise connect via a hub. See Umrah from Kano.'],
+            'abuja-to-jeddah'  => ['duration' => 'about 7–9h (usually one stop)', 'airlines' => $toKSA, 'note' => 'A convenient pilgrimage departure from the capital; most services connect through a regional hub.'],
+            'abuja-to-istanbul'=> ['duration' => 'about 8h (often one stop)', 'airlines' => $toTR, 'note' => 'Turkish Airlines and connecting carriers link Abuja to Istanbul — a growing destination for trade, tourism and onward Europe connections.'],
+            'lagos-to-istanbul'=> ['duration' => 'about 7h direct', 'airlines' => $toTR, 'note' => 'Direct services connect Lagos to Istanbul, a popular hub for shopping and onward travel into Europe and Asia.'],
+            'lagos-to-accra'   => ['duration' => 'about 55m', 'airlines' => $africa, 'note' => 'A short, frequent regional hop to Ghana — among the busiest West African international routes.'],
+            'lagos-to-cairo'   => ['duration' => 'about 5h 30m', 'airlines' => ['EgyptAir', 'Ethiopian Airlines'], 'note' => 'Connects Lagos with Cairo for tourism, trade and onward Middle East links.'],
+            'lagos-to-johannesburg' => ['duration' => 'about 6h direct', 'airlines' => ['Air Peace', 'South African Airways', 'Ethiopian Airlines'], 'note' => 'Links Lagos with South Africa’s commercial hub; direct and one-stop options serve business and leisure travellers.'],
+            'lagos-to-nairobi' => ['duration' => 'about 5h 30m', 'airlines' => ['Kenya Airways', 'Ethiopian Airlines'], 'note' => 'Connects Lagos with Nairobi, a key East African hub for business and safari tourism.'],
+        ];
+    }
+}
+
 if (!function_exists('seoFlightRoutes')) {
-    /** @return string[] curated {from}-to-{to} slugs (real high-intent routes). */
+    /** @return string[] curated {from}-to-{to} slugs (keys of the content registry). */
     function seoFlightRoutes(): array
     {
-        return [
-            // Domestic (both directions for the key hubs)
-            'lagos-to-abuja', 'abuja-to-lagos',
-            'lagos-to-kano', 'kano-to-lagos',
-            'lagos-to-port-harcourt', 'port-harcourt-to-lagos',
-            'abuja-to-kano', 'kano-to-abuja',
-            'abuja-to-port-harcourt', 'port-harcourt-to-abuja',
-            // International (NG hubs → top destinations)
-            'lagos-to-dubai', 'lagos-to-london', 'lagos-to-jeddah',
-            'abuja-to-dubai', 'abuja-to-london', 'abuja-to-istanbul',
-            'kano-to-jeddah', 'lagos-to-accra',
-        ];
+        return array_keys(seoFlightRouteData());
     }
 }
 

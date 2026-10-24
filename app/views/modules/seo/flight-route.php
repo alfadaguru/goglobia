@@ -22,6 +22,14 @@ $searchDate = date('d-m-Y', strtotime('+1 day'));
 $searchUrl  = rtrim((string) root, '/') . '/flights/' . strtolower($fromCode) . '/' . strtolower($toCode)
     . '/oneway/economy/' . $searchDate . '/1/0/0';
 $reverseUrl = rtrim((string) root, '/') . '/flights/' . rawurlencode($r['reverse']);
+
+// Per-route distinct content (duration, airlines, note) from the registry — so
+// each page is genuinely unique, not a template clone. Falls back gracefully.
+$__routeData = function_exists('seoFlightRouteData') ? seoFlightRouteData() : [];
+$__rd = $__routeData[$r['fromSlug'] . '-to-' . $r['toSlug']] ?? null;
+$duration = $__rd['duration'] ?? '';
+$airlines = is_array($__rd['airlines'] ?? null) ? $__rd['airlines'] : [];
+$routeNote = $__rd['note'] ?? '';
 ?>
 
 <div class="w-full bg-gradient-to-b from-blue-50 to-white border-b border-gray-100">
@@ -66,10 +74,20 @@ $reverseUrl = rtrim((string) root, '/') . '/flights/' . rawurlencode($r['reverse
       <h2>About the <?= $fromCity ?> to <?= $toCity ?> route</h2>
       <p>
         Travelling from <?= $fromCity ?> to <?= $toCity ?> is a <?= $isDomestic ? 'frequently flown domestic' : 'popular international' ?>
-        route. GoGlobia helps you search live availability across airlines, compare fares, and book with secure
+        route<?= $duration !== '' ? ', with a typical flight time of <strong>' . htmlspecialchars($duration) . '</strong>' : '' ?>.
+        <?= $routeNote !== '' ? htmlspecialchars($routeNote) . ' ' : '' ?>
+        GoGlobia helps you search live availability across airlines, compare fares, and book with secure
         payment and 24/7 support. Prices and schedules change constantly, so use the live search above for the
         current options on your travel dates.
       </p>
+
+      <?php if (!empty($airlines)): ?>
+      <h2>Airlines &amp; flight time (<?= $fromCity ?> &rarr; <?= $toCity ?>)</h2>
+      <p>Airlines known to operate or connect this route include
+        <strong><?= htmlspecialchars(implode(', ', array_slice($airlines, 0, count($airlines) - 1))) ?><?= count($airlines) > 1 ? ' and ' . htmlspecialchars(end($airlines)) : htmlspecialchars($airlines[0]) ?></strong>.
+        <?= $duration !== '' ? 'Expect a flight time of around ' . htmlspecialchars($duration) . '. ' : '' ?>
+        Availability varies by date and season — the live search above shows who is actually flying on your dates.</p>
+      <?php endif; ?>
 
       <h2>Airports on this route</h2>
       <ul>
