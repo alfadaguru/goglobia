@@ -131,11 +131,14 @@ if (!function_exists('gia_channel_send_whatsapp')) {
                     // fall through to plain text on failure
                 }
             }
+            $metaBody = (string) ($norm['text'] !== '' ? $norm['text'] : gia_render_text_fallback($norm));
+            // Convert any Markdown the model emitted into WhatsApp-native formatting.
+            if (function_exists('gia_md_to_whatsapp')) { $metaBody = gia_md_to_whatsapp($metaBody); }
             $r = gia_channel_http_post_json($url, [
                 'messaging_product' => 'whatsapp',
                 'to'                => $to,
                 'type'              => 'text',
-                'text'              => ['body' => (string) ($norm['text'] !== '' ? $norm['text'] : gia_render_text_fallback($norm))],
+                'text'              => ['body' => $metaBody],
             ], ['Authorization: Bearer ' . $token]);
             return $r['ok'];
         }
@@ -144,6 +147,10 @@ if (!function_exists('gia_channel_send_whatsapp')) {
         // so we render choices as reliable NUMBERED TEXT. The traveler replies with
         // a number/name, read as a normal message — no callback needed.
         $out = $hasChoices ? gia_render_text_fallback($norm) : (string) $norm['text'];
+        // Convert any Markdown the model emitted into WhatsApp-native formatting
+        // (*bold*, _italic_, • bullets, no tables) so replies don't show literal
+        // ** and - markers. Applied once to the final outgoing string.
+        if (function_exists('gia_md_to_whatsapp')) { $out = gia_md_to_whatsapp($out); }
         if (trim($out) === '') { return false; }
         // Send via the Green API provider DIRECTLY with the greenapi creds — do NOT
         // route through SENDWHATSAPP(), which keys off settings.whatsapp_provider:
