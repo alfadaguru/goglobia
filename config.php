@@ -74,6 +74,7 @@ require_once 'app/lib/crud.php';
 require_once 'app/lib/notify.php';
 require_once 'app/lib/functions.php';
 require_once 'app/lib/otp.php'; // purpose-scoped OTP engine (phone verify / passwordless login) + WhatsApp delivery
+require_once 'app/lib/login_session.php'; // shared login finaliser (password + phone-OTP paths)
 require_once 'app/lib/admin_rbac.php'; // Employee RBAC consolidation (S1) — enforce the existing users_roles grid
 require_once 'app/lib/wallet.php';
 require_once 'app/lib/paylater.php';
