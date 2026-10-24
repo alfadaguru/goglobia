@@ -5173,6 +5173,96 @@ function ensureFlightsPopularRoutesSchema($db): void
 }
 
 /**
+ * SEO landing pages — admin-managed store for the route/city/Umrah pages
+ * (/flights/{a}-to-{b}, /hotels/{city}, /umrah/from-{city}). Content was
+ * originally a hardcoded PHP registry (app/lib/seo_registry.php); this moves it
+ * to the DB so the admin can add/edit pages without code changes. The registry
+ * functions read this table FIRST and fall back to the hardcoded defaults.
+ *
+ * One table, one row per page; the type-specific fields live in a JSON `data`
+ * column (airlines/duration/note for flights; areas/best_time/etc. for cities).
+ * Self-healing + seeds the hardcoded defaults ONCE on a fresh table so the 38
+ * existing pages carry over. Keep install/db.sql in sync.
+ */
+function ensureSeoLandingSchema($db): void
+{
+    static $checked = false;
+    if ($checked) { return; }
+    $checked = true;
+
+    try {
+        $fresh = false;
+        if (!dbTableExists($db, 'seo_landing_pages')) {
+            $db->query("CREATE TABLE IF NOT EXISTS `seo_landing_pages` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `type` enum('flight_route','hotel_city','umrah_origin') NOT NULL,
+                `slug` varchar(120) NOT NULL,
+                `title` varchar(200) DEFAULT NULL,
+                `data` longtext DEFAULT NULL,
+                `status` tinyint(1) NOT NULL DEFAULT 1,
+                `sort_order` int(11) NOT NULL DEFAULT 0,
+                `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_type_slug` (`type`,`slug`),
+                KEY `idx_type_status` (`type`,`status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            $fresh = true;
+        }
+
+        // Seed from the hardcoded defaults ONCE (fresh + empty table). After this
+        // the DB is the source of truth; admin edits are never overwritten.
+        if ($fresh && (int) $db->count('seo_landing_pages', '*') === 0) {
+            $reg = dirname(__DIR__) . '/lib/seo_registry.php';
+            if (is_file($reg)) { require_once $reg; }
+            $order = 0;
+            if (function_exists('seoFlightRouteDataDefaults')) {
+                foreach (seoFlightRouteDataDefaults() as $slug => $d) {
+                    $db->insert('seo_landing_pages', ['type' => 'flight_route', 'slug' => $slug, 'data' => json_encode($d, JSON_UNESCAPED_UNICODE), 'status' => 1, 'sort_order' => $order += 10]);
+                }
+            }
+            $order = 0;
+            if (function_exists('seoHotelCitiesDefaults')) {
+                foreach (seoHotelCitiesDefaults() as $slug => $d) {
+                    $db->insert('seo_landing_pages', ['type' => 'hotel_city', 'slug' => $slug, 'title' => ($d['name'] ?? $slug), 'data' => json_encode($d, JSON_UNESCAPED_UNICODE), 'status' => 1, 'sort_order' => $order += 10]);
+                }
+            }
+            $order = 0;
+            if (function_exists('seoUmrahOriginCitiesDefaults')) {
+                foreach (seoUmrahOriginCitiesDefaults() as $slug => $d) {
+                    $db->insert('seo_landing_pages', ['type' => 'umrah_origin', 'slug' => $slug, 'title' => ($d['name'] ?? $slug), 'data' => json_encode($d, JSON_UNESCAPED_UNICODE), 'status' => 1, 'sort_order' => $order += 10]);
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+        error_log('ensureSeoLandingSchema: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Read admin-managed SEO landing content of a type from the DB, keyed by slug.
+ * Returns [] if the table/rows are absent (caller falls back to defaults).
+ * Only status=1 rows, ordered by sort_order.
+ */
+function seoLandingFromDb($db, string $type): array
+{
+    try {
+        if (!dbTableExists($db, 'seo_landing_pages')) { return []; }
+        $rows = $db->select('seo_landing_pages', ['slug', 'data'],
+            ['type' => $type, 'status' => 1, 'ORDER' => ['sort_order' => 'ASC', 'id' => 'ASC']]) ?: [];
+        $out = [];
+        foreach ($rows as $r) {
+            $d = json_decode((string) ($r['data'] ?? ''), true);
+            if (is_array($d)) { $out[(string) $r['slug']] = $d; }
+        }
+        return $out;
+    } catch (\Throwable $e) {
+        error_log('seoLandingFromDb: ' . $e->getMessage());
+        return [];
+    }
+}
+
+/**
  * Brand/legal content self-heal — replaces the shipped PHPTRAVELS boilerplate in
  * the CMS legal pages (About, Privacy, Cookies, Terms, Refund) with genuine
  * GoGlobia content, ONCE, on deploy.

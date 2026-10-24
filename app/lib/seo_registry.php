@@ -3,11 +3,52 @@
 // FILE: app/lib/seo_registry.php
 // SEO landing-page registries (SEO-005). Pure data, NO side effects — safe to
 // include from anywhere (route layer, sitemap generator, discovery directory).
-// Each list is CURATED/hand-written so a landing page only exists where we have
-// real, specific content; anything not listed redirects (no thin auto-pages).
+//
+// SOURCE OF TRUTH: the DB table `seo_landing_pages` (admin-managed). The public
+// functions below read the DB FIRST (when $GLOBALS['db'] + rows exist) and fall
+// back to the hardcoded *Defaults() sets otherwise. The defaults are what seeds
+// the table on first deploy, so the shipped pages always exist even before any
+// admin edit. Admin edits are never overwritten.
 // ============================================================================
 
 if (!function_exists('seoFlightRouteData')) {
+    /** DB-first; falls back to the hardcoded defaults. @return array<string,array> */
+    function seoFlightRouteData(): array
+    {
+        $db = $GLOBALS['db'] ?? null;
+        if ($db && function_exists('seoLandingFromDb')) {
+            $rows = seoLandingFromDb($db, 'flight_route');
+            if (!empty($rows)) { return $rows; }
+        }
+        return function_exists('seoFlightRouteDataDefaults') ? seoFlightRouteDataDefaults() : [];
+    }
+}
+if (!function_exists('seoHotelCities')) {
+    /** DB-first; falls back to the hardcoded defaults. @return array<string,array> */
+    function seoHotelCities(): array
+    {
+        $db = $GLOBALS['db'] ?? null;
+        if ($db && function_exists('seoLandingFromDb')) {
+            $rows = seoLandingFromDb($db, 'hotel_city');
+            if (!empty($rows)) { return $rows; }
+        }
+        return function_exists('seoHotelCitiesDefaults') ? seoHotelCitiesDefaults() : [];
+    }
+}
+if (!function_exists('seoUmrahOriginCities')) {
+    /** DB-first; falls back to the hardcoded defaults. @return array<string,array> */
+    function seoUmrahOriginCities(): array
+    {
+        $db = $GLOBALS['db'] ?? null;
+        if ($db && function_exists('seoLandingFromDb')) {
+            $rows = seoLandingFromDb($db, 'umrah_origin');
+            if (!empty($rows)) { return $rows; }
+        }
+        return function_exists('seoUmrahOriginCitiesDefaults') ? seoUmrahOriginCitiesDefaults() : [];
+    }
+}
+
+if (!function_exists('seoFlightRouteDataDefaults')) {
     /**
      * Per-route content registry — each entry carries GENUINELY DISTINCT, factual
      * copy (approx flight time, airlines known to serve the route, and a route-
@@ -18,7 +59,7 @@ if (!function_exists('seoFlightRouteData')) {
      *
      * @return array<string,array{duration:string,airlines:string[],note:string}>
      */
-    function seoFlightRouteData(): array
+    function seoFlightRouteDataDefaults(): array
     {
         // Common airline sets, reused where accurate.
         $ngDom   = ['Air Peace', 'Arik Air', 'Ibom Air', 'United Nigeria', 'Green Africa', 'Dana Air'];
@@ -70,9 +111,9 @@ if (!function_exists('seoFlightRoutes')) {
     }
 }
 
-if (!function_exists('seoHotelCities')) {
+if (!function_exists('seoHotelCitiesDefaults')) {
     /** @return array<string,array> curated hotel-city content registry. */
-    function seoHotelCities(): array
+    function seoHotelCitiesDefaults(): array
     {
         return [
             'lagos' => [
@@ -167,9 +208,9 @@ if (!function_exists('seoHotelCities')) {
     }
 }
 
-if (!function_exists('seoUmrahOriginCities')) {
+if (!function_exists('seoUmrahOriginCitiesDefaults')) {
     /** @return array<string,array> curated Umrah departure-city registry. */
-    function seoUmrahOriginCities(): array
+    function seoUmrahOriginCitiesDefaults(): array
     {
         return [
             'kano' => [

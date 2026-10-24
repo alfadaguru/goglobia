@@ -420,7 +420,13 @@ try {
         // Align the MySQL session clock with PHP (see TIMEZONE ALIGNMENT above).
         'command'   => ["SET time_zone = '{$dbTimezoneOffset}'"],
     ]);
-    
+
+    // Expose the Medoo handle globally so no-argument library helpers (e.g. the
+    // SEO landing-page registry in app/lib/seo_registry.php) can read DB-managed
+    // content without every caller threading $db through. Route closures still
+    // use the local $db via `use ($db)` — this is an additive convenience only.
+    $GLOBALS['db'] = $db;
+
     // Test connection by checking if settings table exists
     $pdo = $db->pdo;
     $stmt = $pdo->query("SHOW TABLES LIKE 'settings'");
@@ -454,6 +460,11 @@ try {
     // NG-hub starter routes once on a fresh table.
     if (function_exists('ensureFlightsPopularRoutesSchema')) {
         ensureFlightsPopularRoutesSchema($db);
+    }
+    // SEO landing pages (flight routes / hotel cities / umrah origins) — table +
+    // seed from the hardcoded registry defaults on a fresh table (idempotent).
+    if (function_exists('ensureSeoLandingSchema')) {
+        ensureSeoLandingSchema($db);
     }
     // Correct airline names for reassigned IATA codes (e.g. UN was Transaero,
     // now United Nigeria). Idempotent; only touches verified codes.

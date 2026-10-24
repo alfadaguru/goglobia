@@ -383,6 +383,8 @@ $adminMenu = array_merge($adminMenu, [
             ['name' => 'Subscribers', 'icon' => 'group', 'url' => root.admin.'/campaigns/subscribers'],
             ['name' => T::promo_codes, 'icon' => 'confirmation_number', 'url' => root.admin.'/promo-codes'],
             ['name' => 'Discounts', 'icon' => 'sell', 'url' => root.admin.'/discounts'],
+            // SEO landing pages — crawlable route/city/umrah guide pages (DB-managed).
+            ['name' => 'SEO Landing Pages', 'icon' => 'travel_explore', 'url' => root.admin.'/seo/landing-pages'],
         ]
     ],
     [

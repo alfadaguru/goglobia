@@ -5305,6 +5305,32 @@ CREATE TABLE IF NOT EXISTS `flights_popular_routes` (
   KEY `idx_scope_status` (`scope`,`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `seo_landing_pages`
+-- Admin-managed SSR SEO landing pages (flight routes /flights/{a}-to-{b},
+-- hotel cities /hotels/{city}, umrah origins /umrah/from-{city}). The per-page
+-- content is a JSON blob in `data`. Seeded from the hardcoded registry defaults
+-- in app/lib/seo_registry.php on a fresh table (see ensureSeoLandingSchema in
+-- app/lib/functions.php).
+--
+
+CREATE TABLE IF NOT EXISTS `seo_landing_pages` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `type` enum('flight_route','hotel_city','umrah_origin') NOT NULL,
+  `slug` varchar(120) NOT NULL,
+  `title` varchar(200) DEFAULT NULL,
+  `data` longtext DEFAULT NULL,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `sort_order` int(11) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_type_slug` (`type`,`slug`),
+  KEY `idx_type_status` (`type`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 --
 -- Table structure for table `flights_airlines`
 --
