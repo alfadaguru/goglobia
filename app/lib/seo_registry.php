@@ -59,6 +59,18 @@ if (!function_exists('seoTourDestinations')) {
         return function_exists('seoTourDestinationsDefaults') ? seoTourDestinationsDefaults() : [];
     }
 }
+if (!function_exists('seoVisaCountries')) {
+    /** DB-first; falls back to the hardcoded defaults. @return array<string,array> */
+    function seoVisaCountries(): array
+    {
+        $db = $GLOBALS['db'] ?? null;
+        if ($db && function_exists('seoLandingFromDb')) {
+            $rows = seoLandingFromDb($db, 'visa_country');
+            if (!empty($rows)) { return $rows; }
+        }
+        return function_exists('seoVisaCountriesDefaults') ? seoVisaCountriesDefaults() : [];
+    }
+}
 
 if (!function_exists('seoFlightRouteDataDefaults')) {
     /**
@@ -496,6 +508,144 @@ if (!function_exists('seoTourDestinationsDefaults')) {
                 'best_time' => 'November to March is drier and best for beaches and outdoor tours; the rainy season runs roughly May to September.',
                 'getting_around' => 'Ride-hailing is the easiest way around; allow generous time for traffic between the mainland and the islands.',
                 'highlights' => 'Lekki Conservation Centre, Nike Art Gallery, the beaches, and a vibrant food and nightlife scene.',
+            ],
+        ];
+    }
+}
+
+if (!function_exists('seoVisaCountriesDefaults')) {
+    /**
+     * Curated visa-destination registry (from Nigeria). Each page is an evergreen
+     * "{country} visa from Nigeria" guide + a live link into the real visa
+     * application flow. IMPORTANT: visa rules, fees and eligibility change often
+     * and are set by each government — so content is deliberately GENERAL and
+     * framed as "typical / check current requirements". We never state a fixed
+     * fee, a guaranteed outcome, or a precise processing time as fact.
+     *
+     * Shape: name (destination), iso (2-letter dest ISO for the search deep-link),
+     * intro, visa_types[] (which visas the page covers), requirements[] (typical
+     * documents), processing (general timing note), entry (validity/entry note),
+     * tip. The live application flow deep-links from NG → {iso}.
+     * @return array<string,array>
+     */
+    function seoVisaCountriesDefaults(): array
+    {
+        // Common Nigerian-applicant document set, reused where accurate.
+        $commonDocs = [
+            'A passport valid for at least 6 months with blank pages',
+            'Recent passport photographs to the required specification',
+            'Proof of funds (recent bank statements)',
+            'Confirmed return flight and accommodation/hotel bookings',
+            'A completed application form and any biometrics appointment',
+        ];
+        return [
+            'uae' => [
+                'name' => 'United Arab Emirates (Dubai)', 'iso' => 'AE',
+                'intro' => 'The UAE is one of the most popular destinations for Nigerian travellers — Dubai and Abu Dhabi draw visitors for tourism, shopping and business. Most Nigerian passport holders apply for a visa before travel.',
+                'visa_types' => ['Tourist visa (short stay)', 'Business visa', 'Transit visa'],
+                'requirements' => $commonDocs,
+                'processing' => 'Processing is often quick for tourist visas, but allow a comfortable buffer before your travel date — times vary by season and visa type.',
+                'entry' => 'Tourist visas are typically issued for short stays (commonly 30 or 60 days); confirm the validity and entry rules for your visa at the time of applying.',
+                'tip' => 'Have your hotel booking and return flight ready before you apply — they are commonly requested. We handle the application end to end.',
+            ],
+            'uk' => [
+                'name' => 'United Kingdom', 'iso' => 'GB',
+                'intro' => 'The UK is a leading destination for Nigerian travellers for tourism, study, business and family visits. Nigerian passport holders require a visa, and the Standard Visitor visa covers most short trips.',
+                'visa_types' => ['Standard Visitor visa (tourism/business/family)', 'Student visa', 'Work visa'],
+                'requirements' => array_merge($commonDocs, ['Evidence of ties to Nigeria and the purpose of your trip', 'A biometric appointment at a visa application centre']),
+                'processing' => 'UK visitor-visa decisions commonly take a few weeks; priority services may be available. Apply well ahead of your travel date.',
+                'entry' => 'Standard Visitor visas are usually valid for 6 months (longer multi-year options exist); the exact validity is set on your visa.',
+                'tip' => 'Strong, well-organised supporting documents matter for UK applications. We guide you through what to prepare and complete the submission.',
+            ],
+            'usa' => [
+                'name' => 'United States', 'iso' => 'US',
+                'intro' => 'The United States is a major destination for Nigerian travellers for tourism, business, study and family. Most applicants apply for a B1/B2 visitor visa, which involves an embassy interview.',
+                'visa_types' => ['B1/B2 visitor visa (business/tourism)', 'Student visa (F-1)', 'Exchange visa (J-1)'],
+                'requirements' => array_merge($commonDocs, ['A completed DS-160 form and interview appointment', 'Evidence of the purpose of your trip and ties to Nigeria']),
+                'processing' => 'Interview wait times and processing vary significantly — apply as early as possible. We help you prepare the forms and documentation.',
+                'entry' => 'Visitor visas are often issued as multi-year, multiple-entry; the length of each stay is decided by the officer at entry.',
+                'tip' => 'Preparation for the DS-160 and the interview is key. We help you get the paperwork right before your appointment.',
+            ],
+            'canada' => [
+                'name' => 'Canada', 'iso' => 'CA',
+                'intro' => 'Canada is a top choice for Nigerian travellers for visits, study and family. Most short visits use a Temporary Resident (visitor) visa.',
+                'visa_types' => ['Visitor visa (Temporary Resident Visa)', 'Study permit', 'Work permit'],
+                'requirements' => array_merge($commonDocs, ['Evidence of ties to Nigeria and the purpose of the visit', 'Biometrics at a visa application centre']),
+                'processing' => 'Processing times vary by application volume and season; apply well ahead. We help you assemble a complete application.',
+                'entry' => 'Visitor visas are frequently issued as multiple-entry with a validity tied to your passport; stay length is set at entry.',
+                'tip' => 'A clear travel purpose and strong proof of funds and ties help your application. We guide you through each step.',
+            ],
+            'schengen' => [
+                'name' => 'Schengen Area (Europe)', 'iso' => 'FR',
+                'intro' => 'A single Schengen visa lets you travel across most of Europe — France, Germany, Italy, Spain, the Netherlands and more. Nigerian travellers apply through the embassy or visa centre of their main destination.',
+                'visa_types' => ['Short-stay Schengen visa (tourism/business/family)'],
+                'requirements' => array_merge($commonDocs, ['Travel medical insurance meeting the Schengen minimum cover', 'A detailed itinerary across the countries you will visit']),
+                'processing' => 'Short-stay Schengen decisions commonly take about two to three weeks; apply early, especially in peak travel seasons.',
+                'entry' => 'Short-stay visas typically allow up to 90 days in any 180-day period across the whole Schengen Area.',
+                'tip' => 'Apply to the country where you will spend the most time, and carry travel insurance. We handle the paperwork and booking evidence.',
+            ],
+            'turkey' => [
+                'name' => 'Turkey', 'iso' => 'TR',
+                'intro' => 'Turkey is an increasingly popular destination for Nigerian travellers for tourism, shopping and trade, with Istanbul as the main gateway.',
+                'visa_types' => ['Tourist visa', 'Business visa'],
+                'requirements' => $commonDocs,
+                'processing' => 'Processing is often reasonably quick, but requirements change — apply ahead and confirm the current rules at the time of applying.',
+                'entry' => 'Tourist visas are typically issued for short stays; check the validity and permitted stay for your visa.',
+                'tip' => 'Keep your hotel and return-flight bookings ready. We handle the application for you end to end.',
+            ],
+            'china' => [
+                'name' => 'China', 'iso' => 'CN',
+                'intro' => 'China is a key destination for Nigerian traders and business travellers, with Guangzhou a major trade hub. Nigerian passport holders apply for a visa before travel.',
+                'visa_types' => ['Tourist visa (L)', 'Business visa (M)'],
+                'requirements' => array_merge($commonDocs, ['An invitation letter where required for business travel', 'A detailed itinerary']),
+                'processing' => 'Processing times vary; business visas may need an invitation. Apply early and we will guide you through the documents.',
+                'entry' => 'Validity and permitted stay vary by visa category and are set on your visa — confirm these when you apply.',
+                'tip' => 'Business travellers should sort invitation documents early. We help you prepare a complete application.',
+            ],
+            'saudi-arabia' => [
+                'name' => 'Saudi Arabia', 'iso' => 'SA',
+                'intro' => 'Saudi Arabia hosts Umrah and Hajj pilgrims as well as tourism and business visitors. Pilgrimage travel uses a dedicated Umrah/Hajj visa — see our Umrah packages for a fully handled trip.',
+                'visa_types' => ['Tourist visa', 'Business visa', 'Umrah visa (via our Umrah packages)'],
+                'requirements' => $commonDocs,
+                'processing' => 'Tourist and business visa processing varies; Umrah visas are arranged as part of a package. Apply ahead of your dates.',
+                'entry' => 'Validity and permitted stay depend on the visa type; pilgrimage visas have their own conditions handled within your Umrah package.',
+                'tip' => 'Travelling for Umrah? Our Umrah packages bundle the visa with flights, hotels and transport — see Umrah from your city.',
+            ],
+            'south-africa' => [
+                'name' => 'South Africa', 'iso' => 'ZA',
+                'intro' => 'South Africa is a major African destination for Nigerian travellers for business, tourism and connections, with Johannesburg and Cape Town the main gateways.',
+                'visa_types' => ['Visitor/tourist visa', 'Business visa'],
+                'requirements' => array_merge($commonDocs, ['Yellow-fever vaccination certificate where required', 'Proof of the purpose of your visit']),
+                'processing' => 'Processing times vary by season and category; apply with a comfortable buffer. We help assemble the documents.',
+                'entry' => 'Visitor visas are issued for short stays; confirm the validity and conditions on your visa.',
+                'tip' => 'Check vaccination requirements before you travel. We handle the visa application end to end.',
+            ],
+            'kenya' => [
+                'name' => 'Kenya', 'iso' => 'KE',
+                'intro' => 'Kenya is an East African business and safari hub popular with Nigerian travellers, with Nairobi as the main gateway. Entry authorisation is required before travel.',
+                'visa_types' => ['Tourist travel authorisation', 'Business travel authorisation'],
+                'requirements' => $commonDocs,
+                'processing' => 'Travel authorisation is commonly processed online ahead of travel; apply early and confirm the current process when you apply.',
+                'entry' => 'Authorisation is typically issued for short stays — check the validity and conditions for your trip.',
+                'tip' => 'Combining a safari with your trip? Pair this with our Nairobi tours. We handle the application for you.',
+            ],
+            'qatar' => [
+                'name' => 'Qatar', 'iso' => 'QA',
+                'intro' => 'Qatar draws Nigerian travellers for business, transit and tourism, with Doha a major Gulf hub. Entry requirements depend on your travel and should be confirmed before you fly.',
+                'visa_types' => ['Tourist visa', 'Business visa', 'Transit visa'],
+                'requirements' => $commonDocs,
+                'processing' => 'Processing varies by visa type and is often quick for short visits; apply ahead and confirm the current rules.',
+                'entry' => 'Validity and permitted stay depend on the visa; confirm these when you apply.',
+                'tip' => 'Transiting on Qatar Airways? A short Doha stopover may be possible — we help you with the right visa.',
+            ],
+            'egypt' => [
+                'name' => 'Egypt', 'iso' => 'EG',
+                'intro' => 'Egypt is a leading destination for history and cultural tourism, with Cairo and the Pyramids the highlight. Nigerian travellers generally require a visa before travel.',
+                'visa_types' => ['Tourist visa', 'Business visa'],
+                'requirements' => $commonDocs,
+                'processing' => 'Processing varies; apply ahead of your trip. We help you prepare and submit a complete application.',
+                'entry' => 'Tourist visas are typically issued for short stays; confirm the validity and conditions on your visa.',
+                'tip' => 'Planning the Pyramids and a Nile cruise? Pair this with our Cairo tours. We handle the visa end to end.',
             ],
         ];
     }

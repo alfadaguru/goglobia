@@ -40,6 +40,11 @@ if (!function_exists('seoLandingTypes')) {
                 'slug_hint'  => 'e.g. dubai (lowercase, hyphens for spaces)',
                 'url_prefix' => 'tours/',
             ],
+            'visa_country' => [
+                'label'      => 'Visa country',
+                'slug_hint'  => 'e.g. uae / schengen (lowercase, hyphens for spaces)',
+                'url_prefix' => 'visa/',
+            ],
         ];
     }
 }
@@ -145,7 +150,7 @@ $router->post(admin.'/seo/landing-pages/save', function () use ($SECURE, $db) {
             'airport'  => trim((string) ($_POST['airport'] ?? '')),
             'carriers' => trim((string) ($_POST['carriers'] ?? '')),
         ];
-    } else { // tour_destination
+    } elseif ($type === 'tour_destination') {
         $data = [
             'name'           => $name,
             'country'        => trim((string) ($_POST['country'] ?? '')),
@@ -155,6 +160,17 @@ $router->post(admin.'/seo/landing-pages/save', function () use ($SECURE, $db) {
             'best_time'      => trim((string) ($_POST['best_time'] ?? '')),
             'getting_around' => trim((string) ($_POST['getting_around'] ?? '')),
             'highlights'     => trim((string) ($_POST['highlights'] ?? '')),
+        ];
+    } else { // visa_country
+        $data = [
+            'name'         => $name,
+            'iso'          => strtoupper(preg_replace('/[^A-Za-z]/', '', (string) ($_POST['iso'] ?? ''))),
+            'intro'        => trim((string) ($_POST['intro'] ?? '')),
+            'visa_types'   => seoLandingLines($_POST['visa_types'] ?? ''),
+            'requirements' => seoLandingLines($_POST['requirements'] ?? ''),
+            'processing'   => trim((string) ($_POST['processing'] ?? '')),
+            'entry'        => trim((string) ($_POST['entry'] ?? '')),
+            'tip'          => trim((string) ($_POST['tip'] ?? '')),
         ];
     }
 

@@ -5195,7 +5195,7 @@ function ensureSeoLandingSchema($db): void
         if (!dbTableExists($db, 'seo_landing_pages')) {
             $db->query("CREATE TABLE IF NOT EXISTS `seo_landing_pages` (
                 `id` int(11) NOT NULL AUTO_INCREMENT,
-                `type` enum('flight_route','hotel_city','umrah_origin','tour_destination') NOT NULL,
+                `type` enum('flight_route','hotel_city','umrah_origin','tour_destination','visa_country') NOT NULL,
                 `slug` varchar(120) NOT NULL,
                 `title` varchar(200) DEFAULT NULL,
                 `data` longtext DEFAULT NULL,
@@ -5210,12 +5210,13 @@ function ensureSeoLandingSchema($db): void
             $fresh = true;
         }
 
-        // The `type` enum gained 'tour_destination' after the table shipped — widen
-        // it on existing installs (idempotent; MODIFY is a no-op if already present).
+        // The `type` enum gained values after the table shipped (tour_destination,
+        // then visa_country) — widen it on existing installs (idempotent; keyed on
+        // the NEWEST value so each new type triggers exactly one MODIFY).
         try {
             $typeCol = $db->query("SHOW COLUMNS FROM `seo_landing_pages` LIKE 'type'")->fetch();
-            if ($typeCol && stripos((string) ($typeCol['Type'] ?? ''), 'tour_destination') === false) {
-                $db->query("ALTER TABLE `seo_landing_pages` MODIFY `type` enum('flight_route','hotel_city','umrah_origin','tour_destination') NOT NULL");
+            if ($typeCol && stripos((string) ($typeCol['Type'] ?? ''), 'visa_country') === false) {
+                $db->query("ALTER TABLE `seo_landing_pages` MODIFY `type` enum('flight_route','hotel_city','umrah_origin','tour_destination','visa_country') NOT NULL");
             }
         } catch (\Throwable $e) {
             error_log('ensureSeoLandingSchema type-enum: ' . $e->getMessage());
@@ -5247,6 +5248,7 @@ function ensureSeoLandingSchema($db): void
             $seedType('hotel_city',      'seoHotelCitiesDefaults');
             $seedType('umrah_origin',    'seoUmrahOriginCitiesDefaults');
             $seedType('tour_destination', 'seoTourDestinationsDefaults');
+            $seedType('visa_country',    'seoVisaCountriesDefaults');
         }
 
         // Versioned top-up — adds NEW default pages shipped after the initial seed
@@ -5279,8 +5281,10 @@ function ensureSeoLandingSchema($db): void
             ]],
             // v5: tours-by-destination landing pages (first batch of this type).
             5 => ['tour_destination' => ['dubai', 'istanbul', 'cairo', 'nairobi', 'cape-town', 'zanzibar', 'accra', 'lagos']],
+            // v6: visa-country landing pages (first batch of this type).
+            6 => ['visa_country' => ['uae', 'uk', 'usa', 'canada', 'schengen', 'turkey', 'china', 'saudi-arabia', 'south-africa', 'kenya', 'qatar', 'egypt']],
         ];
-        $SEO_LANDING_SEED_VERSION = 5;
+        $SEO_LANDING_SEED_VERSION = 6;
 
         // Ensure the tracking column exists BEFORE we read it (idempotent ALTER),
         // else an existing install throws "unknown column" and aborts the top-up.
@@ -5296,6 +5300,7 @@ function ensureSeoLandingSchema($db): void
                 'hotel_city'      => 'seoHotelCitiesDefaults',
                 'umrah_origin'    => 'seoUmrahOriginCitiesDefaults',
                 'tour_destination' => 'seoTourDestinationsDefaults',
+                'visa_country'    => 'seoVisaCountriesDefaults',
             ];
             foreach ($SEO_LANDING_SEED_BATCHES as $ver => $byType) {
                 if ($applied >= $ver) { continue; } // already applied this batch
@@ -6146,6 +6151,11 @@ function generateSitemap($db)
         if (function_exists('seoTourDestinations')) {
             foreach (array_keys(seoTourDestinations()) as $destSlug) {
                 $urls[] = ['loc' => $site_url . 'tours/' . $destSlug, 'lastmod' => date('Y-m-d'), 'changefreq' => 'weekly', 'priority' => '0.7'];
+            }
+        }
+        if (function_exists('seoVisaCountries')) {
+            foreach (array_keys(seoVisaCountries()) as $visaSlug) {
+                $urls[] = ['loc' => $site_url . 'visa/' . $visaSlug, 'lastmod' => date('Y-m-d'), 'changefreq' => 'weekly', 'priority' => '0.7'];
             }
         }
         // The discovery directory itself.

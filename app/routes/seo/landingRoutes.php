@@ -150,6 +150,35 @@ $router->get('/tours/([a-z][a-z-]*)', function ($slug) use ($SECURE, $db) {
 });
 
 // ---------------------------------------------------------------------------
+// VISA COUNTRY LANDING:  /visa/{country}   e.g. /visa/uae  /visa/uk  /visa/schengen
+// Evergreen "{country} visa from Nigeria" guide (typical visa types, documents,
+// general processing/entry notes) + a LIVE link into the real visa application
+// flow (NG -> destination ISO). Content is deliberately general — visa rules
+// change and are set by each government — with NO fixed fees or guarantees.
+// Curated list only. Registered BEFORE the visa results route; that route needs
+// SIX specific segments (/visa/{iso}/{iso}/{date}/{type}/{speed}/{n}), so a
+// single-segment /visa/{country} never collides with live search.
+// ---------------------------------------------------------------------------
+$router->get('/visa/([a-z][a-z-]*)', function ($slug) use ($SECURE, $db) {
+    $countries = seoVisaCountries();
+    $slug = strtolower($slug);
+    if (!isset($countries[$slug])) {
+        header('Location: ' . root . 'visa'); exit;
+    }
+    $GLOBALS['seo_visa'] = array_merge(['slug' => $slug], $countries[$slug]);
+    $v = $GLOBALS['seo_visa'];
+
+    $title = $v['name'] . ' Visa from Nigeria — Requirements & How to Apply';
+    $description = 'Apply for a ' . $v['name'] . ' visa from Nigeria with GoGlobia. See the typical visa types, '
+        . 'documents and process, then start your application with support throughout.';
+    $header = true; $footer = true;
+
+    require_once views . 'includes/header.php';
+    require_once views . 'modules/seo/visa-country.php';
+    require_once views . 'includes/footer.php';
+});
+
+// ---------------------------------------------------------------------------
 // UMRAH ORIGIN LANDING:  /umrah/from-{city}   e.g. /umrah/from-kano
 // Evergreen Umrah-from-city guide + a live link into the real Umrah v2 search
 // filtered to that departure city. Only real NG departure cities get a page.
@@ -182,8 +211,8 @@ $router->get('/umrah/from-([a-z][a-z-]*)', function ($citySlug) use ($SECURE, $d
 // discover the whole moat through internal links, not only the sitemap.
 // ---------------------------------------------------------------------------
 $router->get('/travel-directory', function () use ($SECURE, $db) {
-    $title = 'Travel Directory — Flight Routes, Hotels, Tours & Umrah';
-    $description = 'Browse popular flight routes, hotel destinations, tours and Umrah departures from Nigeria. Find your trip and book securely with GoGlobia.';
+    $title = 'Travel Directory — Flights, Hotels, Tours, Visas & Umrah';
+    $description = 'Browse popular flight routes, hotel destinations, tours, visa guides and Umrah departures from Nigeria. Find your trip and book securely with GoGlobia.';
     $header = true; $footer = true;
     require_once views . 'includes/header.php';
     require_once views . 'modules/seo/directory.php';
