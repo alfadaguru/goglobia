@@ -477,6 +477,11 @@ try {
     if (function_exists('ensureBrandContent')) {
         ensureBrandContent($db);
     }
+    // Seed the curated Nigeria/Umrah blog library once (slug-guarded; never
+    // duplicates or clobbers existing/admin posts). Idempotent.
+    if (function_exists('ensureBlogContent')) {
+        ensureBlogContent($db);
+    }
     // Per-user promo redemption ledger (enforces per_user_limit) — idempotent.
     if (function_exists('ensurePromoUsageSchema')) {
         ensurePromoUsageSchema($db);

@@ -5377,6 +5377,97 @@ function seoLandingFromDb($db, string $type): array
  * Kano HQ, licensed by NCAA / IATA / NANTA, hi@goglobia.com, +234 912 854 3573,
  * goglobia.com, governed by the laws of the Federal Republic of Nigeria.
  */
+/**
+ * Blog content seeder — populates the blog with a curated library of genuinely
+ * useful, Nigeria/Umrah-focused articles, ONCE, idempotently. Mirrors the
+ * self-healing pattern (static guard, slug-guarded inserts, swallow errors).
+ *
+ * - Ensures the content categories exist (Umrah & Hajj, Visas, Flights, Nigeria
+ *   Travel) alongside whatever already exists; never touches existing categories.
+ * - Reads posts from app/lib/seed/blog_posts.php (returns an array of post rows).
+ * - Inserts a post ONLY if no post with that slug exists — so it never
+ *   duplicates and never overwrites an admin's edit. Existing demo posts and any
+ *   admin-written posts are left completely untouched.
+ *
+ * Internal links inside the post bodies are root-relative (/umrah, /flights/...),
+ * which are correct for the production domain-root install.
+ */
+function ensureBlogContent($db): void
+{
+    static $checked = false;
+    if ($checked) { return; }
+    $checked = true;
+
+    try {
+        if (!dbTableExists($db, 'blogs') || !dbTableExists($db, 'blog_categories')) { return; }
+
+        $seedFile = dirname(__DIR__) . '/lib/seed/blog_posts.php';
+        if (!is_file($seedFile)) { return; }
+        $posts = require $seedFile;
+        if (!is_array($posts) || empty($posts)) { return; }
+
+        // Categories we reference, keyed by slug => display name. Ensure each
+        // exists (idempotent); build a slug => id map for assigning posts.
+        $wantCats = [
+            'umrah-hajj'     => 'Umrah & Hajj',
+            'visas'          => 'Visas',
+            'flights'        => 'Flights',
+            'nigeria-travel' => 'Nigeria Travel',
+        ];
+        $catId = [];
+        // Existing categories first (reuse travel-tips, destination-guides, etc.).
+        foreach (($db->select('blog_categories', ['id', 'cat_slug']) ?: []) as $c) {
+            if (!empty($c['cat_slug'])) { $catId[(string) $c['cat_slug']] = (int) $c['id']; }
+        }
+        foreach ($wantCats as $slug => $name) {
+            if (isset($catId[$slug])) { continue; }
+            $db->insert('blog_categories', ['cat_name' => $name, 'cat_slug' => $slug, 'status' => 1]);
+            $catId[$slug] = (int) $db->id();
+        }
+
+        $order = 0;
+        foreach ($posts as $p) {
+            $title = trim((string) ($p['title'] ?? ''));
+            $body  = (string) ($p['body_html'] ?? '');
+            if ($title === '' || $body === '') { continue; }
+
+            // Slug-guard: skip if a post with this exact title's slug already
+            // exists (idempotent re-run; never duplicate / clobber).
+            $slug = generateUniqueSlug($title, 'blogs', 'post_slug', $db);
+            // generateUniqueSlug auto-appends -1, -2 on collision; to make this a
+            // true skip-if-exists, check the base slug ourselves.
+            $baseSlug = transliterateString($title);
+            $baseSlug = trim((string) $baseSlug, '-');
+            if ($baseSlug !== '' && $db->get('blogs', 'id', ['post_slug' => $baseSlug])) {
+                continue; // already seeded (or an admin already used this slug)
+            }
+
+            $catSlug = (string) ($p['category'] ?? 'nigeria-travel');
+            $category = $catId[$catSlug] ?? ($catId['nigeria-travel'] ?? null);
+
+            // Stagger published_at slightly so ordering looks natural, newest-ish.
+            $order++;
+
+            $db->insert('blogs', [
+                'post_title'       => $title,
+                'post_slug'        => $baseSlug !== '' ? $baseSlug : $slug,
+                'post_desc'        => $body,
+                'post_category'    => $category,
+                'post_img'         => null,
+                'meta_title'       => trim((string) ($p['meta_title'] ?? '')) ?: null,
+                'meta_description' => trim((string) ($p['meta_description'] ?? '')) ?: null,
+                'meta_keywords'    => trim((string) ($p['meta_keywords'] ?? '')) ?: null,
+                'status'           => 1,
+                'featured'         => 0,
+                'author_id'        => null,
+                'published_at'     => date('Y-m-d H:i:s', strtotime('-' . $order . ' days')),
+            ]);
+        }
+    } catch (\Throwable $e) {
+        error_log('ensureBlogContent: ' . $e->getMessage());
+    }
+}
+
 function ensureBrandContent($db): void
 {
     static $checked = false;
