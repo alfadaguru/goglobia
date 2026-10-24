@@ -132,12 +132,15 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/initiatePaymentTool.php';
     require_once $aiDir . 'tools/getOrderStatusTool.php';
     require_once $aiDir . 'tools/requestHumanTool.php';
+    require_once $aiDir . 'tools/userAccountTool.php';   // full account awareness (all bookings/wallet/loyalty)
+    require_once $aiDir . 'tools/updateProfileTool.php'; // allow-listed profile update
     require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow (own tools)
     require_once $aiDir . 'tools/flightsTools.php'; // DEDICATED flights flow (own tools)
     require_once $aiDir . 'tools/staysTools.php'; // DEDICATED stays flow (own tools)
     require_once $aiDir . 'gia_trace.php'; // step tracer (breadcrumb log for diagnosis)
     require_once $aiDir . 'gia_pending_travellers.php'; // pilgrim-collection engine
     require_once $aiDir . 'gia_pt_web.php';             // web-native pilgrim handlers
+    require_once $aiDir . 'gia_account.php';            // full account awareness (all bookings/wallet/loyalty)
     // CRM + analytics (persistent chat, leads, logging). Fail-soft: if these are
     // unavailable the chat still works, just without persistence/reporting.
     require_once $aiDir . 'gia_analytics.php';
@@ -269,12 +272,32 @@ $router->post('/api/gia/chat', function () use ($db) {
         $agent->registerTool(new \App\lib\ai\initiatePaymentTool());
         $agent->registerTool(new \App\lib\ai\getOrderStatusTool());
         $agent->registerTool(new \App\lib\ai\requestHumanTool());
+        $agent->registerTool(new \App\lib\ai\userAccountTool());
+        $agent->registerTool(new \App\lib\ai\updateProfileTool());
         $agent->setToolContext($toolContext);
         // Personalize for a signed-in traveler: resolve safe facts (first name,
         // currency) from the users table and let GIA greet them by name + answer
         // "do you know me?" truthfully. Guests resolve to [] -> no-op. Fail-soft.
         if ($userId !== '' && function_exists('gia_user_profile')) {
             $agent->setUserProfile(gia_user_profile($db, $userId));
+        }
+
+        // ACCOUNT AWARENESS: give GIA a one-line head-start on the signed-in
+        // traveller's upcoming trips so it can be proactively helpful ("you have
+        // a flight on the 3rd — want to check in?"). Full detail is on demand via
+        // the get_my_account tool. Cheap single read; fail-soft; guests skipped.
+        if ($userId !== '' && function_exists('gia_user_snapshot')) {
+            try {
+                $__snap = gia_user_snapshot($db, $userId);
+                $__line = function_exists('gia_user_summary_line') ? gia_user_summary_line($__snap) : '';
+                if ($__line !== '') {
+                    $agent->addSystemNote('ACCOUNT CONTEXT (trusted): ' . $__line
+                        . ' Use the get_my_account tool for full booking/wallet/loyalty detail when asked. '
+                        . 'Never invent bookings or balances.');
+                }
+            } catch (\Throwable $e) {
+                error_log('[gia] account awareness note: ' . $e->getMessage());
+            }
         }
 
         // --- AD-CAMPAIGN ATTRIBUTION (Support P4, spec §7) -------------------

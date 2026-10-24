@@ -163,6 +163,8 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         require_once $aiDir . 'tools/getOrderStatusTool.php';
         require_once $aiDir . 'tools/requestHumanTool.php';
         require_once $aiDir . 'tools/verifyIdentityTool.php';
+        require_once $aiDir . 'tools/userAccountTool.php';   // full account awareness (all bookings/wallet/loyalty)
+        require_once $aiDir . 'tools/updateProfileTool.php'; // allow-listed profile update
         require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow
         require_once $aiDir . 'tools/flightsTools.php'; // DEDICATED flights flow
         require_once $aiDir . 'tools/staysTools.php'; // DEDICATED stays flow
@@ -368,6 +370,15 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             // (Web behavior is unchanged; this gate is channel-only.)
             if (!empty($ident['verified'])) {
                 $agent->registerTool(new getOrderStatusTool());
+            }
+            // Full account awareness + profile update: scoped INTERNALLY to the
+            // resolved account_id (verified link OR passive phone match — owner
+            // chose to trust the match for full context). The tools refuse when
+            // there is no account_id, so registering them whenever we have ANY
+            // identity is safe and lets GIA answer "my bookings"/"my wallet".
+            if (($toolContext['account_id'] ?? '') !== '') {
+                $agent->registerTool(new userAccountTool());
+                $agent->registerTool(new updateProfileTool());
             }
             $agent->setToolContext($toolContext);
             // Teach GIA how to act on a tapped option button ('pick|module|ref').
