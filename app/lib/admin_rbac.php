@@ -344,17 +344,24 @@ if (!function_exists('admin_current_role')) {
         $isAdmin  = ($roleName === 'admin');
 
         $row = null;
+        // An 'employee' is linked to its role ONLY via users.role_id — the bare
+        // string 'employee' must NOT fall back to matching the generic legacy
+        // "Employee" seed row (that would admit a role-less employee with empty
+        // perms). For every other role (admin/agent/supplier/customer) the
+        // users.role STRING is the canonical link, so the slug/type_name fallback
+        // is kept for them.
+        $nameFallback = ($roleName !== '' && $roleName !== 'employee');
         try {
             if (!empty($user['role_id'])) {
                 $row = $db->get('users_roles', '*', ['id' => (int) $user['role_id']]);
             }
-            if (!$row && $roleName !== '') {
+            if (!$row && $nameFallback) {
                 // by slug
                 try {
                     $row = $db->get('users_roles', '*', ['slug' => $roleName]);
                 } catch (\Throwable $e) { /* slug may not exist yet */ }
             }
-            if (!$row && $roleName !== '') {
+            if (!$row && $nameFallback) {
                 // case-insensitive type_name
                 $all = $db->select('users_roles', '*');
                 foreach ((array) $all as $r) {
@@ -386,10 +393,16 @@ if (!function_exists('admin_current_role')) {
             $isAdmin = true;
         }
 
+        // Role active-status (users_roles.status, governance column default 1).
+        // Admin is always active. For an employee role, a row with status 0 is a
+        // disabled role — callers (ADMIN_AUTH) use this to bounce the employee.
+        $status = $isAdmin ? 1 : (isset($row['status']) ? (int) $row['status'] : ($row ? 1 : 0));
+
         return $cache[$uid] = [
             'id'         => $row['id'] ?? null,
             'type_name'  => $row['type_name'] ?? ($isAdmin ? 'Admin' : $user['role']),
             'base_type'  => $isAdmin ? 'admin' : $baseType,
+            'status'     => $status,
             'permissions' => $perms,
             'is_admin'   => $isAdmin,
         ];

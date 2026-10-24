@@ -208,12 +208,56 @@ function paymentReturnUrl($url)
 }
 
 // ADMIN AUTH CHECK
+//
+// Gate for the admin panel. Admits an authenticated session whose user_role is
+// either 'admin' (full admin — always allowed) OR 'employee' (an RBAC employee,
+// Employee RBAC consolidation S2) that has an ACTIVE users_roles role. Anyone
+// else is redirected to /login and the request exits.
+//
+// Signature is unchanged (no args, returns void, redirect+exit on fail) so the
+// ~460 existing `ADMIN_AUTH();` call sites keep working untouched. This widens
+// WHO may enter admin routes; it does NOT grant any capability — per-area
+// permission is enforced separately by admin_require()/admin_can() (S6). Code
+// that checks `$_SESSION['user_role'] === 'admin'` directly (invoice access,
+// admin-only module controls, sidebar chrome) stays admin-only automatically,
+// because an employee's user_role is 'employee', not 'admin'.
+//
+// Account-level suspension is already enforced at the login gate (loginRoutes:185
+// blocks any users.status !== 'active'), so this only additionally verifies that
+// an employee's assigned ROLE is active/resolvable — a role-less or disabled-role
+// employee is bounced rather than dropped into a permission-less admin shell.
 function ADMIN_AUTH()
 {
-    if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'admin') {
+    if (!isset($_SESSION['user_id'])) {
         header('Location: ' . root . 'login');
         exit;
     }
+
+    $role = strtolower((string) ($_SESSION['user_role'] ?? ''));
+
+    // Full admin — always allowed (never-lock-out).
+    if ($role === 'admin') {
+        return;
+    }
+
+    // Employee — allowed only with an active, resolvable users_roles role.
+    if ($role === 'employee' && function_exists('admin_current_role')) {
+        $db = $GLOBALS['db'] ?? null;
+        if ($db) {
+            $resolved = admin_current_role($db);
+            // Admit only a resolved, ACTIVE employee role (users_roles.status,
+            // governance column default 1). A role-less employee ($resolved['id']
+            // null) or a disabled-role employee (status 0) is bounced rather than
+            // dropped into a permission-less admin shell. The synthetic admin
+            // fallback cannot occur here (role !== 'admin').
+            if ($resolved && !empty($resolved['id']) && !empty($resolved['status'])) {
+                return;
+            }
+        }
+    }
+
+    header('Location: ' . root . 'login');
+    exit;
 }
 
 // ---------------------------------------------------------------------------
