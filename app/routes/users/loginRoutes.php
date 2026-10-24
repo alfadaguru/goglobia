@@ -184,127 +184,15 @@ $router->post('/login', function () use ($SECURE, $db) {
             'last_login' => date('Y-m-d H:i:s')
         ], ['id' => $userId]);
 
-        // PENDING-SUPPLIER LOGIN (owner decision): a 'pending' supplier is allowed to log
-        // in so they can see their dashboard and submit service requests. They CANNOT
-        // create or manage anything until an admin approves them — that is enforced at the
-        // RBAC core (supplier_acting_context sets owner_active=false; supplier_can denies
-        // every non-'view' action for a pending owner). Rejected suppliers, and any other
-        // non-active account (customer/agent), remain blocked here.
-        $pendingSupplierOk = (($user['role'] ?? '') === 'supplier' && $user['status'] === 'pending');
-        if ($user['status'] !== 'active' && !$pendingSupplierOk) {
-            if (($user['role'] ?? '') === 'supplier' && $user['status'] === 'rejected') {
-                $_SESSION['login_error'] = 'supplier_rejected';
-                $_SESSION['supplier_rejected_reason'] = (string) ($user['supplier_rejected_reason'] ?? '');
-            } else {
-                $_SESSION['login_error'] = 'invalid';
-            }
-            header('Location: ' . root . 'login');
-            exit;
-        }
-        // Flag a pending supplier so the dashboard can show an "awaiting approval" banner.
-        if ($pendingSupplierOk) {
-            $_SESSION['supplier_approval_pending'] = true;
-        }
-        if ($user['banned']) {
-            $_SESSION['login_error'] = 'banned';
-            header('Location: ' . root . 'login');
-            exit;
-        }
-
-        logUserActivity($db, $userId, 'login', 'User logged in successfully');
-
-        // SECURITY (M2): regenerate the session id on privilege change (login)
-        // to defeat session fixation. Preserves existing session data.
-        if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
-            session_regenerate_id(true);
-        }
-
-        $_SESSION['user_id'] = $user['user_id'];
-        $_SESSION['user_email'] = $user['email'];
-        $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];
-        $_SESSION['user_role'] = $user['role'];
-        $_SESSION['login_time'] = time();
-
-        // Remember Me — set signed 30-day cookie
-        if (!empty($_POST['remember_me'])) {
-            global $env;
-            // SECURITY (M4): dedicated secret, not the DB password (see auto-login).
-            $secret      = trim((string)($env['REMEMBER_ME_SECRET'] ?? ''));
-            if ($secret === '') {
-                $secret = ($env['DB_PASSWORD'] ?? '') . ($env['DB_DATABASE'] ?? '');
-            }
-            $hmac        = hash_hmac('sha256', $userId . '|' . $user['email'] . '|' . $user['password'], $secret);
-            $cookieValue = base64_encode($userId . '|' . $hmac);
-            $secureCookie = (!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off')
-                || (strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
-            setcookie('remember_me', $cookieValue, time() + (30 * 24 * 3600), '/', '', $secureCookie, true);
-        }
-
-        // Defer webhook/logging so redirect is not blocked (fixes stuck "Signing in..." spinner)
-        $loginWebhookData = [
-            'user_id' => $user['user_id'],
-            'email' => $user['email'],
-            'first_name' => $user['first_name'],
-            'last_name' => $user['last_name'],
-            'role' => $user['role'],
-            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0',
-            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown',
-            'timestamp' => date('Y-m-d H:i:s'),
-            'last_login' => $user['last_login'] ?? null
-        ];
-        $loginLogRow = [
-            'user_id' => $user['user_id'] ?? null,
-            'type' => 'login',
-            'description' => 'User logged in successfully',
-            'user_ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
-            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
-            'created_at' => date('Y-m-d H:i:s')
-        ];
-        register_shutdown_function(static function () use ($loginWebhookData, $loginLogRow, $db) {
-            try {
-                if (function_exists('triggerWebhook')) {
-                    triggerWebhook('users/login', 'login.success', $loginWebhookData);
-                }
-            } catch (Throwable $e) {}
-            try {
-                $db->insert('logs_users', $loginLogRow);
-            } catch (Throwable $e) {}
-        });
-
-        if ($user['role'] === 'admin') {
-            $_SESSION['admin_logged_in'] = true;
-            header('Location: ' . root . 'admin/dashboard');
-        } elseif ($user['role'] === 'supplier') {
-            // An approved supplier goes to their own area (SUPPLIER_AUTH-gated).
-            header('Location: ' . root . 'supplier/dashboard');
-        } elseif (
-            // A supplier STAFF member (an ordinary user linked via supplier_staff)
-            // lands in the supplier area, scoped by their role. Checked only for
-            // non-admin/non-supplier users so normal customers are unaffected.
-            ($__isStaff = (function () use ($db, $user) {
-                try {
-                    return $db->has('supplier_staff', [
-                        'staff_user_id' => (string) $user['user_id'],
-                        'status'        => 'active',
-                    ]);
-                } catch (\Throwable $e) { return false; }
-            })())
-        ) {
-            header('Location: ' . root . 'supplier/dashboard');
-        } else {
-            $redirectTo = (string)($_POST['redirect'] ?? ($_SESSION['login_redirect'] ?? ''));
-            unset($_SESSION['login_redirect']);
-            $rootHost = parse_url(root, PHP_URL_HOST);
-            $redirHost = parse_url($redirectTo, PHP_URL_HOST);
-            $safe = false;
-            if ($redirectTo !== '' && $redirHost && $rootHost && strcasecmp((string)$redirHost, (string)$rootHost) === 0) {
-                $safe = true;
-            } elseif ($redirectTo !== '' && isset($redirectTo[0]) && $redirectTo[0] === '/' && strpos($redirectTo, '//') === false) {
-                $redirectTo = rtrim((string)root, '/') . $redirectTo;
-                $safe = true;
-            }
-            header('Location: ' . ($safe ? $redirectTo : (root . 'dashboard')));
-        }
+        // Finalise login via the shared helper (status/ban gate + session keys +
+        // remember-me + deferred webhook/log + role redirect). Same code path the
+        // passwordless phone-OTP login uses, so the two can never drift.
+        $fin = establish_login_session($db, $user, [
+            'remember' => !empty($_POST['remember_me']),
+            'redirect' => (string) ($_POST['redirect'] ?? ''),
+            'method'   => 'password',
+        ]);
+        header('Location: ' . $fin['redirect']);
         exit;
     } else {
         $newAttempts = ($user['login_attempts'] ?? 0) + 1;
@@ -517,4 +405,98 @@ $router->post('/api/booking/quick-login', function () use ($SECURE, $db) {
         header('Location: ' . $redirectTo);
         exit;
     }
+});
+
+// ============================================================================
+// PASSWORDLESS PHONE-OTP LOGIN (GIA phone-auth workstream, Phase 3b)
+// Flow: GET /login/phone (enter phone) -> POST /login/phone (send OTP) ->
+//       enter the code on the same page -> POST /login/phone/verify (verify +
+//       establish session via the shared establish_login_session()).
+// Reuses the OTP engine (purpose 'login'), honours the license gate and the
+// same lockout columns as the password login. Only accounts that HAVE a phone
+// can use it; a shared number is rejected (ambiguous) exactly like 3a.
+// ============================================================================
+$router->get('/login/phone', function () use ($SECURE, $db) {
+    if (!empty($_SESSION['user_id'])) { header('Location: ' . root . 'dashboard'); exit; }
+    $title = T::login ?? 'Log in';
+    $header = true; $footer = true;
+    $phoneStep = $_SESSION['phone_login_step'] ?? 'enter';
+    require_once views . "includes/header.php";
+    require_once views . "auth/login-phone.php";
+    require_once views . "includes/footer.php";
+});
+
+$router->post('/login/phone', function () use ($SECURE, $db) {
+    if (!CSRF::validateToken($_POST['csrf_token'] ?? '')) {
+        $_SESSION['login_error'] = 'csrf'; header('Location: ' . root . 'login/phone'); exit;
+    }
+    // License gate — same as the password login (blocks all logins when invalid).
+    require_once __DIR__ . '/../../lib/lic.php';
+    $_licR = _lic_check($db);
+    if (!$_licR['ok']) {
+        $s = $db->get('settings', '*');
+        $_SESSION['lic_err'] = $_licR['msg'];
+        $_SESSION['lic_key'] = trim((string) ($s['license_key'] ?? ''));
+        header('Location: ' . root . 'login'); exit;
+    }
+    $identifier = trim($_POST['phone'] ?? '');
+    if ($identifier === '') { $_SESSION['login_error'] = 'empty'; header('Location: ' . root . 'login/phone'); exit; }
+
+    $resolved = resolveLoginIdentifier($db, $identifier);
+    if ($resolved['reason'] === 'ambiguous_phone') {
+        $_SESSION['login_error'] = 'ambiguous_phone'; header('Location: ' . root . 'login/phone'); exit;
+    }
+    $user = $resolved['user'];
+    // Do NOT reveal whether the number exists — always show the code step. Only
+    // actually send an OTP when we have a user with a phone.
+    if ($user && trim((string) ($user['phone'] ?? '')) !== '') {
+        if (!empty($user['locked_until']) && strtotime($user['locked_until']) > time()) {
+            $_SESSION['login_error'] = 'locked'; $_SESSION['lock_until'] = $user['locked_until'];
+            header('Location: ' . root . 'login/phone'); exit;
+        }
+        $res = otp_issue($db, (string) $user['user_id'], 'login');
+        if (!empty($res['ok'])) {
+            sendOtpWhatsApp($db, $user['phone'], $user['phone_country_code'] ?? '', $res['code'], $user['first_name'] ?? '');
+        }
+        // Remember who we're verifying (by user_id) — never trust the client for this.
+        $_SESSION['phone_login_user'] = (string) $user['user_id'];
+    }
+    $_SESSION['phone_login_step'] = 'code';
+    $_SESSION['phone_login_identifier'] = $identifier;
+    $_SESSION['verify_phone_success'] = 'If that number has an account, we sent a login code by WhatsApp.';
+    header('Location: ' . root . 'login/phone'); exit;
+});
+
+$router->post('/login/phone/verify', function () use ($SECURE, $db) {
+    if (!CSRF::validateToken($_POST['csrf_token'] ?? '')) {
+        $_SESSION['login_error'] = 'csrf'; header('Location: ' . root . 'login/phone'); exit;
+    }
+    require_once __DIR__ . '/../../lib/lic.php';
+    $_licR = _lic_check($db);
+    if (!$_licR['ok']) { header('Location: ' . root . 'login'); exit; }
+
+    $uid  = (string) ($_SESSION['phone_login_user'] ?? '');
+    $code = trim($_POST['otp'] ?? '');
+    if ($uid === '') {
+        // No pending phone login — start over (don't leak anything).
+        $_SESSION['login_error'] = 'invalid'; header('Location: ' . root . 'login/phone'); exit;
+    }
+    $res = otp_verify($db, $uid, 'login', $code);
+    if (empty($res['ok'])) {
+        $_SESSION['login_error'] = 'invalid';
+        $_SESSION['verify_phone_error'] = $res['message'] ?? 'Incorrect or expired code.';
+        header('Location: ' . root . 'login/phone'); exit;
+    }
+    // OTP proves phone ownership. Load the full user and establish the session
+    // through the SAME finaliser the password login uses.
+    $user = $db->get('users', '*', ['user_id' => $uid]);
+    if (!$user) { $_SESSION['login_error'] = 'invalid'; header('Location: ' . root . 'login/phone'); exit; }
+
+    unset($_SESSION['phone_login_user'], $_SESSION['phone_login_step'], $_SESSION['phone_login_identifier']);
+    $fin = establish_login_session($db, $user, [
+        'remember' => !empty($_POST['remember_me']),
+        'redirect' => (string) ($_POST['redirect'] ?? ''),
+        'method'   => 'phone_otp',
+    ]);
+    header('Location: ' . $fin['redirect']); exit;
 });

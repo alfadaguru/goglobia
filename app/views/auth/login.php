@@ -207,6 +207,7 @@ $licenseBlocked = !empty($_SESSION['lic_err']);
 
                         <?php if (!str_contains($_SERVER['REQUEST_URI'], '/admin/')): ?>
                         <a href="<?=root?>forgot-password" class="btn-link text-sm"><?= T::forgot_password ?></a>
+                        <a href="<?=root?>login/phone" class="btn-link text-sm">Log in with phone (OTP)</a>
                         <?php endif; ?>
                     </div>
 
