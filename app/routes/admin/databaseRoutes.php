@@ -12,6 +12,7 @@
 $router->get(admin.'/database', function () use ($SECURE, $db) {
 
     ADMIN_AUTH(); // Admin authentication check
+    admin_require($db, 'database', 'view');
 
     // Expose the live table catalogue as a SQL view so the shared CRUD library
     // (which reads real DB objects) can render it like any other table.
@@ -52,6 +53,7 @@ $router->get(admin.'/database', function () use ($SECURE, $db) {
 $router->get(admin.'/settings/database/([a-zA-Z0-9_]+)', function ($table_name) use ($SECURE, $db) {
 
     ADMIN_AUTH(); // Admin authentication check
+    admin_require($db, 'database', 'view');
 
     // Validate table name (strict allow-list of chars) and confirm it exists.
     // The route regex + this check restrict $table_name to [a-zA-Z0-9_], so it is

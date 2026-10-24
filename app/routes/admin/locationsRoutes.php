@@ -9,6 +9,7 @@ LOCATIONS ROUTES START
 // ================================ GET / locations - LIST LOCATIONS
 $router->get(admin.'/settings/(locations)', function ($route) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'locations', 'view');
 
     $title = ''.T::locations_management ?? 'Locations Management';
     $header = true;
@@ -21,6 +22,7 @@ $router->get(admin.'/settings/(locations)', function ($route) use ($SECURE,$db) 
 // ================================ LOCATIONS MANAGE (ADD/EDIT) - UNIFIED ROUTE
 $locationsManageHandler = function ($action, $id = null) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'locations', 'edit');
     CSRF::guard();
 
     $locationId = $id ? (int)$id : 0;

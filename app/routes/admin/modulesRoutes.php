@@ -7,6 +7,7 @@ $router->get(admin.'/settings/modules', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'view');
 
     // META DATA
     $title = 'Modules';
@@ -24,6 +25,7 @@ $router->get(admin.'/settings/modules/list', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'view');
 
     // META DATA
     $title = 'Modules List';
@@ -42,6 +44,7 @@ $router->get(admin.'/settings/modules/add', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'add');
 
     // META DATA
     $title = 'Add Module';
@@ -60,6 +63,7 @@ $router->get(admin.'/settings/modules/edit/(.*)', function ($id) use ($SECURE,$d
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'edit');
 
     // META DATA
     $title = 'Edit Module';
@@ -80,6 +84,7 @@ $router->post(admin.'/settings/modules/add', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'add');
 
     if ($_POST && isset($_POST['action']) && $_POST['action'] === 'save_module') {
         if (!CSRF::validateToken($_POST['csrf_token'] ?? '')) {
@@ -190,6 +195,7 @@ $router->post(admin.'/settings/modules/edit/(.*)', function ($id) use ($SECURE,$
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'edit');
 
     $moduleId = (int)$id;
 
@@ -304,6 +310,7 @@ $router->post(admin.'/settings/modules/toggle', function () use ($db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'edit');
     CSRF::guard();
 
     $redirectHash = '';
@@ -374,6 +381,7 @@ $router->get(admin.'/settings/modules/(\d+)', function ($moduleId) use ($SECURE,
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'view');
 
     ensurePassportAiSchema($db);
 
@@ -462,6 +470,7 @@ $router->post(admin.'/settings/modules/(\d+)', function ($moduleId) use ($SECURE
         ob_start();
 
         // ADMIN AUTH CHECK for AJAX
+        admin_require($db, 'modules', 'edit');
         if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'admin') {
             ob_clean();
             header('Content-Type: application/json');
@@ -519,6 +528,7 @@ $router->post(admin.'/settings/modules/(\d+)', function ($moduleId) use ($SECURE
 
     // ADMIN AUTH CHECK for regular requests
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'edit');
 
     // Get module details first
     $module = $db->get('modules', '*', ['id' => $moduleId]);
@@ -615,6 +625,7 @@ $router->post(admin.'/settings/modules/(\d+)', function ($moduleId) use ($SECURE
 // Rail train — station catalog import (module settings tab)
 $router->post(admin . '/settings/modules/rail/import-stations', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'edit');
     header('Content-Type: application/json; charset=utf-8');
     require_once dirname(__DIR__, 3) . '/modules/rail/train/stations.php';
     try {
@@ -631,6 +642,7 @@ $router->post(admin.'/settings/modules/(\d+)/test', function ($moduleId) use ($S
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'edit');
 
     header('Content-Type: application/json');
 
@@ -918,6 +930,7 @@ $router->post(admin.'/settings/modules/ajax-update', function () use ($db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'edit');
     CSRF::guard();
 
     // Disable profiler/debug for AJAX requests
@@ -1013,6 +1026,7 @@ $router->post(admin.'/settings/modules/test-db', function () use ($db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'edit');
 
     // Clean output buffer and set headers
     while (ob_get_level()) {
@@ -1102,6 +1116,7 @@ $router->post(admin.'/settings/modules/upload-certs', function () use ($db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'edit');
 
     header('Content-Type: application/json');
 
@@ -1233,6 +1248,7 @@ $router->post(admin.'/settings/modules/test-mtls', function () use ($db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'edit');
 
     header('Content-Type: application/json');
 
@@ -1371,6 +1387,7 @@ $router->post(admin.'/settings/modules/hotelbeds/update-setting', function () us
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'edit');
     CSRF::guard();
 
     header('Content-Type: application/json');
@@ -1448,6 +1465,7 @@ if (!empty($airaloModule['id'])) {
 // Legacy Airalo countries route now points to the unified country/package CRUD page.
 $router->get(admin.'/settings/modules/airalo-countries', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'view');
     global $airaloSettingsUrl;
     header('Location: ' . $airaloSettingsUrl);
     exit;
@@ -1456,6 +1474,7 @@ $router->get(admin.'/settings/modules/airalo-countries', function () use ($SECUR
 // Bulk enable/disable for airalo_countries.
 $router->post(admin.'/settings/modules/airalo-countries/bulk-status', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'edit');
     CSRF::guard();
     header('Content-Type: application/json');
 
@@ -1487,6 +1506,7 @@ $router->post(admin.'/settings/modules/airalo-countries/bulk-status', function (
 // DISABLED; existing rows keep their status. Admin-authed + CSRF-guarded.
 $router->post(admin.'/settings/modules/airalo-countries/sync', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'edit');
     CSRF::guard();
     header('Content-Type: application/json');
 
@@ -1522,6 +1542,7 @@ $router->post(admin.'/settings/modules/airalo-countries/sync', function () use (
 
 $router->get(admin.'/settings/modules/airalo-packages', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'view');
     global $airaloSettingsUrl;
     header('Location: ' . $airaloSettingsUrl);
     exit;
@@ -1530,6 +1551,7 @@ $router->get(admin.'/settings/modules/airalo-packages', function () use ($SECURE
 // Country-level package editor: one country -> multiple package rules.
 $router->route(['GET','POST'], admin.'/settings/modules/airalo-packages/edit/([A-Za-z]{2})', function ($countryIso) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'modules', 'view');
     global $airaloSettingsUrl;
 
     $countryIso = strtoupper(trim((string) $countryIso));

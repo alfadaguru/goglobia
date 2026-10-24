@@ -38,6 +38,7 @@ $router->get(admin.'/reports/booking-logs(.*)', function () use ($SECURE, $db) {
         header('Location: ' . root);
         exit;
     }
+    admin_require($db, 'reports', 'view');
 
     $title = 'Booking Logs - ' . $GLOBALS['app']['home_title'];
     $description = 'View all booking logs';
@@ -53,6 +54,7 @@ $router->get(admin.'/reports/search-logs(.*)', function () use ($SECURE, $db) {
         header('Location: ' . root);
         exit;
     }
+    admin_require($db, 'reports', 'view');
 
     $title = 'Search Logs - ' . $GLOBALS['app']['home_title'];
     $description = 'View all search logs';
@@ -68,6 +70,7 @@ $router->get(admin.'/reports/webhook-logs(.*)', function () use ($SECURE, $db) {
         header('Location: ' . root);
         exit;
     }
+    admin_require($db, 'reports', 'view');
 
     $title = 'Webhook Logs - ' . $GLOBALS['app']['home_title'];
     $description = 'View all webhook execution logs';
@@ -83,6 +86,7 @@ $router->get(admin.'/reports/bookings(.*)', function () use ($SECURE, $db) {
         header('Location: ' . root);
         exit;
     }
+    admin_require($db, 'reports', 'view');
 
     $title = 'Booking Reports - ' . $GLOBALS['app']['home_title'];
     $description = 'View booking analytics and reports';
@@ -98,6 +102,7 @@ $router->get(admin.'/reports/users(.*)', function () use ($SECURE, $db) {
         header('Location: ' . root);
         exit;
     }
+    admin_require($db, 'reports', 'view');
 
     $title = 'Users Reports - ' . $GLOBALS['app']['home_title'];
     $description = 'View user analytics and reports';
@@ -113,6 +118,7 @@ $router->get(admin.'/reports/transactions(.*)', function () use ($SECURE, $db) {
         header('Location: ' . root);
         exit;
     }
+    admin_require($db, 'reports', 'view');
 
     $title = 'Transactions Reports - ' . $GLOBALS['app']['home_title'];
     $description = 'View transaction analytics and reports';
@@ -128,6 +134,7 @@ $router->get(admin.'/reports/deposit(.*)', function () use ($SECURE, $db) {
         header('Location: ' . root);
         exit;
     }
+    admin_require($db, 'reports', 'view');
 
     $title = 'Deposit Reports - ' . $GLOBALS['app']['home_title'];
     $description = 'View deposit analytics and reports';
@@ -145,6 +152,7 @@ $router->get(admin.'/reports/deposit(.*)', function () use ($SECURE, $db) {
 // ============================================================================
 $router->get(admin.'/reports/finance', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'reports', 'view');
 
     // Date range — default: last 30 days (inclusive).
     $to   = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($_GET['to'] ?? '')) ? $_GET['to'] : date('Y-m-d');
@@ -323,6 +331,7 @@ if (!function_exists('_agentcomm_range')) {
 // ---- Summary: all agents ----
 $router->get(admin.'/reports/agent-commissions', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'reports', 'view');
     [$from, $to, $start, $end] = _agentcomm_range();
 
     // Agents keyed by user_id.
@@ -392,6 +401,7 @@ $router->get(admin.'/reports/agent-commissions', function () use ($SECURE, $db) 
 // ---- Statement: one agent ----
 $router->get(admin.'/reports/agent-commissions/([A-Za-z0-9_\-]+)', function ($uid) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'reports', 'view');
     [$from, $to, $start, $end] = _agentcomm_range();
     $uid = (string) $uid;
 

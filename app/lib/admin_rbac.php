@@ -50,7 +50,7 @@ if (!function_exists('admin_area_catalogue')) {
             'employees'              => ['page_access', 'add', 'edit', 'view', 'delete'],
             'bookings'               => ['page_access', 'add', 'edit', 'view', 'delete', 'refund', 'cancel', 'void'],
             'transactions'           => ['page_access', 'add', 'edit', 'view', 'delete'],
-            'settings'               => ['page_access', 'edit', 'view'],
+            'settings'               => ['page_access', 'add', 'edit', 'view', 'delete'], // incl. countries CRUD + updates/database tools
             'modules'                => ['page_access', 'add', 'edit', 'view', 'delete'],
             'cms'                    => ['page_access', 'add', 'edit', 'view', 'delete'],
             'logs'                   => ['page_access', 'view'],
@@ -60,6 +60,31 @@ if (!function_exists('admin_area_catalogue')) {
             'notification_templates' => ['page_access', 'add', 'edit', 'view', 'delete'],
             'reports'                => ['page_access', 'view'],
             'suppliers'              => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'supplier_payouts'       => ['page_access', 'view', 'edit'],
+            'money'                  => ['page_access', 'view', 'edit', 'add', 'delete'], // loyalty tiers / journeys / members
+            'gia'                    => ['page_access', 'view', 'edit'],                  // GIA assistant admin
+            'database'               => ['page_access', 'view', 'edit'],                  // DB schema-update tool
+            'agent_api'              => ['page_access', 'view', 'edit'],                  // agent API-key management
+
+            // --- Service / inventory areas (one per admin module screen) ----------
+            'flights'                => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'tours'                  => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'cars'                   => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'bus'                    => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'visa'                   => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'umrah'                  => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'stays'                  => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'airlines'               => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'airports'               => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'locations'              => ['page_access', 'add', 'edit', 'view', 'delete'],
+
+            // --- Content / marketing areas ----------------------------------------
+            'blogs'                  => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'menus'                  => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'seo'                    => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'campaigns'              => ['page_access', 'add', 'edit', 'view', 'delete'], // email campaigns + templates
+            'discounts'              => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'promo_codes'            => ['page_access', 'add', 'edit', 'view', 'delete'],
 
             // --- Customer Support areas (replacing the support capability slugs) -
             // Migration map from the old support_can caps (see

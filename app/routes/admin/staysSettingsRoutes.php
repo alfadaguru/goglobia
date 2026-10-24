@@ -10,6 +10,7 @@ HOTEL SETTINGS ROUTES (Generic for amenities, boards, accommodations, etc.)
 $router->get(admin.'/stays/settings', function () use ($SECURE,$db) {
 
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'view');
 
     $title = T::stays_settings ?? 'Stays Settings';
     $description = "";
@@ -26,6 +27,7 @@ $router->get(admin.'/stays/settings', function () use ($SECURE,$db) {
 // ================================ GET /stays/settings/edit/{id} - EDIT SETTING
 $router->get(admin.'/stays/settings/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'edit');
 
     $settingId = intval($id);
     $setting = $db->get('stays_settings', '*', ['id' => $settingId]);
@@ -66,6 +68,7 @@ $router->get(admin.'/stays/settings/edit/(.*)', function ($id) use ($SECURE,$db)
 $router->post(admin.'/stays/settings/save', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'edit');
     CSRF::guard();
 
     $setting_id = intval($_POST['id'] ?? 0);
@@ -169,6 +172,7 @@ $router->post(admin.'/stays/settings/save', function () use ($SECURE,$db) {
 $router->post(admin.'/stays/settings/delete', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'delete');
     CSRF::guard();
 
     $setting_id = intval($_POST['id'] ?? 0);

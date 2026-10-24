@@ -8,6 +8,7 @@ $router->get(admin.'/cms/pages', function () use ($SECURE,$db) {
 
 // ADMIN AUTH CHECK
 ADMIN_AUTH();
+admin_require($db, 'cms', 'view');
 
 // META DATA
 $title = 'CMS Pages';
@@ -26,6 +27,7 @@ $router->get(admin.'/cms/pages/add', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'add');
 
     // META DATA
     $title = 'Add CMS Page';
@@ -44,6 +46,7 @@ $router->get(admin.'/cms/pages/edit/(.*)', function ($id) use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'view');
 
     // META DATA
     $title = 'Edit CMS Page';
@@ -65,6 +68,7 @@ $router->post(admin.'/cms/pages/manage', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'edit');
 
     // CSRF Token Validation
     CSRF::verifyRequest();
@@ -155,6 +159,7 @@ $router->post(admin.'/cms/upload-image', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'edit');
 
     header('Content-Type: application/json');
 
@@ -206,6 +211,7 @@ $router->post(admin.'/cms/upload-image', function () use ($SECURE,$db) {
 // ================================ GET /cms/pages/translate/:id
 $router->get(admin.'/cms/pages/translate/(\d+)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'view');
     
     // Get the CMS page - use unique variable name
     $cmsPage = $db->get('cms', '*', ['id' => $id]);
@@ -262,6 +268,7 @@ $router->get(admin.'/cms/pages/translate/(\d+)', function ($id) use ($SECURE,$db
 // ================================ POST /cms/pages/translate/:id
 $router->post(admin.'/cms/pages/translate/(\d+)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'edit');
     
     // CSRF Token Validation
     CSRF::verifyRequest();

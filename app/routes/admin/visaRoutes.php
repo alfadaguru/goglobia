@@ -85,6 +85,7 @@ VISAS ROUTES START
 // ================================ GET /visa - LIST ALL VISA
 $router->get(admin.'/visa', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'visa', 'view');
 
     $title = T::visa_management ?? 'Visa Management';
     $description = '';
@@ -99,6 +100,7 @@ $router->get(admin.'/visa', function () use ($SECURE,$db) {
 // ================================ GET /visa/add - ADD NEW VISA FORM
 $router->get(admin.'/visa/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'visa', 'add');
 
     $mode = 'add';
 
@@ -126,6 +128,7 @@ $router->get(admin.'/visa/add', function () use ($SECURE,$db) {
 // ================================ POST /visa/add - ADD NEW VISA
 $router->post(admin.'/visa/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'visa', 'add');
     CSRF::guard();
 
     // Form data validation
@@ -240,6 +243,7 @@ $router->post(admin.'/visa/add', function () use ($SECURE,$db) {
 // ================================ GET /visa/edit/{id} - EDIT VISA FORM
 $router->get(admin.'/visa/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'visa', 'edit');
 
     $mode = 'edit';
     $visa_id = intval($id);
@@ -281,6 +285,7 @@ $router->get(admin.'/visa/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /visa/edit/{id} - UPDATE VISA
 $router->post(admin.'/visa/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'visa', 'edit');
     CSRF::guard();
 
     $visa_id = intval($id);
@@ -494,6 +499,7 @@ $router->post(admin.'/visa/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /visa/delete - DELETE VISA
 $router->post(admin.'/visa/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'visa', 'delete');
     CSRF::guard();
 
     $visa_id = intval($_POST['id'] ?? 0);
@@ -579,6 +585,7 @@ VISA SETTINGS ROUTES START
 // ================================ GET /visa/settings - LIST ALL VISA SETTINGS
 $router->get(admin.'/visa/settings', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'visa', 'view');
 
     $title = T::visa_settings_management ?? 'Visa Settings Management';
     $description = '';
@@ -599,6 +606,7 @@ $router->get(admin.'/visa/settings', function () use ($SECURE,$db) {
 // ================================ POST /visa/settings/document-requirements - SAVE DOCUMENT REQUIREMENT TOGGLES
 $router->post(admin.'/visa/settings/document-requirements', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'visa', 'edit');
 
     if (!CSRF::validateToken($_POST['csrf_token'] ?? '')) {
         $_SESSION['message'] = [
@@ -624,6 +632,7 @@ $router->post(admin.'/visa/settings/document-requirements', function () use ($SE
 // ================================ GET /visa/settings/edit/{id} - EDIT VISA SETTING
 $router->get(admin.'/visa/settings/edit/(\d+)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'visa', 'edit');
 
     $id = intval($id);
     $setting = $db->get('visa_settings', '*', ['id' => $id]);
@@ -655,6 +664,7 @@ $router->get(admin.'/visa/settings/edit/(\d+)', function ($id) use ($SECURE,$db)
 // ================================ POST /visa/settings/save - ADD/UPDATE VISA SETTING
 $router->post(admin.'/visa/settings/save', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'visa', 'edit');
     CSRF::guard();
 
     $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
@@ -752,6 +762,7 @@ $router->post(admin.'/visa/settings/save', function () use ($SECURE,$db) {
 // ================================ POST /visa/settings/delete - DELETE VISA SETTING
 $router->post(admin.'/visa/settings/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'visa', 'delete');
     CSRF::guard();
 
     $id = intval($_POST['id'] ?? 0);
@@ -804,6 +815,7 @@ VISA BOOKINGS ROUTES START
 // ================================ GET /visa-bookings - LIST ALL VISA BOOKINGS
 $router->get(admin.'/visa-bookings', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
 
     $title = T::visa_bookings ?? 'Visa Bookings';
     $description = '';
@@ -818,6 +830,7 @@ $router->get(admin.'/visa-bookings', function () use ($SECURE,$db) {
 // ================================ GET /visa-bookings/view/{id} - VIEW VISA BOOKING DETAILS
 $router->get(admin.'/visa-bookings/view/(\d+)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
 
     $id = intval($id);
     // Visa bookings live in the generic `bookings` table (module='visa'), NOT a
@@ -849,6 +862,7 @@ $router->get(admin.'/visa-bookings/view/(\d+)', function ($id) use ($SECURE,$db)
 // ================================ POST /visa-bookings/update-status - UPDATE BOOKING STATUS
 $router->post(admin.'/visa-bookings/update-status', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
     CSRF::guard();
 
     $id = intval($_POST['id'] ?? 0);
@@ -946,6 +960,7 @@ $router->post(admin.'/visa-bookings/update-status', function () use ($SECURE,$db
 // unpaid booking is handled gracefully.
 $router->post(admin.'/visa-bookings/refund', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'refund');
     CSRF::guard();
 
     $id = (int) ($_POST['id'] ?? 0);
@@ -1012,6 +1027,7 @@ $router->post(admin.'/visa-bookings/refund', function () use ($SECURE, $db) {
 // ================================ POST /visa-bookings/delete - DELETE VISA BOOKING
 $router->post(admin.'/visa-bookings/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'bookings', 'delete');
     CSRF::guard();
 
     $id = intval($_POST['id'] ?? 0);
@@ -1062,6 +1078,7 @@ VISA PRICES ROUTES START
 // ================================ GET /visa/prices/add - ADD NEW PRICE
 $router->get(admin.'/visa/prices/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'visa', 'add');
 
     $title = T::add_new_price ?? 'Add New Price';
     $description = '';
@@ -1076,6 +1093,7 @@ $router->get(admin.'/visa/prices/add', function () use ($SECURE,$db) {
 // ================================ GET /visa/prices/edit/{id} - EDIT PRICE
 $router->get(admin.'/visa/prices/edit/(\d+)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'visa', 'edit');
 
     $price = $db->get('visa_prices', '*', ['id' => $id]);
 
@@ -1101,6 +1119,7 @@ $router->get(admin.'/visa/prices/edit/(\d+)', function ($id) use ($SECURE,$db) {
 // ================================ POST /visa/prices/save - SAVE PRICE (ADD/UPDATE)
 $router->post(admin.'/visa/prices/save', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'visa', 'edit');
     CSRF::guard();
 
     $id = intval($_POST['id'] ?? 0);
@@ -1209,6 +1228,7 @@ $router->post(admin.'/visa/prices/save', function () use ($SECURE,$db) {
 // ================================ POST /visa/prices/delete - DELETE PRICE
 $router->post(admin.'/visa/prices/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'visa', 'delete');
     CSRF::guard();
 
     $id = intval($_POST['id'] ?? 0);

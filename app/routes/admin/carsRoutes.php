@@ -9,6 +9,7 @@ CARS ROUTES START
 // ================================ GET /cars - LIST ALL CARS
 $router->get(admin.'/cars', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cars', 'view');
     $title = T::cars_management ?? 'Cars Management';
     $description = '';
     $header = true;
@@ -21,6 +22,7 @@ $router->get(admin.'/cars', function () use ($SECURE,$db) {
 // ================================ GET /cars/add - ADD NEW CAR FORM
 $router->get(admin.'/cars/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cars', 'add');
     $mode = 'add';
 
     $car_types = $db->select('cars_settings', ['id', 'setting_label', 'translations'], ['setting_type' => 'car_type', 'status' => 1]);
@@ -39,6 +41,7 @@ $router->get(admin.'/cars/add', function () use ($SECURE,$db) {
 // ================================ POST /cars/add - ADD NEW CAR
 $router->post(admin.'/cars/add', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cars', 'add');
     CSRF::guard();
 
     $name = trim($_POST['car_name'] ?? '');
@@ -148,6 +151,7 @@ $router->post(admin.'/cars/add', function () use ($SECURE,$db) {
 // ================================ GET /cars/edit/{id} - EDIT CAR FORM
 $router->get(admin.'/cars/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cars', 'edit');
     $mode = 'edit';
     $car_id = intval($id);
 
@@ -188,6 +192,7 @@ $router->get(admin.'/cars/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /cars/edit/{id} - UPDATE CAR
 $router->post(admin.'/cars/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cars', 'edit');
     $car_id = intval($id);
 
 
@@ -318,6 +323,7 @@ $router->post(admin.'/cars/edit/(.*)', function ($id) use ($SECURE,$db) {
 // ================================ POST /cars/delete - DELETE CAR
 $router->post(admin.'/cars/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cars', 'delete');
     CSRF::guard();
     $car_id = intval($_POST['id'] ?? 0);
 
@@ -343,6 +349,7 @@ $router->post(admin.'/cars/delete', function () use ($SECURE,$db) {
 // ================================ GET /cars/settings - LIST SETTINGS
 $router->get(admin.'/cars/settings', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cars', 'view');
     $title = T::cars_settings ?? 'Cars Settings';
     $header = true;
     $footer = true;
@@ -354,6 +361,7 @@ $router->get(admin.'/cars/settings', function () use ($SECURE,$db) {
 // ================================ POST /cars/settings/save - SAVE SETTING
 $router->post(admin.'/cars/settings/save', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cars', 'edit');
     CSRF::guard();
     $id = intval($_POST['id'] ?? 0);
 
@@ -394,6 +402,7 @@ $router->post(admin.'/cars/settings/save', function () use ($SECURE,$db) {
 // ================================ GET /cars/settings/edit/{id} - EDIT SETTING FORM
 $router->get(admin.'/cars/settings/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cars', 'edit');
     $settingId = intval($id);
     $setting = $db->get('cars_settings', '*', ['id' => $settingId]);
 
@@ -424,6 +433,7 @@ $router->get(admin.'/cars/settings/edit/(.*)', function ($id) use ($SECURE,$db) 
 // ================================ POST /cars/settings/delete - DELETE SETTING
 $router->post(admin.'/cars/settings/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cars', 'delete');
     CSRF::guard();
     $id = intval($_POST['id'] ?? 0);
     if ($id > 0) {
@@ -436,6 +446,7 @@ $router->post(admin.'/cars/settings/delete', function () use ($SECURE,$db) {
 // ================================ AJAX /cars-suggestion
 $router->post(admin.'/cars-suggestion', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'cars', 'view');
     header('Content-Type: application/json');
 
     $query = trim($_POST['query'] ?? '');
@@ -487,6 +498,7 @@ $router->post(admin.'/cars-suggestion', function () use ($SECURE, $db) {
 // ================================ POST /cars/search-users - AJAX USER SEARCH
 $router->post(admin.'/cars/search-users', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cars', 'view');
     header('Content-Type: application/json');
 
     $search = trim($_POST['search'] ?? '');

@@ -10,6 +10,7 @@ HOTELS ROUTES START
 $router->get(admin.'/stays', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'view');
 
     // META DATA
     $title = T::hotels_management;
@@ -26,6 +27,7 @@ $router->get(admin.'/stays', function () use ($SECURE,$db) {
 $router->get(admin.'/stays/add', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'add');
 
     // SET MODE
     $mode = 'add';
@@ -54,6 +56,7 @@ $router->get(admin.'/stays/add', function () use ($SECURE,$db) {
 $router->post(admin.'/stays/add', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'add');
     CSRF::guard();
 
     // FORM DATA VALIDATION
@@ -294,6 +297,7 @@ $router->post(admin.'/stays/add', function () use ($SECURE,$db) {
 $router->get(admin.'/stays/edit/(.*)', function ($id) use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'edit');
 
     // SET MODE
     $mode = 'edit';
@@ -403,6 +407,7 @@ $router->get(admin.'/stays/edit/(.*)', function ($id) use ($SECURE,$db) {
 $router->post(admin.'/stays/edit/(.*)', function ($id) use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'edit');
     CSRF::guard();
 
     $hotel_id = intval($id);
@@ -725,6 +730,7 @@ $router->post(admin.'/stays/edit/(.*)', function ($id) use ($SECURE,$db) {
 $router->post(admin.'/stays/delete', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'delete');
     CSRF::guard();
 
     $hotel_id = intval($_POST['id'] ?? 0);
@@ -807,6 +813,7 @@ $router->post(admin.'/stays/delete', function () use ($SECURE,$db) {
 $router->get(admin.'/stays/view/(.*)', function ($id) use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'view');
 
     // SET MODE
     $mode = 'view';
@@ -866,6 +873,7 @@ $router->get(admin.'/stays/view/(.*)', function ($id) use ($SECURE,$db) {
 $router->post(admin.'/stays/search-users', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'view');
 
     header('Content-Type: application/json');
 
@@ -899,6 +907,7 @@ $router->post(admin.'/stays/search-users', function () use ($SECURE,$db) {
 $router->post(admin.'/stays/search-locations', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'view');
 
     header('Content-Type: application/json');
 
@@ -931,6 +940,7 @@ $router->post(admin.'/stays/search-locations', function () use ($SECURE,$db) {
 // ================================ GET /stays/calendar/{id}/rates - RATES JSON FOR A MONTH
 $router->get(admin.'/stays/calendar/(.*)/rates', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'view');
     header('Content-Type: application/json');
 
     $hotel_id = intval($id);
@@ -961,6 +971,7 @@ $router->get(admin.'/stays/calendar/(.*)/rates', function ($id) use ($SECURE, $d
 // ================================ POST /stays/calendar/{id}/save - SAVE RATES TO DB
 $router->post(admin.'/stays/calendar/(.*)/save', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'edit');
     CSRF::guard();
     header('Content-Type: application/json');
 
@@ -1000,6 +1011,7 @@ $router->post(admin.'/stays/calendar/(.*)/save', function ($id) use ($SECURE, $d
 $router->get(admin.'/stays/calendar/(.*)', function ($id) use ($SECURE, $db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'view');
 
     $hotel_id = intval($id);
 
@@ -1145,6 +1157,7 @@ ROOMS ROUTES START
 // LIST ROOMS
 $router->get(admin.'/stays/rooms/(.*)', function ($hotel_id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'view');
     $hotel_id = intval($hotel_id);
     $hotel = $db->get('hotels', ['id', 'name'], ['id' => $hotel_id]);
     if (!$hotel) {
@@ -1170,6 +1183,7 @@ $router->post(admin.'/stays/rooms/save', function () use ($SECURE,$db) {
     if (ob_get_level()) ob_clean();
 
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'edit');
     CSRF::guard();
 
     $room_id = intval($_POST['room_id'] ?? 0);
@@ -1397,6 +1411,7 @@ $router->post(admin.'/stays/rooms/save', function () use ($SECURE,$db) {
 // GET ROOM DATA (AJAX only - for editing)
 $router->post(admin.'/stays/rooms/get-room-data', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'view');
     CSRF::guard();
     header('Content-Type: application/json');
 
@@ -1466,6 +1481,7 @@ $router->post(admin.'/stays/rooms/delete', function () use ($SECURE,$db) {
     if (ob_get_level()) ob_clean();
 
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'delete');
     CSRF::guard();
 
     $room_id = intval($_POST['room_id'] ?? 0);
@@ -1585,6 +1601,7 @@ $router->post('/admin/stays/rooms/options/save', function() use ($db) {
     // room options. Every sibling handler in this file calls ADMIN_AUTH(); this
     // one (and its /delete pair) were missed.
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'edit');
     CSRF::guard(); // accepts the X-CSRF-TOKEN header the admin JS interceptor sends
     // Check if it's AJAX request
     if (!isset($_SERVER['HTTP_X_REQUESTED_WITH']) || strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) !== 'xmlhttprequest') {
@@ -1674,6 +1691,7 @@ $router->post('/admin/stays/rooms/options/delete', function() use ($db) {
     // ADMIN AUTH CHECK — deletes a hotel room option. Was guarded only by a
     // forgeable X-Requested-With header (not authentication). See the /save pair.
     ADMIN_AUTH();
+    admin_require($db, 'stays', 'delete');
     CSRF::guard(); // accepts the X-CSRF-TOKEN header the admin JS interceptor sends
     // Check if it's AJAX request
     if (!isset($_SERVER['HTTP_X_REQUESTED_WITH']) || strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) !== 'xmlhttprequest') {

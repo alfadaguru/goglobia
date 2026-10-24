@@ -79,6 +79,7 @@ if (!function_exists('busBuildScheduleDates')) {
 // ============================ LIST BUS SERVICES
 $router->get(admin . '/bus', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bus', 'view');
     $title = (T::bus ?? 'Bus') . ' ' . (T::management ?? 'Management');
     $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -89,6 +90,7 @@ $router->get(admin . '/bus', function () use ($SECURE, $db) {
 // ============================ OPERATORS: LIST
 $router->get(admin . '/bus/operators', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bus', 'view');
     $title = (T::bus ?? 'Bus') . ' ' . (T::operators ?? 'Operators');
     $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -99,6 +101,7 @@ $router->get(admin . '/bus/operators', function () use ($SECURE, $db) {
 // ============================ OPERATORS: MANAGE (ADD + EDIT)
 $router->get(admin . '/bus/operators/manage', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bus', 'add');
     $mode = 'add'; $op = [];
     $title = (T::add ?? 'Add') . ' ' . (T::operator ?? 'Operator');
     $header = true; $footer = true;
@@ -108,6 +111,7 @@ $router->get(admin . '/bus/operators/manage', function () use ($SECURE, $db) {
 });
 $router->get(admin . '/bus/operators/manage/([0-9]+)', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bus', 'edit');
     $op = $db->get('bus_operators', '*', ['id' => (int)$id]);
     if (!$op) { redirect(root . admin . '/bus/operators'); return; }
     $mode = 'edit';
@@ -121,6 +125,7 @@ $router->get(admin . '/bus/operators/manage/([0-9]+)', function ($id) use ($SECU
 // ============================ OPERATORS: SAVE
 $router->post(admin . '/bus/operators/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bus', 'edit');
     if (!isset($_POST['csrf_token']) || !CSRF::validateToken($_POST['csrf_token'])) {
         $_SESSION['error'] = 'Invalid form submission'; redirect(root . admin . '/bus/operators'); return;
     }
@@ -152,6 +157,7 @@ $router->post(admin . '/bus/operators/save', function () use ($SECURE, $db) {
 // ============================ OPERATORS: DELETE
 $router->get(admin . '/bus/operators/delete/([0-9]+)', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bus', 'delete');
     try { $db->delete('bus_operators', ['id' => (int)$id]); $_SESSION['success'] = (T::operator ?? 'Operator') . ' ' . (T::deleted ?? 'deleted'); }
     catch (\Throwable $e) { $_SESSION['error'] = (T::failed ?? 'Failed'); }
     redirect(root . admin . '/bus/operators');
@@ -160,6 +166,7 @@ $router->get(admin . '/bus/operators/delete/([0-9]+)', function ($id) use ($SECU
 // ============================ BUS: MANAGE (ADD + EDIT ON ONE PAGE)
 $router->get(admin . '/bus/manage', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bus', 'add');
     $mode = 'add'; $bus = []; $routes = [];
     $busTypes = busSettings($db, 'bus_type');
     $amenities = busSettings($db, 'amenity');
@@ -174,6 +181,7 @@ $router->get(admin . '/bus/manage', function () use ($SECURE, $db) {
 });
 $router->get(admin . '/bus/manage/([0-9]+)', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bus', 'edit');
     $bus = $db->get('bus', '*', ['id' => (int)$id]);
     if (!$bus) { redirect(root . admin . '/bus'); return; }
     $mode = 'edit';
@@ -192,12 +200,13 @@ $router->get(admin . '/bus/manage/([0-9]+)', function ($id) use ($SECURE, $db) {
 
 // LEGACY → MANAGE
 $router->get(admin . '/bus/([0-9]+)/routes', function ($id) use ($SECURE, $db) {
-    ADMIN_AUTH(); redirect(root . admin . '/bus/manage/' . (int)$id);
+    ADMIN_AUTH(); admin_require($db, 'bus', 'view'); redirect(root . admin . '/bus/manage/' . (int)$id);
 });
 
 // ROUTES TABLE ONLY (HTML) — FOR AJAX PARTIAL REFRESH AFTER MODAL SAVE
 $router->get(admin . '/bus/([0-9]+)/routes-table', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bus', 'view');
     $b = $db->get('bus', ['id', 'currency'], ['id' => (int)$id]);
     if (!$b) { echo ''; return; }
     $curr = $b['currency'] ?: busDefaultCurrency($db);
@@ -207,6 +216,7 @@ $router->get(admin . '/bus/([0-9]+)/routes-table', function ($id) use ($SECURE, 
 // ============================ BUS: SAVE (operator_id, default currency, no rating)
 $router->post(admin . '/bus/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bus', 'edit');
     if (!isset($_POST['csrf_token']) || !CSRF::validateToken($_POST['csrf_token'])) {
         $_SESSION['error'] = 'Invalid form submission'; redirect(root . admin . '/bus'); return;
     }
@@ -248,6 +258,7 @@ $router->post(admin . '/bus/save', function () use ($SECURE, $db) {
 // ============================ BUS: DELETE (+ ROUTES + CALENDAR)
 $router->get(admin . '/bus/delete/([0-9]+)', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bus', 'delete');
     $id = (int)$id;
     try {
         $db->delete('bus_routes_calendar', ['bus_id' => $id]);
@@ -261,6 +272,7 @@ $router->get(admin . '/bus/delete/([0-9]+)', function ($id) use ($SECURE, $db) {
 // ============================ ROUTE: AJAX SAVE (MODAL — RETURNS JSON)
 $router->post(admin . '/bus/routes/ajax-save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bus', 'edit');
     while (ob_get_level()) { ob_end_clean(); }
     header('Content-Type: application/json; charset=utf-8');
     try {
@@ -344,6 +356,7 @@ $router->post(admin . '/bus/routes/ajax-save', function () use ($SECURE, $db) {
 // ============================ ROUTE: AJAX DELETE (RETURNS JSON)
 $router->post(admin . '/bus/routes/ajax-delete', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'bus', 'delete');
     while (ob_get_level()) { ob_end_clean(); }
     header('Content-Type: application/json; charset=utf-8');
     try {

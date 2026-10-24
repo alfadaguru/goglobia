@@ -14,6 +14,7 @@
 //==============================================================
 $router->get(admin . '/suppliers', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'suppliers', 'view');
 
     // Pending first (the actionable queue), then the rest for reference.
     $pending = $db->select('users', '*', [
@@ -63,6 +64,7 @@ $router->get(admin . '/suppliers', function () use ($SECURE, $db) {
 //==============================================================
 $router->post(admin . '/suppliers/approve/(.+)', function ($user_id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'suppliers', 'edit');
     CSRF::guard(); // state-changing admin action
 
     $supplier = $db->get('users', '*', ['user_id' => $user_id, 'role' => 'supplier']);
@@ -143,6 +145,7 @@ $router->post(admin . '/suppliers/approve/(.+)', function ($user_id) use ($SECUR
 //==============================================================
 $router->post(admin . '/suppliers/reject/(.+)', function ($user_id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'suppliers', 'edit');
     CSRF::guard();
 
     $supplier = $db->get('users', '*', ['user_id' => $user_id, 'role' => 'supplier']);
@@ -205,6 +208,7 @@ $router->post(admin . '/suppliers/reject/(.+)', function ($user_id) use ($SECURE
 // Queue: stays a supplier has SUBMITTED for approval (plus recently reviewed).
 $router->get(admin . '/supplier-listings', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'suppliers', 'view');
 
     // Only supplier-OWNED stays (owner is a user with role 'supplier') are in this
     // moderation queue — admin/seeded stays were backfilled to 'approved' and never
@@ -238,6 +242,7 @@ $router->get(admin . '/supplier-listings', function () use ($SECURE, $db) {
 // Review action: approve | query | reject (modeled on umrah_group_review).
 $router->post(admin . '/supplier-listings/review/([0-9]+)', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'suppliers', 'edit');
     CSRF::guard();
 
     $stay = $db->get('stays', ['id', 'user_id', 'name', 'listing_status'], ['id' => (int) $id]);
@@ -300,6 +305,7 @@ $router->post(admin . '/supplier-listings/review/([0-9]+)', function ($id) use (
 //==============================================================
 $router->get(admin . '/suppliers-overview', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'suppliers', 'view');
     $stats = [
         'suppliers_total'    => (int) $db->count('users', ['role' => 'supplier']),
         'suppliers_pending'  => (int) $db->count('users', ['role' => 'supplier', 'status' => 'pending']),
@@ -328,6 +334,7 @@ $router->get(admin . '/suppliers-overview', function () use ($SECURE, $db) {
 //==============================================================
 $router->get(admin . '/supplier-service-requests', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'suppliers', 'view');
     $pending = function_exists('supplier_requests_pending') ? supplier_requests_pending($db) : [];
     // Owner display names + current grant for context.
     $names = []; $currentMax = [];
@@ -349,6 +356,7 @@ $router->get(admin . '/supplier-service-requests', function () use ($SECURE, $db
 
 $router->post(admin . '/supplier-service-requests/decide', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'suppliers', 'edit');
     CSRF::guard();
     $id = (int) ($_POST['id'] ?? 0);
     $decision = strtolower(trim((string) ($_POST['decision'] ?? '')));
@@ -384,6 +392,7 @@ $router->post(admin . '/supplier-service-requests/decide', function () use ($SEC
 // Queue: requested sites first (actionable), then recently decided for reference.
 $router->get(admin . '/white-label-requests', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'suppliers', 'view');
     $requested = [];
     $others = [];
     try {
@@ -419,6 +428,7 @@ $router->get(admin . '/white-label-requests', function () use ($SECURE, $db) {
 // Review action: approve | reject | suspend.
 $router->post(admin . '/white-label-requests/review/([0-9]+)', function ($stayId) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'suppliers', 'edit');
     CSRF::guard();
     $back = root . admin . '/white-label-requests';
     $decision = (string) ($_POST['decision'] ?? '');

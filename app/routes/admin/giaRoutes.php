@@ -11,6 +11,7 @@
 // GET admin/gia — overview dashboard.
 $router->get(admin . '/gia', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'gia', 'view');
 
     require_once dirname(__DIR__, 2) . '/lib/ai/gia_analytics.php';
     if (function_exists('ensureGiaAnalyticsSchema')) {
@@ -98,6 +99,7 @@ $router->get(admin . '/gia', function () use ($SECURE, $db) {
 // GET admin/gia/conversation/{id} — a single conversation transcript + events.
 $router->get(admin . '/gia/conversation/([0-9]+)', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'gia', 'view');
     $id = (int) $id;
 
     require_once dirname(__DIR__, 2) . '/lib/ai/gia_analytics.php';
@@ -145,6 +147,7 @@ $router->get(admin . '/gia/conversation/([0-9]+)', function ($id) use ($SECURE, 
 // POST admin/gia/leads/export — download all captured leads as CSV.
 $router->get(admin . '/gia/leads/export', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'gia', 'view');
     require_once dirname(__DIR__, 2) . '/lib/ai/gia_analytics.php';
     if (function_exists('ensureGiaAnalyticsSchema')) { ensureGiaAnalyticsSchema($db); }
     $rows = [];
@@ -179,6 +182,7 @@ $router->get(admin . '/gia/leads/export', function () use ($SECURE, $db) {
 // POST admin/gia/conversation/flag — flag/unflag or delete a conversation.
 $router->post(admin . '/gia/conversation/action', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'gia', 'edit');
     if (class_exists('CSRF')) { CSRF::guard(); }
     header('Content-Type: application/json');
     require_once dirname(__DIR__, 2) . '/lib/ai/gia_analytics.php';
@@ -210,6 +214,7 @@ $router->post(admin . '/gia/conversation/action', function () use ($SECURE, $db)
 // POST admin/gia/toggle — turn GIA (AI trip) on/off from the dashboard.
 $router->post(admin . '/gia/toggle', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'gia', 'edit');
     if (class_exists('CSRF')) { CSRF::guard(); }
     header('Content-Type: application/json');
     try {
@@ -236,6 +241,7 @@ $router->post(admin . '/gia/toggle', function () use ($SECURE, $db) {
 // POST admin/gia/conversation/staff-reply — staff message into the user's chat.
 $router->post(admin . '/gia/conversation/staff-reply', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'gia', 'edit');
     if (class_exists('CSRF')) { CSRF::guard(); }
     header('Content-Type: application/json');
     require_once dirname(__DIR__, 2) . '/lib/ai/gia_analytics.php';
@@ -274,6 +280,7 @@ $router->post(admin . '/gia/conversation/staff-reply', function () use ($SECURE,
 // POST admin/gia/conversation/handoff — toggle handoff: hand back to GIA (resume AI).
 $router->post(admin . '/gia/conversation/handoff', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'gia', 'edit');
     if (class_exists('CSRF')) { CSRF::guard(); }
     header('Content-Type: application/json');
     require_once dirname(__DIR__, 2) . '/lib/ai/gia_analytics.php';
@@ -303,6 +310,7 @@ $router->post(admin . '/gia/conversation/handoff', function () use ($SECURE, $db
 // GET admin/gia/channels — the control panel.
 $router->get(admin . '/gia/channels', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'gia', 'view');
     require_once dirname(__DIR__, 2) . '/lib/ai/gia_channels_config.php';
     require_once dirname(__DIR__, 2) . '/lib/ai/gia_service_expiry.php';
     $channels = gia_channels_config($db);
@@ -321,6 +329,7 @@ $router->get(admin . '/gia/channels', function () use ($SECURE, $db) {
 // POST admin/gia/channels/save — persist per-channel config (merge-safe).
 $router->post(admin . '/gia/channels/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'gia', 'edit');
     if (class_exists('CSRF')) { CSRF::guard(); }
     header('Content-Type: application/json');
     require_once dirname(__DIR__, 2) . '/lib/ai/gia_channels_config.php';
@@ -341,6 +350,7 @@ $router->post(admin . '/gia/channels/save', function () use ($SECURE, $db) {
 // default 20, configurable per service. ADMIN_AUTH + CSRF.
 $router->post(admin . '/gia/expiry/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'gia', 'edit');
     if (class_exists('CSRF')) { CSRF::guard(); }
     header('Content-Type: application/json');
     require_once dirname(__DIR__, 2) . '/lib/ai/gia_service_expiry.php';
@@ -353,6 +363,7 @@ $router->post(admin . '/gia/expiry/save', function () use ($SECURE, $db) {
 // POST admin/gia/channels/test — lightweight connectivity check per channel.
 $router->post(admin . '/gia/channels/test', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'gia', 'edit');
     if (class_exists('CSRF')) { CSRF::guard(); }
     header('Content-Type: application/json');
     require_once dirname(__DIR__, 2) . '/lib/ai/gia_channels_config.php';
@@ -413,6 +424,7 @@ $router->post(admin . '/gia/channels/test', function () use ($SECURE, $db) {
 // operator a manual trip to the Green API console. ADMIN_AUTH + CSRF.
 $router->post(admin . '/gia/channels/greenapi-webhook', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'gia', 'edit');
     if (class_exists('CSRF')) { CSRF::guard(); }
     header('Content-Type: application/json');
     require_once dirname(__DIR__, 2) . '/lib/ai/gia_channel_send.php';
@@ -427,6 +439,7 @@ $router->post(admin . '/gia/channels/greenapi-webhook', function () use ($SECURE
 // Telegram bot's webhook (setWebhook with secret_token). ADMIN_AUTH + CSRF.
 $router->post(admin . '/gia/channels/telegram-webhook', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'gia', 'edit');
     if (class_exists('CSRF')) { CSRF::guard(); }
     header('Content-Type: application/json');
     require_once dirname(__DIR__, 2) . '/lib/ai/gia_channel_send.php';
@@ -441,6 +454,7 @@ $router->post(admin . '/gia/channels/telegram-webhook', function () use ($SECURE
 // operator can SEE what each provider sent and what we did with it. ADMIN_AUTH.
 $router->get(admin . '/gia/channels/logs', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'gia', 'view');
     header('Content-Type: application/json');
     require_once dirname(__DIR__, 2) . '/lib/ai/gia_webhook_log.php';
     $channel = isset($_GET['channel']) ? preg_replace('/[^a-z]/', '', strtolower((string) $_GET['channel'])) : '';

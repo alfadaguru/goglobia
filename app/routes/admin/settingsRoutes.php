@@ -139,6 +139,7 @@ $router->get(admin.'/settings', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'view');
 
     // Include ThemeManager for theme operations
     require_once __DIR__ . '/../../lib/ThemeManager.php';
@@ -201,6 +202,7 @@ $router->get(admin.'/settings', function () use ($SECURE,$db) {
 
 $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'edit');
 
     try {
         ensureAppSettingsColumn($db);
@@ -593,6 +595,7 @@ $router->post('/admin/save-notification-toggle', function() use ($db) {
         header('Content-Type: application/json');
 
         // Check admin auth
+        admin_require($db, 'settings', 'edit');
         if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'admin') {
             echo json_encode(['success' => false, 'message' => 'Unauthorized']);
             exit;
@@ -660,6 +663,7 @@ $router->post('/admin/test-email', function() use ($db) {
 
         $input = json_decode(file_get_contents('php://input'), true);
 
+        admin_require($db, 'settings', 'edit');
         if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'admin') {
             echo json_encode(['success' => false, 'message' => 'Authentication required']);
             exit;
@@ -740,6 +744,7 @@ $router->post('/admin/test-whatsapp', function() use ($db) {
 
         $input = json_decode(file_get_contents('php://input'), true);
 
+        admin_require($db, 'settings', 'edit');
         if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'admin') {
             echo json_encode(['success' => false, 'message' => 'Authentication required']);
             exit;
@@ -824,6 +829,7 @@ $router->post('/admin/test-sms', function() use ($db) {
 
         $input = json_decode(file_get_contents('php://input'), true);
 
+        admin_require($db, 'settings', 'edit');
         if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'admin') {
             echo json_encode(['success' => false, 'message' => 'Authentication required']);
             exit;
@@ -907,6 +913,7 @@ $router->post('/admin/test-push', function() use ($db) {
 
         $input = json_decode(file_get_contents('php://input'), true);
 
+        admin_require($db, 'settings', 'edit');
         if (!isset($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'admin') {
             echo json_encode(['success' => false, 'message' => 'Authentication required']);
             exit;
@@ -963,6 +970,7 @@ $router->post('/admin/test-push', function() use ($db) {
 // ======================================= AI TEST
 $router->post(admin.'/settings/ai/test', function() use ($db) {
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'edit');
     header('Content-Type: application/json');
 
     $provider = $_POST['provider'] ?? '';
@@ -1051,6 +1059,7 @@ $router->get(admin.'/settings/countries', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'view');
 
     // META DATA
     $title = 'Countries';
@@ -1068,6 +1077,7 @@ $router->get(admin.'/settings/countries/add', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'add');
 
     // META DATA
     $title = 'Add Country';
@@ -1085,6 +1095,7 @@ $router->get(admin.'/settings/countries/edit/(.*)', function ($id) use ($SECURE,
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'view');
 
     // META DATA
     $title = 'Edit Country';
@@ -1106,6 +1117,7 @@ $router->post(admin.'/settings/countries/add', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'add');
 
     // Handle form submission
     if ($_POST && isset($_POST['action']) && $_POST['action'] === 'save_country') {
@@ -1239,6 +1251,7 @@ $router->post(admin.'/settings/countries/edit/(.*)', function ($id) use ($SECURE
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'edit');
 
     $countryId = (int)$id;
 
@@ -1383,6 +1396,7 @@ $router->post(admin.'/settings/countries/edit/(.*)', function ($id) use ($SECURE
 // ======================================= MOBILE APP SETTINGS
 $router->get(admin.'/settings/app', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'view');
 
     $title = 'Mobile App Settings';
     $description = 'Configure mobile app theme, colors, and button styles';
@@ -1396,6 +1410,7 @@ $router->get(admin.'/settings/app', function () use ($SECURE, $db) {
 
 $router->post(admin.'/settings/app', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'edit');
 
     try {
         ensureAppSettingsColumn($db);
@@ -1454,6 +1469,7 @@ $router->get(admin.'/settings/currencies', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'currencies', 'view');
 
     // META DATA
     $title = 'Currencies';
@@ -1472,6 +1488,7 @@ $router->get(admin.'/settings/system-info', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'view');
 
     // META DATA
     $title = 'System Info';
@@ -1490,6 +1507,7 @@ $router->get(admin.'/settings/currencies/add', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'currencies', 'add');
 
     // META DATA
     $title = 'Add Currency';
@@ -1508,6 +1526,7 @@ $router->get(admin.'/settings/currencies/edit/(.*)', function ($id) use ($SECURE
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'currencies', 'view');
 
     // META DATA
     $title = 'Edit Currency';
@@ -1529,6 +1548,7 @@ $router->post(admin.'/settings/currencies/add', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'currencies', 'add');
 
     // Handle form submission
     if ($_POST && isset($_POST['action']) && $_POST['action'] === 'save_currency') {
@@ -1642,6 +1662,7 @@ $router->post(admin.'/settings/currencies/edit/(.*)', function ($id) use ($SECUR
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'currencies', 'edit');
 
     $currencyId = (int)$id;
 
@@ -1794,6 +1815,7 @@ $router->post(admin.'/settings/currencies/update-rates', function () use ($SECUR
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'currencies', 'edit');
     CSRF::guard();
 
     @set_time_limit(0);
@@ -1818,6 +1840,7 @@ $router->post(admin.'/settings/currencies/update-rates', function () use ($SECUR
 $router->post(admin.'/settings/currencies/save-api-key', function () use ($SECURE,$db) {
 
     ADMIN_AUTH();
+    admin_require($db, 'currencies', 'edit');
     CSRF::guard();
     while (ob_get_level()) { ob_end_clean(); }
     header('Content-Type: application/json');
@@ -1838,6 +1861,7 @@ $router->get(admin.'/settings/languages', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'languages', 'view');
 
     // META DATA
     $title = 'Languages';
@@ -1856,6 +1880,7 @@ $router->get(admin.'/settings/languages/add', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'languages', 'view');
 
     // META DATA
     $title = 'Add Language';
@@ -1874,6 +1899,7 @@ $router->get(admin.'/settings/languages/edit/(.*)', function ($id) use ($SECURE,
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'languages', 'view');
 
     // META DATA
     $title = 'Edit Language';
@@ -1895,6 +1921,7 @@ $router->post(admin.'/settings/languages/add', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'languages', 'add');
 
     // Handle form submission
     if ($_POST && isset($_POST['action']) && $_POST['action'] === 'save_language') {
@@ -2023,6 +2050,7 @@ $router->post(admin.'/settings/languages/edit/(.*)', function ($id) use ($SECURE
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'languages', 'edit');
 
     $languageId = (int)$id;
 
@@ -2176,6 +2204,7 @@ $router->post(admin.'/settings/languages/edit/(.*)', function ($id) use ($SECURE
 $router->get(admin.'/settings/ai-suggestions', function () use ($SECURE,$db) {
     // Suggestions list lives on Settings → AI
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'view');
     redirect(root . admin . '/settings#ai');
 });
 
@@ -2184,6 +2213,7 @@ $router->get(admin.'/settings/ai-suggestions/add', function () use ($SECURE,$db)
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'add');
 
     // META DATA
     $title = 'Add AI Suggestion';
@@ -2202,6 +2232,7 @@ $router->get(admin.'/settings/ai-suggestions/edit/(.*)', function ($id) use ($SE
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'view');
 
     // META DATA
     $title = 'Edit AI Suggestion';
@@ -2223,6 +2254,7 @@ $router->post(admin.'/settings/ai-suggestions/add', function () use ($SECURE,$db
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'add');
 
     // Handle form submission
     if ($_POST && isset($_POST['action']) && $_POST['action'] === 'save_ai_suggestion') {
@@ -2302,6 +2334,7 @@ $router->post(admin.'/settings/ai-suggestions/edit/(.*)', function ($id) use ($S
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'edit');
 
     $suggestionId = (int)$id;
 
@@ -2383,11 +2416,13 @@ $router->post(admin.'/settings/ai-suggestions/edit/(.*)', function ($id) use ($S
 // Legacy underscore URLs → dashed (bookmarks / old links)
 $router->get(admin.'/settings/ai_suggestions(.*)', function ($rest) {
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'view');
     header('Location: ' . root . admin . '/settings/ai-suggestions' . (string)$rest, true, 301);
     exit;
 });
 $router->post(admin.'/settings/ai_suggestions(.*)', function ($rest) {
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'edit');
     header('Location: ' . root . admin . '/settings/ai-suggestions' . (string)$rest, true, 307);
     exit;
 });
@@ -2401,6 +2436,7 @@ $router->post(admin.'/settings/modules/toggle-logging', function () use ($SECURE
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'edit');
     CSRF::guard();
 
     // Set JSON header
@@ -2526,6 +2562,7 @@ $router->post(admin.'/settings/modules/log-action', function () use ($SECURE,$db
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'edit');
 
     try {
         // Get parameters from POST
@@ -2815,6 +2852,7 @@ $router->get(admin.'/settings/modules/log-action', function () use ($SECURE,$db)
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'view');
 
     try {
         // Get parameters from GET
@@ -3074,6 +3112,7 @@ $router->post(admin.'/settings/modules/hotelbeds/update-setting', function () us
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    admin_require($db, 'settings', 'edit');
     CSRF::guard();
 
     // Set JSON header

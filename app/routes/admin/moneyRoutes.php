@@ -19,6 +19,7 @@
 
 $router->get(admin.'/finance/tiers', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'money', 'view');
     if (function_exists('ensureAgentApiSchema')) { ensureAgentApiSchema($db); }
 
     $tiers = $db->select('agent_tiers', '*', ['ORDER' => ['sort_order' => 'ASC', 'min_lifetime_topup' => 'ASC']]) ?: [];
@@ -36,6 +37,7 @@ $router->get(admin.'/finance/tiers', function () use ($SECURE, $db) {
 
 $router->post(admin.'/finance/tiers/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'money', 'edit');
     CSRF::verifyRequest();
     if (function_exists('ensureAgentApiSchema')) { ensureAgentApiSchema($db); }
 
@@ -99,6 +101,7 @@ $router->post(admin.'/finance/tiers/save', function () use ($SECURE, $db) {
 
 $router->post(admin.'/finance/tiers/delete', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'money', 'delete');
     header('Content-Type: application/json');
     $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
     if (!CSRF::validateToken($input['csrf_token'] ?? '')) {
@@ -122,6 +125,7 @@ $router->post(admin.'/finance/tiers/delete', function () use ($SECURE, $db) {
 
 $router->post(admin.'/finance/loyalty/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'money', 'edit');
     CSRF::verifyRequest();
     if (function_exists('ensureAgentApiSchema')) { ensureAgentApiSchema($db); }
 
@@ -163,6 +167,7 @@ $router->post(admin.'/finance/loyalty/save', function () use ($SECURE, $db) {
 // ============================================================================
 $router->get(admin.'/finance/journeys/([0-9]+)', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'money', 'view');
     if (function_exists('ensureAgentApiSchema')) { ensureAgentApiSchema($db); }
 
     $view = 'detail';
@@ -190,6 +195,7 @@ $router->get(admin.'/finance/journeys/([0-9]+)', function ($id) use ($SECURE, $d
 
 $router->get(admin.'/finance/journeys', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'money', 'view');
     if (function_exists('ensureAgentApiSchema')) { ensureAgentApiSchema($db); }
 
     $view = 'list';
@@ -254,6 +260,7 @@ $router->get(admin.'/finance/journeys', function () use ($SECURE, $db) {
 // ============================================================================
 $router->get(admin.'/finance/members', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'money', 'view');
     if (function_exists('ensureAgentApiSchema')) { ensureAgentApiSchema($db); }
 
     $tiers = $db->select('agent_tiers', '*', ['ORDER' => ['sort_order' => 'ASC', 'min_lifetime_topup' => 'ASC']]) ?: [];
@@ -286,6 +293,7 @@ $router->get(admin.'/finance/members', function () use ($SECURE, $db) {
 
 $router->post(admin.'/finance/members/points', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'money', 'edit');
     if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_POST['_token'] ?? ''))) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Invalid or expired form token.'];
         redirect($_SERVER['HTTP_REFERER'] ?? root . admin . '/finance/members');
@@ -331,6 +339,7 @@ $router->post(admin.'/finance/members/points', function () use ($SECURE, $db) {
 // ============================================================================
 $router->get(admin.'/finance/members/([A-Za-z0-9_\-]+)', function ($uid) use ($SECURE, $db) {
     ADMIN_AUTH();
+    admin_require($db, 'money', 'view');
     if (function_exists('ensureAgentApiSchema')) { ensureAgentApiSchema($db); }
 
     $uid = (string) $uid;

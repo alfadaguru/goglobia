@@ -14,6 +14,7 @@ if (!function_exists('getTranslatedPageName')) {
 // ================================ GET /cms/menus
 $router->get(admin.'/cms/menus', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'view');
     
     $all_pages = $db->select('cms', '*', [
         'ORDER' => ['order' => 'ASC', 'page_name' => 'ASC']
@@ -60,6 +61,7 @@ $router->get(admin.'/cms/menus', function () use ($SECURE,$db) {
 // ================================ POST /cms/menus/add-to-menu
 $router->post(admin.'/cms/menus/add-to-menu', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'edit');
     CSRF::guard();
     
     $page_id = $_POST['page_id'] ?? 0;
@@ -84,6 +86,7 @@ $router->post(admin.'/cms/menus/add-to-menu', function () use ($SECURE,$db) {
 // ================================ POST /cms/menus/move-menu-item
 $router->post(admin.'/cms/menus/move-menu-item', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'edit');
     
     $page_id = $_POST['page_id'] ?? 0;
     $position = $_POST['position'] ?? 'header';
@@ -106,6 +109,7 @@ $router->post(admin.'/cms/menus/move-menu-item', function () use ($SECURE,$db) {
 // ================================ POST /cms/menus/remove-from-menu
 $router->post(admin.'/cms/menus/remove-from-menu', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'edit');
     CSRF::guard();
     
     $page_id = $_POST['page_id'] ?? 0;
@@ -126,6 +130,7 @@ $router->post(admin.'/cms/menus/remove-from-menu', function () use ($SECURE,$db)
 // ================================ POST /cms/menus/create-menu-item
 $router->post(admin.'/cms/menus/create-menu-item', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'add');
     CSRF::guard();
     
     $title = trim($_POST['title'] ?? '');
@@ -183,6 +188,7 @@ $router->post(admin.'/cms/menus/create-menu-item', function () use ($SECURE,$db)
 // Backward compatibility route
 $router->post(admin.'/cms/menus/create-custom-link', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'add');
     CSRF::guard();
     
     $title = trim($_POST['title'] ?? '');
@@ -240,6 +246,7 @@ $router->post(admin.'/cms/menus/create-custom-link', function () use ($SECURE,$d
 // ================================ GET /cms/menus/get-item/:id
 $router->get(admin.'/cms/menus/get-item/(\d+)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'view');
     
     try {
         $item = $db->get('cms', '*', ['id' => $id]);
@@ -257,6 +264,7 @@ $router->get(admin.'/cms/menus/get-item/(\d+)', function ($id) use ($SECURE,$db)
 // ================================ POST /cms/menus/update-item
 $router->post(admin.'/cms/menus/update-item', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'edit');
     CSRF::guard();
     
     $id = intval($_POST['id'] ?? 0);
@@ -327,6 +335,7 @@ $router->post(admin.'/cms/menus/update-item', function () use ($SECURE,$db) {
 // ================================ POST /cms/menus/delete-item
 $router->post(admin.'/cms/menus/delete-item', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'delete');
     CSRF::guard();
     
     $id = intval($_POST['id'] ?? 0);
@@ -376,6 +385,7 @@ $router->post(admin.'/cms/menus/delete-item', function () use ($SECURE,$db) {
 // ================================ POST /cms/menus/restore-item
 $router->post(admin.'/cms/menus/restore-item', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'edit');
     CSRF::guard();
     
     $id = intval($_POST['id'] ?? 0);
@@ -430,6 +440,7 @@ if (!function_exists('getChildMenuItems')) {
 // ================================ POST /cms/menus/update-structure
 $router->post(admin.'/cms/menus/update-structure', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'edit');
     CSRF::guard();
     
     $menu_data = json_decode(file_get_contents('php://input'), true);
@@ -468,6 +479,7 @@ $router->post(admin.'/cms/menus/update-structure', function () use ($SECURE,$db)
 // ================================ GET /cms/menus/disabled-items
 $router->get(admin.'/cms/menus/disabled-items', function () use ($SECURE,$db) {
     ADMIN_AUTH();
+    admin_require($db, 'cms', 'view');
     
     try {
         $disabled_items = $db->select('cms', '*', [

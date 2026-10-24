@@ -3,6 +3,8 @@
 @$SECURE or die('Access Denied!');
 
 $router->get(admin.'/get-started', function () use ($SECURE,$db) {
+ADMIN_AUTH();
+admin_require($db, 'dashboard', 'view');
 
 // META DATA
 $title = $GLOBALS['app']['home_title'];
@@ -22,6 +24,7 @@ $router->get(admin, function () use ($SECURE,$db) {
 // /login. Call it as a plain statement (L1 fix), then send the admin to the
 // dashboard.
 ADMIN_AUTH();
+admin_require($db, 'dashboard', 'view');
 header('Location: ' . root . 'admin/dashboard');
 exit;
 
