@@ -19,7 +19,7 @@
 // Owner rule — EXPLICIT NAMED HANDOFF: when a staff member takes over, the
 // CUSTOMER is told, by name, that a human joined, and GIA stays paused until
 // release. support_desk_takeover() announces + delivers that message, and every
-// staff reply records which support_staff.id authored it (gia_messages.staff_id).
+// staff reply records which user (users.user_id) authored it (gia_messages.staff_id).
 //
 // All functions are global + function_exists-guarded. Medoo $db only.
 // ============================================================================
@@ -29,9 +29,9 @@ if (!function_exists('ensureSupportDeskSchema')) {
      * Idempotently add the Live Desk columns. Mirrors ensureCoreFixSchema's
      * SHOW COLUMNS + ALTER TABLE loop (functions.php:853) with try/catch +
      * error_log so a DB user without ALTER rights degrades gracefully.
-     *   gia_conversations.assigned_staff_id  INT NULL  (support_staff.id owner)
+     *   gia_conversations.assigned_staff_id  INT NULL  (users.user_id owner)
      *   gia_conversations.assigned_at        DATETIME NULL
-     *   gia_messages.staff_id                INT NULL  (support_staff.id author of a staff reply; NULL for GIA/user)
+     *   gia_messages.staff_id                INT NULL  (users.user_id author of a staff reply; NULL for GIA/user)
      */
     function ensureSupportDeskSchema($db): void
     {
@@ -41,17 +41,28 @@ if (!function_exists('ensureSupportDeskSchema')) {
         }
         $checked = true;
 
+        // assigned_staff_id (conversation owner) and staff_id (staff-reply author)
+        // are the employee's users.user_id (VARCHAR) after the RBAC consolidation
+        // (S3); they previously held support_staff.id (INT). Fresh installs get
+        // VARCHAR; an existing INT column is flipped to VARCHAR by the type-guarded
+        // MODIFY below (old INT values referenced the dropped support_staff.id and
+        // had 0 live rows set, so clearing them on flip is safe).
         $columns = [
-            ['gia_conversations', 'assigned_staff_id', "ALTER TABLE `gia_conversations` ADD COLUMN `assigned_staff_id` INT(11) NULL DEFAULT NULL"],
+            ['gia_conversations', 'assigned_staff_id', "ALTER TABLE `gia_conversations` ADD COLUMN `assigned_staff_id` VARCHAR(255) NULL DEFAULT NULL"],
             ['gia_conversations', 'assigned_at',        "ALTER TABLE `gia_conversations` ADD COLUMN `assigned_at` DATETIME NULL DEFAULT NULL"],
-            ['gia_messages',      'staff_id',           "ALTER TABLE `gia_messages` ADD COLUMN `staff_id` INT(11) NULL DEFAULT NULL"],
+            ['gia_messages',      'staff_id',           "ALTER TABLE `gia_messages` ADD COLUMN `staff_id` VARCHAR(255) NULL DEFAULT NULL"],
         ];
 
         foreach ($columns as [$table, $column, $alterSql]) {
             try {
-                $exists = $db->query("SHOW COLUMNS FROM `$table` LIKE " . $db->pdo->quote($column))->fetchAll();
-                if (count($exists) === 0) {
+                $col = $db->query("SHOW COLUMNS FROM `$table` LIKE " . $db->pdo->quote($column))->fetch(\PDO::FETCH_ASSOC);
+                if (!$col) {
                     $db->pdo->exec($alterSql);
+                } elseif ($column !== 'assigned_at' && stripos((string) $col['Type'], 'int') !== false) {
+                    // Pre-consolidation INT column — clear unmappable legacy ids
+                    // then widen to VARCHAR.
+                    $db->pdo->exec("UPDATE `$table` SET `$column` = NULL WHERE `$column` IS NOT NULL");
+                    $db->pdo->exec("ALTER TABLE `$table` MODIFY `$column` VARCHAR(255) NULL DEFAULT NULL");
                 }
             } catch (\Throwable $e) {
                 error_log("ensureSupportDeskSchema: could not verify/add {$table}.{$column}: " . $e->getMessage());
@@ -106,10 +117,10 @@ if (!function_exists('support_desk_reply')) {
      * @param object $db
      * @param int    $convId  gia_conversations.id
      * @param string $text    staff message (clamped to 2000 chars)
-     * @param int    $staffId support_staff.id of the author
+     * @param string $staffId users.user_id of the author
      * @return array{ok:bool, delivered?:bool, channel?:string, message?:string}
      */
-    function support_desk_reply($db, int $convId, string $text, int $staffId): array
+    function support_desk_reply($db, int $convId, string $text, string $staffId): array
     {
         $conv = $db->get('gia_conversations', [
             'id', 'conv_key', 'channel', 'channel_user_id', 'staff_active',
@@ -164,12 +175,12 @@ if (!function_exists('support_desk_takeover')) {
      *
      * @param object $db
      * @param int    $convId
-     * @param int    $staffId     support_staff.id performing the action
+     * @param string $staffId     users.user_id performing the action
      * @param string $displayName human-readable staff name to announce to the customer
      * @param bool   $take        true = take over, false = release
      * @return array{ok:bool, mode:string, delivered?:bool, channel?:string, message?:string}
      */
-    function support_desk_takeover($db, int $convId, int $staffId, string $displayName, bool $take): array
+    function support_desk_takeover($db, int $convId, string $staffId, string $displayName, bool $take): array
     {
         $conv = $db->get('gia_conversations', [
             'id', 'conv_key', 'channel', 'channel_user_id', 'staff_active',
@@ -248,7 +259,7 @@ if (!function_exists('support_desk_queue')) {
      * @param int    $staffId used only for the 'assigned' (mine) filter
      * @return array<int,array> conversation rows
      */
-    function support_desk_queue($db, string $filter = 'all', int $limit = 50, int $staffId = 0): array
+    function support_desk_queue($db, string $filter = 'all', int $limit = 50, string $staffId = ''): array
     {
         $limit = $limit > 0 ? min($limit, 200) : 50;
 

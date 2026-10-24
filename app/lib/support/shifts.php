@@ -93,22 +93,21 @@ if (!function_exists('support_shifts_for')) {
             if (!is_array($shifts)) { $shifts = []; }
 
             foreach ($shifts as $s) {
-                $staffId = (int) $s['staff_id'];
-                $staff = $db->get('support_staff', ['user_id', 'display_name', 'phone'], ['id' => $staffId]);
-                $name = (string) ($staff['display_name'] ?? '');
-                $phone = (string) ($staff['phone'] ?? '');
-                if ($name === '' && is_array($staff) && !empty($staff['user_id'])) {
-                    $u = $db->get('users', ['first_name', 'last_name', 'phone'], ['user_id' => $staff['user_id']]);
-                    if (is_array($u)) {
-                        $name = trim((string) ($u['first_name'] ?? '') . ' ' . (string) ($u['last_name'] ?? ''));
-                        if ($phone === '') { $phone = (string) ($u['phone'] ?? ''); }
-                    }
+                $staffId = (string) $s['staff_id']; // = users.user_id (S3)
+                $name = '';
+                $phone = '';
+                $u = $db->get('users', ['first_name', 'last_name', 'phone', 'nudge_phone'], ['user_id' => $staffId]);
+                if (is_array($u)) {
+                    $name = trim((string) ($u['first_name'] ?? '') . ' ' . (string) ($u['last_name'] ?? ''));
+                    // Prefer the dedicated nudge_phone, else the account phone.
+                    $phone = (string) ($u['nudge_phone'] ?? '');
+                    if ($phone === '') { $phone = (string) ($u['phone'] ?? ''); }
                 }
                 $day = support_attendance_day($db, $staffId, $date);
                 $out[] = [
                     'id'            => (int) $s['id'],
                     'staff_id'      => $staffId,
-                    'name'          => $name !== '' ? $name : ('Staff #' . $staffId),
+                    'name'          => $name !== '' ? $name : ('Staff ' . $staffId),
                     'phone'         => $phone,
                     'start_time'    => $s['start_time'],
                     'end_time'      => $s['end_time'],
@@ -176,7 +175,7 @@ if (!function_exists('support_shift_nudge_due')) {
 
             foreach ($shifts as $s) {
                 $shiftId  = (int) $s['id'];
-                $staffId  = (int) $s['staff_id'];
+                $staffId  = (string) $s['staff_id']; // = users.user_id (S3)
                 $startT   = (string) ($s['start_time'] ?? '');
                 $nCount   = (int) $s['nudge_count'];
                 $lastAt   = $s['last_nudge_at'];
@@ -195,16 +194,14 @@ if (!function_exists('support_shift_nudge_due')) {
                     continue;
                 }
 
-                // Resolve phone + name.
-                $staff = $db->get('support_staff', ['user_id', 'display_name', 'phone'], ['id' => $staffId]);
-                $name  = (string) ($staff['display_name'] ?? '');
-                $phone = (string) ($staff['phone'] ?? '');
-                if (($name === '' || $phone === '') && is_array($staff) && !empty($staff['user_id'])) {
-                    $u = $db->get('users', ['first_name', 'last_name', 'phone'], ['user_id' => $staff['user_id']]);
-                    if (is_array($u)) {
-                        if ($name === '')  { $name = trim((string) ($u['first_name'] ?? '') . ' ' . (string) ($u['last_name'] ?? '')); }
-                        if ($phone === '') { $phone = (string) ($u['phone'] ?? ''); }
-                    }
+                // Resolve phone + name from the user (staff_id IS users.user_id).
+                $name  = '';
+                $phone = '';
+                $u = $db->get('users', ['first_name', 'last_name', 'phone', 'nudge_phone'], ['user_id' => $staffId]);
+                if (is_array($u)) {
+                    $name  = trim((string) ($u['first_name'] ?? '') . ' ' . (string) ($u['last_name'] ?? ''));
+                    $phone = (string) ($u['nudge_phone'] ?? '');     // dedicated nudge phone first
+                    if ($phone === '') { $phone = (string) ($u['phone'] ?? ''); }
                 }
 
                 if ($phone === '' || !function_exists('SENDWHATSAPP')) {

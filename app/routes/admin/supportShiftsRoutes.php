@@ -6,7 +6,7 @@
 // docs/support/CUSTOMER_SUPPORT_MODULE_SPEC.md (§2 data model, §3 routes, §7
 // LOCKED decisions). Shape mirrors app/routes/admin/campaignsRoutes.php /
 // supportStaffRoutes.php; every handler is ADMIN_AUTH() + the
-// support_can($db,'shifts.manage') capability gate, CSRF on POST.
+// admin_can($db,'support_shifts','edit') capability gate, CSRF on POST.
 //
 // The data layer lives in app/lib/support/shifts.php (support_shifts_for,
 // support_shift_upsert) + the self-healing schema in attendance.php
@@ -22,7 +22,7 @@ require_once __DIR__ . '/../../lib/support/shifts.php'; // roster + upsert + sch
 $router->get(admin.'/support/shifts', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     ensureSupportAttendanceSchema($db);
-    if (!support_can($db, 'shifts.manage')) { http_response_code(403); die('Access Denied!'); }
+    if (!admin_can($db, 'support_shifts', 'edit')) { http_response_code(403); die('Access Denied!'); }
     $title = 'Shift Roster'; $description = ''; $header = true; $footer = true;
     require_once views."includes/header.php";
     require_once "app/views/admin/support/shifts.php";
@@ -33,7 +33,7 @@ $router->get(admin.'/support/shifts', function () use ($SECURE, $db) {
 $router->get(admin.'/support/shifts/create', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     ensureSupportAttendanceSchema($db);
-    if (!support_can($db, 'shifts.manage')) { http_response_code(403); die('Access Denied!'); }
+    if (!admin_can($db, 'support_shifts', 'edit')) { http_response_code(403); die('Access Denied!'); }
     $title = 'Assign Shift'; $description = ''; $header = true; $footer = true;
     $_GET['id'] = 0;
     require_once views."includes/header.php";
@@ -45,7 +45,7 @@ $router->get(admin.'/support/shifts/create', function () use ($SECURE, $db) {
 $router->get(admin.'/support/shifts/edit/([0-9]+)', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
     ensureSupportAttendanceSchema($db);
-    if (!support_can($db, 'shifts.manage')) { http_response_code(403); die('Access Denied!'); }
+    if (!admin_can($db, 'support_shifts', 'edit')) { http_response_code(403); die('Access Denied!'); }
     $title = 'Edit Shift'; $description = ''; $header = true; $footer = true;
     $_GET['id'] = (int) $id;
     require_once views."includes/header.php";
@@ -58,16 +58,16 @@ $router->post(admin.'/support/shifts/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     CSRF::verifyRequest();
     ensureSupportAttendanceSchema($db);
-    if (!support_can($db, 'shifts.manage')) { http_response_code(403); die('Access Denied!'); }
+    if (!admin_can($db, 'support_shifts', 'edit')) { http_response_code(403); die('Access Denied!'); }
 
-    $staffId = (int) ($_POST['staff_id'] ?? 0);
+    $staffId = trim((string) ($_POST['staff_id'] ?? '')); // = users.user_id (S3)
     $date    = trim((string) ($_POST['shift_date'] ?? ''));
     $start   = trim((string) ($_POST['start_time'] ?? ''));
     $end     = trim((string) ($_POST['end_time'] ?? ''));
 
     try {
-        // The staff member must be a real support_staff row.
-        if ($staffId <= 0 || !$db->count('support_staff', ['id' => $staffId])) {
+        // The staff member must be a real employee (users row, role admin/employee).
+        if ($staffId === '' || !$db->count('users', ['user_id' => $staffId, 'role' => ['admin', 'employee']])) {
             throw new Exception('Pick a staff member for this shift.');
         }
 
@@ -91,7 +91,7 @@ $router->post(admin.'/support/shifts/delete', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     CSRF::verifyRequest();
     ensureSupportAttendanceSchema($db);
-    if (!support_can($db, 'shifts.manage')) { http_response_code(403); die('Access Denied!'); }
+    if (!admin_can($db, 'support_shifts', 'edit')) { http_response_code(403); die('Access Denied!'); }
 
     $id   = (int) ($_POST['id'] ?? 0);
     $date = trim((string) ($_POST['date'] ?? ''));

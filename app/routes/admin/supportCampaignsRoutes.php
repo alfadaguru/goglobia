@@ -8,7 +8,7 @@
 // docs/support/CUSTOMER_SUPPORT_MODULE_SPEC.md (§2 data model, §7 LOCKED P4).
 //
 // Shape mirrors app/routes/admin/campaignsRoutes.php EXACTLY: list/create/edit/
-// save/delete. Every handler is ADMIN_AUTH() + the support_can($db,
+// save/delete. Every handler is ADMIN_AUTH() + the admin_can($db,
 // 'campaigns.manage') capability gate, CSRF on POST. The self-healing schema
 // (gia_ad_campaigns + gia_conversations.campaign_id) lives in
 // app/lib/support/campaigns.php (ensureAdCampaignSchema), loaded globally in
@@ -30,7 +30,7 @@ if (!function_exists('support_campaign_offer_products')) {
 $router->get(admin.'/support/campaigns', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     ensureAdCampaignSchema($db);
-    if (!support_can($db, 'campaigns.manage')) { http_response_code(403); die('Access Denied!'); }
+    if (!admin_can($db, 'support_campaigns', 'edit')) { http_response_code(403); die('Access Denied!'); }
     $title = 'Ad Campaigns'; $description = ''; $header = true; $footer = true;
     require_once views."includes/header.php";
     require_once "app/views/admin/support/campaigns.php";
@@ -41,7 +41,7 @@ $router->get(admin.'/support/campaigns', function () use ($SECURE, $db) {
 $router->get(admin.'/support/campaigns/create', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     ensureAdCampaignSchema($db);
-    if (!support_can($db, 'campaigns.manage')) { http_response_code(403); die('Access Denied!'); }
+    if (!admin_can($db, 'support_campaigns', 'edit')) { http_response_code(403); die('Access Denied!'); }
     $title = 'New Ad Campaign'; $description = ''; $header = true; $footer = true;
     $_GET['id'] = 0;
     require_once views."includes/header.php";
@@ -53,7 +53,7 @@ $router->get(admin.'/support/campaigns/create', function () use ($SECURE, $db) {
 $router->get(admin.'/support/campaigns/edit/([0-9]+)', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
     ensureAdCampaignSchema($db);
-    if (!support_can($db, 'campaigns.manage')) { http_response_code(403); die('Access Denied!'); }
+    if (!admin_can($db, 'support_campaigns', 'edit')) { http_response_code(403); die('Access Denied!'); }
     $title = 'Edit Ad Campaign'; $description = ''; $header = true; $footer = true;
     $_GET['id'] = (int) $id;
     require_once views."includes/header.php";
@@ -66,7 +66,7 @@ $router->post(admin.'/support/campaigns/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     CSRF::verifyRequest();
     ensureAdCampaignSchema($db);
-    if (!support_can($db, 'campaigns.manage')) { http_response_code(403); die('Access Denied!'); }
+    if (!admin_can($db, 'support_campaigns', 'edit')) { http_response_code(403); die('Access Denied!'); }
 
     $id   = (int) ($_POST['id'] ?? 0);
     $name = trim((string) ($_POST['name'] ?? ''));
@@ -130,7 +130,7 @@ $router->post(admin.'/support/campaigns/delete', function () use ($SECURE, $db) 
     ADMIN_AUTH();
     CSRF::verifyRequest();
     ensureAdCampaignSchema($db);
-    if (!support_can($db, 'campaigns.manage')) { http_response_code(403); die('Access Denied!'); }
+    if (!admin_can($db, 'support_campaigns', 'edit')) { http_response_code(403); die('Access Denied!'); }
 
     $id = (int) ($_POST['id'] ?? 0);
     try {

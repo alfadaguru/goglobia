@@ -409,6 +409,46 @@ if (!function_exists('admin_current_role')) {
     }
 }
 
+if (!function_exists('admin_staff_id')) {
+    /**
+     * The current employee's STAFF KEY — i.e. users.user_id (VARCHAR). This
+     * replaces the old support_staff.id (INT) as the identity that attendance /
+     * shifts / targets / chat-assignment rows are keyed by after the Employee
+     * RBAC consolidation (S3). Returns '' when there is no logged-in user.
+     *
+     * Any admin or employee with a session has a staff key (their users.user_id);
+     * there is no separate provisioning step anymore — being an employee with an
+     * active role (or an admin) IS being staff.
+     */
+    function admin_staff_id($db): string
+    {
+        $role = admin_current_role($db);
+        if (!$role) {
+            return '';
+        }
+        return (string) ($_SESSION['user_id'] ?? '');
+    }
+}
+
+if (!function_exists('admin_is_staff')) {
+    /**
+     * True when the current user may act as support staff at all: an admin
+     * (all-allow) or an employee with an active role. Replaces support_is_staff().
+     */
+    function admin_is_staff($db): bool
+    {
+        $role = admin_current_role($db);
+        if (!$role) {
+            return false;
+        }
+        if (!empty($role['is_admin'])) {
+            return true;
+        }
+        // An active, resolved employee role.
+        return !empty($role['id']) && !empty($role['status']);
+    }
+}
+
 if (!function_exists('admin_can')) {
     /**
      * The capability gate. True when the current role grants $action on $area.

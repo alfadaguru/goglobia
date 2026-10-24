@@ -185,7 +185,9 @@ require_once 'app/lib/umrah/operations.php';
 require_once 'app/lib/umrah/groups.php';
 require_once 'app/lib/umrah/admin_crud.php';
 require_once 'app/lib/booking_manager.php'; // admin Booking Manager foundations
-require_once 'app/lib/support/rbac.php';     // Customer Support module — Phase 1 RBAC + employee foundation
+// Customer Support RBAC was consolidated onto the company-wide users_roles layer
+// (app/lib/admin_rbac.php, required above). The old app/lib/support/rbac.php
+// (support_roles/support_staff) was removed in the Employee RBAC consolidation (S3).
 require_once 'app/lib/support/livedesk.php'; // Customer Support — Phase 2 Live Chat Desk engine (channel-aware staff reply/takeover)
 require_once 'app/lib/support/attendance.php'; // Customer Support — Phase 3 attendance/presence/shift engine (clock-in/out + heartbeat + nudge data)
 require_once 'app/lib/support/shifts.php';     // Customer Support — Phase 3 shift roster + nudge-due helpers (schema owned by attendance.php)
@@ -515,21 +517,13 @@ try {
     if (function_exists('ensureSupplierStaysSchema')) {
         ensureSupplierStaysSchema($db);
     }
-    // Employee RBAC consolidation (docs/support/EMPLOYEE_RBAC_CONSOLIDATION.md, S1) —
-    // widens users_roles + users with governance columns and seeds/repairs the
-    // default roles (Admin force-repaired to a full grant every boot so a real
-    // admin is never locked out). Idempotent. Runs BEFORE the legacy support
-    // RBAC block below; S3 will remove that block once Support is migrated here.
+    // Employee RBAC consolidation (docs/support/EMPLOYEE_RBAC_CONSOLIDATION.md) —
+    // the ONE company-wide RBAC layer: widens users_roles + users with governance
+    // columns and seeds/repairs the default roles (Admin force-repaired to a full
+    // grant every boot so a real admin is never locked out). This replaced the old
+    // support_roles/support_staff RBAC (removed in S3). Idempotent.
     if (function_exists('ensureAdminRbacSchema')) {
         ensureAdminRbacSchema($db);
-    }
-    // Customer Support module (docs/support/CUSTOMER_SUPPORT_MODULE_SPEC.md) —
-    // RBAC + employee foundation; seeds the 4 LOCKED default roles. Idempotent.
-    if (function_exists('ensureSupportRbacSchema')) {
-        ensureSupportRbacSchema($db);
-        if (function_exists('support_seed_default_roles')) {
-            support_seed_default_roles($db);
-        }
     }
     // Customer Support P2 Live Chat Desk — adds assigned_staff_id/assigned_at +
     // gia_messages.staff_id. Idempotent.

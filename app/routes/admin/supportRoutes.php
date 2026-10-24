@@ -4,8 +4,8 @@
 // module reachable and links out to every sub-area. Design-of-record:
 // docs/support/CUSTOMER_SUPPORT_MODULE_SPEC.md (§3 routes, §9 dashboard).
 //
-// Every support route pairs ADMIN_AUTH() with support_can($db, '<cap>'); the
-// RBAC gate + schema live in app/lib/support/rbac.php (loaded in config.php).
+// Every support route pairs ADMIN_AUTH() with admin_can($db, '<area>', '<action>'); the
+// RBAC gate (admin_can) + schema live in app/lib/admin_rbac.php (loaded in config.php).
 @$SECURE or die('Access Denied!');
 
 // ================================ SUPPORT HOME
@@ -16,12 +16,11 @@ $router->get(admin.'/support', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     // Self-heal the RBAC foundation + seed the 4 default roles so an admin can
     // reach the module on a fresh install before any staff is provisioned.
-    if (function_exists('ensureSupportRbacSchema')) { ensureSupportRbacSchema($db); }
-    if (function_exists('support_seed_default_roles')) { support_seed_default_roles($db); }
+    if (function_exists('ensureAdminRbacSchema')) { ensureAdminRbacSchema($db); }
 
-    // Capability gate: anyone who may see the support dashboard. Admins resolve to
-    // the wildcard '*' implicitly (see support_current_staff()).
-    if (!support_can($db, 'dashboard.view')) {
+    // Capability gate: anyone who may see the support dashboard. Admin is
+    // all-allow (admin_can short-circuits on is_admin).
+    if (!admin_can($db, 'support_dashboard', 'view')) {
         header('Location: ' . root . admin . '/dashboard');
         exit;
     }
@@ -32,8 +31,8 @@ $router->get(admin.'/support', function () use ($SECURE, $db) {
         'agents_online' => null, 'needs_human' => null,
         'today_held' => null, 'today_paid' => null, 'today_revenue' => null,
         'targets' => [], 'leaderboard' => [],
-        'can_targets' => support_can($db, 'targets.view'),
-        'can_board'   => support_can($db, 'attendance.view_all') || support_can($db, 'campaigns.analytics'),
+        'can_targets' => admin_can($db, 'support_targets', 'view'),
+        'can_board'   => admin_can($db, 'support_attendance', 'view_all') || admin_can($db, 'support_campaigns', 'view'),
     ];
     try {
         if (function_exists('support_who_online')) {

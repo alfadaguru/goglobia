@@ -7,7 +7,7 @@
 //
 // This is a pure report screen: it only reads. The funnel + counting live in
 // ad_campaign_conversion_report() (app/lib/support/campaigns.php, loaded from
-// config.php during bootstrap). Gate = ADMIN_AUTH() + support_can(campaigns.analytics).
+// config.php during bootstrap). Gate = ADMIN_AUTH() + admin_can(support_campaigns,view).
 @$SECURE or die('Access Denied!');
 
 // ================================ CONVERSION REPORT (read-only)
@@ -19,9 +19,9 @@ $router->get(admin.'/support/conversion', function () use ($SECURE, $db) {
     if (function_exists('ensureAdCampaignSchema')) { ensureAdCampaignSchema($db); }
 
     // Capability gate: who may see conversion analytics. Admins resolve to the
-    // wildcard '*' implicitly (see support_current_staff()). Non-permitted staff
+    // Admin is all-allow (admin_can short-circuits). Non-permitted employees
     // bounce to the support home, matching supportRoutes.php.
-    if (!function_exists('support_can') || !support_can($db, 'campaigns.analytics')) {
+    if (!function_exists('admin_can') || !admin_can($db, 'support_campaigns', 'view')) {
         header('Location: ' . root . admin . '/support');
         exit;
     }

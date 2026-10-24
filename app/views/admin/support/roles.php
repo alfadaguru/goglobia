@@ -1,29 +1,38 @@
 <?php
-// app/views/admin/support/roles.php — Support RBAC roles list.
-// Shows every support_roles row: name, slug, a system/custom badge and the
-// capability count. System roles (the 4 LOCKED defaults) are read-only for
-// slug/is_system but their caps may still be edited; custom roles can be deleted
-// (blocked server-side if any staff uses them). Gated by the route via
-// support_can('roles.manage').
-@$SECURE or die('Access Denied!');
+// app/views/admin/support/roles.php — company RBAC roles list (users_roles).
+// Shows every users_roles row: name, slug, a system/custom badge and the
+// granted-permission count. System roles (kind='system' + the legacy seed rows
+// 1-5) and the all-access Admin role are protected from delete; the Admin role
+// is also not editable (it is force-repaired to full access every boot). Gated
+// by the route via admin_can('users_roles','edit').
+@$SECURE or die('Access Denie'.'d!');
 
-$roles = $db->select('support_roles', '*', ['ORDER' => ['is_system' => 'DESC', 'name' => 'ASC']]) ?: [];
+$roles = $db->select('users_roles', '*', ['ORDER' => ['id' => 'ASC']]) ?: [];
 
-// Per-role staff count (so the list can hint which custom roles are in use and
-// disable their Delete). A plain count() per role keeps to the codebase's Medoo
-// usage — the support_roles table is tiny (a handful of rows).
+// Per-role employee count (so the list can disable Delete for in-use roles).
 $staffCount = function ($roleId) use ($db): int {
-    try { return (int) $db->count('support_staff', ['role_id' => (int) $roleId]); }
+    try { return (int) $db->count('users', ['role_id' => (int) $roleId]); }
     catch (\Throwable $e) { return 0; }
 };
 
-// Count caps in a role's JSON permissions. '*' (admin) is "all caps".
-$catalogue = function_exists('support_capability_catalogue') ? support_capability_catalogue() : [];
-$capCount = function ($permsJson) use ($catalogue): array {
-    $decoded = json_decode((string) $permsJson, true);
+// Total number of grantable (area, action) pairs in the catalogue.
+$catalogue = function_exists('admin_area_catalogue') ? admin_area_catalogue() : [];
+$catalogueTotal = 0;
+foreach ($catalogue as $acts) { $catalogueTotal += count($acts); }
+
+// Count granted permissions in a role's JSON grid. A grant is the PRESENCE of an
+// action key (value ''). The Admin role is "All".
+$capCount = function ($role) use ($catalogueTotal): array {
+    $isAdminRole = (strtolower((string) ($role['base_type'] ?? '')) === 'admin')
+        || (strtolower((string) ($role['type_name'] ?? '')) === 'admin');
+    if ($isAdminRole) { return [$catalogueTotal, true]; }
+    $decoded = json_decode((string) ($role['permissions'] ?? ''), true);
     if (!is_array($decoded)) { return [0, false]; }
-    if (in_array('*', $decoded, true)) { return [count($catalogue), true]; }
-    return [count(array_intersect($catalogue, $decoded)), false];
+    $n = 0;
+    foreach ($decoded as $actions) {
+        if (is_array($actions)) { $n += count($actions); }
+    }
+    return [$n, false];
 };
 ?>
 
@@ -71,8 +80,10 @@ $capCount = function ($permsJson) use ($catalogue): array {
         <tbody>
           <?php foreach ($roles as $r): ?>
             <?php
-              $isSystem = (int) $r['is_system'] === 1;
-              [$caps, $isAll] = $capCount($r['permissions'] ?? '');
+              $isAdminRole = (strtolower((string) ($r['base_type'] ?? '')) === 'admin')
+                  || (strtolower((string) ($r['type_name'] ?? '')) === 'admin');
+              $isSystem = (strtolower((string) ($r['kind'] ?? '')) === 'system') || ((int) $r['id'] <= 5);
+              [$caps, $isAll] = $capCount($r);
               $used = $staffCount((int) $r['id']);
             ?>
             <tr class="border-b border-gray-50 hover:bg-gray-50">
@@ -98,8 +109,12 @@ $capCount = function ($permsJson) use ($catalogue): array {
               </td>
               <td class="px-4 py-3 text-right tabular-nums text-gray-500"><?= number_format($used) ?></td>
               <td class="px-4 py-3 text-right whitespace-nowrap">
-                <a href="<?= root.admin ?>/support/roles/edit/<?= (int) $r['id'] ?>" class="text-blue-600 hover:underline font-medium"><?= $isSystem ? 'View / edit caps' : 'Edit' ?></a>
-                <?php if (!$isSystem): ?>
+                <?php if ($isAdminRole): ?>
+                  <span class="text-gray-400 font-medium" title="The Admin role is all-access and cannot be edited">All access</span>
+                <?php else: ?>
+                  <a href="<?= root.admin ?>/support/roles/edit/<?= (int) $r['id'] ?>" class="text-blue-600 hover:underline font-medium"><?= $isSystem ? 'View / edit' : 'Edit' ?></a>
+                <?php endif; ?>
+                <?php if (!$isSystem && !$isAdminRole): ?>
                   <form method="POST" action="<?= root.admin ?>/support/roles/delete" class="inline ml-3"
                         onsubmit="return confirm('Delete this role? This cannot be undone.');">
                     <?= CSRF::tokenField() ?>

@@ -16,16 +16,13 @@ $products = function_exists('support_target_products')
     ? support_target_products()
     : ['flights', 'stays', 'umrah', 'tours', 'cars', 'visa', 'esim', 'ferries', 'rail', 'bus'];
 
-// Support staff for the per-agent dropdown (name resolved from users when blank).
-$staffRows = $db->select('support_staff', ['id', 'user_id', 'display_name'], ['ORDER' => ['id' => 'ASC']]) ?: [];
+// Employees for the per-agent dropdown. The staff key is users.user_id (S3).
+$staffRows = $db->select('users', ['user_id', 'first_name', 'last_name'],
+    ['role' => ['admin', 'employee'], 'status' => 'active', 'ORDER' => ['first_name' => 'ASC']]) ?: [];
 $staffOptions = [];
 foreach ($staffRows as $s) {
-    $nm = (string) ($s['display_name'] ?? '');
-    if ($nm === '' && !empty($s['user_id'])) {
-        $u = $db->get('users', ['first_name', 'last_name'], ['user_id' => $s['user_id']]);
-        if (is_array($u)) { $nm = trim((string) ($u['first_name'] ?? '') . ' ' . (string) ($u['last_name'] ?? '')); }
-    }
-    $staffOptions[(int) $s['id']] = $nm !== '' ? $nm : ('Staff #' . (int) $s['id']);
+    $nm = trim((string) ($s['first_name'] ?? '') . ' ' . (string) ($s['last_name'] ?? ''));
+    $staffOptions[(string) $s['user_id']] = $nm !== '' ? $nm : ('Staff ' . (string) $s['user_id']);
 }
 
 $csrf = (class_exists('CSRF') && method_exists('CSRF', 'getToken')) ? CSRF::getToken() : '';
@@ -33,7 +30,7 @@ $v = function ($k, $d = '') use ($t) { return htmlspecialchars((string) ($t[$k] 
 $curScope   = (string) ($t['scope'] ?? 'staff');
 $curMetric  = (string) ($t['metric'] ?? 'held');
 $curPeriod  = (string) ($t['period'] ?? 'monthly');
-$curStaff   = (int) ($t['staff_id'] ?? 0);
+$curStaff   = (string) ($t['staff_id'] ?? '');
 $curProduct = (string) ($t['product'] ?? '');
 $dOnly = function ($raw) { $raw = (string) $raw; if ($raw === '' || $raw === '0000-00-00') return ''; $ts = strtotime($raw); return $ts !== false ? date('Y-m-d', $ts) : ''; };
 ?>
@@ -59,9 +56,9 @@ $dOnly = function ($raw) { $raw = (string) $raw; if ($raw === '' || $raw === '00
     <div id="t-staff-wrap" style="<?= $curScope==='staff'?'':'display:none' ?>">
       <label class="block text-sm font-semibold text-gray-700 mb-1">Agent</label>
       <select name="staff_id" class="w-full rounded-lg border border-gray-200 px-3 py-2">
-        <option value="0">— select staff —</option>
+        <option value="">— select staff —</option>
         <?php foreach ($staffOptions as $sid => $nm): ?>
-          <option value="<?= $sid ?>"<?= $curStaff===$sid?' selected':'' ?>><?= htmlspecialchars($nm) ?></option>
+          <option value="<?= htmlspecialchars((string) $sid, ENT_QUOTES) ?>"<?= $curStaff===(string)$sid?' selected':'' ?>><?= htmlspecialchars($nm) ?></option>
         <?php endforeach; ?>
       </select>
     </div>

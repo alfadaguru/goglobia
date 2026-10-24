@@ -23,12 +23,12 @@ $router->get(admin.'/support/attendance', function () use ($SECURE, $db) {
     require_once dirname(__DIR__, 2) . '/lib/support/attendance.php';
     ensureSupportAttendanceSchema($db);
 
-    $viewAll  = support_can($db, 'attendance.view_all');
-    $viewSelf = support_can($db, 'attendance.view_self');
+    $viewAll  = admin_can($db, 'support_attendance', 'view_all');
+    $viewSelf = admin_can($db, 'support_attendance', 'view');
     if (!$viewAll && !$viewSelf) { http_response_code(403); die('Access Denied!'); }
 
-    $staff   = support_current_staff($db);
-    $staffId = (int) ($staff['id'] ?? 0);
+    // Staff key is now users.user_id (VARCHAR) — see admin_staff_id() (S3).
+    $staffId = admin_staff_id($db);
 
     // Date window for the per-staff daily table. Default = today only.
     $from = (string) ($_GET['from'] ?? date('Y-m-d'));
@@ -40,41 +40,39 @@ $router->get(admin.'/support/attendance', function () use ($SECURE, $db) {
     // team roster; they only ever see themselves.
     $online = $viewAll ? support_who_online($db) : [];
 
-    // Build the per-staff attendance report for the window. view_all → every
-    // active staff; view_self → only the current staffer.
+    // Build the per-staff attendance report for the window. Staff are now the
+    // employees themselves (users with role admin/employee + an active role);
+    // the staff key is users.user_id. view_all → every employee; view_self →
+    // only the current user.
     $reportStaff = [];
     try {
         if ($viewAll) {
             $rows = $db->query(
-                "SELECT ss.id AS id,
-                        ss.display_name AS display_name,
+                "SELECT u.user_id AS id,
+                        NULL AS display_name,
                         u.first_name AS first_name,
                         u.last_name  AS last_name
-                 FROM `support_staff` ss
-                 LEFT JOIN `users` u ON u.user_id = ss.user_id
-                 WHERE ss.status = 'active'
-                 ORDER BY ss.id ASC"
+                 FROM `users` u
+                 WHERE u.role IN ('admin','employee') AND u.status = 'active'
+                 ORDER BY u.first_name ASC, u.last_name ASC"
             )->fetchAll(\PDO::FETCH_ASSOC);
             if (is_array($rows)) { $reportStaff = $rows; }
-        } elseif ($staffId > 0) {
-            // Self-scope: resolve the current staffer's display identity.
+        } elseif ($staffId !== '') {
+            // Self-scope: resolve the current user's display identity.
             $me = $db->query(
-                "SELECT ss.id AS id,
-                        ss.display_name AS display_name,
+                "SELECT u.user_id AS id,
+                        NULL AS display_name,
                         u.first_name AS first_name,
                         u.last_name  AS last_name
-                 FROM `support_staff` ss
-                 LEFT JOIN `users` u ON u.user_id = ss.user_id
-                 WHERE ss.id = :id",
+                 FROM `users` u
+                 WHERE u.user_id = :id",
                 [':id' => $staffId]
             )->fetch(\PDO::FETCH_ASSOC);
             if ($me) { $reportStaff = [$me]; }
             else {
-                // Admin synthetic staff (id=0 has no support_staff row) — still
-                // show its own name so the self-view is never empty.
                 $reportStaff = [[
                     'id'           => $staffId,
-                    'display_name' => $staff['display_name'] ?? null,
+                    'display_name' => null,
                     'first_name'   => null,
                     'last_name'    => null,
                 ]];
@@ -88,12 +86,12 @@ $router->get(admin.'/support/attendance', function () use ($SECURE, $db) {
     // human display name (display_name → users name → "Staff #id").
     $report = [];
     foreach ($reportStaff as $rs) {
-        $sid  = (int) $rs['id'];
+        $sid  = (string) $rs['id'];
         $name = trim((string) ($rs['display_name'] ?? ''));
         if ($name === '') {
             $name = trim(((string) ($rs['first_name'] ?? '')) . ' ' . ((string) ($rs['last_name'] ?? '')));
         }
-        if ($name === '') { $name = 'Staff #' . $sid; }
+        if ($name === '') { $name = 'Staff ' . $sid; }
 
         $days = support_attendance_range($db, $sid, $from, $to);
 
@@ -109,8 +107,8 @@ $router->get(admin.'/support/attendance', function () use ($SECURE, $db) {
         ];
     }
 
-    // Current staffer's live clock state for the clock-in/out buttons.
-    $myDay      = $staffId > 0 ? support_attendance_day($db, $staffId, date('Y-m-d')) : null;
+    // Current user's live clock state for the clock-in/out buttons.
+    $myDay      = $staffId !== '' ? support_attendance_day($db, $staffId, date('Y-m-d')) : null;
     $amClockedIn = (bool) ($myDay['open'] ?? false);
 
     $title = 'Attendance'; $description = ''; $header = true; $footer = true;
@@ -128,11 +126,10 @@ $router->post(admin.'/support/clock', function () use ($SECURE, $db) {
     ensureSupportAttendanceSchema($db);
     header('Content-Type: application/json');
 
-    if (!support_is_staff($db)) { http_response_code(403); echo json_encode(['ok' => false, 'message' => 'Forbidden']); return; }
+    if (!admin_is_staff($db)) { http_response_code(403); echo json_encode(['ok' => false, 'message' => 'Forbidden']); return; }
 
-    $staff   = support_current_staff($db);
-    $staffId = (int) ($staff['id'] ?? 0);
-    if ($staffId <= 0) { echo json_encode(['ok' => false, 'message' => 'No staff identity.']); return; }
+    $staffId = admin_staff_id($db);
+    if ($staffId === '') { echo json_encode(['ok' => false, 'message' => 'No staff identity.']); return; }
 
     $mode = (string) ($_POST['mode'] ?? '');
     if ($mode === 'in') {
@@ -156,11 +153,10 @@ $router->post(admin.'/support/heartbeat', function () use ($SECURE, $db) {
     ensureSupportAttendanceSchema($db);
     header('Content-Type: application/json');
 
-    if (!support_is_staff($db)) { http_response_code(403); echo json_encode(['ok' => false, 'message' => 'Forbidden']); return; }
+    if (!admin_is_staff($db)) { http_response_code(403); echo json_encode(['ok' => false, 'message' => 'Forbidden']); return; }
 
-    $staff   = support_current_staff($db);
-    $staffId = (int) ($staff['id'] ?? 0);
-    if ($staffId <= 0) { echo json_encode(['ok' => false, 'message' => 'No staff identity.']); return; }
+    $staffId = admin_staff_id($db);
+    if ($staffId === '') { echo json_encode(['ok' => false, 'message' => 'No staff identity.']); return; }
 
     $sessionId = (string) ($_POST['session_id'] ?? '');
 

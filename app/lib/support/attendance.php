@@ -47,13 +47,18 @@ if (!function_exists('ensureSupportAttendanceSchema')) {
         $checked = true;
 
         try {
+            // staff_id is the employee's users.user_id (VARCHAR) after the
+            // Employee RBAC consolidation (S3) — it used to be support_staff.id
+            // (INT). Fresh installs get VARCHAR directly; an already-migrated DB
+            // is flipped INT->VARCHAR by the ALTER-MODIFY guarded below.
+
             // --- support_attendance: one row per clock-in session -----------------
             // An OPEN session is clock_out IS NULL; worked_seconds accrues the
             // closed duration on clock-out. source: 'manual' (user clicked) or
             // 'auto' (system-opened, reserved for future heartbeat-driven open).
             $db->query("CREATE TABLE IF NOT EXISTS `support_attendance` (
                 `id` INT(11) NOT NULL AUTO_INCREMENT,
-                `staff_id` INT(11) NOT NULL,
+                `staff_id` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
                 `work_date` DATE NOT NULL,
                 `clock_in` DATETIME NOT NULL,
                 `clock_out` DATETIME DEFAULT NULL,
@@ -69,7 +74,7 @@ if (!function_exists('ensureSupportAttendanceSchema')) {
             // upsert a single-row replace of the staff's presence.
             $db->query("CREATE TABLE IF NOT EXISTS `support_heartbeat` (
                 `id` INT(11) NOT NULL AUTO_INCREMENT,
-                `staff_id` INT(11) NOT NULL,
+                `staff_id` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
                 `last_beat` DATETIME NOT NULL,
                 `status` ENUM('online','idle','offline') NOT NULL DEFAULT 'online',
                 `session_id` VARCHAR(64) DEFAULT NULL,
@@ -83,7 +88,7 @@ if (!function_exists('ensureSupportAttendanceSchema')) {
             // and space them 15 min apart (§7).
             $db->query("CREATE TABLE IF NOT EXISTS `support_shifts` (
                 `id` INT(11) NOT NULL AUTO_INCREMENT,
-                `staff_id` INT(11) NOT NULL,
+                `staff_id` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
                 `shift_date` DATE NOT NULL,
                 `start_time` TIME DEFAULT NULL,
                 `end_time` TIME DEFAULT NULL,
@@ -93,6 +98,31 @@ if (!function_exists('ensureSupportAttendanceSchema')) {
                 PRIMARY KEY (`id`),
                 KEY `idx_staff_date` (`staff_id`,`shift_date`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+            // --- S3 migration: flip pre-existing INT staff_id -> VARCHAR ----------
+            // On a DB created before the consolidation these three tables already
+            // exist with staff_id INT(11), so the CREATE above is a no-op. The old
+            // INT values referenced support_staff.id (a table being dropped); there
+            // is no valid user_id mapping, so any such rows are stale test data —
+            // we clear them, then widen the column. Guarded by column type so it
+            // runs at most once and never on a fresh (already-VARCHAR) install.
+            foreach (['support_attendance', 'support_heartbeat', 'support_shifts'] as $tbl) {
+                try {
+                    $col = $db->query(
+                        "SHOW COLUMNS FROM `$tbl` LIKE 'staff_id'"
+                    )->fetch(\PDO::FETCH_ASSOC);
+                    if ($col && stripos((string) $col['Type'], 'int') !== false) {
+                        // Unmappable legacy rows (keyed by the dropped support_staff.id).
+                        $db->query("DELETE FROM `$tbl`");
+                        // Pin collation to users.user_id (utf8mb4_general_ci) so
+                        // joins staff_id = users.user_id don't hit "illegal mix of
+                        // collations". The table default is utf8mb4_unicode_ci.
+                        $db->query("ALTER TABLE `$tbl` MODIFY `staff_id` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL");
+                    }
+                } catch (\Throwable $e) {
+                    error_log("ensureSupportAttendanceSchema(migrate $tbl): " . $e->getMessage());
+                }
+            }
         } catch (\Throwable $e) {
             error_log('ensureSupportAttendanceSchema: ' . $e->getMessage());
         }
@@ -107,11 +137,11 @@ if (!function_exists('support_clock_in')) {
      *
      * @return array{ok:bool, already:bool, id:int|null, clock_in:string|null, message?:string}
      */
-    function support_clock_in($db, int $staffId): array
+    function support_clock_in($db, string $staffId): array
     {
         ensureSupportAttendanceSchema($db);
 
-        if ($staffId <= 0) {
+        if ($staffId === '') {
             return ['ok' => false, 'already' => false, 'id' => null, 'clock_in' => null, 'message' => 'invalid staff'];
         }
 
@@ -160,11 +190,11 @@ if (!function_exists('support_clock_out')) {
      *
      * @return array{ok:bool, id:int|null, worked_seconds:int, session_seconds:int, clock_out:string|null, message?:string}
      */
-    function support_clock_out($db, int $staffId): array
+    function support_clock_out($db, string $staffId): array
     {
         ensureSupportAttendanceSchema($db);
 
-        if ($staffId <= 0) {
+        if ($staffId === '') {
             return ['ok' => false, 'id' => null, 'worked_seconds' => 0, 'session_seconds' => 0, 'clock_out' => null, 'message' => 'invalid staff'];
         }
 
@@ -219,13 +249,13 @@ if (!function_exists('support_heartbeat')) {
      *
      * @return array{ok:bool, last_beat:string, message?:string}
      */
-    function support_heartbeat($db, int $staffId, string $sessionId = '', string $module = 'support'): array
+    function support_heartbeat($db, string $staffId, string $sessionId = '', string $module = 'support'): array
     {
         ensureSupportAttendanceSchema($db);
 
         $now = date('Y-m-d H:i:s');
 
-        if ($staffId <= 0) {
+        if ($staffId === '') {
             return ['ok' => false, 'last_beat' => $now, 'message' => 'invalid staff'];
         }
 
@@ -264,11 +294,11 @@ if (!function_exists('support_is_online')) {
      * SUPPORT_IDLE_PAUSE_SECONDS (5 min). The window is evaluated in SQL so it is
      * immune to PHP/MySQL clock skew.
      */
-    function support_is_online($db, int $staffId): bool
+    function support_is_online($db, string $staffId): bool
     {
         ensureSupportAttendanceSchema($db);
 
-        if ($staffId <= 0) {
+        if ($staffId === '') {
             return false;
         }
 
@@ -289,11 +319,11 @@ if (!function_exists('support_is_online')) {
 
 if (!function_exists('support_who_online')) {
     /**
-     * Roster of staff beating within the last 5 min, joined to support_staff +
-     * users for a display name. Each entry: staff_id, display_name, status,
+     * Roster of staff beating within the last 5 min, joined to users for a
+     * display name. Each entry: staff_id (= users.user_id), display_name, status,
      * last_beat, clocked_in (bool — has an OPEN attendance session today).
      *
-     * @return array<int, array{staff_id:int, display_name:string, status:string, last_beat:string, clocked_in:bool}>
+     * @return array<int, array{staff_id:string, display_name:string, status:string, last_beat:string, clocked_in:bool}>
      */
     function support_who_online($db): array
     {
@@ -303,20 +333,18 @@ if (!function_exists('support_who_online')) {
         $out = [];
 
         try {
-            // Fresh heartbeats joined to the staff identity. We keep the join in
-            // raw SQL (support_staff.user_id is VARCHAR FK users.user_id) and
-            // coalesce the display name: support_staff.display_name → users name
-            // fields → "Staff #id".
+            // Fresh heartbeats joined to the user identity. staff_id IS the
+            // users.user_id after the RBAC consolidation (S3), so we join users
+            // directly and coalesce the display name: users name → "Staff <id>".
             $rows = $db->query(
                 "SELECT hb.staff_id AS staff_id,
                         hb.status    AS status,
                         hb.last_beat AS last_beat,
-                        ss.display_name AS display_name,
+                        NULL         AS display_name,
                         u.first_name AS first_name,
                         u.last_name  AS last_name
                  FROM `support_heartbeat` hb
-                 LEFT JOIN `support_staff` ss ON ss.id = hb.staff_id
-                 LEFT JOIN `users` u ON u.user_id = ss.user_id
+                 LEFT JOIN `users` u ON u.user_id = hb.staff_id
                  WHERE hb.last_beat >= (NOW() - INTERVAL :secs SECOND)
                  ORDER BY hb.last_beat DESC",
                 [':secs' => SUPPORT_IDLE_PAUSE_SECONDS]
@@ -327,7 +355,7 @@ if (!function_exists('support_who_online')) {
             }
 
             foreach ($rows as $r) {
-                $sid = (int) $r['staff_id'];
+                $sid = (string) $r['staff_id'];
 
                 $name = trim((string) ($r['display_name'] ?? ''));
                 if ($name === '') {
@@ -370,7 +398,7 @@ if (!function_exists('support_attendance_day')) {
      *
      * @return array{staff_id:int, date:string, worked_seconds:int, clock_in:?string, clock_out:?string, open:bool, online:bool}
      */
-    function support_attendance_day($db, int $staffId, string $date): array
+    function support_attendance_day($db, string $staffId, string $date): array
     {
         ensureSupportAttendanceSchema($db);
 
@@ -384,7 +412,7 @@ if (!function_exists('support_attendance_day')) {
             'online'         => false,
         ];
 
-        if ($staffId <= 0 || $date === '') {
+        if ($staffId === '' || $date === '') {
             return $result;
         }
 
@@ -448,11 +476,11 @@ if (!function_exists('support_attendance_range')) {
      *
      * @return array<int, array{staff_id:int, date:string, worked_seconds:int, clock_in:?string, clock_out:?string, open:bool, online:bool}>
      */
-    function support_attendance_range($db, int $staffId, string $from, string $to): array
+    function support_attendance_range($db, string $staffId, string $from, string $to): array
     {
         ensureSupportAttendanceSchema($db);
 
-        if ($staffId <= 0 || $from === '' || $to === '') {
+        if ($staffId === '' || $from === '' || $to === '') {
             return [];
         }
 

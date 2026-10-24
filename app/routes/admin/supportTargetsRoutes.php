@@ -5,13 +5,13 @@
 // Design-of-record: docs/support/CUSTOMER_SUPPORT_MODULE_SPEC.md (§7/§8).
 //
 // Shape mirrors supportCampaignsRoutes.php. Every handler: ADMIN_AUTH() + a
-// support_can() gate (targets.view to see, targets.set to change), CSRF on POST.
+// admin_can() gate (support_targets view/edit), CSRF on POST.
 // Self-healing schema + progress engine live in app/lib/support/targets.php
 // (ensureSupportTargetSchema), loaded globally in config.php.
 @$SECURE or die('Access Denied!');
 
 require_once __DIR__ . '/../../lib/support/targets.php';
-require_once __DIR__ . '/../../lib/support/rbac.php';
+// RBAC (admin_can) lives in app/lib/admin_rbac.php, loaded globally in config.php.
 
 // Products a target can scope to ('' / 'any' = all services). One source of truth
 // for the form options AND the save-time whitelist (no drift).
@@ -26,7 +26,7 @@ if (!function_exists('support_target_products')) {
 $router->get(admin . '/support/targets', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     if (function_exists('ensureSupportTargetSchema')) { ensureSupportTargetSchema($db); }
-    if (!support_can($db, 'targets.view')) {
+    if (!admin_can($db, 'support_targets', 'view')) {
         header('Location: ' . root . admin . '/support');
         exit;
     }
@@ -40,7 +40,7 @@ $router->get(admin . '/support/targets', function () use ($SECURE, $db) {
 $router->get(admin . '/support/targets/create', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     if (function_exists('ensureSupportTargetSchema')) { ensureSupportTargetSchema($db); }
-    if (!support_can($db, 'targets.set')) { header('Location: ' . root . admin . '/support/targets'); exit; }
+    if (!admin_can($db, 'support_targets', 'edit')) { header('Location: ' . root . admin . '/support/targets'); exit; }
     $title = 'New Target'; $description = ''; $header = true; $footer = true;
     $_GET['id'] = 0;
     require_once views . "includes/header.php";
@@ -51,7 +51,7 @@ $router->get(admin . '/support/targets/create', function () use ($SECURE, $db) {
 $router->get(admin . '/support/targets/edit/([0-9]+)', function ($id) use ($SECURE, $db) {
     ADMIN_AUTH();
     if (function_exists('ensureSupportTargetSchema')) { ensureSupportTargetSchema($db); }
-    if (!support_can($db, 'targets.set')) { header('Location: ' . root . admin . '/support/targets'); exit; }
+    if (!admin_can($db, 'support_targets', 'edit')) { header('Location: ' . root . admin . '/support/targets'); exit; }
     $title = 'Edit Target'; $description = ''; $header = true; $footer = true;
     $_GET['id'] = (int) $id;
     require_once views . "includes/header.php";
@@ -64,7 +64,7 @@ $router->post(admin . '/support/targets/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     if (class_exists('CSRF')) { CSRF::verifyRequest(); }
     if (function_exists('ensureSupportTargetSchema')) { ensureSupportTargetSchema($db); }
-    if (!support_can($db, 'targets.set')) {
+    if (!admin_can($db, 'support_targets', 'edit')) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Not permitted.'];
         header('Location: ' . root . admin . '/support/targets'); exit;
     }
@@ -73,7 +73,8 @@ $router->post(admin . '/support/targets/save', function () use ($SECURE, $db) {
     $scope   = in_array($_POST['scope'] ?? '', ['staff', 'gia', 'team'], true) ? $_POST['scope'] : 'staff';
     $metric  = in_array($_POST['metric'] ?? '', ['held', 'paid', 'revenue'], true) ? $_POST['metric'] : 'held';
     $period  = in_array($_POST['period'] ?? '', ['daily', 'weekly', 'monthly'], true) ? $_POST['period'] : 'monthly';
-    $staffId = $scope === 'staff' ? (int) ($_POST['staff_id'] ?? 0) : null;
+    // staff_id is a users.user_id (VARCHAR) after S3; only kept for the 'staff' scope.
+    $staffId = $scope === 'staff' ? (trim((string) ($_POST['staff_id'] ?? '')) ?: null) : null;
     $productIn = trim((string) ($_POST['product'] ?? ''));
     $product = ($productIn === '' || $productIn === 'any' || in_array($productIn, support_target_products(), true)) ? ($productIn === 'any' ? '' : $productIn) : '';
     $targetValue = max(0, (int) ($_POST['target_value'] ?? 0));
@@ -124,7 +125,7 @@ $router->post(admin . '/support/targets/save', function () use ($SECURE, $db) {
 $router->post(admin . '/support/targets/delete', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     if (class_exists('CSRF')) { CSRF::verifyRequest(); }
-    if (!support_can($db, 'targets.set')) {
+    if (!admin_can($db, 'support_targets', 'edit')) {
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Not permitted.'];
         header('Location: ' . root . admin . '/support/targets'); exit;
     }

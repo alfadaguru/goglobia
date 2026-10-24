@@ -12,33 +12,25 @@ $id = (int) ($_GET['id'] ?? 0);
 // create a different row rather than move this one).
 $shift = $id > 0 ? $db->get('support_shifts', '*', ['id' => $id]) : null;
 
-// Staff dropdown — active support_staff joined to users for a readable label.
-$staffRows = $db->select('support_staff', [
-    '[>]users' => ['user_id' => 'user_id'],
+// Staff dropdown — employees (users with role admin/employee). The staff key is
+// users.user_id (VARCHAR) after the RBAC consolidation (S3).
+$staffRows = $db->select('users', [
+    'user_id', 'first_name', 'last_name', 'email', 'shift_group',
 ], [
-    'support_staff.id',
-    'support_staff.display_name',
-    'support_staff.shift_group',
-    'users.first_name',
-    'users.last_name',
-    'users.email',
-], [
-    'support_staff.status' => 'active',
-    'ORDER' => ['support_staff.display_name' => 'ASC'],
+    'role' => ['admin', 'employee'],
+    'status' => 'active',
+    'ORDER' => ['first_name' => 'ASC', 'last_name' => 'ASC'],
 ]) ?: [];
 
 $staffLabel = function (array $r): string {
-    $label = trim((string) ($r['display_name'] ?? ''));
-    if ($label === '') {
-        $label = trim(((string) ($r['first_name'] ?? '')) . ' ' . ((string) ($r['last_name'] ?? '')));
-    }
-    if ($label === '') { $label = (string) ($r['email'] ?? ('Staff #' . $r['id'])); }
+    $label = trim(((string) ($r['first_name'] ?? '')) . ' ' . ((string) ($r['last_name'] ?? '')));
+    if ($label === '') { $label = (string) ($r['email'] ?? $r['user_id']); }
     if (!empty($r['shift_group'])) { $label .= ' — ' . $r['shift_group']; }
     return $label;
 };
 
 // Pre-fill values.
-$curStaff = $shift ? (int) $shift['staff_id'] : 0;
+$curStaff = $shift ? (string) $shift['staff_id'] : '';
 $curDate  = $shift && !empty($shift['shift_date']) ? date('Y-m-d', strtotime($shift['shift_date'])) : (trim((string) ($_GET['date'] ?? '')) !== '' && strtotime((string) $_GET['date']) !== false ? date('Y-m-d', strtotime((string) $_GET['date'])) : date('Y-m-d'));
 $curStart = $shift && !empty($shift['start_time']) ? substr((string) $shift['start_time'], 0, 5) : '';
 $curEnd   = $shift && !empty($shift['end_time'])   ? substr((string) $shift['end_time'], 0, 5)   : '';
@@ -101,18 +93,18 @@ $curEnd   = $shift && !empty($shift['end_time'])   ? substr((string) $shift['end
               <!-- On edit the shift's staff is locked (the row is keyed on staff+date). -->
               <select id="staff_id" name="staff_id" required class="select w-full" disabled>
                 <?php foreach ($staffRows as $r): ?>
-                  <option value="<?= (int) $r['id'] ?>" <?= $curStaff === (int) $r['id'] ? 'selected' : '' ?>>
+                  <option value="<?= htmlspecialchars((string) $r['user_id'], ENT_QUOTES) ?>" <?= $curStaff === (string) $r['user_id'] ? 'selected' : '' ?>>
                     <?= htmlspecialchars($staffLabel($r)) ?>
                   </option>
                 <?php endforeach; ?>
               </select>
-              <input type="hidden" name="staff_id" value="<?= (int) $curStaff ?>">
+              <input type="hidden" name="staff_id" value="<?= htmlspecialchars((string) $curStaff, ENT_QUOTES) ?>">
               <p class="text-xs text-slate-500 mt-1">The staff member cannot be changed on an existing shift.</p>
             <?php else: ?>
               <select id="staff_id" name="staff_id" required class="select w-full">
                 <option value="">— select a staff member —</option>
                 <?php foreach ($staffRows as $r): ?>
-                  <option value="<?= (int) $r['id'] ?>" <?= $curStaff === (int) $r['id'] ? 'selected' : '' ?>>
+                  <option value="<?= htmlspecialchars((string) $r['user_id'], ENT_QUOTES) ?>" <?= $curStaff === (string) $r['user_id'] ? 'selected' : '' ?>>
                     <?= htmlspecialchars($staffLabel($r)) ?>
                   </option>
                 <?php endforeach; ?>
