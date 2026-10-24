@@ -145,6 +145,44 @@ try {
     // fare_timer_* columns may not exist yet on an un-migrated DB — stay off.
     $resultsFareTimerEnabled = false;
 }
+
+// ============================================================================
+// PAY-OPTIONS ON THE CARD (Pay-Small-Small / Pay-Later)
+// ----------------------------------------------------------------------------
+// Surface the real installment / pay-later options on each result card, like
+// Wakanow — but ONLY when they are genuinely enabled for this service+provider
+// (scope SERVICE -> MODULE -> GLOBAL, resolved by the real engine in
+// app/lib/paysmallsmall.php + paylater.php). We NEVER invent a down-payment:
+// the "pay a slice now" figure comes straight from pay_small_small_summary_for()
+// as a PERCENT (first_percent), which the client applies to each fare's own
+// price. If a service has no enabled rule, the chips simply don't render.
+// Suppliers appear as the active flights modules (we pick the broadest = the
+// 'flights' core module type, since the results page mixes providers).
+// ============================================================================
+$payPssEnabled   = false;
+$payLaterEnabled = false;
+$payPssFirstPct  = 0.0;   // e.g. 50 => "pay 50% now"
+$payPssParts     = 0;     // total number of payments
+try {
+    if (function_exists('pay_small_small_is_enabled_for')
+        && pay_small_small_is_enabled_for($db, 'flights', '')) {
+        $payPssEnabled = true;
+        // Derive the first-slice percent from a nominal total; the client scales
+        // it per fare. summary returns {first_amount, remaining, parts, label}.
+        $pssSample = pay_small_small_summary_for($db, 'flights', '', 100.0);
+        if (is_array($pssSample)) {
+            $payPssFirstPct = round((float) ($pssSample['first_amount'] ?? 0), 4); // of 100 => percent
+            $payPssParts    = (int) ($pssSample['parts'] ?? 0);
+        }
+    }
+    if (function_exists('pay_later_is_enabled_for')
+        && pay_later_is_enabled_for($db, 'flights', '')) {
+        $payLaterEnabled = true;
+    }
+} catch (\Throwable $e) {
+    $payPssEnabled = false;
+    $payLaterEnabled = false;
+}
 ?>
 
 <script src="<?= root ?>assets/js/noui.js"></script>
@@ -564,19 +602,22 @@ try {
             <!-- Search Form — collapsed to a compact "Modify" summary on results;
                  expands to the full form. Homepage include (index.php) is unaffected. -->
             <div class="container py-5 pb-2" x-data="{ expanded: false }">
-                <!-- Collapsed summary bar -->
+                <!-- Collapsed summary bar — bold navy route header -->
                 <div x-show="!expanded"
-                    class="card bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl px-4 sm:px-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:border-blue-300 transition-colors"
+                    class="rounded-2xl px-4 sm:px-5 py-3.5 flex items-center justify-between gap-3 cursor-pointer transition-shadow hover:shadow-lg"
+                    style="background:linear-gradient(100deg,#172554,#1e3a8a);box-shadow:0 8px 24px -14px rgba(23,37,84,.55)"
                     @click="expanded = true">
-                    <div class="flex items-center gap-2.5 min-w-0 text-sm">
-                        <span class="material-symbols-outlined text-blue-600 shrink-0" style="font-size: 20px;">flight_takeoff</span>
-                        <span class="font-semibold text-gray-900 dark:text-gray-100 truncate" x-text="(searchParams.origin || '') + ' → ' + (searchParams.destination || '')"></span>
-                        <span class="text-gray-300 dark:text-gray-600">·</span>
-                        <span class="text-gray-600 dark:text-gray-300 truncate" x-text="searchParams.departure_date + (searchParams.return_date ? ' – ' + searchParams.return_date : '')"></span>
-                        <span class="text-gray-300 dark:text-gray-600 hidden sm:inline">·</span>
-                        <span class="text-gray-600 dark:text-gray-300 hidden sm:inline" x-text="((+searchParams.adults||0)+(+searchParams.childrens||0)+(+searchParams.infants||0)) + ' pax · ' + (searchParams.class || 'economy')"></span>
+                    <div class="flex items-center gap-3 min-w-0">
+                        <span class="shrink-0 w-9 h-9 rounded-xl grid place-items-center" style="background:rgba(255,255,255,.14)">
+                            <span class="material-symbols-outlined text-white" style="font-size: 20px;">flight_takeoff</span>
+                        </span>
+                        <div class="min-w-0">
+                            <div class="font-extrabold text-white text-[15px] sm:text-base truncate tracking-tight" x-text="(searchParams.origin || '') + ' → ' + (searchParams.destination || '')"></div>
+                            <div class="text-[12px] sm:text-[12.5px] truncate" style="color:#c7d2fe"
+                                x-text="searchParams.departure_date + (searchParams.return_date ? ' – ' + searchParams.return_date : '') + ' · ' + ((+searchParams.adults||0)+(+searchParams.childrens||0)+(+searchParams.infants||0)) + ' pax · ' + (searchParams.class || 'economy')"></div>
+                        </div>
                     </div>
-                    <button type="button" class="btn-outline shrink-0 inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 rounded-lg px-3 py-1.5" @click.stop="expanded = true">
+                    <button type="button" class="shrink-0 inline-flex items-center gap-1.5 text-sm font-bold bg-white rounded-xl px-3.5 py-2 transition-transform hover:-translate-y-px" style="color:#1e3a8a" @click.stop="expanded = true">
                         <span class="material-symbols-outlined" style="font-size: 18px;">tune</span>
                         <span><?= T::modify ?></span>
                     </button>
@@ -824,6 +865,20 @@ try {
                                 </div>
                             </div>
 
+                            <!-- Summary strip: Cheapest / Fastest / Earliest -->
+                            <div x-show="filteredFlights.length > 0" x-cloak
+                                class="grid grid-cols-3 gap-2.5 sm:gap-3 mb-4">
+                                <template x-for="s in fareSummary()" :key="s.key">
+                                    <div class="rounded-xl border px-3 py-2.5 flex flex-col gap-0.5"
+                                        :class="s.best ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'">
+                                        <span class="text-[9.5px] sm:text-[10px] uppercase tracking-wider font-bold text-gray-400 dark:text-gray-500" x-text="s.label"></span>
+                                        <span class="text-sm sm:text-[17px] font-extrabold tabular-nums leading-tight"
+                                            :class="s.best ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-gray-100'" x-text="s.value"></span>
+                                        <span class="text-[10px] sm:text-[11px] text-gray-500 dark:text-gray-400 truncate" x-text="s.sub"></span>
+                                    </div>
+                                </template>
+                            </div>
+
                             <!-- Flight Cards -->
                             <div x-show="filteredFlights.length > 0"
                                 x-transition:enter="transition-opacity ease-out duration-350"
@@ -966,6 +1021,17 @@ try {
             baseCurrency: '<?= $baseCurrencyCode ?>',      // Base currency code (e.g., 'USD')
             conversionFactor: <?= $conversionFactor ?>,   // Factor to convert display -> base
             sessionCurrency: '<?= $sessionCurrency ?>',   // Current app currency
+
+            // Pay-options on the card (real engine; only shown when enabled per scope)
+            payPssEnabled: <?= $payPssEnabled ? 'true' : 'false' ?>,
+            payLaterEnabled: <?= $payLaterEnabled ? 'true' : 'false' ?>,
+            payPssFirstPct: <?= (float) $payPssFirstPct ?>,   // % of fare paid now
+            payPssParts: <?= (int) $payPssParts ?>,
+            // first-slice amount for a given display price, formatted with currency
+            payPssFirst(price) {
+                const p = Number(price) || 0;
+                return (p * (this.payPssFirstPct / 100));
+            },
 
             <?php $modules = $db->select('modules', '*', ['type' => 'flights', 'status' => 1]);
             $uniqueSuppliers = array_values(array_unique(array_column($modules, 'name')));
@@ -1990,6 +2056,41 @@ try {
             // airline, columns = Direct / 1 stop / 2+ stops, each cell the cheapest
             // fare for that airline+stop-count. Built from the full result pool
             // (this.flights), so it reflects everything found, not the current filter.
+            // Cheapest / Fastest / Earliest tiles for the summary strip. Computed from
+            // the CURRENTLY FILTERED results so it tracks whatever the customer filtered
+            // to. Reuses the same getDurationMinutes/getHour helpers the sort uses.
+            // Robust duration -> minutes. Real data is "1h 20m"; some paths use "H:MM".
+            durationToMinutes(s) {
+                if (!s) return 0;
+                const str = String(s);
+                const hm = str.match(/(\d+)\s*h(?:\D+(\d+)\s*m)?/i);   // "1h 20m" / "1h"
+                if (hm) return parseInt(hm[1]) * 60 + (hm[2] ? parseInt(hm[2]) : 0);
+                const c = str.match(/^(\d+):(\d+)/);                   // "1:20"
+                if (c) return parseInt(c[1]) * 60 + parseInt(c[2]);
+                return 0;
+            },
+            fareSummary() {
+                const pool = (this.filteredFlights || []).filter(f => f && typeof f.price === 'number' && f.price > 0);
+                if (pool.length === 0) return [];
+                let cheapest = pool[0], fastest = pool[0], earliest = pool[0];
+                let fastestMin = this.durationToMinutes(fastest.duration_time);
+                let earliestHr = this.getHour(earliest.departure_time);
+                for (const f of pool) {
+                    if (f.price < cheapest.price) cheapest = f;
+                    const d = this.durationToMinutes(f.duration_time);
+                    if (d > 0 && (fastestMin <= 0 || d < fastestMin)) { fastest = f; fastestMin = d; }
+                    const h = this.getHour(f.departure_time);
+                    if (h > 0 && (earliestHr <= 0 || h < earliestHr)) { earliest = f; earliestHr = h; }
+                }
+                const nm = f => (f.airlineName || f.airline || '');
+                const dur = f => f.duration_time || (fastestMin > 0 ? Math.floor(fastestMin/60)+'h '+(fastestMin%60)+'m' : '');
+                return [
+                    { key: 'cheapest', best: true,  label: 'Cheapest', value: this.money(cheapest.price, cheapest.currency), sub: nm(cheapest) + (cheapest.stops === 0 ? ' · Direct' : '') },
+                    { key: 'fastest',  best: false, label: 'Fastest',  value: dur(fastest), sub: nm(fastest) + (fastest.stops === 0 ? ' · Direct' : '') },
+                    { key: 'earliest', best: false, label: 'Earliest', value: (earliest.departure_time || '').toUpperCase(), sub: nm(earliest) + ' · ' + (earliest.departure_code || '') },
+                ];
+            },
+
             priceMatrix() {
                 const pool = this.flights.filter(f => f && !f.isMultiCity && typeof f.price === 'number' && f.price > 0);
                 if (pool.length < 2) return { airlines: [], hasMatrix: false };
@@ -2739,6 +2840,39 @@ try {
                 `;
             },
 
+            // Format a price with its currency code + thousands separators.
+            money(price, currency) {
+                const n = Number(price) || 0;
+                const ccy = currency || this.sessionCurrency || '';
+                return ccy + ' ' + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+            },
+
+            // Pay-options chips — only render when the real engine has them enabled
+            // for this service (see payPssEnabled / payLaterEnabled from PHP). The
+            // Pay-Small-Small "pay now" figure is the real first slice of THIS fare.
+            renderPayOptions(f) {
+                if (!this.payPssEnabled && !this.payLaterEnabled) return '';
+                let chips = '';
+                if (this.payPssEnabled && this.payPssFirstPct > 0) {
+                    const firstNow = this.payPssFirst(f.price);
+                    chips += `
+                        <div class="flex-1 rounded-lg border border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20 px-2 py-1.5">
+                            <div class="text-[9px] uppercase tracking-wide font-bold text-amber-700 dark:text-amber-400 leading-none">Pay small small</div>
+                            <div class="text-[13px] font-extrabold text-amber-700 dark:text-amber-300 tabular-nums mt-0.5 leading-none">${this.money(firstNow, f.currency)}</div>
+                            <div class="text-[9.5px] text-amber-600/80 dark:text-amber-400/80 mt-0.5 leading-none">now · rest later</div>
+                        </div>`;
+                }
+                if (this.payLaterEnabled) {
+                    chips += `
+                        <div class="flex-1 rounded-lg border border-blue-200 dark:border-blue-700/50 bg-blue-50 dark:bg-blue-900/20 px-2 py-1.5">
+                            <div class="text-[9px] uppercase tracking-wide font-bold text-blue-700 dark:text-blue-400 leading-none">Pay later</div>
+                            <div class="text-[13px] font-extrabold text-blue-700 dark:text-blue-300 mt-0.5 leading-none">Reserve now</div>
+                            <div class="text-[9.5px] text-blue-600/80 dark:text-blue-400/80 mt-0.5 leading-none">pay before deadline</div>
+                        </div>`;
+                }
+                return `<div class="flex gap-1.5 my-2.5">${chips}</div>`;
+            },
+
             renderFlightCard(f, idx) {
                 if (f.isMultiCity) {
                     return this.renderMulticityFlightCard(f, idx);
@@ -2778,8 +2912,9 @@ try {
                                     </div>
                                 </div>
                                 <div class="text-right shrink-0">
-                                    <p class="text-[11px] text-gray-500 dark:text-gray-400"><?= T::total ?></p>
-                                    <p class="text-lg font-bold text-gray-900 dark:text-gray-100">${f.currency} ${f.price}</p>
+                                    <p class="text-[10px] text-gray-500 dark:text-gray-400">Price per adult</p>
+                                    <p class="text-lg font-extrabold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">${this.money(f.price, f.currency)}</p>
+                                    <p class="text-[10px] text-green-600 dark:text-green-400 font-medium">✓ Taxes included</p>
                                 </div>
                             </div>
 
@@ -2787,6 +2922,8 @@ try {
                                 ${outboundTimeline}
                                 ${isRoundTrip && f.returnFlight ? `<div class="pt-3 border-t border-gray-100 dark:border-gray-700">${returnTimeline}</div>` : ''}
                             </div>
+
+                            ${this.renderPayOptions(f)}
 
                             <button @click="bookNow(paginatedFlights()[${idx}], ${idx})"
                                     :disabled="bookingFlightIndex === ${idx}"
@@ -2833,9 +2970,14 @@ try {
                                 </div>
 
                                 <!-- Price & Book -->
-                                <div class="w-[160px] xl:w-[180px] border-l border-gray-200 dark:border-gray-700 pl-5 flex flex-col justify-center items-stretch shrink-0">
-                                    <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-0.5"><?= T::total ?></p>
-                                    <p class="text-xl font-bold text-gray-900 dark:text-gray-100 mb-3">${f.currency} ${f.price}</p>
+                                <div class="w-[188px] xl:w-[208px] border-l border-gray-200 dark:border-gray-700 pl-5 flex flex-col justify-center items-stretch shrink-0">
+                                    <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-0.5">Price per adult</p>
+                                    <p class="text-2xl font-extrabold text-gray-900 dark:text-gray-100 leading-none tabular-nums tracking-tight">${this.money(f.price, f.currency)}</p>
+                                    <p class="text-[11px] text-green-600 dark:text-green-400 font-medium mt-1 flex items-center gap-1">
+                                        <span class="material-symbols-outlined" style="font-size:13px;">check_circle</span>
+                                        Includes all taxes &amp; fees
+                                    </p>
+                                    ${this.renderPayOptions(f)}
                                     <button @click="bookNow(paginatedFlights()[${idx}], ${idx})"
                                             :disabled="bookingFlightIndex === ${idx}"
                                             :class="bookingFlightIndex === ${idx} ? 'opacity-70 cursor-not-allowed' : ''"
