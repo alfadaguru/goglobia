@@ -551,6 +551,13 @@ try {
 </style>
 
 <div x-data="flightSearch()" class="h-full w-full">
+    <?php // Page H1 (SEO/a11y). Results pages are UI-heavy, so this is visually
+          // hidden but present in the DOM for crawlers and screen readers. ?>
+    <h1 class="sr-only">Flight search results<?php
+        $__f = strtoupper(trim((string) ($_SESSION['from_airport'] ?? '')));
+        $__t = strtoupper(trim((string) ($_SESSION['to_airport'] ?? '')));
+        if ($__f !== '' && $__t !== '') { echo ': ' . htmlspecialchars($__f) . ' to ' . htmlspecialchars($__t); }
+    ?></h1>
     <div class="w-full h-full bg-gray-100 dark:bg-gray-900">
         <div class="flex flex-col gap-4">
 

@@ -5,6 +5,12 @@
   </div>
   <div class="relative z-10 text-black container">
 
+  <!-- Page heading (SEO/a11y: every page needs one H1). -->
+  <div class="mb-4 text-center sm:text-left">
+    <h1 class="text-white text-2xl sm:text-3xl font-bold" style="text-shadow:0 2px 8px rgba(0,0,0,.45)">Book cheap flights from Nigeria</h1>
+    <p class="text-white/90 text-sm sm:text-base mt-1" style="text-shadow:0 1px 4px rgba(0,0,0,.4)">Compare live domestic &amp; international fares and book with 24/7 support.</p>
+  </div>
+
   <div class="p-6 rounded-lg bg-white shadow-lg mt-4">
     <?php include "flights-search.php"; ?>
   </div>

@@ -5,7 +5,8 @@
   "description": "Frontend build tooling — precompiles Tailwind CSS so it is no longer compiled in the browser via the CDN. See docs/TAILWIND-BUILD.md.",
   "scripts": {
     "build:css": "tailwindcss -c tailwind.config.js -i assets/css/tailwind.src.css -o assets/css/tailwind.build.css --minify",
-    "watch:css": "tailwindcss -c tailwind.config.js -i assets/css/tailwind.src.css -o assets/css/tailwind.build.css --watch"
+    "watch:css": "tailwindcss -c tailwind.config.js -i assets/css/tailwind.src.css -o assets/css/tailwind.build.css --watch",
+    "qa:seo": "php tools/seo-crawl-qa.php"
   },
   "devDependencies": {
     "tailwindcss": "^3.4.17"

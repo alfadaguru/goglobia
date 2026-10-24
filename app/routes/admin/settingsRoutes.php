@@ -3156,7 +3156,12 @@ $router->post(admin.'/settings/modules/hotelbeds/update-setting', function () us
 });
 
 $router->get('/sitemap.xml', function () use ($db) {
-    $sitemap_path = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'global' . DIRECTORY_SEPARATOR . 'sitemap.xml';
+    // This file is at app/routes/admin/, so the project root is THREE levels up
+    // (admin -> routes -> app -> root). dirname(__DIR__, 2) pointed at app/ and
+    // the file was never found, so the route fell back to generateSitemap() —
+    // and (combined with the discarded output buffer) the live sitemap served
+    // EMPTY, which means Google could not read it. Resolve to the real path.
+    $sitemap_path = dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'global' . DIRECTORY_SEPARATOR . 'sitemap.xml';
 
     // Auto-generate if not exists
     if (!file_exists($sitemap_path)) {
@@ -3171,7 +3176,12 @@ $router->get('/sitemap.xml', function () use ($db) {
         }
     }
 
-    header('Content-Type: application/xml');
+    // Flush index.php's ob_start() buffer first — otherwise `echo $xml; exit;`
+    // writes into the buffer and the buffer is DISCARDED on exit, so the live
+    // sitemap served EMPTY (Google could not read it). Matches the buffer-clean
+    // pattern the JSON endpoints in this file already use.
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/xml; charset=utf-8');
     echo $xml;
     exit;
 });

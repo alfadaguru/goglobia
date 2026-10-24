@@ -1,0 +1,46 @@
+# SEO crawl-QA (SEO-006) — validates indexability invariants per page template.
+# Boots the app on a local PHP server and runs tools/seo-crawl-qa.php, which
+# exits non-zero on any failure (status, title/desc uniqueness, single H1, clean
+# canonical, correct index/noindex, valid JSON-LD, sitemap membership).
+#
+# NOTE: this needs a DATABASE. The app redirects to /install without a working
+# DB + .env, so the QA can only run meaningfully where those exist. Wire up your
+# CI secrets / a seeded test DB before enabling on push; until then this workflow
+# is manual (workflow_dispatch) so it never blocks merges on a half-configured CI.
+name: SEO crawl-QA
+
+on:
+  workflow_dispatch:
+  # Uncomment once a seeded test DB + .env are provisioned in CI:
+  # pull_request:
+  #   branches: [ main ]
+
+jobs:
+  seo-qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: curl, mbstring, pdo_mysql
+
+      # --- Provision .env + DB here (project-specific). Example skeleton: ---
+      # - name: Start MySQL and import schema
+      #   run: |
+      #     sudo systemctl start mysql
+      #     mysql -uroot -proot -e "CREATE DATABASE goglobia;"
+      #     mysql -uroot -proot goglobia < install/db.sql
+      #     cp .env.ci .env   # a CI .env pointing at the test DB
+
+      - name: Boot app
+        run: |
+          php -S 127.0.0.1:8123 -t . >/tmp/php.log 2>&1 &
+          sleep 3
+
+      - name: Run SEO crawl-QA
+        env:
+          SEO_QA_BASE: http://127.0.0.1:8123/
+        run: php tools/seo-crawl-qa.php

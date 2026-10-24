@@ -131,9 +131,9 @@ $licenseBlocked = !empty($_SESSION['lic_err']);
                     <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
                         <span class="material-symbols-outlined text-2xl text-blue-600">lock</span>
                     </div>
-                    <h2 class="text-2xl font-bold text-gray-900 mb-0">
+                    <h1 class="text-2xl font-bold text-gray-900 mb-0">
                         <?= str_contains($_SERVER['REQUEST_URI'], '/admin/') ? T::admin_portal : T::welcome_back ?>
-                    </h2>
+                    </h1>
                     <p class="text-gray-600">
                         <?= str_contains($_SERVER['REQUEST_URI'], '/admin/') ? T::admin_signin_description : T::signin_description ?>
                     </p>
