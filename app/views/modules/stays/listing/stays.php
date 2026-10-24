@@ -6,7 +6,25 @@
 // ============================================================================
 // app/views/modules/stays/stays.php
 
-@$SECURE or die('Access Denied!'); ?>
+@$SECURE or die('Access Denied!');
+
+// Pay-options on the card (Pay-Small-Small / Pay-Later) — real engine, shown only
+// when enabled for the 'stays' service (scope SERVICE->MODULE->GLOBAL). We never
+// invent a down-payment: the percent comes from pay_small_small_summary_for().
+$stayPssEnabled   = false;
+$stayLaterEnabled = false;
+$stayPssFirstPct  = 0.0;
+try {
+    if (function_exists('pay_small_small_is_enabled_for') && pay_small_small_is_enabled_for($db, 'stays', '')) {
+        $stayPssEnabled = true;
+        $s = pay_small_small_summary_for($db, 'stays', '', 100.0);
+        if (is_array($s)) { $stayPssFirstPct = round((float) ($s['first_amount'] ?? 0), 4); }
+    }
+    if (function_exists('pay_later_is_enabled_for') && pay_later_is_enabled_for($db, 'stays', '')) {
+        $stayLaterEnabled = true;
+    }
+} catch (\Throwable $e) { $stayPssEnabled = false; $stayLaterEnabled = false; }
+?>
 <!-- Include noUiSlider CSS and JS -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
@@ -31,19 +49,22 @@
             <!-- Search Form — collapsed to a compact "Modify" summary on results;
                  expands to the full form. Homepage include (index.php) is unaffected. -->
             <div class="container py-5 pb-2" x-data="{ expanded: false }">
-                <!-- Collapsed summary bar -->
+                <!-- Collapsed summary bar — bold navy route header (matches flights) -->
                 <div x-show="!expanded"
-                    class="card bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl px-4 sm:px-5 py-3 flex items-center justify-between gap-3 cursor-pointer hover:border-blue-300 transition-colors"
+                    class="rounded-2xl px-4 sm:px-5 py-3.5 flex items-center justify-between gap-3 cursor-pointer transition-shadow hover:shadow-lg"
+                    style="background:linear-gradient(100deg,#172554,#1e3a8a);box-shadow:0 8px 24px -14px rgba(23,37,84,.55)"
                     @click="expanded = true">
-                    <div class="flex items-center gap-2.5 min-w-0 text-sm">
-                        <span class="material-symbols-outlined text-blue-600 shrink-0" style="font-size: 20px;">hotel</span>
-                        <span class="font-semibold text-gray-900 dark:text-gray-100 truncate" x-text="searchParams.destination || ''"></span>
-                        <span class="text-gray-300 dark:text-gray-600">·</span>
-                        <span class="text-gray-600 dark:text-gray-300 truncate" x-text="searchParams.checkin + ' – ' + searchParams.checkout"></span>
-                        <span class="text-gray-300 dark:text-gray-600 hidden sm:inline">·</span>
-                        <span class="text-gray-600 dark:text-gray-300 hidden sm:inline" x-text="(searchParams.rooms||1) + ' room · ' + ((+searchParams.adults||0)+(+searchParams.children||0)) + ' guest'"></span>
+                    <div class="flex items-center gap-3 min-w-0">
+                        <span class="shrink-0 w-9 h-9 rounded-xl grid place-items-center" style="background:rgba(255,255,255,.14)">
+                            <span class="material-symbols-outlined text-white" style="font-size: 20px;">hotel</span>
+                        </span>
+                        <div class="min-w-0">
+                            <div class="font-extrabold text-white text-[15px] sm:text-base truncate tracking-tight" x-text="searchParams.destination || ''"></div>
+                            <div class="text-[12px] sm:text-[12.5px] truncate" style="color:#c7d2fe"
+                                x-text="searchParams.checkin + ' – ' + searchParams.checkout + ' · ' + (searchParams.rooms||1) + ' room · ' + ((+searchParams.adults||0)+(+searchParams.children||0)) + ' guest'"></div>
+                        </div>
                     </div>
-                    <button type="button" class="shrink-0 inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 rounded-lg px-3 py-1.5" @click.stop="expanded = true">
+                    <button type="button" class="shrink-0 inline-flex items-center gap-1.5 text-sm font-bold bg-white rounded-xl px-3.5 py-2 transition-transform hover:-translate-y-px" style="color:#1e3a8a" @click.stop="expanded = true">
                         <span class="material-symbols-outlined" style="font-size: 18px;">tune</span>
                         <span><?= T::modify ?></span>
                     </button>
@@ -195,6 +216,20 @@
                                 </div>
                             </template>
                         </div>
+                        <!-- Summary strip: Cheapest / Top-rated / Available -->
+                        <div x-show="filteredHotels.length > 0 && staySummary().length > 0" x-cloak
+                             class="grid grid-cols-3 gap-2.5 sm:gap-3 mb-4">
+                            <template x-for="s in staySummary()" :key="s.key">
+                                <div class="rounded-xl border px-3 py-2.5 flex flex-col gap-0.5"
+                                    :class="s.best ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'">
+                                    <span class="text-[9.5px] sm:text-[10px] uppercase tracking-wider font-bold text-gray-400 dark:text-gray-500" x-text="s.label"></span>
+                                    <span class="text-sm sm:text-[17px] font-extrabold tabular-nums leading-tight"
+                                        :class="s.best ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-gray-100'" x-text="s.value"></span>
+                                    <span class="text-[10px] sm:text-[11px] text-gray-500 dark:text-gray-400 truncate" x-text="s.sub"></span>
+                                </div>
+                            </template>
+                        </div>
+
                         <!-- Hotel Cards -->
                         <div x-show="filteredHotels.length > 0"
                              x-transition:enter="transition ease-out duration-300"
@@ -382,6 +417,61 @@
                 'Conference Rooms': ['conference', 'meeting room', 'meeting rooms', 'banquet']
             },
             searchParams: {},       // Current search parameters (dates, location, etc.)
+
+            // Pay-options on the card (real engine; only shown when enabled for stays)
+            stayPssEnabled: <?= $stayPssEnabled ? 'true' : 'false' ?>,
+            stayLaterEnabled: <?= $stayLaterEnabled ? 'true' : 'false' ?>,
+            stayPssFirstPct: <?= (float) $stayPssFirstPct ?>,
+            // Format a price with currency + thousands separators (kills messy .99)
+            money(amount, currency) {
+                const n = Number(amount) || 0;
+                const ccy = currency || this.sessionCurrency || '';
+                return ccy + ' ' + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+            },
+            // Pay-options chips for a hotel — only when the real engine has them on.
+            renderStayPayOptions(h) {
+                if (!this.stayPssEnabled && !this.stayLaterEnabled) return '';
+                let chips = '';
+                if (this.stayPssEnabled && this.stayPssFirstPct > 0) {
+                    const firstNow = (Number(h.price) || 0) * (this.stayPssFirstPct / 100);
+                    chips += `<div class="flex-1 rounded-lg border border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20 px-2 py-1.5">
+                        <div class="text-[9px] uppercase tracking-wide font-bold text-amber-700 dark:text-amber-400 leading-none">Pay small small</div>
+                        <div class="text-[13px] font-extrabold text-amber-700 dark:text-amber-300 tabular-nums mt-0.5 leading-none">${this.money(firstNow, h.currency)}</div>
+                        <div class="text-[9.5px] text-amber-600/80 dark:text-amber-400/80 mt-0.5 leading-none">now · rest later</div>
+                    </div>`;
+                }
+                if (this.stayLaterEnabled) {
+                    chips += `<div class="flex-1 rounded-lg border border-blue-200 dark:border-blue-700/50 bg-blue-50 dark:bg-blue-900/20 px-2 py-1.5">
+                        <div class="text-[9px] uppercase tracking-wide font-bold text-blue-700 dark:text-blue-400 leading-none">Pay later</div>
+                        <div class="text-[13px] font-extrabold text-blue-700 dark:text-blue-300 mt-0.5 leading-none">Reserve now</div>
+                        <div class="text-[9.5px] text-blue-600/80 dark:text-blue-400/80 mt-0.5 leading-none">pay before deadline</div>
+                    </div>`;
+                }
+                return `<div class="flex gap-1.5 mt-2.5">${chips}</div>`;
+            },
+            // Summary strip tiles: Cheapest / Top-rated / N stays
+            staySummary() {
+                const pool = (this.hotels || []).filter(h => h && h.has_available_rooms && Number(h.price_per_night) > 0);
+                if (pool.length === 0) return [];
+                // "Rating" the hotel carries can be a 0-5 review score (h.rating) or a
+                // star class (h.stars); real data here populates stars, so use whichever
+                // is present as the quality signal.
+                const score = h => (Number(h.rating) || 0) || (Number(h.stars) || 0);
+                let cheapest = pool[0], topRated = pool[0];
+                for (const h of pool) {
+                    if (Number(h.price_per_night) < Number(cheapest.price_per_night)) cheapest = h;
+                    if (score(h) > score(topRated)) topRated = h;
+                }
+                const out = [
+                    { key: 'cheapest', best: true, label: 'Cheapest', value: this.money(cheapest.price_per_night, cheapest.currency) + ' /night', sub: (cheapest.name || '') },
+                ];
+                if (score(topRated) > 0) {
+                    out.push({ key: 'rated', best: false, label: 'Top rated', value: score(topRated).toFixed(1) + ' ★', sub: (topRated.name || '') });
+                }
+                out.push({ key: 'count', best: false, label: 'Available', value: String(pool.length), sub: 'stays with rooms' });
+                return out;
+            },
+
             roomsData: [],          // Room details for booking
             sortBy: '',         // Active sort method (default: none - preserve load order)
 
