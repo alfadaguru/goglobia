@@ -397,12 +397,12 @@ $footer_menus = array_values(array_filter(array_map(
                             </div>
                             <div class="flex items-center gap-1.5">
                                 <span style="color: var(--footer-text-color); opacity: 0.4;">•</span>
-                                <a href="<?= root ?>agent-signup"
+                                <a href="<?= root ?>page/cookies-policy"
                                     class="relative inline-block no-underline pb-[2px] font-medium whitespace-nowrap after:content-[''] after:absolute after:bottom-0 after:left-0 after:w-full after:h-[2px] after:rounded-[1px] after:bg-[var(--footer-link-color,#2563eb)] after:scale-x-0 after:origin-left after:transition-transform after:duration-500 after:ease-in-out hover:after:scale-x-100"
                                     style="color: var(--footer-text-color);"
                                     onmouseover="this.style.color='var(--footer-link-color)'"
                                     onmouseout="this.style.color='var(--footer-text-color)'">
-                                    Become an Agent
+                                    Cookies Policy
                                 </a>
                             </div>
                             <div class="flex items-center gap-1.5">
