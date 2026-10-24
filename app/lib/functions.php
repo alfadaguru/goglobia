@@ -939,6 +939,68 @@ function ensureCoreFixSchema($db): void
     // test/live, markup. Idempotent: inserts the row only when absent; never
     // overwrites an admin-edited row. See ensureAdivahaModule() below.
     ensureAdivahaModule($db);
+
+    // Phone-auth + OTP groundwork (GIA identity/personalisation workstream,
+    // Phase 0). Adds users.phone_verified, users.otp_type, and a non-unique
+    // index on users.phone. MUST exist before any phone/login OTP code so the
+    // single shared `otp` column can be purpose-scoped (signup vs reset vs
+    // phone/login) and stop clobbering itself. Idempotent self-heal. See
+    // ensureGiaAuthSchema() below.
+    ensureGiaAuthSchema($db);
+}
+
+/**
+ * Phase 0 schema groundwork for phone-at-signup, email-OR-phone login and
+ * OTP-over-WhatsApp (see docs/research/gia-identity-personalization-audit.md).
+ *
+ * Adds, idempotently:
+ *   - users.phone_verified TINYINT(1)  — mirrors email_verified; 1 once the
+ *     phone has been confirmed by OTP. Lets login/registration gate on a
+ *     verified phone without touching the email_verified flow.
+ *   - users.otp_type VARCHAR(20)       — purpose of the CURRENT one-time code
+ *     in users.otp ('signup' | 'forgot_password' | 'phone_verify' | 'login').
+ *     The codebase ships a SINGLE users.otp / otp_expires pair shared by the
+ *     API signup flow (24h) and the password-reset flow (5min). Adding a
+ *     phone/login OTP on top would silently overwrite whichever code was live
+ *     and the burn-after-5 guard would clear all of them. Scoping every issue
+ *     to a type lets otp_verify() reject a code minted for a different purpose
+ *     instead of cross-honouring it.
+ *   - INDEX on users.phone             — email-OR-phone login looks users up by
+ *     normalised phone; keep it non-unique on purpose (multiple accounts may
+ *     legitimately share a number; disambiguation is handled in the login path,
+ *     not by a UNIQUE constraint that would hard-fail signup).
+ *
+ * Column adds mirror ensureCoreFixSchema()'s SHOW COLUMNS guard; the index add
+ * mirrors the SHOW INDEX guard used for wallet_ledger/stays elsewhere here.
+ * All failures are swallowed with error_log (e.g. a DB user without ALTER).
+ */
+function ensureGiaAuthSchema($db): void
+{
+    $columns = [
+        ['users', 'phone_verified', "ALTER TABLE `users` ADD COLUMN `phone_verified` TINYINT(1) NOT NULL DEFAULT 0"],
+        ['users', 'otp_type',       "ALTER TABLE `users` ADD COLUMN `otp_type` VARCHAR(20) NULL DEFAULT NULL"],
+    ];
+
+    foreach ($columns as [$table, $column, $alterSql]) {
+        try {
+            $exists = $db->query("SHOW COLUMNS FROM `$table` LIKE " . $db->pdo->quote($column))->fetchAll();
+            if (count($exists) === 0) {
+                $db->pdo->exec($alterSql);
+            }
+        } catch (Throwable $e) {
+            error_log("ensureGiaAuthSchema: could not verify/add {$table}.{$column}: " . $e->getMessage());
+        }
+    }
+
+    // Non-unique index on users.phone for email-OR-phone login lookups.
+    try {
+        $hasPhoneIdx = $db->query("SHOW INDEX FROM `users` WHERE Key_name = 'idx_users_phone'")->fetch();
+        if (!$hasPhoneIdx) {
+            $db->pdo->exec("ALTER TABLE `users` ADD INDEX `idx_users_phone` (`phone`)");
+        }
+    } catch (Throwable $e) {
+        error_log('ensureGiaAuthSchema: could not add idx_users_phone: ' . $e->getMessage());
+    }
 }
 
 /**
