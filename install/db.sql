@@ -28373,6 +28373,60 @@ ALTER TABLE `promo_code_usage`
 -- --------------------------------------------------------
 
 --
+-- Customer referral program (app/lib/referrals.php). Also self-healed by
+-- ensureReferralSchema() on boot; kept here for fresh installs.
+--
+
+CREATE TABLE IF NOT EXISTS `referral_codes` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` varchar(255) NOT NULL,
+  `code` varchar(32) NOT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_ref_code` (`code`),
+  UNIQUE KEY `uq_ref_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `referrals` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `referrer_id` varchar(255) NOT NULL,
+  `referee_id` varchar(255) NOT NULL,
+  `code_used` varchar(32) NOT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'pending',
+  `qualifying_invoice_id` varchar(191) DEFAULT NULL,
+  `qualified_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_referee` (`referee_id`),
+  KEY `idx_referrer` (`referrer_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `referral_rewards` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `referral_id` int(11) NOT NULL,
+  `referrer_id` varchar(255) NOT NULL,
+  `referee_id` varchar(255) NOT NULL,
+  `invoice_id` varchar(191) NOT NULL,
+  `referrer_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `referee_amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `currency` varchar(3) DEFAULT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'hold',
+  `hold_expires_at` datetime DEFAULT NULL,
+  `rewarded_at` datetime DEFAULT NULL,
+  `reversed_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_reward_referral` (`referral_id`),
+  UNIQUE KEY `uq_reward_invoice` (`invoice_id`),
+  KEY `idx_reward_status` (`status`),
+  KEY `idx_reward_referrer` (`referrer_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `rail_seat_classes`
 --
 

@@ -77,6 +77,7 @@ require_once 'app/lib/wallet.php';
 require_once 'app/lib/paylater.php';
 require_once 'app/lib/paysmallsmall.php';
 require_once 'app/lib/installments.php';
+require_once 'app/lib/referrals.php';
 require_once 'app/lib/cards.php';
 require_once 'app/lib/stays_inventory.php';
 require_once 'app/lib/supplier_rates.php'; // MODULE 06 yield rules/restrictions/promo (used by stays_recompute_net)
@@ -502,6 +503,10 @@ try {
     require_once 'app/lib/discounts.php';
     if (function_exists('ensureDiscountSchema')) {
         ensureDiscountSchema($db);
+    }
+    // Customer referral program (app/lib/referrals.php) — idempotent self-heal.
+    if (function_exists('ensureReferralSchema')) {
+        ensureReferralSchema($db);
     }
     // Agent API (docs/AGENT-API.md) — idempotent, no-op once tables exist.
     if (function_exists('ensureAgentApiSchema')) {
