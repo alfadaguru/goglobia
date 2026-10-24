@@ -32,6 +32,10 @@
             Incorrect answer to security question. Please try again.
           <?php elseif ($_SESSION['signup_error'] === 'invalid_request'): ?>
             Invalid request. Please try again.
+          <?php elseif ($_SESSION['signup_error'] === 'phone_country_required'): ?>
+            Please select a country code for your phone number.
+          <?php elseif ($_SESSION['signup_error'] === 'phone_invalid'): ?>
+            Please enter a valid phone number (digits only, no spaces or leading 0).
           <?php else: ?>
             <?= T::error_registration_failed ?>
           <?php endif; ?>
@@ -183,6 +187,35 @@
                 class="input-with-icon"
                 placeholder="<?= T::email_address ?>"
                 value="<?= htmlspecialchars($_SESSION['form_data']['email'] ?? '') ?>">
+            </div>
+          </div>
+
+          <!-- Phone (optional) — country-code selector reuses the profile screen's
+               countries dropdown; number is stored against users.phone and can later
+               be verified by OTP over WhatsApp. Optional per product decision. -->
+          <div class="form-control">
+            <label for="phone" class="block text-sm font-medium text-gray-700 mb-1"><?= T::phone_number ?? 'Phone number' ?></label>
+            <div class="grid grid-cols-12 gap-2">
+              <div class="col-span-4">
+                <select id="phone_country_code" name="phone_country_code" class="input w-full">
+                  <option value=""><?= T::code ?? 'Code' ?></option>
+                  <?php foreach (($countries ?? []) as $country): ?>
+                    <option value="<?= htmlspecialchars($country['iso']) ?>" <?= (($_SESSION['form_data']['phone_country_code'] ?? '') === $country['iso']) ? 'selected' : '' ?>>
+                      <?= htmlspecialchars($country['iso']) ?> +<?= htmlspecialchars($country['phonecode']) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div class="col-span-8">
+                <div class="input-group">
+                  <span class="input-icon-left material-symbols-outlined">call</span>
+                  <input type="tel" id="phone" name="phone"
+                    class="input-with-icon"
+                    inputmode="numeric"
+                    placeholder="<?= T::phone_placeholder ?? 'Phone (no spaces or leading 0)' ?>"
+                    value="<?= htmlspecialchars($_SESSION['form_data']['phone'] ?? '') ?>">
+                </div>
+              </div>
             </div>
           </div>
 
