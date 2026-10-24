@@ -202,7 +202,7 @@ if (!empty($enabledModules)) {
 // fold the rest + CMS menus (About/Contact/Blog) into a single "More" dropdown.
 // Reuses $processedServices as-is — no new data. Inline count is intentionally
 // modest so the bar never overflows on common laptop widths.
-$HEADER_INLINE_SERVICES = 6;
+$HEADER_INLINE_SERVICES = 4;
 $inlineServices   = array_slice($processedServices, 0, $HEADER_INLINE_SERVICES);
 $overflowServices = array_slice($processedServices, $HEADER_INLINE_SERVICES);
 
@@ -680,8 +680,13 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
       <div class="container mx-auto">
         <div class="flex items-center justify-between transition-all duration-300 ease-out" :class="scrolled ? 'h-24' : 'h-28'">
           <!-- LOGO + NAVIGATION -->
+          <!-- flex-1 min-w-0 lets this block take the free space and shrink; paired
+               with shrink-0 on the right-hand controls, the controls keep their size
+               and the nav yields, so they can't collide at tablet/mid widths. Inline
+               service count is also trimmed (see $HEADER_INLINE_SERVICES) so the row
+               fits at the lg breakpoint; the rest live in the "More" menu. -->
           <?php $__wl = function_exists('wl_is_tenant') && wl_is_tenant(); ?>
-          <div class="flex items-center gap-4">
+          <div class="flex items-center gap-4 flex-1 min-w-0">
             <?php if ($__wl):
               $__wlLogo = trim((string) wl_tenant('logo'));
               $__wlName = (string) wl_tenant('name'); ?>
@@ -706,16 +711,23 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
             <?php endif; ?>
 
             <!-- DESKTOP NAVIGATION -->
-            <nav class="hidden lg:flex items-center gap-0.5 font-medium">
+            <nav class="hidden lg:flex items-center gap-0.5 font-medium min-w-0">
             <!-- INLINE SERVICES (platform only — hidden on a hotel's own site).
-                 First N services promoted into the bar; the rest live in "More". -->
+                 First N services promoted into the bar; the rest live in "More".
+                 Wrapped in a min-w-0 + overflow-x-hidden rail so that if the row
+                 runs out of room (tablet/mid widths) the trailing service links
+                 clip here INSTEAD of spilling over and overlapping the right-hand
+                 currency/login controls. "More" is a sibling OUTSIDE this rail, so
+                 its dropdown is never clipped and overflow stays reachable. -->
             <?php if (!$__wl && !empty($inlineServices)): ?>
+            <div class="flex items-center gap-0.5 min-w-0 overflow-x-hidden">
               <?php foreach ($inlineServices as $svc): ?>
-              <a href="<?= $svc['href'] ?>" class="nav-link flex items-center gap-1.5 px-3 py-2 rounded-full font-medium hover:bg-gray-50 whitespace-nowrap">
+              <a href="<?= $svc['href'] ?>" class="nav-link flex items-center gap-1.5 px-3 py-2 rounded-full font-medium hover:bg-gray-50 whitespace-nowrap shrink-0">
                 <span class="material-symbols-outlined !text-[18px] text-gray-500"><?= htmlspecialchars($svc['icon']) ?></span>
                 <span><?= htmlspecialchars(ucwords($svc['label'])) ?></span>
               </a>
               <?php endforeach; ?>
+            </div>
             <?php endif; ?>
 
             <!-- MORE ▾ : overflow services + CMS menus (About/Contact/Blog). Only
@@ -729,7 +741,7 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
             $__hasMore = (!$__wl && !empty($overflowServices)) || !empty($header_menus) || !empty($header_standalone) || $__hasPartnerLinks;
             if ($__hasMore):
             ?>
-            <div class="relative group">
+            <div class="relative group shrink-0">
                 <button class="nav-link flex items-center gap-1.5 px-3 py-2 rounded-full hover:bg-gray-50">
                   <span class="material-symbols-outlined !text-[18px] text-gray-500">apps</span>
                   <span class="font-medium"><?= ucfirst(T::more) ?></span>
@@ -809,7 +821,8 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
           </div>
 
           <!-- CTA BUTTONS -->
-          <div class="flex items-center gap-2">
+          <!-- shrink-0: the controls keep their natural size; the nav yields first. -->
+          <div class="flex items-center gap-2 shrink-0">
             <?php if ($__wl): ?>
             <!-- WHITE-LABEL: hotel's own site — no platform controls. A single "Book" CTA. -->
             <?php $__wlSlug = (string) wl_tenant('slug'); ?>
