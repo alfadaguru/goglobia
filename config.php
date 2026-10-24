@@ -186,6 +186,8 @@ require_once 'app/lib/umrah/admin_crud.php';
 require_once 'app/lib/booking_manager.php'; // admin Booking Manager foundations
 require_once 'app/lib/support/rbac.php';     // Customer Support module — Phase 1 RBAC + employee foundation
 require_once 'app/lib/support/livedesk.php'; // Customer Support — Phase 2 Live Chat Desk engine (channel-aware staff reply/takeover)
+require_once 'app/lib/support/attendance.php'; // Customer Support — Phase 3 attendance/presence/shift engine (clock-in/out + heartbeat + nudge data)
+require_once 'app/lib/support/shifts.php';     // Customer Support — Phase 3 shift roster + nudge-due helpers (schema owned by attendance.php)
 
 // Load demo warning helper with error handling
 try {
@@ -510,6 +512,12 @@ try {
     // gia_messages.staff_id. Idempotent.
     if (function_exists('ensureSupportDeskSchema')) {
         ensureSupportDeskSchema($db);
+    }
+    // Customer Support P3 Attendance/Shifts — creates support_attendance,
+    // support_heartbeat, support_shifts (shifts.php has no own ensure fn; its
+    // tables are owned here). Idempotent.
+    if (function_exists('ensureSupportAttendanceSchema')) {
+        ensureSupportAttendanceSchema($db);
     }
     // Umrah redesign (docs/UMRAH-PHASE1-BUILD-PLAN.md) — schema + seeds, idempotent.
     if (function_exists('ensureUmrahSchema')) {

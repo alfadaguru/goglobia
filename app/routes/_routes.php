@@ -273,7 +273,9 @@ require_once 'app/routes/admin/supportticketRoutes.php';
 require_once 'app/routes/admin/supportRoutes.php';      // Customer Support — Phase 1 shell (landing + nav)
 require_once 'app/routes/admin/supportRolesRoutes.php'; // Customer Support — RBAC roles CRUD
 require_once 'app/routes/admin/supportStaffRoutes.php'; // Customer Support — staff/employee CRUD
+require_once 'app/routes/admin/supportShiftsRoutes.php';// Customer Support — Phase 3 shift roster (assign/edit + nudge bookkeeping)
 require_once 'app/routes/admin/supportDeskRoutes.php';  // Customer Support — Live Chat Desk (multi-channel takeover)
+require_once 'app/routes/admin/supportAttendanceRoutes.php'; // Customer Support — attendance (clock/heartbeat/presence board)
 require_once 'app/routes/admin/promoCodesRoutes.php';
 require_once 'app/routes/admin/discountsRoutes.php'; // automatic discount engine (Marketing)
 endif; // admin routes
@@ -429,3 +431,4 @@ require_once 'app/routes/crons/payLaterRoutes.php';
 require_once 'app/routes/crons/supplierEarningsRoutes.php'; // clearance sweep: pending -> available
 require_once 'app/routes/crons/campaignsDispatchRoutes.php'; // scheduled email campaign dispatcher
 require_once 'app/routes/crons/giaPaymentsRoutes.php'; // GIA per-booking payment reminders + expiry sweep
+require_once 'app/routes/crons/supportShiftNudgeRoutes.php'; // GIA WhatsApps staff not clocked in at shift start, every 15m, capped at 3

@@ -27557,6 +27557,70 @@ CREATE TABLE IF NOT EXISTS `support_staff` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `support_attendance`
+-- Customer Support module Phase 3 (docs/support/CUSTOMER_SUPPORT_MODULE_SPEC.md
+-- §7). One row per clock-in session: OPEN = clock_out IS NULL; worked_seconds
+-- accrues TIMESTAMPDIFF(SECOND, clock_in, clock_out) on clock-out. Mirrors
+-- ensureSupportAttendanceSchema (app/lib/support/attendance.php).
+--
+
+CREATE TABLE IF NOT EXISTS `support_attendance` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `staff_id` int(11) NOT NULL,
+  `work_date` date NOT NULL,
+  `clock_in` datetime NOT NULL,
+  `clock_out` datetime DEFAULT NULL,
+  `worked_seconds` int(11) NOT NULL DEFAULT 0,
+  `source` enum('manual','auto') NOT NULL DEFAULT 'manual',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_staff_date` (`staff_id`,`work_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `support_heartbeat`
+-- ONE presence row per staff, upserted on each beat. last_beat within 5 min =
+-- online (idle-pause threshold, §7). Mirrors ensureSupportAttendanceSchema.
+--
+
+CREATE TABLE IF NOT EXISTS `support_heartbeat` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `staff_id` int(11) NOT NULL,
+  `last_beat` datetime NOT NULL,
+  `status` enum('online','idle','offline') NOT NULL DEFAULT 'online',
+  `session_id` varchar(64) DEFAULT NULL,
+  `module` varchar(40) NOT NULL DEFAULT 'support',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_staff` (`staff_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `support_shifts`
+-- Scheduled shift windows + nudge bookkeeping. nudge_count / last_nudge_at let
+-- the shift-nudge cron cap at 3 nudges spaced 15 min apart (§7). Mirrors
+-- ensureSupportAttendanceSchema.
+--
+
+CREATE TABLE IF NOT EXISTS `support_shifts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `staff_id` int(11) NOT NULL,
+  `shift_date` date NOT NULL,
+  `start_time` time DEFAULT NULL,
+  `end_time` time DEFAULT NULL,
+  `nudge_count` tinyint(4) NOT NULL DEFAULT 0,
+  `last_nudge_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_staff_date` (`staff_id`,`shift_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `gia_webhook_log`
 -- Inbound GIA channel webhook activity (WhatsApp/Telegram/Messenger) so the
 -- admin can see what each provider sent and what we did with it. Self-trimming.
