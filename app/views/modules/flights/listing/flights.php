@@ -798,20 +798,23 @@ try {
                             </div>
 
                             <!-- FLEXIBLE DATES — one-tap nearby departure dates (no per-day
-                                 prices; each chip re-runs the real search for that date). -->
+                                 prices; each chip re-runs the real search for that date).
+                                 Spreads the 7 days EVENLY across the full width (grid) on
+                                 sm+ screens; falls back to a horizontal scroll on very
+                                 small screens where 7 columns won't fit. -->
                             <div x-show="searchParams.type !== 'multicity' && searchParams.departure_date"
-                                x-cloak class="mb-4 flex items-stretch gap-2 overflow-x-auto pb-1">
+                                x-cloak class="mb-4 grid grid-cols-7 gap-1.5 sm:gap-2">
                                 <template x-for="d in flexDates()" :key="d.dmy">
                                     <button type="button"
                                         @click="d.valid && !d.isCurrent ? goToFlexDate(d.dmy) : null"
                                         :disabled="!d.valid || d.isCurrent"
-                                        class="shrink-0 min-w-[64px] rounded-xl border px-3 py-2 text-center transition-colors"
+                                        class="w-full min-w-0 rounded-xl border px-1 sm:px-2 py-2 text-center transition-colors"
                                         :class="d.isCurrent
                                             ? 'border-blue-600 bg-blue-600 text-white cursor-default'
                                             : (d.valid ? 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20'
                                                        : 'border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 text-gray-300 dark:text-gray-600 cursor-not-allowed')">
-                                        <div class="text-[11px] uppercase tracking-wide" x-text="d.isCurrent ? '<?= T::selected ?? 'Selected' ?>' : d.dow"></div>
-                                        <div class="text-sm font-semibold leading-tight"><span x-text="d.day"></span> <span x-text="d.mon"></span></div>
+                                        <div class="text-[10px] sm:text-[11px] uppercase tracking-wide truncate" x-text="d.isCurrent ? '<?= T::selected ?? 'Selected' ?>' : d.dow"></div>
+                                        <div class="text-xs sm:text-sm font-semibold leading-tight truncate"><span x-text="d.day"></span> <span x-text="d.mon"></span></div>
                                     </button>
                                 </template>
                             </div>
