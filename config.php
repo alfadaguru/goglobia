@@ -73,6 +73,7 @@ require_once 'app/lib/csrf.php';
 require_once 'app/lib/crud.php';
 require_once 'app/lib/notify.php';
 require_once 'app/lib/functions.php';
+require_once 'app/lib/admin_rbac.php'; // Employee RBAC consolidation (S1) — enforce the existing users_roles grid
 require_once 'app/lib/wallet.php';
 require_once 'app/lib/paylater.php';
 require_once 'app/lib/paysmallsmall.php';
@@ -513,6 +514,14 @@ try {
     // stays listing-approval + inventory/holds + branded-site tables. Idempotent.
     if (function_exists('ensureSupplierStaysSchema')) {
         ensureSupplierStaysSchema($db);
+    }
+    // Employee RBAC consolidation (docs/support/EMPLOYEE_RBAC_CONSOLIDATION.md, S1) —
+    // widens users_roles + users with governance columns and seeds/repairs the
+    // default roles (Admin force-repaired to a full grant every boot so a real
+    // admin is never locked out). Idempotent. Runs BEFORE the legacy support
+    // RBAC block below; S3 will remove that block once Support is migrated here.
+    if (function_exists('ensureAdminRbacSchema')) {
+        ensureAdminRbacSchema($db);
     }
     // Customer Support module (docs/support/CUSTOMER_SUPPORT_MODULE_SPEC.md) —
     // RBAC + employee foundation; seeds the 4 LOCKED default roles. Idempotent.
