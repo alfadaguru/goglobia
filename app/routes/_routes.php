@@ -282,6 +282,7 @@ require_once 'app/routes/admin/supportConversionRoutes.php'; // Customer Support
 require_once 'app/routes/admin/supportTargetsRoutes.php'; // Customer Support — Phase 5 agent/GIA/team targets CRUD
 require_once 'app/routes/admin/promoCodesRoutes.php';
 require_once 'app/routes/admin/discountsRoutes.php'; // automatic discount engine (Marketing)
+require_once 'app/routes/admin/referralsRoutes.php'; // customer referral program (Marketing)
 endif; // admin routes
 
 // API ROUTES — only parsed on /api requests
