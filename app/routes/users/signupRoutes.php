@@ -34,6 +34,11 @@ $router->get('/signup', function () use ($SECURE, $db) {
     $captchaData = Captcha::generate();
     $_SESSION['captcha_data'] = $captchaData;
 
+    // Countries for the (optional) phone country-code selector — same query the
+    // customer profile screen uses (app/routes/users/profileRoutes.php), so the
+    // signup phone field reuses the identical dropdown rather than a new widget.
+    $countries = $db->select('countries', ['iso', 'nicename', 'phonecode'], ['ORDER' => ['nicename' => 'ASC']]);
+
     $title = T::signup;
     $description = T::signup_description;
     $header = true;
@@ -67,7 +72,10 @@ $router->post('/signup', function () use ($SECURE, $db) {
     $password = trim($_POST['password'] ?? '');
     $confirm_password = trim($_POST['confirm_password'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
-    $phone_country_code = trim($_POST['phone_country_code'] ?? '92');
+    // Phone is OPTIONAL. Do NOT default the country code to '92' (Pakistan) when
+    // the user leaves it blank — that was writing a wrong code onto every
+    // phone-less signup. Empty stays empty; getPhoneCode('') returns '' below.
+    $phone_country_code = trim($_POST['phone_country_code'] ?? '');
     $terms = isset($_POST['terms']);
     $userType = trim($_POST['user_type'] ?? 'customer');
     $userRole = ($userType === 'agent') ? 'agent' : 'customer';
@@ -150,6 +158,27 @@ $router->post('/signup', function () use ($SECURE, $db) {
         $_SESSION['signup_error'] = 'terms_required';
         header('Location: ' . $redirectUrl);
         exit;
+    }
+
+    // Phone is OPTIONAL — only validate/normalise when the user actually typed one.
+    // If a number is given, a country code is required and the digits must be a
+    // plausible E.164 (6–15 digits). Store the national digits (country code kept
+    // separately in phone_country_code), matching the rest of the app.
+    if ($phone !== '') {
+        if ($phone_country_code === '') {
+            $_SESSION['signup_error'] = 'phone_country_required';
+            header('Location: ' . $redirectUrl);
+            exit;
+        }
+        if (!validatePhoneForCountry($phone, $phone_country_code, $db)) {
+            $_SESSION['signup_error'] = 'phone_invalid';
+            header('Location: ' . $redirectUrl);
+            exit;
+        }
+        $phone = normalizePhoneForStorage($phone, $phone_country_code, $db);
+    } else {
+        // No number → no stray country code either.
+        $phone_country_code = '';
     }
 
     $hashed_password = password_hash($password, PASSWORD_DEFAULT);

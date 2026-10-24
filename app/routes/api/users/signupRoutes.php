@@ -47,7 +47,9 @@ $router->post('/api/signup', function () use ($db) {
     $password = trim($data['password'] ?? '');
     $confirm_password = trim($data['confirm_password'] ?? '');
     $phone = trim($data['phone'] ?? '');
-    $phone_country_code = trim($data['phone_country_code'] ?? '92');
+    // Phone optional — don't default the country code to '92' (Pakistan) when the
+    // client omits it; getPhoneCode('') returns '' so a phone-less signup stays clean.
+    $phone_country_code = trim($data['phone_country_code'] ?? '');
     $terms = $data['terms'] ?? false;
     $userType = trim($data['user_type'] ?? 'customer');
     $userRole = ($userType === 'agent') ? 'agent' : 'customer';
