@@ -213,6 +213,20 @@ if (!empty($bookingsChildren)) {
     ];
 }
 
+// CONDITIONAL: "Refer & Earn" — only when the referral program is enabled in admin.
+if (function_exists('referral_config')) {
+    $__refCfg = referral_config($db);
+    if (!empty($__refCfg['enabled'])) {
+        $sidebarMenu[] = [
+            'type' => 'link',
+            'label' => 'Refer & Earn',
+            'icon' => 'share',
+            'url' => root . 'referrals',
+            'active' => str_contains($currentPath, 'referrals')
+        ];
+    }
+}
+
 // ============================================================================
 // SECTION 6: ADD REMAINING MENU ITEMS
 // ============================================================================

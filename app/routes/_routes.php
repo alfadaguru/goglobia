@@ -138,6 +138,7 @@ require_once 'app/routes/users/emailVerificationRoutes.php';
 require_once 'app/routes/users/passwordResetRoutes.php';
 require_once 'app/routes/users/userDashboardRoutes.php';
 require_once 'app/routes/users/profileRoutes.php';
+require_once 'app/routes/users/referralRoutes.php'; // customer "Refer & Earn" page
 require_once 'app/routes/users/cardRoutes.php';
 require_once 'app/routes/users/bookingsRoutes.php';
 require_once 'app/routes/users/favouritesRoutes.php';
