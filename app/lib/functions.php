@@ -5210,29 +5210,79 @@ function ensureSeoLandingSchema($db): void
             $fresh = true;
         }
 
-        // Seed from the hardcoded defaults ONCE (fresh + empty table). After this
-        // the DB is the source of truth; admin edits are never overwritten.
+        $reg = dirname(__DIR__) . '/lib/seo_registry.php';
+        if (is_file($reg)) { require_once $reg; }
+
+        // Full seed from the hardcoded defaults ONCE, on a brand-new empty table.
+        // After this the DB is the source of truth; admin edits/deletes are never
+        // overwritten here — new default pages are handled by the versioned
+        // top-up below, not by re-running this block.
         if ($fresh && (int) $db->count('seo_landing_pages', '*') === 0) {
-            $reg = dirname(__DIR__) . '/lib/seo_registry.php';
-            if (is_file($reg)) { require_once $reg; }
-            $order = 0;
-            if (function_exists('seoFlightRouteDataDefaults')) {
-                foreach (seoFlightRouteDataDefaults() as $slug => $d) {
-                    $db->insert('seo_landing_pages', ['type' => 'flight_route', 'slug' => $slug, 'data' => json_encode($d, JSON_UNESCAPED_UNICODE), 'status' => 1, 'sort_order' => $order += 10]);
+            $seedType = function (string $type, string $fn) use ($db) {
+                if (!function_exists($fn)) { return; }
+                $order = 0;
+                foreach ($fn() as $slug => $d) {
+                    $db->insert('seo_landing_pages', [
+                        'type'       => $type,
+                        'slug'       => (string) $slug,
+                        'title'      => $d['name'] ?? null,
+                        'data'       => json_encode($d, JSON_UNESCAPED_UNICODE),
+                        'status'     => 1,
+                        'sort_order' => $order += 10,
+                    ]);
+                }
+            };
+            $seedType('flight_route', 'seoFlightRouteDataDefaults');
+            $seedType('hotel_city',   'seoHotelCitiesDefaults');
+            $seedType('umrah_origin', 'seoUmrahOriginCitiesDefaults');
+        }
+
+        // Versioned top-up — adds NEW default pages shipped after the initial seed
+        // to existing installs, exactly once each, WITHOUT resurrecting rows an
+        // admin deleted. We record the applied version in settings; bump
+        // SEO_LANDING_SEED_VERSION below whenever new default slugs are added, and
+        // only slugs are inserted that (a) are new defaults and (b) have never
+        // been seeded before (tracked by the recorded version). Existing slugs are
+        // left untouched, so admin content is safe.
+        $SEO_LANDING_SEED_VERSION = 2; // v2: +kaduna, sokoto, maiduguri, ilorin, port-harcourt, enugu (umrah origins)
+
+        // Ensure the tracking column exists BEFORE we read it (idempotent ALTER),
+        // else an existing install throws "unknown column" and aborts the top-up.
+        $cols = $db->query("SHOW COLUMNS FROM `settings` LIKE 'seo_landing_seed_version'")->fetchAll();
+        if (empty($cols)) {
+            $db->query("ALTER TABLE `settings` ADD COLUMN `seo_landing_seed_version` INT NOT NULL DEFAULT 0");
+        }
+
+        $applied = (int) ($db->get('settings', 'seo_landing_seed_version', ['id' => 1]) ?: 0);
+        if ($applied < $SEO_LANDING_SEED_VERSION && !$fresh) {
+            // Only the slugs introduced at version 2 (so a v1 install gets exactly
+            // these six, and a fresh install — already full-seeded above — skips).
+            $v2UmrahSlugs = ['kaduna', 'sokoto', 'maiduguri', 'ilorin', 'port-harcourt', 'enugu'];
+            if ($applied < 2 && function_exists('seoUmrahOriginCitiesDefaults')) {
+                $defaults = seoUmrahOriginCitiesDefaults();
+                // Continue sort_order after the existing umrah rows.
+                $maxOrder = (int) ($db->max('seo_landing_pages', 'sort_order', ['type' => 'umrah_origin']) ?: 0);
+                foreach ($v2UmrahSlugs as $slug) {
+                    if (!isset($defaults[$slug])) { continue; }
+                    // Skip if the admin already has a row for this slug (added or
+                    // deleted-then-recreated) — never clobber or duplicate.
+                    if ((int) $db->count('seo_landing_pages', '*', ['type' => 'umrah_origin', 'slug' => $slug]) > 0) { continue; }
+                    $d = $defaults[$slug];
+                    $db->insert('seo_landing_pages', [
+                        'type'       => 'umrah_origin',
+                        'slug'       => $slug,
+                        'title'      => $d['name'] ?? null,
+                        'data'       => json_encode($d, JSON_UNESCAPED_UNICODE),
+                        'status'     => 1,
+                        'sort_order' => $maxOrder += 10,
+                    ]);
                 }
             }
-            $order = 0;
-            if (function_exists('seoHotelCitiesDefaults')) {
-                foreach (seoHotelCitiesDefaults() as $slug => $d) {
-                    $db->insert('seo_landing_pages', ['type' => 'hotel_city', 'slug' => $slug, 'title' => ($d['name'] ?? $slug), 'data' => json_encode($d, JSON_UNESCAPED_UNICODE), 'status' => 1, 'sort_order' => $order += 10]);
-                }
-            }
-            $order = 0;
-            if (function_exists('seoUmrahOriginCitiesDefaults')) {
-                foreach (seoUmrahOriginCitiesDefaults() as $slug => $d) {
-                    $db->insert('seo_landing_pages', ['type' => 'umrah_origin', 'slug' => $slug, 'title' => ($d['name'] ?? $slug), 'data' => json_encode($d, JSON_UNESCAPED_UNICODE), 'status' => 1, 'sort_order' => $order += 10]);
-                }
-            }
+        }
+        // Record the applied version (also on fresh installs, so they don't run
+        // the top-up next boot). The column was ensured above.
+        if ($applied < $SEO_LANDING_SEED_VERSION) {
+            $db->update('settings', ['seo_landing_seed_version' => $SEO_LANDING_SEED_VERSION], ['id' => 1]);
         }
     } catch (\Throwable $e) {
         error_log('ensureSeoLandingSchema: ' . $e->getMessage());

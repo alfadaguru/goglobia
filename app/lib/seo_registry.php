@@ -231,6 +231,42 @@ if (!function_exists('seoUmrahOriginCitiesDefaults')) {
                 'note' => 'Lagos offers frequent connections via Jeddah or Madinah. Our Umrah packages include flights, visa, accommodation near the Haram, and ground transport.',
                 'carriers' => 'From Lagos you’ll find the widest choice — Saudia, EgyptAir, Qatar Airways, Ethiopian Airlines and others, with frequent connections to Jeddah and Madinah.',
             ],
+            'kaduna' => [
+                'name' => 'Kaduna', 'airport' => 'Kaduna International Airport (KAD)',
+                'intro' => 'Kaduna is a central-northern departure point for Umrah, serving travellers across Kaduna State and the surrounding region.',
+                'note' => 'Kaduna departures usually connect through Abuja, Kano or a Gulf hub to reach Jeddah (JED) or Madinah (MED). Our packages bundle flights, visa, hotels and transport end to end.',
+                'carriers' => 'Expect a connection via Abuja, Kano or a Gulf hub on carriers such as Max Air, Saudia or a regional airline; direct charters appear during peak Umrah and Hajj seasons.',
+            ],
+            'sokoto' => [
+                'name' => 'Sokoto', 'airport' => 'Sadiq Abubakar III International Airport (SKO)',
+                'intro' => 'Sokoto, the seat of the Caliphate, is a historic northwestern departure point for pilgrims travelling for Umrah and Hajj.',
+                'note' => 'Sokoto departures route through Jeddah (JED) or Madinah (MED), often via Kano, Abuja or a Gulf hub. We handle the flights, visa, accommodation near the Haram and ground transport.',
+                'carriers' => 'Max Air and Saudia are commonly associated with Sokoto pilgrimage operations, with seasonal direct charters during the peak Umrah and Hajj periods.',
+            ],
+            'maiduguri' => [
+                'name' => 'Maiduguri', 'airport' => 'Maiduguri International Airport (MIU)',
+                'intro' => 'Maiduguri is the main departure point for Umrah travellers in Borno State and Nigeria’s north-east.',
+                'note' => 'Maiduguri departures connect to Jeddah or Madinah, typically via Kano, Abuja or a Gulf hub. Our packages cover flights, visa, hotels and transport so you can focus on your pilgrimage.',
+                'carriers' => 'Connections are usually via Kano, Abuja or a Gulf hub on carriers such as Max Air or Saudia; direct pilgrimage charters run during peak seasons.',
+            ],
+            'ilorin' => [
+                'name' => 'Ilorin', 'airport' => 'Ilorin International Airport (ILR)',
+                'intro' => 'Ilorin serves Umrah travellers across Kwara State and north-central Nigeria, with convenient connections onward to Saudi Arabia.',
+                'note' => 'Ilorin departures connect via Lagos, Abuja or a Gulf hub to reach Jeddah (JED) or Madinah (MED). Everything — flights, visa, accommodation and transport — is handled for you.',
+                'carriers' => 'Expect a connection through Lagos, Abuja or a Gulf hub on carriers such as Saudia, EgyptAir or a regional airline; seasonal charters operate in peak periods.',
+            ],
+            'port-harcourt' => [
+                'name' => 'Port Harcourt', 'airport' => 'Port Harcourt International Airport (PHC)',
+                'intro' => 'Port Harcourt is the main Umrah gateway for Rivers State and Nigeria’s south-south region.',
+                'note' => 'Port Harcourt departures typically connect via Lagos, Abuja or a Gulf hub to Jeddah or Madinah. Our Umrah packages bundle flights, visa, hotels near the Haram and ground transport.',
+                'carriers' => 'Connections are usually via Lagos, Abuja or a Gulf hub on carriers such as Qatar Airways, Ethiopian Airlines, EgyptAir or Saudia.',
+            ],
+            'enugu' => [
+                'name' => 'Enugu', 'airport' => 'Akanu Ibiam International Airport (ENU)',
+                'intro' => 'Enugu serves Umrah travellers across south-eastern Nigeria, with onward connections to Saudi Arabia.',
+                'note' => 'Enugu departures connect via Lagos, Abuja or a Gulf hub to reach Jeddah (JED) or Madinah (MED). We arrange the flights, visa, accommodation and transport from start to finish.',
+                'carriers' => 'Expect a connection through Lagos, Abuja or a Gulf hub on carriers such as Ethiopian Airlines, Qatar Airways, EgyptAir or Saudia.',
+            ],
         ];
     }
 }
