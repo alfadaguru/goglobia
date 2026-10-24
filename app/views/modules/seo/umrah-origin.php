@@ -10,10 +10,21 @@ $name    = htmlspecialchars($u['name']);
 $airport = htmlspecialchars((string) ($u['airport'] ?? ''));
 $intro   = htmlspecialchars((string) ($u['intro'] ?? ''));
 $note    = htmlspecialchars((string) ($u['note'] ?? ''));
+$carriers = htmlspecialchars((string) ($u['carriers'] ?? ''));
 
 // Live Umrah search filtered to this departure city.
 $searchUrl = rtrim((string) root, '/') . '/umrah/search/' . rawurlencode($u['name']) . '/any/1';
 $flightsUrl = rtrim((string) root, '/') . '/flights';
+
+// FAQ (rendered + FAQPage JSON-LD). Honest, Umrah-specific.
+$cityRaw = (string) $u['name'];
+$faqs = [
+    ['q' => 'How much does Umrah from ' . $cityRaw . ' cost?', 'a' => 'Prices are per pilgrim and depend on your travel dates and comfort tier (accommodation standard and proximity to the Haram). See the live departures from ' . $cityRaw . ' above for current, transparent per-pilgrim pricing.'],
+    ['q' => 'What is included in a GoGlobia Umrah package from ' . $cityRaw . '?', 'a' => 'Packages typically include return flights from ' . $cityRaw . ', Umrah visa processing, hotel accommodation in Makkah and Madinah by tier, and ground transport and Ziyarah. Exact inclusions are shown per departure.'],
+    ['q' => 'Can I pay for my Umrah in instalments?', 'a' => 'Where offered, you can secure your place with a deposit and pay the balance in scheduled instalments before departure. The available options are shown at checkout.'],
+    ['q' => 'When is the best time to perform Umrah?', 'a' => 'Umrah can be performed throughout the year. Ramadan is the most spiritually significant and busiest period (and the most expensive); the cooler months outside Ramadan are generally more comfortable and better value.'],
+    ['q' => 'What documents do I need for Umrah from Nigeria?', 'a' => 'You will need a passport valid for the required period, an Umrah visa (which we help arrange), and any current health requirements. Our team guides you through the documents for your trip.'],
+];
 ?>
 
 <div class="w-full bg-gradient-to-b from-emerald-50 to-white border-b border-gray-100">
@@ -47,8 +58,8 @@ $flightsUrl = rtrim((string) root, '/') . '/flights';
       <p><?= $note ?></p>
 
       <?php if ($airport !== ''): ?>
-      <h2>Departure airport</h2>
-      <p>Flights depart from <strong><?= $airport ?></strong>, connecting to Jeddah (JED) or Madinah (MED) for your pilgrimage.</p>
+      <h2>Departure airport &amp; flights</h2>
+      <p>Flights depart from <strong><?= $airport ?></strong>, connecting to Jeddah (JED) or Madinah (MED) for your pilgrimage.<?= $carriers !== '' ? ' ' . $carriers : '' ?></p>
       <?php endif; ?>
 
       <h2>What’s typically included</h2>
@@ -68,12 +79,23 @@ $flightsUrl = rtrim((string) root, '/') . '/flights';
         <li>We handle the flights, visa, hotels and transport, with support throughout your journey.</li>
       </ul>
 
+      <h2>Best time for Umrah from <?= $name ?></h2>
+      <p>Umrah can be performed all year round. Ramadan is the most spiritually rewarding and the busiest and most expensive period, so book well ahead. Outside Ramadan, the cooler months are generally more comfortable and often better value — compare the live departure dates above to find what suits you.</p>
+
       <h2>Tips for Umrah travellers from <?= $name ?></h2>
       <ul>
         <li>Book early for Ramadan and school-holiday periods, when packages fill up fastest.</li>
         <li>Ensure your passport has enough validity for the Umrah visa.</li>
         <li>Choose accommodation close to the Haram if walking distance matters to you.</li>
+        <li>Pack light and comfortable clothing, and carry your essential documents in your hand luggage.</li>
       </ul>
+
+      <?php if (!empty($faqs)): ?>
+      <h2>Umrah from <?= $name ?> — frequently asked questions</h2>
+      <?php foreach ($faqs as $f): ?>
+      <p><strong><?= htmlspecialchars($f['q']) ?></strong><br><?= htmlspecialchars($f['a']) ?></p>
+      <?php endforeach; ?>
+      <?php endif; ?>
     </article>
 
     <aside class="lg:col-span-1">
@@ -92,3 +114,19 @@ $flightsUrl = rtrim((string) root, '/') . '/flights';
     </aside>
   </div>
 </div>
+
+<?php
+// FAQPage structured data (mirrors the on-page FAQ exactly — honest, no fabrication).
+if (!empty($faqs)) {
+    $faqLd = [
+        '@context' => 'https://schema.org',
+        '@type'    => 'FAQPage',
+        'mainEntity' => array_map(fn($f) => [
+            '@type' => 'Question',
+            'name'  => $f['q'],
+            'acceptedAnswer' => ['@type' => 'Answer', 'text' => $f['a']],
+        ], $faqs),
+    ];
+    echo '<script type="application/ld+json">' . json_encode($faqLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . '</script>';
+}
+?>

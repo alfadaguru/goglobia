@@ -81,6 +81,10 @@ if (!function_exists('seoHotelCities')) {
                 'areas' => ['Victoria Island — business hotels and upscale dining', 'Ikeja — convenient for Murtala Muhammed Airport (LOS)', 'Lekki — modern apartments, beaches and nightlife', 'Ikoyi — quiet, premium neighbourhoods'],
                 'airport' => 'Murtala Muhammed International Airport (LOS)',
                 'tip' => 'Traffic can be heavy — pick a hotel close to where you’ll spend most of your time, and allow extra travel time to the airport.',
+                'currency' => 'Nigerian Naira (NGN)', 'language' => 'English',
+                'best_time' => 'November to March, when the weather is drier and events are plentiful; the rainy season (roughly May–September) brings heavier downpours.',
+                'getting_around' => 'Ride-hailing apps and taxis are the easiest way to get around; allow generous time for traffic, especially between the mainland and the islands.',
+                'highlights' => 'Lekki Conservation Centre, Nike Art Gallery, the beaches of Lekki and Victoria Island, and a lively nightlife and food scene.',
             ],
             'abuja' => [
                 'name' => 'Abuja', 'country' => 'Nigeria', 'nat' => 'NG',
@@ -88,6 +92,10 @@ if (!function_exists('seoHotelCities')) {
                 'areas' => ['Central Business District — close to offices and conference venues', 'Maitama & Asokoro — upscale, quiet districts', 'Wuse — shopping, restaurants and mid-range stays', 'Garki — budget-friendly and central'],
                 'airport' => 'Nnamdi Azikiwe International Airport (ABV)',
                 'tip' => 'Abuja is well-suited to business trips — choose the CBD or Maitama to stay near meetings and the main hotels.',
+                'currency' => 'Nigerian Naira (NGN)', 'language' => 'English',
+                'best_time' => 'November to February offers the most comfortable, drier weather; the city stays pleasant year-round compared with the coast.',
+                'getting_around' => 'The city is spread out and car-dependent — ride-hailing and hotel shuttles are the norm; roads are generally good and less congested than Lagos.',
+                'highlights' => 'Aso Rock, the National Mosque and National Christian Centre, Millennium Park, and nearby Zuma Rock.',
             ],
             'kano' => [
                 'name' => 'Kano', 'country' => 'Nigeria', 'nat' => 'NG',
@@ -95,6 +103,10 @@ if (!function_exists('seoHotelCities')) {
                 'areas' => ['City centre — close to markets and historic sites', 'Nassarawa GRA — quieter residential area', 'Near Mallam Aminu Kano Airport (KAN) — convenient for early flights'],
                 'airport' => 'Mallam Aminu Kano International Airport (KAN)',
                 'tip' => 'If you’re travelling for Umrah, book a stay near the airport for early-morning departures and check our Umrah packages from Kano.',
+                'currency' => 'Nigerian Naira (NGN)', 'language' => 'Hausa and English',
+                'best_time' => 'November to February, the cooler, dry Harmattan months; March–May can be very hot.',
+                'getting_around' => 'Taxis, tricycles (keke) and ride-hailing cover the city; the historic centre is best explored with a local guide.',
+                'highlights' => 'Kurmi Market, the ancient city walls and Dala Hill, the Emir’s Palace and Gidan Makama Museum.',
             ],
             'port-harcourt' => [
                 'name' => 'Port Harcourt', 'country' => 'Nigeria', 'nat' => 'NG',
@@ -102,6 +114,10 @@ if (!function_exists('seoHotelCities')) {
                 'areas' => ['GRA (Old & New) — safe, central and well-serviced', 'Trans-Amadi — industrial area, close to many offices', 'Airport road — convenient for flights (PHC)'],
                 'airport' => 'Port Harcourt International Airport (PHC)',
                 'tip' => 'Business travellers usually base themselves in the GRA for easy access to offices and dining.',
+                'currency' => 'Nigerian Naira (NGN)', 'language' => 'English',
+                'best_time' => 'The drier months of November to February are most comfortable; the area sees substantial rainfall for much of the year.',
+                'getting_around' => 'Ride-hailing and hotel cars are the safest, simplest options; allow time between the airport and the GRA.',
+                'highlights' => 'The Port Harcourt Pleasure Park, Isaac Boro Park, and a growing restaurant and events scene in the GRA.',
             ],
             'dubai' => [
                 'name' => 'Dubai', 'country' => 'United Arab Emirates', 'nat' => 'NG',
@@ -109,6 +125,10 @@ if (!function_exists('seoHotelCities')) {
                 'areas' => ['Downtown Dubai — Burj Khalifa, Dubai Mall and luxury hotels', 'Dubai Marina — waterfront dining and nightlife', 'Deira — traditional souks and value stays', 'Near DXB Airport — convenient for connections'],
                 'airport' => 'Dubai International Airport (DXB)',
                 'tip' => 'Check visa requirements before you travel, and book early for peak shopping-festival seasons when rates rise.',
+                'currency' => 'UAE Dirham (AED)', 'language' => 'Arabic (English widely spoken)',
+                'best_time' => 'November to March has the most pleasant weather; summer (June–September) is very hot, though hotel rates often fall.',
+                'getting_around' => 'The Dubai Metro, taxis and ride-hailing make getting around easy and affordable; many attractions are a short ride apart.',
+                'highlights' => 'Burj Khalifa, Dubai Mall and its fountains, the Dubai Frame, desert safaris, and the Palm Jumeirah.',
             ],
             'london' => [
                 'name' => 'London', 'country' => 'United Kingdom', 'nat' => 'NG',
@@ -116,6 +136,10 @@ if (!function_exists('seoHotelCities')) {
                 'areas' => ['West End — theatres, shopping and central hotels', 'Kensington & Chelsea — upscale and elegant', 'City of London — business district', 'Near Heathrow (LHR) — convenient for arrivals'],
                 'airport' => 'Heathrow Airport (LHR)',
                 'tip' => 'Stay near an Underground station — London’s Tube makes getting around fast and cheap.',
+                'currency' => 'Pound Sterling (GBP)', 'language' => 'English',
+                'best_time' => 'May to September for the warmest weather and long days; spring and autumn are quieter and often better value.',
+                'getting_around' => 'The Underground (Tube), buses and trains are extensive — a contactless card or Oyster card is all you need.',
+                'highlights' => 'The British Museum, Buckingham Palace, the Tower of London, the London Eye, and world-class theatre and shopping.',
             ],
             'jeddah' => [
                 'name' => 'Jeddah', 'country' => 'Saudi Arabia', 'nat' => 'NG',
@@ -123,6 +147,10 @@ if (!function_exists('seoHotelCities')) {
                 'areas' => ['Al-Balad — historic old town', 'Corniche — seafront hotels and dining', 'Near King Abdulaziz Airport (JED) — convenient for pilgrimage arrivals'],
                 'airport' => 'King Abdulaziz International Airport (JED)',
                 'tip' => 'Many travellers transit Jeddah for Umrah — see our Umrah packages for flights, visa, hotels and transport handled together.',
+                'currency' => 'Saudi Riyal (SAR)', 'language' => 'Arabic (English in many hotels)',
+                'best_time' => 'November to March for cooler weather; Umrah can be performed year-round, with Ramadan being the busiest period.',
+                'getting_around' => 'Taxis and ride-hailing are widely available; for Umrah, many travellers use arranged transport to Makkah and Madinah.',
+                'highlights' => 'The historic Al-Balad district (a UNESCO site), the Jeddah Corniche, King Fahd Fountain, and a vibrant seafront.',
             ],
             'istanbul' => [
                 'name' => 'Istanbul', 'country' => 'Turkey', 'nat' => 'NG',
@@ -130,6 +158,10 @@ if (!function_exists('seoHotelCities')) {
                 'areas' => ['Sultanahmet — historic sites (Blue Mosque, Hagia Sophia)', 'Taksim & Beyoğlu — nightlife and shopping', 'Near IST Airport — convenient for connections'],
                 'airport' => 'Istanbul Airport (IST)',
                 'tip' => 'Stay in Sultanahmet if sightseeing is your priority, or Taksim for dining and nightlife.',
+                'currency' => 'Turkish Lira (TRY)', 'language' => 'Turkish (English in tourist areas)',
+                'best_time' => 'April to June and September to November offer mild weather and fewer crowds than mid-summer.',
+                'getting_around' => 'Trams, the metro and ferries across the Bosphorus make getting around scenic and simple; an Istanbulkart covers public transport.',
+                'highlights' => 'Hagia Sophia, the Blue Mosque, Topkapı Palace, the Grand Bazaar, and a Bosphorus cruise between two continents.',
             ],
         ];
     }
@@ -144,16 +176,19 @@ if (!function_exists('seoUmrahOriginCities')) {
                 'name' => 'Kano', 'airport' => 'Mallam Aminu Kano International Airport (KAN)',
                 'intro' => 'Kano is a major departure point for Umrah in northern Nigeria, with direct and connecting options to Jeddah and Madinah.',
                 'note' => 'Most Kano departures route through Jeddah (JED) or Madinah (MED). Our packages bundle flights, visa, hotels and transport so you travel with peace of mind.',
+                'carriers' => 'Max Air, Saudia and FlyNas commonly serve Kano–Jeddah, with seasonal direct services during peak Umrah periods.',
             ],
             'abuja' => [
                 'name' => 'Abuja', 'airport' => 'Nnamdi Azikiwe International Airport (ABV)',
                 'intro' => 'Abuja, Nigeria’s capital, offers convenient Umrah departures for travellers across central Nigeria.',
                 'note' => 'Abuja departures typically connect to Jeddah or Madinah. Compare comfort tiers and dates below, with everything handled end to end.',
+                'carriers' => 'Abuja departures usually connect via a Gulf or regional hub on carriers such as Saudia, EgyptAir, Qatar Airways or Ethiopian Airlines.',
             ],
             'lagos' => [
                 'name' => 'Lagos', 'airport' => 'Murtala Muhammed International Airport (LOS)',
                 'intro' => 'Lagos is Nigeria’s busiest gateway, with the widest choice of Umrah flight connections to Saudi Arabia.',
                 'note' => 'Lagos offers frequent connections via Jeddah or Madinah. Our Umrah packages include flights, visa, accommodation near the Haram, and ground transport.',
+                'carriers' => 'From Lagos you’ll find the widest choice — Saudia, EgyptAir, Qatar Airways, Ethiopian Airlines and others, with frequent connections to Jeddah and Madinah.',
             ],
         ];
     }
