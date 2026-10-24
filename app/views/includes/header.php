@@ -1048,6 +1048,8 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
            x-transition:leave-start="opacity-100 translate-y-0"
            x-transition:leave-end="opacity-0 -translate-y-2"
            @click.away="mobileMenuOpen = false"
+           x-effect="document.body.style.overflow = mobileMenuOpen ? 'hidden' : ''"
+           @keydown.escape.window="mobileMenuOpen = false"
            class="lg:hidden fixed left-0 right-0 bg-white border-b border-gray-200 shadow-2xl z-40 overflow-y-auto"
            :style="(scrolled ? 'top:96px;max-height:calc(100vh - 96px)' : 'top:112px;max-height:calc(100vh - 112px)')"
            style="top:112px;max-height:calc(100vh - 112px)">
