@@ -1314,19 +1314,31 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                             <?= CSRF::tokenField() ?>
 
                             <!-- Submit Button -->
-                            <!-- Fare-hold countdown (per-provider). Shows time left; turns into a
-                                 "search again" prompt when the hold expires. -->
-                            <template x-if="fareTimerEnabled">
+                            <!-- Price-freshness indicator (HONEST — no false "held for mm:ss"
+                                 guarantee we can't keep). While fresh: "Price confirmed just
+                                 now". After the freshness window: "Prices may have changed —
+                                 Refresh prices", a one-click re-quote that updates the shown
+                                 price IN PLACE (fast). Any change runs through the consent
+                                 gate. The authoritative check still happens at Pay. -->
+                            <template x-if="priceFreshnessEnabled">
                                 <div class="mt-6">
-                                    <div x-show="!fareExpired"
-                                         class="flex items-center justify-center gap-2 text-sm rounded-lg py-2 px-3 bg-amber-50 text-amber-700 border border-amber-200">
-                                        <span class="material-symbols-outlined !text-[18px]">timer</span>
-                                        <span>Price held for <strong x-text="fareTimerLabel"></strong></span>
+                                    <div x-show="!priceStale && !fareExpired" x-cloak
+                                         class="flex items-center justify-center gap-2 text-sm rounded-lg py-2 px-3 bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-700">
+                                        <span class="material-symbols-outlined !text-[18px]">verified</span>
+                                        <span>Price confirmed — <strong x-text="priceFreshnessLabel"></strong>. This is exactly what you pay.</span>
                                     </div>
-                                    <div x-show="fareExpired"
-                                         class="flex items-center justify-center gap-2 text-sm rounded-lg py-2 px-3 bg-red-50 text-red-700 border border-red-200">
-                                        <span class="material-symbols-outlined !text-[18px]">warning</span>
-                                        <span>This fare hold has expired. Please <a href="<?= root ?>flights" class="underline font-semibold">search again</a> for current prices.</span>
+                                    <div x-show="priceStale || fareExpired" x-cloak
+                                         class="flex flex-col sm:flex-row items-center justify-center gap-2 text-sm rounded-lg py-2.5 px-3 bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-700">
+                                        <span class="flex items-center gap-2">
+                                            <span class="material-symbols-outlined !text-[18px]">update</span>
+                                            <span>Prices may have changed since you searched.</span>
+                                        </span>
+                                        <button type="button" @click="refreshPrices()" :disabled="refreshingPrice"
+                                            class="inline-flex items-center gap-1.5 font-semibold rounded-lg px-3 py-1.5 bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-60">
+                                            <span x-show="!refreshingPrice" class="material-symbols-outlined !text-[16px]">refresh</span>
+                                            <span x-show="refreshingPrice" class="material-symbols-outlined !text-[16px] animate-spin">progress_activity</span>
+                                            <span x-text="refreshingPrice ? 'Checking…' : 'Refresh prices'"></span>
+                                        </button>
                                     </div>
                                 </div>
                             </template>
@@ -1547,6 +1559,17 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                                 </div>
                             </div>
                         </div>
+
+                        <!-- Honesty promise: what you see is what you pay. -->
+                        <div class="mt-3 flex items-start gap-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 px-3 py-2">
+                            <span class="material-symbols-outlined text-green-600 dark:text-green-400 !text-[18px] shrink-0">verified_user</span>
+                            <p class="text-xs text-green-800 dark:text-green-300 leading-snug">
+                                <strong>The price you see is the price you pay.</strong>
+                                Taxes &amp; fees included · no hidden charges. If the fare ever
+                                changes before you pay, we tell you first — nothing is charged
+                                without your confirmation.
+                            </p>
+                        </div>
                     </div>
 
                     <!-- Promo Code Component -->
@@ -1660,6 +1683,19 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
             fareTimerLabel: '',
             fareExpired: false,
             _fareTimerInt: null,
+
+            // HONEST price-freshness model (replaces the misleading "price held for
+            // mm:ss"). We cannot know the airline's real hold, so we never claim a
+            // guarantee: while fresh we say "Price confirmed just now"; after the
+            // window we say "Prices may have changed" and offer a one-click Refresh
+            // that re-quotes in place. Uses the same per-provider admin window.
+            priceFreshnessEnabled: <?= $fareTimerEnabled ? 'true' : 'false' ?>,
+            priceFreshnessMinutes: <?= (int) $fareTimerMinutes ?>,
+            priceConfirmedAt: Math.floor(Date.now() / 1000), // when price was last confirmed fresh
+            priceStale: false,
+            priceFreshnessLabel: 'just now',
+            refreshingPrice: false,
+            _freshnessInt: null,
             flightData: <?= json_encode($flightData) ?>,
             searchParams: <?= json_encode($searchParams) ?>,
             search_origin: '<?= $origin ?>',
@@ -1827,28 +1863,96 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                     this.fetchSeatMaps();
                 }
 
-                // Start the fare-hold countdown if the provider has it enabled.
-                this.startFareTimer();
+                // Start the honest price-freshness indicator (replaces false countdown).
+                this.startPriceFreshness();
             },
 
-            // Per-provider fare-hold countdown. Ticks once a second, formats MM:SS,
-            // and flips fareExpired (which disables Pay) when the deadline passes.
-            startFareTimer() {
-                if (!this.fareTimerEnabled || !this.fareTimerDeadline) { return; }
+            // HONEST freshness indicator. Shows how long ago the price was confirmed
+            // ("just now" → "a few minutes ago"); after the provider's window flips
+            // priceStale=true so we invite a one-click Refresh. We never claim the
+            // price is "held" for a fixed time (we can't know the airline's real hold).
+            startPriceFreshness() {
+                if (!this.priceFreshnessEnabled) { return; }
+                const windowSec = Math.max(60, (this.priceFreshnessMinutes || 15) * 60);
                 const tick = () => {
-                    const remaining = this.fareTimerDeadline - Math.floor(Date.now() / 1000);
-                    if (remaining <= 0) {
-                        this.fareTimerLabel = '00:00';
-                        this.fareExpired = true;
-                        if (this._fareTimerInt) { clearInterval(this._fareTimerInt); this._fareTimerInt = null; }
-                        return;
-                    }
-                    const m = Math.floor(remaining / 60);
-                    const s = remaining % 60;
-                    this.fareTimerLabel = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+                    const age = Math.floor(Date.now() / 1000) - this.priceConfirmedAt;
+                    if (age < 45)       this.priceFreshnessLabel = 'just now';
+                    else if (age < 90)  this.priceFreshnessLabel = 'a minute ago';
+                    else                this.priceFreshnessLabel = Math.floor(age / 60) + ' minutes ago';
+                    this.priceStale = age >= windowSec;
                 };
                 tick();
-                this._fareTimerInt = setInterval(tick, 1000);
+                this._freshnessInt = setInterval(tick, 5000);
+            },
+
+            // One-click re-quote from the booking page (fast; no full re-search). Calls
+            // the same supplier revalidate endpoint used at pay time, updates the shown
+            // price IN PLACE, and resets freshness. A price INCREASE routes through the
+            // same consent gate (the customer sees old→new and must accept). Honest:
+            // what the customer then sees is exactly what they pay.
+            async refreshPrices() {
+                if (this.refreshingPrice) return;
+                this.refreshingPrice = true;
+                try {
+                    const csrfToken = document.querySelector('input[name="csrf_token"]')?.value || '';
+                    const fd = new URLSearchParams();
+                    fd.append('booking_hash', this.bookingHash);
+                    fd.append('old_price', this.actualPriceBase);
+                    fd.append('currency', this.baseCurrency);
+                    const resp = await fetch('<?= root ?>api/flight/booking/revalidate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrfToken },
+                        body: fd.toString()
+                    });
+                    const txt = await resp.text();
+                    let data; try { const j = txt.indexOf('{'); data = JSON.parse(j >= 0 ? txt.slice(j) : txt); } catch (e) { throw new Error('Could not refresh prices. Please try again.'); }
+
+                    if (!data.status && !(this.requiresRevalidation === false)) {
+                        if (data.expired || data.data?.expired) {
+                            // Fare genuinely gone — be honest and send them to a fresh search.
+                            this.alertType = 'error';
+                            this.alertMessage = 'This fare is no longer available. Please search again for current options.';
+                            this.showAlert = true;
+                            return;
+                        }
+                    }
+
+                    if (data.data?.price_changed && data.data.new_price) {
+                        const oldBase = this.subtotalBase;
+                        const newBase = Number(data.data.new_price) || oldBase;
+                        const isIncrease = newBase > oldBase + 0.01;
+                        // Apply the confirmed supplier price + our totals either way.
+                        this.actualPriceBase = data.data.actual_price || this.actualPriceBase;
+                        this.markupPriceBase = newBase;
+                        this.commissionBase  = this.markupPriceBase - this.actualPriceBase;
+                        this.subtotalBase    = this.markupPriceBase;
+                        this.subtotalDisplay = this.convertToDisplay(this.subtotalBase);
+                        if (isIncrease) {
+                            // Show old→new; customer must re-accept (the real price they'll pay).
+                            this.priceChangeAccepted = false;
+                            this.priceChange = { oldAmt: this.convertToDisplay(oldBase), newAmt: this.subtotalDisplay, currency: this.displayCurrency, direction: 'up' };
+                        } else {
+                            this.alertType = 'success';
+                            this.alertMessage = `Good news — the fare dropped to ${this.displayCurrency} ${Number(this.subtotalDisplay).toLocaleString()}.`;
+                            this.showAlert = true;
+                        }
+                    } else {
+                        this.alertType = 'success';
+                        this.alertMessage = 'Price confirmed — no change. This is exactly what you pay.';
+                        this.showAlert = true;
+                    }
+                    // Mark fresh again.
+                    this.priceConfirmedAt = Math.floor(Date.now() / 1000);
+                    this.priceStale = false;
+                    this.fareExpired = false;
+                    this.priceFreshnessLabel = 'just now';
+                } catch (err) {
+                    this.alertType = 'error';
+                    this.alertMessage = err.message || 'Could not refresh prices. Please try again.';
+                    this.showAlert = true;
+                } finally {
+                    this.refreshingPrice = false;
+                }
             },
 
             initializePassengers() {
