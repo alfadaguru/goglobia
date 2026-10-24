@@ -184,6 +184,7 @@ require_once 'app/lib/umrah/operations.php';
 require_once 'app/lib/umrah/groups.php';
 require_once 'app/lib/umrah/admin_crud.php';
 require_once 'app/lib/booking_manager.php'; // admin Booking Manager foundations
+require_once 'app/lib/support/rbac.php';     // Customer Support module — Phase 1 RBAC + employee foundation
 
 // Load demo warning helper with error handling
 try {
@@ -495,6 +496,14 @@ try {
     // stays listing-approval + inventory/holds + branded-site tables. Idempotent.
     if (function_exists('ensureSupplierStaysSchema')) {
         ensureSupplierStaysSchema($db);
+    }
+    // Customer Support module (docs/support/CUSTOMER_SUPPORT_MODULE_SPEC.md) —
+    // RBAC + employee foundation; seeds the 4 LOCKED default roles. Idempotent.
+    if (function_exists('ensureSupportRbacSchema')) {
+        ensureSupportRbacSchema($db);
+        if (function_exists('support_seed_default_roles')) {
+            support_seed_default_roles($db);
+        }
     }
     // Umrah redesign (docs/UMRAH-PHASE1-BUILD-PLAN.md) — schema + seeds, idempotent.
     if (function_exists('ensureUmrahSchema')) {

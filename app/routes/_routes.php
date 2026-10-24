@@ -270,6 +270,9 @@ require_once 'app/routes/admin/reportsRoutes.php';
 require_once 'app/routes/admin/giaRoutes.php'; // GIA assistant reports (conversations/leads/funnel/cost)
 require_once 'app/routes/admin/depositRoutes.php';
 require_once 'app/routes/admin/supportticketRoutes.php';
+require_once 'app/routes/admin/supportRoutes.php';      // Customer Support — Phase 1 shell (landing + nav)
+require_once 'app/routes/admin/supportRolesRoutes.php'; // Customer Support — RBAC roles CRUD
+require_once 'app/routes/admin/supportStaffRoutes.php'; // Customer Support — staff/employee CRUD
 require_once 'app/routes/admin/promoCodesRoutes.php';
 require_once 'app/routes/admin/discountsRoutes.php'; // automatic discount engine (Marketing)
 endif; // admin routes
