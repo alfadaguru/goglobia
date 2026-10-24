@@ -49,6 +49,96 @@ if (!function_exists('gia_render_text_fallback')) {
     }
 }
 
+if (!function_exists('gia_md_to_whatsapp')) {
+    /**
+     * Convert the Markdown the LLM tends to emit (the web widget renders it via
+     * renderMarkdown) into WhatsApp's native formatting, so replies arrive clean
+     * on WhatsApp instead of showing literal ** and - markers.
+     *
+     * WhatsApp text formatting: *bold*  _italic_  ~strikethrough~  ```mono```.
+     * Mapping applied:
+     *   **bold** / __bold__      -> *bold*
+     *   *italic* / _italic_      -> _italic_   (single-asterisk emphasis -> underscore)
+     *   # Heading                -> *Heading*  (headings become bold, hashes dropped)
+     *   - / * / + bullet         -> • bullet
+     *   [label](url)             -> label (url)
+     *   `code`                   -> ```code```
+     *   | table | rows |         -> stripped to plain lines (WhatsApp has no tables)
+     * Applied ONCE to the final outgoing string at the send points — never to the
+     * web widget (which keeps real Markdown). Pure transform: no network, no DB.
+     */
+    function gia_md_to_whatsapp(string $text): string
+    {
+        if (trim($text) === '') { return $text; }
+
+        // Normalise newlines.
+        $text = str_replace(["\r\n", "\r"], "\n", $text);
+
+        // Fenced code blocks ```lang\n...``` -> keep as ``` ... ``` (WhatsApp mono).
+        $text = preg_replace('/```[a-zA-Z0-9]*\n?/', "```", $text);
+
+        // Inline code `x` -> ```x``` (WhatsApp uses triple backtick for mono; a
+        // single backtick renders literally). Avoid touching fenced blocks (handled).
+        $text = preg_replace_callback('/(?<!`)`([^`\n]+)`(?!`)/', static function ($m) {
+            return '```' . $m[1] . '```';
+        }, $text);
+
+        // Links [label](url) -> "label (url)".
+        $text = preg_replace('/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/', '$1 ($2)', $text);
+
+        // Bold **x** / __x__ -> WhatsApp *x*. Convert to a placeholder first so the
+        // single-asterisk ITALIC pass below cannot re-match the bold output (which
+        // would turn *bold* into _bold_). Placeholder uses control chars unlikely
+        // to appear in chat text; restored after italics.
+        $BOLD_L = "\x01"; $BOLD_R = "\x02";
+        $text = preg_replace('/\*\*([^*\n]+)\*\*/', $BOLD_L . '$1' . $BOLD_R, $text);
+        $text = preg_replace('/__([^_\n]+)__/', $BOLD_L . '$1' . $BOLD_R, $text);
+
+        // Italic: single *x* -> _x_ (real emphasis only — leading/trailing word
+        // boundaries avoid touching bullets, which are handled line-by-line below).
+        $text = preg_replace('/(?<![\*\w])\*([^*\n]+)\*(?![\*\w])/', '_$1_', $text);
+
+        // Restore bold placeholders as WhatsApp *bold*.
+        $text = str_replace([$BOLD_L, $BOLD_R], '*', $text);
+
+        // Process line-by-line for headings, bullets and table rows.
+        $out = [];
+        foreach (explode("\n", $text) as $line) {
+            $trim = ltrim($line);
+
+            // Markdown table separator row (|---|---|) -> drop entirely.
+            if (preg_match('/^\|?\s*:?-{2,}.*$/', $trim) && strpos($trim, '-') !== false && (strpos($trim, '|') !== false)) {
+                continue;
+            }
+            // Table data row | a | b | -> "a  b" (pipes/tables unsupported on WA).
+            if (strlen($trim) > 1 && $trim[0] === '|') {
+                $cells = array_map('trim', array_filter(explode('|', $trim), static fn($c) => trim($c) !== ''));
+                $out[] = implode('  ', $cells);
+                continue;
+            }
+            // Heading "# ..." / "## ..." -> bold line.
+            if (preg_match('/^#{1,6}\s+(.*)$/', $trim, $m)) {
+                $h = trim($m[1]);
+                $out[] = $h !== '' ? '*' . $h . '*' : '';
+                continue;
+            }
+            // Bullet "- " / "* " / "+ " -> "• ". Preserve leading indent.
+            if (preg_match('/^([-*+])\s+(.*)$/', $trim, $m)) {
+                $indent = substr($line, 0, strlen($line) - strlen($trim));
+                $out[] = $indent . '• ' . $m[2];
+                continue;
+            }
+            $out[] = $line;
+        }
+        $text = implode("\n", $out);
+
+        // Collapse 3+ blank lines to a single blank line.
+        $text = preg_replace('/\n{3,}/', "\n\n", $text);
+
+        return trim($text);
+    }
+}
+
 if (!function_exists('gia_render_clip')) {
     /** UTF-8-safe truncate to $max chars (no ellipsis bloat beyond the cap). */
     function gia_render_clip(string $s, int $max): string
