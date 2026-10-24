@@ -47,6 +47,18 @@ if (!function_exists('seoUmrahOriginCities')) {
         return function_exists('seoUmrahOriginCitiesDefaults') ? seoUmrahOriginCitiesDefaults() : [];
     }
 }
+if (!function_exists('seoTourDestinations')) {
+    /** DB-first; falls back to the hardcoded defaults. @return array<string,array> */
+    function seoTourDestinations(): array
+    {
+        $db = $GLOBALS['db'] ?? null;
+        if ($db && function_exists('seoLandingFromDb')) {
+            $rows = seoLandingFromDb($db, 'tour_destination');
+            if (!empty($rows)) { return $rows; }
+        }
+        return function_exists('seoTourDestinationsDefaults') ? seoTourDestinationsDefaults() : [];
+    }
+}
 
 if (!function_exists('seoFlightRouteDataDefaults')) {
     /**
@@ -393,6 +405,97 @@ if (!function_exists('seoUmrahOriginCitiesDefaults')) {
                 'intro' => 'Enugu serves Umrah travellers across south-eastern Nigeria, with onward connections to Saudi Arabia.',
                 'note' => 'Enugu departures connect via Lagos, Abuja or a Gulf hub to reach Jeddah (JED) or Madinah (MED). We arrange the flights, visa, accommodation and transport from start to finish.',
                 'carriers' => 'Expect a connection through Lagos, Abuja or a Gulf hub on carriers such as Ethiopian Airlines, Qatar Airways, EgyptAir or Saudia.',
+            ],
+        ];
+    }
+}
+
+if (!function_exists('seoTourDestinationsDefaults')) {
+    /**
+     * Curated tours/experiences destination registry. Each page is an evergreen
+     * guide to the kinds of tours and experiences available in a destination plus
+     * a live link into the real tours search. We do NOT claim fixed prices or a
+     * fixed number of tours — tour inventory is dynamic — so the page is a guide +
+     * a search front door, mirroring the hotel-city pages.
+     *
+     * Shape: name, country, intro, experiences[] (popular tour themes), tip,
+     * best_time, getting_around, highlights.
+     * @return array<string,array>
+     */
+    function seoTourDestinationsDefaults(): array
+    {
+        return [
+            'dubai' => [
+                'name' => 'Dubai', 'country' => 'United Arab Emirates',
+                'intro' => 'Dubai packs desert adventure, modern landmarks and family attractions into one compact, easy-to-tour destination — a favourite for Nigerian travellers.',
+                'experiences' => ['Desert safari with dune bashing, camel rides and a BBQ dinner', 'Burj Khalifa observation-deck tickets', 'Dubai Marina dhow cruise with dinner', 'Theme parks and the aquarium for families', 'City sightseeing and the Dubai Frame'],
+                'tip' => 'Book desert safaris and Burj Khalifa slots ahead during peak shopping-festival season, when they sell out fastest.',
+                'best_time' => 'November to March offers the most pleasant weather for outdoor tours; summer is very hot, though prices often ease.',
+                'getting_around' => 'Most tours include hotel pick-up and drop-off; otherwise the Metro, taxis and ride-hailing make self-guided days easy.',
+                'highlights' => 'Desert safaris, the Burj Khalifa, a Marina dhow cruise, theme parks and the Palm Jumeirah.',
+            ],
+            'istanbul' => [
+                'name' => 'Istanbul', 'country' => 'Turkey',
+                'intro' => 'Istanbul straddles two continents and layers Ottoman palaces, grand mosques, bustling bazaars and a scenic Bosphorus — rich territory for guided tours.',
+                'experiences' => ['Old City walking tour (Hagia Sophia, Blue Mosque, Topkapı Palace)', 'Bosphorus cruise between Europe and Asia', 'Grand Bazaar and Spice Bazaar shopping tour', 'Turkish cooking class and food tours', 'Day trips to Princes’ Islands'],
+                'tip' => 'Group the Sultanahmet sights into one guided day — they are walkable together — and save the Bosphorus cruise for the afternoon.',
+                'best_time' => 'April to June and September to November bring mild weather and thinner crowds than mid-summer.',
+                'getting_around' => 'Trams, the metro and Bosphorus ferries are cheap and scenic; many tours start in Sultanahmet.',
+                'highlights' => 'Hagia Sophia, the Blue Mosque, Topkapı Palace, the Grand Bazaar and a Bosphorus cruise.',
+            ],
+            'cairo' => [
+                'name' => 'Cairo', 'country' => 'Egypt',
+                'intro' => 'Cairo is the gateway to the Pyramids of Giza and thousands of years of history — one of the world’s great destinations for guided cultural tours.',
+                'experiences' => ['Pyramids of Giza and the Sphinx guided tour', 'Egyptian Museum (and the Grand Egyptian Museum) tours', 'Nile dinner cruise with entertainment', 'Islamic and Coptic Cairo walking tours', 'Day trips to Alexandria or Saqqara'],
+                'tip' => 'Start Pyramids tours early to beat the heat and crowds, and use a reputable guide for context and hassle-free entry.',
+                'best_time' => 'October to April is cooler and far more comfortable for sightseeing; summers are intensely hot.',
+                'getting_around' => 'Most tours include transfers; for independent travel, ride-hailing apps are the easiest and safest option.',
+                'highlights' => 'The Pyramids and Sphinx, the Egyptian Museum, a Nile cruise, and historic Islamic Cairo.',
+            ],
+            'nairobi' => [
+                'name' => 'Nairobi', 'country' => 'Kenya',
+                'intro' => 'Nairobi is the launchpad for Kenyan safaris and a wildlife destination in its own right — a national park sits on the city’s doorstep.',
+                'experiences' => ['Nairobi National Park game drives', 'David Sheldrick elephant orphanage and the Giraffe Centre', 'Day and multi-day safaris to the Maasai Mara', 'Karen Blixen Museum and coffee-farm tours', 'Cultural and city tours'],
+                'tip' => 'Combine the elephant orphanage and Giraffe Centre into one morning, then add a Maasai Mara safari extension if time allows.',
+                'best_time' => 'The drier spells (January–February and June–September) give the best game viewing and road conditions.',
+                'getting_around' => 'Safari tours include 4x4 transport and a guide; in the city, ride-hailing apps are reliable.',
+                'highlights' => 'Nairobi National Park, the elephant orphanage, the Giraffe Centre and Maasai Mara safaris.',
+            ],
+            'cape-town' => [
+                'name' => 'Cape Town', 'country' => 'South Africa',
+                'intro' => 'Cape Town blends a dramatic mountain-and-ocean setting with winelands, beaches and history — one of Africa’s most tour-friendly cities.',
+                'experiences' => ['Table Mountain cableway and hikes', 'Cape Peninsula and Cape of Good Hope day tour', 'Winelands tasting tours (Stellenbosch and Franschhoek)', 'Robben Island historical tour', 'Boulders Beach penguins and coastal drives'],
+                'tip' => 'Table Mountain depends on the weather — keep it flexible and go on a clear, low-wind day.',
+                'best_time' => 'The summer months (roughly November to March) are warm and dry and best for the outdoors.',
+                'getting_around' => 'Guided tours cover the Peninsula and winelands with transport; ride-hailing works well in the city.',
+                'highlights' => 'Table Mountain, the Cape Peninsula, the winelands, Robben Island and the penguins at Boulders Beach.',
+            ],
+            'zanzibar' => [
+                'name' => 'Zanzibar', 'country' => 'Tanzania',
+                'intro' => 'Zanzibar pairs turquoise Indian Ocean beaches with the spice-trade history of Stone Town — a relaxed island destination for beach and culture tours.',
+                'experiences' => ['Stone Town heritage walking tour', 'Spice farm tours', 'Dolphin tours and snorkelling trips', 'Prison Island and the giant tortoises', 'Sunset dhow cruises'],
+                'tip' => 'Pair a morning spice-farm tour with an afternoon at the beach, and save a sunset dhow cruise for your last evening.',
+                'best_time' => 'June to October and December to February are drier and ideal for beaches and boat tours.',
+                'getting_around' => 'Tours include transfers across the island; taxis cover shorter hops around Stone Town and the beaches.',
+                'highlights' => 'Stone Town, spice farms, dolphin and snorkelling trips, and the island’s famous beaches.',
+            ],
+            'accra' => [
+                'name' => 'Accra', 'country' => 'Ghana',
+                'intro' => 'Accra offers history, culture and Atlantic coastline a short hop from Nigeria — easy for weekend tours and heritage trips.',
+                'experiences' => ['City heritage tour (Independence Square, Jamestown)', 'Day trip to Cape Coast and Elmina castles', 'Kakum National Park canopy walk', 'Local food and market tours', 'Labadi Beach and coastal visits'],
+                'tip' => 'The Cape Coast castles and Kakum canopy walk make a strong full-day trip — start early as it is a couple of hours each way.',
+                'best_time' => 'The drier months (November to March) are most comfortable for touring.',
+                'getting_around' => 'Guided day trips include transport; in the city, ride-hailing apps are the easiest way around.',
+                'highlights' => 'Independence Square, Jamestown, the Cape Coast and Elmina castles, and the Kakum canopy walk.',
+            ],
+            'lagos' => [
+                'name' => 'Lagos', 'country' => 'Nigeria',
+                'intro' => 'Lagos is Nigeria’s cultural and nightlife capital — beaches, art, markets and a buzzing food-and-music scene make for lively city tours.',
+                'experiences' => ['Lekki Conservation Centre and canopy walkway', 'Nike Art Gallery visit', 'Beach day trips (Lekki, Tarkwa Bay, Elegushi)', 'Food, market and nightlife tours', 'Boat cruises on the lagoon'],
+                'tip' => 'Plan around traffic — group island attractions (Lekki, Victoria Island) into one day and the mainland into another.',
+                'best_time' => 'November to March is drier and best for beaches and outdoor tours; the rainy season runs roughly May to September.',
+                'getting_around' => 'Ride-hailing is the easiest way around; allow generous time for traffic between the mainland and the islands.',
+                'highlights' => 'Lekki Conservation Centre, Nike Art Gallery, the beaches, and a vibrant food and nightlife scene.',
             ],
         ];
     }

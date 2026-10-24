@@ -6,6 +6,7 @@
 $routes = function_exists('seoFlightRoutes') ? seoFlightRoutes() : [];
 $hotels = function_exists('seoHotelCities') ? seoHotelCities() : [];
 $umrah  = function_exists('seoUmrahOriginCities') ? seoUmrahOriginCities() : [];
+$tours  = function_exists('seoTourDestinations') ? seoTourDestinations() : [];
 
 // Humanise a "lagos-to-abuja" slug → "Lagos to Abuja".
 $routeLabel = function (string $slug): string {
@@ -36,7 +37,7 @@ $root = rtrim((string) root, '/');
       <span class="text-gray-700 font-medium">Travel Directory</span>
     </nav>
     <h1 class="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Travel Directory</h1>
-    <p class="text-gray-600 max-w-2xl">Browse popular flight routes, hotel destinations and Umrah departures from Nigeria — then search live options and book with GoGlobia.</p>
+    <p class="text-gray-600 max-w-2xl">Browse popular flight routes, hotel destinations, tours and Umrah departures from Nigeria — then search live options and book with GoGlobia.</p>
   </div>
 </div>
 
@@ -93,6 +94,20 @@ $root = rtrim((string) root, '/');
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
       <?php foreach ($umrah as $slug => $c): ?>
         <a href="<?= $root ?>/umrah/from-<?= htmlspecialchars((string) $slug) ?>" class="text-sm text-emerald-700 hover:underline py-1">Umrah from <?= htmlspecialchars($c['name']) ?></a>
+      <?php endforeach; ?>
+    </div>
+  </section>
+  <?php endif; ?>
+
+  <!-- Tour destinations -->
+  <?php if ($tours): ?>
+  <section>
+    <h2 class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+      <span class="material-symbols-outlined text-orange-600" aria-hidden="true">tour</span> Tours &amp; experiences
+    </h2>
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+      <?php foreach ($tours as $slug => $c): ?>
+        <a href="<?= $root ?>/tours/<?= htmlspecialchars((string) $slug) ?>" class="text-sm text-orange-600 hover:underline py-1">Tours in <?= htmlspecialchars($c['name']) ?></a>
       <?php endforeach; ?>
     </div>
   </section>

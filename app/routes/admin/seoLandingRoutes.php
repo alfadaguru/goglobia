@@ -35,6 +35,11 @@ if (!function_exists('seoLandingTypes')) {
                 'slug_hint'  => 'e.g. kano (lowercase departure city)',
                 'url_prefix' => 'umrah/from-',
             ],
+            'tour_destination' => [
+                'label'      => 'Tour destination',
+                'slug_hint'  => 'e.g. dubai (lowercase, hyphens for spaces)',
+                'url_prefix' => 'tours/',
+            ],
         ];
     }
 }
@@ -132,13 +137,24 @@ $router->post(admin.'/seo/landing-pages/save', function () use ($SECURE, $db) {
             'getting_around' => trim((string) ($_POST['getting_around'] ?? '')),
             'highlights'     => trim((string) ($_POST['highlights'] ?? '')),
         ];
-    } else { // umrah_origin
+    } elseif ($type === 'umrah_origin') {
         $data = [
             'name'     => $name,
             'intro'    => trim((string) ($_POST['intro'] ?? '')),
             'note'     => trim((string) ($_POST['note'] ?? '')),
             'airport'  => trim((string) ($_POST['airport'] ?? '')),
             'carriers' => trim((string) ($_POST['carriers'] ?? '')),
+        ];
+    } else { // tour_destination
+        $data = [
+            'name'           => $name,
+            'country'        => trim((string) ($_POST['country'] ?? '')),
+            'intro'          => trim((string) ($_POST['intro'] ?? '')),
+            'experiences'    => seoLandingLines($_POST['experiences'] ?? ''),
+            'tip'            => trim((string) ($_POST['tip'] ?? '')),
+            'best_time'      => trim((string) ($_POST['best_time'] ?? '')),
+            'getting_around' => trim((string) ($_POST['getting_around'] ?? '')),
+            'highlights'     => trim((string) ($_POST['highlights'] ?? '')),
         ];
     }
 

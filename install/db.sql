@@ -5318,7 +5318,7 @@ CREATE TABLE IF NOT EXISTS `flights_popular_routes` (
 
 CREATE TABLE IF NOT EXISTS `seo_landing_pages` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
-  `type` enum('flight_route','hotel_city','umrah_origin') NOT NULL,
+  `type` enum('flight_route','hotel_city','umrah_origin','tour_destination') NOT NULL,
   `slug` varchar(120) NOT NULL,
   `title` varchar(200) DEFAULT NULL,
   `data` longtext DEFAULT NULL,

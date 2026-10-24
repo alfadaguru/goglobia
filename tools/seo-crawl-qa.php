@@ -40,6 +40,7 @@ $templates = [
     ['path' => 'umrah',                     'status' => 200, 'index' => true,  'breadcrumb' => true],
     ['path' => 'flights/lagos-to-abuja',    'status' => 200, 'index' => true,  'breadcrumb' => true],
     ['path' => 'hotels/dubai',              'status' => 200, 'index' => true,  'breadcrumb' => true],
+    ['path' => 'tours/dubai',               'status' => 200, 'index' => true,  'breadcrumb' => true],
     ['path' => 'umrah/from-kano',           'status' => 200, 'index' => true,  'breadcrumb' => true],
     ['path' => 'travel-directory',          'status' => 200, 'index' => true,  'breadcrumb' => true],
     ['path' => 'page/about-us',             'status' => 200, 'index' => true,  'breadcrumb' => true],

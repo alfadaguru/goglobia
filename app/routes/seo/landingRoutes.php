@@ -122,6 +122,34 @@ $router->get('/hotels/([a-z][a-z-]*)', function ($slug) use ($SECURE, $db) {
 });
 
 // ---------------------------------------------------------------------------
+// TOUR DESTINATION LANDING:  /tours/{destination}   e.g. /tours/dubai
+// Evergreen "things to do / tours in {destination}" guide + a LIVE tours search
+// (real, dynamic tour inventory on click). No fake prices or tour counts — it is
+// a guide + a search front door, mirroring the hotel-city pages. Curated list
+// only. Registered BEFORE the greedy /tours/(.*) listing route (seo file loads
+// first in _routes.php), and the single-segment regex plus the listing route's
+// own "needs >=5 segments" guard mean there is no collision with live search.
+// ---------------------------------------------------------------------------
+$router->get('/tours/([a-z][a-z-]*)', function ($slug) use ($SECURE, $db) {
+    $dests = seoTourDestinations();
+    $slug = strtolower($slug);
+    if (!isset($dests[$slug])) {
+        header('Location: ' . root . 'tours'); exit;
+    }
+    $GLOBALS['seo_tour'] = array_merge(['slug' => $slug], $dests[$slug]);
+    $t = $GLOBALS['seo_tour'];
+
+    $title = 'Tours in ' . $t['name'] . ' — Things to Do & Book Experiences';
+    $description = 'Discover the best tours and experiences in ' . $t['name'] . ($t['country'] ? ', ' . $t['country'] : '')
+        . ' with GoGlobia. Browse popular activities, see travel tips, and book securely with 24/7 support.';
+    $header = true; $footer = true;
+
+    require_once views . 'includes/header.php';
+    require_once views . 'modules/seo/tour-destination.php';
+    require_once views . 'includes/footer.php';
+});
+
+// ---------------------------------------------------------------------------
 // UMRAH ORIGIN LANDING:  /umrah/from-{city}   e.g. /umrah/from-kano
 // Evergreen Umrah-from-city guide + a live link into the real Umrah v2 search
 // filtered to that departure city. Only real NG departure cities get a page.
@@ -154,8 +182,8 @@ $router->get('/umrah/from-([a-z][a-z-]*)', function ($citySlug) use ($SECURE, $d
 // discover the whole moat through internal links, not only the sitemap.
 // ---------------------------------------------------------------------------
 $router->get('/travel-directory', function () use ($SECURE, $db) {
-    $title = 'Travel Directory — Popular Flight Routes, Hotel Cities & Umrah';
-    $description = 'Browse popular flight routes, hotel destinations and Umrah departures from Nigeria. Find your trip and book securely with GoGlobia.';
+    $title = 'Travel Directory — Flight Routes, Hotels, Tours & Umrah';
+    $description = 'Browse popular flight routes, hotel destinations, tours and Umrah departures from Nigeria. Find your trip and book securely with GoGlobia.';
     $header = true; $footer = true;
     require_once views . 'includes/header.php';
     require_once views . 'modules/seo/directory.php';

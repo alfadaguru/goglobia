@@ -5195,7 +5195,7 @@ function ensureSeoLandingSchema($db): void
         if (!dbTableExists($db, 'seo_landing_pages')) {
             $db->query("CREATE TABLE IF NOT EXISTS `seo_landing_pages` (
                 `id` int(11) NOT NULL AUTO_INCREMENT,
-                `type` enum('flight_route','hotel_city','umrah_origin') NOT NULL,
+                `type` enum('flight_route','hotel_city','umrah_origin','tour_destination') NOT NULL,
                 `slug` varchar(120) NOT NULL,
                 `title` varchar(200) DEFAULT NULL,
                 `data` longtext DEFAULT NULL,
@@ -5208,6 +5208,17 @@ function ensureSeoLandingSchema($db): void
                 KEY `idx_type_status` (`type`,`status`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
             $fresh = true;
+        }
+
+        // The `type` enum gained 'tour_destination' after the table shipped — widen
+        // it on existing installs (idempotent; MODIFY is a no-op if already present).
+        try {
+            $typeCol = $db->query("SHOW COLUMNS FROM `seo_landing_pages` LIKE 'type'")->fetch();
+            if ($typeCol && stripos((string) ($typeCol['Type'] ?? ''), 'tour_destination') === false) {
+                $db->query("ALTER TABLE `seo_landing_pages` MODIFY `type` enum('flight_route','hotel_city','umrah_origin','tour_destination') NOT NULL");
+            }
+        } catch (\Throwable $e) {
+            error_log('ensureSeoLandingSchema type-enum: ' . $e->getMessage());
         }
 
         $reg = dirname(__DIR__) . '/lib/seo_registry.php';
@@ -5232,9 +5243,10 @@ function ensureSeoLandingSchema($db): void
                     ]);
                 }
             };
-            $seedType('flight_route', 'seoFlightRouteDataDefaults');
-            $seedType('hotel_city',   'seoHotelCitiesDefaults');
-            $seedType('umrah_origin', 'seoUmrahOriginCitiesDefaults');
+            $seedType('flight_route',    'seoFlightRouteDataDefaults');
+            $seedType('hotel_city',      'seoHotelCitiesDefaults');
+            $seedType('umrah_origin',    'seoUmrahOriginCitiesDefaults');
+            $seedType('tour_destination', 'seoTourDestinationsDefaults');
         }
 
         // Versioned top-up — adds NEW default pages shipped after the initial seed
@@ -5265,8 +5277,10 @@ function ensureSeoLandingSchema($db): void
                 'lagos-to-abu-dhabi', 'lagos-to-doha', 'abuja-to-doha', 'lagos-to-kuala-lumpur',
                 'abuja-to-cairo', 'abuja-to-accra', 'kano-to-madinah',
             ]],
+            // v5: tours-by-destination landing pages (first batch of this type).
+            5 => ['tour_destination' => ['dubai', 'istanbul', 'cairo', 'nairobi', 'cape-town', 'zanzibar', 'accra', 'lagos']],
         ];
-        $SEO_LANDING_SEED_VERSION = 4;
+        $SEO_LANDING_SEED_VERSION = 5;
 
         // Ensure the tracking column exists BEFORE we read it (idempotent ALTER),
         // else an existing install throws "unknown column" and aborts the top-up.
@@ -5278,9 +5292,10 @@ function ensureSeoLandingSchema($db): void
         $applied = (int) ($db->get('settings', 'seo_landing_seed_version', ['id' => 1]) ?: 0);
         if ($applied < $SEO_LANDING_SEED_VERSION && !$fresh) {
             $defaultsFor = [
-                'flight_route' => 'seoFlightRouteDataDefaults',
-                'hotel_city'   => 'seoHotelCitiesDefaults',
-                'umrah_origin' => 'seoUmrahOriginCitiesDefaults',
+                'flight_route'    => 'seoFlightRouteDataDefaults',
+                'hotel_city'      => 'seoHotelCitiesDefaults',
+                'umrah_origin'    => 'seoUmrahOriginCitiesDefaults',
+                'tour_destination' => 'seoTourDestinationsDefaults',
             ];
             foreach ($SEO_LANDING_SEED_BATCHES as $ver => $byType) {
                 if ($applied >= $ver) { continue; } // already applied this batch
@@ -6126,6 +6141,11 @@ function generateSitemap($db)
         if (function_exists('seoUmrahOriginCities')) {
             foreach (array_keys(seoUmrahOriginCities()) as $citySlug) {
                 $urls[] = ['loc' => $site_url . 'umrah/from-' . $citySlug, 'lastmod' => date('Y-m-d'), 'changefreq' => 'weekly', 'priority' => '0.7'];
+            }
+        }
+        if (function_exists('seoTourDestinations')) {
+            foreach (array_keys(seoTourDestinations()) as $destSlug) {
+                $urls[] = ['loc' => $site_url . 'tours/' . $destSlug, 'lastmod' => date('Y-m-d'), 'changefreq' => 'weekly', 'priority' => '0.7'];
             }
         }
         // The discovery directory itself.

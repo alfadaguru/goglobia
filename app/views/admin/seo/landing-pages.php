@@ -17,7 +17,7 @@ $__rows  = $db->select('seo_landing_pages', '*', [
     'ORDER' => ['type' => 'ASC', 'sort_order' => 'ASC', 'id' => 'ASC'],
 ]) ?: [];
 
-$__byType = ['flight_route' => [], 'hotel_city' => [], 'umrah_origin' => []];
+$__byType = ['flight_route' => [], 'hotel_city' => [], 'umrah_origin' => [], 'tour_destination' => []];
 foreach ($__rows as $r) {
     $t = (string) ($r['type'] ?? '');
     if (isset($__byType[$t])) { $__byType[$t][] = $r; }
@@ -53,6 +53,8 @@ $__editPayload = function (array $r): array {
         'highlights'     => (string) ($d['highlights'] ?? ''),
         // umrah_origin (note/airport/name shared above; carriers here)
         'carriers'       => (string) ($d['carriers'] ?? ''),
+        // tour_destination (country/intro/tip/best_time/getting_around/highlights shared; experiences here)
+        'experiences'    => is_array($d['experiences'] ?? null) ? implode("\n", $d['experiences']) : '',
     ];
 };
 ?>
@@ -75,9 +77,10 @@ $__editPayload = function (array $r): array {
 
   <?php
   $__groupHeads = [
-      'flight_route' => ['Flight routes', 'flight', 'blue'],
-      'hotel_city'   => ['Hotel cities', 'hotel', 'emerald'],
-      'umrah_origin' => ['Umrah origins', 'mosque', 'amber'],
+      'flight_route'    => ['Flight routes', 'flight', 'blue'],
+      'hotel_city'      => ['Hotel cities', 'hotel', 'emerald'],
+      'umrah_origin'    => ['Umrah origins', 'mosque', 'amber'],
+      'tour_destination' => ['Tour destinations', 'tour', 'orange'],
   ];
   foreach ($__groupHeads as $type => [$heading, $icon, $color]):
       $pfx = $__types[$type]['url_prefix'] ?? '';
@@ -274,6 +277,40 @@ $__editPayload = function (array $r): array {
           </div>
         </template>
 
+        <!-- ===== TOUR DESTINATION fields ===== -->
+        <template x-if="form.type === 'tour_destination'">
+          <div class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Country</label>
+              <input type="text" x-model="form.country" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Intro <span class="text-gray-400 font-normal">(the hero paragraph)</span></label>
+              <textarea x-model="form.intro" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Popular tours &amp; experiences <span class="text-gray-400 font-normal">(one per line)</span></label>
+              <textarea x-model="form.experiences" rows="5" placeholder="Desert safari with dune bashing&#10;Burj Khalifa observation-deck tickets&#10;Marina dhow cruise with dinner" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Booking tip</label>
+              <textarea x-model="form.tip" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Best time to visit</label>
+              <textarea x-model="form.best_time" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Getting around</label>
+              <textarea x-model="form.getting_around" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Highlights</label>
+              <textarea x-model="form.highlights" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
+            </div>
+          </div>
+        </template>
+
         <label class="flex items-center gap-2 text-sm pt-1">
           <input type="checkbox" x-model="form.statusOn"> <span>Live (indexable &amp; in sitemap)</span>
         </label>
@@ -294,15 +331,16 @@ function seoLanding() {
   const HINTS = {
     flight_route: 'e.g. lagos-to-abuja (lowercase, must contain "-to-")',
     hotel_city:   'e.g. dubai (lowercase, hyphens for spaces)',
-    umrah_origin: 'e.g. kano (lowercase departure city)'
+    umrah_origin: 'e.g. kano (lowercase departure city)',
+    tour_destination: 'e.g. dubai (lowercase, hyphens for spaces)'
   };
-  const LABELS = { flight_route: 'flight route', hotel_city: 'hotel city', umrah_origin: 'Umrah origin' };
+  const LABELS = { flight_route: 'flight route', hotel_city: 'hotel city', umrah_origin: 'Umrah origin', tour_destination: 'tour destination' };
   const blank = (type) => ({
     id: 0, type: type, slug: '', name: '', sort_order: 0, statusOn: true,
     duration: '', airlines: '', note: '',
     country: '', nat: 'NG', intro: '', areas: '', airport: '', tip: '',
     currency: '', language: '', best_time: '', getting_around: '', highlights: '',
-    carriers: ''
+    carriers: '', experiences: ''
   });
   return {
     open: false, saving: false, err: '',
@@ -347,6 +385,7 @@ function seoLanding() {
         fd.append('getting_around', f.getting_around || '');
         fd.append('highlights', f.highlights || '');
         fd.append('carriers', f.carriers || '');
+        fd.append('experiences', f.experiences || '');
         const r = await fetch(this.base + '/save', { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } });
         const j = await r.json();
         if (j.success) { location.reload(); } else { this.err = j.message || 'Could not save.'; }
