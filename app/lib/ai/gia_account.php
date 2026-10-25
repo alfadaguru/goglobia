@@ -174,6 +174,60 @@ if (!function_exists('gia_user_summary_line')) {
     }
 }
 
+if (!function_exists('gia_user_proactive_note')) {
+    /**
+     * Pick the SINGLE most relevant, time-aware nudge for a returning traveller
+     * so GIA can open proactively — not a generic trip count (GA6). Priority:
+     *   1. an UNPAID/pending booking (money left on the table) -> gentle complete nudge
+     *   2. an IMMINENT upcoming trip (<= 7 days) -> offer check-in / add hotel
+     *   3. a cancellation already requested -> reassure it's in review
+     *   4. otherwise the plain summary line.
+     * Returns a short suggestion for GIA to WEAVE IN naturally (not recite), or ''.
+     * All suggestions are grounded in the real snapshot — GIA must not invent.
+     */
+    function gia_user_proactive_note(array $snap): string
+    {
+        if (empty($snap['found'])) { return ''; }
+        $up = $snap['upcoming'] ?? [];
+        if (count($up) === 0) { return ''; }
+
+        $today = date('Y-m-d');
+
+        // 1) Unpaid / pending-payment upcoming booking.
+        foreach ($up as $b) {
+            $pay = strtolower((string) ($b['payment'] ?? ''));
+            if (in_array($pay, ['unpaid', 'awaiting_verification', 'partially_paid'], true)) {
+                $svc = (string) ($b['service'] ?? 'booking');
+                return "The traveller has a {$svc} booking (" . (string) ($b['ref'] ?? '') . ") that isn't fully paid. "
+                    . "If it fits the conversation, gently offer to help them complete payment — don't nag.";
+            }
+        }
+
+        // 2) Imminent upcoming trip (within 7 days).
+        $soon = null; $soonDays = null;
+        foreach ($up as $b) {
+            $d = (string) ($b['date'] ?? '');
+            if ($d === '' || $d < $today) { continue; }
+            $days = (int) floor((strtotime($d) - strtotime($today)) / 86400);
+            if ($days >= 0 && $days <= 7 && ($soonDays === null || $days < $soonDays)) {
+                $soon = $b; $soonDays = $days;
+            }
+        }
+        if ($soon !== null) {
+            $svc = (string) ($soon['service'] ?? 'trip');
+            $when = $soonDays === 0 ? 'today' : ($soonDays === 1 ? 'tomorrow' : "in {$soonDays} days");
+            $extra = $svc === 'flights' ? ' (e.g. check-in, baggage, or a hotel/transfer at the destination)'
+                : ($svc === 'stays' ? ' (e.g. a transfer or a tour at the destination)' : '');
+            return "The traveller's {$svc} trip is {$when}. If it fits, be proactively helpful{$extra} — "
+                . "but only offer, never push.";
+        }
+
+        // 3) Cancellation pending (reassure, don't re-request).
+        // 4) Fall back to the plain summary.
+        return gia_user_summary_line($snap);
+    }
+}
+
 if (!function_exists('gia_find_user_by_phone')) {
     /**
      * Find a single account by phone (digits / last-10). Returns the users row or
