@@ -188,6 +188,32 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         // money authorization, which additionally requires user_approved + verify).
         $accountId = (string) ($ident['user_id'] ?? '');
 
+        // WHATSAPP NAME (GA): the inbound webhook carries the sender's WhatsApp
+        // profile/push name (self-asserted). If this chat resolves to an account
+        // that has NO real name yet (blank, or the passwordless placeholder), adopt
+        // the WhatsApp name so GIA + the dashboard can address the customer — owner
+        // decision: trust it to seed a nameless account. We ONLY fill a blank; we
+        // NEVER overwrite a name the customer already set. Split "First Last".
+        $displayName = trim((string) ($opts['display_name'] ?? ''));
+        if ($displayName !== '' && $accountId !== '') {
+            try {
+                $acc = $db->get('users', ['first_name', 'last_name'], ['user_id' => $accountId]);
+                $curFirst = trim((string) ($acc['first_name'] ?? ''));
+                // Treat blank or a generic placeholder ("Customer"/"Guest"/"User"/"WhatsApp") as "no name".
+                $isBlankName = $curFirst === '' || in_array(strtolower($curFirst), ['customer', 'guest', 'user', 'whatsapp', 'traveller', 'traveler'], true);
+                if ($isBlankName) {
+                    $parts = preg_split('/\s+/', $displayName, 2);
+                    $first = substr((string) ($parts[0] ?? ''), 0, 100);
+                    $last  = substr((string) ($parts[1] ?? ''), 0, 100);
+                    $upd = ['first_name' => $first, 'updated_at' => date('Y-m-d H:i:s')];
+                    if ($last !== '') { $upd['last_name'] = $last; }
+                    $db->update('users', $upd, ['user_id' => $accountId]);
+                }
+            } catch (\Throwable $e) {
+                error_log('[gia] whatsapp name adopt: ' . $e->getMessage());
+            }
+        }
+
         $conv = function_exists('gia_conv_get_or_create_channel')
             ? gia_conv_get_or_create_channel($db, $channel, $channelUserId, $verifiedUserId, '')
             : null;
@@ -426,6 +452,20 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
                     . "chatting with GIA, GoGlobia's automated assistant (not a specific human), and that "
                     . "they can ask for a person anytime. Keep replies concise and plain for messaging."
                 );
+                // NAME on first contact: if we have a WhatsApp profile name but no
+                // account name, greet with it; if we have neither, ask warmly.
+                if ($displayName !== '') {
+                    $agent->addSystemNote(
+                        "NAME: this " . ucfirst($channel) . " contact's profile name is \""
+                        . $displayName . "\" (self-reported). Greet them by it naturally; confirm the "
+                        . "correct spelling only if it matters for a booking document."
+                    );
+                } elseif ($accountId === '') {
+                    $agent->addSystemNote(
+                        "NAME: we don't know this person's name yet. Early in your first reply, warmly "
+                        . "ask what to call them so you can personalise the chat."
+                    );
+                }
             }
             // Greet by name whenever we resolved a person (verified OR passive
             // phone match) — personalization is read-only, so a match is enough here.

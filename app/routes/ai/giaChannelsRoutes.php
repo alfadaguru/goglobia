@@ -390,7 +390,9 @@ if (!function_exists('gia_ch_dispatch')) {
         if ($kind === 'text') {
             $text = (string) ($p['text'] ?? '');
             if (trim($text) === '') { return; }
-            $res = \App\lib\ai\gia_channel_handle($db, $channel, $sender, $text, $msgId);
+            // Pass the WhatsApp profile/push name (self-asserted) so the spine can
+            // greet a nameless sender and seed a blank/placeholder account name.
+            $res = \App\lib\ai\gia_channel_handle($db, $channel, $sender, $text, $msgId, ['display_name' => (string) ($p['name'] ?? '')]);
             if (empty($res['skip']) && (!empty($res['reply']) || !empty($res['rich']))) {
                 $send((string) ($res['reply'] ?? ''), is_array($res['rich'] ?? null) ? $res['rich'] : []);
             }
@@ -446,16 +448,19 @@ if (!function_exists('gia_ch_parse_greenapi')) {
         if (($d['typeWebhook'] ?? '') !== 'incomingMessageReceived') { return null; }
         $chatId = (string) ($d['senderData']['chatId'] ?? '');
         $sender = preg_replace('/[^\d]/', '', explode('@', $chatId)[0] ?? '');
+        // WhatsApp profile/push name (self-asserted) — used to greet + seed a
+        // nameless account. Green API exposes it as senderData.senderName.
+        $senderName = trim((string) ($d['senderData']['senderName'] ?? ''));
         $id = (string) ($d['idMessage'] ?? '');
         if ($sender === '') { return null; }
         $md = $d['messageData'] ?? [];
         $type = (string) ($md['typeMessage'] ?? '');
 
         if ($type === 'textMessage') {
-            return ['sender' => $sender, 'id' => $id, 'kind' => 'text', 'text' => (string) ($md['textMessageData']['textMessage'] ?? '')];
+            return ['sender' => $sender, 'id' => $id, 'kind' => 'text', 'text' => (string) ($md['textMessageData']['textMessage'] ?? ''), 'name' => $senderName];
         }
         if ($type === 'extendedTextMessage') {
-            return ['sender' => $sender, 'id' => $id, 'kind' => 'text', 'text' => (string) ($md['extendedTextMessageData']['text'] ?? '')];
+            return ['sender' => $sender, 'id' => $id, 'kind' => 'text', 'text' => (string) ($md['extendedTextMessageData']['text'] ?? ''), 'name' => $senderName];
         }
         if ($type === 'locationMessage') {
             $loc = $md['locationMessageData'] ?? [];
@@ -485,6 +490,9 @@ if (!function_exists('gia_ch_parse_meta_whatsapp')) {
         foreach (($d['entry'] ?? []) as $entry) {
             foreach (($entry['changes'] ?? []) as $change) {
                 $value = $change['value'] ?? [];
+                // WhatsApp profile name (self-asserted) — Meta puts it in
+                // value.contacts[].profile.name, a sibling of messages.
+                $profileName = trim((string) ($value['contacts'][0]['profile']['name'] ?? ''));
                 foreach (($value['messages'] ?? []) as $m) {
                     $type = (string) ($m['type'] ?? '');
                     $from = preg_replace('/[^\d]/', '', (string) ($m['from'] ?? ''));
@@ -493,12 +501,12 @@ if (!function_exists('gia_ch_parse_meta_whatsapp')) {
 
                     if ($type === 'text') {
                         $t = (string) ($m['text']['body'] ?? '');
-                        if ($t !== '') { return ['sender' => $from, 'id' => $id, 'kind' => 'text', 'text' => $t]; }
+                        if ($t !== '') { return ['sender' => $from, 'id' => $id, 'kind' => 'text', 'text' => $t, 'name' => $profileName]; }
                         continue;
                     }
                     if ($type === 'interactive') {
                         $t = (string) ($m['interactive']['button_reply']['id'] ?? ($m['interactive']['list_reply']['id'] ?? ''));
-                        if ($t !== '') { return ['sender' => $from, 'id' => $id, 'kind' => 'text', 'text' => $t]; }
+                        if ($t !== '') { return ['sender' => $from, 'id' => $id, 'kind' => 'text', 'text' => $t, 'name' => $profileName]; }
                         continue;
                     }
                     if ($type === 'location') {
