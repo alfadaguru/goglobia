@@ -166,6 +166,8 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         require_once $aiDir . 'tools/userAccountTool.php';   // full account awareness (all bookings/wallet/loyalty)
         require_once $aiDir . 'tools/myTravellersTool.php';  // saved travellers for reuse (never re-type)
         require_once $aiDir . 'tools/preferencesTool.php';   // opt-in consented travel preferences (BRD MEM)
+        require_once $aiDir . 'tools/myBookingDetailTool.php';    // owner-scoped single-booking status (GA5)
+        require_once $aiDir . 'tools/requestCancellationTool.php'; // self-service cancellation REQUEST (GA5)
         require_once $aiDir . 'tools/updateProfileTool.php'; // allow-listed profile update
         require_once $aiDir . 'tools/registerAccountTool.php'; // passwordless phone-OTP account signup
         require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow
@@ -384,6 +386,8 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
                 $agent->registerTool(new myTravellersTool());
                 $agent->registerTool(new updateProfileTool());
                 $agent->registerTool(new preferencesTool());
+                $agent->registerTool(new myBookingDetailTool());
+                $agent->registerTool(new requestCancellationTool());
                 // SAVED PREFERENCES note (GA4, BRD MEM): rank + pre-fill to them.
                 if (function_exists('gia_pref_summary_note')) {
                     try {

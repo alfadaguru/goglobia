@@ -135,6 +135,8 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/userAccountTool.php';   // full account awareness (all bookings/wallet/loyalty)
     require_once $aiDir . 'tools/myTravellersTool.php';  // saved travellers for reuse (never re-type)
     require_once $aiDir . 'tools/preferencesTool.php';   // opt-in consented travel preferences (BRD MEM)
+    require_once $aiDir . 'tools/myBookingDetailTool.php';    // owner-scoped single-booking status (GA5)
+    require_once $aiDir . 'tools/requestCancellationTool.php'; // self-service cancellation REQUEST (GA5)
     require_once $aiDir . 'tools/updateProfileTool.php'; // allow-listed profile update
     require_once $aiDir . 'tools/registerAccountTool.php'; // passwordless phone-OTP account signup
     require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow (own tools)
@@ -288,6 +290,8 @@ $router->post('/api/gia/chat', function () use ($db) {
         $agent->registerTool(new \App\lib\ai\userAccountTool());
         $agent->registerTool(new \App\lib\ai\myTravellersTool());
         $agent->registerTool(new \App\lib\ai\preferencesTool());
+        $agent->registerTool(new \App\lib\ai\myBookingDetailTool());
+        $agent->registerTool(new \App\lib\ai\requestCancellationTool());
         $agent->registerTool(new \App\lib\ai\updateProfileTool());
         $agent->registerTool(new \App\lib\ai\registerAccountTool());
         $agent->setToolContext($toolContext);
