@@ -1044,6 +1044,29 @@ $router->post('/api/ferries/booking/submit', function () use ($SECURE, $db) {
             grantInvoiceSessionOwnership($invoiceId);
         }
 
+        // BOOKING CONFIRMATION NOTIFICATION (EMAIL/SMS) — ferries previously sent
+        // none. Attach the no-price TICKET (travel document); invoice is payer-only.
+        if (class_exists('NOTIFY')) {
+            try {
+                $ticketPdf = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($invoiceId, 'ticket') : null;
+                NOTIFY::booking('ferries', [
+                    'email'        => trim($contact['email']),
+                    'phone'        => trim($contact['phone']),
+                    'first_name'   => trim($contact['name']),
+                    'last_name'    => trim($contact['first_surname']),
+                    'country_code' => trim($contact['phone_country_code']),
+                ], [
+                    'invoice_id'     => $invoiceId,
+                    'amount'         => $displayFinalTotal,
+                    'currency'       => $displayCurrency,
+                    'payment_status' => 'unpaid',
+                    'module_type'    => 'Ferries',
+                ], $ticketPdf);
+            } catch (\Throwable $e) {
+                error_log('FERRIES_APP_SUBMIT_NOTIFY: ' . $e->getMessage());
+            }
+        }
+
         echo json_encode([
             'success'    => true,
             'message'    => 'Booking pending payment.',
