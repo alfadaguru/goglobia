@@ -36,6 +36,8 @@
             Please select a country code for your phone number.
           <?php elseif ($_SESSION['signup_error'] === 'phone_invalid'): ?>
             Please enter a valid phone number (digits only, no spaces or leading 0).
+          <?php elseif ($_SESSION['signup_error'] === 'phone_exists'): ?>
+            That phone number is already linked to an account. Please log in, or use a different number.
           <?php else: ?>
             <?= T::error_registration_failed ?>
           <?php endif; ?>

@@ -176,6 +176,15 @@ $router->post('/signup', function () use ($SECURE, $db) {
             exit;
         }
         $phone = normalizePhoneForStorage($phone, $phone_country_code, $db);
+        // ONE NUMBER = ONE ACCOUNT (email-weight): reject a phone already on another
+        // account, on the canonical (national digits, dial code) pair. Mirrors the
+        // email_exists check above.
+        if (function_exists('phoneOwnedByOtherUser')
+            && phoneOwnedByOtherUser($db, $phone, getPhoneCode($phone_country_code, $db)) !== '') {
+            $_SESSION['signup_error'] = 'phone_exists';
+            header('Location: ' . $redirectUrl);
+            exit;
+        }
     } else {
         // No number → no stray country code either.
         $phone_country_code = '';

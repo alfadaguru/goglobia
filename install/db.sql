@@ -31823,10 +31823,10 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `title`, `first_name`, `last_name`, `email`, `password`, `banned`, `email_verified`, `last_login`, `created_at`, `updated_at`, `created_by`, `phone`, `phone_country_code`, `city`, `address`, `country`, `state`, `po_box`, `address2`, `role`, `avatar`, `timezone`, `language`, `status`, `reset_token`, `reset_token_expires`, `otp`, `otp_expires`, `login_attempts`, `locked_until`, `currency`, `balance`, `credit_limits`, `credit_payment_days`, `first_credit_usage_date`, `user_id`, `refresh_token`, `refresh_token_expires`, `apply_markup`, `markup_type`, `markup_value`) VALUES
-(1, 'Mr', 'Super', 'Admin', 'admin@phptravels.com', '$2y$10$ygA5ejZVBeti2cPIBuNGsu.7lR9BKAzJvgpDYBTjKpq5ylC9CJA2W', 0, 1, NULL, '2026-08-25 16:37:46', '2026-08-25 16:37:46', NULL, '1234567890', '01', '', NULL, '', NULL, '', '', 'admin', NULL, 'UTC', 'en', 'active', NULL, NULL, NULL, NULL, 0, NULL, 'NGN', 0, 0, 10, NULL, 'b258de6cbd32a1768108663', NULL, NULL, NULL, NULL, NULL),
-(2, 'Mr', 'Travel', 'Agent', 'agent@phptravels.com', '$2y$10$ptqIqqOEsbLYB1UNF8Un3eNRPMVjD6esEI3jEd.YUvyGpoko04C8e', 0, 1, NULL, '2026-08-25 16:37:46', '2026-08-25 16:37:46', NULL, '1234567890', '01', '', NULL, '', NULL, '', '', 'agent', NULL, 'UTC', 'en', 'active', NULL, NULL, NULL, NULL, 0, NULL, 'NGN', 0, 0, 10, NULL, 'a359ef7dce43b2879209774', NULL, NULL, NULL, NULL, NULL),
-(3, 'Mr', 'Service', 'Supplier', 'supplier@phptravels.com', '$2y$10$5R10IEjl5eQ6GOR.KNSSH.h6Yx22mjYhdukncl5RLPM2WJ5n.dPBe', 0, 1, NULL, '2026-08-25 16:37:46', '2026-08-25 16:37:46', NULL, '1234567890', '01', '', NULL, '', NULL, '', '', 'supplier', NULL, 'UTC', 'en', 'active', NULL, NULL, NULL, NULL, 0, NULL, 'NGN', 0, 0, 10, NULL, 'c470fg8edf54c3990310885', NULL, NULL, NULL, NULL, NULL),
-(4, 'Mr', 'Demo', 'User', 'user@phptravels.com', '$2y$10$7jyHT3crxwK3Dg.2oH9h.e5qzQ7REP06oqCK3a374OaKrH1DXDKYO', 0, 1, NULL, '2026-08-25 16:37:46', '2026-08-25 16:37:46', NULL, '1234567890', '01', '', NULL, '', NULL, '', '', 'customer', NULL, 'UTC', 'en', 'active', NULL, NULL, NULL, NULL, 0, NULL, 'NGN', 0, 0, 10, NULL, 'd581gh9feg65d4001421996', NULL, NULL, NULL, NULL, NULL);
+(1, 'Mr', 'Super', 'Admin', 'admin@phptravels.com', '$2y$10$ygA5ejZVBeti2cPIBuNGsu.7lR9BKAzJvgpDYBTjKpq5ylC9CJA2W', 0, 1, NULL, '2026-08-25 16:37:46', '2026-08-25 16:37:46', NULL, NULL, '01', '', NULL, '', NULL, '', '', 'admin', NULL, 'UTC', 'en', 'active', NULL, NULL, NULL, NULL, 0, NULL, 'NGN', 0, 0, 10, NULL, 'b258de6cbd32a1768108663', NULL, NULL, NULL, NULL, NULL),
+(2, 'Mr', 'Travel', 'Agent', 'agent@phptravels.com', '$2y$10$ptqIqqOEsbLYB1UNF8Un3eNRPMVjD6esEI3jEd.YUvyGpoko04C8e', 0, 1, NULL, '2026-08-25 16:37:46', '2026-08-25 16:37:46', NULL, NULL, '01', '', NULL, '', NULL, '', '', 'agent', NULL, 'UTC', 'en', 'active', NULL, NULL, NULL, NULL, 0, NULL, 'NGN', 0, 0, 10, NULL, 'a359ef7dce43b2879209774', NULL, NULL, NULL, NULL, NULL),
+(3, 'Mr', 'Service', 'Supplier', 'supplier@phptravels.com', '$2y$10$5R10IEjl5eQ6GOR.KNSSH.h6Yx22mjYhdukncl5RLPM2WJ5n.dPBe', 0, 1, NULL, '2026-08-25 16:37:46', '2026-08-25 16:37:46', NULL, NULL, '01', '', NULL, '', NULL, '', '', 'supplier', NULL, 'UTC', 'en', 'active', NULL, NULL, NULL, NULL, 0, NULL, 'NGN', 0, 0, 10, NULL, 'c470fg8edf54c3990310885', NULL, NULL, NULL, NULL, NULL),
+(4, 'Mr', 'Demo', 'User', 'user@phptravels.com', '$2y$10$7jyHT3crxwK3Dg.2oH9h.e5qzQ7REP06oqCK3a374OaKrH1DXDKYO', 0, 1, NULL, '2026-08-25 16:37:46', '2026-08-25 16:37:46', NULL, NULL, '01', '', NULL, '', NULL, '', '', 'customer', NULL, 'UTC', 'en', 'active', NULL, NULL, NULL, NULL, 0, NULL, 'NGN', 0, 0, 10, NULL, 'd581gh9feg65d4001421996', NULL, NULL, NULL, NULL, NULL);
 
 -- --------------------------------------------------------
 
@@ -32355,7 +32355,7 @@ ALTER TABLE `users`
   ADD KEY `idx_email` (`email`),
   ADD KEY `idx_role` (`role`),
   ADD KEY `idx_status` (`status`),
-  ADD KEY `idx_users_phone` (`phone`);
+  ADD UNIQUE KEY `uq_users_phone` (`phone`,`phone_country_code`);
 
 --
 -- Indexes for table `users_roles`

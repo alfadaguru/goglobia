@@ -127,10 +127,20 @@ $router->post('/profile', function () use ($SECURE,$db) {
     $address = trim($_POST['address'] ?? '');
     $po_box = trim($_POST['po_box'] ?? '');
 
-    // Validate phone - only digits, no leading zero
-    if (!empty($phone)) {
-        $phone = preg_replace('/\D/', '', $phone);
-        $phone = ltrim($phone, '0');
+    // Canonicalise the phone the SAME way every other write path does (so the
+    // composite-unique (phone, country) is meaningful), then enforce ONE NUMBER =
+    // ONE ACCOUNT: a user may KEEP their own number, but not take one already on
+    // another account. Phone-less (cleared) stays allowed.
+    if (!empty($phone) && function_exists('canonicalizeUserPhone')) {
+        [$phone, $phone_country_code] = canonicalizeUserPhone($phone, $phone_country_code, $db);
+        if ($phone !== '' && function_exists('phoneOwnedByOtherUser')
+            && phoneOwnedByOtherUser($db, $phone, $phone_country_code, (string) ($_SESSION['user_id'] ?? '')) !== '') {
+            $_SESSION['profile_error'] = 'phone_exists';
+            header('Location: ' . root . 'profile');
+            exit;
+        }
+    } elseif (!empty($phone)) {
+        $phone = ltrim(preg_replace('/\D/', '', $phone), '0');
     }
 
     // Basic validation

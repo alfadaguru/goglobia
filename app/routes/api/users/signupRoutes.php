@@ -106,6 +106,20 @@ $router->post('/api/signup', function () use ($db) {
         }
     }
 
+    // ONE NUMBER = ONE ACCOUNT: canonicalise the phone the SAME way the web path
+    // does (so formats don't diverge), then reject a number already on a DIFFERENT
+    // account. Mirrors the email_exists guard. Phone-less signup stays allowed.
+    if ($phone !== '' && function_exists('canonicalizeUserPhone')) {
+        [$phone, $phone_country_code] = canonicalizeUserPhone($phone, $phone_country_code, $db);
+        if ($phone !== '' && function_exists('phoneOwnedByOtherUser')) {
+            $owner = phoneOwnedByOtherUser($db, $phone, $phone_country_code, (string) ($existingCustomId ?? ''));
+            if ($owner !== '') {
+                echo json_encode(['status' => 'error', 'message' => 'phone_exists']);
+                exit;
+            }
+        }
+    }
+
     if ($password !== $confirm_password) {
         echo json_encode(['status' => 'error', 'message' => 'password_mismatch']);
         exit;
