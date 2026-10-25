@@ -37,7 +37,8 @@ $nav = [
     ['Reports',        'bar_chart',             'agent/reports',        $can('reports','view')],
     ['Branding',       'palette',               'agent/branding',       $can('branding','edit')],
     ['Staff & Roles',  'group',                 'agent/staff',          ($isOwner || $can('staff','view'))],
-    ['API Access',     'key',                   'agent/api',            $can('api','view')],
+    ['API Access',     'key',                   'api-access',           $can('api','view')],
+    ['Activity log',   'history',               'agent/activity',       $isOwner],
 ];
 ?>
 <input type="checkbox" id="agent-nav" class="peer hidden">

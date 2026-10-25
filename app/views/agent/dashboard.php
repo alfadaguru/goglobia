@@ -32,6 +32,14 @@ $can = fn($m,$a) => agent_can($db, $m, $a);
     <div class="mb-4 px-4 py-3 rounded-lg text-sm <?= ($m['type']??'')==='success'?'bg-emerald-50 text-emerald-800':'bg-red-50 text-red-800' ?>"><?= htmlspecialchars((string)($m['text']??'')) ?></div>
     <?php endif; ?>
 
+    <?php // Low-balance nudge: spendable (wallet + credit line) is at/near zero.
+    if (empty($pending) && ((float)$balance + (float)$creditLimit) <= 0): ?>
+    <div class="mb-5 px-4 py-3 rounded-lg bg-amber-50 text-amber-800 text-sm flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px]">account_balance_wallet</span>
+        Your wallet is empty. <a href="<?= root ?>agent/wallet" class="underline font-semibold ml-1">Fund your wallet</a> to start booking.
+    </div>
+    <?php endif; ?>
+
     <!-- Onboarding checklist (until complete) -->
     <?php if (empty($onboarding['complete'])): require views."agent/_onboarding.php"; endif; ?>
 

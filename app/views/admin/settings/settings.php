@@ -674,6 +674,26 @@ $messageSuccess = false;
                                     </div>
                                 </label>
                             </div>
+                            <?php // Travel-Agent ERP portal toggles (Agent ERP P8) ?>
+                            <?php foreach ([
+                                ['agent_portal_enabled', 'Agent portal', 'Enable the travel-agent ERP portal (/agent/*).'],
+                                ['agent_dva_enabled', 'Agent wallet funding (DVA)', 'Let agents create a virtual account to fund their wallet.'],
+                                ['agent_self_markup_enabled', 'Agent self-markup', 'Let agencies set their own client price over the B2B net.'],
+                            ] as $__agTgl): ?>
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <label class="text-xs font-medium text-gray-700"><?= htmlspecialchars($__agTgl[1]) ?></label>
+                                    <p class="text-xs text-gray-500"><?= htmlspecialchars($__agTgl[2]) ?></p>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" name="<?= $__agTgl[0] ?>" value="1" class="sr-only peer"
+                                        <?= getSetting($settingsData, $__agTgl[0], '1') ? 'checked' : '' ?>>
+                                    <div
+                                        class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600">
+                                    </div>
+                                </label>
+                            </div>
+                            <?php endforeach; ?>
                             <div class="flex items-center justify-between">
                                 <div>
                                     <label class="text-xs font-medium text-gray-700"><?=T::supplier_registration?></label>

@@ -367,6 +367,11 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
             'guest_booking' => isset($_POST['guest_booking']) ? '1' : '0',
             'user_registration' => isset($_POST['user_registration']) ? '1' : '0',
             'agent_registration' => isset($_POST['agent_registration']) ? '1' : '0',
+            // Travel-Agent ERP portal toggles (Agent ERP P8). Default-on so the
+            // portal works out of the box; an operator can disable per feature.
+            'agent_portal_enabled' => isset($_POST['agent_portal_enabled']) ? '1' : '0',
+            'agent_dva_enabled' => isset($_POST['agent_dva_enabled']) ? '1' : '0',
+            'agent_self_markup_enabled' => isset($_POST['agent_self_markup_enabled']) ? '1' : '0',
             'supplier_registration' => isset($_POST['supplier_registration']) ? '1' : '0',
             // '1' = website is restricted to logged in users, '0' = open to everyone
             'user_restriction' => isset($_POST['user_restriction']) ? '1' : '0',
