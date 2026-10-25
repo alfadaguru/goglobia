@@ -155,6 +155,7 @@ require_once 'app/routes/users/agentApiRoutes.php';
 require_once 'app/routes/users/agentWalletRoutes.php';     // P0: wallet + DVA funding
 require_once 'app/routes/users/agentDashboardRoutes.php';  // P1: dashboard + onboarding
 require_once 'app/routes/users/agentStaffRoutes.php';      // P2: staff invites + roles RBAC
+require_once 'app/routes/users/agentBookingCentreRoutes.php'; // P3: booking centre + wallet settle (11 services)
 
 // SEO LANDING PAGES (evergreen route/city pages) — registered BEFORE the flight
 // listing routes so single-segment /flights/{from}-to-{to} matches here first.
