@@ -1,11 +1,46 @@
-# GoGlobia — Travel-Agent ERP / B2B Portal — Complete Spec (v3, LOCKED)
+# GoGlobia — Travel-Agent ERP / B2B Portal — Complete Spec (v3, BUILT)
 
-**Status:** LOCKED — owner approved all decisions 2026-10-24; build starts at P0.
-**Date:** 2026-10-24
-**Branch when built:** `feat/agent-erp` (new; not started)
-**Supersedes:** v1/v2. This v3 is grounded in a 10-reader line-by-line audit of
-the real code. Every "exists today" claim is cited to a `file:line` read during
-research; everything under **BUILD** does not exist yet.
+**Status:** ✅ BUILT — all 9 phases (P0–P8) implemented & committed on branch
+`feat/agent-erp` (2026-10-25). Owner approved all decisions 2026-10-24.
+**Branch:** `feat/agent-erp` — 10 commits (1f02764 P0 → 0c1bea9 P8), ~35 files.
+**Supersedes:** v1/v2. v3 was grounded in a 10-reader line-by-line audit.
+
+## BUILD SUMMARY (what shipped — all reuse verified patterns, no double-code)
+- **P0** `app/lib/agent_portal.php`: idempotent schema (agent_roles/agent_staff/
+  agent_clients/agent_trip_plans/agent_audit + agencies.brand_* + bookings
+  attribution + users.agent_customer_markup* + 3 settings toggles) and the
+  multi-tenant RBAC spine (`agent_acting_context`/`agent_staff_context`/
+  `agent_can`/`AGENT_OR_STAFF_AUTH`) mirrored 1:1 from the supplier portal.
+  `/agent/wallet` + DVA activate (reuses `paystack_dva_activate`).
+- **P1** `/agent/dashboard` + onboarding wizard + `/admin/agents` approve/reject;
+  agent signup → `status='pending'`; email-verify holds agents pending.
+- **P2** `/agent/staff` + `/agent/roles` — invite(7-day token)/accept/revoke +
+  default & custom roles, HIGH-4/HIGH-5 guards.
+- **P3** `/agent/booking-centre` (all 11 services) + `/agent/bookings` +
+  `/agent/booking/{inv}/pay` — reuse each service's search/booking, settle via
+  `agent_api_charge_wallet` (wallet-only, credit-line), attribute agency_id +
+  booked_by_staff_id, issue loopback `bm_fire_supplier_issue`.
+- **P4** `agent_booking_brand()` hooked into `GENERATE_BOOKING_PDF` + `notify.php`
+  → every doc/email of all 11 services in the AGENCY brand; generic PDF template
+  for esim + insurance (the only two lacking one).
+- **P5** `/agent/branding` — logo (secureUploadCheck) + hex colours + owner
+  self-markup (`agent_apply_self_markup` at settle).
+- **P6** `/agent/clients` CRM + `/agent/trips` plans + PUBLIC `/trip/{ref}?token=`
+  branded client proposal.
+- **P7** booking mgmt (resend / cancel / refund-to-wallet, idempotent) +
+  `/agent/reports` (paid-only by service) + CSV exports.
+- **P8** admin settings toggles + `/agent/activity` audit view + Agent-API
+  surfaced (`/api-access`) + dashboard low-balance nudge.
+
+**Verification:** php -l clean on all files; every `/agent/*` route registers +
+guards (302 guest); home 200; zero agent errors on boot. Only agent-ERP +
+intended shared files were touched. **NOT runtime-tested in a browser** (logged-in
+render, PDF output, report SQL) — owner to smoke-test after deploy.
+**Optional future:** P9 branded micro-site (deferred).
+
+---
+
+**Original spec (research + plan) follows unchanged below.**
 
 ## OWNER DECISIONS — LOCKED (2026-10-24)
 1. **Admin approval: YES.** Agent signup → `status='pending'` → admin approves
