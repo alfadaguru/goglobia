@@ -674,9 +674,10 @@ $router->post('/api/visas/booking/submit', function () use ($db) {
         // --------------------------------------------------
         // GENERATE PDF
         // --------------------------------------------------
+        // No-price TICKET for the booking confirmation; priced invoice is payer-only.
         $pdfPath = null;
         try {
-            $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
+            $pdfPath = GENERATE_BOOKING_PDF($invoiceId, 'ticket');
         } catch (Exception $e) {
             error_log('Visa PDF Generation failed (mobile): ' . $e->getMessage());
         }

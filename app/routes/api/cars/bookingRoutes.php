@@ -844,7 +844,9 @@ $router->post('/api/cars/booking/submit', function () use ($SECURE, $db) {
                     'module_type' => 'Cars'
                 ];
 
-                NOTIFY::booking('cars', $customerData, $notifyData);
+                // Attach the no-price TICKET (travel document); invoice is payer-only.
+                $ticketPdf = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($invoiceId, 'ticket') : null;
+                NOTIFY::booking('cars', $customerData, $notifyData, $ticketPdf);
             }
 
 

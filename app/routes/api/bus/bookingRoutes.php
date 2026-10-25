@@ -587,6 +587,8 @@ $router->post('/api/bus/booking/app-submit', function () use ($SECURE, $db) {
         // BOOKING CONFIRMATION NOTIFICATION (EMAIL/SMS)
         if (class_exists('NOTIFY')) {
             try {
+                // Attach the no-price TICKET (travel document); invoice is payer-only.
+                $ticketPdf = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($invoiceId, 'ticket') : null;
                 NOTIFY::booking('bus', [
                     'email'        => $email,
                     'phone'        => $phone,
@@ -599,7 +601,7 @@ $router->post('/api/bus/booking/app-submit', function () use ($SECURE, $db) {
                     'currency'       => $displayCurrency,
                     'payment_status' => 'unpaid',
                     'module_type'    => 'Bus',
-                ]);
+                ], $ticketPdf);
             } catch (\Throwable $e) {
                 error_log('BUS_APP_SUBMIT_NOTIFY: ' . $e->getMessage());
             }

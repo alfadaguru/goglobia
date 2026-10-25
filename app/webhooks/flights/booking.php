@@ -95,7 +95,9 @@ if ($event === 'flights.booking.confirmed') {
         ];
         
         // Generate PDF if not already generated
-        $pdfPath = GENERATE_BOOKING_PDF($booking['invoice_id']);
+        // Booking confirmation attaches the no-price TICKET (travel document).
+        // The priced invoice is payer-only (payment receipt + on-demand download).
+        $pdfPath = GENERATE_BOOKING_PDF($booking['invoice_id'], 'ticket');
         
         // Send notification
         $notifyResult = NOTIFY::booking('flights', $customerData, $notificationData, $pdfPath);

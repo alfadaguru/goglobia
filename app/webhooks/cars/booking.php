@@ -87,7 +87,9 @@ if ($event === 'cars.booking.confirmed') {
         // Generate PDF
         $pdfPath = null;
         try {
-            $pdfPath = GENERATE_BOOKING_PDF($booking['invoice_id']);
+            // Booking confirmation attaches the no-price TICKET (travel document).
+            // The priced invoice is payer-only (payment receipt + on-demand download).
+            $pdfPath = GENERATE_BOOKING_PDF($booking['invoice_id'], 'ticket');
         } catch (Exception $e) {
             error_log("CAR_BOOKING_WEBHOOK ERROR (PDF): " . $e->getMessage());
         }

@@ -488,7 +488,9 @@ $router->post('/api/esim/booking/submit', function () use ($SECURE, $db) {
                 'module_type' => 'eSIM',
             ];
 
-            NOTIFY::booking('esim', $customerData, $notifyData);
+            // Attach the no-price TICKET (travel document); invoice is payer-only.
+            $ticketPdf = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($invoiceId, 'ticket') : null;
+            NOTIFY::booking('esim', $customerData, $notifyData, $ticketPdf);
         }
 
         // Let the (possibly guest) session that created this invoice view it —

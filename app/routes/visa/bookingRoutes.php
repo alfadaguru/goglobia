@@ -378,10 +378,11 @@ $router->post('/api/visa/booking/submit', function () use ($SECURE, $db) {
         unset($_SESSION['booking_data']);
         unset($_SESSION['booking_hash']);
 
-        // GENERATE PDF VOUCHER
+        // GENERATE PDF VOUCHER — no-price TICKET for the booking confirmation.
+        // The priced invoice is payer-only (payment receipt + on-demand download).
         $pdfPath = null;
         try {
-            $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
+            $pdfPath = GENERATE_BOOKING_PDF($invoiceId, 'ticket');
         } catch (Exception $e) {
             error_log('Visa PDF Generation failed: ' . $e->getMessage());
         }
