@@ -259,11 +259,64 @@ if (!function_exists('admin_rbac_seed_default_roles')) {
             'reports'           => ['page_access', 'view'],
         ]);
 
+        // OPERATIONS — runs the day-to-day booking + inventory business. Full
+        // bookings (incl. money actions), every service module, read-only
+        // reports/users/suppliers. No finance ledger, no content, no RBAC/settings.
+        $operations = $grant([
+            'dashboard' => ['page_access', 'view'],
+            'bookings'  => ['page_access', 'add', 'edit', 'view', 'refund', 'cancel', 'void'],
+            'flights'   => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'stays'     => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'tours'     => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'cars'      => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'bus'       => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'visa'      => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'umrah'     => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'airlines'  => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'airports'  => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'locations' => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'modules'   => ['page_access', 'view', 'edit'],
+            'suppliers' => ['page_access', 'view'],
+            'users'     => ['page_access', 'view'],
+            'reports'   => ['page_access', 'view'],
+        ]);
+
+        // FINANCE — money oversight: transactions ledger, supplier payouts, the
+        // loyalty/wallet engine, and the money side of bookings (refund/cancel/
+        // void). Read payment gateways + discounts/promo/referrals; reports.
+        $finance = $grant([
+            'dashboard'        => ['page_access', 'view'],
+            'transactions'     => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'supplier_payouts' => ['page_access', 'view', 'edit'],
+            'money'            => ['page_access', 'view', 'edit', 'add', 'delete'],
+            'payment_gateways' => ['page_access', 'view'],
+            'bookings'         => ['page_access', 'view', 'refund', 'cancel', 'void'],
+            'discounts'        => ['page_access', 'view', 'edit'],
+            'promo_codes'      => ['page_access', 'view', 'edit'],
+            'referrals'        => ['page_access', 'view', 'edit'],
+            'reports'          => ['page_access', 'view'],
+        ]);
+
+        // CONTENT — site content & marketing surfaces: CMS pages, blog, menus,
+        // SEO, email campaigns and notification templates.
+        $content = $grant([
+            'dashboard'              => ['page_access', 'view'],
+            'cms'                    => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'blogs'                  => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'menus'                  => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'seo'                    => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'campaigns'              => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'notification_templates' => ['page_access', 'add', 'edit', 'view', 'delete'],
+        ]);
+
         $defaults = [
             ['type_name' => 'Admin',         'slug' => 'admin',         'base_type' => 'admin',    'perms' => null],            // null => full grant
             ['type_name' => 'Support Lead',  'slug' => 'support_lead',  'base_type' => 'employee', 'perms' => $supportLead],
             ['type_name' => 'Support Agent', 'slug' => 'support_agent', 'base_type' => 'employee', 'perms' => $supportAgent],
             ['type_name' => 'Marketing',     'slug' => 'marketing',     'base_type' => 'employee', 'perms' => $marketing],
+            ['type_name' => 'Operations',    'slug' => 'operations',    'base_type' => 'employee', 'perms' => $operations],
+            ['type_name' => 'Finance',       'slug' => 'finance',       'base_type' => 'employee', 'perms' => $finance],
+            ['type_name' => 'Content',       'slug' => 'content',       'base_type' => 'employee', 'perms' => $content],
         ];
 
         try {
