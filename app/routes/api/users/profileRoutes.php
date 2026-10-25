@@ -141,8 +141,24 @@ $router->post('/api/users/profile', function () use ($db) {
     if (isset($data['last_name'])) $updateData['last_name'] = trim($data['last_name']);
     if (isset($data['phone_country_code'])) $updateData['phone_country_code'] = trim($data['phone_country_code']);
     if (isset($data['phone'])) {
-        $phone = preg_replace('/\D/', '', $data['phone']);
-        $updateData['phone'] = ltrim($phone, '0');
+        // Canonicalise consistently + enforce ONE NUMBER = ONE ACCOUNT (the user
+        // keeps their own number; can't take another account's). Country code from
+        // this request if given, else the account's stored one.
+        $ccIn = $updateData['phone_country_code'] ?? ($user['phone_country_code'] ?? '');
+        $rawPhone = (string) $data['phone'];
+        if (trim($rawPhone) !== '' && function_exists('canonicalizeUserPhone')) {
+            [$canonPhone, $canonCc] = canonicalizeUserPhone($rawPhone, $ccIn, $db);
+            if ($canonPhone !== '' && function_exists('phoneOwnedByOtherUser')
+                && phoneOwnedByOtherUser($db, $canonPhone, $canonCc, (string) ($user['user_id'] ?? '')) !== '') {
+                http_response_code(409);
+                echo json_encode(['status' => 'error', 'code' => 'PHONE_EXISTS', 'message' => 'That phone number is already linked to another account.']);
+                exit;
+            }
+            $updateData['phone'] = $canonPhone;
+            $updateData['phone_country_code'] = $canonCc;
+        } else {
+            $updateData['phone'] = ltrim(preg_replace('/\D/', '', $rawPhone), '0');
+        }
     }
     if (isset($data['country'])) $updateData['country'] = trim($data['country']);
     if (isset($data['state'])) $updateData['state'] = trim($data['state']);

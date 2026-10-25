@@ -165,8 +165,26 @@ $router->post(admin.'/users/save', function () use ($SECURE,$db) {
             exit;
         }
 
+        // Canonicalise the phone the SAME way the self-serve paths do, so an
+        // admin-entered number stores in one form and the composite-unique
+        // (phone, country) stays consistent. Empty stays empty (phone-less allowed).
+        if ($data['phone'] !== '' && function_exists('canonicalizeUserPhone')) {
+            [$data['phone'], $data['phone_country_code']] = canonicalizeUserPhone($data['phone'], $data['phone_country_code'], $db);
+        }
+
         // Check if edit or create
         $isEdit = !empty($_POST['user_id']);
+
+        // ONE NUMBER = ONE ACCOUNT: reject a phone already on a DIFFERENT account
+        // (edit excludes the user being edited). Mirrors the email dedupe below.
+        if ($data['phone'] !== '' && function_exists('phoneOwnedByOtherUser')) {
+            $excludeId = $isEdit ? (string) ($_POST['user_id'] ?? '') : '';
+            if (phoneOwnedByOtherUser($db, $data['phone'], $data['phone_country_code'], $excludeId) !== '') {
+                $_SESSION['error'] = 'This phone number is already linked to another account';
+                header('Location: ' . $_SERVER['HTTP_REFERER']);
+                exit;
+            }
+        }
 
         if ($isEdit) {
             // Update existing user
