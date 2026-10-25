@@ -7,13 +7,16 @@ $host = $agentApiHost ?? 'api.goglobia.com';
 $base = 'https://' . $host . '/api';
 $enabled = array_map(fn($s) => $s['service'], $services ?? []);
 ?>
-<div class="">
+<?php $__inAgentPortal = !empty($GLOBALS['__agent_portal']); ?>
+<div class="<?= $__inAgentPortal ? 'px-4 py-6 max-w-4xl mx-auto' : '' ?>">
+  <?php if (!$__inAgentPortal): ?>
   <div class="flex gap-5 container mb-8">
     <div class="flex-shrink-0">
       <?php include views."auth/sidebar.php"; ?>
     </div>
+  <?php endif; ?>
 
-    <main class="flex-1 min-w-0 pt-8 bg-white rounded-[8px] lg:ml-0 ml-[40px]">
+    <main class="<?= $__inAgentPortal ? '' : 'flex-1 min-w-0 pt-8 bg-white rounded-[8px] lg:ml-0 ml-[40px]' ?>">
       <div class="mx-auto max-w-4xl">
 
         <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
@@ -108,5 +111,5 @@ curl -X POST "<?= htmlspecialchars($base) ?>/flights/search" \
 
       </div>
     </main>
-  </div>
+  <?php if (!$__inAgentPortal): ?></div><?php endif; /* close .flex (customer layout only) */ ?>
 </div>

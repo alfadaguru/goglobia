@@ -9,6 +9,12 @@
 // ============================================================================
 @$SECURE or die('Access Denied!');
 
+// Flag the agent-portal context so shared views (e.g. auth/api-access.php,
+// auth/api-docs.php) that normally render the CUSTOMER sidebar can SKIP it here —
+// the agent layout already provides the sidebar + <main>. Prevents a second
+// (customer) sidebar panel showing inside the agent portal.
+$GLOBALS['__agent_portal'] = true;
+
 // Resolve the acting agency context once for the shell (sidebar self-guards too).
 $__actx = function_exists('agent_acting_context') ? agent_acting_context($GLOBALS['db'] ?? null) : null;
 $__brandName = $GLOBALS['app']['business_name'] ?? 'GoGlobia';

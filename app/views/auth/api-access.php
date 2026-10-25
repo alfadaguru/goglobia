@@ -16,13 +16,21 @@ $svcLabels = [
 ?>
 <style>[x-cloak]{display:none!important}</style>
 
-<div class="">
+<?php
+  // In the AGENT PORTAL the dedicated layout already provides the sidebar + <main>,
+  // so DON'T render the customer sidebar wrapper here (that produced a second
+  // panel). On the customer surface, keep the original sidebar layout.
+  $__inAgentPortal = !empty($GLOBALS['__agent_portal']);
+?>
+<div class="<?= $__inAgentPortal ? 'px-4 py-6 max-w-6xl mx-auto' : '' ?>">
+  <?php if (!$__inAgentPortal): ?>
   <div class="flex gap-5 container mb-8">
     <div class="flex-shrink-0">
       <?php include views."auth/sidebar.php"; ?>
     </div>
+  <?php endif; ?>
 
-    <main class="flex-1 min-w-0 pt-8 bg-white rounded-[8px] lg:ml-0 ml-[40px]">
+    <main class="<?= $__inAgentPortal ? '' : 'flex-1 min-w-0 pt-8 bg-white rounded-[8px] lg:ml-0 ml-[40px]' ?>">
       <div class="mx-auto">
 
         <!-- HEADER -->
@@ -210,5 +218,5 @@ $svcLabels = [
 
       </div>
     </main>
-  </div>
+  <?php if (!$__inAgentPortal): ?></div><?php endif; /* close .flex (customer layout only) */ ?>
 </div>
