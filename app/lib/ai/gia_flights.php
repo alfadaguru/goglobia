@@ -792,6 +792,13 @@ if (!function_exists('App\\lib\\ai\\gia_flights_book')) {
         $phone     = (string) ($lead['phone'] ?? '');
         $userId    = (string) ($lead['user_id'] ?? '');
 
+        // GA3: fill blank lead contact from the signed-in user's own record so a
+        // returning customer isn't re-asked for email/phone already on file.
+        if ($userId !== '' && ($email === '' || $phone === '')) {
+            if (!function_exists('gia_contact_prefill')) { require_once __DIR__ . '/gia_travellers.php'; }
+            if (function_exists('gia_contact_prefill')) { [$email, $phone] = gia_contact_prefill($db, $userId, $email, $phone); }
+        }
+
         // The issue path reads the fare token from booking_data (several shapes —
         // issue.php:170-184). Store the whole revalidated offer so the token GIA
         // issues with is the FRESH one from the re-price-lock, not the stale search one.

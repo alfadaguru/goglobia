@@ -286,6 +286,12 @@ if (!function_exists('App\\lib\\ai\\gia_stays_book')) {
         $phone     = (string) ($lead['phone'] ?? '');
         $userId    = (string) ($lead['user_id'] ?? '');
 
+        // GA3: prefill blank lead contact from the signed-in user's record.
+        if ($userId !== '' && ($email === '' || $phone === '')) {
+            if (!function_exists('gia_contact_prefill')) { require_once __DIR__ . '/gia_travellers.php'; }
+            if (function_exists('gia_contact_prefill')) { [$email, $phone] = gia_contact_prefill($db, $userId, $email, $phone); }
+        }
+
         $bookingData = [
             'source'           => 'gia_chat',
             'gia_service'      => 'stays',
