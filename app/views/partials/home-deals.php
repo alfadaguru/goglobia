@@ -10,7 +10,10 @@
 // nothing to show. Self-contained; a failure here cannot break the page.
 @$SECURE or die('Access Denied!');
 
-$__dealsCur = strtoupper((string) ($_SESSION['currency'] ?? ($GLOBALS['app']['default_currency'] ?? 'USD')));
+// The app stores the visitor's active currency in $_SESSION['app_currency']
+// (set in config.php / the header). The old 'currency' key is never set, so the
+// deals strip always fell back to the default and ignored the chosen currency.
+$__dealsCur = strtoupper((string) ($_SESSION['app_currency'] ?? ($_SESSION['currency'] ?? ($GLOBALS['app']['default_currency'] ?? 'USD'))));
 $__dealsAdults   = (int) ($_SESSION['tour_adults'] ?? $_SESSION['tour_travelers'] ?? 2);
 $__dealsChildren = (int) ($_SESSION['tour_children'] ?? 0);
 $__enabledTypes  = array_column($GLOBALS['modules'] ?? [], 'type');
