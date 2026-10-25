@@ -30,7 +30,7 @@ if (!function_exists('support_campaign_offer_products')) {
 $router->get(admin.'/support/campaigns', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     ensureAdCampaignSchema($db);
-    if (!admin_can($db, 'support_campaigns', 'edit')) { http_response_code(403); die('Access Denied!'); }
+    if (!admin_can($db, 'support_campaigns', 'view')) { http_response_code(403); die('Access Denied!'); }
     $title = 'Ad Campaigns'; $description = ''; $header = true; $footer = true;
     require_once views."includes/header.php";
     require_once "app/views/admin/support/campaigns.php";

@@ -10,7 +10,7 @@
 // config.php; attendance.php is NOT, so every handler require_once's it then
 // calls ensureSupportAttendanceSchema($db) (self-healing, idempotent).
 //
-// Shape mirrors supportDeskRoutes.php: ADMIN_AUTH() first, then a support_can()
+// Shape mirrors supportDeskRoutes.php: ADMIN_AUTH() first, then an admin_can()
 // capability gate, CSRF::guard() on the JSON POSTs. JSON denials return a 403
 // {ok:false} body so the UI can surface them rather than die('Access Denied!').
 @$SECURE or die('Access Denied!');

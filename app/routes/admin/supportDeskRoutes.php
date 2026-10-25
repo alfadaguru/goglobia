@@ -11,7 +11,7 @@
 // ensureSupportDeskSchema($db) at the top (self-healing, idempotent).
 //
 // Shape mirrors app/routes/admin/giaRoutes.php: ADMIN_AUTH() first, then a
-// support_can() capability gate, CSRF::guard() on the JSON POSTs. JSON denials
+// admin_can() capability gate, CSRF::guard() on the JSON POSTs. JSON denials
 // return a 403 {status:false} body (so the desk UI can surface them) rather
 // than die('Access Denied!').
 @$SECURE or die('Access Denied!');

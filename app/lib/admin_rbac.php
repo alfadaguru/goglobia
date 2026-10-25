@@ -508,6 +508,52 @@ if (!function_exists('admin_can')) {
     }
 }
 
+if (!function_exists('admin_user_can')) {
+    /**
+     * Capability check for an ARBITRARY user (not the session user) — used when the
+     * system needs to know whether some OTHER employee may do something (e.g. GIA
+     * picking an online support agent to nudge). Mirrors admin_can() resolution:
+     * role='admin' => all-allow; else resolve users.role_id -> users_roles and test
+     * the area/action grant (presence of the action key). Fail-soft => false.
+     */
+    function admin_user_can($db, string $userId, string $area, string $action = 'view'): bool
+    {
+        if ($userId === '') {
+            return false;
+        }
+        try {
+            $user = $db->get('users', ['role', 'role_id'], ['user_id' => $userId]);
+            if (!$user) {
+                return false;
+            }
+            if (strtolower((string) ($user['role'] ?? '')) === 'admin') {
+                return true;
+            }
+            if (empty($user['role_id'])) {
+                return false;
+            }
+            $row = $db->get('users_roles', ['base_type', 'permissions'], ['id' => (int) $user['role_id']]);
+            if (!$row) {
+                return false;
+            }
+            if (strtolower((string) ($row['base_type'] ?? '')) === 'admin') {
+                return true;
+            }
+            $perms = !empty($row['permissions']) ? json_decode((string) $row['permissions'], true) : [];
+            if (!is_array($perms)) {
+                return false;
+            }
+            if (array_key_exists('*', $perms) || in_array('*', $perms, true)) {
+                return true;
+            }
+            return isset($perms[$area]) && is_array($perms[$area]) && array_key_exists($action, $perms[$area]);
+        } catch (\Throwable $e) {
+            error_log('admin_user_can: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
 if (!function_exists('admin_require')) {
     /**
      * The enforcement gate for a route handler. Assumes ADMIN_AUTH() has already

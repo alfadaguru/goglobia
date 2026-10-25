@@ -63,6 +63,17 @@ if (!function_exists('App\\lib\\ai\\gia_alert_staff_needs_human')) {
                 . '<p><a href="' . htmlspecialchars($link, ENT_QUOTES, 'UTF-8') . '">Open the conversation &amp; take over &rarr;</a></p>';
 
             $ok = (bool) SENDEMAIL($to, 'Support', $subject, $html);
+
+            // ALSO WhatsApp any ONLINE support agent who can take over a chat, with
+            // a deep link to the desk conversation (spec §4 "nudge an online agent").
+            // Best-effort; never blocks the handoff. The email above remains the
+            // guaranteed fallback.
+            try {
+                gia_nudge_online_agents($db, $convId, $reasonLine, $link);
+            } catch (\Throwable $e) {
+                error_log('[gia] online-agent nudge: ' . $e->getMessage());
+            }
+
             if ($ok) {
                 $_SESSION['gia_alerted'][$convId] = true;
             }
@@ -71,6 +82,54 @@ if (!function_exists('App\\lib\\ai\\gia_alert_staff_needs_human')) {
             error_log('[gia] staff alert: ' . $e->getMessage());
             return false;
         }
+    }
+}
+
+if (!function_exists('App\\lib\\ai\\gia_nudge_online_agents')) {
+    /**
+     * WhatsApp every ONLINE support agent who can take over a chat (support_desk.edit)
+     * with a deep link to the desk conversation. "Online" = a fresh heartbeat
+     * (support_who_online). Reuses SENDWHATSAPP (self-resolves the provider). Caps at
+     * a handful of agents to avoid spam; fail-soft per-agent. Returns the count nudged.
+     *
+     * support_who_online() + admin_user_can() are GLOBAL (namespace-free), hence the
+     * leading backslash. staff_id in the roster IS users.user_id after the RBAC
+     * consolidation, so it doubles as the capability + phone lookup key.
+     */
+    function gia_nudge_online_agents($db, int $convId, string $reason, string $deskLink): int
+    {
+        if (!function_exists('support_who_online') || !function_exists('SENDWHATSAPP')) {
+            return 0;
+        }
+        $nudged = 0;
+        $roster = \support_who_online($db);
+        if (!is_array($roster) || $roster === []) {
+            return 0;
+        }
+        // Desk deep link (the live chat desk, not the raw gia conversation view).
+        $base = defined('root') ? root : '/';
+        $desk = $base . (defined('admin') ? admin : 'admin') . '/support/desk';
+
+        foreach ($roster as $r) {
+            if ($nudged >= 5) { break; } // cap — don't blast a big team
+            $uid = (string) ($r['staff_id'] ?? '');
+            if ($uid === '') { continue; }
+            // Only agents allowed to take over a chat.
+            if (function_exists('admin_user_can') && !\admin_user_can($db, $uid, 'support_desk', 'edit')) {
+                continue;
+            }
+            // Resolve a nudge phone: dedicated nudge_phone, else the account phone.
+            $u = $db->get('users', ['first_name', 'phone', 'nudge_phone'], ['user_id' => $uid]);
+            if (!$u) { continue; }
+            $phone = trim((string) ($u['nudge_phone'] ?? '')) ?: trim((string) ($u['phone'] ?? ''));
+            if ($phone === '') { continue; }
+            $name = trim((string) ($u['first_name'] ?? '')) ?: 'there';
+            $msg = 'Hi ' . $name . " — a customer needs a human on GIA chat #" . $convId . '. '
+                . ($reason !== '' ? $reason . ' ' : '')
+                . 'Open the desk to take over: ' . $desk;
+            try { \SENDWHATSAPP($phone, $name, $msg); $nudged++; } catch (\Throwable $e) { /* per-agent soft */ }
+        }
+        return $nudged;
     }
 }
 

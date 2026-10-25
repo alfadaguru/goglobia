@@ -156,6 +156,12 @@ $router->post('/api/users/support/ticket/create', function () use ($db) {
         }
     }
 
+    // Soft SLA deadline by priority (self-heal the column first).
+    if (function_exists('ensureSupportTicketExtSchema')) { ensureSupportTicketExtSchema($db); }
+    $slaDueAt = function_exists('support_ticket_sla_default')
+        ? date('Y-m-d H:i:s', time() + support_ticket_sla_default((string) $priority) * 3600)
+        : null;
+
     $result = $db->insert('tickets', [
         'ticket_id' => $ticket_id,
         'user_id' => $user_id,
@@ -165,6 +171,7 @@ $router->post('/api/users/support/ticket/create', function () use ($db) {
         'status' => 'open',
         'type' => 'parent',
         'attachments' => $attachment,
+        'sla_due_at' => $slaDueAt,
         'date' => date('Y-m-d H:i:s')
     ]);
 

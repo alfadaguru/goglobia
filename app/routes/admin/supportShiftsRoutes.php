@@ -22,7 +22,7 @@ require_once __DIR__ . '/../../lib/support/shifts.php'; // roster + upsert + sch
 $router->get(admin.'/support/shifts', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     ensureSupportAttendanceSchema($db);
-    if (!admin_can($db, 'support_shifts', 'edit')) { http_response_code(403); die('Access Denied!'); }
+    if (!admin_can($db, 'support_shifts', 'view')) { http_response_code(403); die('Access Denied!'); }
     $title = 'Shift Roster'; $description = ''; $header = true; $footer = true;
     require_once views."includes/header.php";
     require_once "app/views/admin/support/shifts.php";
