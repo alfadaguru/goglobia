@@ -786,6 +786,139 @@ function cleanInput($data)
     return htmlspecialchars(trim($data));
 }
 
+/**
+ * Sanitise rich HTML (blog post bodies / CMS rich content) against stored XSS,
+ * while KEEPING the legitimate formatting a content editor uses. Blog bodies are
+ * rendered raw (Ghost-style) and the `cms` capability that authorises writing
+ * them is a DELEGABLE RBAC area — so a lower-trust employee could otherwise plant
+ * <script>/onerror=/javascript: that runs in a super-admin's (or any reader's)
+ * browser. This strips exactly that, using an allow-list, not a blocklist.
+ *
+ * Kept: structural + inline text tags, links and images. Removed: <script>,
+ * <style>, <iframe>, <object>, <embed>, <form> and friends (dropped WITH their
+ * contents), every on* event-handler attribute, and any javascript:/vbscript:/
+ * non-image data: URL on href/src. Any tag not on the allow-list is unwrapped
+ * (its safe text/children are kept). Fail-soft: on a DOM error the raw input is
+ * returned HTML-escaped (safe) rather than throwing.
+ *
+ * @param string $html  untrusted rich HTML
+ * @return string       sanitised HTML safe to echo
+ */
+function cleanBlogHtml(string $html): string
+{
+    $html = trim($html);
+    if ($html === '') { return ''; }
+    if (!class_exists('DOMDocument')) {
+        // No DOM extension — degrade safely: escape everything (no raw HTML out).
+        return htmlspecialchars($html, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+
+    // Tags whose CONTENT must be removed entirely, not just unwrapped.
+    static $strip = ['script', 'style', 'iframe', 'object', 'embed', 'form',
+        'input', 'button', 'textarea', 'select', 'option', 'link', 'meta',
+        'base', 'noscript', 'template', 'svg', 'math'];
+    // Allowed tags (everything else is unwrapped, keeping its text/children).
+    static $allowTags = ['p', 'br', 'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'strong', 'b', 'em', 'i', 'u', 's', 'strike', 'sub', 'sup', 'small',
+        'blockquote', 'pre', 'code', 'ul', 'ol', 'li', 'dl', 'dt', 'dd',
+        'a', 'img', 'figure', 'figcaption', 'table', 'thead', 'tbody', 'tfoot',
+        'tr', 'th', 'td', 'caption', 'span', 'div'];
+    // Per-tag allowed attributes (anything else dropped).
+    static $allowAttr = [
+        'a'   => ['href', 'title', 'target', 'rel'],
+        'img' => ['src', 'alt', 'title', 'width', 'height'],
+        'td'  => ['colspan', 'rowspan'], 'th' => ['colspan', 'rowspan'],
+        '*'   => ['class'],
+    ];
+
+    try {
+        $dom = new DOMDocument('1.0', 'UTF-8');
+        $prev = libxml_use_internal_errors(true);
+        // Wrap so DOM has a single root; mark input UTF-8; no doctype/implied tags.
+        $loaded = $dom->loadHTML(
+            '<?xml encoding="UTF-8"><div id="__blogroot__">' . $html . '</div>',
+            LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NONET
+        );
+        libxml_clear_errors();
+        libxml_use_internal_errors($prev);
+        if (!$loaded) { return htmlspecialchars($html, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
+
+        $root = $dom->getElementById('__blogroot__');
+        if (!$root) {
+            $nodes = $dom->getElementsByTagName('div');
+            foreach ($nodes as $n) { if ($n->getAttribute('id') === '__blogroot__') { $root = $n; break; } }
+        }
+        if (!$root) { return htmlspecialchars($html, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
+
+        $isSafeUrl = function (string $url): bool {
+            $u = trim($url);
+            // allow fragment, relative, mailto/tel, http(s), and image data URIs only
+            if ($u === '' || $u[0] === '#' || $u[0] === '/') { return true; }
+            if (preg_match('#^(https?:|mailto:|tel:)#i', $u)) { return true; }
+            if (preg_match('#^data:image/(png|jpe?g|gif|webp|svg\+xml);#i', $u)) {
+                return stripos($u, 'svg') === false; // reject svg data URIs (script vector)
+            }
+            // no scheme at all (e.g. "example.com/x") -> treat as relative = safe
+            if (!preg_match('#^[a-z][a-z0-9+.\-]*:#i', $u)) { return true; }
+            return false; // anything with a disallowed scheme (javascript:, vbscript:, …)
+        };
+
+        // Depth-first clean. Collect actions first (don't mutate while iterating).
+        $clean = function ($node) use (&$clean, $dom, $strip, $allowTags, $allowAttr, $isSafeUrl) {
+            // snapshot children
+            $children = [];
+            foreach ($node->childNodes as $c) { $children[] = $c; }
+            foreach ($children as $child) {
+                if ($child->nodeType === XML_ELEMENT_NODE) {
+                    $tag = strtolower($child->nodeName);
+                    if (in_array($tag, $strip, true)) {
+                        $node->removeChild($child); // drop tag + its contents
+                        continue;
+                    }
+                    // recurse first so we keep cleaned descendants when unwrapping
+                    $clean($child);
+                    if (!in_array($tag, $allowTags, true)) {
+                        // unwrap: move children up, then remove the element
+                        while ($child->firstChild) { $node->insertBefore($child->firstChild, $child); }
+                        $node->removeChild($child);
+                        continue;
+                    }
+                    // scrub attributes
+                    if ($child->hasAttributes()) {
+                        $attrs = [];
+                        foreach ($child->attributes as $a) { $attrs[] = $a->nodeName; }
+                        $okFor = array_merge($allowAttr['*'] ?? [], $allowAttr[$tag] ?? []);
+                        foreach ($attrs as $an) {
+                            $anl = strtolower($an);
+                            if (strpos($anl, 'on') === 0 || !in_array($anl, $okFor, true)) {
+                                $child->removeAttribute($an);
+                                continue;
+                            }
+                            if (($anl === 'href' || $anl === 'src') && !$isSafeUrl($child->getAttribute($an))) {
+                                $child->removeAttribute($an);
+                            }
+                        }
+                        // harden external links
+                        if ($tag === 'a' && $child->getAttribute('target') === '_blank') {
+                            $child->setAttribute('rel', 'noopener noreferrer');
+                        }
+                    }
+                }
+                // text / CDATA nodes are kept as-is (they are escaped on output)
+            }
+        };
+        $clean($root);
+
+        // serialise the root's inner HTML
+        $out = '';
+        foreach ($root->childNodes as $c) { $out .= $dom->saveHTML($c); }
+        return trim($out);
+    } catch (\Throwable $e) {
+        error_log('cleanBlogHtml: ' . $e->getMessage());
+        return htmlspecialchars($html, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+}
+
 function verifyFormToken($token)
 {
     // SECURITY: this used to `return true` unconditionally — a stub that gave any

@@ -76,7 +76,10 @@ $published_date = date('F j, Y', strtotime($blog['published_at'] ?? $blog['creat
                 if (!empty($blog['post_desc'])) {
                     $content = $blog['post_desc'];
                     if (strip_tags($content) !== $content) {
-                        echo $content;
+                        // Defence-in-depth: content is also sanitised on save, but
+                        // sanitise on render too so ANY already-stored body (legacy
+                        // posts, seeded content) is XSS-safe without a migration.
+                        echo function_exists('cleanBlogHtml') ? cleanBlogHtml($content) : htmlspecialchars($content, ENT_QUOTES);
                     } else {
                         // Plain text — wrap in paragraphs
                         $paragraphs = preg_split('/\n{2,}/', trim($content));

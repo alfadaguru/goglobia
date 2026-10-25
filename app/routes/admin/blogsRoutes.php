@@ -44,7 +44,9 @@ $router->post(admin.'/blogs/add', function () use ($SECURE,$db) {
     CSRF::guard();
 
     $post_title = trim($_POST['post_title'] ?? '');
-    $post_desc = trim($_POST['post_desc'] ?? '');
+    // Sanitise the rich body against stored XSS (keeps safe formatting; strips
+    // <script>/on*/javascript: etc). cms:add is a delegable RBAC area.
+    $post_desc = cleanBlogHtml((string) ($_POST['post_desc'] ?? ''));
     $post_category = intval($_POST['post_category'] ?? 0);
     $meta_title = trim($_POST['meta_title'] ?? '');
     $meta_description = trim($_POST['meta_description'] ?? '');
@@ -190,7 +192,9 @@ $router->post(admin.'/blogs/edit/(.*)', function ($id) use ($SECURE,$db) {
     }
     
     $post_title = trim($_POST['post_title'] ?? '');
-    $post_desc = trim($_POST['post_desc'] ?? '');
+    // Sanitise the rich body against stored XSS (keeps safe formatting; strips
+    // <script>/on*/javascript: etc). cms:add is a delegable RBAC area.
+    $post_desc = cleanBlogHtml((string) ($_POST['post_desc'] ?? ''));
     $post_category = intval($_POST['post_category'] ?? 0);
     $meta_title = trim($_POST['meta_title'] ?? '');
     $meta_description = trim($_POST['meta_description'] ?? '');
