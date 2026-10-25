@@ -32799,6 +32799,14 @@ CREATE TABLE IF NOT EXISTS `agent_api_services` (
   `enabled` tinyint(1) NOT NULL DEFAULT 0,
   `fee_type` enum('percentage','flat') NOT NULL DEFAULT 'percentage',
   `fee_value` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `lifecycle` enum('none','requested','sandbox','certifying','live','rejected','suspended') NOT NULL DEFAULT 'none',
+  `requested_at` datetime DEFAULT NULL,
+  `sandbox_granted_at` datetime DEFAULT NULL,
+  `certify_requested_at` datetime DEFAULT NULL,
+  `live_granted_at` datetime DEFAULT NULL,
+  `use_case` text DEFAULT NULL,
+  `admin_note` text DEFAULT NULL,
+  `reviewed_by` varchar(255) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -32818,6 +32826,44 @@ CREATE TABLE IF NOT EXISTS `agent_api_usage` (
   KEY `idx_user_id` (`user_id`),
   KEY `idx_key_id` (`key_id`),
   KEY `idx_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Agent API webhooks: agency-registered endpoints + HMAC signing secret.
+CREATE TABLE IF NOT EXISTS `agent_api_webhooks` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` varchar(255) NOT NULL,
+  `url` varchar(512) NOT NULL,
+  `events` text DEFAULT NULL,
+  `secret` varchar(80) NOT NULL,
+  `env` enum('sandbox','live') NOT NULL DEFAULT 'sandbox',
+  `status` enum('active','paused') NOT NULL DEFAULT 'active',
+  `last_delivery_at` datetime DEFAULT NULL,
+  `last_status_code` int(11) DEFAULT NULL,
+  `fail_count` int(11) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_user_id` (`user_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Agent API webhook delivery log (per-attempt, for history + retry/backoff).
+CREATE TABLE IF NOT EXISTS `agent_api_webhook_deliveries` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `webhook_id` int(11) NOT NULL,
+  `user_id` varchar(255) DEFAULT NULL,
+  `event` varchar(80) DEFAULT NULL,
+  `payload` text DEFAULT NULL,
+  `response_code` int(11) DEFAULT NULL,
+  `response_body` text DEFAULT NULL,
+  `attempt` int(11) NOT NULL DEFAULT 1,
+  `delivered` tinyint(1) NOT NULL DEFAULT 0,
+  `next_retry_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_webhook_id` (`webhook_id`),
+  KEY `idx_user_id` (`user_id`),
+  KEY `idx_delivered` (`delivered`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------

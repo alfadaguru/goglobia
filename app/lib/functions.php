@@ -7280,6 +7280,68 @@ if (!function_exists('ensureAgentApiSchema')) {
                 KEY `idx_created_at` (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
+            // --- HYBRID per-service certification (owner decision 2026-10-25).
+            // The agency gets IN once (agent_api_access), but EACH service then
+            // runs its OWN sandbox→live lifecycle before it can be called live.
+            // These columns extend agent_api_services (created above) idempotently.
+            //   lifecycle: none → requested → sandbox → certifying → live
+            //   (+ rejected / suspended). `enabled` + fee stay as the admin toggle.
+            foreach ([
+                ['lifecycle',            "ALTER TABLE `agent_api_services` ADD COLUMN `lifecycle` enum('none','requested','sandbox','certifying','live','rejected','suspended') NOT NULL DEFAULT 'none'"],
+                ['requested_at',         "ALTER TABLE `agent_api_services` ADD COLUMN `requested_at` datetime DEFAULT NULL"],
+                ['sandbox_granted_at',   "ALTER TABLE `agent_api_services` ADD COLUMN `sandbox_granted_at` datetime DEFAULT NULL"],
+                ['certify_requested_at', "ALTER TABLE `agent_api_services` ADD COLUMN `certify_requested_at` datetime DEFAULT NULL"],
+                ['live_granted_at',      "ALTER TABLE `agent_api_services` ADD COLUMN `live_granted_at` datetime DEFAULT NULL"],
+                ['use_case',             "ALTER TABLE `agent_api_services` ADD COLUMN `use_case` text DEFAULT NULL"],
+                ['admin_note',           "ALTER TABLE `agent_api_services` ADD COLUMN `admin_note` text DEFAULT NULL"],
+                ['reviewed_by',          "ALTER TABLE `agent_api_services` ADD COLUMN `reviewed_by` varchar(255) DEFAULT NULL"],
+            ] as [$c, $sql]) {
+                try {
+                    if (!$db->query("SHOW COLUMNS FROM `agent_api_services` LIKE '$c'")->fetch()) { $db->query($sql); }
+                } catch (\Throwable $e) { error_log("ensureAgentApiSchema agent_api_services.$c: " . $e->getMessage()); }
+            }
+
+            // --- agent_api_webhooks: agency-registered webhook endpoints. Each
+            // row is one HTTPS URL + the events it subscribes to + a signing
+            // secret (HMAC-SHA256 over the payload, sent as X-Goglobia-Signature).
+            $db->query("CREATE TABLE IF NOT EXISTS `agent_api_webhooks` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `user_id` varchar(255) NOT NULL,
+                `url` varchar(512) NOT NULL,
+                `events` text DEFAULT NULL,
+                `secret` varchar(80) NOT NULL,
+                `env` enum('sandbox','live') NOT NULL DEFAULT 'sandbox',
+                `status` enum('active','paused') NOT NULL DEFAULT 'active',
+                `last_delivery_at` datetime DEFAULT NULL,
+                `last_status_code` int(11) DEFAULT NULL,
+                `fail_count` int(11) NOT NULL DEFAULT 0,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `idx_user_id` (`user_id`),
+                KEY `idx_status` (`status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            // --- agent_api_webhook_deliveries: delivery attempt log (for the
+            // console's per-webhook delivery history + retry/backoff).
+            $db->query("CREATE TABLE IF NOT EXISTS `agent_api_webhook_deliveries` (
+                `id` bigint(20) NOT NULL AUTO_INCREMENT,
+                `webhook_id` int(11) NOT NULL,
+                `user_id` varchar(255) DEFAULT NULL,
+                `event` varchar(80) DEFAULT NULL,
+                `payload` text DEFAULT NULL,
+                `response_code` int(11) DEFAULT NULL,
+                `response_body` text DEFAULT NULL,
+                `attempt` int(11) NOT NULL DEFAULT 1,
+                `delivered` tinyint(1) NOT NULL DEFAULT 0,
+                `next_retry_at` datetime DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_webhook_id` (`webhook_id`),
+                KEY `idx_user_id` (`user_id`),
+                KEY `idx_delivered` (`delivered`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
             // ============================================================
             // MONEY SPINE (docs/MONEY-WALLET-AUDIT.md §C). Four tables:
             //   wallets           — one spendable balance per (user, currency)

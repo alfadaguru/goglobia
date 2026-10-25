@@ -591,3 +591,199 @@ if (!function_exists('agent_audit_log')) {
         } catch (\Throwable $e) { error_log('agent_audit_log: ' . $e->getMessage()); }
     }
 }
+
+// ============================================================================
+// API CONSOLE — HYBRID PER-SERVICE CERTIFICATION (owner decision 2026-10-25).
+// The agency gets IN once via agent_api_access (the gate). Then EACH service
+// runs its own lifecycle on agent_api_services.lifecycle before it can be
+// called live. So a key may exist, but a call to /flights only works live once
+// FLIGHTS itself is live-certified. Agent requests per service; admin certifies.
+// ============================================================================
+
+if (!function_exists('agent_api_console_services')) {
+    /** The services the API exposes + display labels (the 10 bookable w/ API eps). */
+    function agent_api_console_services(): array
+    {
+        return [
+            'flights' => 'Flights', 'stays' => 'Hotels / Stays', 'cars' => 'Cars',
+            'tours' => 'Tours', 'visa' => 'Visa', 'umrah' => 'Umrah', 'esim' => 'eSIM',
+            'bus' => 'Bus', 'ferries' => 'Ferries', 'rail' => 'Rail',
+        ];
+    }
+}
+
+if (!function_exists('agent_api_service_row')) {
+    /** The agent_api_services row for (owner,service), or a synthetic 'none' default. */
+    function agent_api_service_row($db, string $owner, string $service): array
+    {
+        try {
+            $r = $db->get('agent_api_services',
+                ['id','service','enabled','fee_type','fee_value','lifecycle','requested_at',
+                 'sandbox_granted_at','certify_requested_at','live_granted_at','use_case','admin_note'],
+                ['user_id' => $owner, 'service' => $service]);
+            if ($r) { return $r; }
+        } catch (\Throwable $e) { error_log('agent_api_service_row: ' . $e->getMessage()); }
+        return ['service' => $service, 'enabled' => 0, 'fee_type' => 'percentage',
+                'fee_value' => 0, 'lifecycle' => 'none'];
+    }
+}
+
+if (!function_exists('agent_api_all_service_rows')) {
+    /** All configured service rows for an owner, keyed by service. */
+    function agent_api_all_service_rows($db, string $owner): array
+    {
+        $out = [];
+        try {
+            $rows = $db->select('agent_api_services',
+                ['service','enabled','fee_type','fee_value','lifecycle','requested_at',
+                 'sandbox_granted_at','certify_requested_at','live_granted_at','use_case','admin_note'],
+                ['user_id' => $owner]) ?: [];
+            foreach ($rows as $r) { $out[(string)$r['service']] = $r; }
+        } catch (\Throwable $e) { error_log('agent_api_all_service_rows: ' . $e->getMessage()); }
+        return $out;
+    }
+}
+
+if (!function_exists('agent_api_service_can_call')) {
+    /** Which env a given service may be CALLED in: 'live'|'sandbox'|'' (not yet).
+     *  Requires BOTH the agency gate (agent_api_can_mint) AND the per-service
+     *  lifecycle — the hybrid model: in once, certified per service. */
+    function agent_api_service_can_call($db, string $owner, string $service): string
+    {
+        $gate = agent_api_can_mint($db, $owner);      // '' | 'sandbox' | 'live'
+        if ($gate === '') { return ''; }
+        $life = (string) (agent_api_service_row($db, $owner, $service)['lifecycle'] ?? 'none');
+        if ($life === 'live' && $gate === 'live') { return 'live'; }
+        if (in_array($life, ['sandbox','certifying','live'], true)) { return 'sandbox'; }
+        return '';
+    }
+}
+
+if (!function_exists('agent_api_service_set_lifecycle')) {
+    /** Transition a service's lifecycle (upserts the row). Validates the move.
+     *  Returns ['ok'=>bool,'message'=>string]. Admin and agent both route here. */
+    function agent_api_service_set_lifecycle($db, string $owner, string $service, string $to, array $extra = []): array
+    {
+        $services = agent_api_console_services();
+        if (!isset($services[$service])) { return ['ok' => false, 'message' => 'Unknown service.']; }
+        $valid = ['none','requested','sandbox','certifying','live','rejected','suspended'];
+        if (!in_array($to, $valid, true)) { return ['ok' => false, 'message' => 'Invalid state.']; }
+
+        $row = agent_api_service_row($db, $owner, $service);
+        $from = (string) ($row['lifecycle'] ?? 'none');
+        // Allowed transitions (agent-driven requests + admin-driven grants).
+        $allowed = [
+            'requested'  => ['none','rejected','suspended'],              // agent requests
+            'certifying' => ['sandbox'],                                 // agent asks for live
+            'sandbox'    => ['requested','certifying','suspended'],       // admin grants sandbox
+            'live'       => ['certifying','sandbox','suspended'],         // admin certifies live
+            'rejected'   => ['requested','certifying'],                   // admin rejects
+            'suspended'  => ['sandbox','certifying','live'],              // admin suspends
+            'none'       => $valid,                                       // reset
+        ];
+        if (!in_array($from, $allowed[$to] ?? [], true) && $from !== $to) {
+            return ['ok' => false, 'message' => "Cannot move $service from '$from' to '$to'."];
+        }
+
+        $stampMap = ['requested'=>'requested_at','sandbox'=>'sandbox_granted_at',
+                     'certifying'=>'certify_requested_at','live'=>'live_granted_at'];
+        $data = ['lifecycle' => $to, 'updated_at' => date('Y-m-d H:i:s')];
+        if (isset($stampMap[$to])) { $data[$stampMap[$to]] = date('Y-m-d H:i:s'); }
+        // When live is granted, also mark the service enabled so keys may call it.
+        if ($to === 'live' || $to === 'sandbox') { $data['enabled'] = 1; }
+        if ($to === 'suspended' || $to === 'rejected') { $data['enabled'] = 0; }
+        foreach (['use_case','admin_note','reviewed_by','fee_type','fee_value'] as $k) {
+            if (array_key_exists($k, $extra)) { $data[$k] = $extra[$k]; }
+        }
+        try {
+            if (!empty($row['id'])) {
+                $db->update('agent_api_services', $data, ['user_id' => $owner, 'service' => $service]);
+            } else {
+                $db->insert('agent_api_services', array_merge(
+                    ['user_id' => $owner, 'service' => $service, 'created_at' => date('Y-m-d H:i:s')], $data));
+            }
+            return ['ok' => true, 'message' => ucfirst($service) . ' → ' . $to];
+        } catch (\Throwable $e) {
+            error_log('agent_api_service_set_lifecycle: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not update the service.'];
+        }
+    }
+}
+
+// ============================================================================
+// API CONSOLE — WEBHOOKS. Agencies register HTTPS endpoints + events; we sign
+// each delivery with HMAC-SHA256 over the raw body (X-Goglobia-Signature) and
+// log every attempt. Fire via agent_api_webhook_fire() from booking events.
+// ============================================================================
+
+if (!function_exists('agent_api_webhook_events')) {
+    /** The event names an agency can subscribe a webhook to. */
+    function agent_api_webhook_events(): array
+    {
+        return ['booking.created','booking.confirmed','booking.cancelled',
+                'booking.failed','payment.succeeded','payment.refunded','key.revoked'];
+    }
+}
+
+if (!function_exists('agent_api_webhook_new_secret')) {
+    /** A fresh webhook signing secret (shown to the agent, stored as-is to sign). */
+    function agent_api_webhook_new_secret(): string
+    {
+        try { return 'whsec_' . bin2hex(random_bytes(24)); }
+        catch (\Throwable $e) { return 'whsec_' . bin2hex(md5((string)mt_rand(), true)); }
+    }
+}
+
+if (!function_exists('agent_api_webhook_fire')) {
+    /** Deliver $event+$payload to every active webhook of $owner subscribed to it.
+     *  Best-effort, short timeout; logs each attempt. Called from booking flows. */
+    function agent_api_webhook_fire($db, string $owner, string $event, array $payload, string $env = 'live'): void
+    {
+        $hooks = [];
+        try {
+            $hooks = $db->select('agent_api_webhooks', ['id','url','events','secret','env'],
+                ['user_id' => $owner, 'status' => 'active']) ?: [];
+        } catch (\Throwable $e) { error_log('agent_api_webhook_fire select: ' . $e->getMessage()); return; }
+        if (!$hooks) { return; }
+
+        $body = json_encode(['event' => $event, 'data' => $payload, 'ts' => time()], JSON_UNESCAPED_SLASHES);
+        foreach ($hooks as $h) {
+            if ((string)($h['env'] ?? 'sandbox') !== $env) { continue; }
+            $subs = array_filter(array_map('trim', explode(',', (string)($h['events'] ?? ''))));
+            if ($subs && !in_array($event, $subs, true)) { continue; } // empty = all events
+            $sig = hash_hmac('sha256', $body, (string)$h['secret']);
+            $code = 0; $respBody = '';
+            try {
+                $ch = curl_init((string)$h['url']);
+                curl_setopt_array($ch, [
+                    CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body,
+                    CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 6,
+                    CURLOPT_HTTPHEADER => [
+                        'Content-Type: application/json',
+                        'X-Goglobia-Event: ' . $event,
+                        'X-Goglobia-Signature: sha256=' . $sig,
+                    ],
+                ]);
+                $respBody = (string) curl_exec($ch);
+                $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
+            } catch (\Throwable $e) { error_log('agent_api_webhook_fire send: ' . $e->getMessage()); }
+
+            $ok = ($code >= 200 && $code < 300);
+            try {
+                $db->insert('agent_api_webhook_deliveries', [
+                    'webhook_id' => (int)$h['id'], 'user_id' => $owner, 'event' => $event,
+                    'payload' => substr($body, 0, 4000), 'response_code' => $code,
+                    'response_body' => substr($respBody, 0, 2000), 'attempt' => 1,
+                    'delivered' => $ok ? 1 : 0,
+                    'next_retry_at' => $ok ? null : date('Y-m-d H:i:s', time() + 300),
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+                $db->update('agent_api_webhooks', [
+                    'last_delivery_at' => date('Y-m-d H:i:s'), 'last_status_code' => $code,
+                    'fail_count' => $ok ? 0 : (int)($db->get('agent_api_webhooks','fail_count',['id'=>(int)$h['id']]) ?? 0) + 1,
+                ], ['id' => (int)$h['id']]);
+            } catch (\Throwable $e) { error_log('agent_api_webhook_fire log: ' . $e->getMessage()); }
+        }
+    }
+}
