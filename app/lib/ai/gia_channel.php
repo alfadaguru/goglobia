@@ -412,6 +412,30 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
                         }
                     } catch (\Throwable $e) { error_log('[gia] channel account note: ' . $e->getMessage()); }
                 }
+                // SOFT PRIVACY CONFIRM (GA10): when the account was resolved by a
+                // PASSIVE phone match (this sender's number matched users.phone) and
+                // NOT a verified link, a wrong/shared/spoofed number could read
+                // someone else's data. Owner declined a hard gate, so this is a SOFT
+                // one-time check: ask "is this you, {name}?" before reciting sensitive
+                // account data (bookings/wallet). General chat/booking still flows.
+                if (empty($ident['verified']) && !empty($ident['match'])) {
+                    $__who = '';
+                    try {
+                        if (function_exists('gia_user_profile')) {
+                            $__p = gia_user_profile($db, (string) $toolContext['account_id']);
+                            $__who = trim((string) ($__p['first_name'] ?? ''));
+                        }
+                    } catch (\Throwable $e) { /* name is optional */ }
+                    $agent->addSystemNote(
+                        "IDENTITY (soft): this chat is matched to an account only by the sender's phone "
+                        . "number, not a verified link. Before you reveal anything sensitive about the "
+                        . "account (bookings, wallet balance, saved travellers, personal details), do a "
+                        . "ONE-TIME light check in your reply — e.g. 'Just to confirm, am I speaking with "
+                        . ($__who !== '' ? $__who : 'the account holder') . "?' — and only share after they "
+                        . "confirm. You may still greet, search and help book without the check; it only "
+                        . "gates reciting private account data. Don't repeat the check once confirmed this chat."
+                    );
+                }
             } else {
                 // No account on this chat yet — let GIA create one from name +
                 // phone with a WhatsApp OTP (the tool self-gates and only ever
