@@ -133,6 +133,44 @@ if (!function_exists('ensureAgentPortalSchema')) {
                 KEY `idx_created` (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
+            // --- agent_api_access: the PAID API-access lifecycle, one row per
+            // agency. Stage machine (admin advances each step):
+            //   none → requested → sandbox → certifying → live
+            //   (+ rejected / suspended from any point).
+            // The agent REQUESTS access (not instant); we reach out; admin grants
+            // SANDBOX; agent builds + self-certifies ready; admin certifies and
+            // grants LIVE. agent_api_keys.env gates which keys they can mint.
+            $db->query("CREATE TABLE IF NOT EXISTS `agent_api_access` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `owner_user_id` varchar(255) NOT NULL,
+                `status` enum('none','requested','sandbox','certifying','live','rejected','suspended') NOT NULL DEFAULT 'none',
+                `company_name` varchar(255) DEFAULT NULL,
+                `contact_email` varchar(255) DEFAULT NULL,
+                `contact_phone` varchar(40) DEFAULT NULL,
+                `use_case` text DEFAULT NULL,
+                `expected_volume` varchar(120) DEFAULT NULL,
+                `admin_note` text DEFAULT NULL,
+                `requested_at` datetime DEFAULT NULL,
+                `sandbox_granted_at` datetime DEFAULT NULL,
+                `certify_requested_at` datetime DEFAULT NULL,
+                `live_granted_at` datetime DEFAULT NULL,
+                `reviewed_by` varchar(255) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                `updated_at` datetime DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_owner` (`owner_user_id`),
+                KEY `idx_status` (`status`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            // Tag each API key sandbox|live so the two environments are distinct.
+            // Existing keys default to 'sandbox' (safe — they can't hit live
+            // unless the live flow granted them). Idempotent add.
+            try {
+                if (!$db->query("SHOW COLUMNS FROM `agent_api_keys` LIKE 'env'")->fetch()) {
+                    $db->query("ALTER TABLE `agent_api_keys` ADD COLUMN `env` enum('sandbox','live') NOT NULL DEFAULT 'sandbox'");
+                }
+            } catch (\Throwable $e) { error_log('ensureAgentPortalSchema agent_api_keys.env: ' . $e->getMessage()); }
+
             // --- agencies branding + onboarding columns ----------------------
             foreach ([
                 ['agencies', 'brand_primary',   "ALTER TABLE `agencies` ADD COLUMN `brand_primary` VARCHAR(7) DEFAULT NULL"],
@@ -493,6 +531,47 @@ if (!function_exists('agent_apply_self_markup')) {
                 ['agent_client_price' => $clientPrice, 'agent_client_margin' => $margin],
                 ['invoice_id' => $invoiceId]);
         } catch (\Throwable $e) { error_log('agent_apply_self_markup: ' . $e->getMessage()); }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// API-ACCESS PAID-SERVICE STAGE MACHINE (docs/AGENT-API.md).
+// Lifecycle: none → requested → sandbox → certifying → live (+ rejected/suspended).
+// The agent requests; admin advances each stage; agent_api_keys.env (sandbox|live)
+// gates which keys the agent may mint. Helpers below read/advance the single
+// agent_api_access row per agency owner.
+// ----------------------------------------------------------------------------
+if (!function_exists('agent_api_access_get')) {
+    /** The agency's access row (creates a 'none' row on first read). */
+    function agent_api_access_get($db, string $ownerId): array
+    {
+        $row = null;
+        try { $row = $db->get('agent_api_access', '*', ['owner_user_id' => $ownerId]); } catch (\Throwable $e) {}
+        if (!$row) {
+            try {
+                $db->insert('agent_api_access', [
+                    'owner_user_id' => $ownerId, 'status' => 'none', 'created_at' => date('Y-m-d H:i:s'),
+                ]);
+                $row = $db->get('agent_api_access', '*', ['owner_user_id' => $ownerId]);
+            } catch (\Throwable $e) { /* table may lag */ }
+        }
+        return is_array($row) ? $row : ['owner_user_id' => $ownerId, 'status' => 'none'];
+    }
+}
+if (!function_exists('agent_api_access_status')) {
+    function agent_api_access_status($db, string $ownerId): string
+    {
+        return (string) (agent_api_access_get($db, $ownerId)['status'] ?? 'none');
+    }
+}
+if (!function_exists('agent_api_can_mint')) {
+    /** Which key env (if any) the agency may currently generate: 'sandbox'|'live'|''. */
+    function agent_api_can_mint($db, string $ownerId): string
+    {
+        $s = agent_api_access_status($db, $ownerId);
+        if ($s === 'live') { return 'live'; }                 // live-approved: can mint live (and sandbox)
+        if ($s === 'sandbox' || $s === 'certifying') { return 'sandbox'; }
+        return ''; // none/requested/rejected/suspended → cannot mint
     }
 }
 

@@ -102,7 +102,50 @@ $svcLabels = [
           </div>
         </div>
 
-        <!-- API KEYS -->
+        <?php
+          // PAID-SERVICE access stage (set by agentApiRoutes.php). Controls what
+          // the agent can do here. $apiAccessStatus ∈ none/requested/sandbox/
+          // certifying/live/rejected/suspended; $apiCanMint ∈ ''|sandbox|live.
+          $apiAccessStatus = $apiAccessStatus ?? 'none';
+          $apiCanMint = $apiCanMint ?? '';
+        ?>
+
+        <!-- API ACCESS STAGE -->
+        <div class="section">
+          <div class="section-header"><div><h2>API access</h2><p>The API is a paid, certified integration. Request access, we’ll reach out, then you build in sandbox before going live.</p></div></div>
+
+          <?php if ($apiAccessStatus === 'none' || $apiAccessStatus === 'rejected'): ?>
+            <?php if ($apiAccessStatus === 'rejected'): ?><div class="alert-warning mb-4">Your previous request was not approved. You may request again below.</div><?php endif; ?>
+            <form method="POST" action="<?=root?>api-access/request" class="mb-2 p-4 rounded-xl border border-gray-200 bg-slate-50">
+              <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+              <div class="form-grid">
+                <div class="form-control"><label>Company name</label><input class="input" name="company_name" maxlength="255"></div>
+                <div class="form-control"><label>Contact email</label><input class="input" type="email" name="contact_email" value="<?= htmlspecialchars($dashboardData['user_email'] ?? '') ?>" maxlength="255"></div>
+                <div class="form-control"><label>Contact phone</label><input class="input" name="contact_phone" maxlength="40"></div>
+                <div class="form-control"><label>Expected monthly volume</label><input class="input" name="expected_volume" placeholder="e.g. 500 bookings/mo" maxlength="120"></div>
+              </div>
+              <div class="form-control mt-3"><label>What will you build?</label><textarea class="input" name="use_case" rows="3" maxlength="2000"></textarea></div>
+              <div class="mt-4"><button type="submit" class="btn">Request API access</button></div>
+            </form>
+          <?php elseif ($apiAccessStatus === 'requested'): ?>
+            <div class="alert-warning">Your API access request is <strong>under review</strong>. Our team will reach out to you by email.</div>
+          <?php elseif ($apiAccessStatus === 'sandbox'): ?>
+            <div class="alert-success">✅ <strong>Sandbox access is active.</strong> Build and test against the sandbox. When your integration is ready, request live certification.</div>
+            <form method="POST" action="<?=root?>api-access/request-live" class="mt-3">
+              <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+              <button type="submit" class="btn">Request live certification</button>
+            </form>
+          <?php elseif ($apiAccessStatus === 'certifying'): ?>
+            <div class="alert-warning">Your sandbox integration is <strong>being certified</strong>. We’ll grant live access once it passes review.</div>
+          <?php elseif ($apiAccessStatus === 'live'): ?>
+            <div class="alert-success">✅ <strong>Live access is active.</strong> You can create sandbox and live keys below.</div>
+          <?php elseif ($apiAccessStatus === 'suspended'): ?>
+            <div class="alert-error">Your API access is currently <strong>suspended</strong>. Please contact support.</div>
+          <?php endif; ?>
+        </div>
+
+        <!-- API KEYS (only when cleared to mint) -->
+        <?php if ($apiCanMint !== ''): ?>
         <div class="section">
           <div class="section-header flex items-center justify-between">
             <div><h2>API keys</h2><p>Create a key for each integration. Revoke any key instantly.</p></div>
@@ -114,6 +157,13 @@ $svcLabels = [
           <form id="gen-key-form" method="POST" action="<?=root?>api-access/generate" class="hidden mb-6 p-4 rounded-xl border border-gray-200 bg-slate-50">
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
             <div class="form-grid">
+              <div class="form-control">
+                <label>Environment</label>
+                <select class="input" name="env">
+                  <option value="sandbox">Sandbox</option>
+                  <?php if ($apiCanMint === 'live'): ?><option value="live">Live</option><?php endif; ?>
+                </select>
+              </div>
               <div class="form-control">
                 <label>Label</label>
                 <input class="input" type="text" name="label" placeholder="e.g. Production server" maxlength="255">
@@ -156,6 +206,7 @@ $svcLabels = [
             </table>
           </div>
         </div>
+        <?php endif; /* $apiCanMint !== '' — keys section */ ?>
 
       </div>
     </main>
