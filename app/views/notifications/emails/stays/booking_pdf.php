@@ -298,7 +298,8 @@ $supplierPhone = $bookingData['hotel_phone_number'] ?? ($bookingData['phone_numb
         </div>
     <?php endif; ?>
 
-    <!-- Price Summary -->
+    <!-- Price Summary (hidden on no-price ticket / travel document) -->
+    <?php if (($docType ?? 'invoice') !== 'ticket'): ?>
     <div class="section-title">Price Summary</div>
     <div class="price-box">
         <div class="price-row">
@@ -328,6 +329,7 @@ $supplierPhone = $bookingData['hotel_phone_number'] ?? ($bookingData['phone_numb
             </table>
         </div>
     </div>
+    <?php endif; /* end price summary (ticket suppresses it) */ ?>
 
     <!-- Important hotel notes (Hotelbeds rate comments shown as Important Information) -->
     <?php 
@@ -451,7 +453,7 @@ $supplierPhone = $bookingData['hotel_phone_number'] ?? ($bookingData['phone_numb
         }
     }
     ?>
-    <?php if (!empty($excludedTaxes)): ?>
+    <?php if (!empty($excludedTaxes) && ($docType ?? 'invoice') !== 'ticket'): /* monetary — hidden on no-price ticket */ ?>
     <div class="section-title" style="border: none; margin-bottom: 2px; color: #b91c1c;">Excluded Taxes (Payable at hotel)</div>
     <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; padding: 8px; margin-bottom: 15px;">
         <table style="width: 100%; border: none;">

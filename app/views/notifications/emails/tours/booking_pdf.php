@@ -200,7 +200,8 @@ $infants = $booking['infants'] ?? $tourData['infants'] ?? 0;
     </div>
     <?php endif; ?>
 
-    <!-- Price Summary -->
+    <!-- Price Summary (hidden on no-price ticket / travel document) -->
+    <?php if (($docType ?? 'invoice') !== 'ticket'): ?>
     <div class="section-title">Price Summary</div>
     <div class="price-box">
         <div class="price-row">
@@ -230,6 +231,7 @@ $infants = $booking['infants'] ?? $tourData['infants'] ?? 0;
             </table>
         </div>
     </div>
+    <?php endif; /* end price summary (ticket suppresses it) */ ?>
 
     <!-- Special Requests -->
     <?php if (!empty($booking['special_requests'])): ?>

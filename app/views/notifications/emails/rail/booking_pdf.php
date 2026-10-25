@@ -192,6 +192,7 @@ if (!is_array($rspPassengers)) {
     </div>
     <?php endif; ?>
 
+    <?php if (($docType ?? 'invoice') !== 'ticket'): /* price hidden on no-price ticket */ ?>
     <div class="section-title">Price Breakdown</div>
     <div class="price-box">
         <div class="price-row">
@@ -211,6 +212,7 @@ if (!is_array($rspPassengers)) {
             </table>
         </div>
     </div>
+    <?php endif; /* end price breakdown (ticket suppresses it) */ ?>
 
     <?php if (($booking['payment_status'] ?? '') !== 'paid'): ?>
     <div class="alert-box">Payment is pending. Please complete payment to confirm this booking.</div>

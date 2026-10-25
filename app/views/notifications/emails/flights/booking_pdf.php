@@ -338,7 +338,8 @@ if (!empty($bookingData['seat']) && is_array($bookingData['seat'])) {
         </div>
     </div>
 
-    <!-- Price Summary -->
+    <!-- Price Summary (hidden on no-price ticket / travel document) -->
+    <?php if (($docType ?? 'invoice') !== 'ticket'): ?>
     <div class="section-title"><?= htmlspecialchars(translateTo('price_summary', $language)) ?></div>
     <div class="price-box">
         <div class="price-row">
@@ -387,6 +388,7 @@ if (!empty($bookingData['seat']) && is_array($bookingData['seat'])) {
             </table>
         </div>
     </div>
+    <?php endif; /* end price summary (ticket suppresses it) */ ?>
 
     <!-- Special Requests -->
     <?php if (!empty($booking['special_requests'])): ?>

@@ -190,7 +190,8 @@ $pnr        = $booking['pnr'] ?? '';
     </div>
     <?php endif; ?>
 
-    <!-- Pricing Summary -->
+    <!-- Pricing Summary (hidden on no-price ticket / travel document) -->
+    <?php if (($docType ?? 'invoice') !== 'ticket'): ?>
     <div class="section-title">Price Breakdown</div>
     <div class="price-box">
         <div class="price-row">
@@ -222,6 +223,7 @@ $pnr        = $booking['pnr'] ?? '';
             </table>
         </div>
     </div>
+    <?php endif; /* end price breakdown (ticket suppresses it) */ ?>
 
     <!-- Payment Status -->
     <?php if (($booking['payment_status'] ?? '') === 'unpaid'): ?>

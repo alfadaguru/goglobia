@@ -147,7 +147,7 @@ if (!isset($SECURE)) die('Direct access not permitted');
     </div>
     <?php endif; ?>
 
-    <?php if ($totalAmount > 0): ?>
+    <?php if ($totalAmount > 0 && ($docType ?? 'invoice') !== 'ticket'): /* price hidden on no-price ticket */ ?>
     <div class="section-title">Inquiry Summary</div>
     <div class="price-box">
         <table>

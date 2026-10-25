@@ -119,7 +119,9 @@ if (is_array($src)) {
     </table>
     <?php endif; ?>
 
+    <?php if (($docType ?? 'invoice') !== 'ticket'): /* price hidden on no-price ticket */ ?>
     <div class="total"><?= $ccy ?> <?= $fmt($displayTotal) ?></div>
+    <?php endif; ?>
 
     <div class="footer">
         <div class="footer-contact">

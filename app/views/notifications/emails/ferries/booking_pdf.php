@@ -400,7 +400,8 @@ $bookingDate = date('M d, Y', strtotime($booking['booking_date'] ?? $booking['cr
         </div>
     </div>
 
-    <!-- Price Summary -->
+    <!-- Price Summary (hidden on no-price ticket / travel document) -->
+    <?php if (($docType ?? 'invoice') !== 'ticket'): ?>
     <div class="section-title">Price Summary</div>
     <div class="price-box">
         <div class="price-row">
@@ -436,6 +437,7 @@ $bookingDate = date('M d, Y', strtotime($booking['booking_date'] ?? $booking['cr
             </table>
         </div>
     </div>
+    <?php endif; /* end price summary (ticket suppresses it) */ ?>
 
     <!-- Important Information -->
     <div class="important-info">
