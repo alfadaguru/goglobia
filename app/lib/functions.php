@@ -1144,16 +1144,44 @@ function ensureAdivahaHotelModule($db): void
 function ensureAdivahaExcursionModule($db): void
 {
     try {
-        $exists = $db->get('modules', ['id'], ['name' => 'adivaha', 'type' => 'tours']);
-        if ($exists) return; // already registered — leave the admin-managed row alone
+        // Adivaha uses ONE account (same sk_ key + Partner ID) across flights, hotels
+        // and excursions — they just live in separate `modules` rows. Inherit the
+        // credentials already entered for the flights (preferred) or stays supplier so
+        // tours is usable immediately with no re-typing. If NO adivaha row carries a
+        // key yet, blank + DISABLED (the owner enters it in admin).
+        $src = $db->get('modules', ['c1', 'c2', 'c3', 'dev_mode'], ['name' => 'adivaha', 'type' => 'flights']);
+        if (!$src || empty($src['c1'])) {
+            $src = $db->get('modules', ['c1', 'c2', 'c3', 'dev_mode'], ['name' => 'adivaha', 'type' => 'stays']);
+        }
+        $hasKey  = $src && !empty($src['c1']);
+        $c1      = $hasKey ? (string) $src['c1'] : '';
+        $c2      = $hasKey ? (string) ($src['c2'] ?? '') : '';
+        $c3      = $hasKey ? (string) ($src['c3'] ?? '') : '';
+        $devMode = ($src && isset($src['dev_mode'])) ? (string) $src['dev_mode'] : '1';
+        $status  = $hasKey ? '1' : '0';   // enabled only when it has a working key
+
+        $exists = $db->get('modules', ['id', 'c1'], ['name' => 'adivaha', 'type' => 'tours']);
+        if ($exists) {
+            // Row already registered. ONE-TIME backfill: if it was seeded blank by an
+            // earlier version but an adivaha key now exists on flights/stays, copy it in
+            // and enable — so an already-installed site becomes usable on the next load.
+            // Never overwrite a key an admin already entered on the tours row.
+            if (empty($exists['c1']) && $hasKey) {
+                $db->update('modules',
+                    ['c1' => $c1, 'c2' => $c2, 'c3' => $c3, 'dev_mode' => $devMode, 'status' => '1'],
+                    ['id' => $exists['id']]
+                );
+            }
+            return;
+        }
 
         $db->insert('modules', [
             'name'              => 'adivaha',
             'active'            => '1',
             'type'              => 'tours',
-            'status'            => '0',   // DISABLED until the owner turns it on
-            'c1'                => '', 'c2' => '', 'c3' => '', 'c4' => '', 'c5' => '', 'c6' => '',
-            'dev_mode'          => '1',   // TEST by default
+            'status'            => $status,
+            'c1'                => $c1, 'c2' => $c2, 'c3' => $c3, 'c4' => '', 'c5' => '', 'c6' => '',
+            'dev_mode'          => $devMode,
             'payment_mode'      => '1',
             'currency'          => 'INR',
             'module_color'      => '#1f9d8b',
@@ -4923,6 +4951,39 @@ if (!function_exists('MARKUP')) {
                     $userMarkupValue = floatval($userData['markup_value'] ?? 0);
                     $userMarkupType = $userData['markup_type'] ?? 'percentage';
                 }
+            }
+
+            // AGENCY STAFF get the AGENCY's B2B agent rate, not the B2C customer
+            // rate. Agency staff are users with role='customer' linked to an
+            // agency owner via agent_staff; their OWN role is not 'agent', so the
+            // check above would (wrongly) price them as a retail customer. Resolve
+            // the acting agency context: if this user is active staff of an
+            // agency, treat the booking AS the agency (B2B) and apply the OWNER's
+            // markup config (custom-per-agency markup follows the agency, not the
+            // individual staff member). Owner bookings are already handled above.
+            if (!$isAgent && function_exists('agent_acting_context')) {
+                try {
+                    $__actx = agent_acting_context($db);
+                    if (is_array($__actx) && empty($__actx['is_admin'])
+                        && empty($__actx['is_owner']) && !empty($__actx['owner'])) {
+                        // Active agency STAFF.
+                        $isAgent = true;
+                        $ownerRow = $db->get('users', ['apply_markup', 'markup_type', 'markup_value'],
+                            ['user_id' => (string) $__actx['owner']]);
+                        if ($ownerRow && (($ownerRow['apply_markup'] ?? 'global') === 'custom')) {
+                            $customMarkup = true;
+                            $userMarkupValue = floatval($ownerRow['markup_value'] ?? 0);
+                            $userMarkupType = $ownerRow['markup_type'] ?? 'percentage';
+                        } else {
+                            // Owner is on global markup → staff must NOT inherit any
+                            // custom markup the staff user row might carry.
+                            $customMarkup = false;
+                        }
+                        // Pin the tier-discount lookup (later in MARKUP) to the
+                        // OWNER so the agency's tier applies, not the staff user's.
+                        $userId = (string) $__actx['owner'];
+                    }
+                } catch (\Throwable $e) { /* fail safe: leave as non-agent */ }
             }
         }
 
