@@ -3691,9 +3691,21 @@ function SENDEMAIL($toEmail, $toName, $subject, $htmlBody, $pdfPath = null, arra
  *   - All errors logged to error_log
  * ============================================================================
  */
-function GENERATE_BOOKING_PDF($invoiceId)
+function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
 {
     global $db;
+
+    // THREE-DOCUMENT MODEL (booking-docs feature):
+    //   'invoice' — the priced receipt (default; every existing caller keeps this
+    //               behaviour, so this change is backward-compatible).
+    //   'ticket'  — the no-price travel document (e-ticket / voucher). Templates
+    //               read $docType and suppress all price blocks when it is 'ticket'.
+    // Any unknown value falls back to 'invoice' so a bad caller never produces a
+    // price-less document by accident.
+    $docType = strtolower(trim((string) $docType));
+    if ($docType !== 'ticket') {
+        $docType = 'invoice';
+    }
 
     try {
         // ====================================================================
@@ -3793,8 +3805,10 @@ function GENERATE_BOOKING_PDF($invoiceId)
             mkdir($invoiceDir, 0755, true);
         }
 
-        // Define PDF file path
-        $pdfFileName = 'invoice_' . $invoiceId . '.pdf';
+        // Define PDF file path — ticket and invoice are stored as separate files
+        // so both can coexist for the same booking (client gets the ticket, the
+        // priced invoice stays available separately).
+        $pdfFileName = ($docType === 'ticket' ? 'ticket_' : 'invoice_') . $invoiceId . '.pdf';
         $pdfFilePath = $invoiceDir . $pdfFileName;
 
         // ====================================================================
@@ -3963,8 +3977,8 @@ function GENERATE_BOOKING_PDF($invoiceId)
             'tempDir' => $mpdfTempDir,
         ], $fontConfig));
 
-        // Set PDF metadata
-        $mpdf->SetTitle('Invoice ' . $invoiceId);
+        // Set PDF metadata — title reflects the document type (ticket vs invoice)
+        $mpdf->SetTitle(($docType === 'ticket' ? 'Ticket ' : 'Invoice ') . $invoiceId);
         $mpdf->SetAuthor($businessName);
         $mpdf->SetCreator($businessName);
 
