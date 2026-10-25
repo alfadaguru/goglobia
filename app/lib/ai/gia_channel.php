@@ -164,6 +164,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         require_once $aiDir . 'tools/requestHumanTool.php';
         require_once $aiDir . 'tools/verifyIdentityTool.php';
         require_once $aiDir . 'tools/userAccountTool.php';   // full account awareness (all bookings/wallet/loyalty)
+        require_once $aiDir . 'tools/myTravellersTool.php';  // saved travellers for reuse (never re-type)
         require_once $aiDir . 'tools/updateProfileTool.php'; // allow-listed profile update
         require_once $aiDir . 'tools/registerAccountTool.php'; // passwordless phone-OTP account signup
         require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow
@@ -379,6 +380,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             // identity is safe and lets GIA answer "my bookings"/"my wallet".
             if (($toolContext['account_id'] ?? '') !== '') {
                 $agent->registerTool(new userAccountTool());
+                $agent->registerTool(new myTravellersTool());
                 $agent->registerTool(new updateProfileTool());
             } else {
                 // No account on this chat yet — let GIA create one from name +

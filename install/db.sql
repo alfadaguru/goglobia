@@ -27544,6 +27544,43 @@ CREATE TABLE IF NOT EXISTS `gia_messages` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `user_travellers`
+-- GIA saved-traveller store (GA1): a customer's reusable passengers, auto-seeded
+-- from their own past bookings (bookings.travellers JSON + umrah_booking_travellers),
+-- deduped by passport (else name+dob) per user. Lets GIA offer saved people for
+-- reuse instead of making a returning customer re-type. Managed by
+-- ensureGiaTravellersSchema()/gia_traveller_* in app/lib/ai/gia_travellers.php.
+--
+CREATE TABLE IF NOT EXISTS `user_travellers` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` varchar(255) NOT NULL,
+  `title` varchar(16) DEFAULT NULL,
+  `first_name` varchar(120) NOT NULL,
+  `middle_name` varchar(120) DEFAULT NULL,
+  `last_name` varchar(120) DEFAULT NULL,
+  `gender` varchar(8) DEFAULT NULL,
+  `dob` date DEFAULT NULL,
+  `nationality` varchar(80) DEFAULT NULL,
+  `passport_number` varchar(64) DEFAULT NULL,
+  `passport_expiry` date DEFAULT NULL,
+  `email` varchar(255) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `relationship` varchar(40) DEFAULT NULL,
+  `is_self` tinyint(1) NOT NULL DEFAULT 0,
+  `dedupe_key` varchar(191) NOT NULL,
+  `last_used_at` datetime DEFAULT NULL,
+  `use_count` int(11) NOT NULL DEFAULT 1,
+  `source` varchar(24) NOT NULL DEFAULT 'history',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_user_dedupe` (`user_id`,`dedupe_key`),
+  KEY `idx_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `gia_events`
 -- GIA (AI agent) outcome events — search / view / checkout / approve / pay /
 -- book / lead_capture — the data the admin conversion funnel + reports read.
