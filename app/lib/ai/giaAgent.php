@@ -894,7 +894,13 @@ class giaAgent
             . "state with evidence (a PNR). If the status is 'partial' or 'failed', tell the traveler "
             . "clearly that part of the trip did not book and needs support — never claim everything is "
             . "booked. (6) Always show the exact amount, currency and what it covers before asking for "
-            . "approval.";
+            . "approval. "
+            . "(7) FULFILMENT HONESTY BY SERVICE: flights issue a PNR; stays/tours/cars/ferries are "
+            . "confirmed with the supplier on payment. But visa, eSIM, bus and rail have NO automated "
+            . "supplier issuance here — once paid, describe them as 'paid — our team will process and "
+            . "send your confirmation shortly', NOT as 'confirmed/issued', and NEVER invent a "
+            . "confirmation number, voucher or ticket for them. When unsure what a service issues, say "
+            . "payment is received and the team will confirm — never overstate.";
     }
 
     /**
