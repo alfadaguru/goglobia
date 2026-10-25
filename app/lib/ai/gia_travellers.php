@@ -254,6 +254,49 @@ if (!function_exists('gia_travellers_forget')) {
     }
 }
 
+if (!function_exists('gia_contact_prefill')) {
+    /**
+     * Fill blank lead-contact fields (email/phone) from the signed-in user's own
+     * `users` row so a returning customer isn't re-asked for details on file
+     * (GA3). Only fills BLANKS — an explicitly-provided value always wins. Returns
+     * the completed [email, phone]. No-op for guests (empty userId).
+     */
+    function gia_contact_prefill($db, string $userId, string $email, string $phone): array
+    {
+        $email = trim($email);
+        $phone = trim($phone);
+        $userId = trim($userId);
+        if ($userId === '' || ($email !== '' && $phone !== '')) {
+            return [$email, $phone];
+        }
+        try {
+            $u = $db->get('users', ['email', 'phone', 'phone_country_code'], ['user_id' => $userId]);
+            if (is_array($u) && $u !== []) {
+                if ($email === '') {
+                    $ue = trim((string) ($u['email'] ?? ''));
+                    // Skip the synthetic passwordless placeholder (not a real inbox).
+                    if ($ue !== '' && substr($ue, -strlen('@no-email.goglobia.local')) !== '@no-email.goglobia.local') {
+                        $email = $ue;
+                    }
+                }
+                if ($phone === '') {
+                    $up = trim((string) ($u['phone'] ?? ''));
+                    if ($up !== '') {
+                        // Prepend dial code if stored separately (matches app convention).
+                        $cc = trim((string) ($u['phone_country_code'] ?? ''));
+                        $phone = ($cc !== '' && function_exists('formatPhoneNumber'))
+                            ? formatPhoneNumber($up, (function_exists('getPhoneCode') ? getPhoneCode($cc, $db) : $cc))
+                            : $up;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('gia_contact_prefill: ' . $e->getMessage());
+        }
+        return [$email, $phone];
+    }
+}
+
 if (!function_exists('gia__date_or_null')) {
     /** Normalise a date-ish string to YYYY-MM-DD or null. Internal. */
     function gia__date_or_null($v): ?string

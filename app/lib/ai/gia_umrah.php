@@ -535,13 +535,20 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_book')) {
             if ($planCode === '' || !$db->get('umrah_payment_plans', 'id', ['code' => $planCode, 'active' => 1])) {
                 $planCode = (string) ($db->get('umrah_payment_plans', 'code', ['active' => 1, 'ORDER' => ['deposit_percent' => 'DESC']]) ?: 'PP-50-25-25');
             }
+            // GA3: prefill blank lead contact from the signed-in user's record.
+            $leadEmail = (string) ($lead['email'] ?? '');
+            $leadPhone = (string) ($lead['phone'] ?? '');
+            if ($userId !== '' && ($leadEmail === '' || $leadPhone === '')) {
+                if (!function_exists('gia_contact_prefill')) { require_once __DIR__ . '/gia_travellers.php'; }
+                if (function_exists('gia_contact_prefill')) { [$leadEmail, $leadPhone] = \gia_contact_prefill($db, $userId, $leadEmail, $leadPhone); }
+            }
             // 4) create the real booking (writes the booking + installments; re-prices
             //    the actual booker server-side; returns the invoice).
             $leadArr = [
                 'first_name' => (string) ($lead['first_name'] ?? ''),
                 'last_name'  => (string) ($lead['last_name'] ?? ''),
-                'email'      => (string) ($lead['email'] ?? ''),
-                'phone'      => (string) ($lead['phone'] ?? ''),
+                'email'      => $leadEmail,
+                'phone'      => $leadPhone,
                 // Guests have no account: pass NULL (not '') so the booking records a
                 // real absence of a user, matching the hold path which already
                 // normalizes to null — avoids a stray user_id='' on guest bookings.
