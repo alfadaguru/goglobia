@@ -611,12 +611,16 @@ function handle_payment_callback($token, $action, $data = [])
                 // CHECK IF MODULE HAS CUSTOM BOOKING ENDPOINT
                 // Exclusions: flight, visas (no auto-issue endpoints)
                 // Tours: confirm-on-payment BY DEFAULT (no supplier issue) — EXCEPT a
-                //   tours supplier that ships its own actions/issue.php (e.g. Adivaha
-                //   Excursions, which must call POST /excursions/book to actually
-                //   reserve + debit its supplier wallet). We detect that precisely by
-                //   the presence of the issue endpoint file, so internal `tours/tours`
-                //   and affiliate `viator`/`tiqets`/`toursbms` stay confirm-on-payment
-                //   unchanged, while a live-booking tours supplier is auto-issued.
+                //   tours supplier whose actions/issue.php is a LIVE, loopback-ready
+                //   booking endpoint (e.g. Adivaha Excursions, which must call
+                //   POST /excursions/book to actually reserve + debit its supplier
+                //   wallet). We detect that precisely: the file must exist AND call
+                //   supplier_action_guard() — the server-to-server loopback gate the
+                //   payment callback signs. This deliberately EXCLUDES the local
+                //   confirmers (tours/tours) and the admin-only/affiliate endpoints
+                //   (toursbms = admin-session guarded, viator/tiqets = no issue file),
+                //   so every existing tours supplier stays confirm-on-payment exactly
+                //   as before; only a live-booking supplier is auto-issued.
                 // ai_trip packages: per-item PNRs via modules/ai_trip/ai_trip/issue
                 // Cars modules (cartrawler, etc.) ARE auto-issued via their issue.php
                 // ============================================================
@@ -624,7 +628,12 @@ function handle_payment_callback($token, $action, $data = [])
                 $__toursHasIssueEndpoint = false;
                 if ($__isToursType && $module !== '') {
                     $__toursIssueFile = dirname(__DIR__, 2) . '/modules/' . $moduleType . '/' . $module . '/actions/issue.php';
-                    $__toursHasIssueEndpoint = is_file($__toursIssueFile);
+                    if (is_file($__toursIssueFile)) {
+                        // Only treat it as auto-issuable if it guards the server
+                        // loopback (supplier_action_guard) rather than an admin session.
+                        $__issueSrc = @file_get_contents($__toursIssueFile);
+                        $__toursHasIssueEndpoint = ($__issueSrc !== false && strpos($__issueSrc, 'supplier_action_guard') !== false);
+                    }
                 }
 
                 if ($module
