@@ -132,6 +132,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/initiatePaymentTool.php';
     require_once $aiDir . 'tools/getOrderStatusTool.php';
     require_once $aiDir . 'tools/requestHumanTool.php';
+    require_once $aiDir . 'tools/verifyIdentityTool.php';
     require_once $aiDir . 'tools/userAccountTool.php';   // full account awareness (all bookings/wallet/loyalty)
     require_once $aiDir . 'tools/myTravellersTool.php';  // saved travellers for reuse (never re-type)
     require_once $aiDir . 'tools/preferencesTool.php';   // opt-in consented travel preferences (BRD MEM)
