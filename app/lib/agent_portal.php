@@ -62,7 +62,7 @@ if (!function_exists('ensureAgentPortalSchema')) {
                 `created_by` varchar(255) DEFAULT NULL,
                 `created_at` datetime NOT NULL DEFAULT current_timestamp(),
                 PRIMARY KEY (`id`),
-                KEY `idx_owner` (`owner_user_id`),
+                UNIQUE KEY `uq_owner_email` (`owner_user_id`,`invited_email`),
                 KEY `idx_staff` (`staff_user_id`),
                 KEY `idx_status` (`status`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");

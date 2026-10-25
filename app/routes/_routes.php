@@ -150,6 +150,12 @@ require_once 'app/routes/users/agencyRoutes.php';
 require_once 'app/routes/users/agencySignupRoutes.php';
 require_once 'app/routes/users/agentApiRoutes.php';
 
+// TRAVEL-AGENT ERP PORTAL (/agent/*) — docs/agent/AGENT-ERP-SPEC.md. Dedicated
+// agency workspace gated by AGENT_OR_STAFF_AUTH + agent_can (app/lib/agent_portal.php).
+require_once 'app/routes/users/agentWalletRoutes.php';     // P0: wallet + DVA funding
+require_once 'app/routes/users/agentDashboardRoutes.php';  // P1: dashboard + onboarding
+require_once 'app/routes/users/agentStaffRoutes.php';      // P2: staff invites + roles RBAC
+
 // SEO LANDING PAGES (evergreen route/city pages) — registered BEFORE the flight
 // listing routes so single-segment /flights/{from}-to-{to} matches here first.
 require_once 'app/routes/seo/landingRoutes.php';
@@ -238,6 +244,7 @@ require_once 'app/routes/admin/settingsRoutes.php';
 require_once 'app/routes/admin/modulesRoutes.php';
 require_once 'app/routes/admin/usersRoutes.php';
 require_once 'app/routes/admin/suppliersRoutes.php'; // supplier approval queue (approve/reject)
+require_once 'app/routes/admin/agentsRoutes.php'; // travel-agent approval queue — Agent ERP P1
 require_once 'app/routes/admin/supplierPayoutsRoutes.php'; // supplier payout queue — approve/send (inc S19)
 require_once 'app/routes/admin/agentApiRoutes.php';
 require_once 'app/routes/admin/updatesRoutes.php';
