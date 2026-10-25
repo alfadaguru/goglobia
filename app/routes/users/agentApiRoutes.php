@@ -73,9 +73,9 @@ $router->get('api-access', function () use ($SECURE, $db) {
     $title = 'API Access';
     $description = 'Manage your API keys and integration';
 
-    require_once views . 'includes/header.php';
+    require_once views . 'agent/layout-top.php';
     require_once views . 'auth/api-access.php';
-    require_once views . 'includes/footer.php';
+    require_once views . 'agent/layout-bottom.php';
 });
 
 // ---------------------------------------------------------------------------
@@ -214,7 +214,7 @@ $router->get('api-docs', function () use ($SECURE, $db) {
     $title = 'API Documentation';
     $description = 'Goglobia Agent API reference';
 
-    require_once views . 'includes/header.php';
+    require_once views . 'agent/layout-top.php';
     require_once views . 'auth/api-docs.php';
-    require_once views . 'includes/footer.php';
+    require_once views . 'agent/layout-bottom.php';
 });
