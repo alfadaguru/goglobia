@@ -207,6 +207,37 @@ if (!function_exists('gia_travellers_list')) {
     }
 }
 
+if (!function_exists('gia_travellers_get')) {
+    /**
+     * Load ONE saved traveller by id, scoped to the user (so a model can't reuse
+     * someone else's record). Returns the full row (incl. passport for reuse) or
+     * null. Bumps last_used_at/use_count so the roster ranks by real reuse.
+     */
+    function gia_travellers_get($db, string $userId, int $id): ?array
+    {
+        $userId = trim($userId);
+        if ($userId === '' || $id <= 0) { return null; }
+        ensureGiaTravellersSchema($db);
+        try {
+            $row = $db->get('user_travellers', [
+                'id', 'title', 'first_name', 'middle_name', 'last_name', 'gender', 'dob',
+                'nationality', 'passport_number', 'passport_expiry', 'email', 'phone', 'use_count',
+            ], ['user_id' => $userId, 'id' => $id]);
+            if (!is_array($row) || $row === []) { return null; }
+            try {
+                $db->update('user_travellers', [
+                    'last_used_at' => date('Y-m-d H:i:s'),
+                    'use_count'    => (int) ($row['use_count'] ?? 1) + 1,
+                ], ['id' => $id]);
+            } catch (\Throwable $e) { /* ranking only; non-fatal */ }
+            return $row;
+        } catch (\Throwable $e) {
+            error_log('gia_travellers_get: ' . $e->getMessage());
+            return null;
+        }
+    }
+}
+
 if (!function_exists('gia_travellers_forget')) {
     /** Delete one saved traveller (BRD MEM: user can delete). Scoped to the user. */
     function gia_travellers_forget($db, string $userId, int $id): bool

@@ -353,6 +353,7 @@ if (!class_exists('App\\lib\\ai\\flightsAddPassengerTool')) {
                 'type' => 'object',
                 'properties' => [
                     'invoice_id'      => ['type' => 'string', 'description' => 'The held flight booking invoice_id from flights_book.'],
+                    'saved_traveller_id' => ['type' => 'integer', 'description' => 'Reuse a SAVED traveller from get_my_travellers by their id — fills name/DOB/passport/nationality automatically. The traveller still confirms. Omit to enter a new person.'],
                     'type'            => ['type' => 'string', 'description' => 'Passenger type: adult, child, or infant.'],
                     'title'           => ['type' => 'string', 'description' => 'Mr, Ms, Mrs, Miss or Dr.'],
                     'first_name'      => ['type' => 'string', 'description' => 'Given name, as in the passport.'],
@@ -377,9 +378,37 @@ if (!class_exists('App\\lib\\ai\\flightsAddPassengerTool')) {
             $invoiceId = trim((string) ($input['invoice_id'] ?? ''));
             if ($invoiceId === '') { return ['ok' => false, 'error_code' => 'AI_FLIGHTS_PAX', 'message' => 'Which booking is this passenger for?']; }
 
+            $acct = (string) ($context['account_id'] ?? '');
+
+            // REUSE: if the traveller picked a saved person, load it (scoped to the
+            // signed-in user) and use those details — the model can still override
+            // any field it passes alongside. Never trust the id without account scope.
+            $savedId = (int) ($input['saved_traveller_id'] ?? 0);
+            if ($savedId > 0 && $acct !== '') {
+                require_once dirname(__DIR__) . '/gia_travellers.php';
+                $saved = \gia_travellers_get($db, $acct, $savedId);
+                if ($saved) {
+                    foreach (['title', 'first_name', 'last_name', 'dob', 'gender', 'nationality', 'passport_number', 'passport_expiry'] as $f) {
+                        // Explicit input wins; otherwise fill from the saved record.
+                        if (trim((string) ($input[$f] ?? '')) === '' && trim((string) ($saved[$f] ?? '')) !== '') {
+                            $input[$f] = $saved[$f];
+                        }
+                    }
+                } else {
+                    return ['ok' => false, 'error_code' => 'AI_SAVED_NOT_FOUND', 'message' => 'I couldn\'t find that saved traveller — let\'s enter the details instead.'];
+                }
+            }
+
             $res = gia_flights_add_passenger($db, $invoiceId, $input);
             if (empty($res['ok'])) {
                 return ['ok' => false, 'error_code' => 'AI_FLIGHTS_PAX', 'message' => (string) ($res['message'] ?? 'Could not save that passenger.')];
+            }
+
+            // CAPTURE (going forward): remember this passenger on the signed-in
+            // user's roster so the next booking can reuse them. Fail-soft.
+            if ($acct !== '') {
+                require_once dirname(__DIR__) . '/gia_travellers.php';
+                try { \gia_traveller_upsert($db, $acct, $input, 'flights'); } catch (\Throwable $e) { error_log('[gia] traveller capture: ' . $e->getMessage()); }
             }
             return [
                 'ok' => true,
