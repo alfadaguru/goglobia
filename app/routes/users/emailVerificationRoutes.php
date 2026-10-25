@@ -27,12 +27,16 @@ $router->get('/verify-email', function () use ($SECURE, $db) {
     }
 
     try {
-        // ROLE-AWARE activation: verifying email normally activates the account, BUT a
-        // supplier has a SECOND gate (admin approval). A pending supplier must verify
-        // their email yet STAY 'pending' — verification must never flip a supplier to
-        // 'active' and let them bypass approval. Only non-pending-supplier users activate.
+        // ROLE-AWARE activation: verifying email normally activates the account, BUT
+        // suppliers AND travel agents have a SECOND gate (admin approval). A pending
+        // supplier/agent must verify their email yet STAY 'pending' — verification must
+        // never flip them to 'active' and bypass approval. Only non-pending-approval
+        // users (ordinary customers) activate on verification.
         $isPendingSupplier = (($user['role'] ?? '') === 'supplier')
             && (($user['status'] ?? '') === 'pending');
+        $isPendingAgent = (($user['role'] ?? '') === 'agent')
+            && (($user['status'] ?? '') === 'pending');
+        $isPendingApproval = $isPendingSupplier || $isPendingAgent;
 
         $updateData = [
             'email_verified' => 1,
@@ -40,14 +44,14 @@ $router->get('/verify-email', function () use ($SECURE, $db) {
             'reset_token_expires' => null,
             'updated_at' => date('Y-m-d H:i:s'),
         ];
-        if (!$isPendingSupplier) {
-            $updateData['status'] = 'active'; // customers/agents activate on verification
+        if (!$isPendingApproval) {
+            $updateData['status'] = 'active'; // ordinary customers activate on verification
         }
         $db->update('users', $updateData, ['id' => $user['id']]);
 
         logUserActivity($db, $user['id'], 'email_verified',
-            $isPendingSupplier
-                ? 'Supplier email verified — still pending admin approval'
+            $isPendingApproval
+                ? (($user['role'] ?? '') . ' email verified — still pending admin approval')
                 : 'Email address verified successfully');
 
         // Trigger email verification webhook

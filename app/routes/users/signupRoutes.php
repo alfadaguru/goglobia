@@ -214,7 +214,11 @@ $router->post('/signup', function () use ($SECURE, $db) {
         'currency' => $user_currency,
         'password' => $hashed_password,
         'role' => $userRole,
-        'status' => 'inactive',
+        // Agents require admin approval (Agent ERP): they start 'pending' so they
+        // surface in the admin approval queue. Email verification confirms the
+        // address but does NOT activate them (see emailVerificationRoutes.php) —
+        // an admin must approve. Everyone else keeps the normal 'inactive' gate.
+        'status' => ($userRole === 'agent') ? 'pending' : 'inactive',
         'banned' => 0,
         'email_verified' => 0,
         'login_attempts' => 0,
