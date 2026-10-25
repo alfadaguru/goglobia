@@ -156,7 +156,7 @@ $licenseBlocked = !empty($_SESSION['lic_err']);
                     <?php $__isAdminLogin = str_contains($_SERVER['REQUEST_URI'], '/admin/'); ?>
                     <div class="form-control">
                         <label for="email" class="text-sm font-medium text-gray-700 mb-2">
-                            <?= $__isAdminLogin ? T::admin_email : (T::email_or_phone ?? 'Email or phone') ?>
+                            <?= $__isAdminLogin ? T::admin_email : (defined('T::email_or_phone') ? T::email_or_phone : 'Email or phone') ?>
                         </label>
                         <div class="input-group">
                             <span class="input-icon-left material-symbols-outlined"><?= $__isAdminLogin ? 'email' : 'account_circle' ?></span>
@@ -166,7 +166,7 @@ $licenseBlocked = !empty($_SESSION['lic_err']);
                                 type="<?= $__isAdminLogin ? 'email' : 'text' ?>"
                                 required
                                 class="input-with-icon"
-                                placeholder="<?= $__isAdminLogin ? T::email_address : (T::email_or_phone ?? 'Email or phone') ?>"
+                                placeholder="<?= $__isAdminLogin ? T::email_address : (defined('T::email_or_phone') ? T::email_or_phone : 'Email or phone') ?>"
                                 value="<?php echo htmlspecialchars($_POST['email'] ?? ''); ?>"
                             >
                         </div>
