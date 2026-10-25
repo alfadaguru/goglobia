@@ -97,19 +97,51 @@ if (!function_exists('gia_identity_phone_match')) {
         if ($digits === '' || strlen($digits) < 7) {
             return '';
         }
+        // EXACT MATCH ONLY (security): phone is now a UNIQUE account identity
+        // (uq_users_phone), so we match a WhatsApp sender to AT MOST ONE account and
+        // never the fuzzy last-10-digits way, which could hit a DIFFERENT person who
+        // shares a national number across a different country code (an IDOR/privacy
+        // risk). A WhatsApp sender id is the FULL international number; users.phone is
+        // stored as national digits with the dial code in phone_country_code — so we
+        // split the sender into (national, dial code) and require BOTH to match. If
+        // the split is ambiguous we return '' (no guess).
         try {
-            // 1) Exact phone column.
-            $u = $db->get('users', ['user_id'], ['phone' => $digits]);
-            if (is_array($u) && !empty($u['user_id'])) {
-                return (string) $u['user_id'];
-            }
-            // 2) Last-10-digits match (handles stored national numbers).
-            $last10 = substr($digits, -10);
-            if (strlen($last10) === 10) {
-                $u = $db->get('users', ['user_id'], ['phone[~]' => '%' . $last10]);
-                if (is_array($u) && !empty($u['user_id'])) {
-                    return (string) $u['user_id'];
+            // Prefer the canonical (national, dial-code) split so storage format
+            // differences don't matter. Try each known dial code that prefixes the
+            // sender's digits and look for an EXACT (phone, phone_country_code) row.
+            $candidates = [];
+            // whole-digits exact (covers accounts that stored the full number)
+            $candidates[] = ['phone' => $digits];
+            // national + dial-code split: the sender's leading digits are the country
+            // code. Resolve it via the countries table so we don't hard-code lengths.
+            if (function_exists('getPhoneCode')) {
+                // Try the 1-4 digit leading prefixes as a possible dial code.
+                for ($len = 1; $len <= 4 && $len < strlen($digits); $len++) {
+                    $cc = substr($digits, 0, $len);
+                    $national = substr($digits, $len);
+                    if ($national === '') { continue; }
+                    // Only consider this split if $cc is a real dial code.
+                    $isRealCode = (bool) $db->get('countries', 'id', ['phonecode' => $cc]);
+                    if ($isRealCode) {
+                        $candidates[] = ['phone' => $national, 'phone_country_code' => $cc];
+                    }
                 }
+            }
+            $matchedUser = '';
+            $matchCount = 0;
+            foreach ($candidates as $where) {
+                $rows = $db->select('users', ['user_id'], $where) ?: [];
+                foreach ($rows as $r) {
+                    $uid = (string) ($r['user_id'] ?? '');
+                    if ($uid === '') { continue; }
+                    if ($matchedUser === '') { $matchedUser = $uid; }
+                    if ($uid !== $matchedUser) { $matchCount = 99; break 2; } // >1 distinct -> ambiguous
+                    $matchCount = 1;
+                }
+            }
+            // Return a match ONLY when it unambiguously resolves to one account.
+            if ($matchCount === 1 && $matchedUser !== '') {
+                return $matchedUser;
             }
         } catch (\Throwable $e) {
             error_log('[gia] identity phone_match: ' . $e->getMessage());

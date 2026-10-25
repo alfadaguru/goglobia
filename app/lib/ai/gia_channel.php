@@ -374,12 +374,15 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             if (!empty($ident['verified'])) {
                 $agent->registerTool(new getOrderStatusTool());
             }
-            // Full account awareness + profile update: scoped INTERNALLY to the
-            // resolved account_id (verified link OR passive phone match — owner
-            // chose to trust the match for full context). The tools refuse when
-            // there is no account_id, so registering them whenever we have ANY
-            // identity is safe and lets GIA answer "my bookings"/"my wallet".
-            if (($toolContext['account_id'] ?? '') !== '') {
+            // Full account awareness + profile update: these READ/WRITE private
+            // account data (bookings, wallet, saved travellers, profile), so they
+            // are gated to a VERIFIED identity — a confirmed account link, NOT a
+            // passive phone match. A passive match (same phone, unverified) can be
+            // the WRONG person (shared/recycled number), so it may greet by name but
+            // must NOT unlock account data (IDOR hard guard — matches getOrderStatus
+            // above). An unverified sender gets registerAccountTool / verify_identity
+            // instead (below). The tools also self-refuse on empty account_id.
+            if (!empty($ident['verified']) && ($toolContext['account_id'] ?? '') !== '') {
                 $agent->registerTool(new userAccountTool());
                 $agent->registerTool(new myTravellersTool());
                 $agent->registerTool(new updateProfileTool());
