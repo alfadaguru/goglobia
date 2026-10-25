@@ -374,6 +374,7 @@ include __DIR__ . '/tours/viator/index.php';               // Viator (TripAdviso
 include __DIR__ . '/tours/viator_merchant/index.php';      // Viator Merchant API
 include __DIR__ . '/tours/tiqets/index.php';               // Tiqets (Museums, attractions)
 include __DIR__ . '/tours/toursbms/index.php';             // ToursBMS (product catalogue + live pricing)
+include __DIR__ . '/tours/adivaha/index.php';              // Adivaha B2C Excursions (live search/book/cancel)
 
 // ----------------------------------------
 // CAR RENTAL MODULES - Vehicle bookings

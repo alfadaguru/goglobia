@@ -796,6 +796,12 @@ function tourDetails() {
                         || this.tourData?.price_breakdown?.summary?.total_marked_up_price
                         || this.calculateTotalAmount() || 0,
 
+                    // Opaque supplier booking handle (live-booking tours suppliers only,
+                    // e.g. Adivaha Excursions). Harmless null for confirm-on-payment
+                    // suppliers. Rides to bookings.booking_data so actions/issue.php can
+                    // re-price + book at the supplier.
+                    booking_data: this.tourData?.booking_data || null,
+
                 };
 
                 // Save booking draft to database

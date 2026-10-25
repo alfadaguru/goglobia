@@ -338,7 +338,20 @@ $router->post('/api/tour/booking/submit', function () use ($SECURE, $db) {
                 require_once dirname(__DIR__, 3) . '/modules/helpers.php';
             }
             if (function_exists('MARKUP')) {
-                $toursModuleRow = $db->get('modules', '*', ['type' => 'tours', 'status' => '1']);
+                // Re-price with the markup row of the ACTUAL booking supplier, not just
+                // the first enabled tours module. With >1 tours supplier (e.g. Adivaha
+                // Excursions alongside the internal `tours`), selecting by type alone
+                // would apply the wrong supplier's markup rate. Fall back to the generic
+                // tours row, then the string 'tours', so existing single-supplier
+                // installs behave exactly as before.
+                $supplierName = (string) ($bookingData['supplier'] ?? '');
+                $toursModuleRow = null;
+                if ($supplierName !== '') {
+                    $toursModuleRow = $db->get('modules', '*', ['type' => 'tours', 'name' => $supplierName, 'status' => '1']);
+                }
+                if (!$toursModuleRow) {
+                    $toursModuleRow = $db->get('modules', '*', ['type' => 'tours', 'status' => '1']);
+                }
                 $mk = MARKUP((float)$actualPrice, $toursModuleRow ?: 'tours', $db, $currency, $currency);
                 if (!empty($mk['price']) && (float)$mk['price'] > 0) {
                     $markupPrice = round((float)$mk['price'], 2);
