@@ -52,9 +52,18 @@ $fmt = fn($n) => number_format((float)$n, 2);
                         <td class="px-4 py-2"><span class="px-2 py-0.5 rounded-full text-[11px] <?= !$unpaid?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-700' ?>"><?= htmlspecialchars((string)($b['payment_status']??'')) ?></span></td>
                         <td class="px-4 py-2 text-right text-slate-700"><?= $ccy ?> <?= $fmt($cost) ?></td>
                         <td class="px-4 py-2 text-right text-slate-500"><?= $clientPrice>0 ? $ccy.' '.$fmt($clientPrice) : '—' ?></td>
-                        <td class="px-4 py-2 text-right">
+                        <td class="px-4 py-2 text-right whitespace-nowrap">
                             <?php if ($unpaid && agent_can($db,'bookings','add')): ?>
                                 <a href="<?= root ?>agent/booking/<?= urlencode($inv) ?>/pay" class="text-xs px-3 py-1.5 rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-700">Pay</a>
+                            <?php else: ?>
+                                <?php if (agent_can($db,'bookings','view')): ?>
+                                    <button type="button" onclick="agentBookingAction('<?= htmlspecialchars($inv, ENT_QUOTES) ?>','resend')" class="text-xs text-slate-600 hover:underline mr-2">Resend</button>
+                                <?php endif; ?>
+                                <?php if (($b['booking_status']??'') !== 'cancelled' && agent_can($db,'bookings','refund')): ?>
+                                    <button type="button" onclick="agentBookingAction('<?= htmlspecialchars($inv, ENT_QUOTES) ?>','refund')" class="text-xs text-red-600 hover:underline">Cancel &amp; refund</button>
+                                <?php elseif (($b['booking_status']??'') !== 'cancelled' && agent_can($db,'bookings','cancel')): ?>
+                                    <button type="button" onclick="agentBookingAction('<?= htmlspecialchars($inv, ENT_QUOTES) ?>','cancel')" class="text-xs text-red-600 hover:underline">Cancel</button>
+                                <?php endif; ?>
                             <?php endif; ?>
                         </td>
                     </tr>
@@ -65,3 +74,18 @@ $fmt = fn($n) => number_format((float)$n, 2);
         <?php endif; ?>
     </div>
 </div>
+<script>
+function agentBookingAction(inv, action){
+    var confirmMsg = action === 'resend'
+        ? 'Re-send the booking voucher to the client?'
+        : (action === 'refund' ? 'Cancel this booking and refund to your wallet?' : 'Cancel this booking?');
+    if (!confirm(confirmMsg)) return;
+    var fd = new FormData();
+    fd.append('action', action);
+    fd.append('csrf_token', '<?= htmlspecialchars(CSRF::getToken(), ENT_QUOTES) ?>');
+    fetch('<?= root ?>agent/booking/' + encodeURIComponent(inv) + '/action', { method:'POST', body: fd, headers: { 'X-Requested-With':'XMLHttpRequest' } })
+        .then(function(r){ return r.json(); })
+        .then(function(j){ alert(j.message || (j.status ? 'Done.' : 'Action failed.')); if (j.status) location.reload(); })
+        .catch(function(){ alert('Could not complete the action.'); });
+}
+</script>

@@ -159,6 +159,7 @@ require_once 'app/routes/users/agentBookingCentreRoutes.php'; // P3: booking cen
 require_once 'app/routes/users/agentBrandingRoutes.php';   // P5: branding (logo/colours) + client self-markup
 require_once 'app/routes/users/agentClientsRoutes.php';    // P6a: client book / CRM
 require_once 'app/routes/users/agentTripsRoutes.php';      // P6b: trip plans + branded client proposals
+require_once 'app/routes/users/agentReportsRoutes.php';    // P7b: reports + statements (CSV)
 
 // SEO LANDING PAGES (evergreen route/city pages) — registered BEFORE the flight
 // listing routes so single-segment /flights/{from}-to-{to} matches here first.
