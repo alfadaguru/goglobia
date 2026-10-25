@@ -3952,6 +3952,18 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
             $templatePath = __DIR__ . '/../views/notifications/emails/stays/booking_pdf.php';
         }
 
+        // TICKET MODE: the no-price travel document uses a dedicated, premium
+        // per-service "ticket.php" template (industry-standard itinerary/voucher
+        // layout with QR + brand). If a service doesn't yet have its own ticket
+        // template, fall back to the shared price-hidden booking_pdf.php above —
+        // so the rollout is graceful and no service ever errors.
+        if ($docType === 'ticket') {
+            $ticketTemplate = dirname($templatePath) . '/ticket.php';
+            if (file_exists($ticketTemplate)) {
+                $templatePath = $ticketTemplate;
+            }
+        }
+
         // Check if template file exists
         if (!file_exists($templatePath)) {
             error_log("GENERATE_BOOKING_PDF ERROR: Template file not found at '$templatePath'");
