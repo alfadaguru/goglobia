@@ -1,7 +1,15 @@
 <?php
 // ADMIN SIDEBAR NAVIGATION COMPONENT
-// Only render for admin users
-if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
+// Render for company STAFF: a full admin, OR an employee with an active, resolvable
+// users_roles role (mirrors ADMIN_AUTH in app/lib/functions.php). The menu is then
+// filtered per-role below so an employee sees only the tiles their role grants.
+$__sidebarRole = strtolower((string) ($_SESSION['user_role'] ?? ''));
+$__sidebarShow = isset($_SESSION['user_id']) && (
+    $__sidebarRole === 'admin'
+    || ($__sidebarRole === 'employee' && function_exists('admin_current_role')
+        && ($__r = admin_current_role($GLOBALS['db'] ?? null)) && !empty($__r['id']) && !empty($__r['status']))
+);
+if ($__sidebarShow) {
 
 // GET CURRENT PAGE PATH FOR ACTIVE STATE DETECTION
 $current_route = $_SERVER['REQUEST_URI'] ?? '';
@@ -438,6 +446,118 @@ $adminMenu = array_merge($adminMenu, [
         ]
     ]
 ]);
+
+// ============================================================================
+// PERMISSION-AWARE FILTER (RBAC) — employees see only the tiles their role grants.
+// A FULL ADMIN is all-allow (admin_can short-circuits true) so nothing is removed
+// for them. For a role='employee', each menu item is mapped to an admin_area_catalogue
+// area via its URL; an item whose area the role lacks 'view' on is hidden, and a
+// top-level group with no surviving children is dropped entirely. Items with no
+// resolvable area (hash anchors, external links, dashboards) are always kept.
+// Single source of truth = admin_can() in app/lib/admin_rbac.php.
+// ============================================================================
+if (function_exists('admin_can')) {
+    // Map a menu URL's path to its RBAC area (null = no gate, always show).
+    // Ordered most-specific-first; first match wins.
+    $menuAreaFor = function (?string $url): ?string {
+        if (!$url) { return null; }
+        $p = parse_url($url, PHP_URL_PATH);
+        if (!$p) { return null; } // pure '#'/hash anchors → no path → always show
+        $p = '/' . ltrim(rtrim($p, '/'), '/');
+        // Normalise to the segment after /admin (handles any root/admin prefix).
+        if (preg_match('#/admin(/.*)$#', $p, $m)) { $p = $m[1]; }
+        elseif ($p === '/admin') { return 'dashboard'; }
+        $rules = [
+            // Employees section
+            '#^/employees/roles#'        => 'users_roles',
+            '#^/employees/attendance#'   => 'support_attendance',
+            '#^/employees/shifts#'       => 'support_shifts',
+            '#^/employees/targets#'      => 'support_targets',
+            '#^/employees#'              => 'employees', // staff / activity / overview
+            // Support (ops)
+            '#^/support/desk#'           => 'support_desk',
+            '#^/support/tickets#'        => 'support_tickets',
+            '#^/support/(campaigns|conversion)#' => 'support_campaigns',
+            '#^/support/users#'          => 'users',
+            '#^/support(/|$)#'           => 'support_dashboard',
+            // Core
+            '#^/booking-manager#'        => 'bookings',
+            '#^/bookings#'               => 'bookings',
+            '#^/users#'                  => 'users',
+            '#^/supplier-payout#'        => 'supplier_payouts',
+            '#^/(suppliers|supplier-|white-label)#' => 'suppliers',
+            // Service / inventory modules
+            '#^/flights-airlines#'       => 'airlines',
+            '#^/flights-airports#'       => 'airports',
+            '#^/flights#'                => 'flights',
+            '#^/stays#'                  => 'stays',
+            '#^/tours#'                  => 'tours',
+            '#^/cars#'                   => 'cars',
+            '#^/visa#'                   => 'visa',
+            '#^/(umrah|umrah-manager)#'  => 'umrah',
+            '#^/bus#'                    => 'bus',
+            // Content / marketing
+            '#^/cms#'                    => 'cms',
+            '#^/blogs#'                  => 'blogs',
+            '#^/(campaigns|campaign-templates)#' => 'campaigns',
+            '#^/promo-codes#'            => 'promo_codes',
+            '#^/discounts#'              => 'discounts',
+            '#^/referrals#'              => 'referrals',
+            '#^/seo#'                    => 'seo',
+            // Finance
+            '#^/finance#'                => 'transactions',
+            // Settings sub-areas
+            '#^/settings/gateways#'      => 'payment_gateways',
+            '#^/settings/modules#'       => 'modules',
+            '#^/settings/languages#'     => 'languages',
+            '#^/settings/currencies#'    => 'currencies',
+            '#^/database#'               => 'database',
+            '#^/updates/database#'       => 'database',
+            '#^/settings#'               => 'settings',
+            // Other top-level areas
+            '#^/reports#'                => 'reports',
+            '#^/gia#'                    => 'gia',
+            '#^/agent-api#'              => 'agent_api',
+            '#^/notification-templates#' => 'notification_templates',
+        ];
+        foreach ($rules as $re => $area) {
+            if (preg_match($re, $p)) { return $area; }
+        }
+        return null; // unmapped (e.g. /finance anchor, external) — always show
+    };
+
+    // Keep an item if it has no resolvable area, OR the role can 'view' that area.
+    $menuItemVisible = function (array $item) use ($menuAreaFor, $db): bool {
+        $area = $menuAreaFor($item['url'] ?? null);
+        if ($area === null) { return true; }
+        return admin_can($db, $area, 'view');
+    };
+
+    $filtered = [];
+    foreach ($adminMenu as $item) {
+        if (empty($item) || !is_array($item)) { continue; } // skip any stray empty slots
+        if (isset($item['submenu']) && is_array($item['submenu'])) {
+            $keptSub = [];
+            foreach ($item['submenu'] as $sub) {
+                if (empty($sub) || !is_array($sub)) { continue; }
+                if (!empty($sub['divider'])) { $keptSub[] = $sub; continue; }
+                if ($menuItemVisible($sub)) { $keptSub[] = $sub; }
+            }
+            // Drop a group that has real children but none survived the filter.
+            $hadRealChildren = false;
+            foreach ($item['submenu'] as $s) { if (!empty($s) && empty($s['divider'])) { $hadRealChildren = true; break; } }
+            if ($hadRealChildren && count(array_filter($keptSub, fn ($s) => empty($s['divider']))) === 0) {
+                continue;
+            }
+            $item['submenu'] = array_values($keptSub);
+            $filtered[] = $item;
+        } else {
+            // Leaf top-level item (no submenu) — gate on its own url.
+            if ($menuItemVisible($item)) { $filtered[] = $item; }
+        }
+    }
+    $adminMenu = array_values($filtered);
+}
 
 // PRE-CALCULATE WHICH MENUS SHOULD BE EXPANDED BASED ON CURRENT URL
 // IMPORTANT: This MUST be after all adminMenu items are added (including conditional modules)
