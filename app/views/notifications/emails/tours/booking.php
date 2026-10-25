@@ -51,12 +51,15 @@
     <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
         <div style="font-size: 12px; color: #718096; margin-bottom: 8px; text-transform: uppercase; font-weight: 600;">Payment Summary</div>
         <table style="width: 100%; border-collapse: collapse;">
+            <?php /* Price shown only on the PAID receipt; booking confirmation is price-free. */ ?>
+            <?php if (($paymentStatus ?? '') === 'paid'): ?>
             <tr>
                 <td style="padding: 8px 0; color: #718096; font-size: 14px;">Amount Paid:</td>
                 <td style="padding: 8px 0; color: #2d3748; font-weight: 600; text-align: right; font-size: 14px;">
                     <?= $currency ?> <?= number_format($finalTotal, 2) ?>
                 </td>
             </tr>
+            <?php endif; ?>
             <tr>
                 <td style="padding: 8px 0; color: #718096; font-size: 14px;">Status:</td>
                 <td style="padding: 8px 0; color: <?= ($paymentStatus === 'paid') ? '#10b981' : '#f59e0b' ?>; font-weight: 600; text-align: right; text-transform: uppercase; font-size: 14px;">
