@@ -156,6 +156,11 @@ require_once 'app/routes/users/agentWalletRoutes.php';     // P0: wallet + DVA f
 require_once 'app/routes/users/agentDashboardRoutes.php';  // P1: dashboard + onboarding
 require_once 'app/routes/users/agentStaffRoutes.php';      // P2: staff invites + roles RBAC
 require_once 'app/routes/users/agentBookingCentreRoutes.php'; // P3: booking centre + wallet settle (11 services)
+require_once 'app/routes/users/agentBrandingRoutes.php';   // P5: branding (logo/colours) + client self-markup
+require_once 'app/routes/users/agentClientsRoutes.php';    // P6a: client book / CRM
+require_once 'app/routes/users/agentTripsRoutes.php';      // P6b: trip plans + branded client proposals
+require_once 'app/routes/users/agentReportsRoutes.php';    // P7b: reports + statements (CSV)
+require_once 'app/routes/users/agentAuditRoutes.php';      // P8: agency activity log
 
 // SEO LANDING PAGES (evergreen route/city pages) — registered BEFORE the flight
 // listing routes so single-segment /flights/{from}-to-{to} matches here first.
