@@ -459,6 +459,10 @@ try {
     if (function_exists('ensureAdivahaHotelModule')) {
         ensureAdivahaHotelModule($db);
     }
+    // Register the Adivaha EXCURSIONS supplier (type='tours') as well (idempotent).
+    if (function_exists('ensureAdivahaExcursionModule')) {
+        ensureAdivahaExcursionModule($db);
+    }
     // Paystack Dedicated Virtual Accounts (NGN wallet NUBAN) — idempotent.
     if (function_exists('ensurePaystackDvaSchema')) {
         ensurePaystackDvaSchema($db);
