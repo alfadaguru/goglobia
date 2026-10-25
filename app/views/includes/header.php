@@ -367,6 +367,13 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
       @media (max-width: 1023px) {
         body.agent-sidebar-open { padding-left: 0; }
       }
+      /* The agent portal is a DEDICATED workspace — it must NOT also show the
+         public/customer top nav + footer (that was the "two menus" bug). Hide the
+         main site chrome whenever the agent sidebar is active; the agent sidebar
+         is the only nav. Scoped to agents only — customers/suppliers/admin
+         unaffected. */
+      body.agent-sidebar-open > header,
+      body.agent-sidebar-open > footer { display: none !important; }
       <?php endif; ?>
     </style>
 
