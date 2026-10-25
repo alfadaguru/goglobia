@@ -35766,3 +35766,118 @@ CREATE TABLE IF NOT EXISTS `discounts` (
   KEY `idx_active` (`status`, `scope_type`),
   KEY `idx_module` (`scope_module`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+-- Travel-Agent ERP portal (docs/agent/AGENT-ERP-SPEC.md)
+-- Mirrors app/lib/agent_portal.php ensureAgentPortalSchema() so a fresh install
+-- (and the admin Database-Update diff tool) has the same schema the runtime
+-- self-heal creates. All CREATE/ALTER are idempotent (MariaDB 10.4 supports
+-- ADD COLUMN IF NOT EXISTS), so this is safe whether or not the self-heal ran.
+-- --------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `agent_roles` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `owner_user_id` varchar(255) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `permissions` longtext DEFAULT NULL,
+  `is_system` tinyint(1) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_owner` (`owner_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `agent_staff` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `owner_user_id` varchar(255) NOT NULL,
+  `staff_user_id` varchar(255) DEFAULT NULL,
+  `role_id` int(11) DEFAULT NULL,
+  `invited_email` varchar(255) DEFAULT NULL,
+  `invite_token` varchar(255) DEFAULT NULL,
+  `invite_expires` datetime DEFAULT NULL,
+  `status` enum('invited','active','suspended','revoked') NOT NULL DEFAULT 'invited',
+  `accepted_at` datetime DEFAULT NULL,
+  `created_by` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_owner` (`owner_user_id`),
+  KEY `idx_staff` (`staff_user_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `agent_clients` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `owner_user_id` varchar(255) NOT NULL,
+  `title` varchar(16) DEFAULT NULL,
+  `first_name` varchar(120) DEFAULT NULL,
+  `last_name` varchar(120) DEFAULT NULL,
+  `email` varchar(255) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `phone_country_code` varchar(12) DEFAULT NULL,
+  `dob` date DEFAULT NULL,
+  `nationality` varchar(2) DEFAULT NULL,
+  `passport_number` varchar(60) DEFAULT NULL,
+  `passport_expiry` date DEFAULT NULL,
+  `tags` varchar(255) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `created_by` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_owner` (`owner_user_id`),
+  KEY `idx_email` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `agent_trip_plans` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `ref` varchar(40) NOT NULL,
+  `owner_user_id` varchar(255) NOT NULL,
+  `created_by` varchar(255) DEFAULT NULL,
+  `client_id` int(11) DEFAULT NULL,
+  `client_name` varchar(191) DEFAULT NULL,
+  `client_email` varchar(255) DEFAULT NULL,
+  `title` varchar(191) DEFAULT NULL,
+  `status` enum('draft','quoted','sent','accepted','booked','archived') NOT NULL DEFAULT 'draft',
+  `items_data` longtext DEFAULT NULL,
+  `totals_data` longtext DEFAULT NULL,
+  `snapshot_hash` varchar(64) DEFAULT NULL,
+  `client_token` varchar(80) DEFAULT NULL,
+  `currency` varchar(10) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `client_message` text DEFAULT NULL,
+  `expires_at` datetime DEFAULT NULL,
+  `sent_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_ref` (`ref`),
+  KEY `idx_owner` (`owner_user_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `agent_audit` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `owner_user_id` varchar(255) NOT NULL,
+  `actor_user_id` varchar(255) DEFAULT NULL,
+  `action` varchar(120) DEFAULT NULL,
+  `detail` text DEFAULT NULL,
+  `ip` varchar(64) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_owner` (`owner_user_id`),
+  KEY `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Agent-ERP columns on existing tables (idempotent; match the runtime self-heal)
+ALTER TABLE `agencies` ADD COLUMN IF NOT EXISTS `brand_primary` VARCHAR(7) DEFAULT NULL;
+ALTER TABLE `agencies` ADD COLUMN IF NOT EXISTS `brand_accent` VARCHAR(7) DEFAULT NULL;
+ALTER TABLE `agencies` ADD COLUMN IF NOT EXISTS `onboarding_done` TINYINT(1) NOT NULL DEFAULT 0;
+ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `agent_customer_markup` DECIMAL(10,2) DEFAULT NULL;
+ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `agent_customer_markup_type` VARCHAR(20) DEFAULT 'percentage';
+ALTER TABLE `bookings` ADD COLUMN IF NOT EXISTS `agency_id` VARCHAR(255) DEFAULT NULL;
+ALTER TABLE `bookings` ADD COLUMN IF NOT EXISTS `booked_by_staff_id` VARCHAR(255) DEFAULT NULL;
+ALTER TABLE `bookings` ADD COLUMN IF NOT EXISTS `agent_client_price` DECIMAL(14,2) DEFAULT NULL;
+ALTER TABLE `bookings` ADD COLUMN IF NOT EXISTS `agent_client_margin` DECIMAL(14,2) DEFAULT NULL;
+ALTER TABLE `settings` ADD COLUMN IF NOT EXISTS `agent_portal_enabled` ENUM('1','0') NOT NULL DEFAULT '1';
+ALTER TABLE `settings` ADD COLUMN IF NOT EXISTS `agent_dva_enabled` ENUM('1','0') NOT NULL DEFAULT '1';
+ALTER TABLE `settings` ADD COLUMN IF NOT EXISTS `agent_self_markup_enabled` ENUM('1','0') NOT NULL DEFAULT '1';
