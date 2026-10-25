@@ -548,6 +548,10 @@ $moduleTypes = ['flights','stays','tours','cars','bus','rail','cruises','visa','
                             'viator' => ['c1' => 'API Key'],
                             'viator_merchant' => ['c1' => 'API Key'],
                             'tiqets' => ['c1' => 'API Key'],
+                            // Adivaha B2C Excursions: c1 = sk_live_/sk_test_ secret key,
+                            // c2 = Partner ID (enables the 24h /token mint), c3 = optional
+                            // Base URL override (defaults to the Live B2C API base).
+                            'adivaha' => ['c1' => 'API Key (sk_live_ / sk_test_)', 'c2' => 'Partner ID', 'c3' => 'Base URL (optional)'],
                         ],
                         'esim' => [
                             'airalo' => ['c1' => 'Client ID', 'c2' => 'Client Secret'],
