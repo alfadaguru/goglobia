@@ -27,9 +27,10 @@ research; everything under **BUILD** does not exist yet.
 > **11 bookable services**, not 9: flights, stays, tours, cars, umrah, visa, bus,
 > rail, ferries, esim, **insurance**. The earlier "9" counted only the
 > `booking_pdf` PDF templates under `app/views/notifications/emails/<module>/` —
-> and **esim + ferries have NO booking_pdf template yet** (their confirmations are
-> on-screen/email only). So P4 (branded docs) must (a) brand the 9 existing PDFs
-> AND (b) add branded PDF/voucher templates for esim, ferries, and insurance. The
+> and **esim + insurance have NO booking_pdf template** (verified per-file: the
+> other 9 incl. ferries DO have one; esim fell through to the stays template).
+> So P4 (branded docs) must (a) brand the 9 existing PDFs AND (b) add a generic
+> branded PDF/voucher template for esim + insurance. The
 > Booking Centre (P3) covers all 11.
 5. **Scope: FULL 360° travel-agent ERP**, everything piped into our system, in
    detail. Build P0→P8, no steps skipped.
@@ -227,7 +228,7 @@ live preview). Optional later: full theme JSON like
 `supplier_sitebuilder.php:21-65` if the agent wants a branded micro-site.
 
 ### A7. ALL tickets + invoices in the agent's brand + contact
-**Today:** `GENERATE_BOOKING_PDF()` (`functions.php:3252`) renders **9 module PDF (of 11 services — esim/ferries lack one)
+**Today:** `GENERATE_BOOKING_PDF()` (`functions.php:3252`) renders **9 module PDF templates (of 11 services — esim + insurance lack one)
 templates** (the invoice PDF *is* the ticket/voucher — flights PDF carries
 segments/PNR/seats/baggage; stays PDF carries the hotel voucher + cancellation
 policy). A per-entity branding override (`wl_email_brand()`,
@@ -247,7 +248,7 @@ emails are **hardcoded to platform branding**.
   agency name, phone, email — client sees the agency, never GoGlobia, never the
   supplier (supplier identity already stripped from all docs — verified
   `invoice/summary.php`, `price_original` never rendered).
-**Decision §5.4 (LOCKED): all 11 services** — brand the 9 existing PDFs + add esim/ferries/insurance PDFs.
+**Decision §5.4 (LOCKED): all 11 services** — brand the 9 existing PDFs + add a generic PDF for esim + insurance.
 
 ### A8. A complete ERP — see §B for the full module set.
 
@@ -475,7 +476,7 @@ verify each over real HTTP where possible, and report before moving on.
   `AGENT_OR_STAFF_AUTH`, invite/accept/revoke.
 - **P3 — Booking Centre (M3)** across all 11 services + `agency_id`/
   `booked_by_staff_id`; wallet-settled; fix cart/dashboard earning bugs.
-- **P4 — Branded documents (M9)** across all 11 modules (incl. new esim/ferries/insurance PDFs) + emails + colour templates.
+- **P4 — Branded documents (M9)** across all 11 modules (incl. new generic PDF for esim + insurance) + emails + colour templates.
 - **P5 — Pricing & self-markup (M10)** — the agent client-price layer.
 - **P6 — Clients/CRM (M6) + Trip plans & proposals (M7).**
 - **P7 — Bookings management (M8) + Reports/statements (M11) + Tier/loyalty/credit

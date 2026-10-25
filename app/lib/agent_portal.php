@@ -407,6 +407,95 @@ if (!function_exists('AGENT_OR_STAFF_AUTH')) {
     }
 }
 
+// ----------------------------------------------------------------------------
+// BRANDING OVERRIDE — the agent-side parallel of wl_email_brand() (stays).
+// Given a booking, if it belongs to an agency (bookings.agency_id), return that
+// agency's brand identity so GENERATE_BOOKING_PDF() + emails render the agency's
+// logo / name / contact / colours instead of the platform's. Returns null when
+// the booking is not an agency booking (so platform branding is kept). Works for
+// ALL services — the caller swaps $settings + logo the same way for every module.
+// ----------------------------------------------------------------------------
+if (!function_exists('agent_booking_brand')) {
+    function agent_booking_brand($db, array $booking): ?array
+    {
+        $ownerId = (string) ($booking['agency_id'] ?? '');
+        // Fallback: a booking made by an agent before agency_id existed — if the
+        // owning user is an agent, treat it as an agency booking.
+        if ($ownerId === '') {
+            $uid = (string) ($booking['user_id'] ?? '');
+            if ($uid === '') { return null; }
+            try {
+                $u = $db->get('users', ['role'], ['user_id' => $uid]);
+                if (!$u || strtolower((string)($u['role'] ?? '')) !== 'agent') { return null; }
+                $ownerId = $uid;
+            } catch (\Throwable $e) { return null; }
+        }
+        try {
+            $ag = $db->get('agencies',
+                ['agency_name','email','phone','logo','brand_primary','brand_accent','address','city','country'],
+                ['user_id' => $ownerId]);
+        } catch (\Throwable $e) { return null; }
+        if (!$ag || empty($ag['agency_name'])) { return null; }
+
+        // Resolve a usable absolute logo URL (agencies.logo stores a relative path).
+        $logoUrl = '';
+        $logo = (string) ($ag['logo'] ?? '');
+        if ($logo !== '') {
+            $logoUrl = (stripos($logo, 'http') === 0) ? $logo : (rtrim(root, '/') . '/' . ltrim($logo, '/'));
+        }
+        $addressParts = array_filter([
+            trim((string)($ag['address'] ?? '')),
+            trim((string)($ag['city'] ?? '')),
+            trim((string)($ag['country'] ?? '')),
+        ]);
+        return [
+            'companyName'  => (string) $ag['agency_name'],
+            'supportEmail' => (string) ($ag['email'] ?? ''),
+            'supportPhone' => (string) ($ag['phone'] ?? ''),
+            'logoUrl'      => $logoUrl,
+            'colorPrimary' => (string) ($ag['brand_primary'] ?? ''),
+            'colorAccent'  => (string) ($ag['brand_accent'] ?? ''),
+            'address'      => implode(', ', $addressParts),
+        ];
+    }
+}
+
+// ----------------------------------------------------------------------------
+// SELF-MARKUP (P5/M10) — agency client price over the B2B cost the agent pays.
+// Stamps bookings.agent_client_price + agent_client_margin from the agency's
+// configured markup (users.agent_customer_markup[_type]). The agent still PAYS
+// $agentCost to us; the client price is what their BRANDED invoice shows. No-op
+// if self-markup is disabled (settings) or the agency set no markup.
+// ----------------------------------------------------------------------------
+if (!function_exists('agent_self_markup_value')) {
+    function agent_self_markup_value($db, string $ownerId): array
+    {
+        // [value, type] — type 'percentage'|'fixed'. Zero value => none.
+        try {
+            $u = $db->get('users', ['agent_customer_markup','agent_customer_markup_type'], ['user_id' => $ownerId]);
+        } catch (\Throwable $e) { return [0.0, 'percentage']; }
+        $v = (float) ($u['agent_customer_markup'] ?? 0);
+        $t = (string) ($u['agent_customer_markup_type'] ?? 'percentage');
+        return [$v, $t === 'fixed' ? 'fixed' : 'percentage'];
+    }
+}
+if (!function_exists('agent_apply_self_markup')) {
+    function agent_apply_self_markup($db, string $ownerId, string $invoiceId, float $agentCost, string $currency): void
+    {
+        if ((string) ($GLOBALS['app']['agent_self_markup_enabled'] ?? '1') !== '1') { return; }
+        [$val, $type] = agent_self_markup_value($db, $ownerId);
+        if ($val <= 0) { return; }
+        $margin = $type === 'fixed' ? $val : round($agentCost * $val / 100, 2);
+        if ($margin <= 0) { return; }
+        $clientPrice = round($agentCost + $margin, 2);
+        try {
+            $db->update('bookings',
+                ['agent_client_price' => $clientPrice, 'agent_client_margin' => $margin],
+                ['invoice_id' => $invoiceId]);
+        } catch (\Throwable $e) { error_log('agent_apply_self_markup: ' . $e->getMessage()); }
+    }
+}
+
 if (!function_exists('agent_audit_log')) {
     /** Append a row to agent_audit (best-effort; never throws into the request). */
     function agent_audit_log($db, string $owner, string $actor, string $action, string $detail = ''): void

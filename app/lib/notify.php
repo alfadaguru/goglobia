@@ -264,6 +264,21 @@ class NOTIFY {
             $templateData = array_merge($templateData, $customerData, $bookingData);
             $templateData['settings'] = $settings; // Ensure settings are available in templates
             $templateData['language'] = $bookingLanguage;
+            // AGENT ERP (P4): if this booking belongs to an AGENCY, brand the email
+            // with the agency's name/contact/logo so the client sees the agency,
+            // not GoGlobia (and never the supplier). Parallel of the PDF hook.
+            if (function_exists('agent_booking_brand') && $invoiceId !== '') {
+                try {
+                    $__abRow = $db->get('bookings', ['agency_id','user_id'], ['invoice_id' => $invoiceId]);
+                    $__ab = $__abRow ? agent_booking_brand($db, $__abRow) : null;
+                    if ($__ab) {
+                        $settings['business_name'] = $__ab['companyName'] ?? ($settings['business_name'] ?? '');
+                        if (!empty($__ab['supportEmail'])) { $settings['contact_email'] = $__ab['supportEmail']; }
+                        if (!empty($__ab['supportPhone'])) { $settings['contact_phone'] = $__ab['supportPhone']; }
+                        if (!empty($__ab['logoUrl']))      { $templateData['logoUrl'] = $__ab['logoUrl']; }
+                    }
+                } catch (\Throwable $e) { error_log('notify agent brand: ' . $e->getMessage()); }
+            }
             $companyName = $settings['business_name'] ?? 'GoGlobia';
             $templateData['companyName'] = $companyName;
             $templateData['invoiceUrl'] = root . 'invoice/' . $module . '/' . $invoiceId;

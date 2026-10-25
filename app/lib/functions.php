@@ -3429,6 +3429,28 @@ function GENERATE_BOOKING_PDF($invoiceId)
                 if (!empty($__wlB['logoUrl']))      { $wlPdfLogo = (string) $__wlB['logoUrl']; }
             }
         }
+        // AGENT ERP (P4): for a booking made by/through an AGENCY (any of the 11
+        // services), swap the PDF's brand identity to the AGENCY's logo / name /
+        // contact so the invoice + ticket/voucher the agent shares with their
+        // client carries the agency brand, never GoGlobia and never the supplier.
+        // Parallel of the stays white-label hook above; applies to all modules.
+        $agentBrandColors = null;
+        if (function_exists('agent_booking_brand')) {
+            $__ab = agent_booking_brand($db, $booking);
+            if ($__ab) {
+                $settings['business_name'] = $__ab['companyName'] ?? ($settings['business_name'] ?? '');
+                if (!empty($__ab['supportEmail'])) { $settings['contact_email'] = $__ab['supportEmail']; }
+                if (!empty($__ab['supportPhone'])) { $settings['contact_phone'] = $__ab['supportPhone']; }
+                if (!empty($__ab['logoUrl']))      { $wlPdfLogo = (string) $__ab['logoUrl']; }
+                // Expose agency colours to the template (optional; templates that
+                // honour them re-skin, others ignore — no breakage).
+                $agentBrandColors = [
+                    'primary' => $__ab['colorPrimary'] ?? '',
+                    'accent'  => $__ab['colorAccent'] ?? '',
+                    'address' => $__ab['address'] ?? '',
+                ];
+            }
+        }
         $businessName = getBrandName($settings);
         $businessEmail = $settings['contact_email'] ?? 'hi@goglobia.com';
         $businessPhone = $settings['contact_phone'] ?? '+1234567890';
@@ -3541,6 +3563,12 @@ function GENERATE_BOOKING_PDF($invoiceId)
             $templatePath = __DIR__ . '/../views/notifications/emails/bus/booking_pdf.php';
         } elseif ($moduleType === 'rail') {
             $templatePath = __DIR__ . '/../views/notifications/emails/rail/booking_pdf.php';
+        } elseif (in_array($moduleType, ['esim', 'insurance'], true)) {
+            // esim + insurance had NO bespoke PDF template (esim fell through to the
+            // stays template, which rendered wrong content). Use the generic,
+            // agent-brand-aware voucher (Agent ERP P4). All other 9 services keep
+            // their own template.
+            $templatePath = __DIR__ . '/../views/notifications/emails/generic/booking_pdf.php';
         } else {
             $templatePath = __DIR__ . '/../views/notifications/emails/stays/booking_pdf.php';
         }
