@@ -150,6 +150,12 @@ require_once 'app/routes/users/agencyRoutes.php';
 require_once 'app/routes/users/agencySignupRoutes.php';
 require_once 'app/routes/users/agentApiRoutes.php';
 
+// TRAVEL-AGENT ERP PORTAL (/agent/*) — docs/agent/AGENT-ERP-SPEC.md.
+// Dedicated agency workspace: wallet/DVA, dashboard, onboarding, staff+RBAC,
+// booking centre, clients CRM, trip plans, reports, branding. Gated by
+// AGENT_OR_STAFF_AUTH + agent_can (app/lib/agent_portal.php).
+require_once 'app/routes/users/agentWalletRoutes.php';     // P0: wallet + DVA funding
+
 // SEO LANDING PAGES (evergreen route/city pages) — registered BEFORE the flight
 // listing routes so single-segment /flights/{from}-to-{to} matches here first.
 require_once 'app/routes/seo/landingRoutes.php';

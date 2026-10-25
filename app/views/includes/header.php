@@ -21,9 +21,20 @@ if (!$isAdminSidebar && function_exists('supplier_acting_context')) {
         $isSupplierSidebar = ($__sctx !== null && empty($__sctx['is_admin']));
     } catch (\Throwable $e) { $isSupplierSidebar = false; }
 }
+// AGENT SIDEBAR (Travel-Agent ERP portal) — shown to an agency owner OR active
+// agent-staff (never admin/supplier). agent_acting_context() is non-null for
+// exactly those users. Fixed-width, mirrors the supplier sidebar mechanism.
+$isAgentSidebar = false;
+if (!$isAdminSidebar && !$isSupplierSidebar && function_exists('agent_acting_context')) {
+    try {
+        $__actx = agent_acting_context($db);
+        $isAgentSidebar = ($__actx !== null && empty($__actx['is_admin']));
+    } catch (\Throwable $e) { $isAgentSidebar = false; }
+}
 $sidebarExpanded  = $isAdminSidebar && (($_COOKIE['pt_sidebar'] ?? '') === 'expanded');
 $sidebarBodyClass = $isAdminSidebar ? ($sidebarExpanded ? ' sidebar-open' : ' sidebar-closed')
-                   : ($isSupplierSidebar ? ' supplier-sidebar-open' : '');
+                   : ($isSupplierSidebar ? ' supplier-sidebar-open'
+                   : ($isAgentSidebar ? ' agent-sidebar-open' : ''));
 $headerPages = cms($db, "header", "headerfooter");
 
 if (!function_exists('flagAssetPath')) {
@@ -345,6 +356,16 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
       }
       @media (max-width: 1023px) {
         body.supplier-sidebar-open { padding-left: 0; }
+      }
+      <?php endif; ?>
+      <?php if (!empty($isAgentSidebar)): ?>
+      /* AGENT ERP SIDEBAR — fixed 240px rail on desktop; off-canvas on mobile
+         (toggled by the #agent-nav checkbox in the agent sidebar). */
+      @media (min-width: 1024px) {
+        body.agent-sidebar-open { padding-left: 240px; }
+      }
+      @media (max-width: 1023px) {
+        body.agent-sidebar-open { padding-left: 0; }
       }
       <?php endif; ?>
     </style>
@@ -1326,4 +1347,7 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
     // Supplier sidebar (inc S34) — rendered only for supplier owners/staff (the file
     // self-guards on supplier_acting_context too).
     if ($isSupplierSidebar) { include "app/views/supplier/sidebar.php"; }
+    // Agent sidebar (Travel-Agent ERP portal) — rendered only for agency owners/
+    // staff (the file self-guards on agent_acting_context too).
+    if (!empty($isAgentSidebar)) { include "app/views/agent/sidebar.php"; }
     ?>
