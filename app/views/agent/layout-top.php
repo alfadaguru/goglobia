@@ -26,6 +26,13 @@ $__brandName = $GLOBALS['app']['business_name'] ?? 'GoGlobia';
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://cdn.jsdelivr.net">
     <?php require_once "app/views/tailwind.php"; ?>
+    <!-- The compiled stylesheets the shared header loads — tailwind.php only emits
+         config/inline rules, NOT the built CSS, so without these the portal renders
+         completely unstyled (and icons show as literal text). Mirror the shared
+         header: precompiled Tailwind + Material Symbols icon font + app.css. -->
+    <link rel="stylesheet" href="<?= versionedAssetUrl('assets/css/tailwind.build.css') ?>">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
+    <link rel="stylesheet" href="<?= versionedAssetUrl('assets/css/app.css') ?>">
     <style>
         [x-cloak] { display: none !important; }
         /* Dedicated agent shell: fixed 240px sidebar on desktop, off-canvas on mobile. */
