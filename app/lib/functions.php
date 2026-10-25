@@ -787,6 +787,52 @@ function cleanInput($data)
 }
 
 /**
+ * Schema-ensure run-once gate (performance).
+ *
+ * The self-healing ensure*Schema()/ensure*Content() functions in config.php run
+ * on EVERY request and collectively fire ~120 SHOW COLUMNS / SHOW TABLES probes —
+ * tens of milliseconds of pure metadata queries per page load on an already-
+ * migrated DB, for zero benefit once the schema is current.
+ *
+ * This gate records the APPLIED ensure-version in settings.schema_ensure_version.
+ * appSchemaEnsureNeeded() returns true only when the stored version is behind the
+ * code's current version (APP_SCHEMA_ENSURE_VERSION, bumped whenever an ensure is
+ * added or changed) — so on a warm, up-to-date install the entire block is
+ * skipped. appSchemaEnsureMark() stamps the version, and the caller stamps it ONLY
+ * after the whole block ran without the DB connection failing, so a partial/failed
+ * run is retried on the next request (never silently skipped).
+ *
+ * Fail-safe: if the column can't be read/created (locked-down DB user, etc.) the
+ * gate returns true (run the ensures) — i.e. it degrades to today's behaviour
+ * rather than skipping a migration it couldn't confirm.
+ */
+function appSchemaEnsureNeeded($db, int $version): bool
+{
+    try {
+        $col = $db->query("SHOW COLUMNS FROM `settings` LIKE 'schema_ensure_version'")->fetchAll();
+        if (empty($col)) {
+            // Column doesn't exist yet → never gated before → must run.
+            $db->query("ALTER TABLE `settings` ADD COLUMN `schema_ensure_version` INT NOT NULL DEFAULT 0");
+            return true;
+        }
+        $applied = (int) ($db->get('settings', 'schema_ensure_version', ['id' => 1]) ?: 0);
+        return $applied < $version;
+    } catch (\Throwable $e) {
+        error_log('appSchemaEnsureNeeded: ' . $e->getMessage());
+        return true; // degrade to always-run on any uncertainty
+    }
+}
+
+function appSchemaEnsureMark($db, int $version): void
+{
+    try {
+        $db->update('settings', ['schema_ensure_version' => $version], ['id' => 1]);
+    } catch (\Throwable $e) {
+        error_log('appSchemaEnsureMark: ' . $e->getMessage());
+    }
+}
+
+/**
  * Sanitise rich HTML (blog post bodies / CMS rich content) against stored XSS,
  * while KEEPING the legitimate formatting a content editor uses. Blog bodies are
  * rendered raw (Ghost-style) and the `cms` capability that authorises writing

@@ -447,6 +447,19 @@ try {
         exit('Database tables not found. Redirecting to installer...');
     }
 
+    // PERFORMANCE GATE: the self-healing ensure*() block below fires ~120
+    // SHOW COLUMNS/SHOW TABLES probes. Skip it entirely once this install's schema
+    // matches the code (settings.schema_ensure_version). BUMP the version below
+    // whenever you ADD or CHANGE an ensure* so existing installs re-run the block
+    // once and pick up the new migration/seed. The version is stamped only AFTER
+    // the whole block completes (see appSchemaEnsureMark at the end), so a failed
+    // run retries next request. Fail-safe: if the gate can't be read it runs anyway.
+    if (!defined('APP_SCHEMA_ENSURE_VERSION')) {
+        define('APP_SCHEMA_ENSURE_VERSION', 1);
+    }
+    $__runEnsures = !function_exists('appSchemaEnsureNeeded')
+        || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);
+    if ($__runEnsures) {
     // Self-heal any columns a code update expects but this install's DB
     // doesn't have yet (no-op once they exist — see functions.php). Fixes
     // "No payment methods available" on sites updated without migrating.
@@ -586,6 +599,13 @@ try {
             seedUmrahPhase1($db);
         }
     }
+
+        // All ensures completed this request → stamp the applied version so the
+        // whole block is skipped on subsequent requests until the version is bumped.
+        if (function_exists('appSchemaEnsureMark')) {
+            appSchemaEnsureMark($db, APP_SCHEMA_ENSURE_VERSION);
+        }
+    } // end if ($__runEnsures)
 } catch (PDOException $e) {
     // Database connection failed - redirect to install
     if (!headers_sent()) {
