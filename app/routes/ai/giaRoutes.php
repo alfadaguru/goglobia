@@ -311,7 +311,11 @@ $router->post('/api/gia/chat', function () use ($db) {
         if ($effectiveUserId !== '' && function_exists('gia_user_snapshot')) {
             try {
                 $__snap = gia_user_snapshot($db, $effectiveUserId);
-                $__line = function_exists('gia_user_summary_line') ? gia_user_summary_line($__snap) : '';
+                // GA6: prefer the time-aware proactive nudge (imminent trip / unpaid
+                // booking) over a generic trip count; fall back to the summary line.
+                $__line = function_exists('gia_user_proactive_note')
+                    ? gia_user_proactive_note($__snap)
+                    : (function_exists('gia_user_summary_line') ? gia_user_summary_line($__snap) : '');
                 if ($__line !== '') {
                     $agent->addSystemNote('ACCOUNT CONTEXT (trusted): ' . $__line
                         . ' Use the get_my_account tool for full booking/wallet/loyalty detail when asked. '

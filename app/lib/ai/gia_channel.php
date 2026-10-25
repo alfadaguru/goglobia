@@ -396,6 +396,20 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
                         if ($__pref !== '') { $agent->addSystemNote($__pref); }
                     } catch (\Throwable $e) { error_log('[gia] channel pref note: ' . $e->getMessage()); }
                 }
+                // PROACTIVE account note (GA6): a time-aware nudge (imminent trip /
+                // unpaid booking) so a returning WhatsApp/Telegram user gets the
+                // same proactivity the web widget does. Grounded in real bookings.
+                if (function_exists('gia_user_snapshot') && function_exists('gia_user_proactive_note')) {
+                    try {
+                        require_once $aiDir . 'gia_account.php';
+                        $__snapC = gia_user_snapshot($db, (string) $toolContext['account_id']);
+                        $__noteC = gia_user_proactive_note($__snapC);
+                        if ($__noteC !== '') {
+                            $agent->addSystemNote('ACCOUNT CONTEXT (trusted): ' . $__noteC
+                                . ' Use get_my_account for full detail when asked. Never invent bookings.');
+                        }
+                    } catch (\Throwable $e) { error_log('[gia] channel account note: ' . $e->getMessage()); }
+                }
             } else {
                 // No account on this chat yet — let GIA create one from name +
                 // phone with a WhatsApp OTP (the tool self-gates and only ever
