@@ -70,9 +70,9 @@ $router->get('/agent/booking-centre', function () use ($SECURE, $db) {
     try { $ag = $db->get('agencies', 'agency_name', ['user_id' => (string)$ctx['owner']]); if ($ag) { $agencyName = (string)$ag; } } catch (\Throwable $e) {}
 
     $title = 'Booking Centre';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/booking-centre.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 // ---- GET /agent/bookings ----------------------------------------------------
@@ -95,9 +95,9 @@ $router->get('/agent/bookings', function () use ($SECURE, $db) {
     } catch (\Throwable $e) { error_log('agent/bookings: ' . $e->getMessage()); }
 
     $title = 'Bookings';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/bookings.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 // Shared loader: fetch an UNPAID booking that belongs to this agency (or was made
@@ -142,9 +142,9 @@ $router->get('/agent/booking/([A-Za-z0-9]+)/pay', function ($invoiceId) use ($SE
     $alreadyPaid = (($booking['payment_status'] ?? '') === 'paid');
 
     $title = 'Pay for booking';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/booking-pay.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 // ---- POST /agent/booking/{inv}/pay  (settle from wallet) -------------------

@@ -116,9 +116,9 @@ $router->get('/agent/dashboard', function () use ($SECURE, $db) {
     $onboarding = agent_onboarding_state($db, $ownerId);
 
     $title = 'Agent Dashboard';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/dashboard.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 // ---- GET /agent/onboarding --------------------------------------------------
@@ -129,7 +129,7 @@ $router->get('/agent/onboarding', function () use ($SECURE, $db) {
     $ownerId = (string) $ctx['owner'];
     $onboarding = agent_onboarding_state($db, $ownerId);
     $title = 'Get started';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/onboarding.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });

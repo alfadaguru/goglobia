@@ -43,9 +43,9 @@ $router->get('/agent/branding', function () use ($SECURE, $db) {
     $logoUrl = !empty($agency['logo']) ? (rtrim(root,'/').'/'.ltrim((string)$agency['logo'],'/')) : '';
 
     $title = 'Branding';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/branding.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 $router->post('/agent/branding/save', function () use ($SECURE, $db) {

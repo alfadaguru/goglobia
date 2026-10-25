@@ -63,9 +63,9 @@ $router->get('/agent/staff', function () use ($SECURE, $db) {
     $canManage = ($ctx['is_owner'] ?? false) || agent_can($db, 'staff', 'manage');
 
     $title = 'Staff & Roles';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/staff.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 // ---- POST /agent/staff/invite ----------------------------------------------
@@ -175,9 +175,9 @@ $router->get('/agent/staff/accept', function () use ($SECURE, $db) {
         }
     }
     $title = 'Accept Invitation';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/staff-accept.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 // ---- POST /agent/staff/accept ----------------------------------------------
@@ -262,9 +262,9 @@ $router->get('/agent/roles', function () use ($SECURE, $db) {
     $canManage = ($ctx['is_owner'] ?? false) || agent_can($db, 'roles', 'manage');
 
     $title = 'Roles & Permissions';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/roles.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 $router->post('/agent/roles/save', function () use ($SECURE, $db) {

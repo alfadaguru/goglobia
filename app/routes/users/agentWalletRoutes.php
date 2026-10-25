@@ -74,9 +74,9 @@ $router->get('/agent/wallet', function () use ($SECURE, $db) {
     $canFund = agent_can($db, 'wallet', 'fund');
 
     $title = 'Agency Wallet';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/wallet.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 // ---- POST /agent/wallet/dva/activate ---------------------------------------

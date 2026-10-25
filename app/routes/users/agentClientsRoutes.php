@@ -52,9 +52,9 @@ $router->get('/agent/clients', function () use ($SECURE, $db) {
     $canEdit = agent_can($db, 'clients', 'add') || agent_can($db, 'clients', 'edit');
 
     $title = 'Clients';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/clients.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 // ---- GET /agent/clients/new  &  /agent/clients/{id}/edit --------------------
@@ -63,9 +63,9 @@ $router->get('/agent/clients/new', function () use ($SECURE, $db) {
     if (!agent_can($db, 'clients', 'add')) { _agent_clients_deny('You cannot add clients.'); }
     $client = null;
     $title = 'Add client';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/client-form.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 $router->get('/agent/clients/([0-9]+)/edit', function ($id) use ($SECURE, $db) {
@@ -74,9 +74,9 @@ $router->get('/agent/clients/([0-9]+)/edit', function ($id) use ($SECURE, $db) {
     $client = $db->get('agent_clients', '*', ['id' => (int)$id, 'owner_user_id' => $owner]);
     if (!$client) { _agent_clients_deny('Client not found.'); }
     $title = 'Edit client';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/client-form.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 // ---- POST /agent/clients/save ----------------------------------------------

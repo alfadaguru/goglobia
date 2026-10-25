@@ -38,7 +38,7 @@ $router->get('/agent/activity', function () use ($SECURE, $db) {
     }
 
     $title = 'Activity log';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/activity.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });

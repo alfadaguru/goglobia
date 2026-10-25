@@ -94,9 +94,9 @@ $router->get('/agent/reports', function () use ($SECURE, $db) {
     $canExport = agent_can($db, 'reports', 'export');
 
     $title = 'Reports';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/reports.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 // ---- GET /agent/reports/export  (per-booking statement CSV) ----------------

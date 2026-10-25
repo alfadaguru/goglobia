@@ -61,9 +61,9 @@ $router->get('/agent/trips', function () use ($SECURE, $db) {
     $canEdit = agent_can($db, 'trips', 'add') || agent_can($db, 'trips', 'edit');
 
     $title = 'Trip Plans';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/trips.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 // ---- GET /agent/trips/new ---------------------------------------------------
@@ -74,9 +74,9 @@ $router->get('/agent/trips/new', function () use ($SECURE, $db) {
     try { $clients = $db->select('agent_clients', ['id','first_name','last_name','email'], ['owner_user_id'=>$owner,'ORDER'=>['id'=>'DESC'],'LIMIT'=>200]) ?: []; } catch (\Throwable $e) {}
     $defaultCurrency = function_exists('wallet_default_currency') ? wallet_default_currency($db) : 'NGN';
     $title = 'New trip plan';
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/trip-new.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 // ---- POST /agent/trips/save  (create plan meta) ----------------------------
@@ -128,9 +128,9 @@ $router->get('/agent/trips/(TRP[A-Z0-9]+)', function ($ref) use ($SECURE, $db) {
     $services = ['flights','stays','tours','cars','umrah','visa','bus','rail','ferries','esim','insurance'];
 
     $title = 'Trip: ' . (string)$trip['title'];
-    require_once views."includes/header.php";
+    require_once views."agent/layout-top.php";
     require_once views."agent/trip-builder.php";
-    require_once views."includes/footer.php";
+    require_once views."agent/layout-bottom.php";
 });
 
 // ---- POST /agent/trips/{ref}/lines  (replace items) ------------------------
