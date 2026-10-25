@@ -127,6 +127,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/selectOptionTool.php';
     require_once $aiDir . 'tools/composeTripTool.php';
     require_once $aiDir . 'tools/createCheckoutTool.php';
+    require_once $aiDir . 'tools/paymentOptionsTool.php';   // surface Pay-Small-Small / Pay-Later (GA7)
     require_once $aiDir . 'tools/createBookingTool.php';
     require_once $aiDir . 'tools/requestApprovalTool.php';
     require_once $aiDir . 'tools/initiatePaymentTool.php';
@@ -282,6 +283,7 @@ $router->post('/api/gia/chat', function () use ($db) {
         $agent->registerTool(new \App\lib\ai\selectOptionTool());
         $agent->registerTool(new \App\lib\ai\composeTripTool());
         $agent->registerTool(new \App\lib\ai\createCheckoutTool());
+        $agent->registerTool(new \App\lib\ai\paymentOptionsTool());
         $agent->registerTool(new \App\lib\ai\createBookingTool());
         $agent->registerTool(new \App\lib\ai\requestApprovalTool());
         $agent->registerTool(new \App\lib\ai\initiatePaymentTool());
