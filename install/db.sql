@@ -1254,6 +1254,7 @@ CREATE TABLE `bookings` (
   `booking_response` text DEFAULT NULL,
   `error_response` text DEFAULT NULL,
   `commission` varchar(255) DEFAULT NULL,
+  `discount` int(11) NOT NULL DEFAULT 0,
   `module` varchar(255) NOT NULL,
   `special_requests` text DEFAULT NULL,
   `promo_codes` longtext DEFAULT NULL,

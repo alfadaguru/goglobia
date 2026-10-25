@@ -892,6 +892,13 @@ function ensureCoreFixSchema($db): void
         ['bookings', 'refund_reason',       "ALTER TABLE `bookings` ADD COLUMN `refund_reason` VARCHAR(255) NULL DEFAULT NULL"],
         ['bookings', 'refund_requested_at', "ALTER TABLE `bookings` ADD COLUMN `refund_requested_at` DATETIME NULL DEFAULT NULL"],
         ['bookings', 'cancelled_at',        "ALTER TABLE `bookings` ADD COLUMN `cancelled_at` DATETIME NULL DEFAULT NULL"],
+        // Auto-discount amount applied at booking. BOTH the flights and tours
+        // booking inserts write bookings.discount (flights/bookingRoutes.php:1158,
+        // tours/bookingRoutes.php:534), but the column was never in install/db.sql
+        // nor self-healed here — so on any DB without it, EVERY flights/tours
+        // booking fails with "Unknown column 'discount'". Idempotent add. (Caught
+        // by the agent booking e2e test, but this is platform-wide, not agent-only.)
+        ['bookings', 'discount',            "ALTER TABLE `bookings` ADD COLUMN `discount` INT(11) NOT NULL DEFAULT 0"],
     ];
 
     foreach ($columns as [$table, $column, $alterSql]) {
