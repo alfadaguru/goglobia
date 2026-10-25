@@ -40,7 +40,13 @@ $areaLabels = [
     'support_dashboard' => 'Support dashboard', 'support_desk' => 'Live chat desk',
     'support_tickets' => 'Support tickets', 'support_attendance' => 'Attendance',
     'support_shifts' => 'Shifts', 'support_campaigns' => 'Ad campaigns',
-    'support_targets' => 'Targets',
+    'support_targets' => 'Targets', 'referrals' => 'Referral program',
+    'discounts' => 'Discounts', 'promo_codes' => 'Promo codes', 'blogs' => 'Blog',
+    'menus' => 'Menus', 'seo' => 'SEO', 'money' => 'Loyalty & wallet',
+    'gia' => 'GIA assistant', 'database' => 'Database tools', 'agent_api' => 'Agent API',
+    'supplier_payouts' => 'Supplier payouts', 'transactions' => 'Transactions',
+    'modules' => 'Modules', 'campaigns' => 'Email campaigns',
+    'notification_templates' => 'Notification templates',
 ];
 $actionLabels = [
     'page_access' => 'Open', 'view' => 'View', 'add' => 'Add', 'edit' => 'Edit',

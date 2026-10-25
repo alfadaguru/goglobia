@@ -85,6 +85,7 @@ if (!function_exists('admin_area_catalogue')) {
             'campaigns'              => ['page_access', 'add', 'edit', 'view', 'delete'], // email campaigns + templates
             'discounts'              => ['page_access', 'add', 'edit', 'view', 'delete'],
             'promo_codes'            => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'referrals'              => ['page_access', 'view', 'edit'], // referral program settings
 
             // --- Customer Support areas (replacing the support capability slugs) -
             // Migration map from the old support_can caps (see

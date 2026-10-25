@@ -9,6 +9,7 @@
 // GET — config + audit dashboard
 $router->get(admin.'/referrals', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    if (function_exists('admin_require')) { admin_require($db, 'referrals', 'view'); }
     if (function_exists('ensureReferralSchema')) { ensureReferralSchema($db); }
 
     $cfg = function_exists('referral_config') ? referral_config($db) : [];
@@ -37,6 +38,7 @@ $router->get(admin.'/referrals', function () use ($SECURE, $db) {
 // POST — save config
 $router->post(admin.'/referrals/save', function () use ($SECURE, $db) {
     ADMIN_AUTH();
+    if (function_exists('admin_require')) { admin_require($db, 'referrals', 'edit'); }
     CSRF::verifyRequest();
 
     $enabled  = isset($_POST['referral_enabled']) && $_POST['referral_enabled'] ? 1 : 0;
