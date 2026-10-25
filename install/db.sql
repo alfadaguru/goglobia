@@ -27581,6 +27581,31 @@ CREATE TABLE IF NOT EXISTS `user_travellers` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `gia_user_preferences`
+-- GIA opt-in, consent-backed long-term travel preferences (GA4; BRD MEM-001..008).
+-- Only allow-listed keys (home_airport/cabin/airline/seat/meal/budget/stars/language);
+-- NEVER passport/payment (MEM-003). consent + provenance + expiry per fact (MEM-005).
+-- Managed by ensureGiaPreferencesSchema()/gia_pref_* in app/lib/ai/gia_preferences.php.
+-- (The MEM-008 master off-switch lives on users.gia_personalization_off.)
+--
+CREATE TABLE IF NOT EXISTS `gia_user_preferences` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` varchar(255) NOT NULL,
+  `pref_key` varchar(48) NOT NULL,
+  `pref_value` varchar(255) NOT NULL,
+  `consent` tinyint(1) NOT NULL DEFAULT 1,
+  `provenance` varchar(32) NOT NULL DEFAULT 'stated',
+  `expires_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_user_key` (`user_id`,`pref_key`),
+  KEY `idx_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `gia_events`
 -- GIA (AI agent) outcome events — search / view / checkout / approve / pay /
 -- book / lead_capture — the data the admin conversion funnel + reports read.
@@ -31743,6 +31768,7 @@ CREATE TABLE `users` (
   `banned` tinyint(1) DEFAULT 0,
   `email_verified` tinyint(1) DEFAULT 0,
   `phone_verified` tinyint(1) NOT NULL DEFAULT 0,
+  `gia_personalization_off` tinyint(1) NOT NULL DEFAULT 0,
   `last_login` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),

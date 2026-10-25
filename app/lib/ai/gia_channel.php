@@ -165,6 +165,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         require_once $aiDir . 'tools/verifyIdentityTool.php';
         require_once $aiDir . 'tools/userAccountTool.php';   // full account awareness (all bookings/wallet/loyalty)
         require_once $aiDir . 'tools/myTravellersTool.php';  // saved travellers for reuse (never re-type)
+        require_once $aiDir . 'tools/preferencesTool.php';   // opt-in consented travel preferences (BRD MEM)
         require_once $aiDir . 'tools/updateProfileTool.php'; // allow-listed profile update
         require_once $aiDir . 'tools/registerAccountTool.php'; // passwordless phone-OTP account signup
         require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow
@@ -382,6 +383,15 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
                 $agent->registerTool(new userAccountTool());
                 $agent->registerTool(new myTravellersTool());
                 $agent->registerTool(new updateProfileTool());
+                $agent->registerTool(new preferencesTool());
+                // SAVED PREFERENCES note (GA4, BRD MEM): rank + pre-fill to them.
+                if (function_exists('gia_pref_summary_note')) {
+                    try {
+                        require_once $aiDir . 'gia_preferences.php';
+                        $__pref = gia_pref_summary_note($db, (string) $toolContext['account_id']);
+                        if ($__pref !== '') { $agent->addSystemNote($__pref); }
+                    } catch (\Throwable $e) { error_log('[gia] channel pref note: ' . $e->getMessage()); }
+                }
             } else {
                 // No account on this chat yet — let GIA create one from name +
                 // phone with a WhatsApp OTP (the tool self-gates and only ever
