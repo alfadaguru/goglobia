@@ -10,7 +10,7 @@
 // explicit token (belt-and-braces), via a data-csrf attribute.
 //
 // Vars provided by the route: $online (array), $report (array), $from, $to,
-// $staffId (int), $amClockedIn (bool), $viewAll (bool).
+// $staffId (string = users.user_id), $amClockedIn (bool), $viewAll (bool).
 @$SECURE or die('Access Denied!');
 
 $attBase  = root . admin . '/support';
@@ -44,7 +44,7 @@ if (!function_exists('support_fmt_duration')) {
   </div>
 
   <!-- MY CLOCK -->
-  <?php if ($staffId > 0): ?>
+  <?php if ($staffId !== ''): ?>
   <div class="mb-5 border border-gray-100 rounded-xl bg-white p-4 flex items-center justify-between gap-4 flex-wrap">
     <div class="flex items-center gap-3">
       <span id="clockDot" class="inline-block w-3 h-3 rounded-full <?= $amClockedIn ? 'bg-emerald-500' : 'bg-gray-300' ?>"></span>
@@ -198,7 +198,7 @@ if (!function_exists('support_fmt_duration')) {
   var CSRF = (document.getElementById('attRoot') || {}).dataset
     ? document.getElementById('attRoot').dataset.csrf
     : ((document.querySelector('meta[name="csrf-token"]') || {}).content || '');
-  var STAFF_ID = <?= (int) $staffId ?>;
+  var STAFF_ID = <?= json_encode((string) $staffId) ?>;
 
   // Per-tab session id for presence (opaque — the server just stores it).
   var SESSION_ID = (function () {

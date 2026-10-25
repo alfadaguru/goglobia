@@ -6,6 +6,8 @@
 $router->get(admin.'/support/tickets', function () use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    if (!admin_can($db, 'support_tickets', 'view')) { http_response_code(403); die('Access Denied!'); }
+    if (function_exists('ensureSupportTicketExtSchema')) { ensureSupportTicketExtSchema($db); }
 
     // META DATA
     $title = T::support.' '.T::tickets;
@@ -21,6 +23,8 @@ $router->get(admin.'/support/ticket/(.+)', function ($ticket_id) use ($SECURE,$d
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    if (!admin_can($db, 'support_tickets', 'view')) { http_response_code(403); die('Access Denied!'); }
+    if (function_exists('ensureSupportTicketExtSchema')) { ensureSupportTicketExtSchema($db); }
 
     // META DATA
     $title = T::support.' '.T::ticket;
@@ -36,6 +40,8 @@ $router->post(admin.'/support/tickets/create', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    if (!admin_can($db, 'support_tickets', 'edit')) { http_response_code(403); die('Access Denied!'); }
+    if (function_exists('ensureSupportTicketExtSchema')) { ensureSupportTicketExtSchema($db); }
 
     try {
         // Validate CSRF token
@@ -100,6 +106,14 @@ $router->post(admin.'/support/tickets/create', function () use ($SECURE,$db) {
             }
         }
 
+        // Soft SLA deadline by priority (so the ticket list SLA badge is meaningful
+        // for every ticket, not just booking-linked ones). support_ticket_sla_default
+        // lives in app/lib/support/tickets_ext.php (loaded globally in config.php).
+        $slaDueAt = null;
+        if (function_exists('support_ticket_sla_default')) {
+            $slaDueAt = date('Y-m-d H:i:s', time() + support_ticket_sla_default((string) $priority) * 3600);
+        }
+
         // Insert ticket
         $result = $db->insert('tickets', [
             'ticket_id' => $ticket_id,
@@ -110,6 +124,7 @@ $router->post(admin.'/support/tickets/create', function () use ($SECURE,$db) {
             'status' => 'open',
             'type' => 'parent',
             'attachments' => $attachment,
+            'sla_due_at' => $slaDueAt,
             'date' => date('Y-m-d H:i:s')
         ]);
 
@@ -176,6 +191,7 @@ $router->post(admin.'/support/tickets/update-status', function () use ($SECURE,$
     ADMIN_AUTH();
 
     header('Content-Type: application/json');
+    if (!admin_can($db, 'support_tickets', 'edit')) { http_response_code(403); echo json_encode(['success' => false, 'message' => 'Access denied.']); exit; }
 
     try {
         // Validate CSRF token
@@ -226,6 +242,10 @@ $router->post(admin.'/support/tickets/reply', function () use ($SECURE,$db) {
 
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
+    if (!admin_can($db, 'support_tickets', 'edit')) { http_response_code(403); die('Access Denied!'); }
+    // Guarantee the P6 ext columns (is_internal/sla_due_at/related_invoice) exist
+    // before we write is_internal — self-sufficient, no manual migration needed.
+    if (function_exists('ensureSupportTicketExtSchema')) { ensureSupportTicketExtSchema($db); }
 
     try {
         // Validate CSRF token
@@ -238,6 +258,16 @@ $router->post(admin.'/support/tickets/reply', function () use ($SECURE,$db) {
         // Validate required fields
         $ticket_id = trim($_POST['ticket_id'] ?? '');
         $desc = $_POST['desc'] ?? '';
+
+        // Internal note (staff-only): stored with is_internal=1, NEVER emailed to
+        // the customer and NEVER shown in the customer-facing ticket view. Only an
+        // admin/support session may flag a reply internal.
+        $isStaff     = (($_SESSION['user_role'] ?? '') === 'admin' || ($_SESSION['user_role'] ?? '') === 'support'
+                        || (function_exists('admin_can') && admin_can($db, 'support_tickets', 'view')));
+        $isInternal  = ($isStaff && !empty($_POST['is_internal'])) ? 1 : 0;
+        // The staff "Send email" checkbox (unchecked => suppress the customer email
+        // even for a normal reply). Non-staff always notify.
+        $notifyEmail = $isStaff ? !empty($_POST['notify_email']) : true;
 
         if (empty($ticket_id) || empty($desc)) {
             $_SESSION['ticket_error'] = 'Please enter a reply message.';
@@ -291,13 +321,16 @@ $router->post(admin.'/support/tickets/reply', function () use ($SECURE,$db) {
             'desc' => $desc,
             'status' => $parent_ticket['status'],
             'type' => 'reply',
+            'is_internal' => $isInternal,
             'attachments' => $attachment,
             'date' => date('Y-m-d H:i:s')
         ]);
 
         if ($result) {
-            // Send email notification to ticket owner (user)
+            // Send email notification to ticket owner (user) — SKIPPED for internal
+            // notes and when the staff "Send email" box is unchecked.
             try {
+              if (!$isInternal && $notifyEmail) {
                 // Get ticket owner details
                 $ticketOwner = $db->get('users', ['first_name', 'last_name', 'email'], ['user_id' => $parent_ticket['user_id']]);
                 
@@ -331,6 +364,7 @@ $router->post(admin.'/support/tickets/reply', function () use ($SECURE,$db) {
                     
                     error_log("Reply notification sent to user: {$ticketOwner['email']} for ticket: $ticket_id");
                 }
+              } // end if (!$isInternal && $notifyEmail)
             } catch (Exception $emailError) {
                 error_log('Failed to send reply notification email: ' . $emailError->getMessage());
                 // Don't fail the reply if email fails
@@ -359,6 +393,7 @@ $router->post(admin.'/support/tickets/delete', function () use ($SECURE,$db) {
     ADMIN_AUTH();
 
     header('Content-Type: application/json');
+    if (!admin_can($db, 'support_tickets', 'delete')) { http_response_code(403); echo json_encode(['success' => false, 'message' => 'Access denied.']); exit; }
 
     try {
         // Validate CSRF token
@@ -402,6 +437,7 @@ $router->post(admin . '/support/tickets/from-booking', function () use ($SECURE,
     ADMIN_AUTH();
     if (class_exists('CSRF')) { CSRF::guard(); }
     header('Content-Type: application/json');
+    if (!admin_can($db, 'support_tickets', 'edit')) { http_response_code(403); echo json_encode(['success' => false, 'message' => 'Access denied.']); exit; }
     if (function_exists('ensureSupportTicketExtSchema')) { ensureSupportTicketExtSchema($db); }
 
     $invoice  = trim((string) ($_POST['invoice_id'] ?? ''));

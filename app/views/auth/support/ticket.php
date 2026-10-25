@@ -120,9 +120,16 @@
             <h2 class="text-xl font-bold text-gray-800 mb-4"><?= T::replies ?></h2>
 
         <?php
+        // Ensure the is_internal column exists before filtering on it (self-heal;
+        // the column may not be migrated yet on this install).
+        if (function_exists('ensureSupportTicketExtSchema')) { ensureSupportTicketExtSchema($db); }
+        // is_internal <> 1: staff-only internal notes are NEVER loaded into the
+        // customer-facing ticket view (leak guard — see supportticketRoutes reply).
+        // The column is NOT NULL DEFAULT 0, so "not 1" cleanly excludes only notes.
         $replies = $db->select('tickets', '*', [
             'ticket_id' => $ticket['ticket_id'],
             'type' => 'reply',
+            'is_internal[!]' => 1,
             'ORDER' => ['date' => 'ASC']
         ]);
         ?>

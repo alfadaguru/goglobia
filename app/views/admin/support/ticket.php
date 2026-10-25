@@ -192,6 +192,34 @@ if ($is_admin_or_support) {
                 </div>
             </div>
 
+            <!-- SLA + linked booking (staff only) -->
+            <?php if ($is_admin_or_support):
+                $slaState = function_exists('support_ticket_sla_state')
+                    ? support_ticket_sla_state(($ticket['sla_due_at'] ?? null) !== null ? (string) $ticket['sla_due_at'] : null, (string) ($ticket['status'] ?? ''))
+                    : 'none';
+                $slaMap = [
+                    'breached' => ['background:#fee2e2;color:#991b1b', 'SLA overdue'],
+                    'due-soon' => ['background:#fef9c3;color:#854d0e', 'SLA due soon'],
+                    'ok'       => ['background:#dcfce7;color:#166534', 'SLA on track'],
+                ];
+                $relInvoice = trim((string) ($ticket['related_invoice'] ?? ''));
+                if (isset($slaMap[$slaState]) || $relInvoice !== ''):
+            ?>
+            <div class="flex flex-wrap items-center gap-3 mb-5">
+                <?php if (isset($slaMap[$slaState])): [$slaStyle, $slaLabel] = $slaMap[$slaState]; ?>
+                    <span style="<?= $slaStyle ?>;font-size:12px;font-weight:700;padding:4px 12px;border-radius:999px">
+                        <?= $slaLabel ?><?= !empty($ticket['sla_due_at']) ? ' · ' . htmlspecialchars(date('M d, H:i', strtotime((string) $ticket['sla_due_at']))) : '' ?>
+                    </span>
+                <?php endif; ?>
+                <?php if ($relInvoice !== ''): ?>
+                    <a href="<?= root.admin ?>/bookings/<?= urlencode($relInvoice) ?>" class="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
+                        <span class="material-icons-outlined" style="font-size:16px">receipt_long</span>
+                        Linked booking: <?= htmlspecialchars($relInvoice) ?>
+                    </a>
+                <?php endif; ?>
+            </div>
+            <?php endif; endif; ?>
+
             <!-- Help Info for Customers -->
             <?php if ($ticket['status'] !== 'close' && !$is_admin_or_support): ?>
             <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-5">
@@ -322,9 +350,10 @@ if ($is_admin_or_support) {
                 $reply_user_name = trim($reply_user_name) ?: 'Unknown User';
                 $is_ticket_creator = ($reply['user_id'] === $ticket['user_id']);
                 $is_staff = $reply_user && (($reply_user['role'] ?? '') === 'admin' || ($reply_user['role'] ?? '') === 'support');
+                $is_internal_note = !empty($reply['is_internal']);
             ?>
-            <div class="bg-white rounded-lg border border-slate-200 overflow-hidden mb-5 shadow-sm <?= $is_staff ? 'ring-1 ring-blue-200' : '' ?>">
-                <div class="<?= $is_staff ? 'bg-blue-50' : 'bg-slate-50' ?> px-6 py-3.5 border-b border-slate-200">
+            <div class="bg-white rounded-lg border overflow-hidden mb-5 shadow-sm <?= $is_internal_note ? 'border-amber-300 ring-1 ring-amber-300' : 'border-slate-200 ' . ($is_staff ? 'ring-1 ring-blue-200' : '') ?>">
+                <div class="<?= $is_internal_note ? 'bg-amber-50' : ($is_staff ? 'bg-blue-50' : 'bg-slate-50') ?> px-6 py-3.5 border-b border-slate-200">
                     <div class="flex items-center justify-between">
                         <div class="flex items-center gap-3">
                             <div class="w-10 h-10 rounded-full <?= $is_staff ? 'bg-gradient-to-br from-blue-600 to-blue-400' : 'bg-gradient-to-br from-slate-600 to-slate-400' ?> flex items-center justify-center text-white font-semibold shadow-sm">
@@ -343,6 +372,12 @@ if ($is_admin_or_support) {
                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-slate-600 text-white">
                                 <span class="material-icons-outlined" style="font-size: 14px;">person</span>
                                 <?=T::customer?>
+                            </span>
+                            <?php endif; ?>
+                            <?php if ($is_internal_note): ?>
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-amber-500 text-white shadow-sm">
+                                <span class="material-icons-outlined" style="font-size: 14px;">lock</span>
+                                Internal note
                             </span>
                             <?php endif; ?>
                         </div>
@@ -475,11 +510,18 @@ if ($is_admin_or_support) {
 
                     <!-- Notification Methods (Admin/Support Only) -->
                     <?php if ($is_admin_or_support): ?>
-                    <div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                    <div class="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-3">
                         <label class="flex items-center gap-3 cursor-pointer">
-                            <input type="checkbox" name="notify_email" value="1" checked class="w-4 h-4 text-primary border-slate-300 rounded focus:ring-primary">
+                            <input type="checkbox" name="notify_email" id="replyNotifyEmail" value="1" checked class="w-4 h-4 text-primary border-slate-300 rounded focus:ring-primary">
                             <span class="material-icons-outlined text-primary" style="font-size: 18px;">email</span>
                             <span class="text-sm font-medium text-slate-700"><?=T::send?> <?=T::email?></span>
+                        </label>
+                        <!-- Internal note: staff-only; NOT sent to the customer and NOT shown in the customer's ticket view. -->
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox" name="is_internal" id="replyIsInternal" value="1" class="w-4 h-4 text-amber-500 border-slate-300 rounded focus:ring-amber-500"
+                                   onchange="var em=document.getElementById('replyNotifyEmail'); if(this.checked){em.checked=false; em.disabled=true;} else {em.disabled=false;}">
+                            <span class="material-icons-outlined text-amber-500" style="font-size: 18px;">lock</span>
+                            <span class="text-sm font-medium text-slate-700">Internal note <span class="text-xs text-slate-400">(staff only — not sent to the customer)</span></span>
                         </label>
                     </div>
                     <?php endif; ?>

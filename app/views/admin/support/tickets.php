@@ -239,13 +239,16 @@
             $can_delete = ($is_admin_or_support || $user['user_type'] === 'team');
 
             echo crud()->table('tickets')
-                ->col('id,user_id,subject,status,date')
+                ->col('id,user_id,subject,status,sla_due_at,date')
                 ->where($where)
                 ->title($page_title)
                 ->row([
                     'status' => $status_badge,
                     'subject' => '<a href="'.root.admin.'/support/ticket/{{ticket_id}}" class="hover:text-primary transition"><strong>{{subject}}</strong></a>',
-                    'user_id' => function($value) use ($db) {
+                    'user_id' => function($row) use ($db) {
+                        // CRUD passes the FULL row to a closure (crud.php:1364), so
+                        // pull the scalar user_id out of it before the lookup.
+                        $value = is_array($row) ? ($row['user_id'] ?? '') : $row;
                         $user = $db->get('users', ['first_name', 'last_name', 'email'], ['user_id' => $value]);
                         if ($user) {
                             $name = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
@@ -253,9 +256,27 @@
                             return '<div class="py-1"><div class="font-medium text-slate-900">' . htmlspecialchars($name) . '</div><div class="text-xs text-slate-500 mt-0.5">' . htmlspecialchars($email) . '</div></div>';
                         }
                         return '<div class="text-slate-500">' . T::unknown . ' ' . T::user . '</div>';
+                    },
+                    // SLA badge — the CRUD row closure receives the FULL row, so we
+                    // read both sla_due_at and status to compute the state.
+                    'sla_due_at' => function($row) {
+                        $due   = is_array($row) ? ($row['sla_due_at'] ?? null) : $row;
+                        $stat  = is_array($row) ? (string) ($row['status'] ?? '') : '';
+                        $state = function_exists('support_ticket_sla_state')
+                            ? support_ticket_sla_state($due !== null ? (string) $due : null, $stat)
+                            : 'none';
+                        $map = [
+                            'breached' => ['background:#fee2e2;color:#991b1b', 'Overdue'],
+                            'due-soon' => ['background:#fef9c3;color:#854d0e', 'Due soon'],
+                            'ok'       => ['background:#dcfce7;color:#166534', 'On track'],
+                        ];
+                        if (!isset($map[$state])) { return '<span class="text-slate-300 text-xs">—</span>'; }
+                        [$style, $label] = $map[$state];
+                        $time = $due ? '<span class="block text-[10px] text-slate-400 mt-0.5">' . htmlspecialchars(date('M d, H:i', strtotime((string) $due))) . '</span>' : '';
+                        return '<span style="' . $style . ';font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap">' . $label . '</span>' . $time;
                     }
                 ])
-                ->label(['user_id' => T::customer])
+                ->label(['user_id' => T::customer, 'sla_due_at' => 'SLA'])
                 ->actions([
                     'select-all' => $can_delete,
                     'add' => false,
@@ -273,6 +294,7 @@
                 ->col_width('id', '0px')
                 ->col_width('user_id', '200px')
                 ->col_width('status', '120px')
+                ->col_width('sla_due_at', '110px')
                 ->col_width('date', '150px')
                 ->order('id', 'DESC')
                 ->render();
