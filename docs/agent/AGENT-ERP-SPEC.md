@@ -20,8 +20,17 @@ research; everything under **BUILD** does not exist yet.
    login** and land in `/agent/*`, resolved by `agent_staff_context`. No separate
    login page. (Verified pattern: `supplierStaffRoutes.php`, which also refuses to
    invite an existing supplier/agent/admin — we copy that guard.)
-4. **Branded docs: ALL 9 services.** Generalise the branding hook across every
-   module PDF + emails; copy the stays page pattern to the other 8.
+4. **Branded docs: ALL services.** Generalise the branding hook across every
+   module PDF + emails; copy the stays page pattern to the rest.
+
+> **SERVICE COUNT CORRECTION (verified in code 2026-10-25):** the platform has
+> **11 bookable services**, not 9: flights, stays, tours, cars, umrah, visa, bus,
+> rail, ferries, esim, **insurance**. The earlier "9" counted only the
+> `booking_pdf` PDF templates under `app/views/notifications/emails/<module>/` —
+> and **esim + ferries have NO booking_pdf template yet** (their confirmations are
+> on-screen/email only). So P4 (branded docs) must (a) brand the 9 existing PDFs
+> AND (b) add branded PDF/voucher templates for esim, ferries, and insurance. The
+> Booking Centre (P3) covers all 11.
 5. **Scope: FULL 360° travel-agent ERP**, everything piped into our system, in
    detail. Build P0→P8, no steps skipped.
 
@@ -218,7 +227,7 @@ live preview). Optional later: full theme JSON like
 `supplier_sitebuilder.php:21-65` if the agent wants a branded micro-site.
 
 ### A7. ALL tickets + invoices in the agent's brand + contact
-**Today:** `GENERATE_BOOKING_PDF()` (`functions.php:3252`) renders **9 module PDF
+**Today:** `GENERATE_BOOKING_PDF()` (`functions.php:3252`) renders **9 module PDF (of 11 services — esim/ferries lack one)
 templates** (the invoice PDF *is* the ticket/voucher — flights PDF carries
 segments/PNR/seats/baggage; stays PDF carries the hotel voucher + cancellation
 policy). A per-entity branding override (`wl_email_brand()`,
@@ -238,7 +247,7 @@ emails are **hardcoded to platform branding**.
   agency name, phone, email — client sees the agency, never GoGlobia, never the
   supplier (supplier identity already stripped from all docs — verified
   `invoice/summary.php`, `price_original` never rendered).
-**Decision §5.4:** all 9 services at once, or start flights+stays+umrah.
+**Decision §5.4 (LOCKED): all 11 services** — brand the 9 existing PDFs + add esim/ferries/insurance PDFs.
 
 ### A8. A complete ERP — see §B for the full module set.
 
@@ -347,7 +356,7 @@ hidden.
 - **P2 — Staff RBAC** (`agent_roles`/`agent_staff`/`agent_can`, invite/accept, gating).
 - **P3 — Booking Centre** (new dashboard, per-service, wallet-settled, attribution
   columns; fix cart/dashboard bugs).
-- **P4 — Branded documents** (`agent_booking_brand` across all 9 modules + emails +
+- **P4 — Branded documents** (`agent_booking_brand` across all 11 modules + emails +
   colour-aware templates).
 - **P5 — Agent CRM + Trip plans + client proposal PDF.**
 - **P6 — Bookings management (cancel/refund/reissue/resend) + Reports/statements.**
@@ -375,9 +384,9 @@ KPI cards (today's bookings, wallet, credit available/used, earnings paid-only,
 staff online); module launcher grid; recent bookings + alerts. Staff see a
 role-scoped subset. Mirrors `supplier/dashboard.php`.
 
-### M3 — Booking Centre (§A2) — book any of 9 services for a passenger
-One screen per service (flights, stays, tours, cars, umrah, visa, bus, rail,
-ferries — esim too), each reusing that service's existing search + the Booking
+### M3 — Booking Centre (§A2) — book any of the 11 services for a passenger
+One screen per service — flights, stays, tours, cars, umrah, visa, bus, rail,
+ferries, esim, insurance — each reusing that service's existing search + the Booking
 Manager passenger form (`travellers` JSON). LIVE (search→draft→wallet settle→
 `bm_fire_supplier_issue`) and MANUAL (type PNR/hotel→branded voucher). Attribution
 `agency_id` + `booked_by_staff_id`. Server re-price via `MARKUP()` + agency
@@ -412,7 +421,7 @@ gateway or to agency wallet via `wallet_refund`), re-issue, edit traveller. Reus
 the admin lifecycle toolkit (`bookingsRoutes.php:389-523`). Post-issue date/pax
 amend = documented as new-booking+refund (suppliers don't support it).
 
-### M9 — Branded documents (§A7) — ALL 9 services
+### M9 — Branded documents (§A7) — ALL 11 services
 `agent_booking_brand()` generalises `wl_email_brand` to every module PDF + emails;
 templates honour `brand_primary/accent` + logo + agency contact. The agent shares,
 per service, a branded invoice + branded ticket/voucher + branded confirmation
@@ -464,9 +473,9 @@ verify each over real HTTP where possible, and report before moving on.
   + branding logo+colours (M9 storage).**
 - **P2 — Staff & RBAC (M5)** — `agent_roles`/`agent_staff`/`agent_can`/
   `AGENT_OR_STAFF_AUTH`, invite/accept/revoke.
-- **P3 — Booking Centre (M3)** across all 9 services + `agency_id`/
+- **P3 — Booking Centre (M3)** across all 11 services + `agency_id`/
   `booked_by_staff_id`; wallet-settled; fix cart/dashboard earning bugs.
-- **P4 — Branded documents (M9)** across all 9 modules + emails + colour templates.
+- **P4 — Branded documents (M9)** across all 11 modules (incl. new esim/ferries/insurance PDFs) + emails + colour templates.
 - **P5 — Pricing & self-markup (M10)** — the agent client-price layer.
 - **P6 — Clients/CRM (M6) + Trip plans & proposals (M7).**
 - **P7 — Bookings management (M8) + Reports/statements (M11) + Tier/loyalty/credit
