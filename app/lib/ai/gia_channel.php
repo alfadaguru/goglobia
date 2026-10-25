@@ -157,6 +157,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         require_once $aiDir . 'tools/selectOptionTool.php';
         require_once $aiDir . 'tools/composeTripTool.php';
         require_once $aiDir . 'tools/createCheckoutTool.php';
+        require_once $aiDir . 'tools/paymentOptionsTool.php';   // surface Pay-Small-Small / Pay-Later (GA7)
         require_once $aiDir . 'tools/createBookingTool.php';
         require_once $aiDir . 'tools/requestApprovalTool.php';
         require_once $aiDir . 'tools/initiatePaymentTool.php';
@@ -358,6 +359,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             $agent->registerTool(new selectOptionTool());
             $agent->registerTool(new composeTripTool());
             $agent->registerTool(new createCheckoutTool());
+            $agent->registerTool(new paymentOptionsTool());
             $agent->registerTool(new createBookingTool());
             // NOTE: requestApprovalTool + initiatePaymentTool are DELIBERATELY NOT
             // registered on channels. Payment here is handled OUTSIDE the model —
