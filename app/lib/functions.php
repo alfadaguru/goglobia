@@ -5894,6 +5894,23 @@ function ensureBrandContent($db): void
         $emptyGate = function ($c) { return trim(strip_tags($c)) === ''; };
         $healIf('explore', $explore, $emptyGate);
         $healIf('best-travel-deals', $deals, $emptyGate);
+
+        // Remove the orphaned "Become a Supplier" CMS content page. It duplicated
+        // the real supplier signup flow (/supplier-signup → /supplier-signup/apply)
+        // as a dead-end prose page in the nav with no form or link to it, so it
+        // only confused the path. Deleted once; only if it is still a removable
+        // page (never touches a protected or admin-rebuilt entry). Idempotent — a
+        // no-op once gone. The real signup flow is unaffected.
+        try {
+            $dupSupplierPage = $db->get('cms', ['id', 'content'],
+                ['slug_url' => 'become-a-supplier', 'removable' => 1]);
+            if ($dupSupplierPage
+                && stripos((string) ($dupSupplierPage['content'] ?? ''), 'How to Become a Travel Supplier') !== false) {
+                $db->delete('cms', ['id' => (int) $dupSupplierPage['id']]);
+            }
+        } catch (\Throwable $e) {
+            error_log('ensureBrandContent remove-dup-supplier: ' . $e->getMessage());
+        }
     } catch (\Throwable $e) {
         error_log('ensureBrandContent: ' . $e->getMessage());
     }
