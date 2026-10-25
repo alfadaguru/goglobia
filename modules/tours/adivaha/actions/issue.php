@@ -109,6 +109,7 @@ $router->post('tours/adivaha/issue', function () use ($db) {
     $activityDate = (string) ($handle['activity_date'] ?? '');
     $adults       = max(1, (int) ($handle['adults'] ?? $booking['adults'] ?? 1));
     $children     = max(0, (int) ($handle['children'] ?? $booking['childs'] ?? 0));
+    $infants      = max(0, (int) ($handle['infants'] ?? $booking['infants'] ?? 0));
 
     // Reconcile currency: the re-price MUST come back in the SAME currency the
     // customer was charged in (bookings.currency_markup — stored in the platform
@@ -151,11 +152,19 @@ $router->post('tours/adivaha/issue', function () use ($db) {
     }
     if (empty($pax)) { $pax[] = ['type' => 'adult', 'first_name' => 'Guest', 'last_name' => 'Traveller']; }
 
-    $contact = [
-        'name'  => trim($firstName . ' ' . $lastName) ?: 'Guest',
-        'email' => (string) ($booking['email'] ?? ($primary['email'] ?? '')),
-        'phone' => (string) ($booking['phone'] ?? ($primary['phone'] ?? '')),
-    ];
+    // Contact: spec requires at least one of name/email. `name` is always present
+    // (fallback 'Guest'), so the rule is met regardless. Only include email/phone
+    // when non-empty + (for email) well-formed, so we never send email:"" which a
+    // strict validator could reject.
+    $contactEmail = (string) ($booking['email'] ?? ($primary['email'] ?? ''));
+    $contactPhone = (string) ($booking['phone'] ?? ($primary['phone'] ?? ''));
+    $contact = ['name' => trim($firstName . ' ' . $lastName) ?: 'Guest'];
+    if ($contactEmail !== '' && filter_var($contactEmail, FILTER_VALIDATE_EMAIL)) {
+        $contact['email'] = $contactEmail;
+    }
+    if ($contactPhone !== '') {
+        $contact['phone'] = $contactPhone;
+    }
 
     try {
         // 5. RE-PRICE (fail-closed) + reconcile vs what the customer paid.
@@ -168,6 +177,10 @@ $router->post('tours/adivaha/issue', function () use ($db) {
             'children'      => $children,
             'currency'      => $settleCurrency,
         ];
+        // Forward infants so the reprice/book party matches what the customer
+        // searched + paid for (omitting it reprices at 0 infants → a reconcile
+        // hold when the infant carries a fare). Only sent when present.
+        if ($infants > 0) { $offerBody['infants'] = $infants; }
         $offerUrl = $base . '/excursions/offer?display_currency=' . urlencode($settleCurrency);
         $offerRes = adivahaXApiRequest('POST', $offerUrl, $offerBody, $bearer, [], 60);
         if ($offerRes['http_code'] === 401 && $credentials['partner_id'] !== '') {
@@ -250,6 +263,7 @@ $router->post('tours/adivaha/issue', function () use ($db) {
                 'booking_data'     => json_encode($merged),
                 'booking_response' => json_encode($data),
                 'error_response'   => null,
+                'issue_claimed_at' => null, // clear the concurrency claim on success
             ];
             if ($pnr !== '') { $write['pnr'] = $pnr; }
             elseif ($supplierRef !== '' && $bookingStatus === 'confirmed') { $write['pnr'] = $supplierRef; }

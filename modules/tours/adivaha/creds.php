@@ -307,6 +307,13 @@ if (!function_exists('adivahaXCacheOffer')) {
             } else {
                 $db->insert('excursion_offer_cache', ['offer_key' => $key, 'payload' => json_encode($handle), 'created_at' => date('Y-m-d H:i:s')]);
             }
+            // Opportunistic bounded cleanup (~1% of writes) so the cache never grows
+            // unbounded. 30 days is far longer than any realistic search→book gap, and
+            // the booking row (not this cache) is the durable source issue.php uses, so
+            // pruning here can never strand a confirmed booking.
+            if (mt_rand(1, 100) === 1) {
+                $db->delete('excursion_offer_cache', ['created_at[<]' => date('Y-m-d H:i:s', time() - 30 * 86400)]);
+            }
         } catch (\Throwable $e) {
             error_log('adivahaXCacheOffer: ' . $e->getMessage());
         }
