@@ -459,6 +459,10 @@ try {
     if (function_exists('ensureAdivahaHotelModule')) {
         ensureAdivahaHotelModule($db);
     }
+    // Register the Adivaha EXCURSIONS supplier (type='tours') as well (idempotent).
+    if (function_exists('ensureAdivahaExcursionModule')) {
+        ensureAdivahaExcursionModule($db);
+    }
     // Paystack Dedicated Virtual Accounts (NGN wallet NUBAN) — idempotent.
     if (function_exists('ensurePaystackDvaSchema')) {
         ensurePaystackDvaSchema($db);
@@ -529,13 +533,6 @@ try {
     // stays listing-approval + inventory/holds + branded-site tables. Idempotent.
     if (function_exists('ensureSupplierStaysSchema')) {
         ensureSupplierStaysSchema($db);
-    }
-    // Travel-Agent ERP portal (docs/agent/AGENT-ERP-SPEC.md) — agent_roles/staff/
-    // clients/trip_plans/audit tables + agencies branding + bookings attribution +
-    // users.agent_customer_markup + settings toggles. Idempotent self-heal. (The
-    // P0 wiring was lost once already — the require AND this call must both exist.)
-    if (function_exists('ensureAgentPortalSchema')) {
-        ensureAgentPortalSchema($db);
     }
     // Employee RBAC consolidation (docs/support/EMPLOYEE_RBAC_CONSOLIDATION.md) —
     // the ONE company-wide RBAC layer: widens users_roles + users with governance
