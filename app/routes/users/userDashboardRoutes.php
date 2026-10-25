@@ -31,14 +31,28 @@ $router->get('/dashboard', function () use ($SECURE,$db) {
         header('Location: ' . root . 'supplier/dashboard');
         exit;
     }
+    // Travel agent landing on the CUSTOMER /dashboard (remember-me, already-logged-in,
+    // a stale link) must be sent to their dedicated portal — otherwise they see the
+    // customer dashboard with the agent sidebar bolted on ("two panels" bug).
+    if ($effRole === 'agent') {
+        header('Location: ' . root . 'agent/dashboard');
+        exit;
+    }
     // Non-supplier, non-agent user who is actually active supplier STAFF → supplier area.
-    if ($effRole !== 'agent' && $effRole !== 'admin') {
+    if ($effRole !== 'admin') {
         try {
             if ($db->has('supplier_staff', ['staff_user_id' => $user_id, 'status' => 'active'])) {
                 header('Location: ' . root . 'supplier/dashboard');
                 exit;
             }
         } catch (\Throwable $e) { /* table absent → ignore, fall through as normal user */ }
+        // ...or active AGENCY staff → agent portal.
+        try {
+            if ($db->has('agent_staff', ['staff_user_id' => $user_id, 'status' => 'active'])) {
+                header('Location: ' . root . 'agent/dashboard');
+                exit;
+            }
+        } catch (\Throwable $e) { /* table absent → ignore */ }
     }
 
     // CHECK AGENT AND REDRECTION IF NOT COMPLETED

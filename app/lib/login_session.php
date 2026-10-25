@@ -132,10 +132,21 @@ if (!function_exists('establish_login_session')) {
         if ($user['role'] === 'supplier') {
             return ['ok' => true, 'redirect' => root . 'supplier/dashboard'];
         }
+        // Travel agent → the dedicated agent portal (NOT the customer dashboard).
+        if ($user['role'] === 'agent') {
+            return ['ok' => true, 'redirect' => root . 'agent/dashboard'];
+        }
         // Supplier staff (ordinary user linked via supplier_staff) → supplier area.
         try {
             if ($db->has('supplier_staff', ['staff_user_id' => (string) $user['user_id'], 'status' => 'active'])) {
                 return ['ok' => true, 'redirect' => root . 'supplier/dashboard'];
+            }
+        } catch (\Throwable $e) {
+        }
+        // Agency staff (ordinary user linked via agent_staff) → agent portal.
+        try {
+            if ($db->has('agent_staff', ['staff_user_id' => (string) $user['user_id'], 'status' => 'active'])) {
+                return ['ok' => true, 'redirect' => root . 'agent/dashboard'];
             }
         } catch (\Throwable $e) {
         }

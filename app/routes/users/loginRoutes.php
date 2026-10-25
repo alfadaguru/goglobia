@@ -16,9 +16,12 @@ $router->get('/login', function () use ($SECURE, $db) {
         if ($redirectTo !== '' && $redirHost && $rootHost && strcasecmp((string)$redirHost, (string)$rootHost) === 0) {
             header('Location: ' . $redirectTo);
         } else {
-            // Role-aware home: a supplier goes to their own area, not /dashboard (the
-            // customer dashboard). /dashboard itself also re-routes suppliers as a backstop.
-            $dest = (strtolower((string)($_SESSION['user_role'] ?? '')) === 'supplier') ? 'supplier/dashboard' : 'dashboard';
+            // Role-aware home: suppliers AND travel agents go to their OWN portal,
+            // not /dashboard (the customer dashboard). /dashboard itself also
+            // re-routes both as a backstop.
+            $__role = strtolower((string)($_SESSION['user_role'] ?? ''));
+            $dest = ($__role === 'supplier') ? 'supplier/dashboard'
+                  : (($__role === 'agent')   ? 'agent/dashboard' : 'dashboard');
             header('Location: ' . root . $dest);
         }
         exit;
@@ -70,6 +73,9 @@ $router->get('/login', function () use ($SECURE, $db) {
                             // previously it fell to /dashboard (the customer dashboard),
                             // which is the reported "supplier sees normal user dashboard" bug.
                             header('Location: ' . root . 'supplier/dashboard');
+                        } elseif (($remembered['role'] ?? '') === 'agent') {
+                            // Same for travel agents — their home is the agent portal.
+                            header('Location: ' . root . 'agent/dashboard');
                         } else {
                             header('Location: ' . root . 'dashboard');
                         }
