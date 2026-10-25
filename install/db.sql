@@ -32758,12 +32758,37 @@ CREATE TABLE IF NOT EXISTS `agent_api_keys` (
   `label` varchar(255) DEFAULT NULL,
   `ip_allowlist` text DEFAULT NULL,
   `status` enum('active','revoked') NOT NULL DEFAULT 'active',
+  `env` enum('sandbox','live') NOT NULL DEFAULT 'sandbox',
   `last_used_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `revoked_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_key_prefix` (`key_prefix`),
   KEY `idx_user_id` (`user_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Agent API paid-access lifecycle (request -> sandbox -> certify -> live). One
+-- row per agency owner; admin advances each stage. See app/lib/agent_portal.php.
+CREATE TABLE IF NOT EXISTS `agent_api_access` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `owner_user_id` varchar(255) NOT NULL,
+  `status` enum('none','requested','sandbox','certifying','live','rejected','suspended') NOT NULL DEFAULT 'none',
+  `company_name` varchar(255) DEFAULT NULL,
+  `contact_email` varchar(255) DEFAULT NULL,
+  `contact_phone` varchar(40) DEFAULT NULL,
+  `use_case` text DEFAULT NULL,
+  `expected_volume` varchar(120) DEFAULT NULL,
+  `admin_note` text DEFAULT NULL,
+  `requested_at` datetime DEFAULT NULL,
+  `sandbox_granted_at` datetime DEFAULT NULL,
+  `certify_requested_at` datetime DEFAULT NULL,
+  `live_granted_at` datetime DEFAULT NULL,
+  `reviewed_by` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_owner` (`owner_user_id`),
   KEY `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
