@@ -1,0 +1,642 @@
+openapi: 3.0.3
+info:
+  title: "Goglobia Travelling Technologies Limited API - Excursions"
+  version: 1.0.0
+  description: |
+    Tours & activities (excursion) search, reprice, booking and cancellation for
+    the **Goglobia Travelling Technologies Limited API**. These endpoints drive the SAME pipeline as the
+    storefront booking flow: identical retail markup, the same wallet settlement,
+    the same idempotency and persistence. A booking placed here is
+    indistinguishable from one placed on the storefront (it appears in your
+    bookings, invoices and reports as `channel = api`).
+
+    ## Authentication & scopes
+    Send your secret key on every request: `Authorization: Bearer sk_live_...`.
+    Grant the key the scopes it needs:
+    - `search` - destinations, search, offer (reprice).
+    - `book`   - book (your wallet is debited, exactly like the storefront).
+    - `cancel` - cancel + cancellation-quote.
+    - `read`   - booking-details + wallet.
+
+    ## The destinations → search → offer → book flow
+    1. `GET /excursions/destinations?q=del` to resolve a destination `code`
+       (a 3-letter city code the search expects).
+    2. `POST /excursions/search` with that `code` + `activity_date` + pax. Search
+       is **synchronous** (the live Adivaha fan-out takes a few seconds). Each
+       offer carries an opaque `id` and the customer price in `sell`.
+    3. (Recommended) `POST /excursions/offer` with the chosen `supplier` +
+       `offer_id` + the SAME search criteria to re-price and read tax.
+    4. `POST /excursions/book` with the SAME `supplier` + `offer_id` + criteria,
+       travellers and contact.
+       - Your tenant wallet is **pre-checked** before the supplier is called, and
+         **debited the full all-in (sell + tax)** atomically with the booking. If
+         the wallet cannot cover it you get `402` and nothing is reserved.
+       - Send an `Idempotency-Key` header so a retry never books twice.
+
+    ## Conventions
+    - Base URL: `https://backoffice.adivaha.com/b2c/api/v1`
+    - Money values are decimals; currency is ISO-4217 (e.g. `INR`).
+    - `activity_date` is `YYYY-MM-DD`.
+    - Errors return `{ "error": "<code>", "message": "..." }` with a 4xx/5xx status.
+    - **Invoices:** a tax invoice is issued only when your account has a GSTIN
+      on file. No GSTIN = no invoice: `invoice` is `null` and no invoice or
+      payment receipt is emailed. Add your GSTIN under Settings > Local
+      Settings > Tax ID / GST Number.
+
+    > **Cancellation:** the Adivaha excursions API has no cancel endpoint, so a
+    > cancel settles the booking + wallet locally and the supplier leg is
+    > reconciled by the operations desk.
+
+servers:
+  - url: "https://backoffice.adivaha.com/b2c/api/v1"
+    description: Live
+
+tags:
+  - name: Authentication
+    description: Exchange your API key + Partner ID for a 24h token.
+  - name: Search
+    description: Destination autocomplete, search, offer reprice.
+  - name: Book
+    description: Confirm an excursion booking (wallet-debited, idempotent).
+  - name: Manage
+    description: Booking detail, cancellation quote + cancel.
+  - name: Account
+    description: Wallet balance (the wallet a booking debits).
+
+security:
+  - bearerAuth: []
+
+paths:
+
+  /token:
+    post:
+      tags: [Authentication]
+      summary: Generate a 24-hour token
+      description: |
+        Exchange your **API key** and **Partner ID** for a short-lived token.
+
+        - The token is your Bearer credential for **every other endpoint**.
+        - It is valid for **24 hours** - regenerate it before it expires.
+        - Do not call this on every request; mint one token per day and reuse it
+          until you get a `401 invalid_or_expired_token`, then mint a fresh one.
+
+        Your API key (`sk_live_…` / `sk_test_…`) and Partner ID come from
+        **B2C &rarr; API Settings**. Pass them as the two headers below (fill the
+        input boxes on the right), then **Send API Request**.
+      security: []
+      parameters:
+        - name: X-Api-Key
+          in: header
+          required: true
+          description: Your API secret key.
+          schema: { type: string }
+          example: "sk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        - name: X-Partner-Id
+          in: header
+          required: true
+          description: Your Partner ID (PID).
+          schema: { type: string }
+          example: "{{pid}}"
+      responses:
+        '200':
+          description: A 24-hour Bearer token.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/BadRequest' }
+  /excursions/destinations:
+    get:
+      tags: [Search]
+      summary: Destination / city autocomplete
+      description: Resolve excursion destinations (Adivaha catalogue + local inventory). Use the returned 3-letter `code` as `destination` in search. Scope `search`.
+      parameters:
+        - { name: q,     in: query, required: true,  schema: { type: string }, example: "del" }
+        - { name: limit, in: query, required: false, schema: { type: integer, default: 10, minimum: 1, maximum: 20 } }
+      responses:
+        '200':
+          description: Matching destinations.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  destinations: { type: array, items: { $ref: '#/components/schemas/ExcursionDestination' } }
+                  source:       { type: string, example: "merged", enum: [merged, empty] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /excursions/search:
+    post:
+      tags: [Search]
+      summary: Search excursions (with markup)
+      description: |
+        Federated search across every active excursion supplier (Adivaha + extranet),
+        with retail markup applied per offer (`sell` is the customer price).
+        Synchronous. Scope `search`.
+      parameters:
+        - $ref: '#/components/parameters/DisplayCurrency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExcursionSearchRequest' }
+      responses:
+        '200':
+          description: Excursion offers.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExcursionSearchResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+
+  /excursions/offer:
+    post:
+      tags: [Search]
+      summary: Re-price an offer (with markup + tax)
+      description: Re-prices the chosen offer against the supplier and re-applies retail markup + tax. Returns the review-page shape. Pass the SAME criteria you searched with. Scope `search`.
+      parameters:
+        - $ref: '#/components/parameters/DisplayCurrency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExcursionOfferRequest' }
+      responses:
+        '200':
+          description: Re-priced offer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExcursionOfferResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/UpstreamError' }
+
+  /excursions/book:
+    post:
+      tags: [Book]
+      summary: Book an excursion (wallet-debited, idempotent)
+      description: |
+        Re-prices, wallet-gates, books at the supplier, persists the booking +
+        travellers + invoice (when your account has a GSTIN) and debits your wallet the full all-in (sell + tax) -
+        all in one transaction. If the wallet cannot cover it you get `402` and
+        nothing is reserved. Send an `Idempotency-Key` header so retries never
+        book twice. Scope `book`.
+      parameters:
+        - $ref: '#/components/parameters/DisplayCurrency'
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: A unique key per booking attempt. A replay of a completed key returns the original response; an in-flight replay returns 409.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExcursionBookRequest' }
+      responses:
+        '200':
+          description: Booking confirmed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExcursionBookResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '402':
+          description: Insufficient wallet balance - nothing was reserved. Top up and retry.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+
+  /excursions/booking-details:
+    get:
+      tags: [Manage]
+      summary: Get an excursion booking
+      description: Retrieve a persisted excursion booking, its travellers and status. Scope `read`.
+      parameters:
+        - $ref: '#/components/parameters/DisplayCurrency'
+        - name: reference
+          in: query
+          required: true
+          schema: { type: string }
+          description: |
+            Booking id (`BK…`) **or** the storefront order id (`ORD-…`) your
+            customer sees on the confirmation page. An order id is resolved to
+            the excursion booking it belongs to and the response is identical
+            either way; the booking's own order id comes back as `order_ref`.
+            Order ids exist only for storefront bookings - a booking created
+            through this API has none, and its `order_ref` is `null`.
+          examples:
+            booking_id: { summary: By booking id, value: "BK00000016" }
+            order_id:   { summary: By storefront order id, value: "ORD-56CE67BC" }
+      responses:
+        '200':
+          description: Booking detail.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ExcursionBookingDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            The order id holds more than one excursion booking. Ask again with one
+            of the references listed in `references`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:      { type: string, example: "ambiguous_order" }
+                  message:    { type: string, example: "Order ORD-56CE67BC holds 2 excursion bookings. Ask for one of them by its own reference." }
+                  references: { type: array, items: { type: string }, example: ["BK00000016", "BK00000017"] }
+
+  /excursions/cancellation-quote:
+    post:
+      tags: [Manage]
+      summary: Cancellation charge / refund quote (no mutation)
+      description: Computes the cancellation penalty and refund. Scope `cancel`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reference]
+              properties:
+                reference: { type: string, example: "BK00000016" }
+      responses:
+        '200':
+          description: Cancellation quote.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CancellationQuote' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /excursions/cancel:
+    post:
+      tags: [Manage]
+      summary: Cancel an excursion booking (idempotent)
+      description: |
+        Cancels the booking, flips it to cancelled and records the cancel charge +
+        wallet refund. The Adivaha excursions API has no cancel endpoint, so the
+        supplier leg is reconciled by ops while the booking + wallet settle
+        locally. Send an `Idempotency-Key`. Scope `cancel`.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reference]
+              properties:
+                reference: { type: string, example: "BK00000016" }
+      responses:
+        '200':
+          description: Cancelled (or already cancelled).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CancelResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The booking is not in a cancellable state, or a cancel with this Idempotency-Key is in flight.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /excursions/wallet:
+    get:
+      tags: [Account]
+      summary: Wallet balance
+      description: The tenant wallet an excursion booking debits. Scope `read`.
+      parameters:
+        - { name: currency, in: query, required: false, schema: { type: string, default: "INR" } }
+      responses:
+        '200':
+          description: Wallet balance.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WalletBalance' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+components:
+  parameters:
+    DisplayCurrency:
+      name: display_currency
+      in: query
+      required: false
+      schema: { type: string, example: EUR }
+      description: >-
+        Presentation currency (ISO-4217) for all prices in the response. Defaults to
+        the tenant's default currency. Amounts are converted for display only; the
+        original base figures are preserved (sell_base / net_base / base_currency on
+        offers; total/currency stay in the base currency on bookings). Settlement /
+        wallet is always in the base currency (INR unless overridden) regardless of
+        this value. Alias: `currency`. May also be sent in the JSON request body.
+  securitySchemes:
+
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: "A 24-hour token (bt_...) minted from POST /token, sent as a Bearer token. Your raw API key (sk_live_/sk_test_...) is also accepted for convenience."
+  responses:
+
+    BadRequest:
+      description: The request was malformed or missing required fields.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid API key.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: The key lacks the required scope.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: No matching record for this tenant.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Idempotency replay still in flight, or a duplicate booking within the supplier window.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: Rate limit exceeded (per-minute or per-day). Retry after a short pause.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UpstreamError:
+      description: The supplier or pricing engine returned an error. Safe to retry the search.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+
+    PageMeta:
+      type: object
+      properties:
+        page:     { type: integer, example: 1 }
+        per_page: { type: integer, example: 50 }
+        total:    { type: integer, example: 14 }
+        pages:    { type: integer, example: 1 }
+    Money:
+      type: object
+      description: A priced amount. `sell` is what the customer pays.
+      properties:
+        sell:     { type: number, example: 4500.00, description: Customer-facing price. }
+        tax:      { type: number, example: 0,        nullable: true }
+        total:    { type: number, example: 4500.00 }
+        currency: { type: string, example: "INR" }
+    Error:
+      type: object
+      properties:
+        error:   { type: string, example: "not_found" }
+        message: { type: string, example: "No record for that reference." }
+    TokenResponse:
+      type: object
+      properties:
+        token:      { type: string,  example: "bt_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", description: "Your Bearer credential for every other endpoint." }
+        token_type: { type: string,  example: "Bearer" }
+        expires_in: { type: integer, example: 86400, description: "Seconds until the token expires (24h)." }
+        expires_at: { type: string,  example: "2026-06-27T13:00:00Z" }
+    ExcursionDestination:
+      type: object
+      properties:
+        code:    { type: string, example: "DEL", description: "3-letter destination code. Pass as `destination` in search." }
+        label:   { type: string, example: "Delhi, India" }
+        sub:     { type: string, example: "Adivaha catalogue · IN" }
+        country: { type: string, example: "IN" }
+        source:  { type: string, example: "adivaha", enum: [adivaha, extranet] }
+    ExcursionSearchRequest:
+      type: object
+      required: [destination, activity_date]
+      properties:
+        destination:   { type: string, example: "DEL", description: "3-letter destination code from /excursions/destinations." }
+        activity_date: { type: string, example: "2026-07-14", description: "YYYY-MM-DD." }
+        adults:        { type: integer, default: 2, minimum: 1, maximum: 30 }
+        children:      { type: integer, default: 0, minimum: 0, maximum: 20, description: "Alternative to child_ages - synthesises default ages." }
+        child_ages:    { type: array, items: { type: integer, minimum: 0, maximum: 17 }, description: "One age per child; drives per-child pricing." }
+        infants:       { type: integer, default: 0, minimum: 0, maximum: 20 }
+        language:      { type: string, default: "en" }
+        currency:      { type: string, default: "INR" }
+        limit:         { type: integer, default: 50, minimum: 1, maximum: 100 }
+    ExcursionOffer:
+      type: object
+      properties:
+        id:            { type: string, description: "Opaque offer id - pass to /excursions/offer and /excursions/book.", example: "ADVA-12345-STD" }
+        supplier_code: { type: string, example: "adivaha_excursions", enum: [adivaha_excursions, extranet_excursions] }
+        supplier_name: { type: string, example: "Adivaha Excursions" }
+        title:         { type: string, example: "Old Delhi Heritage Walk" }
+        subtitle:      { type: string, example: "3 hours · Cultural" }
+        currency:      { type: string, example: "INR" }
+        sell:          { type: number, example: 1380.00, description: "Customer price, in `currency` (the response display currency)." }
+        sell_base:     { type: number, example: 1380.00, description: "Pre-conversion `sell` in `base_currency`. Use this for settlement / reconciliation." }
+        base_currency: { type: string, example: "INR", description: "The tenant base currency the sell_base / net_base figures are in (the settlement currency)." }
+        cancel_policy: { type: string, example: "Refundable" }
+        meta:
+          type: object
+          properties:
+            activity_code: { type: string, example: "12345" }
+            rate_code:     { type: string, example: "STD" }
+            category:      { type: string, example: "Cultural" }
+            duration:      { type: string, example: "3 hours" }
+            city:          { type: string, example: "Delhi" }
+            country:       { type: string, example: "India" }
+            language:      { type: string, example: "en" }
+            max_pax:       { type: integer, example: 15 }
+            is_refundable: { type: boolean }
+            image:         { type: string, nullable: true }
+            highlights:    { type: array, items: { type: string } }
+    ExcursionSearchResponse:
+      type: object
+      properties:
+        product:       { type: string, example: "excursion" }
+        offers:        { type: array, items: { $ref: '#/components/schemas/ExcursionOffer' } }
+        currency:      { type: string, example: "INR" }
+        display_currency: { type: string, example: "INR", description: "The currency all prices in this response are shown in (the requested display_currency, else the tenant default). Per-offer base figures stay in `base_currency`." }
+        total_results: { type: integer, example: 24 }
+        criteria:      { type: object }
+    ExcursionOfferRequest:
+      type: object
+      required: [supplier, offer_id, destination, activity_date]
+      properties:
+        supplier:      { type: string, example: "adivaha_excursions" }
+        offer_id:      { type: string, example: "ADVA-12345-STD" }
+        destination:   { type: string, example: "DEL" }
+        activity_date: { type: string, example: "2026-07-14" }
+        adults:        { type: integer, default: 2 }
+        children:      { type: integer, default: 0 }
+        child_ages:    { type: array, items: { type: integer } }
+        infants:       { type: integer, default: 0 }
+        currency:      { type: string, default: "INR" }
+    ExcursionOfferResponse:
+      type: object
+      properties:
+        product:  { type: string, example: "excursion" }
+        offer:    { $ref: '#/components/schemas/ExcursionOffer' }
+        tax:      { type: object }
+        total:    { type: number, example: 1380.00, description: "Sell + tax, in `currency` (the response display currency)." }
+        currency: { type: string, example: "INR" }
+        display_currency: { type: string, example: "INR", description: "The currency the prices in this response are shown in. The offer's sell_base / net_base / base_currency hold the pre-conversion settlement figures." }
+        supplier: { type: string, example: "adivaha_excursions" }
+        criteria: { type: object }
+    ExcursionTraveller:
+      type: object
+      required: [first_name, last_name]
+      properties:
+        type:        { type: string, enum: [adult, child, infant], default: adult }
+        title:       { type: string, example: "Mr" }
+        first_name:  { type: string, example: "Asha" }
+        last_name:   { type: string, example: "Rao" }
+        gender:      { type: string, enum: [male, female], default: male }
+        age:         { type: integer, example: 32, nullable: true }
+        nationality: { type: string, example: "IN", nullable: true }
+    Contact:
+      type: object
+      properties:
+        name:    { type: string, example: "Asha Rao" }
+        email:   { type: string, example: "asha@example.com" }
+        phone:   { type: string, example: "9000000000" }
+      description: "At least one of name or email is required."
+    ExcursionBookRequest:
+      type: object
+      required: [supplier, offer_id, destination, activity_date, pax, contact]
+      properties:
+        supplier:      { type: string, example: "adivaha_excursions" }
+        offer_id:      { type: string, example: "ADVA-12345-STD" }
+        destination:   { type: string, example: "DEL" }
+        activity_date: { type: string, example: "2026-07-14" }
+        adults:        { type: integer, default: 2 }
+        children:      { type: integer, default: 0 }
+        child_ages:    { type: array, items: { type: integer } }
+        infants:       { type: integer, default: 0 }
+        language:      { type: string, default: "en" }
+        currency:      { type: string, default: "INR" }
+        pax:           { type: array, items: { $ref: '#/components/schemas/ExcursionTraveller' } }
+        contact:       { $ref: '#/components/schemas/Contact' }
+        remarks:       { type: string, nullable: true }
+    ExcursionBookResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        channel: { type: string, example: "api" }
+        booking:
+          type: object
+          properties:
+            id:        { type: integer, example: 412 }
+            reference: { type: string, example: "BK00000016" }
+            pnr:       { type: string, nullable: true, example: "ADV-9F2C" }
+            status:    { type: string, example: "confirmed", enum: [confirmed, on_hold] }
+            product:   { type: string, example: "excursion" }
+            total:     { type: number, example: 1380.00, description: "Sell + tax (what your wallet was debited) - the settlement figure, always in `currency` (the base currency)." }
+            currency:  { type: string, example: "INR" }
+            display_currency: { type: string, example: "EUR", nullable: true, description: "Presentation currency of `display_total` when a display currency was requested. Equals `currency` otherwise." }
+            display_total:    { type: number, example: 15.31, nullable: true, description: "`total` converted into `display_currency` for display only; `total`/`currency` remain the settlement figures." }
+            invoice:   { type: string, nullable: true, example: "INV-000123", description: "Tax invoice number; null when no invoice was issued (no GSTIN on your account)." }
+        message: { type: string }
+    ExcursionBookingDetail:
+      type: object
+      properties:
+        order_ref:
+          type: string
+          nullable: true
+          example: "ORD-56CE67BC"
+          description: >-
+            Storefront order this booking belongs to, and a second id you may pass
+            as `reference`. `null` for a booking created through this API, which
+            opens no storefront order.
+        reference:     { type: string, example: "BK00000016" }
+        product:       { type: string, example: "excursion" }
+        status:        { type: string, example: "confirmed" }
+        supplier_name: { type: string, nullable: true }
+        supplier_code: { type: string, nullable: true }
+        pnr:           { type: string, nullable: true }
+        currency:      { type: string, example: "INR" }
+        total_amount:  { type: number, nullable: true, description: "PRE-GST settlement figure, always in `currency` (the base currency). GST/TCS are NOT included - see `tax` and `total`." }
+        tax:
+          type: object
+          description: "GST / TCS on this booking (on our service fee only), in `currency`."
+          properties:
+            cgst:      { type: number, example: 14.93 }
+            sgst:      { type: number, example: 14.92 }
+            igst:      { type: number, example: 0 }
+            tcs:       { type: number, example: 0 }
+            gst_total: { type: number, example: 29.85, description: "cgst + sgst + igst (TCS listed on its own)." }
+        total:         { type: number, nullable: true, example: 1194.68, description: "All-in amount = total_amount + cgst + sgst + igst + tcs. What the customer was charged, and what the tax invoice bills when one is issued." }
+        display_currency: { type: string, nullable: true, example: "EUR", description: "Presentation currency of `display_total` when a display currency was requested. Equals `currency` otherwise." }
+        display_total:    { type: number, nullable: true, example: 15.31, description: "`total_amount` converted into `display_currency` for display only; `total_amount`/`currency` remain the settlement figures." }
+        activity:      { type: string, nullable: true }
+        destination:   { type: string, nullable: true }
+        activity_date: { type: string, nullable: true }
+        booked_at:     { type: string, nullable: true }
+        created_at:    { type: string, nullable: true }
+        contact:
+          type: object
+          properties:
+            name:  { type: string, nullable: true }
+            email: { type: string, nullable: true }
+            phone: { type: string, nullable: true }
+        travellers:
+          type: array
+          items: { $ref: '#/components/schemas/ExcursionTraveller' }
+    CancellationQuote:
+      type: object
+      properties:
+        reference:   { type: string, example: "BK00000016" }
+        cancellable: { type: boolean }
+        charge:      { type: number, nullable: true, example: null, description: "Always null: after booking no fee or refund amount is shown; any refund is handled manually by our team (owner rule 2026-10-04)." }
+        refund:      { type: number, nullable: true, example: null, description: "Always null: after booking no fee or refund amount is shown; any refund is handled manually by our team (owner rule 2026-10-04)." }
+        refund_mode:      { type: string, example: "manual" }
+        refund_note:      { type: string, example: "Any refund is handled manually by our team after the cancellation is processed." }
+        currency:    { type: string, example: "INR" }
+        label:       { type: string }
+    CancelResponse:
+      type: object
+      properties:
+        success:       { type: boolean, example: true }
+        reference:     { type: string, example: "BK00000016" }
+        status:        { type: string, example: "cancelled" }
+        cancel_charge: { type: number, nullable: true, example: null, description: "Always null: after booking no fee or refund amount is shown; any refund is handled manually by our team (owner rule 2026-10-04)." }
+        refund_amount: { type: number, nullable: true, example: null, description: "Always null: after booking no fee or refund amount is shown; any refund is handled manually by our team (owner rule 2026-10-04)." }
+        refund_mode: { type: string, example: "manual" }
+        refund_note: { type: string, example: "Any refund is handled manually by our team after the cancellation is processed." }
+        currency:      { type: string, example: "INR" }
+        message:       { type: string }
+    WalletBalance:
+      type: object
+      properties:
+        currency:        { type: string, example: "INR" }
+        available:       { type: number, example: 125000.00, description: "Deposit + unused credit. A booking is gated against this." }
+        deposit_balance: { type: number, example: 100000.00 }
+        credit_limit:    { type: number, example: 50000.00 }
+        credit_used:     { type: number, example: 25000.00 }
+        status:          { type: string, example: "active" }

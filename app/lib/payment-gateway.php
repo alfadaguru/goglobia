@@ -610,13 +610,26 @@ function handle_payment_callback($token, $action, $data = [])
                 // ============================================================
                 // CHECK IF MODULE HAS CUSTOM BOOKING ENDPOINT
                 // Exclusions: flight, visas (no auto-issue endpoints)
-                // Tours: no PNR / supplier issue required — payment confirms booking
+                // Tours: confirm-on-payment BY DEFAULT (no supplier issue) — EXCEPT a
+                //   tours supplier that ships its own actions/issue.php (e.g. Adivaha
+                //   Excursions, which must call POST /excursions/book to actually
+                //   reserve + debit its supplier wallet). We detect that precisely by
+                //   the presence of the issue endpoint file, so internal `tours/tours`
+                //   and affiliate `viator`/`tiqets`/`toursbms` stay confirm-on-payment
+                //   unchanged, while a live-booking tours supplier is auto-issued.
                 // ai_trip packages: per-item PNRs via modules/ai_trip/ai_trip/issue
                 // Cars modules (cartrawler, etc.) ARE auto-issued via their issue.php
                 // ============================================================
+                $__isToursType = in_array(strtolower((string)$moduleType), ['tours', 'tour'], true);
+                $__toursHasIssueEndpoint = false;
+                if ($__isToursType && $module !== '') {
+                    $__toursIssueFile = dirname(__DIR__, 2) . '/modules/' . $moduleType . '/' . $module . '/actions/issue.php';
+                    $__toursHasIssueEndpoint = is_file($__toursIssueFile);
+                }
+
                 if ($module
                     && !in_array(strtolower($module), ['flight', 'visas'], true)
-                    && !in_array(strtolower((string)$moduleType), ['tours', 'tour'], true)
+                    && (!$__isToursType || $__toursHasIssueEndpoint)
                 ) {
                     // A supplier issue is genuinely being ATTEMPTED here (this module
                     // has a custom booking endpoint). Used downstream so that a
