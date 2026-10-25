@@ -426,8 +426,10 @@ $adminMenu = array_merge($adminMenu, [
             ['name' => 'Targets', 'icon' => 'target', 'url' => root.admin.'/support/targets'],
             ['name' => 'Shifts', 'icon' => 'calendar_month', 'url' => root.admin.'/support/shifts'],
             ['name' => 'Support Tickets', 'icon' => 'confirmation_number', 'url' => root.admin.'/support/tickets'],
+            ['name' => 'Users', 'icon' => 'group', 'url' => root.admin.'/support/users'],
             ['name' => 'Roles', 'icon' => 'admin_panel_settings', 'url' => root.admin.'/support/roles'],
-            ['name' => 'Staff', 'icon' => 'badge', 'url' => root.admin.'/support/staff']
+            ['name' => 'Staff', 'icon' => 'badge', 'url' => root.admin.'/support/staff'],
+            ['name' => 'Employee Activity', 'icon' => 'history', 'url' => root.admin.'/employees/activity']
         ]
     ]
 ]);
