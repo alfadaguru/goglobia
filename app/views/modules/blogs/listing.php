@@ -31,7 +31,7 @@
                     <article class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow duration-300">
                         <!-- Blog Image -->
                         <div class="aspect-video relative overflow-hidden group">
-                            <img src="<?= !empty($blog['post_img']) ? root . $blog['post_img'] : root . 'uploads/no_img.jpg' ?>" 
+                            <img src="<?= rtrim((string) root, '/') . '/' . ltrim(!empty($blog['post_img']) ? $blog['post_img'] : 'uploads/no_img.jpg', '/') ?>"
                                  alt="<?= htmlspecialchars($post_title) ?>" 
                                  class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
                             <div class="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>

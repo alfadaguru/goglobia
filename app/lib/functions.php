@@ -5792,6 +5792,122 @@ function seoLandingFromDb($db, string $type): array
  * goglobia.com, governed by the laws of the Federal Republic of Nigeria.
  */
 /**
+ * Generate a branded hero card (1536x768 JPEG) for a blog post into
+ * uploads/blogs/<slug>.jpg, using GD + the shipped Inter fonts — NO external
+ * service, NO cost. Per-category palette + geometric motif + the post title +
+ * GoGlobia wordmark. Umrah uses a dignified, NON-literal treatment (an Islamic
+ * geometric star, never a depiction of the Kaaba or the holy mosques).
+ *
+ * Idempotent + non-destructive: does nothing if a file for the slug already
+ * exists (so an admin-uploaded image is never overwritten). Fail-soft: if GD /
+ * FreeType / the fonts are unavailable on the host it simply returns null and the
+ * post renders without a hero (no fatal). Returns the stored web path on success.
+ */
+function blog_generate_hero_card(string $uploadsDir, string $slug, string $title, string $catSlug): ?string
+{
+    if ($slug === '' || !function_exists('imagecreatetruecolor') || !function_exists('imagettftext')) { return null; }
+    // Don't clobber an existing image (admin upload or a prior generation).
+    foreach (['jpg', 'jpeg', 'png', 'webp', 'gif'] as $e) {
+        if (is_file($uploadsDir . $slug . '.' . $e)) { return '/uploads/blogs/' . $slug . '.' . $e; }
+    }
+
+    $base = dirname(__DIR__, 1); // app/
+    $fontSB  = $base . '/../assets/fonts/Inter_18pt-SemiBold.ttf';
+    $fontReg = $base . '/../assets/fonts/Inter_18pt-Regular.ttf';
+    $fontLt  = $base . '/../assets/fonts/Inter_18pt-Light.ttf';
+    if (!is_file($fontSB) || !is_file($fontReg) || !is_file($fontLt)) { return null; }
+
+    // [c1, c2, label, motif]
+    $themes = [
+        'umrah-hajj'         => ['#0f5132', '#1c7a53', 'Umrah & Hajj', 'umrah'],
+        'visas'              => ['#3730a3', '#5b53c6', 'Visas',        'visa'],
+        'flights'            => ['#0b4a8f', '#1f74c4', 'Flights',      'flight'],
+        'nigeria-travel'     => ['#b2541a', '#d9822b', 'Travel',       'tour'],
+        'destination-guides' => ['#0e7490', '#1596b5', 'Destinations', 'tour'],
+        'travel-tips'        => ['#334155', '#51657f', 'Travel Tips',  'generic'],
+        'food-dining'        => ['#9a3412', '#c2410c', 'Food & Dining','generic'],
+    ];
+    [$c1, $c2, $label, $kind] = $themes[$catSlug] ?? ['#0b4a8f', '#1f74c4', 'GoGlobia', 'generic'];
+    $rgb = function (string $h) { $h = ltrim($h, '#'); return [hexdec(substr($h,0,2)), hexdec(substr($h,2,2)), hexdec(substr($h,4,2))]; };
+
+    try {
+        $W = 1536; $H = 768;
+        $im = imagecreatetruecolor($W, $H);
+        imagealphablending($im, true);
+
+        // diagonal 2-tone gradient
+        [$r1,$g1,$b1] = $rgb($c1); [$r2,$g2,$b2] = $rgb($c2);
+        for ($y = 0; $y < $H; $y++) {
+            $t = $y / $H;
+            imagefilledrectangle($im, 0, $y, $W, $y,
+                imagecolorallocate($im, (int)($r1+($r2-$r1)*$t), (int)($g1+($g2-$g1)*$t), (int)($b1+($b2-$b1)*$t)));
+        }
+        // left shade for legibility
+        imagefilledrectangle($im, 0, 0, (int)($W*0.62), $H, imagecolorallocatealpha($im, 0,0,0, 95));
+
+        // faint motif (bottom-right)
+        $white = imagecolorallocatealpha($im, 255,255,255, 110);
+        $cx = $W - 300; $cy = (int)($H/2);
+        if ($kind === 'umrah') {
+            for ($ring = 0; $ring < 3; $ring++) {
+                $rad = 150 + $ring*70; $pts = [];
+                for ($i = 0; $i < 16; $i++) { $a = $i*M_PI/8; $rr = ($i%2 ? $rad*0.62 : $rad); $pts[] = $cx+cos($a)*$rr; $pts[] = $cy+sin($a)*$rr; }
+                imagesetthickness($im, 3); imagepolygon($im, $pts, $white);
+            }
+        } elseif ($kind === 'flight') {
+            for ($a = 200; $a <= 340; $a += 6) { $x=$cx+cos(deg2rad($a))*330; $y=$cy+sin(deg2rad($a))*330*0.6; imagefilledellipse($im,(int)$x,(int)$y,8,8,$white); }
+            imagefilledpolygon($im, [$cx+120,$cy-95, $cx+30,$cy-5, $cx+190,$cy-30], $white);
+        } elseif ($kind === 'visa') {
+            imagesetthickness($im, 4);
+            for ($i = 0; $i < 3; $i++) { $x=$cx-120+$i*22; $y=$cy-150+$i*22; imagerectangle($im,$x,$y,$x+230,$y+300,$white); }
+            imageline($im,$cx-80,$cy+40,$cx+120,$cy+40,$white); imageline($im,$cx-80,$cy+90,$cx+120,$cy+90,$white);
+        } elseif ($kind === 'tour') {
+            imagesetthickness($im, 5); imageellipse($im,$cx,$cy,320,320,$white); imageellipse($im,$cx,$cy,250,250,$white);
+            imagefilledpolygon($im, [$cx,$cy-140, $cx-45,$cy, $cx+45,$cy], $white);
+            imagefilledpolygon($im, [$cx,$cy+140, $cx-45,$cy, $cx+45,$cy], $white);
+        } else {
+            imagesetthickness($im, 4); imageellipse($im,$cx,$cy,320,320,$white);
+            for ($i = -2; $i <= 2; $i++) { imageline($im,$cx-160,(int)($cy+$i*64),$cx+160,(int)($cy+$i*64),$white); }
+            imageellipse($im,$cx,$cy,160,320,$white);
+        }
+
+        $pure = imagecolorallocate($im, 255,255,255);
+        imagefilledrectangle($im, 90, 150, 150, 158, $pure);                       // accent bar
+        imagettftext($im, 20, 0, 92, 135, imagecolorallocatealpha($im,255,255,255,25), $fontReg, strtoupper($label)); // label
+
+        // title (Inter SemiBold, wrapped, shrink for long)
+        $wrap = function ($font, $size, $text, $maxW) {
+            $words = preg_split('/\s+/', trim($text)); $lines = []; $cur = '';
+            foreach ($words as $w) { $try = $cur === '' ? $w : $cur.' '.$w; $bb = imagettfbbox($size,0,$font,$try);
+                if (($bb[2]-$bb[0]) > $maxW && $cur !== '') { $lines[] = $cur; $cur = $w; } else { $cur = $try; } }
+            if ($cur !== '') { $lines[] = $cur; } return $lines;
+        };
+        $size = 58; $maxW = (int)($W*0.56);
+        $lines = $wrap($fontSB, $size, $title, $maxW);
+        if (count($lines) > 3) { $size = 46; $lines = $wrap($fontSB, $size, $title, $maxW); if (count($lines) > 4) { $lines = array_slice($lines, 0, 4); } }
+        $lineH = (int)($size*1.32); $y = (int)(($H - count($lines)*$lineH)/2) + $size + 20;
+        foreach ($lines as $ln) {
+            imagettftext($im, $size, 0, 94, $y+2, imagecolorallocatealpha($im,0,0,0,80), $fontSB, $ln);
+            imagettftext($im, $size, 0, 92, $y,   $pure, $fontSB, $ln);
+            $y += $lineH;
+        }
+
+        imagettftext($im, 30, 0, 92, $H-70, $pure, $fontSB, 'GoGlobia');           // wordmark
+        $gw = imagettfbbox(30, 0, $fontSB, 'GoGlobia');
+        imagettftext($im, 16, 0, 96 + ($gw[2]-$gw[0]) + 14, $H-72, imagecolorallocatealpha($im,255,255,255,40), $fontLt, 'travel');
+
+        if (!is_dir($uploadsDir)) { @mkdir($uploadsDir, 0775, true); }
+        $dest = $uploadsDir . $slug . '.jpg';
+        $ok = imagejpeg($im, $dest, 86);
+        imagedestroy($im);
+        return $ok ? '/uploads/blogs/' . $slug . '.jpg' : null;
+    } catch (\Throwable $e) {
+        error_log('blog_generate_hero_card ' . $slug . ': ' . $e->getMessage());
+        return null;
+    }
+}
+
+/**
  * Blog content seeder — populates the blog with a curated library of genuinely
  * useful, Nigeria/Umrah-focused articles, ONCE, idempotently. Mirrors the
  * self-healing pattern (static guard, slug-guarded inserts, swallow errors).
@@ -5867,11 +5983,20 @@ function ensureBlogContent($db): void
             $baseSlug = trim((string) $baseSlug, '-');
             $postSlug = $baseSlug !== '' ? $baseSlug : $slug;
 
+            $catSlug = (string) ($p['category'] ?? 'nigeria-travel');
+
+            // Hero image: use an admin-supplied file if present; otherwise generate
+            // a free branded hero card (GD + Inter) into uploads/blogs/<slug>.jpg.
+            // This runs on the server, so it works even though the file updater
+            // excludes uploads/ from deploy. Fail-soft -> null (post renders w/o hero).
             $img = $resolveImg($postSlug);
+            if ($img === null) {
+                $img = blog_generate_hero_card($uploadsDir, $postSlug, $title, $catSlug);
+            }
 
             // Already seeded? Then DON'T re-insert — but DO top up the image if the
-            // post still has none and you've now added a matching file. Never
-            // overwrite an image an admin already set.
+            // post still has none (we may have just generated one). Never overwrite
+            // an image an admin already set.
             $existing = $baseSlug !== '' ? $db->get('blogs', ['id', 'post_img'], ['post_slug' => $baseSlug]) : null;
             if ($existing) {
                 if ($img !== null && empty($existing['post_img'])) {
@@ -5880,7 +6005,6 @@ function ensureBlogContent($db): void
                 continue;
             }
 
-            $catSlug = (string) ($p['category'] ?? 'nigeria-travel');
             $category = $catId[$catSlug] ?? ($catId['nigeria-travel'] ?? null);
 
             // Stagger published_at slightly so ordering looks natural, newest-ish.

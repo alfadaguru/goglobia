@@ -2,7 +2,15 @@
 // app/views/modules/blogs/detail.php — Ghost CMS inspired design
 @$SECURE or die('Access Denied!');
 
-$post_img = !empty($blog['post_img']) ? root . $blog['post_img'] : null;
+// Build an absolute image URL without a double slash. post_img is stored with a
+// leading slash by the admin uploader AND the blog seeder (/uploads/blogs/x.jpg),
+// but `root` already ends in '/', so a naive `root . $path` yields `//uploads/...`
+// which 404s on some servers. Normalise to exactly one slash.
+$blogImgUrl = function ($path) {
+    $path = ltrim((string) $path, '/');
+    return $path === '' ? '' : rtrim((string) root, '/') . '/' . $path;
+};
+$post_img = !empty($blog['post_img']) ? $blogImgUrl($blog['post_img']) : null;
 
 // Estimate reading time
 $word_count = str_word_count(strip_tags($blog['post_desc'] ?? ''));
@@ -132,7 +140,7 @@ $published_date = date('F j, Y', strtotime($blog['published_at'] ?? $blog['creat
                 <?php foreach ($related_posts as $rp): ?>
                 <a href="<?= root ?>blog/<?= htmlspecialchars((string) $rp['post_slug'], ENT_QUOTES, 'UTF-8') ?>" class="group bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300">
                     <div class="aspect-[3/2] overflow-hidden">
-                        <img src="<?= !empty($rp['post_img']) ? root . $rp['post_img'] : root . 'uploads/no_img.jpg' ?>"
+                        <img src="<?= !empty($rp['post_img']) ? $blogImgUrl($rp['post_img']) : rtrim((string) root, '/') . '/uploads/no_img.jpg' ?>"
                              alt="<?= htmlspecialchars($rp['post_title']) ?>"
                              class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
                     </div>
