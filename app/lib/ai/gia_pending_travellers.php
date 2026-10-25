@@ -293,6 +293,25 @@ if (!function_exists('gia_pt_save_traveller')) {
             error_log('[gia_pt] save_traveller: ' . ($res['message'] ?? '?'));
             return [];
         }
+
+        // CAPTURE (GA2): remember this pilgrim on the booking owner's saved-traveller
+        // roster so a future booking can reuse them. Resolve the user via the umrah
+        // booking; fail-soft (never block pilgrim collection on a capture error).
+        try {
+            $owner = $db->get('umrah_bookings', ['user_id'], ['id' => $umrahBookingId]);
+            $ownerId = (string) ($owner['user_id'] ?? '');
+            if ($ownerId !== '') {
+                if (!function_exists('gia_traveller_upsert')) {
+                    require_once __DIR__ . '/gia_travellers.php';
+                }
+                if (function_exists('gia_traveller_upsert')) {
+                    gia_traveller_upsert($db, $ownerId, $data, 'umrah');
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('[gia_pt] traveller capture: ' . $e->getMessage());
+        }
+
         return gia_pt_record_collected($db, (int) $collectionRow['id']);
     }
 }
