@@ -272,6 +272,18 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                 <span class="material-symbols-outlined text-lg">receipt_long</span>
                 <span><?= T::view ?> <?= T::voucher ?></span>
             </a>
+
+            <!-- Raise a support ticket pre-linked to this booking (POSTs to
+                 /support/tickets/from-booking; backend = support_ticket_create_for_booking). -->
+            <button type="button" @click="raiseTicket()" :disabled="actionLoading['Raise Ticket']"
+                    class="btn secondary inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-600 hover:!text-white hover:!bg-slate-600 transition-all duration-200">
+                <svg x-show="actionLoading['Raise Ticket']" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span x-show="!actionLoading['Raise Ticket']" class="material-symbols-outlined text-lg">confirmation_number</span>
+                <span>Raise Ticket</span>
+            </button>
         </div>
     </div>
 
@@ -1546,6 +1558,36 @@ function bookingEdit() {
         submitForm(event) {
             this.loading = true;
             // Form will submit naturally
+        },
+        raiseTicket() {
+            // Raise a support ticket pre-linked to this booking's invoice. POSTs to
+            // /admin/support/tickets/from-booking (CSRF header auto-attached by app.js;
+            // the route runs CSRF::guard() + admin_can('support_tickets','edit')).
+            const subject = prompt('Subject for the support ticket:', 'Booking <?= $invoice_id ?>');
+            if (subject === null) { return; } // cancelled
+            const desc = prompt('Describe the issue (optional):', '') || '';
+            this.actionLoading['Raise Ticket'] = true;
+            const params = new URLSearchParams();
+            params.set('invoice_id', '<?= $invoice_id ?>');
+            params.set('subject', subject);
+            params.set('desc', desc);
+            fetch('<?= root . admin ?>/support/tickets/from-booking', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.actionLoading['Raise Ticket'] = false;
+                if ((data.status === true || data.success === true) && (data.ticket_url || data.url)) {
+                    if (confirm((data.message || 'Ticket created.') + '\n\nOpen the ticket now?')) {
+                        window.location.href = data.ticket_url || data.url;
+                    }
+                } else {
+                    alert(data.message || 'Could not raise the ticket.');
+                }
+            })
+            .catch(() => { this.actionLoading['Raise Ticket'] = false; alert('Could not raise the ticket.'); });
         },
         handleAction(action, extraParams = {}) {
             if (action === 'Issue Booking' && this.hotelbedsNeedsReconcile) {

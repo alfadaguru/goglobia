@@ -236,7 +236,7 @@
         <div class="bg-white rounded-lg border border-slate-200">
             <?php
             // DETERMINE IF USER CAN DELETE TICKETS BASED ON ROLE
-            $can_delete = ($is_admin_or_support || $user['user_type'] === 'team');
+            $can_delete = ($is_admin_or_support || ($user['user_type'] ?? '') === 'team');
 
             echo crud()->table('tickets')
                 ->col('id,user_id,subject,status,sla_due_at,date')

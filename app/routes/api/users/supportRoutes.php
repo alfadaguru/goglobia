@@ -403,6 +403,9 @@ $router->post('/api/users/support/ticket/(?!create$|reply$|close$)(.+)', functio
 
     $user_id = $tokenData['user_id'];
 
+    // Ensure the is_internal column exists before filtering on it (self-heal).
+    if (function_exists('ensureSupportTicketExtSchema')) { ensureSupportTicketExtSchema($db); }
+
     $ticketRaw = $db->get('tickets', '*', [
         'ticket_id' => $ticket_id,
         'user_id' => $user_id,
@@ -425,9 +428,12 @@ $router->post('/api/users/support/ticket/(?!create$|reply$|close$)(.+)', functio
         'date' => $ticketRaw['date'] ?? ''
     ];
 
+    // is_internal[!]=1: staff-only internal notes are NEVER returned to the
+    // customer on the mobile API (leak guard — mirrors the web view filter).
     $repliesRaw = $db->select('tickets', '*', [
         'ticket_id' => $ticket_id,
         'type' => 'reply',
+        'is_internal[!]' => 1,
         'ORDER' => ['id' => 'ASC']
     ]);
 

@@ -8,12 +8,12 @@
 // Each tile: icon, title, blurb, url (null = coming soon), area+action (the RBAC
 // gate; null = no gate). A tile the current user lacks permission for is hidden.
 $areas = [
-    ['icon' => 'headset_mic',          'name' => 'Live Desk',   'blurb' => 'Multi-channel chat takeover inbox.',            'url' => null,                                 'area' => 'support_desk',       'action' => 'view'],
+    ['icon' => 'headset_mic',          'name' => 'Live Desk',   'blurb' => 'Multi-channel chat takeover inbox.',            'url' => root.admin.'/support/desk',           'area' => 'support_desk',       'action' => 'view'],
     ['icon' => 'confirmation_number',  'name' => 'Tickets',     'blurb' => 'Customer support tickets — reply & resolve.',   'url' => root.admin.'/support/tickets',        'area' => 'support_tickets',    'action' => 'view'],
     ['icon' => 'receipt_long',         'name' => 'Bookings',    'blurb' => 'Look up bookings, resend vouchers, notes.',     'url' => root.admin.'/bookings',               'area' => 'bookings',           'action' => 'view'],
     ['icon' => 'group',                'name' => 'Users',       'blurb' => 'Customers, agents & suppliers directory.',      'url' => root.admin.'/support/users',          'area' => 'users',              'action' => 'view'],
-    ['icon' => 'schedule',            'name' => 'Attendance',  'blurb' => 'Clock-in/out, shifts & presence.',             'url' => null,                                 'area' => 'support_attendance', 'action' => 'view'],
-    ['icon' => 'campaign',             'name' => 'Campaigns',   'blurb' => 'Ad campaigns, attribution & conversion.',       'url' => null,                                 'area' => 'support_campaigns',  'action' => 'edit'],
+    ['icon' => 'schedule',            'name' => 'Attendance',  'blurb' => 'Clock-in/out, shifts & presence.',             'url' => root.admin.'/support/attendance',     'area' => 'support_attendance', 'action' => 'view'],
+    ['icon' => 'campaign',             'name' => 'Campaigns',   'blurb' => 'Ad campaigns, attribution & conversion.',       'url' => root.admin.'/support/campaigns',      'area' => 'support_campaigns',  'action' => 'edit'],
     ['icon' => 'admin_panel_settings', 'name' => 'Roles',       'blurb' => 'Capability bundles for support staff.',         'url' => root.admin.'/support/roles',          'area' => 'users_roles',        'action' => 'edit'],
     ['icon' => 'badge',                'name' => 'Staff',       'blurb' => 'Provision employees & assign roles.',           'url' => root.admin.'/support/staff',          'area' => 'employees',          'action' => 'edit'],
     ['icon' => 'history',              'name' => 'Activity',    'blurb' => 'Employee activity log — every action & page view.', 'url' => root.admin.'/employees/activity',    'area' => 'employees',          'action' => 'view'],

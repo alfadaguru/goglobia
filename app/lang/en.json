@@ -238,6 +238,7 @@
   "first_name": "First Name",
   "last_name": "Last Name",
   "email": "Email",
+  "email_or_phone": "Email or phone",
   "password": "Password",
   "mobile": "Mobile",
   "phone": "Phone",

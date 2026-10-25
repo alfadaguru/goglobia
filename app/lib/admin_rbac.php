@@ -526,13 +526,28 @@ if (!function_exists('admin_user_can')) {
             if (!$user) {
                 return false;
             }
-            if (strtolower((string) ($user['role'] ?? '')) === 'admin') {
+            $roleName = strtolower((string) ($user['role'] ?? ''));
+            if ($roleName === 'admin') {
                 return true;
             }
-            if (empty($user['role_id'])) {
-                return false;
+            // Resolve the users_roles row the SAME way the session-bound
+            // admin_current_role() does: by role_id first, else fall back to the
+            // role string via slug, then case-insensitive type_name. Without this
+            // fallback a name-only-linked employee (no role_id FK) would be wrongly
+            // denied here while being allowed in their own session (M1 fix).
+            $row = null;
+            if (!empty($user['role_id'])) {
+                $row = $db->get('users_roles', ['base_type', 'permissions'], ['id' => (int) $user['role_id']]);
             }
-            $row = $db->get('users_roles', ['base_type', 'permissions'], ['id' => (int) $user['role_id']]);
+            if (!$row && $roleName !== '' && $roleName !== 'employee') {
+                try { $row = $db->get('users_roles', ['base_type', 'permissions'], ['slug' => $roleName]); }
+                catch (\Throwable $e) { /* slug column may be absent mid-migration */ }
+            }
+            if (!$row && $roleName !== '' && $roleName !== 'employee') {
+                foreach ((array) $db->select('users_roles', ['base_type', 'permissions', 'type_name']) as $r) {
+                    if (strtolower((string) ($r['type_name'] ?? '')) === $roleName) { $row = $r; break; }
+                }
+            }
             if (!$row) {
                 return false;
             }
