@@ -534,6 +534,25 @@ $moduleCredentials = [
                 'placeholder' => 'http://api.toursbms.com (default)'
             ],
         ],
+        'adivaha' => [
+            'api_testing' => true,
+            'c1' => [
+                'label' => 'API Secret Key',
+                'required' => true,
+                'placeholder' => 'Enter your Adivaha key (starts with sk_test_ or sk_live_)'
+            ],
+            'c2' => [
+                'label' => 'Partner ID (optional)',
+                'required' => false,
+                'placeholder' => 'Your Adivaha Partner ID (PID) — enables the 24h token path'
+            ],
+            'c3' => [
+                'label' => 'Base URL (optional)',
+                'required' => false,
+                'type' => 'text',
+                'placeholder' => 'Leave blank for https://backoffice.adivaha.com/b2c/api/v1'
+            ],
+        ],
 
     ],
     'visa' => [
