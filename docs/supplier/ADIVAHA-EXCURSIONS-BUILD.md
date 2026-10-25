@@ -32,14 +32,18 @@ existing system flow with no drift. Authoritative API spec: `openapi-tours.yaml`
 
 ## 2. The one core change (minimal, surgical, no drift)
 
-`app/lib/payment-gateway.php:617-620` — replace the blanket `tours` exclusion with:
-let a tours module through the auto-issue block ONLY IF its issue endpoint file exists:
-`file_exists(root-dir . 'modules/tours/'.$module.'/actions/issue.php')`.
+`app/lib/payment-gateway.php` — replace the blanket `tours` exclusion with:
+let a tours module through the auto-issue block ONLY IF its issue endpoint file exists
+**AND calls `supplier_action_guard()`** (the server-to-server loopback gate the payment
+callback signs). The content check matters: `tours/tours` (local PNR confirmer) and
+`toursbms` (ADMIN-session guarded) BOTH ship an actions/issue.php, so a mere file-presence
+test would wrongly auto-issue them — toursbms would fail the loopback (admin guard →
+Unauthorized) and auto-refund every paid booking (regression). Only `adivaha` calls
+supplier_action_guard, so only it is auto-issued.
 
-Effect: `tours/tours`, `viator`, `tiqets`, `toursbms` (no auto-issue issue.php / admin-only)
-stay confirm-on-payment exactly as today; `adivaha` (ships actions/issue.php) is auto-issued
-to `POST /excursions/book`. A failed book → existing pending + auto-refund path. Nothing else
-changes.
+Effect: `tours/tours`, `viator`, `tiqets`, `toursbms` stay confirm-on-payment exactly as
+today; `adivaha` is auto-issued to `POST /excursions/book`. A failed book → existing
+pending + auto-refund path. Nothing else changes. (Verified per-supplier via simulation.)
 
 ## 3. New module: `modules/tours/adivaha/` (mirror stays/adivaha)
 
