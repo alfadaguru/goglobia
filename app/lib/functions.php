@@ -1001,46 +1001,6 @@ function ensureGiaAuthSchema($db): void
     } catch (Throwable $e) {
         error_log('ensureGiaAuthSchema: could not add idx_users_phone: ' . $e->getMessage());
     }
-
-    // ---- PHONE = EMAIL-WEIGHT: one number -> one account (composite unique) ----
-    // Phone is now a login credential (resolveLoginIdentifier), so it must be as
-    // unique as email. Uniqueness is on the PAIR (phone, phone_country_code) because
-    // the same national digits legitimately differ by country. Runs ONLY when the
-    // data is clean, mirroring the wallet_ledger uq_txn self-heal:
-    //   (1) '' -> NULL first — a phone-less signup historically stored '' and a
-    //       UNIQUE index allows many NULLs but only ONE '' (the 2nd phone-less user
-    //       would collide). A phone-less account simply has no phone identity.
-    //   (2) pre-check for duplicate (phone,country) pairs among REAL phones; if any
-    //       exist we CANNOT auto-merge accounts — skip the UNIQUE add and log loudly
-    //       for manual reconciliation (never hard-fail boot, never silently pretend
-    //       it's enforced).
-    //   (3) only when clean: drop the non-unique idx_users_phone, add the composite
-    //       UNIQUE uq_users_phone (phone, phone_country_code).
-    // Idempotent: once uq_users_phone exists the whole block is a no-op.
-    try {
-        $hasUniqPhone = $db->query("SHOW INDEX FROM `users` WHERE Key_name = 'uq_users_phone'")->fetch();
-        if (!$hasUniqPhone) {
-            try {
-                $db->pdo->exec("UPDATE `users` SET `phone` = NULL WHERE `phone` = ''");
-            } catch (Throwable $e) {
-                error_log('ensureGiaAuthSchema: phone ""->NULL normalise failed: ' . $e->getMessage());
-            }
-            $dups = $db->query(
-                "SELECT COUNT(*) c FROM (SELECT `phone`, `phone_country_code` FROM `users` "
-                . "WHERE `phone` IS NOT NULL AND `phone` <> '' "
-                . "GROUP BY `phone`, `phone_country_code` HAVING COUNT(*) > 1) d"
-            )->fetch();
-            if ((int) ($dups['c'] ?? 0) === 0) {
-                try { $db->pdo->exec("ALTER TABLE `users` DROP INDEX `idx_users_phone`"); } catch (Throwable $e) { /* may already be gone */ }
-                $db->pdo->exec("ALTER TABLE `users` ADD UNIQUE KEY `uq_users_phone` (`phone`, `phone_country_code`)");
-            } else {
-                error_log('ensureGiaAuthSchema: users has ' . (int) $dups['c']
-                    . ' duplicate (phone,country) pair(s); skipping uq_users_phone migration — reconcile duplicate accounts manually, then it self-heals on next boot.');
-            }
-        }
-    } catch (Throwable $e) {
-        error_log('ensureGiaAuthSchema: could not add uq_users_phone: ' . $e->getMessage());
-    }
 }
 
 /**
@@ -2531,64 +2491,6 @@ function normalizePhoneForStorage($phone, $countryIso, $db)
     }
 
     return preg_replace('/[^\d]/', '', $phone);
-}
-
-/**
- * Canonicalise a phone for the users table so the SAME human number always stores
- * the SAME way across every write path (web/API signup, profile, admin, GIA).
- * Returns [phoneNational, dialCode] — national digits (country code stripped) or
- * '' when there's no usable number, and the cleaned numeric dial code. Without one
- * canonical form the composite UNIQUE (phone, phone_country_code) is meaningless.
- * Reuses the existing getPhoneCode/normalizePhoneForStorage helpers.
- *
- * @return array{0:string,1:string}
- */
-function canonicalizeUserPhone($phone, $countryCodeOrIso, $db): array
-{
-    $phone = trim((string) $phone);
-    $code  = function_exists('getPhoneCode') ? getPhoneCode($countryCodeOrIso, $db) : preg_replace('/\D/', '', (string) $countryCodeOrIso);
-    if ($phone === '') {
-        return ['', (string) $code];
-    }
-    try {
-        $national = normalizePhoneForStorage($phone, $countryCodeOrIso, $db);
-    } catch (\Throwable $e) {
-        $national = preg_replace('/\D/', '', $phone);
-    }
-    $national = preg_replace('/\D/', '', (string) $national);
-    return [(string) $national, (string) $code];
-}
-
-/**
- * Is this (phone, dialCode) already on a DIFFERENT account? Enforces "one number =
- * one account" at the app layer (mirrors the email dedupe). Pass $excludeUserId so
- * a user can keep their own number on a profile update. Empty phone => never a
- * duplicate (phone-less accounts are allowed). Matches on the CANONICAL national
- * digits + dial code so formatting differences don't create false uniques.
- *
- * @return string  the owning user's user_id if taken by someone else, else ''
- */
-function phoneOwnedByOtherUser($db, string $phoneNational, string $dialCode, string $excludeUserId = ''): string
-{
-    $phoneNational = preg_replace('/\D/', '', trim($phoneNational));
-    if ($phoneNational === '') {
-        return '';
-    }
-    try {
-        $rows = $db->select('users', ['user_id'], [
-            'phone'              => $phoneNational,
-            'phone_country_code' => $dialCode,
-        ]) ?: [];
-        foreach ($rows as $r) {
-            $owner = (string) ($r['user_id'] ?? '');
-            if ($owner !== '' && $owner !== $excludeUserId) {
-                return $owner;
-            }
-        }
-    } catch (\Throwable $e) {
-        error_log('phoneOwnedByOtherUser: ' . $e->getMessage());
-    }
-    return '';
 }
 
 /**

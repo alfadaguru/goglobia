@@ -152,15 +152,10 @@ require_once 'app/routes/users/agentApiRoutes.php';
 
 // TRAVEL-AGENT ERP PORTAL (/agent/*) — docs/agent/AGENT-ERP-SPEC.md. Dedicated
 // agency workspace gated by AGENT_OR_STAFF_AUTH + agent_can (app/lib/agent_portal.php).
-require_once 'app/routes/users/agentWalletRoutes.php';         // P0: wallet + DVA funding
-require_once 'app/routes/users/agentDashboardRoutes.php';      // P1: dashboard + onboarding
-require_once 'app/routes/users/agentStaffRoutes.php';          // P2: staff invites + roles RBAC
-require_once 'app/routes/users/agentBookingCentreRoutes.php';  // P3: booking centre + wallet-settle + refund
-require_once 'app/routes/users/agentBrandingRoutes.php';       // P5: branding + client self-markup
-require_once 'app/routes/users/agentClientsRoutes.php';        // P6: client CRM
-require_once 'app/routes/users/agentTripsRoutes.php';          // P6: trip plans + proposals
-require_once 'app/routes/users/agentReportsRoutes.php';        // P7: reports + statements
-require_once 'app/routes/users/agentAuditRoutes.php';          // P8: activity log
+require_once 'app/routes/users/agentWalletRoutes.php';     // P0: wallet + DVA funding
+require_once 'app/routes/users/agentDashboardRoutes.php';  // P1: dashboard + onboarding
+require_once 'app/routes/users/agentStaffRoutes.php';      // P2: staff invites + roles RBAC
+require_once 'app/routes/users/agentBookingCentreRoutes.php'; // P3: booking centre + wallet settle (11 services)
 
 // SEO LANDING PAGES (evergreen route/city pages) — registered BEFORE the flight
 // listing routes so single-segment /flights/{from}-to-{to} matches here first.

@@ -444,6 +444,20 @@ if (!function_exists('gia_bp_confirm')) {
         $amount = (float) (($data['amount'] ?? 0) ? round(((int) $data['amount']) / 100, 2) : $facts['due_now']);
         $currency = strtoupper((string) ($data['currency'] ?? $facts['currency'])) ?: 'NGN';
 
+        // CRITICAL FIX: Reconcile amount received against amount due. Bank-transfer (NUBAN)
+        // accepts ANY amount; Paystack doesn't validate. Bug: 500k booking, 1k transfer
+        // → paid → PNR issued. 499k lost. UMRAH auto-validates; non-umrah must reconcile.
+        $dueNow = (float) $facts['due_now'];
+        $amountReceived = (float) $amount;
+        $tolerance = 0.01; // Rounding tolerance (~1%, Paystack fee variance)
+        if ($facts['module'] !== 'umrah' && abs($amountReceived - $dueNow) > $tolerance) {
+            try {
+                $db->update('gia_booking_payments', ['status' => 'amount_mismatch', 'updated_at' => date('Y-m-d H:i:s')], ['id' => $bp['id']]);
+            } catch (\Throwable $e) { error_log('[gia_bp] reconcile: ' . $e->getMessage()); }
+            error_log('[gia_bp] amount_mismatch ' . $invoiceId . ' due=' . number_format($dueNow, 2) . ' received=' . number_format($amountReceived, 2));
+            return ['ok' => false, 'status' => 'amount_mismatch', 'message' => 'Payment amount mismatch. Held for ops review.'];
+        }
+
         // Record sender details (for a possible refund to the original payer).
         $senderAcct = (string) ($data['authorization']['sender_bank_account_number'] ?? '');
         $senderBank = (string) ($data['authorization']['sender_bank'] ?? '');

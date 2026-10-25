@@ -127,6 +127,6 @@ if (!empty($faqs)) {
             'acceptedAnswer' => ['@type' => 'Answer', 'text' => $f['a']],
         ], $faqs),
     ];
-    echo '<script type="application/ld+json">' . json_encode($faqLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . '</script>';
+    echo '<script type="application/ld+json">' . json_encode($faqLd, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) . '</script>';
 }
 ?>

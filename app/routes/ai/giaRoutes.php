@@ -127,18 +127,14 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/selectOptionTool.php';
     require_once $aiDir . 'tools/composeTripTool.php';
     require_once $aiDir . 'tools/createCheckoutTool.php';
-    require_once $aiDir . 'tools/paymentOptionsTool.php';   // surface Pay-Small-Small / Pay-Later (GA7)
     require_once $aiDir . 'tools/createBookingTool.php';
     require_once $aiDir . 'tools/requestApprovalTool.php';
     require_once $aiDir . 'tools/initiatePaymentTool.php';
     require_once $aiDir . 'tools/getOrderStatusTool.php';
     require_once $aiDir . 'tools/requestHumanTool.php';
-    require_once $aiDir . 'tools/verifyIdentityTool.php';
     require_once $aiDir . 'tools/userAccountTool.php';   // full account awareness (all bookings/wallet/loyalty)
     require_once $aiDir . 'tools/myTravellersTool.php';  // saved travellers for reuse (never re-type)
     require_once $aiDir . 'tools/preferencesTool.php';   // opt-in consented travel preferences (BRD MEM)
-    require_once $aiDir . 'tools/myBookingDetailTool.php';    // owner-scoped single-booking status (GA5)
-    require_once $aiDir . 'tools/requestCancellationTool.php'; // self-service cancellation REQUEST (GA5)
     require_once $aiDir . 'tools/updateProfileTool.php'; // allow-listed profile update
     require_once $aiDir . 'tools/registerAccountTool.php'; // passwordless phone-OTP account signup
     require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow (own tools)
@@ -284,18 +280,14 @@ $router->post('/api/gia/chat', function () use ($db) {
         $agent->registerTool(new \App\lib\ai\selectOptionTool());
         $agent->registerTool(new \App\lib\ai\composeTripTool());
         $agent->registerTool(new \App\lib\ai\createCheckoutTool());
-        $agent->registerTool(new \App\lib\ai\paymentOptionsTool());
         $agent->registerTool(new \App\lib\ai\createBookingTool());
         $agent->registerTool(new \App\lib\ai\requestApprovalTool());
         $agent->registerTool(new \App\lib\ai\initiatePaymentTool());
         $agent->registerTool(new \App\lib\ai\getOrderStatusTool());
         $agent->registerTool(new \App\lib\ai\requestHumanTool());
-        $agent->registerTool(new \App\lib\ai\verifyIdentityTool());
         $agent->registerTool(new \App\lib\ai\userAccountTool());
         $agent->registerTool(new \App\lib\ai\myTravellersTool());
         $agent->registerTool(new \App\lib\ai\preferencesTool());
-        $agent->registerTool(new \App\lib\ai\myBookingDetailTool());
-        $agent->registerTool(new \App\lib\ai\requestCancellationTool());
         $agent->registerTool(new \App\lib\ai\updateProfileTool());
         $agent->registerTool(new \App\lib\ai\registerAccountTool());
         $agent->setToolContext($toolContext);
@@ -315,11 +307,7 @@ $router->post('/api/gia/chat', function () use ($db) {
         if ($effectiveUserId !== '' && function_exists('gia_user_snapshot')) {
             try {
                 $__snap = gia_user_snapshot($db, $effectiveUserId);
-                // GA6: prefer the time-aware proactive nudge (imminent trip / unpaid
-                // booking) over a generic trip count; fall back to the summary line.
-                $__line = function_exists('gia_user_proactive_note')
-                    ? gia_user_proactive_note($__snap)
-                    : (function_exists('gia_user_summary_line') ? gia_user_summary_line($__snap) : '');
+                $__line = function_exists('gia_user_summary_line') ? gia_user_summary_line($__snap) : '';
                 if ($__line !== '') {
                     $agent->addSystemNote('ACCOUNT CONTEXT (trusted): ' . $__line
                         . ' Use the get_my_account tool for full booking/wallet/loyalty detail when asked. '

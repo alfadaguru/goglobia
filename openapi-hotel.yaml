@@ -1,0 +1,1127 @@
+openapi: 3.0.3
+info:
+  title: "Goglobia Travelling Technologies Limited API - Hotels"
+  version: 1.0.0
+  description: |
+    Hotel search, reprice, booking and cancellation for the **Goglobia Travelling Technologies Limited
+    API**. These endpoints drive the SAME pipeline as the storefront booking
+    flow: identical retail markup, the same wallet settlement, the same
+    persistence and invoicing. A booking placed here is indistinguishable from
+    one placed on the storefront (it appears in your bookings, invoices and
+    reports as `channel = api`).
+
+    ## Authentication & scopes
+    Send your secret key on every request: `Authorization: Bearer sk_live_...`.
+    Grant the key the scopes it needs:
+    - `search` - destinations, search, details, rooms, offer (reprice).
+    - `book`   - book (your wallet is debited, exactly like the storefront).
+    - `cancel` - cancel + cancellation-quote.
+    - `read`   - booking-details + wallet.
+
+    ## The search → details → rooms → offer → book flow
+    1. `GET /hotels/destinations?q=del` to resolve a destination `code`.
+    2. `POST /hotels/search` with that `code` + dates + occupancy. Each offer is
+       ONE hotel at its cheapest room: an opaque `id` (offer id), the customer
+       price in `sell`, and the hotel id in `meta.property_id`. Search is
+       **batched**: the first answer comes back after the first batch of
+       every supplier (a few seconds) with `status` and, while hotels are still
+       being priced, a `poll_url` (`GET /hotels/search-poll?trace_id=...`).
+       Poll until `status` is `complete` to get every bookable hotel of the
+       destination. Only hotels with a live, priced rate are ever listed.
+       Stays longer than 14 nights (tenant setting) are refused with 400.
+    3. Hotel detail page:
+       - `GET /hotels/details?hotel_id=<meta.property_id>` - description, photo
+         gallery, amenities, policies, landmarks, room types.
+       - `POST /hotels/rooms` with `hotel_id` + the SAME dates/occupancy - every
+         available room and rate with its retail price. Each rate names the
+         `supplier` + `offer_id` that book it, plus `rate_key`, `room_code`, `board`.
+    4. (Recommended) `POST /hotels/offer` with `supplier` + `offer_id` + the SAME
+       criteria (+ the chosen rate's `rate_key` / `room_code`) to re-price THAT
+       room and read tax.
+    5. `POST /hotels/book` with the SAME `supplier` + `offer_id` + criteria, the
+       chosen rate's `rate_key` / `room_code` / `room_name` / `board`, guests and
+       contact.
+       - Your tenant wallet is **pre-checked** before the supplier is called, and
+         **debited the full all-in (sell + tax)** atomically with the booking. If
+         the wallet cannot cover it you get `402` and nothing is reserved.
+       - Send an `Idempotency-Key` header so a retry never books twice.
+
+    ## Conventions
+    - Base URL: `https://backoffice.adivaha.com/b2c/api/v1`
+    - Money values are decimals; currency is ISO-4217 (e.g. `INR`).
+    - Dates are `YYYY-MM-DD`. `check_out` must be after `check_in`.
+    - Errors return `{ "error": "<code>", "message": "..." }` with a 4xx/5xx status.
+    - **Invoices:** a tax invoice is issued only when your account has a GSTIN
+      on file. No GSTIN = no invoice: `invoice` is `null` and no invoice or
+      payment receipt is emailed. Add your GSTIN under Settings > Local
+      Settings > Tax ID / GST Number.
+    - **Booking status:** `confirmed`, `on_hold`, `pending` (the hotel did not
+      confirm in time - saved and charged, do NOT book again; we check it with
+      the hotel), `cancelled`, `failed`. A cancellation the hotel has accepted
+      but not processed yet keeps the status and shows
+      `cancellation_status: requested` / `status_label: "Cancellation requested"`.
+    - **Refusals before anything is booked or charged:** an expired or
+      unmatched rate answers 409 `room_unavailable` ("This rate is no longer
+      available, please search again."); guest details that break the hotel's
+      rules (PAN, guest names) answer 400 `bad_request` with the rule to fix.
+    - Send `nationality` (ISO2) with the SAME value on search, rooms, offer and
+      book - some hotels price and sell by guest nationality. Default: your
+      account country.
+
+    > **Room selection:** a rate from `/hotels/rooms` with `room_selectable: true`
+    > is booked exactly as chosen - pass its `supplier`, `offer_id`, `rate_key`,
+    > `room_code`, `room_name` and `board` to offer and book. Rate keys can change
+    > between calls; the room code and board let the supplier still find the room
+    > you chose. Where a room has a refundable and a non-refundable rate with
+    > the same name and board, also pass the rate's `refundable` value so the
+    > quote and the booking land on the same one. With `room_selectable: false`
+    > that supplier books its best
+    > available rate for the hotel, which may not be the room shown. Extranet
+    > offers (`SUP-...`) are room + rate-plan specific. Without any room fields,
+    > offer and book use the hotel's cheapest room. Treat `supplier`,
+    > `offer_id` and `rate_key` as opaque and pass back exactly what you
+    > received. Depending on your account they can be aliases (`s-...`,
+    > `AH-...`) or encrypted tokens (`ark1.`). A changed or foreign token is
+    > refused with 400 "rate_key is not valid - use the value from /hotels/rooms
+    > or /hotels/offer." (or "...not valid for this account.").
+
+servers:
+  - url: "https://backoffice.adivaha.com/b2c/api/v1"
+    description: Live
+
+tags:
+  - name: Authentication
+    description: Exchange your API key + Partner ID for a 24h token.
+  - name: Search
+    description: Destination autocomplete, search, offer reprice.
+  - name: Book
+    description: Confirm a hotel booking (wallet-debited, idempotent).
+  - name: Manage
+    description: Booking detail, cancellation quote + cancel.
+  - name: Account
+    description: Wallet balance (the wallet a booking debits).
+
+security:
+  - bearerAuth: []
+
+paths:
+
+  /token:
+    post:
+      tags: [Authentication]
+      summary: Generate a 24-hour token
+      description: |
+        Exchange your **API key** and **Partner ID** for a short-lived token.
+
+        - The token is your Bearer credential for **every other endpoint**.
+        - It is valid for **24 hours** - regenerate it before it expires.
+        - Do not call this on every request; mint one token per day and reuse it
+          until you get a `401 invalid_or_expired_token`, then mint a fresh one.
+
+        Your API key (`sk_live_…` / `sk_test_…`) and Partner ID come from
+        **B2C &rarr; API Settings**. Pass them as the two headers below (fill the
+        input boxes on the right), then **Send API Request**.
+      security: []
+      parameters:
+        - name: X-Api-Key
+          in: header
+          required: true
+          description: Your API secret key.
+          schema: { type: string }
+          example: "sk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        - name: X-Partner-Id
+          in: header
+          required: true
+          description: Your Partner ID (PID).
+          schema: { type: string }
+          example: "{{pid}}"
+      responses:
+        '200':
+          description: A 24-hour Bearer token.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/BadRequest' }
+  /hotels/destinations:
+    get:
+      tags: [Search]
+      summary: Destination / city autocomplete
+      description: Resolve hotel-bookable destinations (cities with at least one extranet, Adivaha or TripJack mapping). Use the returned `code` as `destination` in search. Scope `search`.
+      parameters:
+        - { name: q,     in: query, required: true,  schema: { type: string }, example: "del" }
+        - { name: limit, in: query, required: false, schema: { type: integer, default: 10, minimum: 1, maximum: 20 } }
+      responses:
+        '200':
+          description: Matching destinations.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  destinations: { type: array, items: { $ref: '#/components/schemas/HotelDestination' } }
+                  source:       { type: string, example: "local", enum: [local, empty] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /hotels/search:
+    post:
+      tags: [Search]
+      summary: Search hotels (with markup)
+      description: |
+        Search across every active hotel supplier of the account, with retail
+        markup applied per offer (`sell` is the customer price). Scope `search`.
+
+        **Batched (search + poll).** Every hotel of the destination is priced,
+        supplier by supplier, in batches (no hotel cap). This call returns after
+        the FIRST batch of each supplier plus every hotel already in the rate
+        cache, with:
+        - `trace_id`, `status` (`in_progress` | `complete`), `progress`;
+        - `poll_url` while `status` is `in_progress` - call
+          `GET /hotels/search-poll?trace_id=...` until it is `complete`. Each poll
+          prices the next batches and returns ALL hotels priced so far.
+        Callers that read only `offers` keep working: they get the cheapest of
+        what is priced so far. Send `wait_seconds` (0-50) to have more batches
+        priced before this first answer.
+
+        Only hotels with a live, priced, bookable rate are listed - never an
+        unpriced placeholder. `total_results` is the number of such hotels found
+        so far (all pages); page with `limit` / `offset`.
+
+        A stay longer than the tenant's maximum (14 nights by default) is
+        refused with 400 `bad_request`.
+      parameters:
+        - $ref: '#/components/parameters/DisplayCurrency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HotelSearchRequest' }
+      responses:
+        '200':
+          description: Hotel offers.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HotelSearchResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+
+  /hotels/search-poll:
+    get:
+      tags: [Search]
+      summary: Poll a batched hotel search
+      description: |
+        Prices the next batches of a `/hotels/search` (for up to `wait_seconds`,
+        at least one batch while hotels are left) and returns every hotel priced
+        so far, cheapest first, in the same shape as `/hotels/search`. Poll until
+        `status` is `complete`. A search is readable only by the account that
+        started it. It lives 30 minutes after the LAST call (the search or a poll),
+        and at most 2 hours from the start; 404 after. Scope `search`.
+      parameters:
+        - { name: trace_id, in: query, required: true, schema: { type: string }, example: "hs_9f2c0d1e2a3b4c5d6e7f8a9b0c1d2e3f" }
+        - { name: limit, in: query, required: false, schema: { type: integer, default: 50, minimum: 1, maximum: 100 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, default: 0, minimum: 0 } }
+        - { name: wait_seconds, in: query, required: false, schema: { type: integer, default: 15, minimum: 0, maximum: 50 }, description: "How long this poll may keep pricing batches." }
+      responses:
+        '200':
+          description: Hotels priced so far.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HotelSearchResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: "Unknown or expired trace_id (or another account's search)." }
+
+  /hotels/details:
+    get:
+      tags: [Search]
+      summary: Hotel details (description, photos, amenities, policies)
+      description: |
+        Full content for the hotel detail page: long description, photo gallery,
+        amenities, policies (check-in/out, child, pet, fees, instructions),
+        landmarks, room types and contact details. Pass the `meta.property_id`
+        of a search offer as `hotel_id`. Static content only - prices come from
+        search / offer. When content has not been gathered for a hotel yet the
+        lists are empty and `meta.has_content` is `false`. Scope `search`.
+      parameters:
+        - { name: hotel_id, in: query, required: true, schema: { type: integer }, example: 42, description: "The `meta.property_id` of a search offer." }
+      responses:
+        '200':
+          description: Hotel content.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  product: { type: string, example: "hotel" }
+                  hotel:   { $ref: '#/components/schemas/HotelDetails' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /hotels/rooms:
+    post:
+      tags: [Search]
+      summary: Room list for one hotel (with markup)
+      description: |
+        Every available room for ONE hotel on the given dates/occupancy - the room
+        picker of the hotel detail page - with the retail price (markup applied)
+        on every rate. Pass the `meta.property_id` of a search offer as `hotel_id`
+        and the SAME dates/occupancy you searched with. Rooms are grouped (the same
+        room from several suppliers is one room) and sorted cheapest first. Each
+        rate says how to book it (see the room-selection note above). An empty
+        `rooms` list means no room is available for those dates. Scope `search`.
+      parameters:
+        - $ref: '#/components/parameters/DisplayCurrency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HotelRoomsRequest' }
+      responses:
+        '200':
+          description: Rooms and rates.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HotelRoomsResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /hotels/offer:
+    post:
+      tags: [Search]
+      summary: Re-price an offer (with markup + tax)
+      description: Re-prices the chosen offer against the supplier and re-applies retail markup + tax. Returns the review-page shape. Pass the SAME criteria you searched with. Scope `search`.
+      parameters:
+        - $ref: '#/components/parameters/DisplayCurrency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HotelOfferRequest' }
+      responses:
+        '200':
+          description: Re-priced offer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HotelOfferResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: "`not_found` - the offer has expired: \"This rate is no longer available, please search again.\" Search again."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503': { $ref: '#/components/responses/UpstreamError' }
+
+  /hotels/book:
+    post:
+      tags: [Book]
+      summary: Book a hotel (wallet-debited, idempotent)
+      description: |
+        Re-prices, wallet-gates, books at the supplier, persists the booking +
+        guests + invoice (when your account has a GSTIN) and debits your wallet
+        the full all-in (sell + tax) - all in one transaction. If the wallet
+        cannot cover it you get `402` and nothing is reserved. Send an
+        `Idempotency-Key` header so retries never book twice. Scope `book`.
+
+        **Double-submit guard:** the same booking (hotel, dates, room, guests)
+        sent again within 2 minutes, even without an Idempotency-Key, returns
+        the FIRST booking with `replayed: true` - nothing new is booked or
+        charged. While the first request is still running you get 409
+        `idempotency_in_flight`.
+
+        **Pending:** when the hotel does not confirm in time the booking is
+        saved with `status: pending` and your wallet is debited. Do NOT book it
+        again; we check it with the hotel and it becomes `confirmed` (the
+        invoice is issued then) or our team contacts you.
+      parameters:
+        - $ref: '#/components/parameters/DisplayCurrency'
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: A unique key per booking attempt. A replay of a completed key returns the original response; an in-flight replay returns 409.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HotelBookRequest' }
+      responses:
+        '200':
+          description: "Booking made: `status` `confirmed` (or `on_hold`), or `pending` when the hotel did not confirm in time (see above). Also returned, with `replayed: true`, for a repeat of the same booking."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HotelBookResponse' }
+        '400':
+          description: |
+            `bad_request` - nothing was booked or charged. A missing / invalid field,
+            an incomplete GST block ("The GST details are incomplete. Please give:
+            ... You have NOT been charged."), a rate_key token that is not valid,
+            or guest details that break the hotel's rules, e.g. "This hotel needs
+            the lead guest's PAN card number.", "PAN card number is invalid.",
+            "Guest names may contain letters only, with no digits or special
+            characters such as @ or #."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '402':
+          description: Insufficient wallet balance - nothing was reserved. Top up and retry.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: "`idempotency_in_flight` - the same Idempotency-Key (or the same booking) is still processing; or `room_unavailable` - the chosen rate has expired or can no longer be matched: \"This rate is no longer available, please search again.\" Nothing was reserved or charged; call /hotels/rooms again."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: "`promo_rejected` - the promo code cannot be used. Nothing was booked or charged."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '502':
+          description: |
+            `supplier_error` - the hotel refused or did not confirm, nothing booked
+            or charged (e.g. the price rose more than 2%: "The room price changed at
+            the hotel, so nothing was booked. Please search again for the current
+            price."; the cancellation terms changed; no confirmation).
+            `booking_uncertain` - the hotel gave no clear answer and may hold the
+            booking. Do not book again: a retry with the same Idempotency-Key
+            returns this same answer, never a second booking. Check
+            /hotels/booking-details or contact support.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /hotels/booking-details:
+    get:
+      tags: [Manage]
+      summary: Get a hotel booking
+      description: Retrieve a persisted hotel booking, its guests and status. Scope `read`.
+      parameters:
+        - $ref: '#/components/parameters/DisplayCurrency'
+        - name: reference
+          in: query
+          required: true
+          schema: { type: string }
+          description: |
+            Booking id (`BK…`) **or** the storefront order id (`ORD-…`) your
+            customer sees on the confirmation page. An order id is resolved to
+            the hotel booking it belongs to and the response is identical
+            either way; the booking's own order id comes back as `order_ref`.
+            Order ids exist only for storefront bookings - a booking created
+            through this API has none, and its `order_ref` is `null`.
+          examples:
+            booking_id: { summary: By booking id, value: "BK00000016" }
+            order_id:   { summary: By storefront order id, value: "ORD-56CE67BC" }
+      responses:
+        '200':
+          description: Booking detail.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/HotelBookingDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            The order id holds more than one hotel booking. Ask again with one
+            of the references listed in `references`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:      { type: string, example: "ambiguous_order" }
+                  message:    { type: string, example: "Order ORD-56CE67BC holds 2 hotel bookings. Ask for one of them by its own reference." }
+                  references: { type: array, items: { type: string }, example: ["BK00000016", "BK00000017"] }
+
+  /hotels/cancellation-quote:
+    post:
+      tags: [Manage]
+      summary: Cancellation charge / refund quote (no mutation)
+      description: Tells whether the booking can be cancelled and shows its cancellation policy line. `charge` and `refund` are always null - after booking no fee or refund amount is shown; any refund is handled manually by our team. Scope `cancel`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reference]
+              properties:
+                reference: { type: string, example: "BK00000016" }
+      responses:
+        '200':
+          description: Cancellation quote.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CancellationQuote' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /hotels/cancel:
+    post:
+      tags: [Manage]
+      summary: Cancel a hotel booking (idempotent)
+      description: |
+        Cancels the booking at the supplier, releases inventory and flips it to
+        cancelled. No wallet refund is made and `cancel_charge` / `refund_amount`
+        are null (`refund_mode` "manual") - any refund is handled manually by our
+        team. Send an `Idempotency-Key`. Scope `cancel`.
+
+        **Cancellation requested:** when the hotel accepts the cancellation but
+        has not processed it yet, the reply is 200 with `status` unchanged (e.g.
+        `confirmed`), `cancellation_status: "requested"`, `status_label:
+        "Cancellation requested"` and the message "Your cancellation request has
+        been sent to the hotel. We will confirm once the hotel has processed it;
+        our team will contact you about any refund." We re-check every 15
+        minutes; booking-details then shows `cancelled`. A repeat cancel returns
+        the same answer. A repeat cancel of a cancelled booking also returns
+        `cancel_request.supplier_status` (the hotel's latest answer).
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reference]
+              properties:
+                reference: { type: string, example: "BK00000016" }
+      responses:
+        '200':
+          description: Cancelled, already cancelled, or cancellation requested (see above).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CancelResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: "`not_cancellable` - the booking is not in a cancellable state, or the supplier did not confirm the cancel yet (\"We could not confirm the cancellation yet. Our team will check and update you.\"); `idempotency_in_flight` - a cancel with this Idempotency-Key is in flight."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /hotels/wallet:
+    get:
+      tags: [Account]
+      summary: Wallet balance
+      description: The tenant wallet a hotel booking debits. Scope `read`.
+      parameters:
+        - { name: currency, in: query, required: false, schema: { type: string, default: "INR" } }
+      responses:
+        '200':
+          description: Wallet balance.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WalletBalance' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+components:
+  parameters:
+    DisplayCurrency:
+      name: display_currency
+      in: query
+      required: false
+      schema: { type: string, example: EUR }
+      description: >-
+        Presentation currency (ISO-4217) for all prices in the response. Defaults to
+        the tenant's default currency. Amounts are converted for display only; the
+        original base figures are preserved (sell_base / net_base / base_currency on
+        offers; total/currency stay in the base currency on bookings). Settlement /
+        wallet is always in the base currency (INR unless overridden) regardless of
+        this value. Alias: `currency`. May also be sent in the JSON request body.
+  securitySchemes:
+
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: "A 24-hour token (bt_...) minted from POST /token, sent as a Bearer token. Your raw API key (sk_live_/sk_test_...) is also accepted for convenience."
+  responses:
+
+    BadRequest:
+      description: The request was malformed or missing required fields.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid API key.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: The key lacks the required scope.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: No matching record for this tenant.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Idempotency replay still in flight, or a duplicate booking within the supplier window.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: Rate limit exceeded (per-minute or per-day). Retry after a short pause.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UpstreamError:
+      description: The supplier or pricing engine returned an error. Safe to retry the search.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+
+    PageMeta:
+      type: object
+      properties:
+        page:     { type: integer, example: 1 }
+        per_page: { type: integer, example: 50 }
+        total:    { type: integer, example: 14 }
+        pages:    { type: integer, example: 1 }
+    Money:
+      type: object
+      description: A priced amount. `sell` is what the customer pays.
+      properties:
+        sell:     { type: number, example: 4500.00, description: Customer-facing price. }
+        tax:      { type: number, example: 0,        nullable: true }
+        total:    { type: number, example: 4500.00 }
+        currency: { type: string, example: "INR" }
+    Error:
+      type: object
+      properties:
+        error:   { type: string, example: "not_found" }
+        message: { type: string, example: "No record for that reference." }
+    TokenResponse:
+      type: object
+      properties:
+        token:      { type: string,  example: "bt_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", description: "Your Bearer credential for every other endpoint." }
+        token_type: { type: string,  example: "Bearer" }
+        expires_in: { type: integer, example: 86400, description: "Seconds until the token expires (24h)." }
+        expires_at: { type: string,  example: "2026-06-27T13:00:00Z" }
+    HotelDestination:
+      type: object
+      properties:
+        code:    { type: string, example: "DEL" }
+        name:    { type: string, example: "New Delhi" }
+        label:   { type: string, example: "New Delhi, India, IN" }
+        sub:     { type: string, example: "Delhi · DEL" }
+        country: { type: string, example: "IN" }
+    HotelSearchRequest:
+      type: object
+      required: [destination, check_in, check_out]
+      properties:
+        destination: { type: string, example: "DEL", description: "Destination code from /hotels/destinations." }
+        check_in:    { type: string, example: "2026-07-14", description: "YYYY-MM-DD." }
+        check_out:   { type: string, example: "2026-07-16", description: "YYYY-MM-DD, after check_in." }
+        rooms:       { type: integer, default: 1, minimum: 1, maximum: 10 }
+        adults:      { type: integer, default: 2, minimum: 1, maximum: 30 }
+        child_ages:  { type: array, items: { type: integer, minimum: 0, maximum: 17 }, description: "One age per child; drives occupancy pricing." }
+        children:    { type: integer, default: 0, minimum: 0, description: "Alternative to child_ages - synthesises default ages." }
+        currency:    { type: string, default: "INR" }
+        limit:       { type: integer, default: 50, minimum: 1, maximum: 100 }
+        offset:      { type: integer, default: 0, minimum: 0, description: "Paging over the priced hotels (cheapest first)." }
+        wait_seconds: { type: integer, default: 0, minimum: 0, maximum: 50, description: "Keep pricing batches up to this long before answering (0 = first batch only)." }
+        refundable_only: { type: boolean, default: false, description: "true = only rates the supplier marks refundable (same rule as the website Refundable filter; a rate of unknown refundability is left out)." }
+        nationality: { type: string, nullable: true, example: "IN", description: "Guest nationality (ISO2), also accepted as guest_nationality. Defaults to your account country. Send the SAME value on search, rooms, offer and book - some hotels price and sell by nationality." }
+        room_occupancy:
+          type: array
+          description: "Optional. Guests per room, e.g. [{adults: 2}, {adults: 1, child_ages: [5, 10]}]. When sent it replaces rooms/adults/child_ages (they are derived from it). A child with no age (children larger than child_ages) is age 8. Without it, adults and children are spread across the rooms round-robin."
+          items: { type: object, required: [adults], properties: { adults: { type: integer, minimum: 1, maximum: 9 }, child_ages: { type: array, items: { type: integer, minimum: 0, maximum: 17 } }, children: { type: integer, minimum: 0, maximum: 6 } } }
+    HotelOffer:
+      type: object
+      properties:
+        id:            { type: string, description: "Opaque offer id - pass to /hotels/offer and /hotels/book.", example: "ADV-H-42-100245" }
+        supplier_code: { type: string, example: "adivaha_hotels", description: "Supplier code, or an opaque alias (`s-...`) when your account hides suppliers. Pass back unchanged as `supplier`." }
+        supplier_name: { type: string, example: "Adivaha Hotels" }
+        supplier_count: { type: integer, example: 2, description: "How many suppliers sell this hotel; the offer is the cheapest of them." }
+        title:         { type: string, example: "The Grand New Delhi · 5★" }
+        subtitle:      { type: string, example: "2 night(s) · 1 room(s)" }
+        currency:      { type: string, example: "INR" }
+        sell:          { type: number, example: 8800.00, description: "Customer price, in `currency` (the response display currency)." }
+        sell_base:     { type: number, example: 8800.00, description: "Pre-conversion `sell` in `base_currency`. Use this for settlement / reconciliation." }
+        base_currency: { type: string, example: "INR", description: "The tenant base currency the sell_base / net_base figures are in (the settlement currency)." }
+        cancel_policy: { type: string, example: "Refundable" }
+        tax:           { $ref: '#/components/schemas/FeeTax' }
+        total:         { type: number, example: 8908.00, description: "sell + tax.total - the all-in price." }
+        meta:
+          type: object
+          properties:
+            property_id:   { type: integer, example: 42 }
+            property_name: { type: string, example: "The Grand New Delhi" }
+            stars:         { type: number, nullable: true, example: 5 }
+            address:       { type: string, example: "Nelson Mandela Road" }
+            city:          { type: string, example: "New Delhi" }
+            country_iso2:  { type: string, example: "IN" }
+            lat:           { type: number, nullable: true }
+            lng:           { type: number, nullable: true }
+            nights:        { type: integer, example: 2 }
+            check_in:      { type: string, example: "2026-07-14" }
+            check_out:     { type: string, example: "2026-07-16" }
+            room_name:     { type: string, nullable: true, example: "Deluxe Room" }
+            board:         { type: string, nullable: true, example: "Breakfast" }
+            refundable:    { type: boolean, nullable: true }
+            partially_refundable: { type: boolean }
+            meal_plan:     { type: string, nullable: true, example: "Breakfast" }
+            cancel_summary: { type: string, nullable: true, example: "Free cancellation until 12 Jul 2027, 11:59 PM", description: "One-line cancellation policy. A time with a known hotel zone ends \"(hotel local time, UTC+hh:mm)\"; an unzoned one has no tag." }
+            free_cancellation_until: { $ref: '#/components/schemas/FreeCancelUntil' }
+            cancel_grid:   { type: array, items: { type: object, properties: { label: { type: string }, description: { type: string } } }, description: "The full cancellation table." }
+            rate_remarks:  { type: string, nullable: true, description: "The rate's comments from the supplier - show them before booking." }
+            hero_image:    { type: string, nullable: true }
+    FeeTax:
+      type: object
+      description: "GST / TCS on our service fee only, in `currency`."
+      nullable: true
+      properties:
+        cgst:  { type: number, example: 54.00 }
+        sgst:  { type: number, example: 54.00 }
+        igst:  { type: number, example: 0 }
+        tcs:   { type: number, example: 0 }
+        total: { type: number, example: 108.00 }
+    FreeCancelUntil:
+      type: string
+      nullable: true
+      example: "2027-06-07T23:00:00+02:00"
+      description: "Free cancellation until this hotel-local time. With the UTC offset when the supplier gives the hotel's zone (e.g. `2027-06-07T23:00:00+02:00`); otherwise exactly as the supplier sends it, with no offset (e.g. `2027-07-12 23:59:59`). null once passed or for non-refundable."
+    HotelDetails:
+      type: object
+      properties:
+        master_hotel_id: { type: integer, example: 42 }
+        name:            { type: string, example: "The Grand New Delhi" }
+        address:         { type: string, nullable: true, example: "Nelson Mandela Road" }
+        city:            { type: string, nullable: true, example: "New Delhi" }
+        country_iso2:    { type: string, nullable: true, example: "IN" }
+        lat:             { type: number, nullable: true }
+        lng:             { type: number, nullable: true }
+        stars:           { type: number, nullable: true, example: 5 }
+        description:     { type: string, nullable: true, description: "Long description (may contain basic HTML)." }
+        images:          { type: array, items: {}, description: "Photo gallery, in display order." }
+        amenities:       { type: array, items: {}, description: "Hotel amenities / facilities." }
+        policies:
+          type: object
+          properties:
+            check_in_time:        { type: string, nullable: true, example: "14:00" }
+            check_out_time:       { type: string, nullable: true, example: "12:00" }
+            checkin_min_age:      { type: string, nullable: true }
+            child_policy:         { type: string, nullable: true }
+            pet_policy:           { type: string, nullable: true }
+            smoking_policy:       { type: string, nullable: true }
+            id_requirements:      { type: string, nullable: true }
+            extra_policies:       { type: string, nullable: true }
+            special_instructions: { type: array, items: { type: object, properties: { label: { type: string }, text: { type: string } } } }
+            fees:                 { type: array, description: "Fees the guest pays directly at the hotel (not in the room rate).", items: { type: object, properties: { label: { type: string }, text: { type: string } } } }
+        landmarks:       { type: array, items: {} }
+        room_types:      { type: array, items: {}, description: "Room types the hotel has (content, not availability)." }
+        chain_name:      { type: string, nullable: true }
+        brand_name:      { type: string, nullable: true }
+        property_type:   { type: string, nullable: true, example: "Hotel" }
+        classification:  { type: string, nullable: true }
+        checkin_time:    { type: string, nullable: true }
+        checkout_time:   { type: string, nullable: true }
+        total_rooms:     { type: integer, nullable: true }
+        year_built:      { type: integer, nullable: true }
+        phone:           { type: string, nullable: true }
+        email:           { type: string, nullable: true }
+        website:         { type: string, nullable: true }
+        meta:
+          type: object
+          properties:
+            content_score:  { type: integer, example: 80 }
+            source_count:   { type: integer, example: 2 }
+            last_merged_at: { type: string, nullable: true }
+            has_content:    { type: boolean, description: "false when no content has been gathered for this hotel yet." }
+    HotelRoomsRequest:
+      type: object
+      required: [hotel_id, check_in, check_out]
+      properties:
+        hotel_id:    { type: integer, example: 42, description: "The `meta.property_id` of a search offer." }
+        check_in:    { type: string, example: "2026-07-14" }
+        check_out:   { type: string, example: "2026-07-16" }
+        rooms:       { type: integer, default: 1 }
+        adults:      { type: integer, default: 2 }
+        child_ages:  { type: array, items: { type: integer } }
+        room_occupancy: { $ref: '#/components/schemas/RoomOccupancy' }
+        nationality: { type: string, nullable: true, example: "IN", description: "Guest nationality (ISO2). Defaults to your account country." }
+        refundable_only: { type: boolean, default: false, description: "true = only refundable rates; a room with none is left out and `cheapest` is its cheapest refundable rate (same rule as the website Refundable filter)." }
+    HotelRoomRate:
+      type: object
+      properties:
+        supplier:        { type: string, nullable: true, example: "tbo", description: "Pass as `supplier` to /hotels/offer and /hotels/book." }
+        offer_id:        { type: string, nullable: true, example: "TBO-H-1294107", description: "Pass as `offer_id` to /hotels/offer and /hotels/book." }
+        room_selectable: { type: boolean, description: "true: this exact room is booked. false: the supplier books its best available rate for the hotel." }
+        rate_key:        { type: string, nullable: true }
+        room_code:       { type: string, nullable: true }
+        room_name:       { type: string, nullable: true, example: "Deluxe Room King Bed" }
+        board:           { type: string, nullable: true, example: "Breakfast" }
+        refundable:      { type: boolean, nullable: true }
+        partially_refundable: { type: boolean }
+        cancel_deadline: { type: string, nullable: true, description: "Free cancellation until this time, when the supplier gives one (hotel local time; with an offset only when the supplier gives the zone)." }
+        cancel_summary:  { type: string, nullable: true, description: "One-line cancellation policy." }
+        cancel_policy:   { type: array, items: { type: object, properties: { label: { type: string }, description: { type: string } } }, description: "The full cancellation table." }
+        room_description: { type: string, nullable: true }
+        payable_at_hotel: { type: array, items: { type: object, properties: { label: { type: string }, text: { type: string } } }, description: "Charges paid by the guest at the hotel (city tax...), not in `price`." }
+        promotions:      { type: array, items: {}, description: "The supplier's promotion tags." }
+        rate_remarks:    { type: string, nullable: true, description: "The rate's comments from the supplier - show them to the guest before booking." }
+        price:           { type: number, example: 8800.00, description: "Customer price for the whole stay (markup applied, before GST), in `currency`." }
+        currency:        { type: string, example: "INR" }
+        tax:             { $ref: '#/components/schemas/FeeTax' }
+        total:           { type: number, nullable: true, example: 8908.00, description: "price + tax.total = what the booking charges. GST is on our service fee only." }
+    HotelRoom:
+      type: object
+      properties:
+        name:          { type: string, example: "Deluxe Room" }
+        room_type:     { type: string, nullable: true }
+        bed_config:    { type: string, nullable: true }
+        min_occupancy: { type: integer, nullable: true }
+        max_occupancy: { type: integer, nullable: true }
+        view:          { type: string, nullable: true }
+        size_sqm:      { type: integer, nullable: true }
+        is_smoking:    { type: boolean, nullable: true }
+        is_accessible: { type: boolean, nullable: true }
+        cheapest:      { $ref: '#/components/schemas/HotelRoomRate' }
+        rates:         { type: array, items: { $ref: '#/components/schemas/HotelRoomRate' }, description: "Every rate for this room (boards, refundability, suppliers), cheapest first." }
+        rate_count:    { type: integer }
+    HotelRoomsResponse:
+      type: object
+      properties:
+        product:          { type: string, example: "hotel" }
+        hotel:
+          type: object
+          properties:
+            master_hotel_id: { type: integer, example: 42 }
+            name:            { type: string }
+            address:         { type: string, nullable: true }
+            city:            { type: string, nullable: true }
+            country_iso2:    { type: string, nullable: true }
+            lat:             { type: number, nullable: true }
+            lng:             { type: number, nullable: true }
+            stars:           { type: number, nullable: true }
+        occupancy:        { type: object }
+        currency:         { type: string, example: "INR" }
+        base_currency:    { type: string, example: "INR" }
+        display_currency: { type: string, example: "INR" }
+        rooms:            { type: array, items: { $ref: '#/components/schemas/HotelRoom' } }
+        total_rooms:      { type: integer, example: 6 }
+        criteria:         { type: object }
+    HotelSearchResponse:
+      type: object
+      properties:
+        product:       { type: string, example: "hotel" }
+        offers:        { type: array, items: { $ref: '#/components/schemas/HotelOffer' } }
+        currency:      { type: string, example: "INR" }
+        display_currency: { type: string, example: "INR", description: "The currency all prices in this response are shown in (the requested display_currency, else the tenant default). Per-offer base figures stay in `base_currency`." }
+        total_results: { type: integer, example: 18, description: "Hotels with a live, priced rate found so far, across all pages (not the page size)." }
+        limit:         { type: integer, example: 50 }
+        offset:        { type: integer, example: 0 }
+        criteria:      { type: object }
+        trace_id:      { type: string, example: "hs_9f2c0d1e2a3b4c5d6e7f8a9b0c1d2e3f", description: "Pass to /hotels/search-poll." }
+        status:        { type: string, enum: [in_progress, complete], description: "complete = every hotel of the destination has been priced." }
+        poll_url:      { type: string, nullable: true, example: "https://backoffice.adivaha.com/b2c/api/v1/hotels/search-poll?trace_id=hs_9f2c0d1e2a3b4c5d6e7f8a9b0c1d2e3f", description: "Absolute URL on the host you called. Null once complete." }
+        progress:
+          type: object
+          properties:
+            checked: { type: integer, example: 400, description: "Supplier hotel entries answered (priced or not available)." }
+            total:   { type: integer, example: 11559 }
+            pending: { type: integer, example: 11159 }
+    HotelOfferRequest:
+      type: object
+      required: [supplier, offer_id, destination, check_in, check_out]
+      properties:
+        supplier:    { type: string, example: "adivaha_hotels" }
+        offer_id:    { type: string, example: "ADV-H-42-100245" }
+        destination: { type: string, example: "DEL" }
+        check_in:    { type: string, example: "2026-07-14" }
+        check_out:   { type: string, example: "2026-07-16" }
+        rooms:       { type: integer, default: 1 }
+        adults:      { type: integer, default: 2 }
+        child_ages:  { type: array, items: { type: integer } }
+        room_occupancy: { $ref: '#/components/schemas/RoomOccupancy' }
+        currency:    { type: string, default: "INR" }
+        rate_key:    { type: string, nullable: true, description: "The chosen rate's `rate_key` from /hotels/rooms (optional)." }
+        room_code:   { type: string, nullable: true, description: "The chosen rate's `room_code` - finds the room even after the rate_key rotates." }
+        room_name:   { type: string, nullable: true, description: "The chosen rate's `room_name`." }
+        nationality: { type: string, nullable: true, example: "IN", description: "Guest nationality (ISO2) - the same value you searched with. Defaults to your account country." }
+        promo_code:  { type: string, nullable: true, example: "SUMMER10", description: "Optional promo code (website promo codes for the B2C channel). Taken off the service fee before GST, never more than the fee unless the code allows it." }
+        gst:         { $ref: '#/components/schemas/GstDetails' }
+    HotelOfferResponse:
+
+      type: object
+      properties:
+        product:  { type: string, example: "hotel" }
+        offer:    { $ref: '#/components/schemas/HotelOffer' }
+        tax:
+          type: object
+          properties:
+            taxable_value:   { type: number, description: "Service fee after any promo - the GST base." }
+            gst_rate:        { type: number, example: 18 }
+            cgst_amount:     { type: number }
+            sgst_amount:     { type: number }
+            igst_amount:     { type: number }
+            tcs_amount:      { type: number }
+            total_tax:       { type: number }
+            grand_total:     { type: number, description: "net + service fee - promo discount + GST + TCS. Always equals `total`." }
+            place_of_supply: { type: string, description: "State code; taken from the guest GSTIN when one is sent." }
+            is_intra_state:  { type: boolean }
+            hsn_code:        { type: string }
+        total:    { type: number, example: 8800.00, description: "Sell - promo discount + tax, in `currency` (the response display currency)." }
+        promo:
+          type: object
+          nullable: true
+          description: "null when no promo_code was sent. valid=false + error when the code cannot be used (the price is then without discount)."
+          properties:
+            code:          { type: string, example: "SUMMER10" }
+            valid:         { type: boolean }
+            discount:      { type: number, example: 120.00, description: "Taken off the service fee before GST." }
+            capped_at_fee: { type: boolean, description: "true when the discount was cut down to the service fee." }
+            error:         { type: string, nullable: true, example: "Promo expired" }
+        currency: { type: string, example: "INR" }
+        display_currency: { type: string, example: "INR", description: "The currency the prices in this response are shown in. The offer's sell_base / net_base / base_currency hold the pre-conversion settlement figures." }
+        supplier: { type: string, example: "adivaha_hotels" }
+        criteria: { type: object }
+    RoomOccupancy:
+      type: array
+      description: "Optional. Guests per room, e.g. [{adults: 2}, {adults: 1, child_ages: [5, 10]}]. When sent it replaces rooms/adults/child_ages (they are derived from it). A child with no age (children larger than child_ages) is age 8. Without it, adults and children are spread across the rooms round-robin."
+      items: { type: object, required: [adults], properties: { adults: { type: integer, minimum: 1, maximum: 9 }, child_ages: { type: array, items: { type: integer, minimum: 0, maximum: 17 } }, children: { type: integer, minimum: 0, maximum: 6 } } }
+    HotelGuest:
+      type: object
+      required: [first_name, last_name]
+      description: "Some hotels restrict guest names (letters only, no spaces, length limits, a different name per guest) or need a PAN. Guest details that break the hotel's rule are refused with 400 before anything is booked or charged, with a message naming the rule."
+      properties:
+        type:        { type: string, enum: [adult, child, infant], default: adult }
+        title:       { type: string, example: "Mr" }
+        first_name:  { type: string, example: "Asha" }
+        last_name:   { type: string, example: "Rao" }
+        gender:      { type: string, enum: [male, female], default: male }
+        nationality: { type: string, example: "IN", nullable: true }
+        room:        { type: integer, minimum: 1, description: "Optional. Room number (1-based, room_occupancy order) this guest stays in." }
+        age:         { type: integer, nullable: true, description: "Children only." }
+        pan:         { type: string, nullable: true, example: "ABCDE1234F", description: "Indian PAN. Required when the hotel asks for it (e.g. some rates for Indian guests): at least the lead guest, or as many different PANs as the hotel needs. Missing or invalid = 400, nothing booked or charged." }
+    Contact:
+      type: object
+      properties:
+        name:    { type: string, example: "Asha Rao" }
+        email:   { type: string, example: "asha@example.com" }
+        phone:   { type: string, example: "9000000000" }
+        city:    { type: string, nullable: true }
+        country: { type: string, nullable: true }
+      description: "At least one of name or email is required."
+    HotelBookRequest:
+      type: object
+      required: [supplier, offer_id, destination, check_in, check_out, pax, contact]
+      properties:
+        supplier:    { type: string, example: "adivaha_hotels" }
+        offer_id:    { type: string, example: "ADV-H-42-100245" }
+        destination: { type: string, example: "DEL" }
+        check_in:    { type: string, example: "2026-07-14" }
+        check_out:   { type: string, example: "2026-07-16" }
+        rooms:       { type: integer, default: 1 }
+        adults:      { type: integer, default: 2 }
+        child_ages:  { type: array, items: { type: integer } }
+        room_occupancy: { $ref: '#/components/schemas/RoomOccupancy' }
+        currency:    { type: string, default: "INR" }
+        rate_key:    { type: string, nullable: true, description: "The chosen rate's `rate_key` from /hotels/rooms (optional)." }
+        room_code:   { type: string, nullable: true, description: "The chosen rate's `room_code` - finds the room even after the rate_key rotates." }
+        room_name:   { type: string, nullable: true, description: "The chosen rate's `room_name`." }
+        board:       { type: string, nullable: true, description: "The chosen rate's `board` (meal plan), e.g. `Breakfast`." }
+        pax:         { type: array, items: { $ref: '#/components/schemas/HotelGuest' } }
+        contact:     { $ref: '#/components/schemas/Contact' }
+        remarks:     { type: string, nullable: true }
+        nationality: { type: string, nullable: true, example: "IN", description: "Guest nationality (ISO2) - the same value you searched with. Defaults to your account country." }
+        promo_code:  { type: string, nullable: true, example: "SUMMER10", description: "Optional promo code (website promo codes for the B2C channel). A code that cannot be used is refused with 422 `promo_rejected`; nothing is booked or charged. Taken off the service fee before GST, never more than the fee unless the code allows it." }
+        gst:         { $ref: '#/components/schemas/GstDetails' }
+    GstDetails:
+      type: object
+      nullable: true
+      description: "Optional. The guest's business GST details for a GST invoice (India). Also accepted as contact.gst. On /hotels/offer only the GSTIN is used: its first 2 digits set the place of supply (IGST vs CGST+SGST in `tax`). On /hotels/book the block must be complete - a valid gstin (check digit included), company_name, address, email and phone (email, phone and address are taken from `contact` when left out) - or the call is refused with 400 before anything is booked or charged (\"The GST details are incomplete. Please give: ... You have NOT been charged.\"). Stored on the booking, and on the invoice when one is issued (your account needs a GSTIN - see Invoices), and sent to the hotel supplier when the rate allows GST. `gst_number` is accepted as an alias of `gstin`."
+      properties:
+        gstin:        { type: string, example: "27AAPFU0939F1ZV" }
+        company_name: { type: string, example: "Asha Travels Pvt Ltd" }
+        address:      { type: string, example: "12 MG Road, Pune 411001" }
+        email:        { type: string, example: "accounts@ashatravels.example" }
+        phone:        { type: string, example: "9000000000" }
+    HotelBookResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        channel: { type: string, example: "api" }
+        replayed: { type: boolean, description: "true when this is the answer for a booking already made (same Idempotency-Key, or the same booking within 2 minutes). Nothing new was booked or charged." }
+        booking:
+          type: object
+          properties:
+            id:        { type: integer, example: 412 }
+            reference: { type: string, example: "BK00000016" }
+            pnr:       { type: string, nullable: true, example: "2205149", description: "The supplier's booking id (supplier reference)." }
+            confirmation_number: { type: string, nullable: true, example: "7195894657443", description: "The confirmation number printed on the voucher: for TBO bookings TBO's ConfirmationNo; for other suppliers the hotel's confirmation number when the supplier gives one, else null." }
+            status:    { type: string, example: "confirmed", enum: [confirmed, on_hold, pending], description: "`pending` = the hotel did not confirm in time. The booking is saved and your wallet is debited. Do NOT book again. We check it with the hotel and it becomes confirmed (invoice issued then) or our team contacts you." }
+            product:   { type: string, example: "hotel" }
+            total:     { type: number, example: 8800.00, description: "Sell + tax (what your wallet was debited) - the settlement figure, always in `currency` (the base currency). = total_amount + cgst + sgst + igst + tcs." }
+            total_amount: { type: number, example: 8758.10, description: "PRE-GST figure in `currency`. GST/TCS are NOT included - see `tax` and `total`." }
+            tax:
+              type: object
+              description: "GST / TCS on this booking (on our service fee only), in `currency`."
+              properties:
+                cgst:      { type: number, example: 20.95 }
+                sgst:      { type: number, example: 20.95 }
+                igst:      { type: number, example: 0 }
+                tcs:       { type: number, example: 0 }
+                gst_total: { type: number, example: 41.90, description: "cgst + sgst + igst (TCS listed on its own)." }
+            currency:  { type: string, example: "INR" }
+            display_currency: { type: string, example: "EUR", nullable: true, description: "Presentation currency of `display_total` when a display currency was requested. Equals `currency` otherwise." }
+            display_total:    { type: number, example: 97.68, nullable: true, description: "`total` converted into `display_currency` for display only; `total`/`currency` remain the settlement figures." }
+            promo:
+              type: object
+              nullable: true
+              description: "The promo taken off the service fee, or null."
+              properties:
+                code:     { type: string, example: "SUMMER10" }
+                discount: { type: number, example: 120.00 }
+            invoice:   { type: string, nullable: true, example: "INV-000123", description: "Tax invoice number; null when no invoice was issued (no GSTIN on your account, or the booking is still pending)." }
+            price_changed: { type: boolean, example: true, description: "true when the hotel raised the price between your quote and the booking (within the 2% tolerance we accept on your behalf; a larger rise is refused, nothing is booked). The booking is made and charged at the NEW price." }
+            quoted_total:  { type: number, nullable: true, example: 25817.92, description: "When `price_changed`: the all-in total at the price you were quoted, in `currency`. null otherwise." }
+            booked_total:  { type: number, example: 26330.68, description: "The all-in total actually booked and charged, in `currency` (= `total`). Invoice and voucher show this booked price." }
+            remarks:       { type: string, nullable: true, example: "Price changed at the hotel before booking: quoted INR 25,817.92, booked INR 26,330.68.", description: "When `price_changed`: a ready-to-show line with the old and the new price. null otherwise." }
+        message: { type: string }
+    HotelBookingDetail:
+      type: object
+      properties:
+        order_ref:
+          type: string
+          nullable: true
+          example: "ORD-56CE67BC"
+          description: >-
+            Storefront order this booking belongs to, and a second id you may pass
+            as `reference`. `null` for a booking created through this API, which
+            opens no storefront order.
+        reference:     { type: string, example: "BK00000016" }
+        document_url:  { type: string, description: "Public no-login voucher PDF link (empty string until available)." }
+        product:       { type: string, example: "hotel" }
+        status:        { type: string, example: "confirmed", description: "confirmed, on_hold, pending (not yet confirmed by the hotel), cancelled, failed." }
+        cancellation_status: { type: string, nullable: true, enum: [requested, refused], description: "requested = the hotel accepted the cancellation but has not processed it yet; the booking stays live until it does." }
+        status_label:  { type: string, example: "Cancellation requested", description: "Ready-to-show status; \"Cancellation requested\" while the hotel has not processed a cancellation." }
+        supplier_name: { type: string, nullable: true }
+        supplier_code: { type: string, nullable: true }
+        pnr:           { type: string, nullable: true, description: "The supplier's booking id (supplier reference)." }
+        confirmation_number: { type: string, nullable: true, example: "7195894657443", description: "The confirmation number printed on the voucher: for TBO bookings TBO's ConfirmationNo; for other suppliers the hotel's confirmation number when the supplier gives one, else null." }
+        currency:      { type: string, example: "INR" }
+        total_amount:  { type: number, nullable: true, description: "PRE-GST settlement figure, always in `currency` (the base currency). GST/TCS are NOT included - see `tax` and `total`." }
+        tax:
+          type: object
+          description: "GST / TCS on this booking (on our service fee only), in `currency`."
+          properties:
+            cgst:      { type: number, example: 14.93 }
+            sgst:      { type: number, example: 14.92 }
+            igst:      { type: number, example: 0 }
+            tcs:       { type: number, example: 0 }
+            gst_total: { type: number, example: 29.85, description: "cgst + sgst + igst (TCS listed on its own)." }
+        tax_amount:    { type: number, nullable: true, description: "total - total_amount (GST + TCS)." }
+        total:         { type: number, nullable: true, example: 1194.68, description: "All-in amount = total_amount + cgst + sgst + igst + tcs. What the customer was charged, and what the tax invoice bills when one is issued." }
+        promo:
+          type: object
+          nullable: true
+          description: "The promo taken off the service fee, or null."
+          properties:
+            code:     { type: string, example: "SUMMER10" }
+            discount: { type: number, example: 120.00 }
+        display_currency: { type: string, nullable: true, example: "EUR", description: "Presentation currency of `display_total` when a display currency was requested. Equals `currency` otherwise." }
+        display_total:    { type: number, nullable: true, example: 97.68, description: "`total_amount` converted into `display_currency` for display only; `total_amount`/`currency` remain the settlement figures." }
+        hotel_name:    { type: string, nullable: true, example: "Gulf Star Hotel" }
+        room_name:     { type: string, nullable: true, example: "Deluxe Suite", description: "The room booked." }
+        board:         { type: string, nullable: true, example: "Room_Only", description: "Meal plan of the room booked." }
+        nights:        { type: integer, nullable: true, example: 2 }
+        address:       { type: string, nullable: true }
+        refundable:              { type: boolean, nullable: true }
+        cancellation_summary:    { type: string, nullable: true, example: "Free cancellation until 07 Jun 2027, 11:00 PM (hotel local time, UTC+02:00)", description: "The one cancellation line shown after booking (never an amount). A time with a known hotel zone ends \"(hotel local time, UTC+hh:mm)\"; an unzoned one (e.g. TBO) has no tag." }
+        free_cancellation_until: { $ref: '#/components/schemas/FreeCancelUntil' }
+        child_ages:              { type: array, items: { type: integer }, example: [8] }
+        rate_remarks:            { type: string, nullable: true, description: "The booked rate's comments (check-in hours, deposits, local charges)." }
+        payable_at_hotel:        { type: array, items: { type: object, properties: { label: { type: string }, text: { type: string } } }, description: "Charges paid by the guest at the property, not included in total_amount." }
+        hotel_confirmation_no:   { type: string, nullable: true, description: "The hotel's own confirmation number when the supplier gives one (null otherwise). See also `confirmation_number`." }
+        payable_through:         { type: object, nullable: true, properties: { name: { type: string }, vat: { type: string } }, description: "Who the stay is payable through (print on the voucher). Null when not applicable." }
+        cancellation_reference:  { type: string, nullable: true, description: "Supplier cancellation reference, after a cancel." }
+        invoice:       { type: string, nullable: true, example: "2026/000001", description: "Tax invoice number, when one has been issued; null when no invoice was issued (no GSTIN on your account, or the booking is still pending)." }
+        price_changed: { type: boolean, example: false, description: "true when the hotel raised the price between quote and booking (within the 2% tolerance). The booking was charged at the NEW price." }
+        quoted_total:  { type: number, nullable: true, description: "When `price_changed`: the all-in total at the quoted price, in `currency`. null otherwise." }
+        booked_total:  { type: number, nullable: true, description: "The all-in total booked and charged, in `currency` (= `total`); invoice and voucher show this price." }
+        remarks:       { type: string, nullable: true, example: "Price changed at the hotel before booking: quoted INR 25,817.92, booked INR 26,330.68.", description: "When `price_changed`: the old and the new price in one line. null otherwise." }
+        destination:   { type: string, nullable: true }
+        check_in:      { type: string, nullable: true }
+        check_out:     { type: string, nullable: true }
+        booked_at:     { type: string, nullable: true }
+        created_at:    { type: string, nullable: true }
+        contact:
+          type: object
+          properties:
+            name:  { type: string, nullable: true }
+            email: { type: string, nullable: true }
+            phone: { type: string, nullable: true }
+        guests:
+          type: array
+          items: { $ref: '#/components/schemas/HotelGuest' }
+    CancellationQuote:
+      type: object
+      properties:
+        reference:   { type: string, example: "BK00000016" }
+        cancellable: { type: boolean }
+        charge:      { type: number, nullable: true, example: null, description: "Always null: after booking no fee or refund amount is shown; any refund is handled manually by our team (owner rule 2026-10-04)." }
+        refund:      { type: number, nullable: true, example: null, description: "Always null: after booking no fee or refund amount is shown; any refund is handled manually by our team (owner rule 2026-10-04)." }
+        refund_mode:      { type: string, example: "manual" }
+        refund_note:      { type: string, example: "Any refund is handled manually by our team after the cancellation is processed." }
+        currency:    { type: string, example: "INR" }
+        label:       { type: string }
+    CancelResponse:
+      type: object
+      properties:
+        success:       { type: boolean, example: true }
+        reference:     { type: string, example: "BK00000016" }
+        status:        { type: string, example: "cancelled", description: "cancelled, or the unchanged status (e.g. confirmed) while the cancellation is requested." }
+        cancellation_status: { type: string, nullable: true, enum: [requested, refused], description: "requested = the hotel accepted the cancellation but has not processed it yet; the booking stays live until it does." }
+        status_label:  { type: string, example: "Cancellation requested" }
+        cancel_request:
+          type: object
+          nullable: true
+          description: "Repeat cancel of a cancelled booking: the hotel's latest answer to the cancellation."
+          properties:
+            supplier_status: { type: string, enum: [pending, in_progress, processed, rejected] }
+            checked_at:      { type: string, nullable: true }
+        cancel_charge: { type: number, nullable: true, example: null, description: "Always null: after booking no fee or refund amount is shown; any refund is handled manually by our team (owner rule 2026-10-04)." }
+        refund_amount: { type: number, nullable: true, example: null, description: "Always null: after booking no fee or refund amount is shown; any refund is handled manually by our team (owner rule 2026-10-04)." }
+        refund_mode: { type: string, example: "manual" }
+        refund_note: { type: string, example: "Any refund is handled manually by our team after the cancellation is processed." }
+        currency:      { type: string, example: "INR" }
+        message:       { type: string }
+    WalletBalance:
+      type: object
+      properties:
+        currency:        { type: string, example: "INR" }
+        available:       { type: number, example: 125000.00, description: "Deposit + unused credit. A booking is gated against this." }
+        deposit_balance: { type: number, example: 100000.00 }
+        credit_limit:    { type: number, example: 50000.00 }
+        credit_used:     { type: number, example: 25000.00 }
+        status:          { type: string, example: "active" }

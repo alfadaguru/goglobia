@@ -53,6 +53,21 @@ class getOrderStatusTool implements giaToolInterface
             return ['ok' => false, 'error_code' => 'AI_BAD_INVOICE', 'message' => 'A valid booking reference is required.'];
         }
 
+        // OWNERSHIP GUARD (security): a booking's status + PNR is private. Only the
+        // IDENTIFIED account that owns the invoice may read it — never an anonymous
+        // visitor (who could enumerate invoice refs) or a different user. This is a
+        // hard code guard at the tool level, defending BOTH web and channels
+        // regardless of how the tool was registered.
+        $accountId = (string) ($context['account_id'] ?? '');
+        if ($accountId === '') {
+            return ['ok' => false, 'error_code' => 'AI_NOT_IDENTIFIED', 'message' => 'Please sign in (or link your account) so I can look up your booking.'];
+        }
+        $owner = $db->get('bookings', 'user_id', ['invoice_id' => $invoiceId]);
+        if ($owner === null || (string) $owner !== $accountId) {
+            // Don't reveal whether the invoice exists — same reply either way.
+            return ['ok' => false, 'error_code' => 'AI_ORDER_NOT_FOUND', 'message' => 'I couldn\'t find that booking on your account.'];
+        }
+
         require_once dirname(__DIR__) . '/gia_commit.php';
 
         try {
@@ -64,6 +79,17 @@ class getOrderStatusTool implements giaToolInterface
 
         if (empty($st['ok'])) {
             return ['ok' => false, 'error_code' => 'AI_ORDER_NOT_FOUND', 'message' => (string) ($st['message'] ?? 'Booking not found.')];
+        }
+        
+        // Verify ownership: booking must belong to the requesting user
+        try {
+            $bk = $db->get('bookings', ['user_id'], ['invoice_id' => $invoiceId]);
+            if (!$bk || (string) $bk['user_id'] !== $accountId) {
+                return ['ok' => false, 'error_code' => 'AI_ORDER_NOT_YOURS', 'message' => 'You do not have access to this booking.'];
+            }
+        } catch (\Throwable $e) {
+            error_log('[gia] get_order_status ownership check: ' . $e->getMessage());
+            return ['ok' => false, 'error_code' => 'AI_STATUS_ERROR', 'message' => 'Could not verify booking access.'];
         }
 
         return [

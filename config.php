@@ -530,6 +530,13 @@ try {
     if (function_exists('ensureSupplierStaysSchema')) {
         ensureSupplierStaysSchema($db);
     }
+    // Travel-Agent ERP portal (docs/agent/AGENT-ERP-SPEC.md) — agent_roles/staff/
+    // clients/trip_plans/audit tables + agencies branding + bookings attribution +
+    // users.agent_customer_markup + settings toggles. Idempotent self-heal. (The
+    // P0 wiring was lost once already — the require AND this call must both exist.)
+    if (function_exists('ensureAgentPortalSchema')) {
+        ensureAgentPortalSchema($db);
+    }
     // Employee RBAC consolidation (docs/support/EMPLOYEE_RBAC_CONSOLIDATION.md) —
     // the ONE company-wide RBAC layer: widens users_roles + users with governance
     // columns and seeds/repairs the default roles (Admin force-repaired to a full

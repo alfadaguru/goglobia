@@ -157,7 +157,6 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         require_once $aiDir . 'tools/selectOptionTool.php';
         require_once $aiDir . 'tools/composeTripTool.php';
         require_once $aiDir . 'tools/createCheckoutTool.php';
-        require_once $aiDir . 'tools/paymentOptionsTool.php';   // surface Pay-Small-Small / Pay-Later (GA7)
         require_once $aiDir . 'tools/createBookingTool.php';
         require_once $aiDir . 'tools/requestApprovalTool.php';
         require_once $aiDir . 'tools/initiatePaymentTool.php';
@@ -167,8 +166,6 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         require_once $aiDir . 'tools/userAccountTool.php';   // full account awareness (all bookings/wallet/loyalty)
         require_once $aiDir . 'tools/myTravellersTool.php';  // saved travellers for reuse (never re-type)
         require_once $aiDir . 'tools/preferencesTool.php';   // opt-in consented travel preferences (BRD MEM)
-        require_once $aiDir . 'tools/myBookingDetailTool.php';    // owner-scoped single-booking status (GA5)
-        require_once $aiDir . 'tools/requestCancellationTool.php'; // self-service cancellation REQUEST (GA5)
         require_once $aiDir . 'tools/updateProfileTool.php'; // allow-listed profile update
         require_once $aiDir . 'tools/registerAccountTool.php'; // passwordless phone-OTP account signup
         require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow
@@ -359,7 +356,6 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             $agent->registerTool(new selectOptionTool());
             $agent->registerTool(new composeTripTool());
             $agent->registerTool(new createCheckoutTool());
-            $agent->registerTool(new paymentOptionsTool());
             $agent->registerTool(new createBookingTool());
             // NOTE: requestApprovalTool + initiatePaymentTool are DELIBERATELY NOT
             // registered on channels. Payment here is handled OUTSIDE the model —
@@ -388,8 +384,6 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
                 $agent->registerTool(new myTravellersTool());
                 $agent->registerTool(new updateProfileTool());
                 $agent->registerTool(new preferencesTool());
-                $agent->registerTool(new myBookingDetailTool());
-                $agent->registerTool(new requestCancellationTool());
                 // SAVED PREFERENCES note (GA4, BRD MEM): rank + pre-fill to them.
                 if (function_exists('gia_pref_summary_note')) {
                     try {
@@ -397,44 +391,6 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
                         $__pref = gia_pref_summary_note($db, (string) $toolContext['account_id']);
                         if ($__pref !== '') { $agent->addSystemNote($__pref); }
                     } catch (\Throwable $e) { error_log('[gia] channel pref note: ' . $e->getMessage()); }
-                }
-                // PROACTIVE account note (GA6): a time-aware nudge (imminent trip /
-                // unpaid booking) so a returning WhatsApp/Telegram user gets the
-                // same proactivity the web widget does. Grounded in real bookings.
-                if (function_exists('gia_user_snapshot') && function_exists('gia_user_proactive_note')) {
-                    try {
-                        require_once $aiDir . 'gia_account.php';
-                        $__snapC = gia_user_snapshot($db, (string) $toolContext['account_id']);
-                        $__noteC = gia_user_proactive_note($__snapC);
-                        if ($__noteC !== '') {
-                            $agent->addSystemNote('ACCOUNT CONTEXT (trusted): ' . $__noteC
-                                . ' Use get_my_account for full detail when asked. Never invent bookings.');
-                        }
-                    } catch (\Throwable $e) { error_log('[gia] channel account note: ' . $e->getMessage()); }
-                }
-                // SOFT PRIVACY CONFIRM (GA10): when the account was resolved by a
-                // PASSIVE phone match (this sender's number matched users.phone) and
-                // NOT a verified link, a wrong/shared/spoofed number could read
-                // someone else's data. Owner declined a hard gate, so this is a SOFT
-                // one-time check: ask "is this you, {name}?" before reciting sensitive
-                // account data (bookings/wallet). General chat/booking still flows.
-                if (empty($ident['verified']) && !empty($ident['match'])) {
-                    $__who = '';
-                    try {
-                        if (function_exists('gia_user_profile')) {
-                            $__p = gia_user_profile($db, (string) $toolContext['account_id']);
-                            $__who = trim((string) ($__p['first_name'] ?? ''));
-                        }
-                    } catch (\Throwable $e) { /* name is optional */ }
-                    $agent->addSystemNote(
-                        "IDENTITY (soft): this chat is matched to an account only by the sender's phone "
-                        . "number, not a verified link. Before you reveal anything sensitive about the "
-                        . "account (bookings, wallet balance, saved travellers, personal details), do a "
-                        . "ONE-TIME light check in your reply — e.g. 'Just to confirm, am I speaking with "
-                        . ($__who !== '' ? $__who : 'the account holder') . "?' — and only share after they "
-                        . "confirm. You may still greet, search and help book without the check; it only "
-                        . "gates reciting private account data. Don't repeat the check once confirmed this chat."
-                    );
                 }
             } else {
                 // No account on this chat yet — let GIA create one from name +

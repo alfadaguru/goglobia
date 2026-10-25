@@ -378,6 +378,13 @@ $router->post('/api/booking/quick-login', function () use ($SECURE, $db) {
 
         // Success - clear the failed-attempt counter + Set session
         $db->update('users', ['login_attempts' => 0, 'locked_until' => null], ['id' => $qlUserId]);
+        
+        // SECURITY FIX: Regenerate session ID to prevent session-fixation attacks.
+        // All other login paths do this; quick-login was missing this guard.
+        if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+            session_regenerate_id(true);
+        }
+        
         $_SESSION['user_id'] = $user['user_id'];
         $_SESSION['user_email'] = $user['email'];
         $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];

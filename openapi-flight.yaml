@@ -1,0 +1,1217 @@
+openapi: 3.0.3
+info:
+  title: "Goglobia Travelling Technologies Limited API - Flights"
+  version: 1.0.0
+  description: |
+    Flight search, fare quote, booking and cancellation for the
+    **Goglobia Travelling Technologies Limited API**. These endpoints drive the SAME pipeline as the
+    storefront booking flow: identical retail markup, the same wallet
+    settlement, the same idempotency and persistence. A booking placed here is
+    indistinguishable from one placed on the storefront (it appears in your
+    bookings, invoices and reports as `channel = api`).
+
+    ## Authentication & scopes
+    Send your secret key on every request: `Authorization: Bearer sk_live_...`.
+    Grant the key the scopes it needs:
+    - `search` - locations, search, fare-rule, fare-quote, ssr, calendar, series-locations, series-calendar.
+    - `book`   - book (your wallet is debited, exactly like the storefront).
+    - `cancel` - cancel + cancellation-quote.
+    - `read`   - booking-details + wallet.
+
+    ## The search → poll model
+    Flight search is **asynchronous**. `POST /flights/search` returns a
+    `trace_id` immediately; you then **poll** `GET /flights/search-poll` until
+    `done == true`. Offers carry an opaque `id` (offer id) you pass to
+    fare-quote / ssr / book. A trace is valid for roughly **15 minutes** - after
+    that you must re-search.
+
+    ## Round trips
+    Send the four criteria and nothing more:
+
+    ```json
+    { "trip_type": "round", "origin": "DEL", "destination": "BOM",
+      "depart_date": "2026-09-10", "return_date": "2026-09-12", "adults": 1 }
+    ```
+
+    The response contains **both directions**. Tell them apart with
+    `meta.origin` / `meta.destination` / `meta.depart_date` on each offer -
+    outbound offers leave your `origin`, return offers leave your `destination`.
+
+    Most routes price the two sectors **separately**: you will get single-sector
+    offers (`meta.leg_count = 1`), and you book the trip by passing BOTH offer
+    ids in `legs[]` on `/flights/book`. Where an airline does sell one combined
+    fare it arrives as a single offer with `meta.leg_count = 2` and
+    `meta.is_package = true`, and that one offer id books the whole journey.
+    The `round_trip` block on the poll response counts each kind and its `note`
+    says which situation you are in.
+
+    `offer_id` is unique within a trace, so an outbound and a return offer never
+    share one - always pair the two ids you actually chose.
+
+    Only send `segments` on a round trip if you want to control both sectors
+    yourself (a different turnaround city, or an open-jaw); it is then used
+    exactly as sent.
+
+    ## Booking & money
+    1. (Recommended) `POST /flights/fare-quote` to re-price the chosen offer and
+       see `is_price_changed`.
+    2. `POST /flights/book` with `trace_id` + `offer_id` (or a `legs[]` array for
+       round-trip / multi-city), passengers and contact.
+       - Your tenant wallet is **pre-checked** before the airline is called, and
+         **debited the full all-in (sell + tax)** after the ticket is issued. If
+         the wallet cannot cover the supplier net you get `402` and no ticket is
+         issued.
+    3. Send an `Idempotency-Key` header on `book` and `cancel` so a retry never
+       issues a second ticket - a completed replay returns the original response,
+       an in-flight replay returns `409`.
+
+    ## Conventions
+    - Base URL: `https://backoffice.adivaha.com/b2c/api/v1`
+    - Money values are decimals; currency is ISO-4217 (e.g. `INR`).
+    - Errors return `{ "error": "<code>", "message": "..." }` with a 4xx/5xx status.
+    - **Invoices:** a tax invoice is issued only when your account has a GSTIN
+      on file. No GSTIN = no invoice: `invoice` is `null` and no invoice or
+      payment receipt is emailed. Add your GSTIN under Settings > Local
+      Settings > Tax ID / GST Number.
+
+    ## Certification
+    Before we switch your integration to **Production**, it must pass **API
+    Certification** - our check that you have implemented the Flights API
+    correctly and safely (not just that a single test call worked). Here is the
+    whole process:
+
+    1. **Apply.** Open your **[API Settings page](https://backoffice.adivaha.com/b2c/api-settings)** and click
+       **Request Certification** (or ask us to enrol you). Nothing starts until
+       you apply - no emails are sent before that. Your status moves to
+       *In progress*.
+    2. **Run the test cases.** There are **15 of them**, and this
+       is the list:
+
+       - 📋 **[Test cases, with sample requests and pass criteria](https://backoffice.adivaha.com/certification/docs?product=flights)**
+       - 📄 **[The same list as a CSV checklist](https://backoffice.adivaha.com/certification/sheet?product=flights)**
+       - 📮 **[Postman collection - import and run](https://backoffice.adivaha.com/certification/postman?product=flights)**
+
+       Using your **sandbox** key (`sk_test_…`), work through every case:
+       authentication, search & poll, fare rules & fare quote, seat/SSR, book,
+       manage, plus the negative cases (e.g. same origin & destination must be
+       rejected). **11 are mandatory** - all of them must
+       pass before we can certify you, including the negative ones, which are the
+       cases most often missed. There is **nothing to upload**: every request and
+       response is logged on our side and becomes your evidence.
+    3. **We verify - automatically.** Each case is graded from that log (response
+       structure, status codes, required fields, and that the offer ratekeys you
+       booked were genuinely issued to you). Re-grading runs every 30 minutes, so
+       fix anything that fails, re-run it, and your result updates on its own.
+       **[Check your results here](https://backoffice.adivaha.com/certification/my?product=flights)** - it shows every case as
+       passed, failed or not-yet-attempted, with the reason for each failure.
+    4. **Certified → Go-live.** Once all mandatory cases pass we mark you
+       **Certified** and enable Production. Switch to your `sk_live_…` key and
+       fund your wallet before ticketing.
+
+    👉 **Start certification from your [API Settings page](https://backoffice.adivaha.com/b2c/api-settings).**
+
+servers:
+  - url: "https://backoffice.adivaha.com/b2c/api/v1"
+    description: Live
+
+tags:
+  - name: Authentication
+    description: Exchange your API key + Partner ID for a 24h token.
+  - name: Search
+    description: Locations, async search + poll, fare rules, fare quote, SSR, calendar.
+  - name: Book
+    description: Issue a ticket (wallet-debited, idempotent).
+  - name: Manage
+    description: Booking detail, cancellation quote + cancel.
+  - name: Account
+    description: Wallet balance (the wallet a booking debits).
+
+security:
+  - bearerAuth: []
+
+paths:
+
+  /token:
+    post:
+      tags: [Authentication]
+      summary: Generate a 24-hour token
+      description: |
+        Exchange your **API key** and **Partner ID** for a short-lived token.
+
+        - The token is your Bearer credential for **every other endpoint**.
+        - It is valid for **24 hours** - regenerate it before it expires.
+        - Do not call this on every request; mint one token per day and reuse it
+          until you get a `401 invalid_or_expired_token`, then mint a fresh one.
+
+        Your API key (`sk_live_…` / `sk_test_…`) and Partner ID come from
+        **B2C &rarr; API Settings**. Pass them as the two headers below (fill the
+        input boxes on the right), then **Send API Request**.
+      security: []
+      parameters:
+        - name: X-Api-Key
+          in: header
+          required: true
+          description: Your API secret key.
+          schema: { type: string }
+          example: "sk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        - name: X-Partner-Id
+          in: header
+          required: true
+          description: Your Partner ID (PID).
+          schema: { type: string }
+          example: "{{pid}}"
+      responses:
+        '200':
+          description: A 24-hour Bearer token.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/BadRequest' }
+  /flights/locations:
+    get:
+      tags: [Search]
+      summary: Airport / city autocomplete
+      description: Resolve airports and cities for the search form. Falls back to the local airport table when the upstream is unconfigured. Scope `search`.
+      parameters:
+        - { name: q,     in: query, required: true,  schema: { type: string }, example: "del" }
+        - { name: limit, in: query, required: false, schema: { type: integer, default: 10, minimum: 1, maximum: 20 } }
+      responses:
+        '200':
+          description: Matching locations.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  airports: { type: array, items: { $ref: '#/components/schemas/Airport' } }
+                  source:   { type: string, example: "adivaha", enum: [adivaha, local, empty] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /flights/search:
+    post:
+      tags: [Search]
+      summary: Start an async flight search
+      description: Kicks off a fan-out search and returns a `trace_id` to poll. Scope `search`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SearchRequest' }
+      responses:
+        '200':
+          description: Search started.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trace_id: { type: string, example: "tr_9f2c..." }
+                  poll_url: { type: string, example: "flights/search-poll?trace_id=tr_9f2c..." }
+                  query:    { type: object, description: The normalised search criteria. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/UpstreamError' }
+
+  /flights/search-poll:
+    get:
+      tags: [Search]
+      summary: Poll a search for offers
+      description: |
+        Returns the current trace state and the offers found so far, with retail
+        markup applied (`sell` is the customer price). Poll until `done == true`.
+        Trace valid ~15 minutes. Scope `search`.
+      parameters:
+        - $ref: '#/components/parameters/DisplayCurrency'
+        - { name: trace_id, in: query, required: true, schema: { type: string }, example: "tr_9f2c..." }
+      responses:
+        '200':
+          description: Trace state + offers.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchPollResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /flights/fare-rule:
+    post:
+      tags: [Search]
+      summary: Fare rules for an offer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TraceOfferRef' }
+      responses:
+        '200':
+          description: Fare rule text.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:        { type: boolean }
+                  fare_rule: { type: object, nullable: true }
+                  error:     { type: string, nullable: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/UpstreamError' }
+
+  /flights/fare-quote:
+    post:
+      tags: [Search]
+      summary: Re-price an offer (with markup + tax)
+      description: Re-prices the chosen offer against the airline and re-applies retail markup and tax. Returns the review-page shape including `is_price_changed` and the SSR catalogue. Scope `search`.
+      parameters:
+        - $ref: '#/components/parameters/DisplayCurrency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TraceOfferRef' }
+      responses:
+        '200':
+          description: Re-priced offer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FareQuoteResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/UpstreamError' }
+
+  /flights/ssr:
+    post:
+      tags: [Search]
+      summary: SSR catalogue (seat / meal / baggage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TraceOfferRef' }
+      responses:
+        '200':
+          description: SSR options.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:    { type: boolean }
+                  ssr:
+                    type: object
+                    description: |
+                      Canonical SSR block (supported, legs[], segments[] with seat_map, meals, baggage).
+                      Every priced item carries the retail price this API charges for it at book:
+                      `sell_price`,
+                      `gst_amount` (GST on that markup), `total_price` (sell_price + gst_amount), `sell_currency`
+                      (tenant base). Priced per item alone; infant seat / meal / bag picks are not sold.
+                  pricing_note: { type: string }
+                  error: { type: string, nullable: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /flights/calendar:
+    get:
+      tags: [Search]
+      summary: Per-day low-fare calendar
+      parameters:
+        - { name: origin,      in: query, required: true,  schema: { type: string }, example: "DEL" }
+        - { name: destination, in: query, required: true,  schema: { type: string }, example: "BOM" }
+        - { name: month,       in: query, required: true,  schema: { type: string }, example: "2026-07-01", description: "YYYY-MM or YYYY-MM-DD." }
+        - { name: cabin,       in: query, required: false, schema: { type: string, default: economy } }
+      responses:
+        '200':
+          description: Calendar fares keyed by date.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fares:    { type: object, additionalProperties: { type: object } }
+                  lowest:   { type: string, nullable: true, example: "2026-07-14" }
+                  currency: { type: string, example: "INR" }
+                  source:   { type: string, example: "adivaha", enum: [adivaha, none] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /flights/series-locations:
+    get:
+      tags: [Search]
+      summary: Series (Allotments) route map
+      description: |
+        The closed world of sectors with pre-purchased seats: `role=origin` lists
+        every origin the tenant holds seats from; `role=destination&origin=DEL`
+        lists where those seats fly to from one origin. Read from the pooled
+        series mirror (own DMC contracts + own series-fare suppliers) - no airline
+        is called. Pair with `series: true` on /flights/search. Scope `search`.
+      parameters:
+        - { name: role,   in: query, required: false, schema: { type: string, enum: [origin, destination], default: origin } }
+        - { name: origin, in: query, required: false, schema: { type: string }, example: "DEL", description: "Required when role=destination." }
+      responses:
+        '200':
+          description: Airports with seats.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  airports:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Airport'
+                        - type: object
+                          properties:
+                            sources: { type: array, items: { type: string }, description: "Which pools hold this place: `extranet` = the tenant's own contracts; other entries are supplier aliases (opaque when suppliers are hidden)." }
+                            routes:  { type: integer, nullable: true, example: 3, description: "role=origin only: destinations served from here." }
+                  role:   { type: string, example: "origin" }
+                  origin: { type: string, nullable: true }
+                  pools:  { type: array, items: { type: string }, example: ["extranet"] }
+                  source: { type: string, example: "series" }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /flights/series-calendar:
+    get:
+      tags: [Search]
+      summary: Series (Allotments) month calendar
+      description: |
+        One month of series availability for a sector: fare, seats and sold-out
+        per date, the cheapest pool winning. Fares are NET of markup in the
+        tenant base currency (they match `net` on a `series: true` search);
+        sold-out dates come back with `sold_out: true`, never omitted. A date
+        that is missing is one the series does not fly. Scope `search`.
+      parameters:
+        - { name: origin,      in: query, required: true, schema: { type: string }, example: "DEL" }
+        - { name: destination, in: query, required: true, schema: { type: string }, example: "BOM" }
+        - { name: month,       in: query, required: true, schema: { type: string }, example: "2026-11", description: "YYYY-MM or YYYY-MM-DD." }
+      responses:
+        '200':
+          description: Calendar keyed by date.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dates:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        amount:        { type: number, example: 4500.00 }
+                        currency:      { type: string, example: "INR" }
+                        seats:         { type: integer, nullable: true, example: 6, description: "null when the pool does not publish a seat count." }
+                        sold_out:      { type: boolean }
+                        airline:       { type: string, example: "6E" }
+                        flight_number: { type: string, example: "2041" }
+                        depart:        { type: string, nullable: true, example: "06:10:00" }
+                        arrive:        { type: string, nullable: true, example: "08:25:00" }
+                        day_offset:    { type: integer, example: 0 }
+                        sources:       { type: array, items: { type: string } }
+                        is_lowest:     { type: boolean }
+                  lowest:      { type: string, nullable: true, example: "2026-11-14" }
+                  currency:    { type: string, example: "INR" }
+                  month:       { type: string, example: "2026-11" }
+                  origin:      { type: string, example: "DEL" }
+                  destination: { type: string, example: "BOM" }
+                  source:      { type: string, example: "series" }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /flights/book:
+    post:
+      tags: [Book]
+      summary: Book a flight (wallet-debited, idempotent)
+      description: |
+        Re-prices, wallet-gates, books at the airline, persists the booking + pax
+        + invoice (when your account has a GSTIN), then debits your wallet the full all-in (sell + tax). Send an
+        `Idempotency-Key` header so retries never issue a second ticket. Scope `book`.
+        When the fare comes from a supplier account you hold yourself (your own keys on the Connectors page), the
+        airline is paid on that account and your wallet is not debited; the price breakup then says "paid directly
+        to supplier".
+      parameters:
+        - $ref: '#/components/parameters/DisplayCurrency'
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: A unique key per booking attempt. A replay of a completed key returns the original response; an in-flight replay returns 409.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookRequest' }
+      responses:
+        '200':
+          description: Booking confirmed (or on_hold awaiting airline confirmation).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '402':
+          description: Insufficient wallet balance - no ticket was issued. Top up and retry.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422':
+          description: "`error: pax_details_required` - the airline needs traveller details the request did not carry (for example `passport_issuing_country` on an international fare). `message` lists them. Nothing was booked or debited; add the details and book again."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: |
+            Either an in-flight Idempotency-Key replay, or `error: price_changed` - the airline
+            raised the fare beyond the tolerance (2%) before booking. Nothing was booked and
+            nothing was debited. `old_total` / `new_total` are YOUR price (markup + tax, in
+            `currency`). Ask the traveller; to take the new price, call book again with the same
+            body plus `accept_price` = the `accept_token` of every leg (valid 15 minutes, single use).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:     { type: string, example: price_changed }
+                  message:   { type: string }
+                  old_total: { type: number, example: 8942.98 }
+                  new_total: { type: number, example: 10003.06 }
+                  delta:     { type: number, example: 1060.08 }
+                  currency:  { type: string, example: INR }
+                  legs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        trace_id:     { type: string }
+                        offer_id:     { type: string }
+                        accept_token: { type: string, example: de188f2abadc49a3c9ac468a }
+        '500':
+          description: The airline confirmed a PNR but local persistence failed. The PNR is in the message - contact support; do NOT retry the same key.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+
+  /flights/booking-details:
+    get:
+      tags: [Manage]
+      summary: Get a flight booking
+      description: |
+        Retrieve a persisted flight booking, its passengers and per-leg status. Scope `read`.
+
+        ### Two ids work here
+        `reference` accepts **either**:
+
+        - the **booking id** - `BK00000016`, what this API returns from `book`;
+        - the **storefront order id** - `ORD-56CE67BC`, the one your customer sees
+          on the storefront confirmation page and quotes in an email.
+
+        An order id is resolved to the flight booking it belongs to and the
+        response is identical either way. The booking's own order id comes back
+        as `order_ref`, so you can map in both directions.
+
+        **Order ids exist only for storefront bookings.** A booking created
+        through `POST /flights/book` has no order id, and `order_ref` is `null`
+        for it - there is nothing to look up by.
+
+        Two ways this can fail:
+
+        - the order exists but no flight booking is linked to it yet - `404`;
+        - the order holds **more than one** flight booking (a multi-item cart) -
+          `409` with every reference listed, so you can ask again by the one you
+          want. This endpoint answers with a single booking and will not guess.
+      parameters:
+        - $ref: '#/components/parameters/DisplayCurrency'
+        - name: reference
+          in: query
+          required: true
+          schema: { type: string }
+          description: Booking id (`BK…`) or storefront order id (`ORD-…`).
+          examples:
+            booking_id: { summary: By booking id, value: "BK00000016" }
+            order_id:   { summary: By storefront order id, value: "ORD-56CE67BC" }
+      responses:
+        '200':
+          description: Booking detail.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/FlightBookingDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            The order id holds more than one flight booking. Ask again with one
+            of the references listed in `references`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:      { type: string, example: "ambiguous_order" }
+                  message:    { type: string, example: "Order ORD-56CE67BC holds 2 flight bookings. Ask for one of them by its own reference." }
+                  references: { type: array, items: { type: string }, example: ["BK00000003", "BK00000004"] }
+
+  /flights/cancellation-quote:
+    post:
+      tags: [Manage]
+      summary: Cancellation charge / refund quote (no mutation)
+      description: Computes the cancellation penalty and refund using the flight cancellation policy. Scope `cancel`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reference]
+              properties:
+                reference: { type: string, example: "BK00000016" }
+      responses:
+        '200':
+          description: Cancellation quote.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CancellationQuote' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /flights/cancel:
+    post:
+      tags: [Manage]
+      summary: Cancel a flight booking (idempotent)
+      description: Cancels the booking at the supplier, flips it to cancelled and records the cancel charge + refund. Send an `Idempotency-Key`. Scope `cancel`.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reference]
+              properties:
+                reference: { type: string, example: "BK00000016" }
+      responses:
+        '200':
+          description: Cancelled (or already cancelled).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CancelResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The booking is not in a cancellable state, or a cancel with this Idempotency-Key is in flight.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /flights/wallet:
+    get:
+      tags: [Account]
+      summary: Wallet balance
+      description: The tenant wallet a flight booking debits. Scope `read`.
+      parameters:
+        - { name: currency, in: query, required: false, schema: { type: string, default: "INR" } }
+      responses:
+        '200':
+          description: Wallet balance.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WalletBalance' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+components:
+  parameters:
+    DisplayCurrency:
+      name: display_currency
+      in: query
+      required: false
+      schema: { type: string, example: EUR }
+      description: >-
+        Presentation currency (ISO-4217) for all prices in the response. Defaults to
+        the tenant's default currency. Amounts are converted for display only; the
+        original base figures are preserved (sell_base / net_base / base_currency on
+        offers; total/currency stay in the base currency on bookings). Settlement /
+        wallet is always in the base currency (INR unless overridden) regardless of
+        this value. Alias: `currency`. May also be sent in the JSON request body.
+  securitySchemes:
+
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: "A 24-hour token (bt_...) minted from POST /token, sent as a Bearer token. Your raw API key (sk_live_/sk_test_...) is also accepted for convenience."
+  responses:
+
+    BadRequest:
+      description: The request was malformed or missing required fields.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid API key.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: The key lacks the required scope.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: No matching record for this tenant.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Idempotency replay still in flight, or a duplicate booking within the supplier window.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: Rate limit exceeded (per-minute or per-day). Retry after a short pause.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UpstreamError:
+      description: The supplier or pricing engine returned an error. Safe to retry the search.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+
+    PageMeta:
+      type: object
+      properties:
+        page:     { type: integer, example: 1 }
+        per_page: { type: integer, example: 50 }
+        total:    { type: integer, example: 14 }
+        pages:    { type: integer, example: 1 }
+    Money:
+      type: object
+      description: A priced amount. `sell` is what the customer pays.
+      properties:
+        sell:     { type: number, example: 4500.00, description: Customer-facing price. }
+        tax:      { type: number, example: 0,        nullable: true }
+        total:    { type: number, example: 4500.00 }
+        currency: { type: string, example: "INR" }
+    Error:
+      type: object
+      properties:
+        error:   { type: string, example: "not_found" }
+        message: { type: string, example: "No record for that reference." }
+    TokenResponse:
+      type: object
+      properties:
+        token:      { type: string,  example: "bt_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", description: "Your Bearer credential for every other endpoint." }
+        token_type: { type: string,  example: "Bearer" }
+        expires_in: { type: integer, example: 86400, description: "Seconds until the token expires (24h)." }
+        expires_at: { type: string,  example: "2026-06-27T13:00:00Z" }
+    Airport:
+      type: object
+      properties:
+        code:    { type: string, example: "DEL" }
+        city:    { type: string, example: "New Delhi" }
+        country: { type: string, example: "India" }
+        airport: { type: string, example: "Indira Gandhi International" }
+        label:   { type: string, example: "New Delhi, India" }
+        sub:     { type: string, example: "Indira Gandhi International" }
+    SearchRequest:
+      type: object
+      required: [trip_type]
+      properties:
+        trip_type:
+          type: string
+          enum: [oneway, round, multi]
+          default: oneway
+          description: >
+            `round_trip`, `roundtrip`, `return`, `one_way` and `multi_city` are
+            accepted as aliases. An unrecognised value is rejected with 400 -
+            it is never silently treated as a one-way.
+        origin:      { type: string, example: "DEL", description: "Required for oneway/round." }
+        destination: { type: string, example: "BOM", description: "Required for oneway/round." }
+        depart_date: { type: string, example: "2026-07-14", description: "YYYY-MM-DD. Required for oneway/round." }
+        return_date:
+          type: string
+          example: "2026-07-20"
+          description: >
+            YYYY-MM-DD. **Required for `round`, and it is what the return sector
+            is searched with.** Send `origin` + `destination` + `depart_date` +
+            `return_date` and nothing else - the return leg
+            (destination -> origin on `return_date`) is built for you, and the
+            response contains BOTH directions. You do not need `segments` for a
+            round trip.
+        cabin_class: { type: string, enum: [all, economy, premium_economy, business, first], example: "economy", default: all, description: "Omit (or send all) for every cabin the airline sells on the route." }
+        fare_type:
+          type: string
+          enum: [regular, student, armed_forces, senior]
+          default: regular
+          description: >
+            Special retail fare filter. `student` / `armed_forces` / `senior`
+            return only that fare bucket when the supplier offers it - e.g. the
+            adivaha engine returns StudentFare / MilitaryFare / SeniorFare-tagged
+            results for that route. Suppliers without special fares ignore the
+            key and return regular pricing. The matched fare is echoed on each
+            offer as `meta.special_fare`.
+        adults:      { type: integer, default: 1, minimum: 1 }
+        children:    { type: integer, default: 0, minimum: 0 }
+        infants:     { type: integer, default: 0, minimum: 0 }
+        series:
+          type: boolean
+          default: false
+          description: >
+            Allotments mode. `true` returns only pre-purchased / allotment fares:
+            the tenant's own DMC held-seat contracts (series, blocked seats,
+            charter, group) and its own series-fare suppliers - the same pool as
+            the storefront Allotments tab. Live airline fares are left out. Use
+            /flights/series-locations and /flights/series-calendar to find the
+            sectors and dates that have seats. Omit (or false) for the normal
+            search, where series fares appear alongside live fares and are
+            marked by `meta.is_series` / `meta.fare_label`.
+        segments:
+          type: array
+          description: >
+            **Required for `multi`** (at least 2 segments). **Optional for
+            `round`** - leave it out and the return leg is derived from
+            `return_date`. If you DO send it on a round trip, send BOTH sectors:
+            whatever you send is searched verbatim and nothing is added, so a
+            single-sector `segments` array returns the outbound only, and a
+            second sector pointing somewhere other than your origin searches
+            exactly that. **Ignored for `oneway`.**
+          items:
+            type: object
+            properties:
+              origin:      { type: string, example: "DEL" }
+              destination: { type: string, example: "BOM" }
+              depart_date: { type: string, example: "2026-07-14" }
+    TraceOfferRef:
+      type: object
+      required: [trace_id, offer_id]
+      properties:
+        trace_id: { type: string, example: "tr_9f2c..." }
+        offer_id: { type: string, example: "ADV-...-...", description: "The opaque offer id from search-poll." }
+    FlightOffer:
+      type: object
+      properties:
+        id:            { type: string, description: "Opaque offer id - pass to fare-quote / book." }
+        supplier_code: { type: string, example: "supplier", description: "Hidden by default (owner rule 2026-10-06): the literal 'supplier' unless the tenant has turned Show suppliers on (feature.show_suppliers), then the real supplier code. Flights never need it back - book with trace_id + offer_id." }
+        trace_id:      { type: string }
+        currency:      { type: string, example: "INR" }
+        sell:          { type: number, example: 4500.00, description: "Customer price, in `currency` (the response display currency)." }
+        sell_base:     { type: number, example: 4500.00, description: "Pre-conversion `sell` in `base_currency`. Use this for settlement / reconciliation." }
+        base_currency: { type: string, example: "INR", description: "The tenant base currency the sell_base / net_base figures are in (the settlement currency)." }
+        cancel_policy: { type: string, example: "Refundable" }
+        meta:
+          type: object
+          properties:
+            code:          { type: string, example: "AI" }
+            airline:       { type: string, example: "Air India" }
+            flight_number: { type: string, example: "805" }
+            origin:        { type: string, example: "DEL" }
+            destination:   { type: string, example: "BOM" }
+            depart_time:   { type: string, example: "09:15" }
+            arrive_time:   { type: string, example: "11:30" }
+            depart_date:   { type: string, example: "2026-07-14" }
+            arrive_date:   { type: string, example: "2026-07-14" }
+            duration:      { type: string, example: "2h 15m", description: "Total journey time, formatted. Spans every leg on a round trip." }
+            duration_minutes: { type: integer, example: 135, description: "Total journey time across ALL legs, not just the outbound." }
+            stops:         { type: integer, example: 0 }
+            seats_remaining: { type: integer, example: 7 }
+            refundable:    { type: boolean }
+            is_lcc:        { type: boolean }
+            trip_type:
+              type: string
+              enum: [oneway, round, multi]
+              example: round
+              description: >
+                What THIS OFFER is, which is not always what you searched for.
+                A `round` search returns outbound-only fares from suppliers that
+                cannot price a return, and those are reported here as `oneway`.
+            is_package:
+              type: boolean
+              example: true
+              description: >
+                True when the airline priced every leg as ONE combined fare, so
+                booking this single offer_id covers the whole journey. False on
+                an outbound-only fare - you must book the return separately.
+                Always false on Indian domestic routes, where no packaged
+                product is offered.
+            leg_count:     { type: integer, example: 2, description: "Number of itineraries. 1 = one-way, 2 = round trip, N = multi-city." }
+            legs:
+              type: array
+              description: "Per-leg summary. Empty on a one-way; two entries on a round trip (0 = outbound, 1 = inbound)."
+              items:
+                type: object
+                properties:
+                  origin:           { type: string, example: "DEL" }
+                  destination:      { type: string, example: "DXB" }
+                  depart_at:        { type: string, example: "2026-09-15T18:35:00" }
+                  arrive_at:        { type: string, example: "2026-09-15T20:35:00" }
+                  depart_date:      { type: string, example: "2026-09-15" }
+                  depart_time:      { type: string, example: "18:35" }
+                  arrive_date:      { type: string, example: "2026-09-15" }
+                  arrive_time:      { type: string, example: "20:35" }
+                  duration:         { type: string, example: "4h 0m" }
+                  duration_minutes: { type: integer, example: 240 }
+                  stops:            { type: integer, example: 0 }
+                  code:             { type: string, example: "G9" }
+                  airline:          { type: string, example: "Air Arabia" }
+                  flight_number:    { type: string, example: "992" }
+            fare_name:     { type: string, nullable: true, example: "Corporate Fare", description: "Branded fare family (the supplier's own name), when present." }
+            special_fare:  { type: string, nullable: true, example: "Armed Forces Fare", description: "Special retail fare label when this offer is a Student / Armed Forces / Senior Citizen fare (from fare_type filter); null for a regular fare. When set, collect the eligibility ID at the passenger step for suppliers that require it." }
+            fare_source:
+              type: string
+              enum: [series, dmc, gds]
+              description: >
+                Where the fare comes from. `series` = a pre-purchased seat block
+                (own DMC series contract or a series-fare supplier); `dmc` = the
+                tenant's own contracted fare sold as a DMC fare (blocked seats,
+                negotiated); `gds` = a live airline fare.
+            is_series:     { type: boolean, example: false, description: "True when this is a pre-purchased seat (fare_source = series). Present on every offer, in the normal search and in `series: true` mode." }
+            fare_label:    { type: string, nullable: true, example: "Series Fare", description: "Ribbon text for a series fare; null on a normal fare. Show it as the storefront does." }
+            business_model: { type: string, nullable: true, enum: [series, blocked_seats, charter, group, negotiated], description: "Own-contract (DMC) fares only: the contract's model. null on a live airline fare." }
+            fare_type:     { type: string, nullable: true, example: "series", description: "The supplier's fare class name: series suppliers send `series`; GDS fares send their branded type (RegularFare / CorporateFare / ...); null when unnamed." }
+            booking_class: { type: string, nullable: true, example: "Y", description: "Booking class (RBD) of the first segment, when the contract / supplier states it." }
+            cabin:         { type: string, nullable: true, example: "economy", description: "Cabin of the first segment." }
+            terminals:
+              type: object
+              description: "Departure terminal at the origin and arrival terminal at the final destination; null when not stated."
+              properties:
+                from: { type: string, nullable: true, example: "T3" }
+                to:   { type: string, nullable: true, example: "T2" }
+            baggage:
+              type: object
+              description: "Allowance as the contract / supplier states it (free text, e.g. `15 KG`). null = not stated, which is NOT zero."
+              properties:
+                checkin: { type: string, nullable: true, example: "15 KG" }
+                cabin:   { type: string, nullable: true, example: "7 KG" }
+            fare_rules:    { nullable: true, description: "The contract's own fare / cancellation terms when they travel with the offer (DMC fares); null otherwise - call /flights/fare-rule for the supplier text." }
+            seats_left:    { type: integer, nullable: true, example: 4, description: "Seats remaining on this fare; null when the supplier does not publish one (`seats_remaining` reads 0 then). Always set on series / allotment fares." }
+    SearchPollResponse:
+      type: object
+      properties:
+        done:          { type: boolean, description: "True when the search has finished. Keep polling while false." }
+        trace_id:      { type: string }
+        product:       { type: string, example: "flight" }
+        offers:        { type: array, items: { $ref: '#/components/schemas/FlightOffer' } }
+        suppliers:     { type: array, items: { type: object } }
+        total_results: { type: integer, example: 23 }
+        round_trip:
+          type: object
+          nullable: true
+          description: >
+            Present only on a `round` search. Says how much of the result set is
+            actually bookable as one complete round trip, because suppliers that
+            cannot price a return still answer with outbound-only fares.
+          properties:
+            requested: { type: string, example: "round" }
+            mode:      { type: string, enum: [ "2x", "package" ], example: "2x", description: "How this storefront sells a round trip. `2x` returns single-sector offers to pair via legs[]; `package` returns only offers that carry both sectors. India domestic is always `2x`." }
+            mode_applied: { type: boolean, example: true, description: "True when the list was narrowed to `mode`. False when the route had no offers of that kind, in which case the full unfiltered list is returned rather than an empty one." }
+            packaged:  { type: integer, example: 41, description: "Offers with meta.is_package = true - one offer_id books both sectors." }
+            combined:  { type: integer, example: 41, description: "Offers physically carrying both sectors (leg_count > 1). Higher than `packaged` only where packaging is commercially suppressed, e.g. Indian domestic routes." }
+            one_way:   { type: integer, example: 380, description: "Outbound-only offers. The return must be booked separately." }
+            note:      { type: string }
+        currency:      { type: string, example: "INR" }
+        display_currency: { type: string, example: "INR", description: "The currency all prices in this response are shown in (the requested display_currency, else the tenant default). Per-offer base figures stay in `base_currency`." }
+        criteria:      { type: object }
+    FareQuoteResponse:
+      type: object
+      properties:
+        product:          { type: string, example: "flight" }
+        offer:            { $ref: '#/components/schemas/FlightOffer' }
+        tax:              { type: object }
+        total:            { type: number, example: 4500.00, description: "Sell + tax, in `currency` (the response display currency)." }
+        currency:         { type: string, example: "INR" }
+        display_currency: { type: string, example: "INR", description: "The currency the prices in this response are shown in. The offer's sell_base / net_base / base_currency hold the pre-conversion settlement figures." }
+        supplier:         { type: string, example: "adivaha" }
+        trace_id:         { type: string }
+        breakup:          { $ref: '#/components/schemas/FlightPriceBreakup' }
+        is_price_changed: { type: boolean, description: "True if the airline re-priced vs search." }
+        quote_error:      { type: string, nullable: true }
+    FlightPriceBreakup:
+      type: object
+      nullable: true
+      description: |
+        Price breakup (pure agent): the airline's cost passed through, then our service fee,
+        the promo off that fee, GST on (service fee - discount), total.
+        base_fare + airline_taxes + add_ons (= fare) + service_fee - discount + gst.total + tcs = total.
+        All amounts in `currency`, 2 decimals. Agent points are a payment line, never a discount.
+      properties:
+        base_fare:     { type: number, nullable: true, example: 4050.00, description: "Airline base fare. null when the airline gave no base/tax split (then only `fare` is stated)." }
+        airline_taxes: { type: number, nullable: true, example: 750.00, description: "Airline taxes & fees (the airline's own, not our GST)." }
+        add_ons:       { type: number, example: 0, description: "Paid extras (bag / meal / seat) at the airline's price." }
+        fare:          { type: number, example: 4800.00, description: "base_fare + airline_taxes + add_ons." }
+        service_fee:   { type: number, example: 200.00, description: "Our service fee (fare markup + extras markup). The only amount GST is charged on." }
+        discount:      { type: number, example: 0, description: "Promo discount on the service fee (taken off before GST)." }
+        gst:
+          type: object
+          properties:
+            cgst:  { type: number, example: 5.00 }
+            sgst:  { type: number, example: 5.00 }
+            igst:  { type: number, example: 0 }
+            total: { type: number, example: 10.00 }
+        tcs:           { type: number, example: 0 }
+        total:         { type: number, example: 5010.00, description: "= the reply's `total` (the invoice amount, when an invoice is issued)." }
+    PriceChangeFields:
+      type: object
+      description: "Present on every booking reply. When the airline fare rose between quote and booking (within the 2% tolerance, or accepted with accept_price) price_changed is true."
+      properties:
+        price_changed: { type: boolean, example: true }
+        quoted_total:  { type: number, nullable: true, example: 4950.00, description: "All-in total at the quoted fare." }
+        booked_total:  { type: number, example: 5010.00, description: "All-in total booked (= total)." }
+        remarks:       { type: string, nullable: true, example: "Price changed by the airline before booking: quoted INR 4,950.00, booked INR 5,010.00." }
+    Passenger:
+      type: object
+      required: [type, first_name, last_name]
+      properties:
+        type:        { type: string, enum: [adult, child, infant], default: adult }
+        title:       { type: string, example: "Mr" }
+        first_name:  { type: string, example: "Asha" }
+        last_name:   { type: string, example: "Rao" }
+        gender:      { type: string, enum: [male, female], default: male }
+        dob:         { type: string, example: "1990-04-12", nullable: true }
+        nationality: { type: string, example: "IN", nullable: true }
+        passport_no: { type: string, nullable: true }
+        passport_exp: { type: string, example: "2030-01-01", nullable: true }
+        passport_issuing_country: { type: string, example: "IN", nullable: true, description: "ISO 3166-1 alpha-2 country that issued the passport. Send it on international flights: some airlines refuse the booking without it (the answer is then 422 pax_details_required and nothing is booked)." }
+        passport_issue_date: { type: string, example: "2022-01-01", nullable: true, description: "Passport issue date, when the airline asks for it." }
+        pan:         { type: string, example: "ABCDE1234F", nullable: true, description: "Indian PAN card number (5 letters, 4 digits, 1 letter). Required when the fare quote says pan_required: on a TBO fare EVERY adult sends their own PAN; children and infants travel on the lead adult's PAN (send none). Other suppliers need it for the first passenger only." }
+        preferences:
+          type: array
+          description: |
+            Seat / meal / extra-baggage picks, one entry per pick. Codes come from POST /flights/ssr,
+            which lists them PER SEGMENT (ssr.segments[].segment_index, with seat_map, meals, baggage).
+            A connecting flight (e.g. DEL-MAA-BOM) has one segment per flight: send one entry per
+            segment with its segment_index. Without segment_index the pick applies to EVERY segment of
+            the leg (older clients keep working). On a round trip / multi-city, leg = the index of the
+            booking leg (legs[] order, default 0); segment_index counts within that leg.
+            Infants get no seat or meal picks.
+          items:
+            type: object
+            properties:
+              leg:           { type: integer, default: 0, description: "Booking leg (legs[] index). Default 0." }
+              segment_index: { type: integer, nullable: true, description: "0-based segment within the leg, as listed by /flights/ssr. Omit = all segments of the leg." }
+              seat:          { type: object, properties: { code: { type: string, example: "12A" } } }
+              meal:          { type: object, properties: { code: { type: string, example: "VGML" } } }
+              bag:           { type: object, properties: { code: { type: string, example: "XBPA" } } }
+    Contact:
+      type: object
+      required: [name, email, phone, address_line, city, country, postal_code]
+      properties:
+        name:         { type: string, example: "Asha Rao", description: "Lead contact full name. Letters, spaces, hyphens and apostrophes only." }
+        email:        { type: string, example: "asha@example.com", description: "Valid email address. Required." }
+        phone:        { type: string, example: "+919000000000", description: "7-15 digits, optional leading '+'. Required." }
+        address_line: { type: string, example: "1 MG Road", description: "Billing address line, 3-120 chars. Required by the supplier to issue the ticket." }
+        city:         { type: string, example: "Mumbai", description: "Billing city. Required." }
+        country:      { type: string, example: "IN", description: "2-letter ISO country code (e.g. IN, US, GB) - NOT the full country name. Required." }
+        postal_code:  { type: string, example: "400001", description: "Postal / zip code, 3-10 chars (letters, digits, space, hyphen). Required." }
+        gst:
+          type: object
+          nullable: true
+          description: "Optional business GST for the ticket and the tax invoice (issued only when your account has a GSTIN). Sent to the airline when the fare allows or requires GST (fare quote gst_allowed / gst_mandatory); ignored otherwise. When a fare requires GST and none is sent, the agency's own GST is used."
+          properties:
+            gstin:        { type: string, example: "27AAPFU0939F1ZV" }
+            company_name: { type: string, example: "Asha Travels Pvt Ltd" }
+            email:        { type: string, example: "accounts@asha.example" }
+            phone:        { type: string, example: "+912222222222" }
+            address:      { type: string, example: "1 MG Road, Mumbai" }
+      description: "Contact + billing details for the booking. ALL fields are mandatory - the supplier needs the full billing address to issue the ticket. Note country must be a 2-letter ISO code."
+    BookRequest:
+      type: object
+      required: [pax, contact]
+      properties:
+        trace_id: { type: string, description: "Single-leg booking. Use with offer_id (or send legs[])." }
+        offer_id: { type: string }
+        legs:
+          type: array
+          description: "Round-trip / multi-city: each leg has its own trace_id + offer_id."
+          items:
+            type: object
+            required: [trace_id, offer_id]
+            properties:
+              trace_id: { type: string }
+              offer_id: { type: string }
+        pax:      { type: array, items: { $ref: '#/components/schemas/Passenger' } }
+        contact:  { $ref: '#/components/schemas/Contact' }
+        remarks:  { type: string, nullable: true }
+        accept_price:
+          type: array
+          items: { type: string }
+          description: "After a 409 price_changed: the accept_token of each changed leg. Books at the new price the airline quoted (never a price you send)."
+    BookResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        channel: { type: string, example: "api" }
+        booking:
+          type: object
+          properties:
+            id:           { type: integer, example: 412 }
+            reference:    { type: string, example: "BK00000016" }
+            pnr:          { type: string, nullable: true, example: "ABC123" }
+            supplier_ref: { type: string, nullable: true }
+            status:       { type: string, example: "confirmed", enum: [confirmed, on_hold] }
+            is_ticketed:  { type: boolean }
+            product:      { type: string, example: "flight" }
+            total_amount: { type: number, example: 5000.00, description: "PRE-TAX settlement figure (fare + extras + our service fee, after any promo). GST/TCS are NOT included - see `tax` and `total`." }
+            tax:
+              type: object
+              properties:
+                cgst:      { type: number, example: 5.00 }
+                sgst:      { type: number, example: 5.00 }
+                igst:      { type: number, example: 0 }
+                tcs:       { type: number, example: 0 }
+                gst_total: { type: number, example: 10.00 }
+            total:        { type: number, example: 5010.00, description: "All-in = total_amount + GST + TCS (what your wallet was debited, = the tax invoice when one is issued) - always in `currency` (the base currency)." }
+            breakup:      { $ref: '#/components/schemas/FlightPriceBreakup' }
+            price_changed: { type: boolean, description: "See PriceChangeFields." }
+            quoted_total:  { type: number, nullable: true }
+            booked_total:  { type: number }
+            remarks:       { type: string, nullable: true, example: "Price changed by the airline before booking: quoted INR 4,950.00, booked INR 5,010.00." }
+            currency:     { type: string, example: "INR" }
+            display_currency: { type: string, example: "EUR", nullable: true, description: "Presentation currency of `display_total` when a display currency was requested. Equals `currency` otherwise." }
+            display_total:    { type: number, example: 49.95, nullable: true, description: "`total` converted into `display_currency` for display only; `total`/`currency` remain the settlement figures." }
+            invoice:      { type: string, nullable: true, example: "INV-000123", description: "Tax invoice number; null when no invoice was issued (no GSTIN on your account)." }
+            legs:
+              type: array
+              nullable: true
+              items:
+                type: object
+                properties:
+                  pnr:           { type: string, nullable: true }
+                  supplier_ref:  { type: string, nullable: true }
+                  booking_ref:   { type: string, nullable: true }
+                  is_ticketed:   { type: boolean }
+                  supplier_code: { type: string, example: "supplier", description: "Hidden by default (owner rule 2026-10-06): the literal 'supplier' unless the tenant has turned Show suppliers on (feature.show_suppliers), then the real supplier code. Flights never need it back - book with trace_id + offer_id." }
+        message: { type: string }
+    FlightBookingDetail:
+      type: object
+      properties:
+        reference:     { type: string, example: "BK00000016" }
+        order_ref:
+          type: string
+          nullable: true
+          example: "ORD-56CE67BC"
+          description: >-
+            Storefront order this booking belongs to, and a second id you may pass
+            as `reference`. `null` for a booking created through this API, which
+            opens no storefront order.
+        document_url:
+          type: string
+          example: "https://backoffice.adivaha.com/doc/6f6c1a...48-hex"
+          description: >-
+            Public link to the ready-made voucher / e-ticket PDF for this
+            booking. No login and no API key are needed to open it, so you can
+            show it to the customer or let them forward it. Add `?dl=1` to force
+            a download instead of opening it in the browser. Empty when the
+            booking is not yet confirmed with the supplier, was cancelled, or the
+            product has no PDF document.
+        product:       { type: string, example: "flight" }
+        status:        { type: string, example: "confirmed" }
+        supplier_name: { type: string, nullable: true, description: "Not returned unless the tenant shows suppliers (feature.show_suppliers)." }
+        supplier_code: { type: string, nullable: true, example: "supplier", description: "Hidden by default (owner rule 2026-10-06): the literal 'supplier' unless the tenant has turned Show suppliers on (feature.show_suppliers), then the real supplier code. Flights never need it back - book with trace_id + offer_id." }
+        pnr:           { type: string, nullable: true }
+        currency:      { type: string, example: "INR" }
+        total_amount:  { type: number, nullable: true, example: 22235.83, description: "PRE-TAX settlement figure (fare + extras + our service fee, after any promo), always in `currency` (the base currency). GST/TCS are NOT included - see `tax` and `total`." }
+        tax:
+          type: object
+          description: "GST / TCS charged on this booking (on our service fee only), in `currency`."
+          properties:
+            cgst:      { type: number, example: 34.17 }
+            sgst:      { type: number, example: 34.17 }
+            igst:      { type: number, example: 0 }
+            tcs:       { type: number, example: 0 }
+            gst_total: { type: number, example: 68.34, description: "cgst + sgst + igst (TCS is listed on its own)." }
+        total:         { type: number, example: 22304.17, description: "All-in amount = total_amount + cgst + sgst + igst + tcs. The same total the book response returned and the tax invoice bills when one is issued." }
+        breakup:       { $ref: '#/components/schemas/FlightPriceBreakup' }
+        price_changed: { type: boolean, description: "See PriceChangeFields." }
+        quoted_total:  { type: number, nullable: true }
+        booked_total:  { type: number }
+        remarks:       { type: string, nullable: true }
+        display_currency: { type: string, nullable: true, example: "EUR", description: "Presentation currency of `display_total` when a display currency was requested. Equals `currency` otherwise." }
+        display_total:    { type: number, nullable: true, example: 49.95, description: "`total_amount` converted into `display_currency` for display only; `total_amount`/`currency` remain the settlement figures." }
+        origin:        { type: string, nullable: true }
+        destination:   { type: string, nullable: true }
+        travel_date:   { type: string, nullable: true }
+        return_date:   { type: string, nullable: true }
+        booked_at:     { type: string, nullable: true }
+        created_at:    { type: string, nullable: true }
+        contact:
+          type: object
+          properties:
+            name:  { type: string, nullable: true }
+            email: { type: string, nullable: true }
+            phone: { type: string, nullable: true }
+        passengers:
+          type: array
+          items: { $ref: '#/components/schemas/Passenger' }
+        legs:
+          type: array
+          nullable: true
+          items:
+            type: object
+            properties:
+              supplier_code: { type: string, example: "supplier", description: "Hidden by default (owner rule 2026-10-06): the literal 'supplier' unless the tenant has turned Show suppliers on (feature.show_suppliers), then the real supplier code. Flights never need it back - book with trace_id + offer_id." }
+              pnr:           { type: string }
+              supplier_ref:  { type: string }
+              is_ticketed:   { type: boolean }
+              itineraries:   { type: array, items: { type: object } }
+    CancellationQuote:
+      type: object
+      properties:
+        reference:   { type: string, example: "BK00000016" }
+        cancellable: { type: boolean }
+        charge:      { type: number, nullable: true, example: null, description: "Always null: after booking no fee or refund amount is shown; any refund is handled manually by our team (owner rule 2026-10-04)." }
+        refund:      { type: number, nullable: true, example: null, description: "Always null: after booking no fee or refund amount is shown; any refund is handled manually by our team (owner rule 2026-10-04)." }
+        refund_mode:      { type: string, example: "manual" }
+        refund_note:      { type: string, example: "Any refund is handled manually by our team after the cancellation is processed." }
+        currency:    { type: string, example: "INR" }
+        policy_name: { type: string, nullable: true }
+        rule:        { type: object, nullable: true }
+        label:       { type: string }
+    CancelResponse:
+      type: object
+      properties:
+        success:       { type: boolean, example: true }
+        reference:     { type: string, example: "BK00000016" }
+        status:        { type: string, example: "cancelled" }
+        cancel_charge: { type: number, nullable: true, example: null, description: "Always null: after booking no fee or refund amount is shown; any refund is handled manually by our team (owner rule 2026-10-04)." }
+        refund_amount: { type: number, nullable: true, example: null, description: "Always null: after booking no fee or refund amount is shown; any refund is handled manually by our team (owner rule 2026-10-04)." }
+        refund_mode: { type: string, example: "manual" }
+        refund_note: { type: string, example: "Any refund is handled manually by our team after the cancellation is processed." }
+        currency:      { type: string, example: "INR" }
+        message:       { type: string }
+    WalletBalance:
+      type: object
+      properties:
+        currency:        { type: string, example: "INR" }
+        available:       { type: number, example: 125000.00, description: "Deposit + unused credit. A booking is gated against this." }
+        deposit_balance: { type: number, example: 100000.00 }
+        credit_limit:    { type: number, example: 50000.00 }
+        credit_used:     { type: number, example: 25000.00 }
+        status:          { type: string, example: "active" }
