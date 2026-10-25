@@ -7,16 +7,15 @@
 
 // Each tile: icon, title, blurb, url (null = coming soon), area+action (the RBAC
 // gate; null = no gate). A tile the current user lacks permission for is hidden.
+// Support is OPERATIONAL only — staff management (Attendance / Shifts / Targets /
+// Roles / Staff / Activity) moved to the dedicated Employees section
+// (/admin/employees). These tiles are the day-to-day support desk surfaces.
 $areas = [
     ['icon' => 'headset_mic',          'name' => 'Live Desk',   'blurb' => 'Multi-channel chat takeover inbox.',            'url' => root.admin.'/support/desk',           'area' => 'support_desk',       'action' => 'view'],
     ['icon' => 'confirmation_number',  'name' => 'Tickets',     'blurb' => 'Customer support tickets — reply & resolve.',   'url' => root.admin.'/support/tickets',        'area' => 'support_tickets',    'action' => 'view'],
     ['icon' => 'receipt_long',         'name' => 'Bookings',    'blurb' => 'Look up bookings, resend vouchers, notes.',     'url' => root.admin.'/bookings',               'area' => 'bookings',           'action' => 'view'],
     ['icon' => 'group',                'name' => 'Users',       'blurb' => 'Customers, agents & suppliers directory.',      'url' => root.admin.'/support/users',          'area' => 'users',              'action' => 'view'],
-    ['icon' => 'schedule',            'name' => 'Attendance',  'blurb' => 'Clock-in/out, shifts & presence.',             'url' => root.admin.'/support/attendance',     'area' => 'support_attendance', 'action' => 'view'],
     ['icon' => 'campaign',             'name' => 'Campaigns',   'blurb' => 'Ad campaigns, attribution & conversion.',       'url' => root.admin.'/support/campaigns',      'area' => 'support_campaigns',  'action' => 'edit'],
-    ['icon' => 'admin_panel_settings', 'name' => 'Roles',       'blurb' => 'Capability bundles for support staff.',         'url' => root.admin.'/support/roles',          'area' => 'users_roles',        'action' => 'edit'],
-    ['icon' => 'badge',                'name' => 'Staff',       'blurb' => 'Provision employees & assign roles.',           'url' => root.admin.'/support/staff',          'area' => 'employees',          'action' => 'edit'],
-    ['icon' => 'history',              'name' => 'Activity',    'blurb' => 'Employee activity log — every action & page view.', 'url' => root.admin.'/employees/activity',    'area' => 'employees',          'action' => 'view'],
 ];
 ?>
 
@@ -57,7 +56,7 @@ $areas = [
       <div class="mb-5">
         <div class="flex items-center justify-between mb-2">
           <h2 class="text-sm font-bold text-gray-700 uppercase tracking-wide">Target progress</h2>
-          <a href="<?= root.admin ?>/support/targets" class="text-xs text-blue-600 hover:underline">All targets →</a>
+          <a href="<?= root.admin ?>/employees/targets" class="text-xs text-blue-600 hover:underline">All targets →</a>
         </div>
         <div class="grid gap-3 md:grid-cols-2">
           <?php foreach ($d['targets'] as $t): $pct = (float) ($t['pct'] ?? 0); $bar = max(0, min(100, $pct));

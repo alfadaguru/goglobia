@@ -68,26 +68,20 @@ function isMenuActive($url, $submenu = null) {
     return false;
 }
 
-// FETCH USER ROLES FROM DATABASE
 global $db;
-$userRoles = $db->select('users_roles', ['id', 'type_name'], ['ORDER' => ['id' => 'ASC']]);
 
-// BUILD USERS SUBMENU - Single level with all users, then role types
+// BUILD USERS SUBMENU — Users is now CUSTOMERS-focused only.
+// Staff/employee management (roles, staff, attendance, etc.) lives in its OWN
+// top-level "Employees" section (see below) — it used to be scattered here as
+// per-role filter links AND under Support, which was confusing duplication.
 $usersSubmenu = [
     ['name' => T::all_users, 'icon' => 'people', 'url' => root.admin.'/users'],
 ];
 // NOTE: the former 3 scattered "Supplier …" items here are consolidated into a single
 // top-level "Suppliers" menu (with its own submenu) added below (inc S34).
-
-// ADD EACH USER ROLE DYNAMICALLY
-foreach ($userRoles as $role) {
-    $roleSlug = strtolower(str_replace(' ', '-', $role['type_name']));
-    $usersSubmenu[] = [
-        'name' => $role['type_name'],
-        'icon' => 'badge',
-        'url' => root.admin.'/users?search_col=role&q='.$roleSlug
-    ];
-}
+// NOTE: the former per-role filter links (Admin / Support Lead / Support Agent /
+// Marketing …) were REMOVED here — staff roles are managed in the Employees
+// section, not surfaced as Users filters.
 
 // CHECK MODULE STATUS - Determine which modules are enabled
 $flights = $db->count('modules', ['type' => 'flights', 'status' => 1, 'active' => 1]);
@@ -101,9 +95,7 @@ $rail_count = $db->count('modules', ['type' => 'rail', 'status' => 1, 'active' =
 $ferries_count = $db->count('modules', ['type' => 'ferries', 'status' => 1, 'active' => 1]);
 $esim_count = $db->count('modules', ['type' => 'esim', 'status' => 1, 'active' => 1]);
 
-// ADD DIVIDER AND USER ROLES MANAGEMENT PAGE
-$usersSubmenu[] = ['divider' => true];
-$usersSubmenu[] = [];
+// (Role management moved to the Employees section — no divider/role-link here.)
 
 // BUILD BOOKINGS SUBMENU - Dynamically based on enabled modules
 $bookingsSubmenu = [
@@ -417,19 +409,32 @@ $adminMenu = array_merge($adminMenu, [
     ],
     [
         'icon' => 'support_agent', 'name' => 'Support', 'url' => root.'#',
+        // Support is OPERATIONAL only now (live desk, tickets, campaigns).
+        // Staff management (Attendance / Shifts / Targets / Roles / Staff /
+        // Activity) moved to the dedicated top-level "Employees" section below.
         'submenu' => [
             ['name' => 'Support Home', 'icon' => 'dashboard', 'url' => root.admin.'/support'],
             ['name' => 'Live Chat Desk', 'icon' => 'forum', 'url' => root.admin.'/support/desk'],
-            ['name' => 'Attendance', 'icon' => 'schedule', 'url' => root.admin.'/support/attendance'],
+            ['name' => 'Support Tickets', 'icon' => 'confirmation_number', 'url' => root.admin.'/support/tickets'],
             ['name' => 'Ad Campaigns', 'icon' => 'campaign', 'url' => root.admin.'/support/campaigns'],
             ['name' => 'Conversion', 'icon' => 'trending_up', 'url' => root.admin.'/support/conversion'],
-            ['name' => 'Targets', 'icon' => 'target', 'url' => root.admin.'/support/targets'],
-            ['name' => 'Shifts', 'icon' => 'calendar_month', 'url' => root.admin.'/support/shifts'],
-            ['name' => 'Support Tickets', 'icon' => 'confirmation_number', 'url' => root.admin.'/support/tickets'],
             ['name' => 'Users', 'icon' => 'group', 'url' => root.admin.'/support/users'],
-            ['name' => 'Roles', 'icon' => 'admin_panel_settings', 'url' => root.admin.'/support/roles'],
-            ['name' => 'Staff', 'icon' => 'badge', 'url' => root.admin.'/support/staff'],
-            ['name' => 'Employee Activity', 'icon' => 'history', 'url' => root.admin.'/employees/activity']
+        ]
+    ],
+    // ===================== EMPLOYEES — GoGlobia's OWN internal staff =========
+    // The ONE place to manage company staff: people, granular roles/permissions,
+    // attendance, shifts, targets and the activity log. (NOT travel-agency or
+    // supplier staff — those are separate B2B tenants with their own portals.)
+    [
+        'icon' => 'badge', 'name' => 'Employees', 'url' => root.admin.'/employees',
+        'submenu' => [
+            ['name' => 'Overview', 'icon' => 'dashboard', 'url' => root.admin.'/employees'],
+            ['name' => 'Staff', 'icon' => 'group', 'url' => root.admin.'/employees/staff'],
+            ['name' => 'Roles & permissions', 'icon' => 'admin_panel_settings', 'url' => root.admin.'/employees/roles'],
+            ['name' => 'Attendance', 'icon' => 'schedule', 'url' => root.admin.'/employees/attendance'],
+            ['name' => 'Shifts', 'icon' => 'calendar_month', 'url' => root.admin.'/employees/shifts'],
+            ['name' => 'Targets', 'icon' => 'target', 'url' => root.admin.'/employees/targets'],
+            ['name' => 'Activity log', 'icon' => 'history', 'url' => root.admin.'/employees/activity'],
         ]
     ]
 ]);
