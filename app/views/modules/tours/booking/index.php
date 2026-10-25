@@ -93,14 +93,18 @@ $totalAmount = $markupTotalBase * $conversionRate;
 $adultPrice = $adultPriceBase * $conversionRate;
 $childPrice = $childPriceBase * $conversionRate;
 
-// Calculate tax for the tours module
-// Get tax configuration first to check tax type
-$moduleData = $db->get('modules', ['tax', 'tax_type'], ['name' => 'tours', 'status' => '1']);
-$taxType = $moduleData['tax_type'] ?? 'percentage';
-
-// Calculate tax for the tours module
-// Get tax configuration first to check tax type
-$moduleData = $db->get('modules', ['tax', 'tax_type'], ['name' => 'tours', 'status' => '1']);
+// Calculate tax for the tours module — resolve the row of the ACTUAL booking
+// supplier (not just the first enabled tours module), so a live supplier like
+// Adivaha applies ITS tax config. Fall back to the generic 'tours' row so an
+// existing single-supplier install behaves exactly as before.
+$tourSupplierName = (string) ($supplier ?? ($bookingData['supplier'] ?? 'tours'));
+$moduleData = null;
+if ($tourSupplierName !== '') {
+    $moduleData = $db->get('modules', ['tax', 'tax_type'], ['name' => $tourSupplierName, 'type' => 'tours', 'status' => '1']);
+}
+if (!$moduleData) {
+    $moduleData = $db->get('modules', ['tax', 'tax_type'], ['name' => 'tours', 'status' => '1']);
+}
 $taxType = $moduleData['tax_type'] ?? 'percentage';
 
 // 1. Calculate in BASE Currency (for database/submission)

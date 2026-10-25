@@ -11,6 +11,7 @@ global $router;
 include __DIR__ . "/creds.php";
 include __DIR__ . "/search.php";
 include __DIR__ . "/details.php";
+include __DIR__ . "/manage.php"; // booking-details + cancellation-quote (ops/admin)
 
 // ACTIONS
 include __DIR__ . "/actions/issue.php";
