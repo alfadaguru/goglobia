@@ -134,6 +134,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'tools/requestHumanTool.php';
     require_once $aiDir . 'tools/userAccountTool.php';   // full account awareness (all bookings/wallet/loyalty)
     require_once $aiDir . 'tools/myTravellersTool.php';  // saved travellers for reuse (never re-type)
+    require_once $aiDir . 'tools/preferencesTool.php';   // opt-in consented travel preferences (BRD MEM)
     require_once $aiDir . 'tools/updateProfileTool.php'; // allow-listed profile update
     require_once $aiDir . 'tools/registerAccountTool.php'; // passwordless phone-OTP account signup
     require_once $aiDir . 'tools/umrahTools.php'; // DEDICATED umrah flow (own tools)
@@ -143,6 +144,7 @@ $router->post('/api/gia/chat', function () use ($db) {
     require_once $aiDir . 'gia_pending_travellers.php'; // pilgrim-collection engine
     require_once $aiDir . 'gia_pt_web.php';             // web-native pilgrim handlers
     require_once $aiDir . 'gia_account.php';            // full account awareness (all bookings/wallet/loyalty)
+    require_once $aiDir . 'gia_preferences.php';         // opt-in consented travel preferences (BRD MEM)
     // CRM + analytics (persistent chat, leads, logging). Fail-soft: if these are
     // unavailable the chat still works, just without persistence/reporting.
     require_once $aiDir . 'gia_analytics.php';
@@ -285,6 +287,7 @@ $router->post('/api/gia/chat', function () use ($db) {
         $agent->registerTool(new \App\lib\ai\requestHumanTool());
         $agent->registerTool(new \App\lib\ai\userAccountTool());
         $agent->registerTool(new \App\lib\ai\myTravellersTool());
+        $agent->registerTool(new \App\lib\ai\preferencesTool());
         $agent->registerTool(new \App\lib\ai\updateProfileTool());
         $agent->registerTool(new \App\lib\ai\registerAccountTool());
         $agent->setToolContext($toolContext);
@@ -312,6 +315,18 @@ $router->post('/api/gia/chat', function () use ($db) {
                 }
             } catch (\Throwable $e) {
                 error_log('[gia] account awareness note: ' . $e->getMessage());
+            }
+        }
+
+        // SAVED PREFERENCES (GA4, BRD MEM): inject the user's consented travel
+        // preferences so GIA ranks + pre-fills to them. Empty when personalization
+        // is off (MEM-008) or none set. Fail-soft.
+        if ($effectiveUserId !== '' && function_exists('gia_pref_summary_note')) {
+            try {
+                $__pref = gia_pref_summary_note($db, $effectiveUserId);
+                if ($__pref !== '') { $agent->addSystemNote($__pref); }
+            } catch (\Throwable $e) {
+                error_log('[gia] pref note: ' . $e->getMessage());
             }
         }
 
