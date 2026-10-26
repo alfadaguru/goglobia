@@ -1571,6 +1571,77 @@ $router->post(admin.'/settings/modules/airalo-countries/disable-all', function (
     exit;
 });
 
+// READ-ONLY: list Airalo's LIVE packages for one country (what Airalo actually
+// sells), with the resulting customer sell price after this country's markup rule.
+// Nothing is stored — a pure on-demand visibility view. Admin-authed.
+$router->get(admin.'/settings/modules/airalo-countries/packages/([A-Za-z]{2})', function ($iso) use ($SECURE,$db) {
+    ADMIN_AUTH();
+    admin_require($db, 'modules', 'view');
+    header('Content-Type: application/json');
+
+    require_once dirname(__DIR__, 3) . '/modules/esim/airalo/api.php';
+    $iso = strtoupper($iso);
+
+    $module = $db->get('modules', '*', ['name' => 'airalo', 'type' => 'esim', 'ORDER' => ['id' => 'ASC']]);
+    if (!$module) { echo json_encode(['status' => 'error', 'message' => 'Airalo module not configured.']); exit; }
+
+    $env = (!empty($module['dev_mode']) && (string) $module['dev_mode'] === '1') ? 'sandbox' : 'production';
+    $currency = (string) ($module['currency'] ?? 'USD');
+
+    // Fetch LOCAL packages for the country (the common case for eSIM admin review).
+    $res = _airalo_request_with_token($db, 'GET', '/v2/packages', [
+        'env' => $env,
+        'query' => ['filter[type]' => 'local', 'filter[country]' => $iso, 'limit' => 200, 'page' => 1],
+        'timeout' => 60,
+    ]);
+    if (empty($res['ok'])) {
+        echo json_encode([
+            'status'  => 'error',
+            'message' => 'Could not load live packages: ' . (string) ($res['error'] ?? ('Airalo API error (HTTP ' . ($res['status'] ?? 0) . ')')),
+        ]);
+        exit;
+    }
+
+    // Flatten data[].operators[].packages[] and price each via the SAME authoritative
+    // path customers get (airalo_authoritative_price → net + country markup rule).
+    $out = [];
+    foreach ((array) ($res['data']['data'] ?? []) as $countryItem) {
+        $ctitle = (string) ($countryItem['title'] ?? $iso);
+        foreach ((array) ($countryItem['operators'] ?? []) as $operator) {
+            $opTitle = (string) ($operator['title'] ?? '');
+            foreach ((array) ($operator['packages'] ?? []) as $pkg) {
+                $pid = (string) ($pkg['id'] ?? '');
+                $net = isset($pkg['net_price']) && is_numeric($pkg['net_price']) ? (float) $pkg['net_price'] : (float) ($pkg['price'] ?? 0);
+                $priced = function_exists('airalo_authoritative_price') ? airalo_authoritative_price($db, $module, $iso, $pid) : null;
+                $out[] = [
+                    'id'        => $pid,
+                    'title'     => (string) ($pkg['title'] ?? ''),
+                    'operator'  => $opTitle,
+                    'data'      => (string) ($pkg['data'] ?? (isset($pkg['amount']) ? ($pkg['amount'] . ' MB') : '')),
+                    'validity'  => isset($pkg['day']) ? ((int) $pkg['day'] . ' days') : '',
+                    'voice'     => $pkg['voice'] ?? null,
+                    'text'      => $pkg['text'] ?? null,
+                    'net_price' => round($net, 2),
+                    'markup'    => $priced['commission'] ?? null,
+                    'sell_price'=> $priced['price'] ?? null,
+                    'currency'  => $currency,
+                ];
+            }
+        }
+    }
+
+    echo json_encode([
+        'status'   => 'success',
+        'country'  => $iso,
+        'env'      => $env,
+        'currency' => $currency,
+        'count'    => count($out),
+        'packages' => $out,
+        'note'     => 'Live from Airalo /v2/packages (type=local). Sell price = Airalo net + this country\'s markup rule. Nothing is stored.',
+    ], JSON_UNESCAPED_SLASHES);
+    exit;
+});
+
 $router->get(admin.'/settings/modules/airalo-packages', function () use ($SECURE,$db) {
     ADMIN_AUTH();
     admin_require($db, 'modules', 'view');

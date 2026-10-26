@@ -62,6 +62,15 @@ $crudTable = $crud->table('airalo_countries')
     ->where($where)
     ->order('nicename', 'ASC')
     ->custom_button([
+        'label' => 'Live packages',
+        'icon' => 'public',
+        'url' => '#',
+        'onclick' => "airaloViewPackages('{iso}','{nicename}'); return false;",
+        'class' => 'text-emerald-600 hover:bg-emerald-100',
+        'title' => 'View Airalo\'s live packages + sell prices for this country',
+        'position' => 'before_edit',
+    ])
+    ->custom_button([
         'label' => 'Packages',
         'icon' => 'tune',
         'url' => root . admin . '/settings/modules/airalo-packages/edit/{iso}',
@@ -176,4 +185,83 @@ $crudTable = $crud->table('airalo_countries')
     bulk('airaloCountryEnableAllBtn',  '<?= root . admin ?>/settings/modules/airalo-countries/enable-all',  'Enable ALL Airalo countries for sale?');
     bulk('airaloCountryDisableAllBtn', '<?= root . admin ?>/settings/modules/airalo-countries/disable-all', 'Disable ALL Airalo countries (take everything off sale)?');
 })();
+</script>
+
+<!-- Live packages modal -->
+<div id="airaloPkgModal" class="fixed inset-0 z-[9999] hidden items-center justify-center bg-black/50 p-4">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[85vh] flex flex-col">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+            <h3 class="text-base font-semibold text-slate-800 flex items-center gap-2">
+                <span class="material-symbols-outlined text-emerald-600">public</span>
+                <span id="airaloPkgTitle">Live packages</span>
+            </h3>
+            <button type="button" onclick="airaloClosePackages()" class="text-slate-400 hover:text-slate-700">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+        <div class="p-5 overflow-auto" id="airaloPkgBody">
+            <div class="text-sm text-slate-500">Loading…</div>
+        </div>
+        <div class="px-5 py-3 border-t border-slate-200 text-xs text-slate-400" id="airaloPkgFoot"></div>
+    </div>
+</div>
+
+<script>
+function airaloClosePackages() {
+    var m = document.getElementById('airaloPkgModal');
+    m.classList.add('hidden');
+    m.classList.remove('flex');
+}
+function airaloViewPackages(iso, name) {
+    var m = document.getElementById('airaloPkgModal');
+    var body = document.getElementById('airaloPkgBody');
+    var foot = document.getElementById('airaloPkgFoot');
+    document.getElementById('airaloPkgTitle').textContent = 'Live packages — ' + (name || iso);
+    body.innerHTML = '<div class="text-sm text-slate-500">Loading live packages from Airalo…</div>';
+    foot.textContent = '';
+    m.classList.remove('hidden'); m.classList.add('flex');
+
+    fetch('<?= root . admin ?>/settings/modules/airalo-countries/packages/' + encodeURIComponent(iso), {
+        headers: { 'Accept': 'application/json' }, credentials: 'same-origin'
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+        if (!data || data.status !== 'success') {
+            body.innerHTML = '<div class="text-sm text-red-600">' + ((data && data.message) ? data.message : 'Failed to load packages.') + '</div>';
+            return;
+        }
+        if (!data.packages || !data.packages.length) {
+            body.innerHTML = '<div class="text-sm text-slate-500">Airalo returned no local packages for this country.</div>';
+            foot.textContent = data.note || '';
+            return;
+        }
+        var cur = data.currency || '';
+        var rows = data.packages.map(function (p) {
+            var net = (p.net_price != null) ? (cur + ' ' + Number(p.net_price).toFixed(2)) : '—';
+            var sell = (p.sell_price != null) ? (cur + ' ' + Number(p.sell_price).toFixed(2)) : '<span class="text-amber-600">no rule</span>';
+            var mk = (p.markup != null) ? (cur + ' ' + Number(p.markup).toFixed(2)) : '—';
+            var voiceText = [];
+            if (p.voice) voiceText.push(p.voice + ' min');
+            if (p.text) voiceText.push(p.text + ' SMS');
+            return '<tr class="border-b border-slate-100">' +
+                '<td class="px-3 py-2 text-sm text-slate-800">' + (p.title || '') +
+                    (voiceText.length ? '<div class="text-xs text-slate-400">' + voiceText.join(' · ') + '</div>' : '') + '</td>' +
+                '<td class="px-3 py-2 text-sm text-slate-700 whitespace-nowrap">' + (p.data || '') + '</td>' +
+                '<td class="px-3 py-2 text-sm text-slate-700 whitespace-nowrap">' + (p.validity || '') + '</td>' +
+                '<td class="px-3 py-2 text-sm text-slate-500 whitespace-nowrap text-right">' + net + '</td>' +
+                '<td class="px-3 py-2 text-sm text-slate-500 whitespace-nowrap text-right">' + mk + '</td>' +
+                '<td class="px-3 py-2 text-sm font-semibold text-slate-900 whitespace-nowrap text-right">' + sell + '</td>' +
+                '</tr>';
+        }).join('');
+        body.innerHTML =
+            '<div class="overflow-x-auto"><table class="min-w-full"><thead><tr class="text-left text-xs font-medium text-slate-500 uppercase border-b border-slate-200">' +
+            '<th class="px-3 py-2">Package</th><th class="px-3 py-2">Data</th><th class="px-3 py-2">Validity</th>' +
+            '<th class="px-3 py-2 text-right">Airalo net</th><th class="px-3 py-2 text-right">Your markup</th><th class="px-3 py-2 text-right">Sell price</th>' +
+            '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+        foot.textContent = (data.count + ' package(s) · ' + (data.env || '') + ' · ' + (data.note || ''));
+    })
+    .catch(function () {
+        body.innerHTML = '<div class="text-sm text-red-600">Network error loading packages.</div>';
+    });
+}
 </script>
