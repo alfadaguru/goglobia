@@ -2,6 +2,35 @@
 // app/routes/users/supportRoutes.php
 @$SECURE or die('Access Denied!');
 
+// Staff who should be emailed about a new customer ticket / reply: full admins
+// PLUS employees whose role grants support_tickets.view. The old code emailed
+// only role='admin', so a support team staffed by EMPLOYEES (role='employee'
+// after the RBAC consolidation) was never notified of new tickets — a real
+// end-to-end gap. Returns rows with first_name/last_name/email.
+if (!function_exists('support_ticket_notify_recipients')) {
+    function support_ticket_notify_recipients($db): array
+    {
+        $out = [];
+        try {
+            $rows = $db->select('users', ['user_id', 'first_name', 'last_name', 'email', 'role'],
+                ['role' => ['admin', 'employee'], 'status' => 'active']) ?: [];
+            foreach ($rows as $r) {
+                if (empty($r['email'])) { continue; }
+                $isAdmin = (($r['role'] ?? '') === 'admin');
+                $canTickets = $isAdmin
+                    || (function_exists('admin_user_can') && admin_user_can($db, (string) $r['user_id'], 'support_tickets', 'view'));
+                if ($canTickets) { $out[] = $r; }
+            }
+        } catch (\Throwable $e) {
+            error_log('support_ticket_notify_recipients: ' . $e->getMessage());
+            // Fail-soft: fall back to admins only so a notification still goes out.
+            try { $out = $db->select('users', ['first_name', 'last_name', 'email'], ['role' => 'admin']) ?: []; }
+            catch (\Throwable $e2) { $out = []; }
+        }
+        return $out;
+    }
+}
+
 // ================================ GET /support/tickets
 $router->get('support/tickets', function () use ($SECURE,$db) {
     // Check if user is logged in
@@ -140,7 +169,8 @@ $router->post('support/tickets/create', function () use ($SECURE,$db) {
             $userName = ($userDetails) ? $userDetails['first_name'] . ' ' . $userDetails['last_name'] : 'Customer';
             
             // Get all admin users
-            $admins = $db->select('users', ['first_name', 'last_name', 'email'], ['role' => 'admin']);
+            // Admins AND ticket-permitted employees (not role='admin' only).
+            $admins = support_ticket_notify_recipients($db);
             
             if ($admins && count($admins) > 0) {
                 // Prepare email data
@@ -285,7 +315,8 @@ $router->post('support/tickets/reply', function () use ($SECURE,$db) {
             $userName = ($userDetails) ? $userDetails['first_name'] . ' ' . $userDetails['last_name'] : 'Customer';
             
             // Get all admin users
-            $admins = $db->select('users', ['first_name', 'last_name', 'email'], ['role' => 'admin']);
+            // Admins AND ticket-permitted employees (not role='admin' only).
+            $admins = support_ticket_notify_recipients($db);
             
             if ($admins && count($admins) > 0) {
                 // Prepare email data
