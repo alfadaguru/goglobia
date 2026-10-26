@@ -270,6 +270,7 @@ require_once 'app/routes/admin/flightsRoutes.php';
 require_once 'app/routes/admin/flightsPopularRoutesRoutes.php';
 require_once 'app/routes/admin/seoLandingRoutes.php'; // SEO landing-page content manager (flight routes / hotel cities / umrah origins)
 require_once 'app/routes/admin/airlinesRoutes.php';
+require_once 'app/routes/admin/flightShellCarriersRoutes.php'; // DB-driven shell-carrier correction rules
 require_once 'app/routes/admin/airportsRoutes.php';
 require_once 'app/routes/admin/locationsRoutes.php';
 require_once 'app/routes/admin/toursRoutes.php';

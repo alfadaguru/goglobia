@@ -229,6 +229,7 @@ if ($flights > 0) {
             ['name' => T::flights, 'icon' => 'flight_takeoff', 'url' => root.admin.'/flights'],
             ['name' => 'Popular Routes', 'icon' => 'interests', 'url' => root.admin.'/flights/popular-routes'],
             ['name' => T::airlines, 'icon' => 'airlines', 'url' => root.admin.'/flights-airlines'],
+            ['name' => 'Airline Name Rules', 'icon' => 'rule', 'url' => root.admin.'/flight-shell-carriers'],
             ['name' => T::airports, 'icon' => 'airplane_ticket', 'url' => root.admin.'/flights-airports'],
             // (Booking Manager moved to the unified tile under Bookings — pick the
             //  service there.) Verify Payments is the senior-admin queue for manual
@@ -490,6 +491,7 @@ if (function_exists('admin_can')) {
             '#^/(suppliers|supplier-|white-label)#' => 'suppliers',
             // Service / inventory modules
             '#^/flights-airlines#'       => 'airlines',
+            '#^/flight-shell-carriers#'  => 'airlines',
             '#^/flights-airports#'       => 'airports',
             '#^/flights#'                => 'flights',
             '#^/stays#'                  => 'stays',

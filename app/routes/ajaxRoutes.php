@@ -51,7 +51,8 @@ $router->post('/ajax', function () use ($SECURE,$db) {
             'umrah', 'umrah_settings', 'users', 'users_roles', 'visa', 'visa_bookings', 'visa_settings',
             'airalo_packages', 'airalo_countries',
             'bus', 'bus_routes', 'bus_operators', 'bus_settings',
-            'ai_suggestions'
+            'ai_suggestions',
+            'flight_shell_carriers'
         ];
 
         $table = $input['table'] ?? '';

@@ -75,6 +75,7 @@ if (!function_exists('admin_area_catalogue')) {
             'umrah'                  => ['page_access', 'add', 'edit', 'view', 'delete'],
             'stays'                  => ['page_access', 'add', 'edit', 'view', 'delete'],
             'airlines'               => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'flight_shell_carriers'  => ['page_access', 'add', 'edit', 'view', 'delete'],
             'airports'               => ['page_access', 'add', 'edit', 'view', 'delete'],
             'locations'              => ['page_access', 'add', 'edit', 'view', 'delete'],
 
@@ -326,6 +327,7 @@ if (!function_exists('admin_rbac_seed_default_roles')) {
             'visa'      => ['page_access', 'add', 'edit', 'view', 'delete'],
             'umrah'     => ['page_access', 'add', 'edit', 'view', 'delete'],
             'airlines'  => ['page_access', 'add', 'edit', 'view', 'delete'],
+            'flight_shell_carriers' => ['page_access', 'add', 'edit', 'view', 'delete'],
             'airports'  => ['page_access', 'add', 'edit', 'view', 'delete'],
             'locations' => ['page_access', 'add', 'edit', 'view', 'delete'],
             'modules'   => ['page_access', 'view', 'edit'],
