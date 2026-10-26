@@ -493,6 +493,36 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
                 'data_amount'   => (string) ($offerBd['data'] ?? ($ctx['data_amount'] ?? '')),
                 'validity'      => (string) ($offerBd['validity'] ?? ($ctx['validity'] ?? '')),
             ];
+        } elseif ($serviceType === 'ferries') {
+            // LIVE FERRIES: persist the chosen sailing + passenger ticket-types.
+            // kikoto/issue re-prices at issue (reconcilePostPaymentPrice) and books,
+            // so here we only persist selected_sailing + passengers + the display
+            // ports/date. $offerBd is the chosen sailing offer card.
+            $ctx = $_POST['ferry_context'] ?? '';
+            if (is_string($ctx)) { $ctx = json_decode($ctx, true) ?: []; }
+            if (!is_array($ctx)) { $ctx = []; }
+            $ferryPax = $_POST['ferry_passengers'] ?? '';
+            if (is_string($ferryPax)) { $ferryPax = json_decode($ferryPax, true) ?: []; }
+            if (empty($offerBd) || empty($ferryPax)) {
+                bmAdminJson(['status' => false, 'message' => 'Select a sailing and at least one passenger ticket type.'], 422);
+            }
+            $bookingData = [
+                'admin_created'     => true,
+                'confirmed'         => false,
+                'selected_sailing'  => $offerBd,
+                'passengers'        => $ferryPax,
+                'revalidated_price' => (float) ($ctx['price'] ?? 0),
+                'departure_port_id' => (int) ($ctx['departure_port_id'] ?? 0),
+                'destination_port_id' => (int) ($ctx['destination_port_id'] ?? 0),
+                // Display keys for the ticket/invoice (ferries templates read draft.*).
+                'draft' => [
+                    'from_name'      => (string) ($ctx['from_name'] ?? ''),
+                    'to_name'        => (string) ($ctx['to_name'] ?? ''),
+                    'date'           => (string) ($ctx['date'] ?? ''),
+                    'departure_time' => (string) ($ctx['departure_time'] ?? ''),
+                ],
+                'reference' => '',
+            ];
         }
     } else {
         // MANUAL: typed-in details → branded voucher, NO supplier call. The
