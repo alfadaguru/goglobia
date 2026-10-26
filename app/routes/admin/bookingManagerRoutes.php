@@ -81,7 +81,11 @@ if (!function_exists('bm_service_catalogue')) {
             'hotels'  => ['type' => 'stays',   'label' => 'Hotels',  'live' => true],
             'tours'   => ['type' => 'tours',   'label' => 'Tours',   'live' => true],
             'cars'    => ['type' => 'cars',    'label' => 'Car Hire', 'live' => true],
-            'umrah'   => ['type' => 'umrah',   'label' => 'Umrah',   'live' => true],
+            // Umrah is own-inventory v2 (quote -> hold -> umrah_booking_create ->
+            // umrah_bookings + installments), NOT a supplier search/issue. Real
+            // inventory bookings live in the dedicated admin umrah-manager; here the
+            // BM only records an off-system umrah as a branded voucher. So: manual-only.
+            'umrah'   => ['type' => 'umrah',   'label' => 'Umrah',   'live' => false],
             'rail'    => ['type' => 'rail',    'label' => 'Rail',    'live' => true],
             'ferries' => ['type' => 'ferries', 'label' => 'Ferries', 'live' => true],
             'esim'    => ['type' => 'esim',    'label' => 'eSIM',    'live' => true],

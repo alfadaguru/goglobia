@@ -323,6 +323,10 @@ $svcIcons = [
           <p class="sm:col-span-2 text-xs text-slate-500">Applicants are taken from the passenger list below (name, nationality, passport).</p>
         </div>
         <?php elseif ($svc === 'umrah'): ?>
+        <div class="rounded-lg bg-blue-50 border border-blue-100 text-blue-800 text-xs px-3 py-2 mb-3 flex items-start gap-2">
+          <span class="material-symbols-outlined text-[18px]">info</span>
+          <span>This records an <strong>off-system</strong> Umrah as a branded voucher. To book a pilgrim onto a <strong>real published departure</strong> (with holds, pricing and instalments), use the <a href="<?= root . admin ?>/umrah-manager" class="underline font-medium">Umrah Manager</a>.</span>
+        </div>
         <div class="grid sm:grid-cols-2 gap-3">
           <label class="form-control sm:col-span-2"><span class="form-label">Package name</span><input class="input" x-model="manual.umrah_name" placeholder="14-Night Premium Umrah"></label>
           <label class="form-control"><span class="form-label">Location</span><input class="input" x-model="manual.umrah_location" placeholder="Makkah & Madinah"></label>
