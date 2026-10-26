@@ -5,7 +5,7 @@ $flash = $_SESSION['message'] ?? null; unset($_SESSION['message']);
 <div class="px-4 py-6 max-w-6xl mx-auto" x-data="{showForm:false}">
   <div class="flex items-center justify-between flex-wrap gap-3 mb-1">
     <h1 class="text-2xl font-semibold text-slate-900">API Console</h1>
-    <?php if ($canManage): ?><button class="btn" @click="showForm=!showForm"><span class="material-symbols-outlined">add</span><span>New webhook</span></button><?php endif; ?>
+    <?php if ($canManage && $canMint !== ''): ?><button class="btn" @click="showForm=!showForm"><span class="material-symbols-outlined">add</span><span>New webhook</span></button><?php endif; ?>
   </div>
   <p class="text-sm text-slate-500 mb-5">We POST events to your HTTPS endpoint, signed with HMAC-SHA256 in <code>X-Goglobia-Signature</code>. Verify it with your signing secret.</p>
 
@@ -28,15 +28,19 @@ $flash = $_SESSION['message'] ?? null; unset($_SESSION['message']);
     </div>
   <?php endif; ?>
 
+  <?php if ($canMint === ''): ?>
+    <div class="alert-info mb-6"><p>Webhooks become available once your API access is approved. Head to the <a class="text-violet-700 underline" href="<?=root?>agent/api">Overview</a> to request access — we'll reach out, then you can register endpoints here.</p></div>
+  <?php endif; ?>
+
   <!-- NEW WEBHOOK FORM -->
-  <?php if ($canManage): ?>
+  <?php if ($canManage && $canMint !== ''): ?>
   <div class="section mb-6" x-show="showForm" x-cloak>
     <div class="section-header"><h2>Add a webhook</h2></div>
     <form method="POST" action="<?=root?>agent/api/webhooks/save" class="p-4">
       <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
       <div class="grid md:grid-cols-3 gap-3">
         <div class="form-control md:col-span-2"><label>Endpoint URL (https)</label><input class="input" name="url" placeholder="https://example.com/goglobia/webhook" required></div>
-        <div class="form-control"><label>Environment</label><select class="input" name="env"><option value="sandbox">Sandbox</option><option value="live">Live</option></select></div>
+        <div class="form-control"><label>Environment</label><select class="input" name="env"><option value="sandbox">Sandbox</option><?php if ($canMint === 'live'): ?><option value="live">Live</option><?php endif; ?></select></div>
       </div>
       <div class="form-control mt-3">
         <label>Events (none selected = all)</label>

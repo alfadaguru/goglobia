@@ -133,6 +133,7 @@ $router->get('/agent/api/webhooks', function () use ($SECURE, $db) {
     $freshSecret = $_SESSION['agent_api_fresh_secret'] ?? null; unset($_SESSION['agent_api_fresh_secret']);
     $eventList = agent_api_webhook_events();
     $canManage = agent_can($db, 'api', 'manage');
+    $canMint   = agent_api_can_mint($db, $owner); // ''|sandbox|live — gate adding
     $csrf = CSRF::getToken();
 
     $apiActive = 'webhooks';
@@ -222,9 +223,23 @@ $router->post('/agent/api/webhooks/save', function () use ($SECURE, $db) {
     [$ctx, $owner] = _agent_api_console_ctx($db, 'manage');
     CSRF::guard();
     $back = root . 'agent/api/webhooks';
+
+    // GATE: webhooks are part of the paid integration — an agency may only
+    // register them once it is cleared for API access (sandbox or live). Before
+    // that, there are no keys/calls for events to fire from, so adding a webhook
+    // is meaningless. Mirrors the key-minting gate. '' => not yet approved.
+    $mintEnv = agent_api_can_mint($db, $owner);
+    if ($mintEnv === '') {
+        $_SESSION['message'] = ['type'=>'error','text'=>'API access is not active yet. Request access and wait for approval before adding webhooks.'];
+        header('Location: ' . $back); exit;
+    }
+
     $id   = (int) ($_POST['id'] ?? 0);
     $url  = trim((string) ($_POST['url'] ?? ''));
     $env  = ($_POST['env'] ?? 'sandbox') === 'live' ? 'live' : 'sandbox';
+    // A sandbox-only agency cannot register a LIVE webhook — clamp to what they
+    // are cleared for (live-cleared agencies may register either env).
+    if ($env === 'live' && $mintEnv !== 'live') { $env = 'sandbox'; }
     $valid = agent_api_webhook_events();
     $events = array_values(array_intersect($valid, (array) ($_POST['events'] ?? [])));
     $eventsCsv = implode(',', $events);
