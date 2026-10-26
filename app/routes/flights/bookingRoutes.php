@@ -1264,11 +1264,30 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
                 grantInvoiceSessionOwnership($invoiceId);
             }
 
+            // AGENT ROUTING: when the booker is a travel agent (or active agency
+            // staff), the booking lands UNPAID and must be settled from the AGENCY
+            // WALLET via /agent/booking/{inv}/pay — NOT the customer invoice, whose
+            // wallet widget reads the customer balance (shows 0 for the agency) and
+            // dead-ends them at "insufficient balance". Send agents straight to the
+            // wallet-settle page so the booking flow completes. Non-agents keep the
+            // normal invoice redirect. (Guarded: agent_acting_context is loaded in
+            // config.php; is_admin is excluded so admins see the invoice as before.)
+            $agentRedirect = '';
+            if (function_exists('agent_acting_context')) {
+                try {
+                    $__actx = agent_acting_context($db);
+                    if ($__actx !== null && empty($__actx['is_admin'])) {
+                        $agentRedirect = root . 'agent/booking/' . rawurlencode($invoiceId) . '/pay';
+                    }
+                } catch (\Throwable $e) { error_log('flight submit agent redirect: ' . $e->getMessage()); }
+            }
+
             ob_clean();
             echo json_encode([
                 'success' => true,
                 'booking_id' => $bookingId,
                 'invoice_id' => $invoiceId,
+                'redirect_url' => $agentRedirect !== '' ? $agentRedirect : null,
                 'message' => 'Booking created successfully'
             ]);
         } else {
