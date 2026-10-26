@@ -241,7 +241,7 @@ $svcIcons = [
           <button class="btn outline sm" @click="addSegment()"><span class="material-symbols-outlined">add</span><span>Add segment</span></button>
           <label class="form-control"><span class="form-label">PNR / Booking reference</span><input class="input" x-model="manual.pnr" placeholder="ABC123"></label>
         </div>
-        <?php else: ?>
+        <?php elseif ($isHotel): ?>
         <!-- hotel manual -->
         <div class="grid sm:grid-cols-2 gap-3">
           <label class="form-control"><span class="form-label">Hotel name</span><input class="input" x-model="manual.hotel_name"></label>
@@ -256,6 +256,95 @@ $svcIcons = [
           <label class="form-control"><span class="form-label">Rooms</span><input type="number" min="1" class="input" x-model.number="manual.rooms"></label>
           <label class="form-control"><span class="form-label">Nights</span><input type="number" min="1" class="input" x-model.number="manual.nights"></label>
           <label class="form-control sm:col-span-2"><span class="form-label">Confirmation # / PNR</span><input class="input" x-model="manual.pnr"></label>
+        </div>
+        <?php elseif ($svc === 'tours'): ?>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="form-control sm:col-span-2"><span class="form-label">Tour name</span><input class="input" x-model="manual.tour_name" placeholder="Lekki Day Tour"></label>
+          <label class="form-control"><span class="form-label">Destination</span><input class="input" x-model="manual.destination"></label>
+          <label class="form-control"><span class="form-label">Tour type</span><input class="input" x-model="manual.tour_type" placeholder="Guided / Private"></label>
+          <label class="form-control"><span class="form-label">Start date</span><input type="date" class="input" x-model="manual.start_date"></label>
+          <label class="form-control"><span class="form-label">Duration</span><input class="input" x-model="manual.duration" placeholder="Full day (8h)"></label>
+          <label class="form-control sm:col-span-2"><span class="form-label">Pickup / meeting point</span><input class="input" x-model="manual.pickup_location"></label>
+          <label class="form-control"><span class="form-label">Adults</span><input type="number" min="0" class="input" x-model.number="manual.adults"></label>
+          <label class="form-control"><span class="form-label">Children</span><input type="number" min="0" class="input" x-model.number="manual.children"></label>
+          <label class="form-control sm:col-span-2"><span class="form-label">Confirmation # (optional)</span><input class="input" x-model="manual.pnr"></label>
+        </div>
+        <?php elseif ($svc === 'cars'): ?>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="form-control sm:col-span-2"><span class="form-label">Vehicle</span><input class="input" x-model="manual.car_name" placeholder="Toyota Corolla or similar"></label>
+          <label class="form-control"><span class="form-label">Transmission</span><input class="input" x-model="manual.transmission" placeholder="Automatic"></label>
+          <label class="form-control"><span class="form-label">Vehicle type</span><input class="input" x-model="manual.vehicle_type" placeholder="Compact"></label>
+          <label class="form-control sm:col-span-2"><span class="form-label">Pick-up location</span><input class="input" x-model="manual.pickup_location"></label>
+          <label class="form-control"><span class="form-label">Pick-up date</span><input type="date" class="input" x-model="manual.pickup_date"></label>
+          <label class="form-control"><span class="form-label">Pick-up time</span><input type="time" class="input" x-model="manual.pickup_time"></label>
+          <label class="form-control sm:col-span-2"><span class="form-label">Drop-off location</span><input class="input" x-model="manual.dropoff_location"></label>
+          <label class="form-control"><span class="form-label">Drop-off date</span><input type="date" class="input" x-model="manual.dropoff_date"></label>
+          <label class="form-control"><span class="form-label">Drop-off time</span><input type="time" class="input" x-model="manual.dropoff_time"></label>
+          <label class="form-control"><span class="form-label">Driver age</span><input type="number" min="18" class="input" x-model.number="manual.driver_age"></label>
+          <label class="form-control"><span class="form-label">Confirmation # (optional)</span><input class="input" x-model="manual.pnr"></label>
+        </div>
+        <?php elseif ($svc === 'visa'): ?>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="form-control sm:col-span-2"><span class="form-label">Visa type</span><input class="input" x-model="manual.visa_type_name" placeholder="UK Standard Visitor Visa"></label>
+          <label class="form-control"><span class="form-label">From country</span><input class="input" x-model="manual.from_country_name" placeholder="Nigeria"></label>
+          <label class="form-control"><span class="form-label">To country</span><input class="input" x-model="manual.to_country_name" placeholder="United Kingdom"></label>
+          <label class="form-control"><span class="form-label">Intended entry date</span><input type="date" class="input" x-model="manual.entry_date"></label>
+          <label class="form-control"><span class="form-label">Processing speed</span><input class="input" x-model="manual.processing_speed_name" placeholder="Standard / Priority"></label>
+          <label class="form-control sm:col-span-2"><span class="form-label">Application reference (optional)</span><input class="input" x-model="manual.pnr"></label>
+          <p class="sm:col-span-2 text-xs text-slate-500">Applicants are taken from the passenger list below (name, nationality, passport).</p>
+        </div>
+        <?php elseif ($svc === 'umrah'): ?>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="form-control sm:col-span-2"><span class="form-label">Package name</span><input class="input" x-model="manual.umrah_name" placeholder="14-Night Premium Umrah"></label>
+          <label class="form-control"><span class="form-label">Location</span><input class="input" x-model="manual.umrah_location" placeholder="Makkah & Madinah"></label>
+          <label class="form-control"><span class="form-label">Duration</span><input class="input" x-model="manual.duration" placeholder="14 nights"></label>
+          <label class="form-control"><span class="form-label">Departure date</span><input type="date" class="input" x-model="manual.start_date"></label>
+          <label class="form-control"><span class="form-label">Adults</span><input type="number" min="0" class="input" x-model.number="manual.adults"></label>
+          <label class="form-control"><span class="form-label">Children</span><input type="number" min="0" class="input" x-model.number="manual.children"></label>
+          <label class="form-control sm:col-span-2"><span class="form-label">Booking reference (optional)</span><input class="input" x-model="manual.pnr"></label>
+        </div>
+        <?php elseif ($svc === 'rail'): ?>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="form-control"><span class="form-label">From station</span><input class="input" x-model="manual.from_station" placeholder="Paris Gare du Nord"></label>
+          <label class="form-control"><span class="form-label">From code</span><input class="input" x-model="manual.from_station_code" placeholder="PAR" maxlength="6"></label>
+          <label class="form-control"><span class="form-label">To station</span><input class="input" x-model="manual.to_station" placeholder="London St Pancras"></label>
+          <label class="form-control"><span class="form-label">To code</span><input class="input" x-model="manual.to_station_code" placeholder="LON" maxlength="6"></label>
+          <label class="form-control"><span class="form-label">Departs</span><input type="datetime-local" class="input" x-model="manual.depart"></label>
+          <label class="form-control"><span class="form-label">Arrives</span><input type="datetime-local" class="input" x-model="manual.arrive"></label>
+          <label class="form-control"><span class="form-label">Seat / class</span><input class="input" x-model="manual.seat_name" placeholder="Standard Premier"></label>
+          <label class="form-control"><span class="form-label">Train / service #</span><input class="input" x-model="manual.traffic_no" placeholder="EST9024"></label>
+          <label class="form-control sm:col-span-2"><span class="form-label">Booking reference (optional)</span><input class="input" x-model="manual.pnr"></label>
+        </div>
+        <?php elseif ($svc === 'bus'): ?>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="form-control"><span class="form-label">Service name</span><input class="input" x-model="manual.service_name" placeholder="GUO Luxury Coach"></label>
+          <label class="form-control"><span class="form-label">Operator</span><input class="input" x-model="manual.operator" placeholder="GUO Transport"></label>
+          <label class="form-control"><span class="form-label">From</span><input class="input" x-model="manual.origin" placeholder="Lagos (Jibowu)"></label>
+          <label class="form-control"><span class="form-label">To</span><input class="input" x-model="manual.destination" placeholder="Abuja (Utako)"></label>
+          <label class="form-control"><span class="form-label">Travel date</span><input type="date" class="input" x-model="manual.date"></label>
+          <label class="form-control"><span class="form-label">Bus type / class</span><input class="input" x-model="manual.bus_type" placeholder="Executive"></label>
+          <label class="form-control"><span class="form-label">Departure time</span><input type="time" class="input" x-model="manual.departure_time"></label>
+          <label class="form-control"><span class="form-label">Arrival time</span><input type="time" class="input" x-model="manual.arrival_time"></label>
+          <label class="form-control sm:col-span-2"><span class="form-label">Booking reference (optional)</span><input class="input" x-model="manual.pnr"></label>
+        </div>
+        <?php elseif ($svc === 'ferries'): ?>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="form-control"><span class="form-label">Departure port</span><input class="input" x-model="manual.from_name" placeholder="Piraeus"></label>
+          <label class="form-control"><span class="form-label">Arrival port</span><input class="input" x-model="manual.to_name" placeholder="Santorini"></label>
+          <label class="form-control"><span class="form-label">Sailing date</span><input type="date" class="input" x-model="manual.date"></label>
+          <label class="form-control"><span class="form-label">Departure time</span><input type="time" class="input" x-model="manual.departure_time"></label>
+          <label class="form-control"><span class="form-label">Vehicles</span><input type="number" min="0" class="input" x-model.number="manual.vehicles"></label>
+          <label class="form-control"><span class="form-label">Pets</span><input type="number" min="0" class="input" x-model.number="manual.pets"></label>
+          <label class="form-control sm:col-span-2"><span class="form-label">Booking reference (optional)</span><input class="input" x-model="manual.reference"></label>
+        </div>
+        <?php elseif ($svc === 'esim'): ?>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="form-control sm:col-span-2"><span class="form-label">Package name</span><input class="input" x-model="manual.package_name" placeholder="Europe 10GB"></label>
+          <label class="form-control"><span class="form-label">Country / region</span><input class="input" x-model="manual.country" placeholder="Europe"></label>
+          <label class="form-control"><span class="form-label">Data</span><input class="input" x-model="manual.data_amount" placeholder="10 GB"></label>
+          <label class="form-control"><span class="form-label">Validity</span><input class="input" x-model="manual.validity" placeholder="30 days"></label>
+          <label class="form-control"><span class="form-label">ICCID (optional)</span><input class="input" x-model="manual.iccid"></label>
+          <label class="form-control"><span class="form-label">Activation reference (optional)</span><input class="input" x-model="manual.reference"></label>
         </div>
         <?php endif; ?>
         <label class="form-control mt-3"><span class="form-label">Attach original slip / e-ticket (optional)</span>
@@ -403,7 +492,39 @@ function bookingMgr() {
     // Autocomplete state. Flights: origin/destination hold the resolved IATA code.
     // Hotels: dest.q is the visible city text; live.destination holds the chosen city.
     ac: { origin:{q:'',items:[],open:false}, destination:{q:'',items:[],open:false}, dest:{q:'',items:[],open:false} },
-    manual: { segments:[], pnr:'', hotel_name:'', hotel_stars:0, hotel_address:'', hotel_city:'', hotel_country:'', checkin:'', checkout:'', room_type:'', board_type:'', rooms:1, nights:1 },
+    manual: {
+      // flights
+      segments:[], pnr:'',
+      // hotels
+      hotel_name:'', hotel_stars:0, hotel_address:'', hotel_city:'', hotel_country:'', checkin:'', checkout:'', room_type:'', board_type:'', rooms:1, nights:1,
+      // tours / umrah
+      tour_name:'', destination:'', tour_type:'', start_date:'', duration:'', pickup_location:'', adults:1, children:0,
+      umrah_name:'', umrah_location:'',
+      // cars
+      car_name:'', transmission:'', vehicle_type:'', pickup_date:'', pickup_time:'', dropoff_location:'', dropoff_date:'', dropoff_time:'', driver_age:30,
+      // visa
+      visa_type_name:'', from_country_name:'', to_country_name:'', entry_date:'', processing_speed_name:'',
+      // rail
+      from_station:'', from_station_code:'', to_station:'', to_station_code:'', depart:'', arrive:'', seat_name:'', traffic_no:'',
+      // bus
+      service_name:'', operator:'', origin:'', departure_time:'', arrival_time:'', bus_type:'', date:'',
+      // ferries
+      from_name:'', to_name:'', vehicles:0, pets:0, reference:'',
+      // esim
+      package_name:'', country:'', data_amount:'', validity:'', iccid:'',
+    },
+    // The manual booking_data fields to POST per service (keys map to
+    // bmBuildManualBookingData's $post reads). flights/hotels handled separately.
+    manualFieldsByService: {
+      tours:   ['tour_name','destination','tour_type','start_date','duration','pickup_location','adults','children'],
+      cars:    ['car_name','transmission','vehicle_type','pickup_location','pickup_date','pickup_time','dropoff_location','dropoff_date','dropoff_time','driver_age'],
+      visa:    ['visa_type_name','from_country_name','to_country_name','entry_date','processing_speed_name'],
+      umrah:   ['umrah_name','umrah_location','start_date','duration','adults','children'],
+      rail:    ['from_station','from_station_code','to_station','to_station_code','depart','arrive','seat_name','traffic_no'],
+      bus:     ['service_name','operator','origin','destination','date','departure_time','arrival_time','bus_type'],
+      ferries: ['from_name','to_name','date','departure_time','vehicles','pets','reference'],
+      esim:    ['package_name','country','data_amount','validity','iccid','reference'],
+    },
     cust: { first_name:'', last_name:'', email:'', phone:'' },
     pax: [{ type:'adult', title:'Mr', first_name:'', last_name:'', passport_number:'' }],
     price: { sell:0, cost:0, currency:'' },
@@ -588,10 +709,16 @@ function bookingMgr() {
           }
         } else {
           if(this.isHotel){ Object.assign(payload,{hotel_name:this.manual.hotel_name,hotel_stars:this.manual.hotel_stars,hotel_address:this.manual.hotel_address,hotel_city:this.manual.hotel_city,hotel_country:this.manual.hotel_country,checkin:this.manual.checkin,checkout:this.manual.checkout,room_type:this.manual.room_type,board_type:this.manual.board_type,rooms:this.manual.rooms,nights:this.manual.nights}); }
-          else {
+          else if(this.service==='flights'){
             // strip the UI-only autocomplete helper fields before sending
             const segs=this.manual.segments.map(s=>({ airline:s.airline, flight_number:s.flight_number, airline_code:s.airline_code, from:s.from, to:s.to, depart:s.depart, arrive:s.arrive }));
             payload.segments = JSON.stringify(segs);
+          }
+          else {
+            // Every other service: send exactly the fields its manual form collects
+            // (keys line up with bmBuildManualBookingData's $post reads).
+            const fields=this.manualFieldsByService[this.service]||[];
+            fields.forEach(k=>{ payload[k]=this.manual[k]; });
           }
         }
         // multipart to allow the slip upload
