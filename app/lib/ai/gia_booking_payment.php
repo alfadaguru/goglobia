@@ -464,6 +464,7 @@ if (!function_exists('gia_bp_confirm')) {
 
         try {
             $ok = false;
+            $bmNotified = false; // true once a settle sub-path already emailed the customer
             // CRITICAL FOR REFUNDS: stamp the generic `bookings` row with the gateway
             // + transaction reference on EVERY confirm. refund_gateway_payment()
             // resolves the refund target from bookings.payment_gateway +
@@ -552,6 +553,10 @@ if (!function_exists('gia_bp_confirm')) {
                         ]);
                         if (empty($bmRes['ok'])) {
                             error_log('[gia_bp] BM live issue not completed ' . $invoiceId . ': ' . (string) ($bmRes['message'] ?? 'unknown'));
+                        } else {
+                            // bm_settle_booking_payment already emailed the customer
+                            // (GENERATE_BOOKING_PDF + NOTIFY::payment) — don't double-send.
+                            $bmNotified = true;
                         }
                     } catch (\Throwable $e) {
                         error_log('[gia_bp] BM live settle ' . $invoiceId . ': ' . $e->getMessage());
@@ -571,6 +576,19 @@ if (!function_exists('gia_bp_confirm')) {
                 'sender_account' => $senderAcct, 'sender_bank' => $senderBank,
                 'paid_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
             ], ['id' => $bp['id']]);
+
+            // Notify the end user: email the no-price ticket + chat confirmation.
+            // Best-effort; fills the gap where GIA-settled stays/umrah told the
+            // customer nothing. Reads the (now-updated) booking so the ticket
+            // reflects confirmed state / PNR where available. Skipped when the BM
+            // live sub-path already emailed the customer (no double-notify).
+            if (empty($bmNotified)) {
+                gia_bp_send_confirmation($db, $invoiceId, $bp);
+            } else {
+                // BM already emailed; still send the chat confirmation on the channel.
+                gia_bp_send_confirmation($db, $invoiceId, $bp, true);
+            }
+
             return ['ok' => true, 'status' => 'paid', 'module' => $facts['module']];
         } catch (\Throwable $e) {
             error_log('[gia_bp] confirm ' . $invoiceId . ': ' . $e->getMessage());
@@ -642,6 +660,87 @@ if (!function_exists('gia_bp_notify')) {
             }
         } catch (\Throwable $e) {
             error_log('[gia_bp] notify: ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('gia_bp_send_confirmation')) {
+    /**
+     * Notify the end user once a GIA booking is settled: email them the no-price
+     * TICKET (travel document) AND send a chat confirmation on their channel.
+     *
+     * Fills the gap where GIA-settled stays/umrah previously notified the customer
+     * with NOTHING (only the admin-booking-manager path notified). Reuses the
+     * proven GENERATE_BOOKING_PDF + NOTIFY::payment pipeline (same as bm_settle),
+     * so we never duplicate the email machinery. Best-effort: never throws, never
+     * blocks the money flow.
+     *
+     * The invoice carries price and stays payer-only; the attached document here
+     * is the price-free ticket, matching the 3-doc model.
+     */
+    function gia_bp_send_confirmation($db, string $invoiceId, array $bp = [], bool $chatOnly = false): void
+    {
+        try {
+            $b = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
+            if (!is_array($b)) { return; }
+
+            // Only tell the customer it's done when the booking really reached a
+            // customer-facing good state. A flight that paid but failed to issue
+            // was auto-refunded (booking_status != confirmed) — don't send a ticket.
+            $payStatus = strtolower((string) ($b['payment_status'] ?? ''));
+            $bookStatus = strtolower((string) ($b['booking_status'] ?? ''));
+            if ($payStatus !== 'paid') { return; }
+            if (in_array($bookStatus, ['cancelled', 'refunded', 'failed'], true)) { return; }
+
+            // Resolve the real SERVICE for NOTIFY's template lookup. GIA bookings are
+            // module_type='ai_trip' with booking_data.gia_service telling flights vs
+            // stays apart; umrah/others use module_type directly. NOTIFY maps the
+            // service name to emails/<svc>/{booking,booking_pdf,ticket}.php.
+            $mt = strtolower((string) ($b['module_type'] ?? ''));
+            $bd = json_decode((string) ($b['booking_data'] ?? ''), true) ?: [];
+            $svc = $mt;
+            if ($mt === 'ai_trip') {
+                $gs = strtolower((string) ($bd['gia_service'] ?? ''));
+                $svc = $gs !== '' ? $gs : 'flights';
+            }
+            if ($svc === '' || $svc === 'manual' || $svc === 'offline' || $svc === 'ai_trip') {
+                $svc = 'flights';
+            }
+
+            // Generate the no-price TICKET (travel document) for the customer —
+            // skipped in chat-only mode (the BM sub-path already emailed a doc).
+            $ticketPdf = (!$chatOnly && function_exists('GENERATE_BOOKING_PDF'))
+                ? GENERATE_BOOKING_PDF($invoiceId, 'ticket')
+                : null;
+
+            // EMAIL: reuse the proven NOTIFY::payment pipeline (paid receipt email +
+            // attached ticket). Only if we have a real guest email and not chat-only.
+            $email = trim((string) ($b['email'] ?? ''));
+            if (!$chatOnly && $email !== '' && class_exists('NOTIFY')) {
+                NOTIFY::payment($svc, $b, [
+                    'invoice_id'     => $invoiceId,
+                    'amount'         => $b['price_markup'] ?? 0,
+                    'currency'       => $b['currency_markup'] ?? '',
+                    'payment_status' => 'paid',
+                    'module_type'    => ucfirst($svc),
+                ], $ticketPdf);
+            }
+
+            // CHAT: nudge the payer on their GIA channel with a confirmation + a
+            // pointer to their emailed ticket. Keep it short + channel-friendly.
+            if (!empty($bp)) {
+                $pnr = trim((string) ($b['pnr'] ?? ''));
+                $lines = ['✅ Your booking is confirmed — reference ' . $invoiceId . '.'];
+                if ($pnr !== '') { $lines[] = 'Booking ref (PNR): ' . $pnr . '.'; }
+                if ($email !== '') {
+                    $lines[] = 'Your ticket has been sent to ' . $email . '. Please keep it for your travel.';
+                } else {
+                    $lines[] = 'Your ticket is ready — ask me any time and I\'ll resend it.';
+                }
+                gia_bp_notify($db, $bp, implode("\n", $lines));
+            }
+        } catch (\Throwable $e) {
+            error_log('[gia_bp] send_confirmation ' . $invoiceId . ': ' . $e->getMessage());
         }
     }
 }
