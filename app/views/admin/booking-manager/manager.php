@@ -337,6 +337,10 @@ $svcIcons = [
           <label class="form-control sm:col-span-2"><span class="form-label">Booking reference (optional)</span><input class="input" x-model="manual.pnr"></label>
         </div>
         <?php elseif ($svc === 'rail'): ?>
+        <div class="rounded-lg bg-blue-50 border border-blue-100 text-blue-800 text-xs px-3 py-2 mb-3 flex items-start gap-2">
+          <span class="material-symbols-outlined text-[18px]">info</span>
+          <span>This records an <strong>off-system</strong> train booking as a branded voucher. Live train search &amp; ticketing runs on the customer rail booking flow; a staff live-rail tool is planned.</span>
+        </div>
         <div class="grid sm:grid-cols-2 gap-3">
           <label class="form-control"><span class="form-label">From station</span><input class="input" x-model="manual.from_station" placeholder="Paris Gare du Nord"></label>
           <label class="form-control"><span class="form-label">From code</span><input class="input" x-model="manual.from_station_code" placeholder="PAR" maxlength="6"></label>

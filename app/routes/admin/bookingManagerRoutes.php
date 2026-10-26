@@ -86,7 +86,14 @@ if (!function_exists('bm_service_catalogue')) {
             // inventory bookings live in the dedicated admin umrah-manager; here the
             // BM only records an off-system umrah as a branded voucher. So: manual-only.
             'umrah'   => ['type' => 'umrah',   'label' => 'Umrah',   'live' => false],
-            'rail'    => ['type' => 'rail',    'label' => 'Rail',    'live' => true],
+            // Rail IS a real external supplier, but its booking CREATION is tightly
+            // coupled to the /rail/order money path (server fare re-validation that
+            // overwrites price_total_limit, markup, promo) which creates its own
+            // customer booking row — not safely bolt-on-able to the BM without
+            // duplicating money logic. MANUAL-only here until /rail/order is
+            // refactored into a shared BM-callable money path (planned). Manual
+            // records an off-system rail booking as a branded voucher.
+            'rail'    => ['type' => 'rail',    'label' => 'Rail',    'live' => false],
             'ferries' => ['type' => 'ferries', 'label' => 'Ferries', 'live' => true],
             'esim'    => ['type' => 'esim',    'label' => 'eSIM',    'live' => true],
             'visa'    => ['type' => 'visa',    'label' => 'Visa',    'live' => false],
