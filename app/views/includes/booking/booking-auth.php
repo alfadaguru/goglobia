@@ -53,6 +53,12 @@ if ($isUserLoggedIn && !empty($loggedInUser['phone_country_code'])) {
     }
     if ($userPhoneCountryIso !== '') {
         $loggedInUser['phone_country_code'] = $userPhoneCountryIso;
+    } else {
+        // The stored value isn't a valid ISO or a known phonecode (e.g. a junk
+        // seed like '01'). Blank it so initUserData() falls back to the sensible
+        // $defaultPhoneIso below instead of a value that matches NO option (which
+        // makes the <select> drop to the first alphabetical entry — Afghanistan).
+        $loggedInUser['phone_country_code'] = '';
     }
 }
 
@@ -67,6 +73,29 @@ if ($defaultPhoneIso === '') {
         foreach ($countries as $country) {
             if (strtoupper((string) ($country['iso'] ?? '')) === $natIso) { $defaultPhoneIso = $natIso; break; }
         }
+    }
+}
+// Final fallback: the PLATFORM's own country (admin-set settings.country_name,
+// e.g. "Nigeria"), resolved to its ISO from the countries list; then hard
+// fallback to NG. This stops the select defaulting to the first alphabetical
+// option (Afghanistan) for a logged-in agent/guest with no country on file —
+// which is wrong on a Nigeria-based platform. (Booking-wide: all modules use
+// this partial, so every service gets the sensible default.)
+if ($defaultPhoneIso === '' && is_array($countries ?? null)) {
+    $platformCountryName = strtolower(trim((string) ($GLOBALS['app']['country_name'] ?? '')));
+    if ($platformCountryName !== '') {
+        foreach ($countries as $country) {
+            if (strtolower(trim((string) ($country['nicename'] ?? ''))) === $platformCountryName) {
+                $defaultPhoneIso = strtoupper((string) ($country['iso'] ?? ''));
+                break;
+            }
+        }
+    }
+}
+if ($defaultPhoneIso === '' && is_array($countries ?? null)) {
+    // Hard default to Nigeria if it exists in the active list.
+    foreach ($countries as $country) {
+        if (strtoupper((string) ($country['iso'] ?? '')) === 'NG') { $defaultPhoneIso = 'NG'; break; }
     }
 }
 

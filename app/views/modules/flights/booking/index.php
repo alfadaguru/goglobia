@@ -1746,7 +1746,7 @@ if (empty($defaultGatewayId) && !empty($paymentGateways)) {
                     first_name: '<?= $isUserLoggedIn ? addslashes($loggedInUser['first_name']) : '' ?>',
                     last_name: '<?= $isUserLoggedIn ? addslashes($loggedInUser['last_name']) : '' ?>',
                     email: '<?= $isUserLoggedIn ? addslashes($loggedInUser['email']) : '' ?>',
-                    country_code: '<?= $isUserLoggedIn && !empty($loggedInUser['phone_country_code']) ? $loggedInUser['phone_country_code'] : 'US' ?>',
+                    country_code: '<?= $isUserLoggedIn && !empty($loggedInUser['phone_country_code']) ? htmlspecialchars($loggedInUser['phone_country_code'], ENT_QUOTES) : htmlspecialchars(($defaultPhoneIso ?? 'NG') ?: 'NG', ENT_QUOTES) ?>',
                     phone: '<?= $isUserLoggedIn && !empty($loggedInUser['phone']) ? addslashes($loggedInUser['phone']) : '' ?>'
                 },
                 passengers: {},
