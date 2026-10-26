@@ -455,7 +455,12 @@ try {
     // the whole block completes (see appSchemaEnsureMark at the end), so a failed
     // run retries next request. Fail-safe: if the gate can't be read it runs anyway.
     if (!defined('APP_SCHEMA_ENSURE_VERSION')) {
-        define('APP_SCHEMA_ENSURE_VERSION', 1);
+        // Bump when a code update ships new ensure*Schema() columns/tables so the
+        // gated self-heal block re-runs once on every install. v2: Agent API
+        // console — agent_api_services.lifecycle + agent_api_webhooks(+deliveries).
+        // v3: ensureAdivahaExcursionModule (tours supplier row) + ensureFlightShellCarriers
+        //     (DB-driven per-supplier/per-country shell-carrier correction rules).
+        define('APP_SCHEMA_ENSURE_VERSION', 3);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);
@@ -494,6 +499,10 @@ try {
     // now United Nigeria). Idempotent; only touches verified codes.
     if (function_exists('ensureAirlineNameFixes')) {
         ensureAirlineNameFixes($db);
+    }
+    // DB-driven, per-supplier + per-country shell-carrier correction rules.
+    if (function_exists('ensureFlightShellCarriers')) {
+        ensureFlightShellCarriers($db);
     }
     // Brand/legal content self-heal — replaces shipped PHPTRAVELS boilerplate in
     // the CMS legal pages with GoGlobia content (only while still tainted; never

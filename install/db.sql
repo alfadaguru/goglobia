@@ -5346,6 +5346,38 @@ CREATE TABLE `flights_airlines` (
   `status` enum('1','0') NOT NULL DEFAULT '1'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `flight_shell_carriers`
+-- DB-driven, per-supplier + per-country shell-carrier correction rules. A "shell"
+-- is a ticketing/virtual carrier code (e.g. Adivaha "A1" = "Atifly"/"APG Airline")
+-- that is not the airline actually flown; when a rule matches, flight search uses
+-- the segment's real operating carrier instead. Managed by ensureFlightShellCarriers()
+-- + flight_shell_rule_matches() in app/lib/functions.php. match_mode binds the
+-- country to the flight: from (origin) / to (destination) / either / both.
+--
+
+CREATE TABLE IF NOT EXISTS `flight_shell_carriers` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `supplier` varchar(40) NOT NULL DEFAULT '',
+  `shell_code` varchar(8) NOT NULL,
+  `country` varchar(64) NOT NULL DEFAULT '',
+  `match_mode` enum('from','to','either','both') NOT NULL DEFAULT 'either',
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `note` varchar(191) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_rule` (`supplier`,`shell_code`,`country`),
+  KEY `supplier` (`supplier`),
+  KEY `shell_code` (`shell_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `flight_shell_carriers` (`supplier`, `shell_code`, `country`, `match_mode`, `active`, `note`) VALUES
+('adivaha', 'A1', 'Nigeria', 'either', 1, 'A1 ("Atifly"/"APG Airline") shell -> use operating carrier (e.g. United Nigeria) on NG flights');
+
+-- --------------------------------------------------------
+
 --
 -- Dumping data for table `flights_airlines`
 --

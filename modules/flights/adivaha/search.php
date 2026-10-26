@@ -36,46 +36,6 @@ if (!function_exists('adivaha_getduration_from_minutes')) {
     }
 }
 
-if (!function_exists('adivaha_is_shell_carrier')) {
-    /**
-     * Ticketing / virtual "shell" carrier codes that are NOT the airline the
-     * customer actually flies. These codes carry a real-looking name in the
-     * reference table (e.g. A1 = "Atifly", W1 = "World Experience Airline"), so
-     * resolving the code to a name shows the wrong carrier. For a shell we instead
-     * use the per-segment operated_by (the true operating airline). W1 was already
-     * handled via the empty/name==code heuristic; A1 is added here because it
-     * carries a non-empty foreign name ("APG Airline") that the heuristic misses.
-     */
-    function adivaha_is_shell_carrier(string $code): bool
-    {
-        static $shells = ['A1' => 1, 'W1' => 1];
-        return isset($shells[strtoupper(trim($code))]);
-    }
-}
-
-if (!function_exists('adivaha_is_nigeria_airport')) {
-    /**
-     * True when an airport code is in Nigeria (flights_airports.country='Nigeria').
-     * Cached per request. Used to GATE the A1-shell correction to Nigerian flights
-     * only (owner scope), so A1 fares in other markets are left untouched.
-     */
-    function adivaha_is_nigeria_airport($db, string $code): bool
-    {
-        $code = strtoupper(trim($code));
-        if ($code === '') return false;
-        static $cache = [];
-        if (array_key_exists($code, $cache)) return $cache[$code];
-        $ok = false;
-        try {
-            $row = $db->get('flights_airports', ['country'], ['code' => $code]);
-            $ok = $row && strcasecmp(trim((string) ($row['country'] ?? '')), 'Nigeria') === 0;
-        } catch (\Throwable $e) {
-            error_log('adivaha_is_nigeria_airport(' . $code . '): ' . $e->getMessage());
-        }
-        return $cache[$code] = $ok;
-    }
-}
-
 $router->post('flights/adivaha/search', function () use ($db) {
 
     // search_guard: release the session lock before the (potentially long) async
@@ -400,17 +360,19 @@ $router->post('flights/adivaha/search', function () use ($db) {
             // customer actually flies rather than the shell's wrong/foreign name.
             $legCode    = (string) ($leg['code'] ?? $meta['code'] ?? '');
             $legAirline = (string) ($leg['airline'] ?? $meta['airline'] ?? '');
-            // Shell detection: (a) the original heuristic — empty name or name==code
-            // (catches W1); PLUS (b) a KNOWN shell code (A1 = "Atifly"/"APG Airline"),
-            // which the heuristic misses because it carries a non-empty foreign name.
-            // The known-shell branch is GATED to Nigerian flights only (owner scope):
-            // only correct A1 when this leg's origin OR destination is in Nigeria, so
-            // A1 fares in other markets are left exactly as they are today.
+            // Shell-carrier correction. (a) The original heuristic: an empty name, or a
+            // name that equals the code, is clearly a ticketing/virtual shell (e.g. W1)
+            // → use the real operating carrier. (b) A DB-DRIVEN rule (flight_shell_carriers,
+            // scoped per SUPPLIER + COUNTRY + match_mode) catches named shells the
+            // heuristic misses — e.g. Adivaha's A1 ("Atifly"/"APG Airline") on Nigerian
+            // flights → United Nigeria. The rule set is fully admin/DB-controlled so a
+            // different supplier's shell codes never leak across providers.
             $legOrigin = strtoupper(trim((string) ($leg['origin'] ?? '')));
             $legDest   = strtoupper(trim((string) ($leg['destination'] ?? '')));
-            $isNigeriaLeg = adivaha_is_nigeria_airport($db, $legOrigin) || adivaha_is_nigeria_airport($db, $legDest);
-            $shellCarrier = ($legAirline === '' || $legAirline === $legCode)
-                || (adivaha_is_shell_carrier($legCode) && $isNigeriaLeg);
+            $shellCarrier = ($legAirline === '' || $legAirline === $legCode);
+            if (!$shellCarrier && function_exists('flight_shell_rule_matches')) {
+                $shellCarrier = flight_shell_rule_matches($db, 'adivaha', $legCode, $legOrigin, $legDest);
+            }
             if ($operatingCarrierCode !== '' && $operatingCarrierCode !== $legCode && $shellCarrier) {
                 $legCode    = $operatingCarrierCode;
                 $legAirline = $operatingCarrierCode; // bare code -> resolved to real name client-side

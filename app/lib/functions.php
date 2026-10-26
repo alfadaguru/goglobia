@@ -1758,6 +1758,144 @@ function ensureAirlineNameFixes($db): void
     }
 }
 
+/**
+ * SHELL-CARRIER CORRECTION RULES — DB-driven, per-supplier + per-country.
+ *
+ * Some suppliers return fares under a ticketing/virtual "shell" carrier code that
+ * is NOT the airline the customer flies (e.g. Adivaha's "A1" = "Atifly"/"APG
+ * Airline", which actually operates as United Nigeria on Nigerian routes). The
+ * display name then resolves wrong. When a shell is detected the caller uses the
+ * segment's real operating carrier (operated_by) instead.
+ *
+ * Rather than hardcode shell codes, the rules live in `flight_shell_carriers` so
+ * they are fully admin/DB-controlled and scoped to EXACTLY where they apply:
+ *   supplier   — which provider this rule is for ('adivaha', …); '' / 'all' = any.
+ *                Critical: another supplier may use the same code for something
+ *                legitimate, so a rule must not leak across providers.
+ *   shell_code — the carrier code to treat as a shell (e.g. 'A1').
+ *   country    — the airport country the flight must touch ('Nigeria'); '' = any.
+ *   match_mode — how the country binds to the flight: 'from' (origin), 'to'
+ *                (destination), 'either' (origin OR destination), 'both' (origin
+ *                AND destination). Full control over "from and to is bound in X".
+ *   active     — 1 to apply, 0 to disable without deleting.
+ * Idempotent self-heal; seeded with the verified Adivaha A1→Nigeria rule.
+ */
+function ensureFlightShellCarriers($db): void
+{
+    static $checked = false;
+    if ($checked) return;
+    $checked = true;
+
+    try {
+        $db->query(
+            "CREATE TABLE IF NOT EXISTS `flight_shell_carriers` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `supplier` varchar(40) NOT NULL DEFAULT '',
+                `shell_code` varchar(8) NOT NULL,
+                `country` varchar(64) NOT NULL DEFAULT '',
+                `match_mode` enum('from','to','either','both') NOT NULL DEFAULT 'either',
+                `active` tinyint(1) NOT NULL DEFAULT 1,
+                `note` varchar(191) DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_rule` (`supplier`,`shell_code`,`country`),
+                KEY `supplier` (`supplier`),
+                KEY `shell_code` (`shell_code`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+    } catch (Throwable $e) {
+        error_log('ensureFlightShellCarriers (create): ' . $e->getMessage());
+        return;
+    }
+
+    // Seed verified default rules ONLY if the table is empty, so admin edits are
+    // never overwritten on a later boot.
+    try {
+        $count = (int) $db->count('flight_shell_carriers');
+        if ($count === 0) {
+            $db->insert('flight_shell_carriers', [
+                [
+                    'supplier' => 'adivaha', 'shell_code' => 'A1', 'country' => 'Nigeria',
+                    'match_mode' => 'either', 'active' => 1,
+                    'note' => 'A1 ("Atifly"/"APG Airline") shell → use operating carrier (e.g. United Nigeria) on NG flights',
+                ],
+            ]);
+        }
+    } catch (Throwable $e) {
+        error_log('ensureFlightShellCarriers (seed): ' . $e->getMessage());
+    }
+}
+
+/**
+ * Does a DB shell-carrier rule say this leg's carrier code is a shell that should
+ * be replaced by its real operating carrier? Reusable by ANY flight supplier.
+ *
+ * @param string $supplier  the provider calling (e.g. 'adivaha')
+ * @param string $code      the leg carrier code to test (e.g. 'A1')
+ * @param string $origin    origin airport code
+ * @param string $dest      destination airport code
+ * @return bool             true when an active matching rule applies
+ */
+function flight_shell_rule_matches($db, string $supplier, string $code, string $origin, string $dest): bool
+{
+    $code = strtoupper(trim($code));
+    if ($code === '') return false;
+    ensureFlightShellCarriers($db);
+
+    // Rules for THIS supplier plus provider-agnostic rules ('' / 'all').
+    static $rulesBySupplier = [];
+    $supKey = strtolower(trim($supplier));
+    if (!array_key_exists($supKey, $rulesBySupplier)) {
+        $rows = [];
+        try {
+            $rows = $db->select('flight_shell_carriers',
+                ['shell_code', 'country', 'match_mode', 'supplier'],
+                ['active' => 1, 'supplier' => [$supKey, '', 'all']]
+            ) ?: [];
+        } catch (Throwable $e) {
+            error_log('flight_shell_rule_matches (load): ' . $e->getMessage());
+        }
+        $rulesBySupplier[$supKey] = $rows;
+    }
+
+    foreach ($rulesBySupplier[$supKey] as $r) {
+        if (strtoupper(trim((string) ($r['shell_code'] ?? ''))) !== $code) continue;
+        $country = trim((string) ($r['country'] ?? ''));
+        if ($country === '') return true; // country-agnostic shell rule
+
+        $mode    = strtolower(trim((string) ($r['match_mode'] ?? 'either')));
+        $fromIn  = flight_airport_in_country($db, $origin, $country);
+        $toIn    = flight_airport_in_country($db, $dest, $country);
+        $ok = ($mode === 'from') ? $fromIn
+            : (($mode === 'to') ? $toIn
+            : (($mode === 'both') ? ($fromIn && $toIn)
+            : ($fromIn || $toIn))); // 'either' (default)
+        if ($ok) return true;
+    }
+    return false;
+}
+
+/** True when an airport code's country (flights_airports.country) matches $country. Cached. */
+function flight_airport_in_country($db, string $airportCode, string $country): bool
+{
+    $airportCode = strtoupper(trim($airportCode));
+    $country = trim($country);
+    if ($airportCode === '' || $country === '') return false;
+    static $cache = [];
+    $key = $airportCode;
+    if (!array_key_exists($key, $cache)) {
+        $c = '';
+        try {
+            $row = $db->get('flights_airports', ['country'], ['code' => $airportCode]);
+            $c = $row ? trim((string) ($row['country'] ?? '')) : '';
+        } catch (Throwable $e) {
+            error_log('flight_airport_in_country(' . $airportCode . '): ' . $e->getMessage());
+        }
+        $cache[$key] = $c;
+    }
+    return strcasecmp($cache[$key], $country) === 0;
+}
+
 function ensureModulesBookingClass($db): void
 {
     static $checked = false;
