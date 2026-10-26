@@ -70,8 +70,13 @@ if (!function_exists('bm_module_has_issue_endpoint')) {
             // never have an issue endpoint of their own.
             return false;
         }
-        $file = dirname(__DIR__, 2) . '/modules/' . $moduleType . '/' . $module . '/actions/issue.php';
-        return is_file($file);
+        // Suppliers put issue.php in one of two places: most under /actions/issue.php
+        // (flights/stays/tours/umrah/rail/ferries), but cars (mozio/cartrawler) and
+        // esim (airalo) register it at the module ROOT (/issue.php). Detect BOTH, or
+        // a live cars/esim booking would be mis-flagged as non-issuable and get
+        // confirmed WITHOUT ever booking at the supplier (money owed, nothing bought).
+        $root = dirname(__DIR__, 2) . '/modules/' . $moduleType . '/' . $module;
+        return is_file($root . '/actions/issue.php') || is_file($root . '/issue.php');
     }
 }
 

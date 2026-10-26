@@ -394,6 +394,36 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
                 'adults'          => (int) ($offerBd['adults'] ?? $adults),
                 'children'        => (int) ($offerBd['children'] ?? $children),
             ];
+        } elseif ($serviceType === 'cars') {
+            // LIVE CARS: the chosen offer card is the handle. cartrawler/issue reads
+            // booking_data.car_data.reference_id; mozio/issue reads search_id/
+            // result_id — both live inside the offer card — so we persist the whole
+            // card under car_data (mirrors the web cars persist) + search_params +
+            // the display keys the ticket/invoice render.
+            $ctx = $_POST['car_context'] ?? '';
+            if (is_string($ctx)) { $ctx = json_decode($ctx, true) ?: []; }
+            if (!is_array($ctx)) { $ctx = []; }
+            // The card must carry SOME supplier handle, or issue can't book it.
+            $hasHandle = !empty($offerBd['reference_id']) || !empty($offerBd['result_id'])
+                      || !empty($offerBd['search_id']) || !empty($offerBd['id']);
+            if (!$hasHandle) {
+                bmAdminJson(['status' => false, 'message' => 'That car offer is missing its booking reference — reselect and try again.'], 422);
+            }
+            $bookingData = [
+                'admin_created'    => true,
+                'car_data'         => $offerBd,           // issue reads car_data.reference_id / search_id
+                'search_params'    => is_array($ctx['search_params'] ?? null) ? $ctx['search_params'] : $ctx,
+                'car_name'         => (string) ($offerBd['name'] ?? $offerBd['car_name'] ?? ($ctx['car_name'] ?? '')),
+                'transmission'     => (string) ($offerBd['transmission'] ?? ($ctx['transmission'] ?? '')),
+                'vehicle_type'     => (string) ($offerBd['vehicle_type'] ?? ($ctx['vehicle_type'] ?? '')),
+                'pickup_location'  => (string) ($ctx['pickup_location'] ?? ''),
+                'dropoff_location' => (string) ($ctx['dropoff_location'] ?? ($ctx['pickup_location'] ?? '')),
+                'pickup_date'      => (string) ($ctx['pickup_date'] ?? ''),
+                'pickup_time'      => (string) ($ctx['pickup_time'] ?? ''),
+                'dropoff_date'     => (string) ($ctx['dropoff_date'] ?? ''),
+                'dropoff_time'     => (string) ($ctx['dropoff_time'] ?? ''),
+                'driver_age'       => (int) ($ctx['driver_age'] ?? 0),
+            ];
         }
     } else {
         // MANUAL: typed-in details → branded voucher, NO supplier call. The

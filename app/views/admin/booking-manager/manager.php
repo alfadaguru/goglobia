@@ -12,6 +12,7 @@ $svcLive   = !empty($bm['service_live']);     // false => manual-only (visa/bus)
 $catalogue = $bm['catalogue'] ?? ['flights' => ['label' => 'Flights', 'live' => true], 'hotels' => ['label' => 'Hotels', 'live' => true]];
 $isHotel   = ($svc === 'hotels');             // hotels use the stays-specific form path
 $isTours   = ($svc === 'tours');              // tours: live supplier search (P5.4)
+$isCars    = ($svc === 'cars');               // cars: live supplier search (P5.4)
 
 // Material icon per service for the picker.
 $svcIcons = [
@@ -83,6 +84,16 @@ $svcIcons = [
           <label class="form-control"><span class="form-label">Activity date</span><input type="date" class="input" x-model="live.checkin"></label>
           <label class="form-control"><span class="form-label">Adults</span><input type="number" min="1" class="input" x-model.number="live.adults"></label>
           <label class="form-control"><span class="form-label">Children</span><input type="number" min="0" class="input" x-model.number="live.children"></label>
+          <?php elseif ($isCars): ?>
+          <!-- Cars: pickup/dropoff location (text/IATA) + dates/times + driver age -->
+          <label class="form-control sm:col-span-2"><span class="form-label">Pick-up location</span><input class="input" x-model="live.car_pickup_location" placeholder="City, address or airport code (e.g. DXB)"></label>
+          <label class="form-control sm:col-span-2"><span class="form-label">Drop-off location (blank = same)</span><input class="input" x-model="live.car_dropoff_location" placeholder="Same as pick-up if blank"></label>
+          <label class="form-control"><span class="form-label">Pick-up date</span><input type="date" class="input" x-model="live.car_pickup_date"></label>
+          <label class="form-control"><span class="form-label">Pick-up time</span><input type="time" class="input" x-model="live.car_pickup_time"></label>
+          <label class="form-control"><span class="form-label">Drop-off date</span><input type="date" class="input" x-model="live.car_dropoff_date"></label>
+          <label class="form-control"><span class="form-label">Drop-off time</span><input type="time" class="input" x-model="live.car_dropoff_time"></label>
+          <label class="form-control"><span class="form-label">Driver age</span><input type="number" min="18" max="99" class="input" x-model.number="live.car_driver_age"></label>
+          <label class="form-control"><span class="form-label">Driver country (ISO2)</span><input class="input" x-model="live.car_driver_country" placeholder="NG" maxlength="2"></label>
           <?php elseif (!$isHotel): ?>
           <label class="form-control"><span class="form-label">Trip type</span>
             <select class="select input" x-model="live.type">
@@ -506,7 +517,8 @@ function bookingMgr() {
     isSenior: <?= !empty($bm['is_senior']) ? 'true' : 'false' ?>,
 
     mode: 'manual',
-    live: { type:'oneway', origin:'', destination:'', destination_country:'', departure_date:'', return_date:'', adults:1, children:0, class:'economy', rooms:1, checkin:'', checkout:'', nationality:'', currency:'' },
+    live: { type:'oneway', origin:'', destination:'', destination_country:'', departure_date:'', return_date:'', adults:1, children:0, class:'economy', rooms:1, checkin:'', checkout:'', nationality:'', currency:'',
+            car_pickup_location:'', car_dropoff_location:'', car_pickup_date:'', car_pickup_time:'10:00', car_dropoff_date:'', car_dropoff_time:'10:00', car_driver_age:30, car_driver_country:'' },
     // Autocomplete state. Flights: origin/destination hold the resolved IATA code.
     // Hotels: dest.q is the visible city text; live.destination holds the chosen city.
     ac: { origin:{q:'',items:[],open:false}, destination:{q:'',items:[],open:false}, dest:{q:'',items:[],open:false} },
@@ -635,6 +647,9 @@ function bookingMgr() {
       if(this.service==='tours'){
         if(!this.live.destination){ alert('Pick a destination city'); return; }
         if(!this.live.checkin){ alert('Pick an activity date'); return; }
+      } else if(this.service==='cars'){
+        if(!this.live.car_pickup_location){ alert('Enter a pick-up location'); return; }
+        if(!this.live.car_pickup_date){ alert('Pick a pick-up date'); return; }
       } else if(this.isHotel){
         if(!this.live.destination){ alert('Pick a destination city'); return; }
         if(!this.live.checkin||!this.live.checkout){ alert('Pick check-in and check-out dates'); return; }
@@ -655,6 +670,16 @@ function bookingMgr() {
         base = { service:this.service, destination:this.live.destination, city:this.live.destination,
                  start_date:this.fmtDate(this.live.checkin), activity_date:this.fmtDate(this.live.checkin),
                  adults:this.live.adults, children:this.live.children, infants:0,
+                 currency:this.live.currency||this.baseCurrency };
+      } else if(this.service==='cars'){
+        // Cars: pickup/dropoff location + dates/times + driver (matches the cars
+        // supplier search contract — mozio/cartrawler read these POST keys).
+        base = { service:this.service,
+                 pickup_location:this.live.car_pickup_location,
+                 dropoff_location:this.live.car_dropoff_location||this.live.car_pickup_location,
+                 pickup_date:this.fmtDate(this.live.car_pickup_date), pickup_time:this.live.car_pickup_time||'10:00',
+                 dropoff_date:this.fmtDate(this.live.car_dropoff_date||this.live.car_pickup_date), dropoff_time:this.live.car_dropoff_time||'10:00',
+                 driver_age:this.live.car_driver_age||30, driver_country:(this.live.car_driver_country||'').toUpperCase(),
                  currency:this.live.currency||this.baseCurrency };
       } else if(this.isHotel){
         base = { service:this.service, destination:this.live.destination, destination_country:this.live.destination_country||'',
@@ -691,6 +716,11 @@ function bookingMgr() {
           const price=Number(it.display_price||it.price||0);
           const dur=it.duration?(' · '+it.duration):'';
           return { supplier, label: it.name||'Activity', sub:(it.location||'')+dur, price_num:price, price_label:(it.currency||'')+' '+price.toLocaleString(), raw: it };
+        }
+        if(this.service==='cars'){
+          const price=Number(it.display_price||it.price||0);
+          const bits=[it.transmission,it.vehicle_type,it.vendor].filter(x=>x&&x!=='N/A').join(' · ');
+          return { supplier, label: it.name||it.car_name||'Vehicle', sub:bits, price_num:price, price_label:(it.currency||'')+' '+price.toLocaleString(), raw: it };
         }
         if(this.isHotel){
           // Hotelbeds/DB suppliers expose the hotel-level price as min_total_price /
@@ -737,6 +767,19 @@ function bookingMgr() {
             // tour_context carries the display fields for the ticket/invoice.
             payload.offer_booking_data = JSON.stringify(r.booking_data || r);
             payload.tour_context = JSON.stringify({ name:r.name, location:r.location, city:r.city, tour_type:r.tour_type, duration:r.duration, activity_date:this.fmtDate(this.live.checkin) });
+          } else if(this.service==='cars'){
+            // The chosen car card IS the handle (cartrawler reads car_data.reference_id;
+            // mozio reads search_id/result_id). Send the whole card + the search/display
+            // context so the backend persists car_data + search_params + display keys.
+            payload.offer_booking_data = JSON.stringify(r);
+            payload.car_context = JSON.stringify({
+              car_name:r.name||r.car_name, transmission:r.transmission, vehicle_type:r.vehicle_type,
+              pickup_location:this.live.car_pickup_location, dropoff_location:this.live.car_dropoff_location||this.live.car_pickup_location,
+              pickup_date:this.fmtDate(this.live.car_pickup_date), pickup_time:this.live.car_pickup_time||'10:00',
+              dropoff_date:this.fmtDate(this.live.car_dropoff_date||this.live.car_pickup_date), dropoff_time:this.live.car_dropoff_time||'10:00',
+              driver_age:this.live.car_driver_age||30,
+              search_params:{ pickup_location:this.live.car_pickup_location, dropoff_location:this.live.car_dropoff_location||this.live.car_pickup_location, pickup_date:this.fmtDate(this.live.car_pickup_date), pickup_time:this.live.car_pickup_time||'10:00', dropoff_date:this.fmtDate(this.live.car_dropoff_date||this.live.car_pickup_date), dropoff_time:this.live.car_dropoff_time||'10:00', driver_age:this.live.car_driver_age||30, driver_country:(this.live.car_driver_country||'').toUpperCase() }
+            });
           } else if(this.isHotel){
             // The CHOSEN rate (group.options[ri]) carries the booking handle
             // (rate_key). Send it as both offer_booking_data AND the
