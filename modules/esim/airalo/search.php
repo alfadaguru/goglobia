@@ -73,32 +73,56 @@ $router->post('esim/airalo/search', function() use ($db) {
             return;
         }
 
-        $packages = $packagesRes['data']['data'] ?? [];
+        $countryItems = $packagesRes['data']['data'] ?? [];
         $meta = $packagesRes['data']['meta'] ?? [];
 
-        // Format results for frontend
+        // Airalo's /v2/packages is NESTED: data[] = country → operators[] → packages[].
+        // (The previous flat read of data[] as packages never matched the real shape,
+        // so every field came back null.) Flatten correctly to the actual package
+        // objects and map their real fields (data / day / voice / text / net_price /
+        // price). The customer-facing `price` is the authoritative sell price (net +
+        // this country's markup rule) via airalo_authoritative_price — same as the
+        // live /esim/.../packages path — so this endpoint never shows an unmarked-up
+        // or client-trusted price. Supplier identity ('airalo') is NOT exposed.
+        $moduleRow = $module;
+        $countryIso = strtoupper($country);
         $results = [];
-        if (is_array($packages)) {
-            foreach ($packages as $pkg) {
-                $results[] = [
-                    'id' => $pkg['id'] ?? null,
-                    'package_id' => $pkg['package_id'] ?? null,
-                    'title' => $pkg['title'] ?? null,
-                    'description' => $pkg['description'] ?? null,
-                    'short_title' => $pkg['short_title'] ?? null,
-                    'slug' => $pkg['slug'] ?? null,
-                    'package_type' => $pkg['package_type'] ?? null,
-                    'country' => $pkg['country'] ?? null,
-                    'regions' => $pkg['regions'] ?? [],
-                    'price' => $pkg['price'] ?? null,
-                    'retail_price' => $pkg['retail_price'] ?? null,
-                    'operator' => $pkg['operator'] ?? null,
-                    'duration' => $pkg['duration'] ?? null,
-                    'data_limit' => $pkg['data_limit'] ?? null,
-                    'data_speed' => $pkg['data_speed'] ?? null,
-                    'status' => $pkg['status'] ?? 'available',
-                    'image_url' => $pkg['image_url'] ?? null,
-                ];
+        if (is_array($countryItems)) {
+            foreach ($countryItems as $countryItem) {
+                $countryTitle = (string) ($countryItem['title'] ?? $countryIso);
+                $ccode = strtoupper((string) ($countryItem['country_code'] ?? $countryIso));
+                foreach ((array) ($countryItem['operators'] ?? []) as $operator) {
+                    $opType = strtolower((string) ($operator['type'] ?? 'local'));
+                    foreach ((array) ($operator['packages'] ?? []) as $pkg) {
+                        $pid = (string) ($pkg['id'] ?? '');
+                        if ($pid === '') { continue; }
+
+                        // Authoritative sell price (net + markup). Falls back to the raw
+                        // net only if no rule is found, never to a bogus value.
+                        $priced = ($ccode !== '' && function_exists('airalo_authoritative_price'))
+                            ? airalo_authoritative_price($db, $moduleRow, $ccode, $pid)
+                            : null;
+                        $net = isset($pkg['net_price']) && is_numeric($pkg['net_price'])
+                            ? (float) $pkg['net_price']
+                            : (float) ($pkg['price'] ?? 0);
+
+                        $results[] = [
+                            'id'           => $pid,
+                            'title'        => (string) ($pkg['title'] ?? ''),
+                            'package_type' => $opType,                         // local | global
+                            'country'      => $ccode,
+                            'country_name' => $countryTitle,
+                            'data'         => (string) ($pkg['data'] ?? (isset($pkg['amount']) ? ($pkg['amount'] . ' MB') : '')),
+                            'is_unlimited' => !empty($pkg['is_unlimited']),
+                            'validity_days'=> isset($pkg['day']) ? (int) $pkg['day'] : null,
+                            'voice'        => $pkg['voice'] ?? null,
+                            'text'         => $pkg['text'] ?? null,
+                            'price'        => $priced['price'] ?? round($net, 2),  // customer sell price
+                            'currency'     => (string) ($moduleRow['currency'] ?? 'USD'),
+                            'status'       => 'available',
+                        ];
+                    }
+                }
             }
         }
 
