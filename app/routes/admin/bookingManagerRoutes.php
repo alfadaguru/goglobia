@@ -93,7 +93,7 @@ if (!function_exists('bm_service_catalogue')) {
             // duplicating money logic. MANUAL-only here until /rail/order is
             // refactored into a shared BM-callable money path (planned). Manual
             // records an off-system rail booking as a branded voucher.
-            'rail'    => ['type' => 'rail',    'label' => 'Rail',    'live' => false],
+            'rail'    => ['type' => 'rail',    'label' => 'Rail',    'live' => true],
             'ferries' => ['type' => 'ferries', 'label' => 'Ferries', 'live' => true],
             'esim'    => ['type' => 'esim',    'label' => 'eSIM',    'live' => true],
             'visa'    => ['type' => 'visa',    'label' => 'Visa',    'live' => false],
@@ -315,6 +315,46 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
 
     // ---- Build booking_data + module per mode -------------------------------
     if ($mode === 'live') {
+        // RAIL is special: its booking CREATION is the money-critical order flow
+        // (server fare re-validation + markup + promo + its own insert). Route it
+        // through the SHARED rail_create_order() so there is ONE audited rail money
+        // path — never a reimplementation. It inserts + returns here.
+        if ($serviceType === 'rail') {
+            $railInput = $_POST['rail_order'] ?? '';
+            if (is_string($railInput)) { $railInput = json_decode($railInput, true); }
+            if (!is_array($railInput) || empty($railInput['journey']) || empty($railInput['passengers'])) {
+                bmAdminJson(['status' => false, 'message' => 'Select a train and seat class, and add at least one passenger.'], 422);
+            }
+            $railInput['contact_name']  = trim($firstName . ' ' . $lastName);
+            $railInput['contact_email'] = $email;
+            $railInput['contact_phone'] = $phone;
+            if (!function_exists('rail_create_order')) {
+                require_once dirname(__DIR__) . '/rail/bookingRoutes.php';
+            }
+            if (!function_exists('rail_create_order')) {
+                bmAdminJson(['status' => false, 'message' => 'Rail booking is unavailable right now.'], 500);
+            }
+            $railRes = rail_create_order($db, $railInput, [
+                'user_id'          => '',
+                'user_data'        => null,
+                'sell_price'       => $sellPrice,
+                'created_by_admin' => $adminId,
+                'booking_channel'  => 'admin_live',
+                'grant_session'    => false,
+                'is_agent'         => false,
+            ]);
+            if (empty($railRes['ok'])) {
+                bmAdminJson(['status' => false, 'message' => (string) ($railRes['msg'] ?? 'Could not create the rail booking.')], 422);
+            }
+            bmAdminJson([
+                'status'     => true,
+                'invoice_id' => $railRes['invoice_id'],
+                'mode'       => 'live',
+                'amount'     => $sellPrice,
+                'currency'   => $currency,
+                'message'    => 'Rail booking drafted. Choose how the customer will pay; the ticket is issued after payment.',
+            ]);
+        }
         // LIVE: the console passes the chosen offer's booking_data (from the
         // module search result) as JSON; we persist it so the issue loopback can
         // book it. The module is the real supplier (must have an issue endpoint).
