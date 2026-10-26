@@ -107,7 +107,10 @@ $esim_count = $db->count('modules', ['type' => 'esim', 'status' => 1, 'active' =
 
 // BUILD BOOKINGS SUBMENU - Dynamically based on enabled modules
 $bookingsSubmenu = [
-  ['name' => T::all . ' ' . T::bookings, 'icon' => 'library_books', 'url' => root.admin.'/bookings']
+  ['name' => T::all . ' ' . T::bookings, 'icon' => 'library_books', 'url' => root.admin.'/bookings'],
+  // Unified Booking Manager — staff book for walk-in customers across all services
+  // (pick the service on the screen). Maps to the 'bookings' RBAC area (support has it).
+  ['name' => 'Booking Manager', 'icon' => 'point_of_sale', 'url' => root.admin.'/booking-manager/flights'],
 ];
 
 // ADD FLIGHTS BOOKINGS ONLY IF MODULE IS ACTIVE
@@ -204,10 +207,10 @@ if ($stays > 0) {
         'submenu' => array_merge([
             ['name' => T::stays, 'icon' => 'hotel', 'url' => root.admin.'/stays'],
             ['name' => T::stays_settings, 'icon' => 'settings', 'url' => root.admin.'/stays/settings'],
-            // Staff booking tool for walk-in customers (hotels).
-            ['name' => 'Booking Manager', 'icon' => 'point_of_sale', 'url' => root.admin.'/booking-manager/hotels'],
+            // (Booking Manager moved to the unified tile under Bookings — pick the
+            //  service there. The per-service tile here is retired.)
         ],
-        // Verify Payments is ONE shared queue for both services — surface it under
+        // Verify Payments is ONE shared queue for all services — surface it under
         // Stays only when Flights isn't active (otherwise it lives under Flights),
         // so it's always reachable but never duplicated.
         ($flights > 0) ? [] : [
@@ -227,10 +230,9 @@ if ($flights > 0) {
             ['name' => 'Popular Routes', 'icon' => 'interests', 'url' => root.admin.'/flights/popular-routes'],
             ['name' => T::airlines, 'icon' => 'airlines', 'url' => root.admin.'/flights-airlines'],
             ['name' => T::airports, 'icon' => 'airplane_ticket', 'url' => root.admin.'/flights-airports'],
-            // Staff booking tool for walk-in customers (search+book or record a
-            // manual/offline booking). Verify Payments is the senior-admin queue
-            // for manual bank transfers (the page itself gates on admin_level).
-            ['name' => 'Booking Manager', 'icon' => 'point_of_sale', 'url' => root.admin.'/booking-manager/flights'],
+            // (Booking Manager moved to the unified tile under Bookings — pick the
+            //  service there.) Verify Payments is the senior-admin queue for manual
+            //  bank transfers (the page itself gates on admin_level).
             ['name' => 'Verify Payments', 'icon' => 'verified', 'url' => root.admin.'/booking-manager/verify'],
         ]
     ];

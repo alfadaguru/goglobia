@@ -132,9 +132,13 @@ $bmRenderManager = function ($svc) use ($SECURE, $db) {
         ['module_type' => $serviceType, 'booking_channel[~]' => 'admin', 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 100]
     ) ?: [];
 
+    $catalogue = bm_service_catalogue();
     $bmData = [
-        'service'        => $svc,                 // 'flights' | 'hotels'
-        'service_type'   => $serviceType,         // 'flights' | 'stays'
+        'service'        => $svc,                 // any bm_service_catalogue() key
+        'service_type'   => $serviceType,         // bookings.module_type
+        'service_label'  => $catalogue[$svc]['label'] ?? ucfirst($svc),
+        'service_live'   => !empty($catalogue[$svc]['live']), // false => manual-only (visa/bus)
+        'catalogue'      => $catalogue,           // drives the service picker
         'suppliers'      => $supplierNames,
         'is_senior'      => $isSenior,
         'admin_level'    => bm_current_admin_level($db),
@@ -146,7 +150,7 @@ $bmRenderManager = function ($svc) use ($SECURE, $db) {
         })(),
     ];
 
-    $title = ucfirst($svc) . ' Booking Manager';
+    $title = ($catalogue[$svc]['label'] ?? ucfirst($svc)) . ' Booking Manager';
     $description = '';
     $header = true; $footer = true;
     $GLOBALS['bmData'] = $bmData;

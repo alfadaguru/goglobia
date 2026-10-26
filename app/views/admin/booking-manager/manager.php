@@ -4,16 +4,26 @@
 // Data comes from $GLOBALS['bmData'] set by bookingManagerRoutes.php.
 @$SECURE or die('Access Denied!');
 
-$bm   = $GLOBALS['bmData'] ?? [];
-$csrf = $_SESSION['csrf_token'] ?? '';
-$svc  = $bm['service'] ?? 'flights';          // 'flights' | 'hotels'
-$isHotel = ($svc === 'hotels');
+$bm        = $GLOBALS['bmData'] ?? [];
+$csrf      = $_SESSION['csrf_token'] ?? '';
+$svc       = $bm['service'] ?? 'flights';     // any bm_service_catalogue() key
+$svcLabel  = $bm['service_label'] ?? ucfirst($svc);
+$svcLive   = !empty($bm['service_live']);     // false => manual-only (visa/bus)
+$catalogue = $bm['catalogue'] ?? ['flights' => ['label' => 'Flights', 'live' => true], 'hotels' => ['label' => 'Hotels', 'live' => true]];
+$isHotel   = ($svc === 'hotels');             // hotels still use the stays-specific form path
+
+// Material icon per service for the picker.
+$svcIcons = [
+  'flights' => 'flight', 'hotels' => 'hotel', 'tours' => 'tour', 'cars' => 'directions_car',
+  'umrah' => 'mosque', 'rail' => 'train', 'ferries' => 'directions_boat', 'esim' => 'sim_card',
+  'visa' => 'badge', 'bus' => 'directions_bus',
+];
 ?>
 <div class="container py-6" x-data="bookingMgr()" x-init="init()">
-  <div class="flex items-center justify-between flex-wrap gap-3 mb-5">
+  <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
     <div>
-      <h1 class="text-2xl font-semibold text-slate-900"><?= ucfirst($svc) ?> Booking Manager</h1>
-      <p class="text-sm text-slate-600 mt-1">Book for a walk-in customer — search a live supplier, or record a booking made elsewhere. Take payment by virtual account or bank transfer.</p>
+      <h1 class="text-2xl font-semibold text-slate-900"><?= htmlspecialchars($svcLabel) ?> Booking Manager</h1>
+      <p class="text-sm text-slate-600 mt-1">Book for a walk-in customer — <?= $svcLive ? 'search a live supplier, or record a booking made elsewhere' : 'record a booking made elsewhere' ?>. Take payment by virtual account or bank transfer.</p>
     </div>
     <div class="flex gap-2 flex-wrap">
       <a href="<?= root . admin ?>/booking-manager/verify" class="btn outline"><span class="material-symbols-outlined">verified</span><span>Verify payments</span></a>
@@ -21,14 +31,29 @@ $isHotel = ($svc === 'hotels');
     </div>
   </div>
 
-  <!-- Mode toggle -->
+  <!-- Service picker: one unified Booking Manager; pick the service to book. -->
+  <div class="flex gap-2 flex-wrap mb-5 border-b border-slate-200 pb-3">
+    <?php foreach ($catalogue as $skey => $meta): $active = ($skey === $svc); ?>
+      <a href="<?= root . admin ?>/booking-manager/<?= $skey ?>"
+         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition
+                <?= $active ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200' ?>">
+        <span class="material-symbols-outlined text-[18px]"><?= $svcIcons[$skey] ?? 'confirmation_number' ?></span>
+        <span><?= htmlspecialchars($meta['label'] ?? ucfirst($skey)) ?></span>
+        <?php if (empty($meta['live'])): ?><span class="text-[10px] uppercase tracking-wide opacity-70">manual</span><?php endif; ?>
+      </a>
+    <?php endforeach; ?>
+  </div>
+
+  <!-- Mode toggle (live hidden for manual-only services) -->
   <div class="flex gap-2 mb-5">
     <button class="btn" :class="mode==='manual' ? 'primary' : 'outline'" @click="mode='manual'">
       <span class="material-symbols-outlined">edit_note</span><span>Manual / offline booking</span>
     </button>
+    <?php if ($svcLive): ?>
     <button class="btn" :class="mode==='live' ? 'primary' : 'outline'" @click="mode='live'" x-show="suppliers.length">
       <span class="material-symbols-outlined">travel_explore</span><span>Live supplier search</span>
     </button>
+    <?php endif; ?>
   </div>
 
   <div class="grid lg:grid-cols-3 gap-5">
@@ -365,7 +390,8 @@ function bookingMgr() {
     csrf: '<?= htmlspecialchars($csrf, ENT_QUOTES) ?>',
     base: '<?= root ?>',
     service: '<?= $svc ?>',
-    serviceType: '<?= $isHotel ? 'stays' : 'flights' ?>',
+    serviceType: '<?= htmlspecialchars($bm['service_type'] ?? 'flights') ?>',
+    serviceLive: <?= $svcLive ? 'true' : 'false' ?>,
     isHotel: <?= $isHotel ? 'true' : 'false' ?>,
     suppliers: <?= json_encode($bm['suppliers'] ?? []) ?>,
     baseCurrency: '<?= htmlspecialchars($bm['base_currency'] ?? 'NGN') ?>',
