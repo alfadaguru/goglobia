@@ -201,6 +201,55 @@ if (!function_exists('ensureAdminRbacSchema')) {
 
         // Seed/repair the default roles (own try/catch inside).
         admin_rbac_seed_default_roles($db);
+
+        // One-off idempotent grant: let support staff CREATE bookings for clients
+        // via the Booking Manager. The seed only writes perms to a support role
+        // that has NONE (so it never stomps admin edits) — existing installs
+        // already have perms, so this MERGES bookings.add into the support roles
+        // without touching their other grants. Safe to run every boot.
+        admin_rbac_ensure_support_booking_grant($db);
+    }
+}
+
+if (!function_exists('admin_rbac_ensure_support_booking_grant')) {
+    /**
+     * Ensure the default support roles can create bookings (bookings.add), so
+     * support staff can book for clients through the admin Booking Manager.
+     * Idempotent + fail-soft: merges the single 'add' action into each role's
+     * existing bookings grant; never removes or overwrites other permissions.
+     * No-op once the grant is present. Runs once per boot (guarded by a static).
+     */
+    function admin_rbac_ensure_support_booking_grant($db): void
+    {
+        static $done = false;
+        if ($done) { return; }
+        $done = true;
+
+        try {
+            foreach (['support_lead', 'support_agent'] as $slug) {
+                $row = null;
+                try {
+                    $row = $db->get('users_roles', ['id', 'permissions'], ['slug' => $slug]);
+                } catch (\Throwable $e) { continue; } // slug column may be mid-migration
+                if (!is_array($row) || empty($row['id'])) { continue; }
+
+                $perms = !empty($row['permissions']) ? json_decode((string) $row['permissions'], true) : null;
+                if (!is_array($perms)) { continue; } // don't fabricate a grid; seed owns empty roles
+
+                // Only act on roles that already have the bookings area (the
+                // support roles do). If bookings.add is already present, no-op.
+                if (!isset($perms['bookings']) || !is_array($perms['bookings'])) { continue; }
+                if (array_key_exists('add', $perms['bookings'])) { continue; }
+
+                $perms['bookings']['add'] = ''; // grant marker (same empty-string convention)
+                $db->update('users_roles', [
+                    'permissions' => json_encode($perms),
+                    'updated_at'  => date('Y-m-d H:i:s'),
+                ], ['id' => $row['id']]);
+            }
+        } catch (\Throwable $e) {
+            error_log('admin_rbac_ensure_support_booking_grant: ' . $e->getMessage());
+        }
     }
 }
 
@@ -237,7 +286,9 @@ if (!function_exists('admin_rbac_seed_default_roles')) {
             'support_attendance' => ['page_access', 'view', 'view_all'],
             'support_shifts'     => ['page_access', 'view', 'edit'],
             'support_targets'    => ['page_access', 'view'],
-            'bookings'           => ['page_access', 'view', 'edit', 'refund', 'cancel', 'void'],
+            // 'add' lets support staff CREATE bookings for clients via the admin
+            // Booking Manager (/admin/booking-manager/*, gated bookings.add on create).
+            'bookings'           => ['page_access', 'view', 'add', 'edit', 'refund', 'cancel', 'void'],
             'users'              => ['page_access', 'view'],
             'reports'            => ['page_access', 'view'],
         ]);
@@ -248,7 +299,9 @@ if (!function_exists('admin_rbac_seed_default_roles')) {
             'support_tickets'    => ['page_access', 'view', 'edit'],
             'support_attendance' => ['page_access', 'view'],
             'support_targets'    => ['page_access', 'view'],
-            'bookings'           => ['page_access', 'view', 'edit'], // view/notes/resend; NO money (refund/cancel/void)
+            // 'add' lets a support agent book for a client via the Booking Manager;
+            // money actions (refund/cancel/void) remain Lead/Finance-only.
+            'bookings'           => ['page_access', 'view', 'add', 'edit'],
             'users'              => ['page_access', 'view'],
         ]);
 
