@@ -15,6 +15,7 @@ $isTours   = ($svc === 'tours');              // tours: live supplier search (P5
 $isCars    = ($svc === 'cars');               // cars: live supplier search (P5.4)
 $isRail    = ($svc === 'rail');               // rail: live train search via /ticket/trainQuery (P5.4 step 2b)
 $isEsim    = ($svc === 'esim');               // esim: live Airalo package search (P5.4)
+$isFerries = ($svc === 'ferries');            // ferries: live kikoto sailing search (P5.4)
 
 // Material icon per service for the picker.
 $svcIcons = [
@@ -64,8 +65,8 @@ $svcIcons = [
     <!-- LEFT: the working form (mode-dependent) -->
     <div class="lg:col-span-2 space-y-5">
 
-      <!-- ============ LIVE MODE: supplier search (generic; rail has its own below) ============ -->
-      <?php if (!$isRail): ?>
+      <!-- ============ LIVE MODE: supplier search (generic; rail + ferries have their own) ============ -->
+      <?php if (!$isRail && !$isFerries): ?>
       <div class="card p-4" x-show="mode==='live'">
         <h2 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2"><span class="material-symbols-outlined text-lg">travel_explore</span>Search a live supplier</h2>
         <p class="text-xs text-slate-500 mb-3">Searches every enabled supplier at once (same as the website) and shows the combined offers.</p>
@@ -267,6 +268,46 @@ $svcIcons = [
           </template>
         </div>
         <p class="text-xs text-slate-400 mt-2" x-show="!rail.trains.length && rail.searched && !rail.searching">No trains for those criteria.</p>
+      </div>
+      <?php endif; ?>
+
+      <?php if ($isFerries): ?>
+      <!-- ============ LIVE FERRIES: sailing search via ferries/kikoto ============ -->
+      <div class="card p-4" x-show="mode==='live'" x-init="ferryLoadPorts()">
+        <h2 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2"><span class="material-symbols-outlined text-lg">directions_boat</span>Search live sailings</h2>
+        <p class="text-xs text-slate-500 mb-3">Pick departure &amp; arrival ports and a date, search sailings, then select one. The fare is re-validated at issue.</p>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="form-control"><span class="form-label">From port</span>
+            <select class="select input" x-model.number="ferry.from"><option value="0">Select…</option><template x-for="p in ferry.ports" :key="p.id"><option :value="p.id" x-text="p.name"></option></template></select>
+          </label>
+          <label class="form-control"><span class="form-label">To port</span>
+            <select class="select input" x-model.number="ferry.to"><option value="0">Select…</option><template x-for="p in ferry.ports" :key="p.id"><option :value="p.id" x-text="p.name"></option></template></select>
+          </label>
+          <label class="form-control"><span class="form-label">Date</span><input type="date" class="input" x-model="ferry.date"></label>
+          <label class="form-control"><span class="form-label">Adults</span><input type="number" min="1" class="input" x-model.number="ferry.adults"></label>
+          <label class="form-control"><span class="form-label">Children</span><input type="number" min="0" class="input" x-model.number="ferry.children"></label>
+        </div>
+        <button class="btn primary mt-3" @click="ferrySearch()" :disabled="ferry.searching">
+          <span class="material-symbols-outlined" x-show="!ferry.searching">search</span>
+          <span class="material-symbols-outlined animate-spin" x-show="ferry.searching">progress_activity</span>
+          <span x-text="ferry.searching ? 'Searching…' : 'Search sailings'"></span>
+        </button>
+        <p class="text-xs text-rose-600 mt-2" x-show="ferry.error" x-text="ferry.error"></p>
+        <div class="mt-4 space-y-2" x-show="ferry.sailings.length">
+          <template x-for="(s,si) in ferry.sailings" :key="si">
+            <div class="flex items-center justify-between gap-2 border border-slate-200 rounded-lg p-3">
+              <div>
+                <div class="font-semibold text-slate-800" x-text="(s.shipping_company?.name||s.operator||'Ferry')+' · '+(s.departure_time||'')"></div>
+                <div class="text-xs text-slate-500" x-text="(s.departure_port||ferry.fromName)+' → '+(s.arrival_port||ferry.toName)"></div>
+              </div>
+              <div class="flex items-center gap-2">
+                <div class="font-semibold tabular-nums text-sm" x-text="(s.currency||'')+' '+Number(s.price||s.total_price||0).toLocaleString()"></div>
+                <button class="btn sm" :class="ferry.sel===si?'primary':'outline'" @click="ferrySelect(si)" x-text="ferry.sel===si?'Selected':'Select'"></button>
+              </div>
+            </div>
+          </template>
+        </div>
+        <p class="text-xs text-slate-400 mt-2" x-show="!ferry.sailings.length && ferry.searched && !ferry.searching">No sailings for those criteria.</p>
       </div>
       <?php endif; ?>
 
@@ -626,6 +667,8 @@ function bookingMgr() {
     searching:false, searched:false, results:[], selectedOffer:null, selectedRaw:null, selectedSupplier:'', selectedGroup:null, selectedRoom:null, selectedOption:null, selectedRoomName:'',
     // Live-rail state (its own train search; selTrain/selSeat = the chosen seat class).
     rail:{ from:'', to:'', date:'', adults:1, children:0, currency:'', searching:false, searched:false, error:'', trains:[], selTrain:null, selSeat:null },
+    // Live-ferries state (sailing search; sel = chosen sailing index).
+    ferry:{ ports:[], from:0, to:0, fromName:'', toName:'', date:'', adults:1, children:0, searching:false, searched:false, error:'', sailings:[], sel:null },
     creating:false, created:false, invoiceId:'', clientToken:'',
     paying:false, dva:null, manualPay:false, settleMsg:'', settleMsgOk:false,
 
@@ -883,11 +926,46 @@ function bookingMgr() {
       };
     },
 
+    // ---- LIVE FERRIES (sailing search) ----
+    async ferryLoadPorts(){
+      if(this.ferry.ports.length) return;
+      try{
+        const res=await fetch(this.base+'ferries/kikoto/ports',{ method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+        const data=await res.json();
+        const rows=(data&&(data.data||data.ports))||[];
+        this.ferry.ports=(Array.isArray(rows)?rows:[]).map(p=>({ id:Number(p.id||p.port_id||0), name:String(p.name||p.port_name||('Port '+(p.id||''))) })).filter(p=>p.id);
+      }catch(e){ /* ports optional; staff can still not search without them */ }
+    },
+    async ferrySearch(){
+      if(!this.ferry.from||!this.ferry.to){ alert('Pick departure and arrival ports'); return; }
+      if(!this.ferry.date){ alert('Pick a sailing date'); return; }
+      this.ferry.searching=true; this.ferry.searched=false; this.ferry.error=''; this.ferry.sailings=[]; this.ferry.sel=null;
+      this.ferry.fromName=(this.ferry.ports.find(p=>p.id===this.ferry.from)||{}).name||'';
+      this.ferry.toName=(this.ferry.ports.find(p=>p.id===this.ferry.to)||{}).name||'';
+      try{
+        const res=await fetch(this.base+'ferries/kikoto/search',{ method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({ departure_port_id:this.ferry.from, destination_port_id:this.ferry.to, date:this.ferry.date,
+            passengers:[{ ticket_type_id:1, count:(this.ferry.adults+this.ferry.children) }] }) });
+        const data=await res.json();
+        const rows=(data&&(data.data?.outbound||data.data?.sailings||data.data||data.sailings))||[];
+        this.ferry.sailings=Array.isArray(rows)?rows:[];
+        if(!this.ferry.sailings.length){ this.ferry.error=(data&&(data.message||data.msg))||''; }
+      }catch(e){ this.ferry.error='Network error while loading sailings.'; }
+      this.ferry.searching=false; this.ferry.searched=true;
+    },
+    ferrySelect(si){
+      this.ferry.sel=si;
+      const s=this.ferry.sailings[si]||{};
+      this.price.sell=Number(s.price||s.total_price||0)||this.price.sell;
+      this.price.currency=s.currency||this.price.currency;
+    },
+
     async createBooking(){
       if(!this.cust.first_name||!this.cust.last_name||!this.cust.email){ alert('Customer first/last name and email are required'); return; }
       if(!(this.price.sell>0)){ alert('Enter a selling price'); return; }
       if(this.mode==='live' && this.service==='rail' && (this.rail.selTrain===null||this.rail.selSeat===null)){ alert('Search trains, then select a seat class'); return; }
-      if(this.mode==='live' && this.service!=='rail' && this.selectedRaw===null){ alert('Select a supplier offer first'); return; }
+      if(this.mode==='live' && this.service==='ferries' && this.ferry.sel===null){ alert('Search sailings, then select one'); return; }
+      if(this.mode==='live' && this.service!=='rail' && this.service!=='ferries' && this.selectedRaw===null){ alert('Select a supplier offer first'); return; }
       if(this.mode==='live' && this.isHotel && this.selectedRoom===null){ alert('Choose a room rate on the selected hotel first'); return; }
       this.creating=true;
       try{
@@ -904,6 +982,13 @@ function bookingMgr() {
           const railOrder=this.buildRailOrder();
           if(!railOrder){ alert('Select a train and seat class'); this.creating=false; return; }
           payload.rail_order = JSON.stringify(railOrder);
+        } else if(this.mode==='live' && this.service==='ferries'){
+          // Ferries: send the chosen sailing + passenger ticket-types + context.
+          const s=this.ferry.sailings[this.ferry.sel]||{};
+          payload.supplier='kikoto';
+          payload.offer_booking_data = JSON.stringify(s);
+          payload.ferry_passengers = JSON.stringify([{ ticket_type_id:1, count:(this.ferry.adults+this.ferry.children) }]);
+          payload.ferry_context = JSON.stringify({ price:Number(s.price||s.total_price||0), departure_port_id:this.ferry.from, destination_port_id:this.ferry.to, from_name:this.ferry.fromName, to_name:this.ferry.toName, date:this.ferry.date, departure_time:s.departure_time||'' });
         } else if(this.mode==='live'){
           payload.supplier=this.selectedSupplier;   // the supplier THIS offer came from
           const r=this.selectedRaw;
