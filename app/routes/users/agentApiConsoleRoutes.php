@@ -159,20 +159,22 @@ $router->get('/agent/api/logs', function () use ($SECURE, $db) {
     require_once views . 'agent/layout-bottom.php';
 });
 
-// ---- DOCS (reuse the existing documentation view) --------------------------
+// ---- DOCS (dedicated, well-structured console documentation) ---------------
 $router->get('/agent/api/docs', function () use ($SECURE, $db) {
     [$ctx, $owner] = _agent_api_console_ctx($db, 'view');
 
-    $agentApiHost = strtolower(trim((string) ($GLOBALS['app']['agent_api_host'] ?? ''))) ?: 'api.goglobia.com';
+    // Host is shown as-is; empty means "not configured yet" (the docs view notes
+    // this rather than faking a real host).
+    $agentApiHost = strtolower(trim((string) ($GLOBALS['app']['agent_api_host'] ?? '')));
     // Only services the agency can actually call appear "enabled" in the docs.
     $services = [];
     foreach (agent_api_console_services() as $svc => $_lbl) {
         if (agent_api_service_can_call($db, $owner, $svc) !== '') { $services[] = ['service' => $svc]; }
     }
     $apiActive = 'docs';
+    $title = 'API Documentation';
     require_once views . 'agent/layout-top.php';
-    require_once views . 'agent/api/_nav.php';
-    require_once views . 'auth/api-docs.php';   // reused; renders inside portal
+    require_once views . 'agent/api/docs.php';   // dedicated structured docs
     require_once views . 'agent/layout-bottom.php';
 });
 
