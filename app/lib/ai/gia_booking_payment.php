@@ -464,7 +464,8 @@ if (!function_exists('gia_bp_confirm')) {
 
         try {
             $ok = false;
-            $bmNotified = false; // true once a settle sub-path already emailed the customer
+            $bmNotified = false;    // true once a settle sub-path already emailed the customer
+            $issueRefunded = false; // true when a flight issue FAILED and was auto-refunded
             // CRITICAL FOR REFUNDS: stamp the generic `bookings` row with the gateway
             // + transaction reference on EVERY confirm. refund_gateway_payment()
             // resolves the refund target from bookings.payment_gateway +
@@ -524,11 +525,15 @@ if (!function_exists('gia_bp_confirm')) {
                     // FLIGHTS / ai_trip: a ticket can only ISSUE after payment. Trigger
                     // the SAME proven issue path the web gateway callback uses
                     // (modules/ai_trip/ai_trip/issue), signed with the internal token.
-                    // issue.php issues each PNR and, on failure, runs the existing
-                    // auto-refund — so a paid-but-unissuable flight is refunded, never
-                    // stranded. booking_status becomes 'confirmed' only when issue succeeds.
+                    // booking_status becomes 'confirmed' only when a PNR issues.
+                    // On issue FAILURE, gia_bp_issue_ai_trip now runs the guarded
+                    // auto-refund (issue.php itself does NOT) and sets the booking
+                    // cancelled/refunded — so a paid-but-unissuable flight is refunded,
+                    // never stranded, and no false ticket is sent. We capture the
+                    // result to reconcile the gia_booking_payments ledger below.
                     try {
-                        gia_bp_issue_ai_trip($db, $invoiceId);
+                        $issueRes = gia_bp_issue_ai_trip($db, $invoiceId);
+                        if (empty($issueRes['ok'])) { $issueRefunded = true; }
                     } catch (\Throwable $e) {
                         error_log('[gia_bp] ai_trip issue trigger ' . $invoiceId . ': ' . $e->getMessage());
                     }
@@ -571,11 +576,17 @@ if (!function_exists('gia_bp_confirm')) {
             if (!$ok) {
                 return ['ok' => false, 'message' => 'post-payment flow failed']; // retryable
             }
+            // Ledger status: 'paid' normally, but 'refunded' when a flight issue
+            // failed and gia_bp_issue_ai_trip auto-refunded the payer — otherwise the
+            // sweep/reminders + state reads would wrongly treat it as a live paid
+            // booking. The payment reference/sender/paid_at are still recorded (the
+            // charge DID happen; it was then reversed).
             $db->update('gia_booking_payments', [
-                'status' => 'paid', 'paystack_reference' => $paystackRef,
+                'status' => $issueRefunded ? 'refunded' : 'paid',
+                'paystack_reference' => $paystackRef,
                 'sender_account' => $senderAcct, 'sender_bank' => $senderBank,
                 'paid_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
-            ], ['id' => $bp['id']]);
+            ] + ($issueRefunded ? ['refunded_at' => date('Y-m-d H:i:s')] : []), ['id' => $bp['id']]);
 
             // Notify the end user: email the no-price ticket + chat confirmation.
             // Best-effort; fills the gap where GIA-settled stays/umrah told the
@@ -600,15 +611,21 @@ if (!function_exists('gia_bp_confirm')) {
 if (!function_exists('gia_bp_issue_ai_trip')) {
     /**
      * Trigger the PROVEN ai_trip issue path for a just-paid GIA flight/ai_trip
-     * booking, the SAME way the web payment callback does (payment-gateway.php:
-     * 636-651): a server-side loopback POST to modules/ai_trip/ai_trip/issue,
-     * signed with supplier_internal_token so the module's action-guard accepts it.
-     * issue.php issues each item's PNR, sets booking_status='confirmed' on success,
-     * and on failure the existing _auto_refund_on_issue_failure refunds the payer —
-     * so a paid-but-unissuable flight is never stranded. We do NOT duplicate that
-     * logic here; we only kick it off and read the outcome.
+     * booking: a server-side loopback POST to modules/ai_trip/ai_trip/issue, signed
+     * with supplier_internal_token so the module's action-guard accepts it. issue.php
+     * issues each item's PNR and sets booking_status='confirmed' on success.
      *
-     * @return array{ok:bool, status:string, message?:string}
+     * IMPORTANT: unlike the WEB payment callback (payment-gateway.php:907/953),
+     * modules/ai_trip/ai_trip/issue.php does NOT auto-refund on failure — it just
+     * reports the failure and leaves the parent booking 'pending'. So on issue
+     * FAILURE this function runs the SAME guarded auto-refund the web path uses
+     * (_auto_refund_on_issue_failure), which refunds the gateway payment and sets
+     * booking_status='cancelled'/payment_status='refunded' (or flags for a manual
+     * admin refund if the gateway refund can't process). That — together with the
+     * flight-must-be-'confirmed' gate in gia_bp_send_confirmation — guarantees a
+     * paid-but-unissuable flight is never stranded and never gets a false ticket.
+     *
+     * @return array{ok:bool, status:string, message?:string}  ok=false => issue failed (refund attempted)
      */
     function gia_bp_issue_ai_trip($db, string $invoiceId): array
     {
@@ -635,14 +652,40 @@ if (!function_exists('gia_bp_issue_ai_trip')) {
         }
         $json = is_array($resp['json'] ?? null) ? $resp['json'] : [];
         $issued = !empty($json['status']);
-        // issue.php has already set booking_status (confirmed on success) + handled
-        // auto-refund on failure. Reflect the outcome for the caller/log only.
-        error_log('[gia_bp] issue ai_trip ' . $invoiceId . ' -> ' . ($issued ? 'issued' : 'not-issued: ' . (string) ($json['message'] ?? 'unknown')));
-        return [
-            'ok'      => $issued,
-            'status'  => $issued ? 'confirmed' : 'pending',
-            'message' => (string) ($json['message'] ?? ''),
-        ];
+        $issueMsg = (string) ($json['message'] ?? 'unknown');
+        error_log('[gia_bp] issue ai_trip ' . $invoiceId . ' -> ' . ($issued ? 'issued' : 'not-issued: ' . $issueMsg));
+
+        // ISSUE SUCCESS: modules/ai_trip/ai_trip/issue.php already set
+        // booking_status='confirmed' + stamped the PNR. Nothing more to do.
+        if ($issued) {
+            return ['ok' => true, 'status' => 'confirmed', 'message' => $issueMsg];
+        }
+
+        // ISSUE FAILURE — the customer PAID but the supplier returned no PNR. Unlike
+        // the WEB payment callback (payment-gateway.php:907/953), modules/ai_trip's
+        // issue.php does NOT auto-refund, and on total failure it leaves the parent
+        // booking_status at 'pending' (issue.php only sets 'confirmed' when a PNR
+        // exists). Left as-is, gia_bp_send_confirmation's guard (which blocks only
+        // cancelled/refunded/failed) would PASS 'pending' and email the customer a
+        // ticket for a flight that was never issued, with their money still held.
+        // Fix: run the SAME guarded auto-refund the web path uses, which both
+        // refunds the gateway payment AND sets booking_status='cancelled' /
+        // payment_status='refunded' (or flags for manual admin refund if the gateway
+        // refund can't process) — so no false 'confirmed' ticket is ever sent and
+        // the payer's money is returned.
+        try {
+            require_once dirname(__DIR__) . '/payment-gateway.php';
+            if (function_exists('_auto_refund_on_issue_failure')) {
+                $bk = $db->get('bookings', '*', ['invoice_id' => $invoiceId]) ?: ['invoice_id' => $invoiceId];
+                _auto_refund_on_issue_failure($db, ['invoice_id' => $invoiceId], $bk, $issueMsg);
+            }
+        } catch (\Throwable $e) {
+            error_log('[gia_bp] issue-fail auto-refund ' . $invoiceId . ': ' . $e->getMessage());
+        }
+
+        // Caller (gia_bp_confirm) reads ok=false and reconciles the gia_booking_payments
+        // ledger status so it isn't left reading 'paid' for a refunded booking.
+        return ['ok' => false, 'status' => 'pending', 'message' => $issueMsg];
     }
 }
 
@@ -685,8 +728,8 @@ if (!function_exists('gia_bp_send_confirmation')) {
             if (!is_array($b)) { return; }
 
             // Only tell the customer it's done when the booking really reached a
-            // customer-facing good state. A flight that paid but failed to issue
-            // was auto-refunded (booking_status != confirmed) — don't send a ticket.
+            // customer-facing good state. Must be paid, and not in any failed/
+            // reversed state.
             $payStatus = strtolower((string) ($b['payment_status'] ?? ''));
             $bookStatus = strtolower((string) ($b['booking_status'] ?? ''));
             if ($payStatus !== 'paid') { return; }
@@ -698,6 +741,22 @@ if (!function_exists('gia_bp_send_confirmation')) {
             // service name to emails/<svc>/{booking,booking_pdf,ticket}.php.
             $mt = strtolower((string) ($b['module_type'] ?? ''));
             $bd = json_decode((string) ($b['booking_data'] ?? ''), true) ?: [];
+            $giaSvc = strtolower((string) ($bd['gia_service'] ?? ''));
+
+            // A FLIGHT (ai_trip, not stays) has NO ticket until a PNR issues — its
+            // booking_status is 'confirmed' ONLY when modules/ai_trip issue.php
+            // succeeded. If it's still 'pending' (issue failed — whether the auto-
+            // refund then succeeded [cancelled, blocked above] OR the refund API
+            // itself failed and the row was left 'pending' for a manual admin
+            // refund), there is NO valid ticket to send. Never email a ticket or
+            // tell the customer "confirmed" for a flight that didn't actually
+            // ticket. Stays/umrah confirm on payment and are unaffected.
+            $isFlight = ($mt === 'ai_trip' && $giaSvc !== 'stays') || $mt === 'flights';
+            if ($isFlight && $bookStatus !== 'confirmed') {
+                error_log('[gia_bp] send_confirmation: flight ' . $invoiceId . ' not confirmed (status=' . $bookStatus . ') — suppressing ticket.');
+                return;
+            }
+
             $svc = $mt;
             if ($mt === 'ai_trip') {
                 $gs = strtolower((string) ($bd['gia_service'] ?? ''));
