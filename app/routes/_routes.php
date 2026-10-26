@@ -161,6 +161,7 @@ require_once 'app/routes/users/agentClientsRoutes.php';    // P6a: client book /
 require_once 'app/routes/users/agentTripsRoutes.php';      // P6b: trip plans + branded client proposals
 require_once 'app/routes/users/agentReportsRoutes.php';    // P7b: reports + statements (CSV)
 require_once 'app/routes/users/agentAuditRoutes.php';      // P8: agency activity log
+require_once 'app/routes/users/agentApiConsoleRoutes.php'; // API console: /agent/api/* (hybrid per-service + keys + webhooks + logs + docs)
 
 // SEO LANDING PAGES (evergreen route/city pages) — registered BEFORE the flight
 // listing routes so single-segment /flights/{from}-to-{to} matches here first.
