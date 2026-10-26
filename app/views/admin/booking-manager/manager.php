@@ -13,6 +13,7 @@ $catalogue = $bm['catalogue'] ?? ['flights' => ['label' => 'Flights', 'live' => 
 $isHotel   = ($svc === 'hotels');             // hotels use the stays-specific form path
 $isTours   = ($svc === 'tours');              // tours: live supplier search (P5.4)
 $isCars    = ($svc === 'cars');               // cars: live supplier search (P5.4)
+$isRail    = ($svc === 'rail');               // rail: live train search via /ticket/trainQuery (P5.4 step 2b)
 
 // Material icon per service for the picker.
 $svcIcons = [
@@ -62,7 +63,8 @@ $svcIcons = [
     <!-- LEFT: the working form (mode-dependent) -->
     <div class="lg:col-span-2 space-y-5">
 
-      <!-- ============ LIVE MODE: supplier search ============ -->
+      <!-- ============ LIVE MODE: supplier search (generic; rail has its own below) ============ -->
+      <?php if (!$isRail): ?>
       <div class="card p-4" x-show="mode==='live'">
         <h2 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2"><span class="material-symbols-outlined text-lg">travel_explore</span>Search a live supplier</h2>
         <p class="text-xs text-slate-500 mb-3">Searches every enabled supplier at once (same as the website) and shows the combined offers.</p>
@@ -214,6 +216,56 @@ $svcIcons = [
         </div>
         <p class="text-xs text-slate-400 mt-2" x-show="!results.length && searched && !searching">No live offers for those criteria.</p>
       </div>
+      <?php endif; ?>
+
+      <?php if ($isRail): ?>
+      <!-- ============ LIVE RAIL: train search via /ticket/trainQuery ============ -->
+      <div class="card p-4" x-show="mode==='live'">
+        <h2 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2"><span class="material-symbols-outlined text-lg">train</span>Search live trains</h2>
+        <p class="text-xs text-slate-500 mb-3">Searches the train supplier for the route + date, then pick a train and seat class. The fare is re-validated server-side at booking.</p>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="form-control"><span class="form-label">From station code</span><input class="input" x-model="rail.from" placeholder="e.g. PAR" maxlength="8"></label>
+          <label class="form-control"><span class="form-label">To station code</span><input class="input" x-model="rail.to" placeholder="e.g. LON" maxlength="8"></label>
+          <label class="form-control"><span class="form-label">Travel date</span><input type="date" class="input" x-model="rail.date"></label>
+          <label class="form-control"><span class="form-label">Adults</span><input type="number" min="1" class="input" x-model.number="rail.adults"></label>
+          <label class="form-control"><span class="form-label">Children</span><input type="number" min="0" class="input" x-model.number="rail.children"></label>
+        </div>
+        <button class="btn primary mt-3" @click="railSearch()" :disabled="rail.searching">
+          <span class="material-symbols-outlined" x-show="!rail.searching">search</span>
+          <span class="material-symbols-outlined animate-spin" x-show="rail.searching">progress_activity</span>
+          <span x-text="rail.searching ? 'Searching…' : 'Search trains'"></span>
+        </button>
+        <p class="text-xs text-rose-600 mt-2" x-show="rail.error" x-text="rail.error"></p>
+
+        <!-- Train results: each train, expand to pick a seat class -->
+        <div class="mt-4 space-y-2" x-show="rail.trains.length">
+          <template x-for="(t,ti) in rail.trains" :key="ti">
+            <div class="border border-slate-200 rounded-lg p-3">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <div class="font-semibold text-slate-800" x-text="(t.traffic_no||t.train_no||'Train')+' · '+(t.from_station_name||t.from_station_code)+' → '+(t.to_station_name||t.to_station_code)"></div>
+                  <div class="text-xs text-slate-500" x-text="railFmtTime(t.from_date_time)+' → '+railFmtTime(t.to_date_time)"></div>
+                </div>
+                <button class="btn sm outline" @click="t._open=!t._open" x-text="t._open ? 'Hide classes' : 'Choose class'"></button>
+              </div>
+              <div class="mt-2 space-y-1" x-show="t._open">
+                <template x-for="(s,si) in (t.seats||[])" :key="si">
+                  <div class="flex items-center justify-between gap-2 py-1 border-t border-slate-100">
+                    <div class="text-sm" x-text="(s.seat_name||s.seat_class_label||s.seat_class||s.seat_type||'Class')"></div>
+                    <div class="flex items-center gap-2">
+                      <div class="font-semibold tabular-nums text-sm" x-text="(t.currency||rail.currency||'')+' '+Number(s.price||0).toLocaleString()"></div>
+                      <button class="btn sm" :class="(rail.selTrain===ti && rail.selSeat===si)?'primary':'outline'" @click="railSelect(ti,si)" x-text="(rail.selTrain===ti && rail.selSeat===si)?'Selected':'Select'"></button>
+                    </div>
+                  </div>
+                </template>
+                <p class="text-[11px] text-slate-400" x-show="!(t.seats||[]).length">No bookable seat classes returned for this train.</p>
+              </div>
+            </div>
+          </template>
+        </div>
+        <p class="text-xs text-slate-400 mt-2" x-show="!rail.trains.length && rail.searched && !rail.searching">No trains for those criteria.</p>
+      </div>
+      <?php endif; ?>
 
       <!-- ============ MANUAL MODE: typed booking ============ -->
       <div class="card p-4" x-show="mode==='manual'">
@@ -568,6 +620,8 @@ function bookingMgr() {
     price: { sell:0, cost:0, currency:'' },
 
     searching:false, searched:false, results:[], selectedOffer:null, selectedRaw:null, selectedSupplier:'', selectedGroup:null, selectedRoom:null, selectedOption:null, selectedRoomName:'',
+    // Live-rail state (its own train search; selTrain/selSeat = the chosen seat class).
+    rail:{ from:'', to:'', date:'', adults:1, children:0, currency:'', searching:false, searched:false, error:'', trains:[], selTrain:null, selSeat:null },
     creating:false, created:false, invoiceId:'', clientToken:'',
     paying:false, dva:null, manualPay:false, settleMsg:'', settleMsgOk:false,
 
@@ -752,10 +806,74 @@ function bookingMgr() {
       return this.pax.filter(p=>p.first_name&&p.last_name).map(p=>({ type:p.type, title:p.title, first_name:p.first_name, last_name:p.last_name, passport_number:p.passport_number||'' }));
     },
 
+    // ---- LIVE RAIL (train search + seat-class select) ----
+    railFmtTime(ts){ const n=Number(ts); if(!n) return '—'; const d=new Date(n*1000); return d.toLocaleString([], {hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'}); },
+    railExtractRows(res){
+      if(!res||typeof res!=='object') return [];
+      const cands=[res?.data?.data?.data, res?.data?.data, res?.data];
+      for(const c of cands){ if(Array.isArray(c)&&c.length) return c; }
+      return [];
+    },
+    async railSearch(){
+      if(!this.rail.from||!this.rail.to){ alert('Enter from and to station codes'); return; }
+      if(!this.rail.date){ alert('Pick a travel date'); return; }
+      this.rail.searching=true; this.rail.searched=false; this.rail.error=''; this.rail.trains=[]; this.rail.selTrain=null; this.rail.selSeat=null;
+      try{
+        const unix=Math.floor(new Date(this.rail.date+'T00:00:00').getTime()/1000);
+        const res=await fetch(this.base+'ticket/trainQuery',{ method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({ from_station_code:this.rail.from.toUpperCase(), to_station_code:this.rail.to.toUpperCase(), from_date:unix, journey_type:1, adults:this.rail.adults, children:this.rail.children, infants:0 }) });
+        const data=await res.json();
+        const rows=this.railExtractRows(data);
+        if(rows.length){ this.rail.trains=rows.map(t=>({...t, _open:false})); }
+        else { this.rail.error=(data&&(data.msg_en||data.msg||data.message))||''; }
+      }catch(e){ this.rail.error='Network error while loading trains.'; }
+      this.rail.searching=false; this.rail.searched=true;
+    },
+    railSelect(ti,si){
+      this.rail.selTrain=ti; this.rail.selSeat=si;
+      const t=this.rail.trains[ti]; const s=(t.seats||[])[si]||{};
+      // Prefill the selling price from the chosen seat (staff can adjust).
+      this.price.sell=Number(s.price||0)||this.price.sell;
+      this.price.currency=t.currency||this.rail.currency||this.price.currency;
+    },
+    buildRailOrder(){
+      // Assemble the exact rail_order input rail_create_order() expects.
+      if(this.rail.selTrain===null||this.rail.selSeat===null) return null;
+      const t=this.rail.trains[this.rail.selTrain]; const s=(t.seats||[])[this.rail.selSeat]||{};
+      const ts=Date.now();
+      const seatClass=String(s.seat_class||s.seat_type||'').toUpperCase();
+      const price=Number(s.price||0);
+      // Passengers in the train API shape (type 1=adult, 2/3=child/infant).
+      const passengers=this.buildPassengers().map(p=>({
+        passenger_type: (p.type==='child'?2:(p.type==='infant'?3:1)),
+        passenger_first_name:p.first_name, passenger_last_name:p.last_name,
+      }));
+      return {
+        cus_main_order_id:'MAIN_'+ts,
+        journey:[{
+          cus_order_id:'SUB_'+ts,
+          journey_type:1,
+          traffic_no:t.traffic_no||t.train_no||'',
+          from_station_code:(t.from_station_code||this.rail.from).toUpperCase(),
+          to_station_code:(t.to_station_code||this.rail.to).toUpperCase(),
+          from_station_name:t.from_station_name||'',
+          to_station_name:t.to_station_name||'',
+          from_date_time:t.from_date_time||'',
+          to_date_time:t.to_date_time||'',
+          seat_class:seatClass,
+          price_total_limit:price,
+          price_total_limit_original:price,
+          end_datetime:t.from_date_time||'',
+        }],
+        passengers,
+      };
+    },
+
     async createBooking(){
       if(!this.cust.first_name||!this.cust.last_name||!this.cust.email){ alert('Customer first/last name and email are required'); return; }
       if(!(this.price.sell>0)){ alert('Enter a selling price'); return; }
-      if(this.mode==='live' && this.selectedRaw===null){ alert('Select a supplier offer first'); return; }
+      if(this.mode==='live' && this.service==='rail' && (this.rail.selTrain===null||this.rail.selSeat===null)){ alert('Search trains, then select a seat class'); return; }
+      if(this.mode==='live' && this.service!=='rail' && this.selectedRaw===null){ alert('Select a supplier offer first'); return; }
       if(this.mode==='live' && this.isHotel && this.selectedRoom===null){ alert('Choose a room rate on the selected hotel first'); return; }
       this.creating=true;
       try{
@@ -766,7 +884,13 @@ function bookingMgr() {
           passengers: JSON.stringify(this.buildPassengers()),
           pnr: this.manual.pnr||'',
         };
-        if(this.mode==='live'){
+        if(this.mode==='live' && this.service==='rail'){
+          // Rail goes through the shared rail_create_order() money path on the
+          // backend: send the assembled order (journey leg + train-format pax).
+          const railOrder=this.buildRailOrder();
+          if(!railOrder){ alert('Select a train and seat class'); this.creating=false; return; }
+          payload.rail_order = JSON.stringify(railOrder);
+        } else if(this.mode==='live'){
           payload.supplier=this.selectedSupplier;   // the supplier THIS offer came from
           const r=this.selectedRaw;
           if(this.service==='tours'){
