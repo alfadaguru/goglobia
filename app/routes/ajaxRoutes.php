@@ -563,6 +563,54 @@ $router->post('/api/booking/resend-invoice', function () use ($SECURE, $db) {
 });
 
 
+// ============================================================================
+// GET /api/booking/download-ticket/{invoiceId}
+// ----------------------------------------------------------------------------
+// Customer-facing download of the NO-PRICE travel document (the "ticket").
+// Cross-service (reads module_type); serves ticket_<id>.pdf via the shared
+// GENERATE_BOOKING_PDF ticket mode. The PRICED invoice stays on the separate
+// per-service download-invoice routes. Gated by enforceInvoiceAccess (same
+// owner/admin/session/token gate the invoice uses — the ticket still carries
+// PII/PNR, just no price), so this is the self-serve way a customer re-gets
+// their travel document (e.g. from the invoice page or a GIA chat link) if the
+// emailed copy is lost.
+// ============================================================================
+$router->get('/api/booking/download-ticket/([A-Za-z0-9]+)', function ($invoiceId) use ($SECURE, $db) {
+    try {
+        $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
+        if (!$booking) {
+            http_response_code(404);
+            die('Booking not found');
+        }
+
+        // Owner/admin/session/token gate (exits on denial). Same gate as the
+        // invoice download; the ticket is PII, it just omits price.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
+        }
+
+        $pdfPath = function_exists('GENERATE_BOOKING_PDF')
+            ? GENERATE_BOOKING_PDF($invoiceId, 'ticket')
+            : null;
+
+        if ($pdfPath && file_exists($pdfPath)) {
+            header('Content-Type: application/pdf');
+            header('Content-Disposition: attachment; filename="ticket_' . $invoiceId . '.pdf"');
+            header('Content-Length: ' . filesize($pdfPath));
+            header('Cache-Control: private, max-age=0, must-revalidate');
+            header('Pragma: public');
+            readfile($pdfPath);
+            exit;
+        }
+
+        throw new Exception('Failed to generate ticket PDF');
+    } catch (Exception $e) {
+        http_response_code(500);
+        die('Error downloading ticket');
+    }
+});
+
+
 // ====================================
 // GET USER WALLET BALANCE
 // ====================================

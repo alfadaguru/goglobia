@@ -337,6 +337,11 @@ $getVisaDocumentItems = function ($traveler) {
                             </div>
                         </div>
                         <div class="p-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 space-y-2">
+                            <!-- No-price travel document (ticket), separate from the priced invoice. -->
+                            <a href="<?= root ?>api/booking/download-ticket/<?= $invoiceId ?>" class="btn light w-full flex items-center justify-start gap-2 cursor-pointer">
+                                <span class="material-symbols-outlined text-lg">confirmation_number</span>
+                                <?= defined('T::download_ticket') ? T::download_ticket : 'Download Document' ?>
+                            </a>
                             <button onclick="downloadInvoice()" class="btn light w-full flex items-center justify-start gap-2 cursor-pointer">
                                 <span class="material-symbols-outlined text-lg">download</span>
                                 Download Invoice

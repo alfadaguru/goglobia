@@ -565,6 +565,12 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
 
         <!-- Action Buttons -->
         <div class="mt-2 space-y-2">
+            <!-- No-price travel document (ticket): the doc the traveller presents.
+                 Separate from the priced invoice below; same owner access gate. -->
+            <a href="<?= root ?>api/booking/download-ticket/<?= $invoiceId ?>" class="btn light w-full flex items-center justify-start gap-2 cursor-pointer">
+                <span class="material-symbols-outlined text-[18px]">confirmation_number</span>
+                <?= defined('T::download_ticket') ? T::download_ticket : 'Download Ticket' ?>
+            </a>
             <div onclick="downloadInvoice()" class="btn light w-full flex items-center justify-start gap-2 cursor-pointer">
                 <span class="material-symbols-outlined text-[18px]">download</span>
                <?= T::download_invoice ?>
