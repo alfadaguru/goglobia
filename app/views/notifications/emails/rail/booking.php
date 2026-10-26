@@ -84,7 +84,7 @@ $invoiceUrl = $invoiceUrl ?? (root . 'invoice/rail/' . ($invoiceId ?? ''));
         <div style="font-size: 12px; color: #718096; margin-bottom: 8px; text-transform: uppercase; font-weight: 600;">Payment Summary</div>
         <table style="width: 100%; border-collapse: collapse;">
             <?php /* Price shown only on the PAID receipt; booking confirmation is price-free. */ ?>
-            <?php if (($paymentStatus ?? '') === 'paid'): ?>
+            <?php if (($paymentStatus ?? '') === 'paid' && empty($hide_price)): ?>
             <tr>
                 <td style="padding: 8px 0; color: #718096; font-size: 14px;">Amount Paid:</td>
                 <td style="padding: 8px 0; color: #2d3748; font-weight: 600; text-align: right; font-size: 14px;">
@@ -101,11 +101,17 @@ $invoiceUrl = $invoiceUrl ?? (root . 'invoice/rail/' . ($invoiceId ?? ''));
         </table>
     </div>
 
+    <?php if (empty($hide_price)): ?>
     <div style="text-align: center; margin: 32px 0;">
         <a href="<?= htmlspecialchars($invoiceUrl) ?>" style="display: inline-block; background: #4338ca; color: #ffffff; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-size: 14px; font-weight: 600;">
             View Invoice
         </a>
     </div>
+    <?php else: ?>
+    <div style="text-align: center; margin: 32px 0; font-size: 13px; color: #4a5568;">
+        <?= htmlspecialchars(translateTo('ticket_attached_note', 'en')) ?>
+    </div>
+    <?php endif; ?>
 
     <div style="font-size: 13px; color: #4a5568; line-height: 1.6;">
         A PDF copy of your invoice is attached to this email when available.

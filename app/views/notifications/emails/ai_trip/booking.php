@@ -1,5 +1,6 @@
 <?php if (!isset($SECURE)) die('Direct access not permitted'); ?>
 <?php
+$language = ($language ?? '') ?: 'en';
 $packageItems = is_array($items ?? null) ? $items : [];
 $isPaid = strtolower((string)($paymentStatus ?? 'unpaid')) === 'paid';
 ?>
@@ -31,16 +32,19 @@ $isPaid = strtolower((string)($paymentStatus ?? 'unpaid')) === 'paid';
                             <div style="font-size: 12px; color: #718096; margin-top: 3px;"><?= htmlspecialchars((string)$item['subtitle']) ?></div>
                         <?php endif; ?>
                     </td>
+                    <?php if (empty($hide_price)): ?>
                     <td style="padding: 12px 16px; border-bottom: 1px solid #e2e8f0; text-align: right; white-space: nowrap; color: #2d3748;">
                         <?= htmlspecialchars((string)($item['currency'] ?? $currency)) ?>
                         <?= number_format((float)($item['price'] ?? 0), 2) ?>
                     </td>
+                    <?php endif; ?>
                 </tr>
             <?php endforeach; ?>
         </table>
     </div>
     <?php endif; ?>
 
+    <?php if (empty($hide_price)): ?>
     <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
         <table style="width: 100%; border-collapse: collapse;">
             <tr>
@@ -51,10 +55,17 @@ $isPaid = strtolower((string)($paymentStatus ?? 'unpaid')) === 'paid';
             </tr>
         </table>
     </div>
+    <?php endif; ?>
 
+    <?php if (empty($hide_price)): ?>
     <div style="text-align: center; margin: 28px 0;">
         <a href="<?= htmlspecialchars((string)$invoiceUrl) ?>" style="display: inline-block; background: #2563eb; color: #fff; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-size: 14px; font-weight: 600;">
             View Invoice
         </a>
     </div>
+    <?php else: ?>
+    <div style="text-align: center; margin: 32px 0; font-size: 13px; color: #4a5568;">
+        <?= htmlspecialchars(translateTo('ticket_attached_note', $language)) ?>
+    </div>
+    <?php endif; ?>
 </div>

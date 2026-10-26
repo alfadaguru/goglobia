@@ -52,7 +52,7 @@
         <div style="font-size: 12px; color: #718096; margin-bottom: 8px; text-transform: uppercase; font-weight: 600;">Payment Summary</div>
         <table style="width: 100%; border-collapse: collapse;">
             <?php /* Price shown only on the PAID receipt; booking confirmation is price-free. */ ?>
-            <?php if (($paymentStatus ?? '') === 'paid'): ?>
+            <?php if (($paymentStatus ?? '') === 'paid' && empty($hide_price)): ?>
             <tr>
                 <td style="padding: 8px 0; color: #718096; font-size: 14px;">Amount Paid:</td>
                 <td style="padding: 8px 0; color: #2d3748; font-weight: 600; text-align: right; font-size: 14px;">
@@ -70,11 +70,17 @@
     </div>
 
     <!-- CTA Button -->
+    <?php if (empty($hide_price)): ?>
     <div style="text-align: center; margin: 32px 0;">
         <a href="<?= $invoiceUrl ?>" style="display: inline-block; background: <?= ($paymentStatus === 'paid') ? '#10b981' : '#f59e0b' ?>; color: #ffffff; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-size: 14px; font-weight: 600;">
             View Invoice
         </a>
     </div>
+    <?php else: ?>
+    <div style="text-align: center; margin: 32px 0; font-size: 13px; color: #4a5568;">
+        Your travel document is attached to this email.
+    </div>
+    <?php endif; ?>
 
     <!-- Next Steps Box -->
     <div style="background: <?= ($paymentStatus === 'paid') ? '#ecfdf5' : '#eff6ff' ?>; border: 1px solid <?= ($paymentStatus === 'paid') ? '#d1fae5' : '#bfdbfe' ?>; border-radius: 8px; padding: 20px; margin-top: 24px;">

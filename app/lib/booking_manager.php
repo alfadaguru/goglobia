@@ -260,7 +260,13 @@ if (!function_exists('bm_notify_paid')) {
         try {
             $b = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
             if (!$b) return;
-            $pdf = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($invoiceId) : null;
+            // TWO documents (3-document model): the priced INVOICE for the payer/
+            // owner/admin, and the no-price TICKET (travel document) for the
+            // TRAVELLER. NOTIFY sends $ticketPdf to the customer and $invoicePdf to
+            // owner/admin. Previously only the invoice was generated and it went to
+            // everyone — so the traveller received the payer's priced invoice.
+            $invoicePdf = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($invoiceId) : null;
+            $ticketPdf  = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($invoiceId, 'ticket') : null;
             if (class_exists('NOTIFY')) {
                 // NOTIFY::payment resolves the email template from its first arg as
                 // emails/{arg}/booking.php, so it MUST be the SERVICE name
@@ -277,7 +283,7 @@ if (!function_exists('bm_notify_paid')) {
                     'currency'       => $b['currency_markup'] ?? '',
                     'payment_status' => 'paid',
                     'module_type'    => ucfirst((string) ($b['module_type'] ?? '')),
-                ], $pdf);
+                ], $invoicePdf, $ticketPdf);
             }
         } catch (\Throwable $e) { error_log('bm_notify_paid: ' . $e->getMessage()); }
     }

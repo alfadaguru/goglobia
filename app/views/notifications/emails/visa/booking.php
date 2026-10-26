@@ -35,11 +35,17 @@
     </div>
 
     <!-- CTA Button -->
+    <?php if (empty($hide_price)): ?>
     <div style="text-align: center; margin: 32px 0;">
         <a href="<?= $invoiceUrl ?>" style="display: inline-block; background: #3b82f6; color: #ffffff; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-size: 14px; font-weight: 600;">
             View Inquiry Details
         </a>
     </div>
+    <?php else: ?>
+    <div style="text-align: center; margin: 32px 0; font-size: 13px; color: #4a5568;">
+        <?= htmlspecialchars(translateTo('ticket_attached_note', 'en')) ?>
+    </div>
+    <?php endif; ?>
 
     <!-- Next Steps Box -->
     <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 20px; margin-top: 24px;">

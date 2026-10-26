@@ -29,6 +29,8 @@
   "flights_email_intro_pending": "Thank you for choosing us! We've received your flight booking request %invoice%. Please complete your payment to issue your e-tickets.",
   "flights_next_steps_paid": "Your airline tickets have been issued. You can now use your Booking Reference to manage your flight on the airline's website.",
   "flights_next_steps_pending": "To confirm your flight booking, please complete the payment using the button above. Your e-tickets will be generated once payment is received.",
+  "flights_ticket_attached": "Your travel ticket is attached to this email as a PDF. Please keep it for your journey.",
+  "ticket_attached_note": "Your travel document is attached to this email as a PDF. Please keep it for your trip.",
   "all": "All",
   "my_cards": "My Cards",
   "success_logout": "You have been logged out successfully",

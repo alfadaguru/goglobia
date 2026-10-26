@@ -39,8 +39,8 @@ class NOTIFY {
      * @param string|null $pdfPath Optional PDF attachment path
      * @return array Result of the send, see getLastResult()
      */
-    public static function booking($module, $customerData, $bookingData, $pdfPath = null) {
-        return self::send($module, 'booking', $customerData, $bookingData, $pdfPath);
+    public static function booking($module, $customerData, $bookingData, $pdfPath = null, $customerPdfPath = null) {
+        return self::send($module, 'booking', $customerData, $bookingData, $pdfPath, $customerPdfPath);
     }
     
     /**
@@ -51,8 +51,8 @@ class NOTIFY {
      * @param array $bookingData Booking details
      * @param string|null $pdfPath Optional PDF attachment path
      */
-    public static function payment($module, $customerData, $bookingData, $pdfPath = null) {
-        return self::send($module, 'booking_payment', $customerData, $bookingData, $pdfPath);
+    public static function payment($module, $customerData, $bookingData, $pdfPath = null, $customerPdfPath = null) {
+        return self::send($module, 'booking_payment', $customerData, $bookingData, $pdfPath, $customerPdfPath);
     }
     
     /**
@@ -207,7 +207,7 @@ class NOTIFY {
      * Internal method to send notifications
      * Sends to customer and all admin users directly
      */
-    private static function send($module, $event, $customerData, $bookingData, $pdfPath = null) {
+    private static function send($module, $event, $customerData, $bookingData, $pdfPath = null, $customerPdfPath = null) {
         global $db;
 
         self::$lastResult = ['email' => ['attempted' => false, 'customer_sent' => false, 'admins_found' => 0, 'admins_sent' => 0]];
@@ -446,7 +446,7 @@ class NOTIFY {
             
             // Email
             try {
-                self::$lastResult['email'] = self::sendEmailNotifications($module, $event, $customerName, $customerEmail, $templateData, $invoiceId, $moduleType, $pdfPath, $db);
+                self::$lastResult['email'] = self::sendEmailNotifications($module, $event, $customerName, $customerEmail, $templateData, $invoiceId, $moduleType, $pdfPath, $db, $customerPdfPath);
             } catch (\Throwable $e) {
                 error_log("NOTIFY EMAIL ERROR: " . $e->getMessage());
             }
@@ -481,7 +481,7 @@ class NOTIFY {
      *
      * @return array ['attempted' => bool, 'customer_sent' => bool, 'admins_found' => int, 'admins_sent' => int]
      */
-    private static function sendEmailNotifications($module, $event, $customerName, $customerEmail, $templateData, $invoiceId, $moduleType, $pdfPath, $db) {
+    private static function sendEmailNotifications($module, $event, $customerName, $customerEmail, $templateData, $invoiceId, $moduleType, $pdfPath, $db, $customerPdfPath = null) {
         $result = ['attempted' => true, 'customer_sent' => false, 'admins_found' => 0, 'admins_sent' => 0];
 
         // Prepare email subject — translated into the customer's booking-time
@@ -509,23 +509,38 @@ class NOTIFY {
         }
         
         if (file_exists($templateFile)) {
-            ob_start();
-            $SECURE = true;
-            
-            // Extract data for template
-            $booking = $templateData;
-            extract($templateData);
-            
-            include __DIR__ . '/../views/notifications/emails/header.php';
-            include $templateFile;
-            include __DIR__ . '/../views/notifications/emails/footer.php';
-            $emailBody = ob_get_clean();
+            // Render the shared booking email body. The TRAVELLER (customer) must
+            // receive a PRICE-FREE copy + the no-price TICKET pdf (the traveller's
+            // document); the PAYER/OWNER/ADMIN keep the priced copy + the invoice
+            // pdf. We therefore render the body TWICE: once with $hidePrice=true for
+            // the customer, once normally for owner/admin. $customerPdfPath (the
+            // ticket) is supplied by callers that follow the 3-document model
+            // (e.g. bm_notify_paid); when null, the customer falls back to the same
+            // $pdfPath + priced body — i.e. identical legacy behaviour, zero
+            // regression for the ~20 other NOTIFY callers.
+            $renderBody = function (bool $hidePrice) use ($templateData, $templateFile) {
+                ob_start();
+                $SECURE = true;
+                $booking = $templateData;
+                extract($templateData);
+                $hide_price = $hidePrice;   // consumed by the email template's price block
+                include __DIR__ . '/../views/notifications/emails/header.php';
+                include $templateFile;
+                include __DIR__ . '/../views/notifications/emails/footer.php';
+                return ob_get_clean();
+            };
 
-            
-            // 1. Send to Customer
+            $ownerBody    = $renderBody(false);
+            $customerBody = ($customerPdfPath !== null) ? $renderBody(true) : $ownerBody;
+            $customerPdf  = ($customerPdfPath !== null) ? $customerPdfPath : $pdfPath;
+
+            // Back-compat alias for any later reference in this method.
+            $emailBody = $ownerBody;
+
+            // 1. Send to Customer — price-free body + TICKET pdf.
             try {
                 if (!empty($customerEmail)) {
-                    $sent = SENDEMAIL($customerEmail, $customerName, $subject, $emailBody, $pdfPath);
+                    $sent = SENDEMAIL($customerEmail, $customerName, $subject, $customerBody, $customerPdf);
                     if ($sent) {
                         $result['customer_sent'] = true;
                     } else {
@@ -630,19 +645,32 @@ class NOTIFY {
      * Send WhatsApp notifications to customer and admins
      */
     private static function sendWhatsAppNotifications($module, $event, $customerName, $formattedPhone, $templateData, $invoiceId, $moduleType, $amount, $currency, $settings, $db) {
-        // Load professional message from template file
-        $msg = self::loadMessageTemplate($module, $event, 'whatsapp', $templateData);
-        
-        if (empty($msg)) {
-            // Fallback to legacy construction if file missing
-            $msg = "Hello $customerName, your $moduleType booking #$invoiceId status is " . ($templateData['payment_status'] ?? 'pending') . ". View: " . root . "invoice/$module/$invoiceId";
+        // TWO renders of the WhatsApp template:
+        //  - CUSTOMER (traveller): price-free, no login-gated invoice link — the
+        //    travel ticket is delivered by EMAIL (3-document model). $hide_price=1.
+        //  - OWNER/ADMIN (internal): the full message incl. price + reference, so
+        //    staff still see the money on their own line.
+        // The template (whatsapp/booking.php) reads $hide_price.
+        $customerMsg = self::loadMessageTemplate($module, $event, 'whatsapp', $templateData + ['hide_price' => 1]);
+        $internalMsg = self::loadMessageTemplate($module, $event, 'whatsapp', $templateData + ['hide_price' => 0]);
+
+        if (empty($customerMsg)) {
+            // Fallback to legacy construction if file missing (price-free for the customer).
+            $customerMsg = "Hello $customerName, your $moduleType booking #$invoiceId is "
+                . (($templateData['payment_status'] ?? '') === 'paid' ? 'confirmed. Your ticket has been sent to your email.' : 'received.');
         }
-        
-        // Send to Customer
+        if (empty($internalMsg)) {
+            $internalMsg = "Hello $customerName, your $moduleType booking #$invoiceId status is " . ($templateData['payment_status'] ?? 'pending') . ". View: " . root . "invoice/$module/$invoiceId";
+        }
+
+        // Send to Customer — price-free copy.
         if (!empty($formattedPhone)) {
-            SENDWHATSAPP($formattedPhone, $customerName, $msg);
+            SENDWHATSAPP($formattedPhone, $customerName, $customerMsg);
         }
-        
+
+        // Owner/admin copies carry the internal (priced) message.
+        $msg = $internalMsg;
+
         // Send to Service Owner (user who created the tour/hotel/flight)
         $serviceOwnerId = $templateData['user_id'] ?? null;
         if (!empty($serviceOwnerId)) {
