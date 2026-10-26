@@ -369,6 +369,31 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
                 'checkin'        => (string) ($ctx['checkin'] ?? ''),
                 'checkout'       => (string) ($ctx['checkout'] ?? ''),
             ];
+        } elseif ($serviceType === 'tours') {
+            // LIVE TOURS: the console sends the chosen offer's opaque handle as
+            // offer_booking_data (carries offer_id/destination/activity_date that
+            // tours/<supplier>/issue reads under booking_data['booking_data']),
+            // plus a tour_context blob for the display keys the ticket/invoice
+            // render. Supplier identity stays out of the displayed fields.
+            $ctx = $_POST['tour_context'] ?? '';
+            if (is_string($ctx)) { $ctx = json_decode($ctx, true) ?: []; }
+            if (!is_array($ctx)) { $ctx = []; }
+            // The handle must identify the offer, or issue cannot book it.
+            if (empty($offerBd['offer_id']) && empty($offerBd['tour_id']) && empty($offerBd['original_id'])) {
+                bmAdminJson(['status' => false, 'message' => 'That tour is missing its booking reference — reselect the tour and try again.'], 422);
+            }
+            $bookingData = [
+                'admin_created'   => true,
+                'booking_data'    => $offerBd,            // issue reads booking_data['booking_data']['offer_id']
+                'tour_name'       => (string) ($ctx['name'] ?? ''),
+                'destination'     => (string) ($ctx['location'] ?? $ctx['city'] ?? ''),
+                'tour_type'       => (string) ($ctx['tour_type'] ?? 'Activity'),
+                'start_date'      => (string) ($ctx['activity_date'] ?? $offerBd['activity_date'] ?? ''),
+                'duration'        => (string) ($ctx['duration'] ?? ''),
+                'pickup_location' => (string) ($ctx['location'] ?? ''),
+                'adults'          => (int) ($offerBd['adults'] ?? $adults),
+                'children'        => (int) ($offerBd['children'] ?? $children),
+            ];
         }
     } else {
         // MANUAL: typed-in details → branded voucher, NO supplier call. The

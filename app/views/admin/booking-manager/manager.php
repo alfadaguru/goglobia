@@ -10,7 +10,8 @@ $svc       = $bm['service'] ?? 'flights';     // any bm_service_catalogue() key
 $svcLabel  = $bm['service_label'] ?? ucfirst($svc);
 $svcLive   = !empty($bm['service_live']);     // false => manual-only (visa/bus)
 $catalogue = $bm['catalogue'] ?? ['flights' => ['label' => 'Flights', 'live' => true], 'hotels' => ['label' => 'Hotels', 'live' => true]];
-$isHotel   = ($svc === 'hotels');             // hotels still use the stays-specific form path
+$isHotel   = ($svc === 'hotels');             // hotels use the stays-specific form path
+$isTours   = ($svc === 'tours');              // tours: live supplier search (P5.4)
 
 // Material icon per service for the picker.
 $svcIcons = [
@@ -65,7 +66,24 @@ $svcIcons = [
         <h2 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2"><span class="material-symbols-outlined text-lg">travel_explore</span>Search a live supplier</h2>
         <p class="text-xs text-slate-500 mb-3">Searches every enabled supplier at once (same as the website) and shows the combined offers.</p>
         <div class="grid sm:grid-cols-2 gap-3">
-          <?php if (!$isHotel): ?>
+          <?php if ($isTours): ?>
+          <!-- Tours: destination city + date + travellers -->
+          <div class="form-control relative sm:col-span-2">
+            <span class="form-label">Destination</span>
+            <input class="input" x-model="ac.dest.q" @input.debounce.250ms="acCity()" @focus="acCity()" @blur="acCityBlur()" placeholder="City or country" autocomplete="off">
+            <div class="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto" x-show="ac.dest.open && ac.dest.items.length" x-cloak>
+              <template x-for="(c,i) in ac.dest.items" :key="i">
+                <button type="button" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50" @mousedown.prevent="acPickCity(c)">
+                  <span class="font-medium" x-text="c.city"></span>
+                  <span class="text-slate-400 text-xs" x-text="' · '+c.country"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+          <label class="form-control"><span class="form-label">Activity date</span><input type="date" class="input" x-model="live.checkin"></label>
+          <label class="form-control"><span class="form-label">Adults</span><input type="number" min="1" class="input" x-model.number="live.adults"></label>
+          <label class="form-control"><span class="form-label">Children</span><input type="number" min="0" class="input" x-model.number="live.children"></label>
+          <?php elseif (!$isHotel): ?>
           <label class="form-control"><span class="form-label">Trip type</span>
             <select class="select input" x-model="live.type">
               <option value="oneway">One way</option><option value="return">Round trip</option>
@@ -614,7 +632,10 @@ function bookingMgr() {
     fmtDate(d){ if(!d) return ''; const p=String(d).split('-'); return (p.length===3)?`${p[2]}-${p[1]}-${p[0]}`:d; },
 
     async runSearch(){
-      if(this.isHotel){
+      if(this.service==='tours'){
+        if(!this.live.destination){ alert('Pick a destination city'); return; }
+        if(!this.live.checkin){ alert('Pick an activity date'); return; }
+      } else if(this.isHotel){
         if(!this.live.destination){ alert('Pick a destination city'); return; }
         if(!this.live.checkin||!this.live.checkout){ alert('Pick check-in and check-out dates'); return; }
       } else {
@@ -627,16 +648,26 @@ function bookingMgr() {
       // Build the shared search params using the SAME names the website sends to
       // each supplier (hotels: children/rooms_data/nationality; flights: childrens;
       // dates in DD-MM-YYYY).
-      const base = this.isHotel
-        ? { service:this.service, destination:this.live.destination, destination_country:this.live.destination_country||'',
+      let base;
+      if(this.service==='tours'){
+        // Tours: destination city + activity date + travellers (matches the tours
+        // supplier search contract: destination/start_date/adults/children).
+        base = { service:this.service, destination:this.live.destination, city:this.live.destination,
+                 start_date:this.fmtDate(this.live.checkin), activity_date:this.fmtDate(this.live.checkin),
+                 adults:this.live.adults, children:this.live.children, infants:0,
+                 currency:this.live.currency||this.baseCurrency };
+      } else if(this.isHotel){
+        base = { service:this.service, destination:this.live.destination, destination_country:this.live.destination_country||'',
             checkin:this.fmtDate(this.live.checkin), checkout:this.fmtDate(this.live.checkout),
             rooms:this.live.rooms, adults:this.live.adults, children:this.live.children,
             rooms_data:JSON.stringify([{adults:this.live.adults, children:this.live.children, childAges:[]}]),
-            nationality:(this.live.nationality||'').toUpperCase(), currency:this.live.currency||this.baseCurrency }
-        : { service:this.service, origin:this.live.origin, destination:this.live.destination, type:this.live.type,
+            nationality:(this.live.nationality||'').toUpperCase(), currency:this.live.currency||this.baseCurrency };
+      } else {
+        base = { service:this.service, origin:this.live.origin, destination:this.live.destination, type:this.live.type,
             class:this.live.class, departure_date:this.fmtDate(this.live.departure_date),
             return_date:this.fmtDate(this.live.return_date), adults:this.live.adults,
             childrens:this.live.children, infants:0, currency:this.live.currency||this.baseCurrency };
+      }
 
       // Fan out to EVERY enabled supplier in parallel, exactly like the website,
       // and merge offers as each responds (progressive).
@@ -656,6 +687,11 @@ function bookingMgr() {
       let list = Array.isArray(data) ? data : (data.results || data.offers || []);
       if(!Array.isArray(list)) list=[];
       return list.map(it=>{
+        if(this.service==='tours'){
+          const price=Number(it.display_price||it.price||0);
+          const dur=it.duration?(' · '+it.duration):'';
+          return { supplier, label: it.name||'Activity', sub:(it.location||'')+dur, price_num:price, price_label:(it.currency||'')+' '+price.toLocaleString(), raw: it };
+        }
         if(this.isHotel){
           // Hotelbeds/DB suppliers expose the hotel-level price as min_total_price /
           // display_price, not `price`. Use the real keys, newest-website order.
@@ -695,7 +731,13 @@ function bookingMgr() {
         if(this.mode==='live'){
           payload.supplier=this.selectedSupplier;   // the supplier THIS offer came from
           const r=this.selectedRaw;
-          if(this.isHotel){
+          if(this.service==='tours'){
+            // The chosen tour card carries booking_data = the opaque offer handle
+            // (offer_id/destination/activity_date) the supplier's issue.php needs.
+            // tour_context carries the display fields for the ticket/invoice.
+            payload.offer_booking_data = JSON.stringify(r.booking_data || r);
+            payload.tour_context = JSON.stringify({ name:r.name, location:r.location, city:r.city, tour_type:r.tour_type, duration:r.duration, activity_date:this.fmtDate(this.live.checkin) });
+          } else if(this.isHotel){
             // The CHOSEN rate (group.options[ri]) carries the booking handle
             // (rate_key). Send it as both offer_booking_data AND the
             // selected_rooms[].option so the supplier issue reads option.rate_key.
