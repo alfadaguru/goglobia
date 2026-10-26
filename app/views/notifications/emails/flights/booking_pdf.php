@@ -10,6 +10,12 @@
 
 if (!isset($SECURE)) die('Direct access not permitted');
 
+// Agent-brand accent for the service header (falls back to the platform ink).
+$pdfAccent = '#2d3748';
+if (!empty($agentBrandColors['primary']) && preg_match('/^#[0-9a-fA-F]{6}$/', (string) $agentBrandColors['primary'])) {
+    $pdfAccent = (string) $agentBrandColors['primary'];
+}
+
 // Prepare Flight Data
 $fd = $bookingData['flight_data'] ?? [];
 $routes = $fd['routes'] ?? [];
@@ -92,7 +98,7 @@ if (!empty($bookingData['seat']) && is_array($bookingData['seat'])) {
 
         /* Card */
         .service-card { border: 1px solid #cbd5e0; margin-bottom: 10px; }
-        .service-header { background: #2d3748; color: #fff; padding: 8px 12px; }
+        .service-header { background: <?= $pdfAccent ?>; color: #fff; padding: 8px 12px; }
         .service-name { font-size: 11pt; font-weight: bold; margin-bottom: 2px; }
         .service-info { font-size: 7pt; opacity: 0.9; }
 
@@ -163,7 +169,7 @@ if (!empty($bookingData['seat']) && is_array($bookingData['seat'])) {
         <table>
             <tr>
                 <td style="width: 33%;">
-                    <img src="<?= uploads ?>global/logo.png" alt="<?= getBrandName($settings ?? null) ?>" class="logo-img">
+                    <img src="<?= htmlspecialchars((!empty($wlPdfLogo) && is_string($wlPdfLogo)) ? $wlPdfLogo : (uploads . 'global/logo.png')) ?>" alt="<?= htmlspecialchars(getBrandName($settings ?? null)) ?>" class="logo-img">
                 </td>
                 <td style="width: 34%;" class="header-contact">
                     <?php if (!empty($businessEmail)): ?>

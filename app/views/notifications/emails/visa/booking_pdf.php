@@ -6,6 +6,12 @@
  */
 
 if (!isset($SECURE)) die('Direct access not permitted');
+
+// Agent-brand accent for the visa header (falls back to the platform ink).
+$pdfAccent = '#2d3748';
+if (!empty($agentBrandColors['primary']) && preg_match('/^#[0-9a-fA-F]{6}$/', (string) $agentBrandColors['primary'])) {
+    $pdfAccent = (string) $agentBrandColors['primary'];
+}
 ?>
 <!DOCTYPE html>
 <html>
@@ -29,7 +35,7 @@ if (!isset($SECURE)) die('Direct access not permitted');
         .status-badge-text { font-size: 7pt; color: #1e3a8a; }
 
         .visa-card { border: 1px solid #cbd5e0; margin-bottom: 10px; }
-        .visa-header { background: #2d3748; color: #fff; padding: 8px 12px; }
+        .visa-header { background: <?= $pdfAccent ?>; color: #fff; padding: 8px 12px; }
         .visa-title { font-size: 11pt; font-weight: bold; margin-bottom: 2px; }
         .visa-subtitle { font-size: 7pt; opacity: 0.9; }
 
@@ -59,7 +65,7 @@ if (!isset($SECURE)) die('Direct access not permitted');
         <table>
             <tr>
                 <td style="width: 33%;">
-                    <img src="<?= uploads ?>global/logo.png" alt="Logo" class="logo-img">
+                    <img src="<?= htmlspecialchars((!empty($wlPdfLogo) && is_string($wlPdfLogo)) ? $wlPdfLogo : (uploads . 'global/logo.png')) ?>" alt="<?= htmlspecialchars(getBrandName($settings ?? null)) ?>" class="logo-img">
                 </td>
                 <td style="width: 34%;" class="header-contact">
                     <div><?= htmlspecialchars($businessEmail) ?></div>

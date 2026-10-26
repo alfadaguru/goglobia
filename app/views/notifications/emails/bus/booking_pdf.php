@@ -98,7 +98,7 @@ $pnr        = $booking['pnr'] ?? '';
         <table>
             <tr>
                 <td style="width: 33%;">
-                    <img src="<?= uploads ?>global/logo.png" alt="<?= getBrandName($settings ?? null) ?>" class="logo-img">
+                    <img src="<?= htmlspecialchars((!empty($wlPdfLogo) && is_string($wlPdfLogo)) ? $wlPdfLogo : (uploads . 'global/logo.png')) ?>" alt="<?= htmlspecialchars(getBrandName($settings ?? null)) ?>" class="logo-img">
                 </td>
                 <td style="width: 34%;" class="header-contact">
                     <?php if (!empty($settings['contact_email'])): ?>
