@@ -77,12 +77,29 @@ $flash = $_SESSION['message'] ?? null; unset($_SESSION['message']);
               </td>
               <td><span class="badge <?= ($h['status']??'active')==='active'?'badge-success':'badge-gray' ?>"><?= htmlspecialchars($h['status'] ?? 'active') ?></span></td>
               <td>
-                <?php if ($canManage): ?>
-                <form method="POST" action="<?=root?>agent/api/webhooks/delete" onsubmit="return confirm('Delete this webhook?');">
-                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
-                  <input type="hidden" name="id" value="<?= (int)$h['id'] ?>">
-                  <button class="btn btn-sm rose">Delete</button>
-                </form>
+                <?php if ($canManage): $isActive = (string)($h['status'] ?? 'active') === 'active'; ?>
+                <div class="flex flex-wrap gap-1.5">
+                  <form method="POST" action="<?=root?>agent/api/webhooks/test">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+                    <input type="hidden" name="id" value="<?= (int)$h['id'] ?>">
+                    <button class="btn btn-sm outline" title="Send a signed test event">Test</button>
+                  </form>
+                  <form method="POST" action="<?=root?>agent/api/webhooks/toggle">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+                    <input type="hidden" name="id" value="<?= (int)$h['id'] ?>">
+                    <button class="btn btn-sm outline"><?= $isActive ? 'Pause' : 'Resume' ?></button>
+                  </form>
+                  <form method="POST" action="<?=root?>agent/api/webhooks/rotate" onsubmit="return confirm('Rotate the signing secret? The old secret stops verifying immediately.');">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+                    <input type="hidden" name="id" value="<?= (int)$h['id'] ?>">
+                    <button class="btn btn-sm outline" title="Issue a new signing secret">Rotate secret</button>
+                  </form>
+                  <form method="POST" action="<?=root?>agent/api/webhooks/delete" onsubmit="return confirm('Delete this webhook?');">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+                    <input type="hidden" name="id" value="<?= (int)$h['id'] ?>">
+                    <button class="btn btn-sm rose">Delete</button>
+                  </form>
+                </div>
                 <?php endif; ?>
               </td>
             </tr>

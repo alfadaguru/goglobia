@@ -787,3 +787,48 @@ if (!function_exists('agent_api_webhook_fire')) {
         }
     }
 }
+
+if (!function_exists('agent_api_webhook_test_one')) {
+    /** Deliver a signed 'ping' to ONE webhook (by id), ignoring its event
+     *  subscriptions + active/paused status, so the agent can test their endpoint
+     *  and signature verification. Logs the attempt like a real delivery. */
+    function agent_api_webhook_test_one($db, int $webhookId): void
+    {
+        $h = null;
+        try { $h = $db->get('agent_api_webhooks', ['id','user_id','url','secret'], ['id' => $webhookId]); }
+        catch (\Throwable $e) { error_log('agent_api_webhook_test_one get: ' . $e->getMessage()); return; }
+        if (!$h) { return; }
+
+        $body = json_encode(['event' => 'ping', 'data' => ['message' => 'Test delivery from Goglobia API console'], 'ts' => time()], JSON_UNESCAPED_SLASHES);
+        $sig  = hash_hmac('sha256', $body, (string) $h['secret']);
+        $code = 0; $respBody = '';
+        try {
+            $ch = curl_init((string) $h['url']);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body,
+                CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 6,
+                CURLOPT_HTTPHEADER => [
+                    'Content-Type: application/json',
+                    'X-Goglobia-Event: ping',
+                    'X-Goglobia-Signature: sha256=' . $sig,
+                ],
+            ]);
+            $respBody = (string) curl_exec($ch);
+            $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+        } catch (\Throwable $e) { error_log('agent_api_webhook_test_one send: ' . $e->getMessage()); }
+
+        $ok = ($code >= 200 && $code < 300);
+        try {
+            $db->insert('agent_api_webhook_deliveries', [
+                'webhook_id' => (int) $h['id'], 'user_id' => (string) $h['user_id'], 'event' => 'ping',
+                'payload' => substr($body, 0, 4000), 'response_code' => $code,
+                'response_body' => substr($respBody, 0, 2000), 'attempt' => 1,
+                'delivered' => $ok ? 1 : 0, 'created_at' => date('Y-m-d H:i:s'),
+            ]);
+            $db->update('agent_api_webhooks',
+                ['last_delivery_at' => date('Y-m-d H:i:s'), 'last_status_code' => $code],
+                ['id' => (int) $h['id']]);
+        } catch (\Throwable $e) { error_log('agent_api_webhook_test_one log: ' . $e->getMessage()); }
+    }
+}

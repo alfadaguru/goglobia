@@ -289,3 +289,61 @@ $router->post('/agent/api/webhooks/delete', function () use ($SECURE, $db) {
     } catch (\Throwable $e) { error_log('agent/api/webhooks/delete: '.$e->getMessage()); $_SESSION['message']=['type'=>'error','text'=>'Could not delete.']; }
     header('Location: ' . $back); exit;
 });
+
+// Pause / resume a webhook (toggles agent_api_webhooks.status). A paused hook is
+// skipped by agent_api_webhook_fire (which only selects status='active').
+$router->post('/agent/api/webhooks/toggle', function () use ($SECURE, $db) {
+    [$ctx, $owner] = _agent_api_console_ctx($db, 'manage');
+    CSRF::guard();
+    $back = root . 'agent/api/webhooks';
+    $id = (int) ($_POST['id'] ?? 0);
+    try {
+        $row = $db->get('agent_api_webhooks', ['user_id','status'], ['id' => $id]);
+        if ($row && (string)$row['user_id'] === $owner) {
+            $to = ((string)$row['status'] === 'active') ? 'paused' : 'active';
+            $db->update('agent_api_webhooks', ['status'=>$to, 'updated_at'=>date('Y-m-d H:i:s')], ['id'=>$id]);
+            if (function_exists('agent_audit_log')) { agent_audit_log($db, $owner, (string)$ctx['actor'], 'api.webhook.'.$to, (string)$id); }
+            $_SESSION['message'] = ['type'=>'success','text'=>'Webhook '.$to.'.'];
+        } else { $_SESSION['message'] = ['type'=>'error','text'=>'Not your webhook.']; }
+    } catch (\Throwable $e) { error_log('agent/api/webhooks/toggle: '.$e->getMessage()); $_SESSION['message']=['type'=>'error','text'=>'Could not update.']; }
+    header('Location: ' . $back); exit;
+});
+
+// Rotate the signing secret (old secret stops verifying immediately). Shown once.
+$router->post('/agent/api/webhooks/rotate', function () use ($SECURE, $db) {
+    [$ctx, $owner] = _agent_api_console_ctx($db, 'manage');
+    CSRF::guard();
+    $back = root . 'agent/api/webhooks';
+    $id = (int) ($_POST['id'] ?? 0);
+    try {
+        $row = $db->get('agent_api_webhooks', ['user_id'], ['id' => $id]);
+        if ($row && (string)$row['user_id'] === $owner) {
+            $secret = agent_api_webhook_new_secret();
+            $db->update('agent_api_webhooks', ['secret'=>$secret, 'updated_at'=>date('Y-m-d H:i:s')], ['id'=>$id]);
+            $_SESSION['agent_api_fresh_secret'] = $secret; // show once
+            if (function_exists('agent_audit_log')) { agent_audit_log($db, $owner, (string)$ctx['actor'], 'api.webhook.rotate', (string)$id); }
+            $_SESSION['message'] = ['type'=>'success','text'=>'Signing secret rotated. Copy the new one now — the old secret no longer verifies.'];
+        } else { $_SESSION['message'] = ['type'=>'error','text'=>'Not your webhook.']; }
+    } catch (\Throwable $e) { error_log('agent/api/webhooks/rotate: '.$e->getMessage()); $_SESSION['message']=['type'=>'error','text'=>'Could not rotate.']; }
+    header('Location: ' . $back); exit;
+});
+
+// Send a signed TEST delivery to a webhook so the agent can confirm their
+// endpoint verifies our signature. Reuses the real delivery primitive (logs it).
+$router->post('/agent/api/webhooks/test', function () use ($SECURE, $db) {
+    [$ctx, $owner] = _agent_api_console_ctx($db, 'manage');
+    CSRF::guard();
+    $back = root . 'agent/api/webhooks';
+    $id = (int) ($_POST['id'] ?? 0);
+    try {
+        $row = $db->get('agent_api_webhooks', ['id','user_id'], ['id' => $id]);
+        if ($row && (string)$row['user_id'] === $owner && function_exists('agent_api_webhook_test_one')) {
+            // Deliver a signed 'ping' to THIS hook regardless of its event
+            // subscriptions, so the agent can verify their endpoint + signature.
+            agent_api_webhook_test_one($db, (int)$id);
+            if (function_exists('agent_audit_log')) { agent_audit_log($db, $owner, (string)$ctx['actor'], 'api.webhook.test', (string)$id); }
+            $_SESSION['message'] = ['type'=>'success','text'=>'Test event sent. Check the delivery history below for the response code.'];
+        } else { $_SESSION['message'] = ['type'=>'error','text'=>'Not your webhook.']; }
+    } catch (\Throwable $e) { error_log('agent/api/webhooks/test: '.$e->getMessage()); $_SESSION['message']=['type'=>'error','text'=>'Could not send test.']; }
+    header('Location: ' . $back); exit;
+});
