@@ -490,8 +490,12 @@ $svcIcons = [
         <div class="grid sm:grid-cols-2 gap-3">
           <label class="form-control"><span class="form-label">First name *</span><input class="input" x-model="cust.first_name"></label>
           <label class="form-control"><span class="form-label">Last name *</span><input class="input" x-model="cust.last_name"></label>
-          <label class="form-control"><span class="form-label">Email *</span><input type="email" class="input" x-model="cust.email"></label>
+          <label class="form-control"><span class="form-label">Contact email *</span><input type="email" class="input" x-model="cust.email"></label>
           <label class="form-control"><span class="form-label">Phone</span><input class="input" x-model="cust.phone"></label>
+          <label class="form-control sm:col-span-2">
+            <span class="form-label">Passenger email — ticket is sent here <span class="text-slate-400 font-normal">(blank = contact email)</span></span>
+            <input type="email" class="input" x-model="cust.ticket_email" placeholder="traveller@email.com">
+          </label>
         </div>
 
         <div class="flex items-center justify-between mt-4 mb-2">
@@ -660,7 +664,7 @@ function bookingMgr() {
       ferries: ['from_name','to_name','date','departure_time','vehicles','pets','reference'],
       esim:    ['package_name','country','data_amount','validity','iccid','reference'],
     },
-    cust: { first_name:'', last_name:'', email:'', phone:'' },
+    cust: { first_name:'', last_name:'', email:'', phone:'', ticket_email:'' },
     pax: [{ type:'adult', title:'Mr', first_name:'', last_name:'', passport_number:'' }],
     price: { sell:0, cost:0, currency:'' },
 
@@ -971,7 +975,7 @@ function bookingMgr() {
       try{
         const payload = {
           mode:this.mode, service:this.service, client_token:this.clientToken,
-          first_name:this.cust.first_name, last_name:this.cust.last_name, email:this.cust.email, phone:this.cust.phone,
+          first_name:this.cust.first_name, last_name:this.cust.last_name, email:this.cust.email, phone:this.cust.phone, ticket_email:this.cust.ticket_email,
           price:this.price.sell, cost_price:this.price.cost||this.price.sell, currency:this.price.currency||this.baseCurrency,
           passengers: JSON.stringify(this.buildPassengers()),
           pnr: this.manual.pnr||'',
