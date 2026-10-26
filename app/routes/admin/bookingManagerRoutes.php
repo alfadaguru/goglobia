@@ -63,6 +63,50 @@ if (!function_exists('bmCompanyBankAccount')) {
         ];
     }
 }
+if (!function_exists('bm_service_catalogue')) {
+    /**
+     * The Booking Manager's service catalogue: UI service name => booking row
+     * module_type. Single source of truth for which services the manager can book
+     * and how each maps onto the bookings table / the ticket + invoice templates.
+     *   - 'hotels' is the UI label for module_type 'stays' (historic).
+     *   - every other service's UI name equals its module_type.
+     * $live tells whether LIVE (real supplier search+issue) is possible; visa and
+     * bus have NO supplier with an issue endpoint (verified) so they are
+     * MANUAL-ONLY — the console must not offer them a live tab.
+     */
+    function bm_service_catalogue(): array
+    {
+        return [
+            'flights' => ['type' => 'flights', 'label' => 'Flights', 'live' => true],
+            'hotels'  => ['type' => 'stays',   'label' => 'Hotels',  'live' => true],
+            'tours'   => ['type' => 'tours',   'label' => 'Tours',   'live' => true],
+            'cars'    => ['type' => 'cars',    'label' => 'Car Hire', 'live' => true],
+            'umrah'   => ['type' => 'umrah',   'label' => 'Umrah',   'live' => true],
+            'rail'    => ['type' => 'rail',    'label' => 'Rail',    'live' => true],
+            'ferries' => ['type' => 'ferries', 'label' => 'Ferries', 'live' => true],
+            'esim'    => ['type' => 'esim',    'label' => 'eSIM',    'live' => true],
+            'visa'    => ['type' => 'visa',    'label' => 'Visa',    'live' => false],
+            'bus'     => ['type' => 'bus',     'label' => 'Bus',     'live' => false],
+        ];
+    }
+}
+if (!function_exists('bm_service_to_type')) {
+    /** Map a UI service name to its bookings.module_type. Unknown => 'flights'
+     *  (safe default, matching the previous behaviour). */
+    function bm_service_to_type(string $service): string
+    {
+        $service = strtolower(trim($service));
+        $cat = bm_service_catalogue();
+        return $cat[$service]['type'] ?? 'flights';
+    }
+}
+if (!function_exists('bm_service_is_valid')) {
+    /** True if $service is a known Booking Manager service. */
+    function bm_service_is_valid(string $service): bool
+    {
+        return array_key_exists(strtolower(trim($service)), bm_service_catalogue());
+    }
+}
 
 // ---------------------------------------------------------------------------
 // GET /admin/booking-manager/flights  and  /admin/booking-manager/hotels
@@ -72,7 +116,8 @@ if (!function_exists('bmCompanyBankAccount')) {
 $bmRenderManager = function ($svc) use ($SECURE, $db) {
     ADMIN_AUTH();
     admin_require($db, 'bookings', 'view');
-    $serviceType = ($svc === 'hotels') ? 'stays' : 'flights';
+    if (!bm_service_is_valid($svc)) { $svc = 'flights'; }
+    $serviceType = bm_service_to_type($svc);
 
     // Active suppliers for LIVE mode (data-driven, same as the storefront fan-out).
     $suppliers = $db->select('modules', ['name'], ['type' => $serviceType, 'status' => 1, 'active' => 1]) ?: [];
@@ -110,8 +155,15 @@ $bmRenderManager = function ($svc) use ($SECURE, $db) {
     require_once views . 'includes/footer.php';
 };
 
-$router->get(admin . '/booking-manager/flights', function () use ($bmRenderManager) { $bmRenderManager('flights'); });
-$router->get(admin . '/booking-manager/hotels',  function () use ($bmRenderManager) { $bmRenderManager('hotels'); });
+// Explicit per-service manager screens for all 10 services. (A single
+// parameterised catch-all would shadow the specific /booking-manager/verify,
+// /search etc GET routes defined later, so each service is listed explicitly.)
+foreach (array_keys(bm_service_catalogue()) as $__bmSvc) {
+    $router->get(admin . '/booking-manager/' . $__bmSvc, function () use ($bmRenderManager, $__bmSvc) { $bmRenderManager($__bmSvc); });
+}
+unset($__bmSvc);
+// Bare /booking-manager → the manager (defaults to flights / the unified picker).
+$router->get(admin . '/booking-manager', function () use ($bmRenderManager) { $bmRenderManager('flights'); });
 
 // ---------------------------------------------------------------------------
 // POST /admin/booking-manager/search — proxy a LIVE supplier search for staff.
@@ -123,7 +175,7 @@ $router->post(admin . '/booking-manager/search', function () use ($SECURE, $db) 
     admin_require($db, 'bookings', 'view');
     if (!bmAdminCsrfOk()) { bmAdminJson(['status' => false, 'message' => 'Security token expired — refresh and retry.'], 403); }
 
-    $serviceType = (strtolower((string) ($_POST['service'] ?? 'flights')) === 'hotels') ? 'stays' : 'flights';
+    $serviceType = bm_service_to_type((string) ($_POST['service'] ?? 'flights'));
     $supplier    = strtolower(trim((string) ($_POST['supplier'] ?? '')));
     if ($supplier === '') { bmAdminJson(['status' => false, 'message' => 'Choose a supplier to search.'], 422); }
 
@@ -173,8 +225,15 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
     if (!bmAdminCsrfOk()) { bmAdminJson(['status' => false, 'message' => 'Security token expired — refresh and retry.'], 403); }
 
     $mode        = strtolower(trim((string) ($_POST['mode'] ?? 'manual')));          // 'manual' | 'live'
-    $service     = strtolower(trim((string) ($_POST['service'] ?? 'flights')));       // 'flights' | 'hotels'
-    $serviceType = ($service === 'hotels') ? 'stays' : 'flights';
+    $service     = strtolower(trim((string) ($_POST['service'] ?? 'flights')));       // any of bm_service_catalogue()
+    if (!bm_service_is_valid($service)) { $service = 'flights'; }
+    $serviceType = bm_service_to_type($service);
+    // LIVE is only valid for services with a real supplier/issue endpoint;
+    // visa + bus are manual-only (no supplier). Force manual for those.
+    $svcCat = bm_service_catalogue();
+    if ($mode === 'live' && empty($svcCat[$service]['live'])) {
+        $mode = 'manual';
+    }
     $adminId     = (string) ($_SESSION['user_id'] ?? '');
 
     // Submit-idempotency: the console sends a stable client token per attempt so a
@@ -595,6 +654,145 @@ if (!function_exists('bmBuildManualBookingData')) {
                     ],
                 ]],
                 'total_amount'  => round((float) ($post['price'] ?? 0), 2),
+            ];
+        }
+
+        // ---- The 8 other services: typed-in booking_data matching each service's
+        //      ticket + invoice template keys (verified against the real templates).
+        if ($serviceType === 'tours') {
+            return [
+                'admin_created'   => true,
+                'tour_name'       => trim((string) ($post['tour_name'] ?? '')),
+                'destination'     => trim((string) ($post['destination'] ?? '')),
+                'start_date'      => trim((string) ($post['start_date'] ?? '')),
+                'duration'        => trim((string) ($post['duration'] ?? '')),
+                'tour_type'       => trim((string) ($post['tour_type'] ?? '')),
+                'pickup_location' => trim((string) ($post['pickup_location'] ?? '')),
+                'adults'          => (int) ($post['adults'] ?? 0),
+                'children'        => (int) ($post['children'] ?? 0),
+            ];
+        }
+        if ($serviceType === 'cars') {
+            return [
+                'admin_created'    => true,
+                'car_name'         => trim((string) ($post['car_name'] ?? '')),
+                'transmission'     => trim((string) ($post['transmission'] ?? '')),
+                'vehicle_type'     => trim((string) ($post['vehicle_type'] ?? '')),
+                'pickup_location'  => trim((string) ($post['pickup_location'] ?? '')),
+                'dropoff_location' => trim((string) ($post['dropoff_location'] ?? ($post['pickup_location'] ?? ''))),
+                'pickup_date'      => trim((string) ($post['pickup_date'] ?? '')),
+                'pickup_time'      => trim((string) ($post['pickup_time'] ?? '')),
+                'dropoff_date'     => trim((string) ($post['dropoff_date'] ?? '')),
+                'dropoff_time'     => trim((string) ($post['dropoff_time'] ?? '')),
+                'driver_age'       => (int) ($post['driver_age'] ?? 0),
+            ];
+        }
+        if ($serviceType === 'visa') {
+            // Applicants = the passengers the staff entered.
+            $applicants = [];
+            foreach ($travellers as $k => $t) {
+                if ($k === 'primary_guest' || !is_array($t)) continue;
+                $applicants[] = [
+                    'first_name'      => $t['first_name'] ?? '',
+                    'last_name'       => $t['last_name'] ?? '',
+                    'nationality'     => $t['nationality'] ?? '',
+                    'passport_number' => $t['passport_number'] ?? '',
+                ];
+            }
+            return [
+                'admin_created'         => true,
+                'visa_type_name'        => trim((string) ($post['visa_type_name'] ?? '')),
+                'from_country_name'     => trim((string) ($post['from_country_name'] ?? '')),
+                'to_country_name'       => trim((string) ($post['to_country_name'] ?? '')),
+                'entry_date'            => trim((string) ($post['entry_date'] ?? '')),
+                'processing_speed_name' => trim((string) ($post['processing_speed_name'] ?? 'Standard')),
+                'travelers'             => $applicants,
+                'travelers_count'       => count($applicants),
+            ];
+        }
+        if ($serviceType === 'umrah') {
+            return [
+                'admin_created'   => true,
+                'umrah_name'      => trim((string) ($post['umrah_name'] ?? '')),
+                'umrah_location'  => trim((string) ($post['umrah_location'] ?? '')),
+                'start_date'      => trim((string) ($post['start_date'] ?? '')),
+                'duration'        => trim((string) ($post['duration'] ?? '')),
+                'total_adults'    => (int) ($post['adults'] ?? ($post['total_adults'] ?? 0)),
+                'total_children'  => (int) ($post['children'] ?? ($post['total_children'] ?? 0)),
+                // Component counts optional — a manual umrah may be a package summary.
+                'flights'         => [],
+                'stays'           => [],
+                'transfers'       => [],
+            ];
+        }
+        if ($serviceType === 'rail') {
+            $depTs = !empty($post['depart']) ? strtotime((string) $post['depart']) : 0;
+            $arrTs = !empty($post['arrive']) ? strtotime((string) $post['arrive']) : 0;
+            $runMin = ($depTs > 0 && $arrTs > $depTs) ? (int) round(($arrTs - $depTs) / 60) : (int) ($post['run_time'] ?? 0);
+            return [
+                'admin_created' => true,
+                'journey' => [[
+                    'from_station_code'    => strtoupper(trim((string) ($post['from_station_code'] ?? ''))),
+                    'to_station_code'      => strtoupper(trim((string) ($post['to_station_code'] ?? ''))),
+                    'from_station_english' => trim((string) ($post['from_station'] ?? '')),
+                    'to_station_english'   => trim((string) ($post['to_station'] ?? '')),
+                    'from_date_time'       => $depTs,
+                    'to_date_time'         => $arrTs,
+                    'run_time'             => $runMin,
+                    'seat_name'            => trim((string) ($post['seat_name'] ?? '')),
+                    'traffic_no'           => trim((string) ($post['traffic_no'] ?? '')),
+                ]],
+            ];
+        }
+        if ($serviceType === 'bus') {
+            return [
+                'admin_created' => true,
+                'date'  => trim((string) ($post['date'] ?? '')),
+                'trip'  => [
+                    'service_name'   => trim((string) ($post['service_name'] ?? '')),
+                    'operator'       => trim((string) ($post['operator'] ?? '')),
+                    'origin'         => trim((string) ($post['origin'] ?? '')),
+                    'destination'    => trim((string) ($post['destination'] ?? '')),
+                    'departure_time' => trim((string) ($post['departure_time'] ?? '')),
+                    'arrival_time'   => trim((string) ($post['arrival_time'] ?? '')),
+                    'bus_type'       => trim((string) ($post['bus_type'] ?? '')),
+                    'seat_class'     => trim((string) ($post['seat_class'] ?? '')),
+                ],
+            ];
+        }
+        if ($serviceType === 'ferries') {
+            $vehicles = max(0, (int) ($post['vehicles'] ?? 0));
+            $pets     = max(0, (int) ($post['pets'] ?? 0));
+            return [
+                'admin_created' => true,
+                'confirmed'     => true,
+                'reference'     => trim((string) ($post['reference'] ?? '')),
+                'draft' => [
+                    'from_name'      => trim((string) ($post['from_name'] ?? '')),
+                    'to_name'        => trim((string) ($post['to_name'] ?? '')),
+                    'date'           => trim((string) ($post['date'] ?? '')),
+                    'departure_time' => trim((string) ($post['departure_time'] ?? '')),
+                ],
+                // Counts as placeholder arrays so the ticket's count() reads right.
+                'vehicles' => array_fill(0, $vehicles, ['type' => 'vehicle']),
+                'pets'     => array_fill(0, $pets, ['type' => 'pet']),
+                'locators' => [],
+            ];
+        }
+        if ($serviceType === 'esim') {
+            return [
+                'admin_created' => true,
+                'package_name'  => trim((string) ($post['package_name'] ?? '')),
+                'country'       => trim((string) ($post['country'] ?? '')),
+                'data_amount'   => trim((string) ($post['data_amount'] ?? '')),
+                'validity'      => trim((string) ($post['validity'] ?? '')),
+                // Manual eSIM: staff may paste the activation/ICCID if they have it.
+                'airalo_provision' => [
+                    'order_id' => trim((string) ($post['reference'] ?? '')),
+                    'sims'     => trim((string) ($post['iccid'] ?? '')) !== ''
+                        ? [['iccid' => trim((string) ($post['iccid'] ?? ''))]]
+                        : [],
+                ],
             ];
         }
 
