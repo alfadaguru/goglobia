@@ -475,6 +475,24 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
                 'dropoff_time'     => (string) ($ctx['dropoff_time'] ?? ''),
                 'driver_age'       => (int) ($ctx['driver_age'] ?? 0),
             ];
+        } elseif ($serviceType === 'esim') {
+            // LIVE ESIM: the chosen package IS the handle. airalo/issue reads
+            // booking_data.airalo_order.package_id — mirror the web esim persist.
+            $ctx = $_POST['esim_context'] ?? '';
+            if (is_string($ctx)) { $ctx = json_decode($ctx, true) ?: []; }
+            if (!is_array($ctx)) { $ctx = []; }
+            $packageId = (string) ($offerBd['id'] ?? $offerBd['package_id'] ?? '');
+            if ($packageId === '') {
+                bmAdminJson(['status' => false, 'message' => 'That eSIM package is missing its id — reselect and try again.'], 422);
+            }
+            $bookingData = [
+                'admin_created' => true,
+                'airalo_order'  => ['package_id' => $packageId, 'quantity' => 1, 'type' => 'sim'],
+                'package_name'  => (string) ($offerBd['title'] ?? ($ctx['package_name'] ?? '')),
+                'country'       => (string) ($offerBd['country'] ?? ($ctx['country'] ?? '')),
+                'data_amount'   => (string) ($offerBd['data'] ?? ($ctx['data_amount'] ?? '')),
+                'validity'      => (string) ($offerBd['validity'] ?? ($ctx['validity'] ?? '')),
+            ];
         }
     } else {
         // MANUAL: typed-in details → branded voucher, NO supplier call. The
