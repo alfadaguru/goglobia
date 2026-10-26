@@ -72,10 +72,65 @@ $crudTable = $crud->table('airalo_countries')
 ?>
 
 <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
-    <div class="px-5 py-4 border-b border-slate-200 bg-slate-50">
-        <p class="text-xs text-slate-500">Enable/disable countries and open package rules from the same table.</p>
+    <div class="px-5 py-4 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <p class="text-xs text-slate-500">
+            Enable/disable countries and open package rules from the same table.
+            The sellable-country list comes from Airalo's live package feed
+            (Airalo has no countries endpoint) — new countries arrive <strong>disabled</strong>.
+        </p>
+        <button type="button" id="airaloCountrySyncBtn"
+                class="btn inline-flex items-center gap-2 text-sm whitespace-nowrap self-start sm:self-auto">
+            <span id="airaloCountrySyncIcon" class="material-symbols-outlined text-base">sync</span>
+            <span id="airaloCountrySyncLabel">Sync from Airalo</span>
+        </button>
     </div>
     <div class="p-4">
         <?= $crudTable->render(); ?>
     </div>
 </div>
+
+<script>
+(function () {
+    var btn = document.getElementById('airaloCountrySyncBtn');
+    if (!btn) return;
+    var icon = document.getElementById('airaloCountrySyncIcon');
+    var label = document.getElementById('airaloCountrySyncLabel');
+
+    btn.addEventListener('click', function () {
+        if (btn.disabled) return;
+        if (!window.confirm('Fetch the latest sellable countries from Airalo?\n\nNew countries are added disabled — your enabled/disabled choices are preserved.')) {
+            return;
+        }
+        btn.disabled = true;
+        icon.classList.add('animate-spin');
+        var original = label.textContent;
+        label.textContent = 'Syncing…';
+
+        // app.js global interceptor attaches the X-CSRF-TOKEN header for same-origin
+        // non-GET fetches, so the CSRF::guard() on the endpoint is satisfied.
+        fetch('<?= root . admin ?>/settings/modules/airalo-countries/sync', {
+            method: 'POST',
+            headers: { 'Accept': 'application/json' },
+            credentials: 'same-origin'
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data && data.status === 'success') {
+                window.alert(data.message || 'Countries synced.');
+                window.location.reload();
+            } else {
+                window.alert((data && data.message) ? data.message : 'Sync failed. Please try again.');
+                btn.disabled = false;
+                icon.classList.remove('animate-spin');
+                label.textContent = original;
+            }
+        })
+        .catch(function () {
+            window.alert('Sync failed: network error.');
+            btn.disabled = false;
+            icon.classList.remove('animate-spin');
+            label.textContent = original;
+        });
+    });
+})();
+</script>
