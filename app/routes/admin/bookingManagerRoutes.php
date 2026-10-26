@@ -271,6 +271,15 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         bmAdminJson(['status' => false, 'message' => 'Enter a valid customer email.'], 422);
     }
+    // PASSENGER / TRAVELLER email — where the TICKET is delivered. Staff/agents may
+    // book on behalf of a client, so the ticket must reach the TRAVELLER, not the
+    // booker. If left blank, falls back to the contact email above. This becomes
+    // bookings.email, which is the recipient NOTIFY sends the ticket PDF to.
+    $ticketEmail = trim((string) ($_POST['ticket_email'] ?? ''));
+    if ($ticketEmail !== '' && !filter_var($ticketEmail, FILTER_VALIDATE_EMAIL)) {
+        bmAdminJson(['status' => false, 'message' => 'Enter a valid passenger email (or leave it blank to use the contact email).'], 422);
+    }
+    $recipientEmail = $ticketEmail !== '' ? $ticketEmail : $email;
 
     // ---- Pricing (staff enter the selling price; base currency) -------------
     $baseCurrency = (function () use ($db) { $c = $db->get('currencies', ['name'], ['default' => 1]); return $c['name'] ?? 'NGN'; })();
@@ -326,7 +335,7 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
                 bmAdminJson(['status' => false, 'message' => 'Select a train and seat class, and add at least one passenger.'], 422);
             }
             $railInput['contact_name']  = trim($firstName . ' ' . $lastName);
-            $railInput['contact_email'] = $email;
+            $railInput['contact_email'] = $recipientEmail;  // ticket goes to the passenger
             $railInput['contact_phone'] = $phone;
             if (!function_exists('rail_create_order')) {
                 require_once dirname(__DIR__) . '/rail/bookingRoutes.php';
@@ -558,7 +567,7 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
         'tax_type'            => 'fixed',
         'first_name'          => $firstName,
         'last_name'           => $lastName,
-        'email'               => $email,
+        'email'               => $recipientEmail,  // ticket recipient = passenger email (fallback: contact)
         'phone'               => $phone,
         'phone_country_code'  => $phoneCc,
         'country'             => '',
