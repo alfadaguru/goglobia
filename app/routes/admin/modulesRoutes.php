@@ -1528,7 +1528,7 @@ $router->post(admin.'/settings/modules/airalo-countries/sync', function () use (
     echo json_encode([
         'status'    => 'success',
         'message'   => sprintf(
-            'Synced %d countries from Airalo (%d new, %d updated). New countries are disabled — enable the ones you sell.',
+            'Synced %d countries from Airalo (%d new, %d updated). New countries are enabled — disable any you do not sell.',
             (int) $result['fetched'], (int) $result['inserted'], (int) $result['updated']
         ),
         'pages'     => (int) $result['pages'],
@@ -1537,6 +1537,37 @@ $router->post(admin.'/settings/modules/airalo-countries/sync', function () use (
         'updated'   => (int) $result['updated'],
         'total_now' => (int) $result['total_now'],
     ]);
+    exit;
+});
+
+// Bulk enable / disable ALL Airalo countries in one click. Admin-authed + CSRF.
+$router->post(admin.'/settings/modules/airalo-countries/enable-all', function () use ($SECURE,$db) {
+    ADMIN_AUTH();
+    admin_require($db, 'modules', 'edit');
+    CSRF::guard();
+    header('Content-Type: application/json');
+    try {
+        $db->update('airalo_countries', ['status' => 1], ['status' => 0]);
+        $total = (int) $db->count('airalo_countries');
+        echo json_encode(['status' => 'success', 'message' => "All $total Airalo countries enabled.", 'total' => $total]);
+    } catch (\Throwable $e) {
+        echo json_encode(['status' => 'error', 'message' => 'Could not enable all countries: ' . $e->getMessage()]);
+    }
+    exit;
+});
+
+$router->post(admin.'/settings/modules/airalo-countries/disable-all', function () use ($SECURE,$db) {
+    ADMIN_AUTH();
+    admin_require($db, 'modules', 'edit');
+    CSRF::guard();
+    header('Content-Type: application/json');
+    try {
+        $db->update('airalo_countries', ['status' => 0], ['status' => 1]);
+        $total = (int) $db->count('airalo_countries');
+        echo json_encode(['status' => 'success', 'message' => "All $total Airalo countries disabled.", 'total' => $total]);
+    } catch (\Throwable $e) {
+        echo json_encode(['status' => 'error', 'message' => 'Could not disable all countries: ' . $e->getMessage()]);
+    }
     exit;
 });
 

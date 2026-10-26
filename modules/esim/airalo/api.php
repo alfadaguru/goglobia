@@ -397,9 +397,9 @@ if (!function_exists('airalo_sync_countries')) {
      *
      * IMPORTANT: this NEVER changes `status` on an existing row and never deletes
      * rows — an admin's per-country enable/disable choices survive a re-sync.
-     * NEW countries are inserted DISABLED (status=0) so nothing goes on sale
-     * without an explicit admin action (matches the "enable countries you sell"
-     * model of the admin CRUD page).
+     * NEW countries are inserted ENABLED (status=1) so everything Airalo sells is
+     * on sale immediately (owner request 2026-10-26). Use the Disable-all button
+     * (or per-country toggle) to switch off countries you do not want to sell.
      *
      * @return array{ok:bool,pages:int,fetched:int,inserted:int,updated:int,
      *               total_now:int,error?:string}
@@ -496,7 +496,7 @@ if (!function_exists('airalo_sync_countries')) {
                     'phonecode'  => (int) ($meta['phonecode'] ?? 0),
                     'min_length' => (int) ($meta['min_length'] ?? 0),
                     'max_length' => (int) ($meta['max_length'] ?? 0),
-                    'status'     => 0, // new countries land DISABLED — admin enables to sell.
+                    'status'     => 1, // new countries land ENABLED (owner request 2026-10-26).
                 ]);
                 $inserted++;
             }

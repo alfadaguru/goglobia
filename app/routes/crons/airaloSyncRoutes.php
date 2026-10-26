@@ -8,8 +8,8 @@
  * Airalo has NO /v2/countries endpoint, so the sellable-country list is derived
  * by paging the LOCAL /v2/packages feed (see airalo_sync_countries in
  * modules/esim/airalo/api.php). This cron refreshes `airalo_countries`:
- *   - NEW countries are inserted DISABLED (nothing goes on sale without an
- *     explicit admin enable).
+ *   - NEW countries are inserted ENABLED (on sale immediately; use the admin
+ *     Disable-all button or per-country toggle to switch off ones you don't sell).
  *   - EXISTING rows keep their status (admin enable/disable choices survive).
  * Package plans / availability / prices are NOT stored — they are fetched LIVE
  * from /v2/packages at search + re-priced at order time — so there is nothing
@@ -52,7 +52,7 @@ $router->get('/cron/airalo-sync', function () use ($SECURE, $db) {
         'updated'   => (int) ($result['updated'] ?? 0),
         'total_now' => (int) ($result['total_now'] ?? 0),
         'message'   => !empty($result['ok'])
-            ? sprintf('Airalo country sync OK — %d fetched, %d new (disabled), %d updated.',
+            ? sprintf('Airalo country sync OK — %d fetched, %d new (enabled), %d updated.',
                 (int) ($result['fetched'] ?? 0), (int) ($result['inserted'] ?? 0), (int) ($result['updated'] ?? 0))
             : ('Airalo country sync failed: ' . (string) ($result['error'] ?? 'Airalo API unreachable. Check the eSIM module credentials.')),
     ], JSON_UNESCAPED_SLASHES);
