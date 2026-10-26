@@ -251,7 +251,12 @@ $router->post(admin.'/support/tickets/reply', function () use ($SECURE,$db) {
         // Validate CSRF token
         if (!isset($_POST['csrf_token']) || !CSRF::validateToken($_POST['csrf_token'])) {
             $_SESSION['ticket_error'] = 'Invalid form submission. Please try again.';
-            header('Location: ' . $_SERVER['HTTP_REFERER'] ?? root . admin . '/support/tickets');
+            // NB: '.' binds tighter than '??', so the old
+            //   'Location: ' . $_SERVER['HTTP_REFERER'] ?? root…
+            // parsed as ('Location: '.REFERER) ?? root — the fallback was dead and a
+            // missing referer produced a broken 'Location: '. Resolve the target first.
+            $back = $_SERVER['HTTP_REFERER'] ?? (root . admin . '/support/tickets');
+            header('Location: ' . $back);
             exit;
         }
 

@@ -13,7 +13,13 @@ if ($ticket_id === 'new') {
     // Get current user info
     $user_id = $_SESSION['user_id'];
     $current_user = $db->get('users', '*', ['user_id' => $user_id]);
-    $is_admin_or_support = ($current_user['role'] === 'admin' || $current_user['role'] === 'support');
+    // Staff = admin OR an employee whose role grants support_tickets.view. The old
+    // check (role==='admin'||role==='support') missed EVERY employee support agent
+    // (post-RBAC-consolidation they are role='employee'), so this admin-only view
+    // treated them as a customer. This view is reached only via the gated admin
+    // route, so admin_can is the correct, consolidation-aware signal.
+    $is_admin_or_support = (($current_user['role'] ?? '') === 'admin')
+        || (function_exists('admin_can') && admin_can($db, 'support_tickets', 'view'));
 
     // Show new ticket form
     include 'ticket-new.php';
@@ -39,10 +45,15 @@ $ticket_user = $db->get('users', '*', ['user_id' => $ticket['user_id']]);
 $ticket_user_name = ($ticket_user['first_name'] ?? '') . ' ' . ($ticket_user['last_name'] ?? '');
 $ticket_user_name = trim($ticket_user_name) ?: 'Unknown User';
 
-// Check permissions
+// Check permissions. Staff = admin OR an employee whose role grants
+// support_tickets.view. The old check (role==='admin'||role==='support') missed
+// every employee support agent (post-RBAC-consolidation they are role='employee'),
+// which broke this admin-only detail page for them (no reply form, bounced at the
+// ownership gate below). This view is reached only via the gated admin route.
 $user_id = $_SESSION['user_id'];
 $current_user = $db->get('users', '*', ['user_id' => $user_id]);
-$is_admin_or_support = ($current_user['role'] === 'admin' || $current_user['role'] === 'support');
+$is_admin_or_support = (($current_user['role'] ?? '') === 'admin')
+    || (function_exists('admin_can') && admin_can($db, 'support_tickets', 'view'));
 
 // Regular users can only view their own tickets
 if (!$is_admin_or_support && $ticket['user_id'] !== $user_id) {
@@ -52,7 +63,9 @@ if (!$is_admin_or_support && $ticket['user_id'] !== $user_id) {
 }
 
 // Get all replies for this ticket
-$replies = $db->select('tickets', '*', ['ticket_id' => $ticket['ticket_id'], 'type' => 'reply'], 'ORDER BY date ASC');
+// Medoo ordering goes INSIDE the $where array ('ORDER'=>[...]), not as a raw
+// 'ORDER BY …' string in the 4th position (which Medoo does not parse).
+$replies = $db->select('tickets', '*', ['ticket_id' => $ticket['ticket_id'], 'type' => 'reply', 'ORDER' => ['date' => 'ASC']]);
 if (!is_array($replies)) {
     $replies = [];
 }
@@ -60,7 +73,9 @@ if (!is_array($replies)) {
 // Get user bookings if admin/support viewing
 $user_bookings = [];
 if ($is_admin_or_support) {
-    $user_bookings = $db->select('bookings', '*', ['user_id' => $ticket['user_id']], 'ORDER BY id DESC LIMIT 10');
+    // Proper Medoo ORDER + LIMIT (the old raw 'ORDER BY id DESC LIMIT 10' string
+    // was ignored, so this could pull EVERY booking for the user).
+    $user_bookings = $db->select('bookings', '*', ['user_id' => $ticket['user_id'], 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 10]);
 }
 ?>
 
@@ -349,8 +364,15 @@ if ($is_admin_or_support) {
                 $reply_user_name = $reply_user ? (($reply_user['first_name'] ?? '') . ' ' . ($reply_user['last_name'] ?? '')) : 'Unknown User';
                 $reply_user_name = trim($reply_user_name) ?: 'Unknown User';
                 $is_ticket_creator = ($reply['user_id'] === $ticket['user_id']);
-                $is_staff = $reply_user && (($reply_user['role'] ?? '') === 'admin' || ($reply_user['role'] ?? '') === 'support');
                 $is_internal_note = !empty($reply['is_internal']);
+                // A reply is staff-authored if it's an internal note, OR its author
+                // is an admin, OR an employee whose role grants support_tickets.view.
+                // The old check only matched role 'admin'/'support', so an employee
+                // agent's reply (role='employee' post-consolidation) rendered as a
+                // customer reply — wrong bubble, no "staff" label.
+                $is_staff = $is_internal_note
+                    || ($reply_user && ($reply_user['role'] ?? '') === 'admin')
+                    || (function_exists('admin_user_can') && admin_user_can($db, (string) $reply['user_id'], 'support_tickets', 'view'));
             ?>
             <div class="bg-white rounded-lg border overflow-hidden mb-5 shadow-sm <?= $is_internal_note ? 'border-amber-300 ring-1 ring-amber-300' : 'border-slate-200 ' . ($is_staff ? 'ring-1 ring-blue-200' : '') ?>">
                 <div class="<?= $is_internal_note ? 'bg-amber-50' : ($is_staff ? 'bg-blue-50' : 'bg-slate-50') ?> px-6 py-3.5 border-b border-slate-200">
