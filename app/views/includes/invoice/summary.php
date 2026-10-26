@@ -609,6 +609,32 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
                 </div>
             </div>
             <?php endif; ?>
+            <?php
+            // ADMIN OPS LINK (discoverability fix): when a booking is PAID but not
+            // yet issued/confirmed (supplier issue failed or is pending), the ops
+            // actions — Issue ticket / Reconcile / Void — live on the admin bookings
+            // management screen, NOT this invoice page. Surface a link to it for
+            // admins so a paid-pending ticket can actually be issued/retried from
+            // where they land. Gate on the ADMIN_AUTH session scheme (user_role).
+            $__isAdminViewer = (($_SESSION['user_role'] ?? '') === 'admin')
+                || !empty($_SESSION['admin_logged_in']);
+            $__paidNotIssued = (($booking['payment_status'] ?? '') === 'paid')
+                && !in_array(($booking['booking_status'] ?? ''), ['confirmed', 'issued', 'cancelled', 'voided'], true);
+            if ($__isAdminViewer):
+            ?>
+            <?php if ($__paidNotIssued): ?>
+            <div class="alert alert-warning">
+                <span class="material-symbols-outlined">info</span>
+                <div>
+                    <p class="text-sm font-medium">Paid, but the ticket is <strong>not issued yet</strong>. Issue or retry it from the admin booking screen.</p>
+                </div>
+            </div>
+            <?php endif; ?>
+            <a href="<?= root ?><?= admin ?>/bookings/edit/<?= rawurlencode((string)$invoiceId) ?>" class="btn primary w-full flex items-center justify-start gap-2">
+                <span class="material-symbols-outlined text-[18px]">settings</span>
+                <?= $__paidNotIssued ? 'Issue ticket / manage booking' : 'Manage booking (admin)' ?>
+            </a>
+            <?php endif; ?>
             <a href="<?= root ?>" class="btn light w-full flex items-center justify-start gap-2">
                 <span class="material-symbols-outlined text-[18px]">home</span>
                 <?= T::back_to_homepage ?>
