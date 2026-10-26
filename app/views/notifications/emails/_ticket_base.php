@@ -99,7 +99,7 @@ if (!function_exists('goglobia_ticket_render')) {
     .top { border-bottom: 2.2pt solid <?= $p['primary'] ?>; padding-bottom: 10pt; margin-bottom: 12pt; }
     .top table { width: 100%; border-collapse: collapse; }
     .top td { border: none; vertical-align: top; }
-    .logo-img { height: 30pt; }
+    .logo-img { height: 26pt; width: auto; max-width: 150pt; }
     .logo-txt { font-size: 17pt; font-weight: bold; color: <?= $p['primary'] ?>; }
     .issuer { font-size: 7.5pt; color: <?= $p['slate'] ?>; line-height: 1.45; margin-top: 2pt; }
     .doctitle { font-size: 9pt; font-weight: bold; letter-spacing: 1pt; color: <?= $p['ink'] ?>; text-align: right; text-transform: uppercase; }
@@ -151,8 +151,15 @@ if (!function_exists('goglobia_ticket_render')) {
     <!-- Header -->
     <div class="top"><table><tr>
         <td style="width:62%;">
-            <?php if ($wlPdfLogo !== ''): ?>
-                <img src="<?= $e($wlPdfLogo) ?>" class="logo-img" alt="<?= $e($businessName) ?>">
+            <?php
+            // Logo: agent/white-label logo if set, else the GoGlobia platform PNG
+            // (uploads/global/logo.png) — same as the invoice templates. Only fall
+            // back to a TEXT wordmark if the platform logo file is genuinely missing.
+            $__logoSrc = ($wlPdfLogo !== '') ? $wlPdfLogo
+                       : (defined('uploads') && is_file(uploads . 'global/logo.png') ? uploads . 'global/logo.png' : '');
+            ?>
+            <?php if ($__logoSrc !== ''): ?>
+                <img src="<?= $e($__logoSrc) ?>" class="logo-img" alt="<?= $e($businessName) ?>">
             <?php else: ?>
                 <div class="logo-txt"><?= $e($businessName) ?></div>
             <?php endif; ?>
