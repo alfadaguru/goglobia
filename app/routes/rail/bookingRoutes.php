@@ -63,36 +63,39 @@ $router->get('/rail/booking', function () use ($SECURE, $db) {
     require_once views . "includes/footer.php";
 });
 
-// 2. CREATE BOOKING API (order)
-// NOTE: The supplier order/ticketing call is intentionally NOT made here.
-// Like the other modules (flights, cars, etc.), the train order is only placed
-// with the 3rd-party API once payment succeeds — see modules/rail/train/actions/issue.php,
-// invoked automatically by app/lib/payment-gateway.php (auto-issue) or manually via the
-// admin "Issue Booking" action. Here we only validate input and store a local pending booking.
-$orderHandler = function () use ($SECURE, $db) {
-    header('Content-Type: application/json; charset=utf-8');
-    try {
-        $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
-
+// ----------------------------------------------------------------------------
+// rail_create_order($db, $input, $opts) — the SINGLE audited rail order-create
+// money path. Used by the public /rail/order handler (customer flow) AND the
+// admin Booking Manager (staff live-rail). Server re-validates the fare
+// (overwrites client price_total_limit), applies markup + promo, and inserts the
+// pending bookings row. The supplier order is still placed later at issue.
+//
+// $opts (all optional — defaults reproduce the customer behaviour exactly):
+//   'user_id'          => override booker (BM: the client / ''); default session
+//   'user_data'        => override user_data json; default session
+//   'sell_price'       => staff-set selling price (BM live); default = computed
+//   'created_by_admin' => admin id (BM); default ''
+//   'booking_channel'  => e.g. 'admin_live' (BM); default '' (web)
+//   'grant_session'    => bool, grant the creating session invoice ownership;
+//                         default true (customer). BM passes false.
+//   'is_agent'         => override agent flag; default from session role.
+//
+// Returns: ['ok'=>bool,'code'=>int,'msg'=>string,'msg_en'=>?string,
+//           'invoice_id'=>?string,'booking_id'=>?int]
+// ----------------------------------------------------------------------------
+if (!function_exists('rail_create_order')) {
+    function rail_create_order($db, array $input, array $opts = []): array
+    {
         // Basic input validation (no supplier call at this stage)
         if (empty($input['journey']) || !is_array($input['journey']) || empty($input['passengers']) || !is_array($input['passengers'])) {
-            http_response_code(200);
-            echo json_encode(['code' => 400, 'msg' => 'Missing journey or passenger details', 'data' => null]);
-            return;
+            return ['ok' => false, 'code' => 400, 'msg' => 'Missing journey or passenger details'];
         }
 
         $journeyType = (int)($input['journey'][0]['journey_type'] ?? $input['journey_type'] ?? 1);
         $input['passengers'] = _train_finalize_order_passengers($journeyType, $input['passengers']);
         $passengerCheck = _train_validate_order_passengers($journeyType, $input['passengers']);
         if (!$passengerCheck['valid']) {
-            http_response_code(200);
-            echo json_encode([
-                'code'   => 400,
-                'msg'    => $passengerCheck['message'],
-                'msg_en' => $passengerCheck['message'],
-                'data'   => null,
-            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            return;
+            return ['ok' => false, 'code' => 400, 'msg' => $passengerCheck['message'], 'msg_en' => $passengerCheck['message']];
         }
 
         // PRICE INTEGRITY (price-trust workstream): re-derive the supplier fare
@@ -102,12 +105,10 @@ $orderHandler = function () use ($SECURE, $db) {
         if (function_exists('_train_revalidate_journey_pricing')) {
             $reval = _train_revalidate_journey_pricing($db, $input);
             if (empty($reval['ok'])) {
-                http_response_code(409);
-                echo json_encode([
-                    'success' => false,
-                    'message' => (string) ($reval['message'] ?? 'Could not verify the current fare. Please retry.'),
-                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-                return;
+                // Fail-closed fare-verification error — the public handler emits this
+                // as an HTTP 409 {success,message}; flag it so the wrapper does.
+                return ['ok' => false, 'code' => 409, 'reval_failed' => true,
+                        'msg' => (string) ($reval['message'] ?? 'Could not verify the current fare. Please retry.')];
             }
             foreach ((array) ($reval['legs'] ?? []) as $i => $legFixed) {
                 if (isset($input['journey'][$i])) {
@@ -126,8 +127,10 @@ $orderHandler = function () use ($SECURE, $db) {
         $pricing = _train_apply_booking_markup($db, $totalPrice, $input);
         $finalPrice   = $pricing['final_price'];
         $commission   = $pricing['commission'];
-        
-        $isAgent      = (isset($_SESSION['user_role']) && strtolower($_SESSION['user_role']) === 'agent');
+
+        $isAgent      = array_key_exists('is_agent', $opts)
+                        ? (bool) $opts['is_agent']
+                        : (isset($_SESSION['user_role']) && strtolower($_SESSION['user_role']) === 'agent');
         $agentEarning = $isAgent ? $commission : 0.0;
 
         // Passenger counting
@@ -157,8 +160,10 @@ $orderHandler = function () use ($SECURE, $db) {
         $lastName  = $firstP['passenger_last_name'] ?? 'Doe';
 
         $invoiceId = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
-        $userId    = $_SESSION['user_id'] ?? '';
-        $userData  = isset($_SESSION['user_data']) ? json_encode($_SESSION['user_data']) : null;
+        // Booker: BM passes the client (or '') via opts; customer flow = session.
+        $userId    = array_key_exists('user_id', $opts) ? (string) $opts['user_id'] : ($_SESSION['user_id'] ?? '');
+        $userData  = array_key_exists('user_data', $opts) ? $opts['user_data']
+                     : (isset($_SESSION['user_data']) ? json_encode($_SESSION['user_data']) : null);
 
         // PROMO CODE HANDLING — recompute SERVER-SIDE (never trust the client's
         // promo_discount). Enforces module/targeting/usage/per-user.
@@ -187,14 +192,24 @@ $orderHandler = function () use ($SECURE, $db) {
             $discountRow   = $dsc['discount_row'];
         }
 
+        // Staff (BM live) may set the selling price; customer flow uses the
+        // server-computed final. Never below the supplier net (price integrity).
+        $sellPrice = $finalPrice;
+        if (array_key_exists('sell_price', $opts) && (float) $opts['sell_price'] > 0) {
+            $sellPrice = max((float) $totalPrice, round((float) $opts['sell_price'], 2));
+        }
+        // Admin Booking Manager tagging (null/'' for the customer flow).
+        $createdByAdmin = (string) ($opts['created_by_admin'] ?? '');
+        $bookingChannel = (string) ($opts['booking_channel'] ?? '');
+
         // INSERT BOOKING INTO DATABASE
-        $db->insert('bookings', [
+        $insertRow = [
             'invoice_id'         => $invoiceId,
             'language'           => getCurrentLanguage(),
             'booking_status'     => 'pending', // unpaid by default
             'payment_status'     => 'unpaid',
             'price_original'     => $totalPrice,
-            'price_markup'       => $finalPrice,
+            'price_markup'       => $sellPrice,
             'tax'                => 0.0,
             'tax_type'           => 'percentage',
             'first_name'         => $firstName,
@@ -223,8 +238,12 @@ $orderHandler = function () use ($SECURE, $db) {
             'updated_at'         => date('Y-m-d H:i:s'),
             'promo_codes'        => $promoCodeJson,
             'discount'           => (int) round($autoDiscount),
-        ]);
+        ];
+        // BM-only tagging — add ONLY when set, so the customer insert is unchanged.
+        if ($createdByAdmin !== '') { $insertRow['created_by_admin'] = $createdByAdmin; }
+        if ($bookingChannel !== '') { $insertRow['booking_channel']  = $bookingChannel; }
 
+        $db->insert('bookings', $insertRow);
         $bookingId = $db->id();
 
         if ($bookingId) {
@@ -239,23 +258,53 @@ $orderHandler = function () use ($SECURE, $db) {
             }
 
             // Let the (possibly guest) session that created this invoice view it —
-            // otherwise enforceInvoiceAccess() bounces them to /login on their own
-            // fresh invoice (see grantInvoiceSessionOwnership()).
-            if (function_exists('grantInvoiceSessionOwnership')) {
+            // customer flow only (BM admin already has invoice access via its role).
+            $grantSession = array_key_exists('grant_session', $opts) ? (bool) $opts['grant_session'] : true;
+            if ($grantSession && function_exists('grantInvoiceSessionOwnership')) {
                 grantInvoiceSessionOwnership($invoiceId);
             }
         }
 
         // Booking stored locally as pending/unpaid; the supplier order/ticketing
-        // call happens later at the issue step (see modules/rail/train/actions/issue.php)
-        echo json_encode([
+        // call happens later at the issue step (modules/rail/train/actions/issue.php).
+        return [
+            'ok'         => true,
             'code'       => 200,
             'msg'        => 'Booking created successfully. Please complete payment to confirm your train order.',
             'invoice_id' => $invoiceId,
             'booking_id' => $bookingId,
-            'data'       => null,
-        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        ];
+    }
+}
 
+// Public customer endpoint — thin HTTP wrapper over rail_create_order(). Emits
+// the SAME response shapes the rail booking frontend has always consumed.
+$orderHandler = function () use ($SECURE, $db) {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+        $res = rail_create_order($db, is_array($input) ? $input : []);
+        if (!empty($res['ok'])) {
+            echo json_encode([
+                'code'       => 200,
+                'msg'        => $res['msg'],
+                'invoice_id' => $res['invoice_id'],
+                'booking_id' => $res['booking_id'],
+                'data'       => null,
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            return;
+        }
+        // Fare re-validation failure keeps its original 409 {success,message} shape.
+        if (!empty($res['reval_failed'])) {
+            http_response_code(409);
+            echo json_encode(['success' => false, 'message' => $res['msg']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            return;
+        }
+        // Validation errors keep the original HTTP 200 {code,msg[,msg_en],data} shape.
+        http_response_code(200);
+        $out = ['code' => $res['code'] ?? 400, 'msg' => $res['msg'] ?? 'Booking failed', 'data' => null];
+        if (isset($res['msg_en'])) { $out['msg_en'] = $res['msg_en']; }
+        echo json_encode($out, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     } catch (Throwable $e) {
         http_response_code(500);
         echo json_encode(['code' => 500, 'msg' => $e->getMessage(), 'data' => null]);
