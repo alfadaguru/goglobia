@@ -634,6 +634,10 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
                 <span class="material-symbols-outlined text-[18px]">settings</span>
                 <?= $__paidNotIssued ? 'Issue ticket / manage booking' : 'Manage booking (admin)' ?>
             </a>
+            <button type="button" onclick="openSupplierLog()" class="btn light w-full flex items-center justify-start gap-2">
+                <span class="material-symbols-outlined text-[18px]">data_object</span>
+                Supplier log (raw)
+            </button>
             <?php endif; ?>
             <a href="<?= root ?>" class="btn light w-full flex items-center justify-start gap-2">
                 <span class="material-symbols-outlined text-[18px]">home</span>
@@ -744,3 +748,62 @@ function confirmResendInvoice() {
     });
 }
 </script>
+
+<?php if (!empty($__isAdminViewer)): ?>
+<!-- SUPPLIER LOG MODAL (admin only) — one-click raw request/response with the
+     supplier for this invoice, copyable for debugging. -->
+<div id="supplierLogModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1100; align-items:center; justify-content:center;">
+  <div class="bg-white rounded-xl shadow-xl w-full max-w-3xl mx-4 overflow-hidden flex flex-col" style="max-height:88vh;">
+    <div class="p-4 border-b flex justify-between items-center">
+      <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2"><span class="material-symbols-outlined">data_object</span>Supplier log — Invoice <?= htmlspecialchars((string)$invoiceId) ?></h3>
+      <div class="flex items-center gap-2">
+        <button onclick="copySupplierLog()" id="copySupplierLogBtn" class="btn light btn-sm"><span class="material-symbols-outlined !text-sm">content_copy</span> Copy all</button>
+        <button onclick="document.getElementById('supplierLogModal').style.display='none'" class="text-gray-500 hover:text-gray-700"><span class="material-symbols-outlined">close</span></button>
+      </div>
+    </div>
+    <div class="p-4 overflow-auto" id="supplierLogBody" style="font-family:ui-monospace,Menlo,monospace; font-size:12px;">
+      <p class="text-gray-500">Loading…</p>
+    </div>
+  </div>
+</div>
+<script>
+let __supplierLogText = '';
+function openSupplierLog() {
+  const modal = document.getElementById('supplierLogModal');
+  const body  = document.getElementById('supplierLogBody');
+  modal.style.display = 'flex';
+  body.innerHTML = '<p class="text-gray-500">Loading…</p>';
+  __supplierLogText = '';
+  fetch('<?= root ?><?= admin ?>/supplier-log/<?= rawurlencode((string)$invoiceId) ?>', { headers: { 'Accept':'application/json' } })
+    .then(r => r.json())
+    .then(d => {
+      if (!d || !d.ok) { body.innerHTML = '<p class="text-red-600">Could not load the log.</p>'; return; }
+      if (!d.logs || !d.logs.length) { body.innerHTML = '<p class="text-gray-500">No supplier calls logged for this invoice yet. (New calls are captured going forward.)</p>'; return; }
+      const esc = s => String(s == null ? '' : s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+      const parts = [];
+      const plain = [];
+      d.logs.forEach(l => {
+        const head = `[${l.created_at}] ${l.supplier}/${l.service} ${l.endpoint} → HTTP ${l.http_code ?? '-'}${l.error ? ' ERROR: '+l.error : ''}`;
+        plain.push(head + '\nREQUEST:\n' + (l.request||'') + '\nRESPONSE:\n' + (l.response||'') + '\n' + '-'.repeat(60));
+        parts.push(
+          `<div class="mb-3 border border-gray-200 rounded-lg">
+             <div class="px-3 py-2 bg-gray-50 border-b font-semibold">${esc(head)}</div>
+             <div class="px-3 py-2"><div class="text-gray-400 mb-1">REQUEST</div><pre class="whitespace-pre-wrap break-all">${esc(l.request)}</pre></div>
+             <div class="px-3 py-2 border-t"><div class="text-gray-400 mb-1">RESPONSE</div><pre class="whitespace-pre-wrap break-all">${esc(l.response)}</pre></div>
+           </div>`
+        );
+      });
+      __supplierLogText = plain.join('\n');
+      body.innerHTML = parts.join('');
+    })
+    .catch(() => { body.innerHTML = '<p class="text-red-600">Could not load the log.</p>'; });
+}
+function copySupplierLog() {
+  if (!__supplierLogText) return;
+  navigator.clipboard.writeText(__supplierLogText).then(() => {
+    const b = document.getElementById('copySupplierLogBtn');
+    const o = b.innerHTML; b.innerHTML = '<span class="material-symbols-outlined !text-sm">check</span> Copied'; setTimeout(()=>b.innerHTML=o, 1500);
+  });
+}
+</script>
+<?php endif; ?>

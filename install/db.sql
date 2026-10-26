@@ -32898,6 +32898,25 @@ CREATE TABLE IF NOT EXISTS `agent_api_webhook_deliveries` (
   KEY `idx_delivered` (`delivered`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- Raw supplier API call log (per invoice) for admin one-click debugging. Keys/
+-- tokens redacted by supplierApiLog(). Reusable by all suppliers.
+CREATE TABLE IF NOT EXISTS `supplier_api_log` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `invoice_id` varchar(64) DEFAULT NULL,
+  `supplier` varchar(40) DEFAULT NULL,
+  `service` varchar(32) DEFAULT NULL,
+  `endpoint` varchar(191) DEFAULT NULL,
+  `http_code` int(11) DEFAULT NULL,
+  `request` mediumtext DEFAULT NULL,
+  `response` mediumtext DEFAULT NULL,
+  `error` text DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_invoice` (`invoice_id`),
+  KEY `idx_supplier` (`supplier`),
+  KEY `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 -- --------------------------------------------------------
 -- MONEY SPINE (docs/MONEY-WALLET-AUDIT.md §C) — also created at runtime by
 -- ensureAgentApiSchema(). One wallet per (user,currency); wallet_ledger is the

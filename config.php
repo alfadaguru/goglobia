@@ -460,7 +460,8 @@ try {
         // console — agent_api_services.lifecycle + agent_api_webhooks(+deliveries).
         // v3: ensureAdivahaExcursionModule (tours supplier row) + ensureFlightShellCarriers
         //     (DB-driven per-supplier/per-country shell-carrier correction rules).
-        define('APP_SCHEMA_ENSURE_VERSION', 3);
+        // v4: supplier_api_log (raw supplier request/response per invoice, admin-viewable).
+        define('APP_SCHEMA_ENSURE_VERSION', 4);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);

@@ -18,6 +18,28 @@ $router->get(admin.'/bookings', function () use ($SECURE,$db) {
 
 });
 
+// ================================ GET /admin/supplier-log/{invoice_id}
+// Raw supplier request/response log for a booking (admin one-click debug panel).
+// Returns JSON of every call we made to the supplier for this invoice, with keys
+// redacted. Rendered by the "Supplier log" button on the invoice/ticket view.
+$router->get(admin.'/supplier-log/(.*)', function ($invoice_id) use ($SECURE,$db) {
+    ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
+    header('Content-Type: application/json; charset=utf-8');
+    $invoice_id = trim((string)$invoice_id);
+    $rows = [];
+    try {
+        $rows = $db->select('supplier_api_log',
+            ['id','supplier','service','endpoint','http_code','request','response','error','created_at'],
+            ['invoice_id' => $invoice_id, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 200]) ?: [];
+    } catch (\Throwable $e) {
+        // Table may not exist yet (pre-deploy) — degrade to empty, not 500.
+        error_log('admin/supplier-log: ' . $e->getMessage());
+    }
+    echo json_encode(['ok' => true, 'invoice_id' => $invoice_id, 'count' => count($rows), 'logs' => $rows]);
+    exit;
+});
+
 // ================================ GET /admin/bookings/edit/{invoice_id}
 $router->get(admin.'/bookings/edit/(.*)', function ($invoice_id) use ($SECURE,$db) {
 

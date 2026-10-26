@@ -7368,6 +7368,51 @@ function ensureCurrencyUpdateSchema($db): void
  *  - agent_api_services: per-agent per-service enablement + fee (percentage|flat)
  *  - agent_api_usage   : per-request audit log (basis for rate-limiting later)
  */
+if (!function_exists('supplierApiLog')) {
+    /**
+     * Persist the raw request/response of a supplier API call to supplier_api_log
+     * so admin can one-click view the full exchange for a booking (and copy it for
+     * debugging). Reusable by every supplier. Credentials are redacted. Best-effort:
+     * never throws into the caller, and falls back to error_log if the table write
+     * fails (e.g. schema not yet applied).
+     *
+     *   supplierApiLog('adivaha','flights','flights/book',$req,$res,409,'...', 'INV123');
+     */
+    function supplierApiLog(string $supplier, string $service, string $endpoint, $request, $response, $httpCode = null, $error = null, ?string $invoiceId = null): void
+    {
+        // Redact anything key/token/secret/authorization-shaped from req + res.
+        $redact = function ($v) {
+            $s = is_string($v) ? $v : json_encode($v, JSON_UNESCAPED_SLASHES);
+            if (!is_string($s)) { return ''; }
+            $s = preg_replace('/("?(?:api[_-]?key|token|secret|authorization|bearer|password|x-api-key|access[_-]?token)"?\s*[:=]\s*")[^"]*(")/i', '$1***REDACTED***$2', $s);
+            $s = preg_replace('/(Bearer\s+)[A-Za-z0-9._\-]+/i', '$1***REDACTED***', $s);
+            return mb_substr($s, 0, 60000);
+        };
+        try {
+            $db = $GLOBALS['db'] ?? null;
+            if ($db) {
+                $db->insert('supplier_api_log', [
+                    'invoice_id' => $invoiceId !== null ? mb_substr($invoiceId, 0, 64) : null,
+                    'supplier'   => mb_substr($supplier, 0, 40),
+                    'service'    => mb_substr($service, 0, 32),
+                    'endpoint'   => mb_substr($endpoint, 0, 191),
+                    'http_code'  => $httpCode !== null ? (int) $httpCode : null,
+                    'request'    => $redact($request),
+                    'response'   => $redact($response),
+                    'error'      => $error !== null ? mb_substr((string) $error, 0, 2000) : null,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+                return;
+            }
+        } catch (\Throwable $e) {
+            error_log('supplierApiLog: ' . $e->getMessage());
+        }
+        // Fallback so nothing is lost if the DB write is unavailable.
+        error_log(sprintf('[SUPPLIER-LOG][%s/%s] %s http=%s inv=%s err=%s',
+            $supplier, $service, $endpoint, (string) $httpCode, (string) $invoiceId, (string) $error));
+    }
+}
+
 if (!function_exists('ensureAgentApiSchema')) {
     function ensureAgentApiSchema($db): void
     {
@@ -7490,6 +7535,29 @@ if (!function_exists('ensureAgentApiSchema')) {
                 KEY `idx_webhook_id` (`webhook_id`),
                 KEY `idx_user_id` (`user_id`),
                 KEY `idx_delivered` (`delivered`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+            // --- supplier_api_log: the raw request/response of every call we make
+            // to a travel supplier (search/revalidate/book/issue/cancel/refund/…),
+            // keyed by invoice so admin can one-click view the full exchange for a
+            // booking and copy it for debugging. Keys/tokens are redacted by the
+            // writer (supplierApiLog). Reusable by ALL suppliers (adivaha hooks in
+            // via adivahaLog; others call supplierApiLog directly).
+            $db->query("CREATE TABLE IF NOT EXISTS `supplier_api_log` (
+                `id` bigint(20) NOT NULL AUTO_INCREMENT,
+                `invoice_id` varchar(64) DEFAULT NULL,
+                `supplier` varchar(40) DEFAULT NULL,
+                `service` varchar(32) DEFAULT NULL,
+                `endpoint` varchar(191) DEFAULT NULL,
+                `http_code` int(11) DEFAULT NULL,
+                `request` mediumtext DEFAULT NULL,
+                `response` mediumtext DEFAULT NULL,
+                `error` text DEFAULT NULL,
+                `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `idx_invoice` (`invoice_id`),
+                KEY `idx_supplier` (`supplier`),
+                KEY `idx_created` (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
             // ============================================================

@@ -312,6 +312,12 @@ if (!function_exists('adivahaLog')) {
             is_array($safeReq) ? json_encode($safeReq) : (string) $safeReq,
             is_string($response) ? substr($response, 0, 2000) : json_encode($response)
         ));
+        // Also persist to supplier_api_log so admin can one-click view the raw
+        // request/response for this invoice (and copy it for debugging) — the
+        // error_log alone is not accessible from the panel.
+        if (function_exists('supplierApiLog') && $invoiceId) {
+            supplierApiLog('adivaha', 'flights', (string) $endpoint, $request, $response, $httpCode, $error, (string) $invoiceId);
+        }
     }
 }
 
