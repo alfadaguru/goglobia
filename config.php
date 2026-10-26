@@ -461,7 +461,9 @@ try {
         // v3: ensureAdivahaExcursionModule (tours supplier row) + ensureFlightShellCarriers
         //     (DB-driven per-supplier/per-country shell-carrier correction rules).
         // v4: supplier_api_log (raw supplier request/response per invoice, admin-viewable).
-        define('APP_SCHEMA_ENSURE_VERSION', 4);
+        // v5: settings.company_* clean billing address (sent to suppliers so a junk
+        //     'N/A' address no longer gets the issue rejected as "Address is invalid").
+        define('APP_SCHEMA_ENSURE_VERSION', 5);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);

@@ -821,6 +821,35 @@ $messageSuccess = false;
                                 </div>
                             </div>
                         </div>
+
+                        <!-- COMPANY BILLING ADDRESS (sent to suppliers on bookings).
+                             The main Address above is rich text for display; these
+                             are the clean, structured values suppliers require to
+                             issue a ticket (a junk address is rejected as "Address
+                             is invalid"). -->
+                        <p class="text-xs text-gray-500 mt-4 mb-2">Company billing address — sent to travel suppliers when issuing bookings. Keep it a real, valid address.</p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="form-control md:col-span-2">
+                                <label>Address line</label>
+                                <input type="text" name="company_address_line" class="input" maxlength="191"
+                                    value="<?= htmlspecialchars($settings['company_address_line'] ?? '') ?>" placeholder="e.g. Unguwar Jakada, Kumbotso">
+                            </div>
+                            <div class="form-control">
+                                <label>City</label>
+                                <input type="text" name="company_city" class="input" maxlength="100"
+                                    value="<?= htmlspecialchars($settings['company_city'] ?? '') ?>" placeholder="e.g. Kano">
+                            </div>
+                            <div class="form-control">
+                                <label>Country (ISO-2)</label>
+                                <input type="text" name="company_country" class="input" maxlength="2" style="text-transform:uppercase"
+                                    value="<?= htmlspecialchars($settings['company_country'] ?? '') ?>" placeholder="e.g. NG">
+                            </div>
+                            <div class="form-control">
+                                <label>Postal code</label>
+                                <input type="text" name="company_postal" class="input" maxlength="20"
+                                    value="<?= htmlspecialchars($settings['company_postal'] ?? '') ?>" placeholder="e.g. 700282">
+                            </div>
+                        </div>
                     </div>
 
                     <div class="section">

@@ -7560,6 +7560,39 @@ if (!function_exists('ensureAgentApiSchema')) {
                 KEY `idx_created` (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
+            // --- COMPANY BILLING ADDRESS (clean, structured) — the existing
+            // settings.address is rich HTML (a <figure><table>…), unusable as a
+            // supplier billing address. Suppliers (e.g. Adivaha) reject 'N/A' with
+            // "Address is invalid". These give a clean, admin-settable address we
+            // send on supplier bookings. Seeded with a sensible NG default (the
+            // platform's base market) once; admin can edit in settings.
+            foreach ([
+                ['company_address_line', "ALTER TABLE `settings` ADD COLUMN `company_address_line` VARCHAR(191) NOT NULL DEFAULT ''"],
+                ['company_city',         "ALTER TABLE `settings` ADD COLUMN `company_city` VARCHAR(100) NOT NULL DEFAULT ''"],
+                ['company_country',      "ALTER TABLE `settings` ADD COLUMN `company_country` VARCHAR(2) NOT NULL DEFAULT ''"],
+                ['company_postal',       "ALTER TABLE `settings` ADD COLUMN `company_postal` VARCHAR(20) NOT NULL DEFAULT ''"],
+            ] as [$c, $sql]) {
+                try {
+                    if (!$db->query("SHOW COLUMNS FROM `settings` LIKE '$c'")->fetch()) { $db->query($sql); }
+                } catch (\Throwable $e) { error_log("ensureAgentApiSchema settings.$c: " . $e->getMessage()); }
+            }
+            // Seed sensible defaults ONCE (only if still blank) so the supplier
+            // always gets a valid address even before an admin fills these in.
+            try {
+                $row = $db->get('settings', ['company_address_line','company_city','company_country','company_postal'], ['id' => 1]);
+                if (is_array($row)
+                    && ($row['company_address_line'] ?? '') === ''
+                    && ($row['company_city'] ?? '') === ''
+                    && ($row['company_country'] ?? '') === '') {
+                    $db->update('settings', [
+                        'company_address_line' => 'Unguwar Jakada, Kumbotso',
+                        'company_city'         => 'Kano',
+                        'company_country'      => 'NG',
+                        'company_postal'       => '700282',
+                    ], ['id' => 1]);
+                }
+            } catch (\Throwable $e) { error_log('ensureAgentApiSchema seed company address: ' . $e->getMessage()); }
+
             // ============================================================
             // MONEY SPINE (docs/MONEY-WALLET-AUDIT.md §C). Four tables:
             //   wallets           — one spendable balance per (user, currency)

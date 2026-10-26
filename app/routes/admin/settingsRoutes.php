@@ -244,6 +244,12 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
             'site_keywords' => ['required' => false, 'max_length' => 500],
             'contact_email' => ['required' => false, 'type' => 'email'],
             'contact_phone' => ['required' => false, 'max_length' => 20],
+            // Clean company billing address sent to suppliers on bookings (so a junk
+            // address no longer gets the issue rejected as "Address is invalid").
+            'company_address_line' => ['required' => false, 'max_length' => 191],
+            'company_city' => ['required' => false, 'max_length' => 100],
+            'company_country' => ['required' => false, 'max_length' => 2],
+            'company_postal' => ['required' => false, 'max_length' => 20],
             'email_sender_name' => ['required' => false, 'max_length' => 100],
             'email_sender_email' => ['required' => false, 'type' => 'email'],
             'booking_notification_email' => ['required' => false, 'type' => 'email']

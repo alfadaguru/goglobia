@@ -317,14 +317,37 @@ $router->post('flights/adivaha/issue', function () use ($db) {
         $contactName = trim((string) (($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? '')));
         if ($contactName === '') $contactName = (string) ($billing['name'] ?? 'Guest');
 
+        // COMPANY BILLING ADDRESS fallback: suppliers reject a junk address
+        // ('N/A'/'NA'/'000000') with "Address is invalid". When the traveller/
+        // booking carries no real address (e.g. a seamless domestic booking), fall
+        // back to the clean, admin-set COMPANY address from settings rather than a
+        // placeholder, so the supplier always gets a valid billing address.
+        $__co = $db->get('settings',
+            ['company_address_line', 'company_city', 'company_country', 'company_postal'],
+            ['id' => 1]) ?: [];
+        $coLine    = trim((string) ($__co['company_address_line'] ?? ''));
+        $coCity    = trim((string) ($__co['company_city'] ?? ''));
+        $coCountry = strtoupper(trim((string) ($__co['company_country'] ?? '')));
+        $coPostal  = trim((string) ($__co['company_postal'] ?? ''));
+
+        $addrLine = (string) ($booking['address'] ?? ($billing['address_line'] ?? ($billing['address'] ?? '')));
+        if (trim($addrLine) === '' || strtoupper(trim($addrLine)) === 'N/A') { $addrLine = $coLine ?: 'N/A'; }
+        $addrCity = (string) ($billing['city'] ?? ($booking_data['city'] ?? ''));
+        if (trim($addrCity) === '' || strtoupper(trim($addrCity)) === 'NA') { $addrCity = $coCity ?: 'NA'; }
+        $addrPostal = (string) ($billing['postal_code'] ?? ($billing['postal'] ?? ($booking_data['postal_code'] ?? '')));
+        if (trim($addrPostal) === '' || $addrPostal === '000000') { $addrPostal = $coPostal ?: '000000'; }
+        // Country: prefer the resolved booking country; if that is empty, use the
+        // company country (so the billing country is never blank/wrong).
+        if ($countryIso === '' && $coCountry !== '') { $countryIso = $coCountry; }
+
         $contact = [
             'name'         => $contactName,
             'email'        => (string) ($booking['email'] ?? ($billing['email'] ?? '')),
             'phone'        => $phoneE164,
-            'address_line' => (string) ($booking['address'] ?? ($billing['address_line'] ?? ($billing['address'] ?? 'N/A'))),
-            'city'         => (string) ($billing['city'] ?? ($booking_data['city'] ?? 'NA')),
+            'address_line' => $addrLine,
+            'city'         => $addrCity,
             'country'      => $countryIso,
-            'postal_code'  => (string) ($billing['postal_code'] ?? ($billing['postal'] ?? ($booking_data['postal_code'] ?? '000000'))),
+            'postal_code'  => $addrPostal,
         ];
 
         // 6. Price protection. Two independent guards cover a fare that moved
