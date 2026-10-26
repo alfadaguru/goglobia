@@ -14,6 +14,7 @@ $isHotel   = ($svc === 'hotels');             // hotels use the stays-specific f
 $isTours   = ($svc === 'tours');              // tours: live supplier search (P5.4)
 $isCars    = ($svc === 'cars');               // cars: live supplier search (P5.4)
 $isRail    = ($svc === 'rail');               // rail: live train search via /ticket/trainQuery (P5.4 step 2b)
+$isEsim    = ($svc === 'esim');               // esim: live Airalo package search (P5.4)
 
 // Material icon per service for the picker.
 $svcIcons = [
@@ -96,6 +97,8 @@ $svcIcons = [
           <label class="form-control"><span class="form-label">Drop-off time</span><input type="time" class="input" x-model="live.car_dropoff_time"></label>
           <label class="form-control"><span class="form-label">Driver age</span><input type="number" min="18" max="99" class="input" x-model.number="live.car_driver_age"></label>
           <label class="form-control"><span class="form-label">Driver country (ISO2)</span><input class="input" x-model="live.car_driver_country" placeholder="NG" maxlength="2"></label>
+          <?php elseif ($isEsim): ?>
+          <label class="form-control sm:col-span-2"><span class="form-label">Country / region (ISO2 or name)</span><input class="input" x-model="live.esim_country" placeholder="e.g. US, GB, or leave blank for global"></label>
           <?php elseif (!$isHotel): ?>
           <label class="form-control"><span class="form-label">Trip type</span>
             <select class="select input" x-model="live.type">
@@ -578,7 +581,8 @@ function bookingMgr() {
 
     mode: 'manual',
     live: { type:'oneway', origin:'', destination:'', destination_country:'', departure_date:'', return_date:'', adults:1, children:0, class:'economy', rooms:1, checkin:'', checkout:'', nationality:'', currency:'',
-            car_pickup_location:'', car_dropoff_location:'', car_pickup_date:'', car_pickup_time:'10:00', car_dropoff_date:'', car_dropoff_time:'10:00', car_driver_age:30, car_driver_country:'' },
+            car_pickup_location:'', car_dropoff_location:'', car_pickup_date:'', car_pickup_time:'10:00', car_dropoff_date:'', car_dropoff_time:'10:00', car_driver_age:30, car_driver_country:'',
+            esim_country:'' },
     // Autocomplete state. Flights: origin/destination hold the resolved IATA code.
     // Hotels: dest.q is the visible city text; live.destination holds the chosen city.
     ac: { origin:{q:'',items:[],open:false}, destination:{q:'',items:[],open:false}, dest:{q:'',items:[],open:false} },
@@ -706,7 +710,9 @@ function bookingMgr() {
     fmtDate(d){ if(!d) return ''; const p=String(d).split('-'); return (p.length===3)?`${p[2]}-${p[1]}-${p[0]}`:d; },
 
     async runSearch(){
-      if(this.service==='tours'){
+      if(this.service==='esim'){
+        /* country is optional (blank = global) — no required-field check */
+      } else if(this.service==='tours'){
         if(!this.live.destination){ alert('Pick a destination city'); return; }
         if(!this.live.checkin){ alert('Pick an activity date'); return; }
       } else if(this.service==='cars'){
@@ -726,7 +732,10 @@ function bookingMgr() {
       // each supplier (hotels: children/rooms_data/nationality; flights: childrens;
       // dates in DD-MM-YYYY).
       let base;
-      if(this.service==='tours'){
+      if(this.service==='esim'){
+        // eSIM: Airalo packages by country (blank = global list).
+        base = { service:this.service, country:(this.live.esim_country||'').trim(), type:'global', limit:100 };
+      } else if(this.service==='tours'){
         // Tours: destination city + activity date + travellers (matches the tours
         // supplier search contract: destination/start_date/adults/children).
         base = { service:this.service, destination:this.live.destination, city:this.live.destination,
@@ -774,6 +783,11 @@ function bookingMgr() {
       let list = Array.isArray(data) ? data : (data.results || data.offers || []);
       if(!Array.isArray(list)) list=[];
       return list.map(it=>{
+        if(this.service==='esim'){
+          const price=Number(it.price||0);
+          const bits=[it.country, it.data, it.validity?(it.validity+' days'):''].filter(Boolean).join(' · ');
+          return { supplier, label: it.title||'eSIM', sub:bits, price_num:price, price_label:(it.currency||'USD')+' '+price.toLocaleString(), raw: it };
+        }
         if(this.service==='tours'){
           const price=Number(it.display_price||it.price||0);
           const dur=it.duration?(' · '+it.duration):'';
@@ -893,7 +907,12 @@ function bookingMgr() {
         } else if(this.mode==='live'){
           payload.supplier=this.selectedSupplier;   // the supplier THIS offer came from
           const r=this.selectedRaw;
-          if(this.service==='tours'){
+          if(this.service==='esim'){
+            // The chosen package card IS the handle (airalo/issue reads
+            // booking_data.airalo_order.package_id); esim_context carries display.
+            payload.offer_booking_data = JSON.stringify(r);
+            payload.esim_context = JSON.stringify({ package_name:r.title, country:r.country, data_amount:r.data, validity:r.validity });
+          } else if(this.service==='tours'){
             // The chosen tour card carries booking_data = the opaque offer handle
             // (offer_id/destination/activity_date) the supplier's issue.php needs.
             // tour_context carries the display fields for the ticket/invoice.
