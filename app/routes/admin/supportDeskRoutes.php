@@ -73,7 +73,10 @@ $router->get(admin.'/support/desk/messages', function () use ($SECURE, $db) {
         'messages'          => $messages,
         'staff_active'      => (int) ($conv['staff_active'] ?? 0),
         'needs_human'       => (int) ($conv['needs_human'] ?? 0),
-        'assigned_staff_id' => isset($conv['assigned_staff_id']) ? (int) $conv['assigned_staff_id'] : null,
+        // assigned_staff_id is a VARCHAR users.user_id (NOT an int) — ship it as a
+        // string (or null) so an ownership check against admin_staff_id() matches.
+        'assigned_staff_id' => (isset($conv['assigned_staff_id']) && $conv['assigned_staff_id'] !== '')
+            ? (string) $conv['assigned_staff_id'] : null,
         'channel'           => (string) ($conv['channel'] ?? 'web'),
     ]);
 });

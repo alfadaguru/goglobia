@@ -1,15 +1,15 @@
 <?php
 // app/views/admin/support/home.php — Customer Support landing page.
-// Card grid linking to every sub-area; areas not yet built (later phases) are
-// rendered as disabled "coming soon" tiles. See
-// docs/support/CUSTOMER_SUPPORT_MODULE_SPEC.md §1 (sub-modules).
+// Live operational dashboard (counters + target progress + leaderboard, all from
+// $supportDash set by the route) over a card grid of the support sub-areas.
+// See docs/support/CUSTOMER_SUPPORT_MODULE_SPEC.md §1 (sub-modules), §9 (dashboard).
 @$SECURE or die('Access Denied!');
 
-// Each tile: icon, title, blurb, url (null = coming soon), area+action (the RBAC
-// gate; null = no gate). A tile the current user lacks permission for is hidden.
-// Support is OPERATIONAL only — staff management (Attendance / Shifts / Targets /
-// Roles / Staff / Activity) moved to the dedicated Employees section
-// (/admin/employees). These tiles are the day-to-day support desk surfaces.
+// Each tile: icon, title, blurb, url, area+action (the RBAC gate). A tile the
+// current user lacks permission for is hidden. Support is OPERATIONAL only —
+// staff management (Attendance / Shifts / Targets / Roles / Staff / Activity)
+// moved to the dedicated Employees section (/admin/employees). These tiles are
+// the day-to-day support desk surfaces.
 $areas = [
     ['icon' => 'headset_mic',          'name' => 'Live Desk',   'blurb' => 'Multi-channel chat takeover inbox.',            'url' => root.admin.'/support/desk',           'area' => 'support_desk',       'action' => 'view'],
     ['icon' => 'confirmation_number',  'name' => 'Tickets',     'blurb' => 'Customer support tickets — reply & resolve.',   'url' => root.admin.'/support/tickets',        'area' => 'support_tickets',    'action' => 'view'],
@@ -31,7 +31,7 @@ $areas = [
 
   <div class="mb-5">
     <h1 class="text-xl font-bold text-gray-900">Customer Support</h1>
-    <p class="text-sm text-gray-500 mt-0.5">Live desk, tickets, bookings and your support team — all in one place.</p>
+    <p class="text-sm text-gray-500 mt-0.5">Live chat desk, tickets, bookings lookup and campaign conversion — your day-to-day support surfaces.</p>
   </div>
 
   <?php if (!empty($supportDash)): $d = $supportDash;
@@ -109,35 +109,21 @@ $areas = [
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
     <?php foreach ($areas as $a): ?>
       <?php
-        // Hide a tile the current user is not permitted to see at all.
-        if (!empty($a['area']) && !admin_can($db, $a['area'], $a['action'] ?? 'view')) { continue; }
-        $live = !empty($a['url']);
+        // Hide a tile the current user is not permitted to see at all. (admin_can is
+        // loaded globally in config.php; guard defensively so a missing lib can
+        // never fatal the whole page.)
+        if (!empty($a['area']) && function_exists('admin_can') && !admin_can($db, $a['area'], $a['action'] ?? 'view')) { continue; }
       ?>
-      <?php if ($live): ?>
-        <a href="<?= htmlspecialchars($a['url']) ?>"
-           class="block border border-gray-100 rounded-xl p-5 bg-white hover:shadow-md hover:border-blue-200 transition">
-          <div class="flex items-start gap-3">
-            <span class="material-symbols-outlined !text-[28px] text-blue-600"><?= htmlspecialchars($a['icon']) ?></span>
-            <div>
-              <h3 class="text-base font-semibold text-gray-900"><?= htmlspecialchars($a['name']) ?></h3>
-              <p class="text-sm text-gray-500 mt-0.5"><?= htmlspecialchars($a['blurb']) ?></p>
-            </div>
-          </div>
-        </a>
-      <?php else: ?>
-        <div class="block border border-dashed border-gray-200 rounded-xl p-5 bg-gray-50 opacity-70 cursor-not-allowed">
-          <div class="flex items-start gap-3">
-            <span class="material-symbols-outlined !text-[28px] text-gray-400"><?= htmlspecialchars($a['icon']) ?></span>
-            <div>
-              <h3 class="text-base font-semibold text-gray-700 flex items-center gap-2">
-                <?= htmlspecialchars($a['name']) ?>
-                <span style="background:#f1f5f9;color:#475569;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;letter-spacing:.04em">coming</span>
-              </h3>
-              <p class="text-sm text-gray-500 mt-0.5"><?= htmlspecialchars($a['blurb']) ?></p>
-            </div>
+      <a href="<?= htmlspecialchars($a['url']) ?>"
+         class="block border border-gray-100 rounded-xl p-5 bg-white hover:shadow-md hover:border-blue-200 transition">
+        <div class="flex items-start gap-3">
+          <span class="material-symbols-outlined !text-[28px] text-blue-600"><?= htmlspecialchars($a['icon']) ?></span>
+          <div>
+            <h3 class="text-base font-semibold text-gray-900"><?= htmlspecialchars($a['name']) ?></h3>
+            <p class="text-sm text-gray-500 mt-0.5"><?= htmlspecialchars($a['blurb']) ?></p>
           </div>
         </div>
-      <?php endif; ?>
+      </a>
     <?php endforeach; ?>
   </div>
 </div>

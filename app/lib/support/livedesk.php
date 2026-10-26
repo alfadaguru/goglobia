@@ -29,9 +29,9 @@ if (!function_exists('ensureSupportDeskSchema')) {
      * Idempotently add the Live Desk columns. Mirrors ensureCoreFixSchema's
      * SHOW COLUMNS + ALTER TABLE loop (functions.php:853) with try/catch +
      * error_log so a DB user without ALTER rights degrades gracefully.
-     *   gia_conversations.assigned_staff_id  INT NULL  (users.user_id owner)
+     *   gia_conversations.assigned_staff_id  VARCHAR(255) NULL  (users.user_id owner)
      *   gia_conversations.assigned_at        DATETIME NULL
-     *   gia_messages.staff_id                INT NULL  (users.user_id author of a staff reply; NULL for GIA/user)
+     *   gia_messages.staff_id                VARCHAR(255) NULL  (users.user_id author of a staff reply; NULL for GIA/user)
      */
     function ensureSupportDeskSchema($db): void
     {
