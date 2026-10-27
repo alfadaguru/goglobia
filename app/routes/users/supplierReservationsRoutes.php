@@ -192,6 +192,16 @@ $router->get('/supplier/front-desk', function () use ($SECURE, $db) {
     $buckets = function_exists('resv_dashboard_buckets') ? resv_dashboard_buckets($reservations, $date) : [];
     $propMap = [];
     if (!empty($stayIds)) { try { foreach ($db->select('stays', ['id', 'name'], ['id' => $stayIds]) ?: [] as $p) { $propMap[(int) $p['id']] = $p['name']; } } catch (\Throwable $e) {} }
+
+    // Phase 2 — command console: room/HK status board + occupancy read, scoped to the
+    // same properties the day-view covers (one via ?stay_id, else all permitted). Inline
+    // quick actions (express check-in/out) POST to the existing action endpoint, so the
+    // console becomes the run-the-day screen rather than a read-only summary.
+    $boardStayIds = $stayFilter > 0 ? [$stayFilter] : $stayIds;
+    $roomStatus = function_exists('fd_room_status') ? fd_room_status($db, $boardStayIds) : [];
+    $occupancy  = function_exists('fd_occupancy') ? fd_occupancy($buckets, $roomStatus) : [];
+    $canEdit    = supplier_can($db, 'reservations', 'edit', $stayFilter > 0 ? $stayFilter : null);
+
     $title = 'Front desk'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
     require_once views . "supplier/reservations/front-desk.php";

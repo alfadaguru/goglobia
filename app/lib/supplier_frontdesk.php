@@ -149,3 +149,51 @@ if (!function_exists('fd_manifest')) {
         return $b[$which] ?? [];
     }
 }
+
+// ===========================================================================
+// COMMAND CONSOLE (Front-desk overhaul Phase 2) — the run-the-day room/HK board
+// + occupancy, so the front-desk screen surfaces room state + a live occupancy
+// read, not just arrival/departure lists. Pure reads; org/property scoped by the
+// $stayIds the caller already resolved from the staffer's permitted properties.
+// ===========================================================================
+if (!function_exists('fd_room_status')) {
+    /**
+     * Housekeeping/room-status board for the given stays. Counts physical rooms by
+     * hk_status (clean|dirty|inspected|out_of_order — the enum on stays_physical_rooms)
+     * exactly as the BI ops panel does (supplier_bi.php bi_ops_counts), plus the total
+     * sellable (active, not out-of-order) count. Returns
+     * ['clean'=>,'dirty'=>,'inspected'=>,'out_of_order'=>,'total'=>,'sellable'=>].
+     */
+    function fd_room_status($db, array $stayIds): array
+    {
+        $out = ['clean' => 0, 'dirty' => 0, 'inspected' => 0, 'out_of_order' => 0, 'total' => 0, 'sellable' => 0];
+        if (empty($stayIds)) { return $out; }
+        try {
+            foreach ($db->select('stays_physical_rooms', ['hk_status'], ['stay_id' => $stayIds, 'active' => 1]) ?: [] as $r) {
+                $s = (string) $r['hk_status'];
+                if (isset($out[$s])) { $out[$s]++; }
+                $out['total']++;
+                if ($s !== 'out_of_order') { $out['sellable']++; }
+            }
+        } catch (\Throwable $e) { error_log('fd_room_status: ' . $e->getMessage()); }
+        return $out;
+    }
+}
+
+if (!function_exists('fd_occupancy')) {
+    /**
+     * Occupancy read for the business date: in-house room-nights vs sellable physical
+     * rooms. in_house comes from the already-computed buckets (resv_dashboard_buckets)
+     * so there is one source of truth for "who is in-house today". pct is in-house /
+     * sellable, clamped 0..100 (0 when there are no sellable rooms). Returns
+     * ['in_house'=>,'sellable'=>,'available'=>,'pct'=>].
+     */
+    function fd_occupancy(array $buckets, array $roomStatus): array
+    {
+        $inHouse  = (int) ($buckets['in_house_n'] ?? 0);
+        $sellable = (int) ($roomStatus['sellable'] ?? 0);
+        $available = max(0, $sellable - $inHouse);
+        $pct = $sellable > 0 ? (int) round(min(100, max(0, $inHouse / $sellable * 100))) : 0;
+        return ['in_house' => $inHouse, 'sellable' => $sellable, 'available' => $available, 'pct' => $pct];
+    }
+}
