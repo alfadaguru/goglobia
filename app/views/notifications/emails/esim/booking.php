@@ -84,8 +84,8 @@
         <div style="font-size: 13px; color: <?= ($paymentStatus === 'paid') ? '#065f46' : '#1e3a8a' ?>; line-height: 1.6;">
             <strong>Next Steps:</strong><br>
             <?= ($paymentStatus === 'paid')
-                ? "Open your booking page on the phone you want to use the eSIM on. As soon as your eSIM is provisioned, its activation QR code and setup instructions appear there — scan the QR directly from that page. (If it still shows \"Processing\", the eSIM is being prepared and the QR will appear shortly.)"
-                : "To activate your eSIM booking, please complete the payment using the button above. Once payment is confirmed, your eSIM is prepared and its QR code appears on your booking page."
+                ? "Your eSIM voucher is attached to this email as a PDF — it has your activation <strong>QR code</strong>, the activation details, and step-by-step install instructions for <strong>iPhone and Android</strong>. On the phone you'll use the eSIM, scan the QR from the voucher (or enter the details manually), connect to Wi-Fi during setup, and turn on Data Roaming for the eSIM when you arrive. (If your voucher shows \"Processing\", the eSIM is being prepared and the QR will be ready shortly.)"
+                : "To activate your eSIM booking, please complete the payment using the button above. Once payment is confirmed, we'll email your eSIM voucher with the QR code and install instructions."
             ?>
         </div>
     </div>

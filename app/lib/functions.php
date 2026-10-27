@@ -4208,13 +4208,20 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
 
         // TICKET MODE: the no-price travel document uses a dedicated, premium
         // per-service "ticket.php" template (industry-standard itinerary/voucher
-        // layout with QR + brand). If a service doesn't yet have its own ticket
-        // template, fall back to the shared price-hidden booking_pdf.php above —
-        // so the rollout is graceful and no service ever errors.
+        // layout with QR + brand). Resolution order:
+        //   1) the SERVICE's own ticket (emails/<service>/ticket.php) — needed for
+        //      esim/insurance whose booking_pdf points at generic/, so the generic
+        //      dir would otherwise be searched and the bespoke esim ticket missed;
+        //   2) the ticket next to the chosen booking_pdf (e.g. generic/ticket.php);
+        // If neither exists, fall back to the booking_pdf above (graceful).
         if ($docType === 'ticket') {
-            $ticketTemplate = dirname($templatePath) . '/ticket.php';
-            if (file_exists($ticketTemplate)) {
-                $templatePath = $ticketTemplate;
+            $svcDir = __DIR__ . '/../views/notifications/emails/' . $moduleType;
+            $svcTicket = $svcDir . '/ticket.php';
+            $adjTicket = dirname($templatePath) . '/ticket.php';
+            if (is_file($svcTicket)) {
+                $templatePath = $svcTicket;
+            } elseif (is_file($adjTicket)) {
+                $templatePath = $adjTicket;
             }
         }
 
