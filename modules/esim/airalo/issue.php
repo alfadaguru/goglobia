@@ -96,6 +96,50 @@ $router->post('esim/airalo/issue', function () use ($db) {
         $cfg = _airalo_cfg($db);
         $env = _airalo_env($cfg['env'] ?? 'sandbox');
 
+        // PRICE-TRUST GUARD (audit): other suppliers re-price at issue; eSIM did not,
+        // so a mis-entered Booking-Manager price (or a catalogue price that moved
+        // since booking) could mint a real eSIM at a LOSS. Re-derive the live
+        // authoritative sell price for this package + country and reconcile against
+        // what the customer was charged. Skip only a 'topup' (no package sell to
+        // compare) or when the pricing inputs/helpers are unavailable — never block
+        // on reconcile-infrastructure gaps, only on a genuine adverse price move.
+        if ($type !== 'topup' && function_exists('airalo_authoritative_price') && function_exists('reconcilePostPaymentPrice')) {
+            $esimCountry = '';
+            $bc = $bookingData['country'] ?? null;
+            if (is_array($bc)) { $esimCountry = strtoupper((string) ($bc['iso'] ?? '')); }
+            elseif (is_string($bc)) { $esimCountry = strtoupper(trim($bc)); }
+            if ($esimCountry === '') {
+                $esimCountry = strtoupper((string) ($bookingData['selected_package']['country'] ?? ''));
+            }
+            $esimModule = $db->get('modules', '*', ['name' => 'airalo', 'type' => 'esim']);
+            if ($esimCountry !== '' && is_array($esimModule)) {
+                $live = airalo_authoritative_price($db, $esimModule, $esimCountry, $packageId);
+                $liveSell = is_array($live) ? (float) ($live['price'] ?? 0) : 0.0;
+                $liveCur  = is_array($live) ? strtoupper((string) ($live['currency'] ?? '')) : '';
+                if ($liveSell > 0 && $liveCur !== '') {
+                    // Convert the live sell into the currency the customer paid in,
+                    // then reconcile sell-vs-paid (±2%). A rise beyond tolerance holds
+                    // the booking 'pending' for review instead of issuing at a loss.
+                    $paidCur = strtoupper((string) ($booking['currency_markup'] ?? $liveCur));
+                    $liveInPaid = $liveSell;
+                    if ($paidCur !== '' && $paidCur !== $liveCur && function_exists('CURRENCY_CONVERT')) {
+                        $cv = CURRENCY_CONVERT($liveSell, $db, $liveCur, $paidCur);
+                        $liveInPaid = is_array($cv) ? (float) ($cv['price'] ?? $liveSell) : (float) $cv;
+                    }
+                    $pc = reconcilePostPaymentPrice($db, $booking, $liveInPaid, $paidCur);
+                    if (empty($pc['ok'])) {
+                        echo json_encode([
+                            'status'         => false,
+                            'message'        => 'eSIM held for review: the live supplier price rose above the amount paid. ' . (string) ($pc['reason'] ?? ''),
+                            'response_error' => 'price_review',
+                            'price_review'   => $pc,
+                        ], JSON_UNESCAPED_SLASHES);
+                        exit;
+                    }
+                }
+            }
+        }
+
         $form = [
             'package_id' => $packageId,
             'quantity' => (string) $quantity,
