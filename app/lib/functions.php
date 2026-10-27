@@ -7445,24 +7445,51 @@ if (!function_exists('supplierApiLog')) {
             $s = preg_replace('/(Bearer\s+)[A-Za-z0-9._\-]+/i', '$1***REDACTED***', $s);
             return mb_substr($s, 0, 60000);
         };
-        try {
-            $db = $GLOBALS['db'] ?? null;
-            if ($db) {
-                $db->insert('supplier_api_log', [
-                    'invoice_id' => $invoiceId !== null ? mb_substr($invoiceId, 0, 64) : null,
-                    'supplier'   => mb_substr($supplier, 0, 40),
-                    'service'    => mb_substr($service, 0, 32),
-                    'endpoint'   => mb_substr($endpoint, 0, 191),
-                    'http_code'  => $httpCode !== null ? (int) $httpCode : null,
-                    'request'    => $redact($request),
-                    'response'   => $redact($response),
-                    'error'      => $error !== null ? mb_substr((string) $error, 0, 2000) : null,
-                    'created_at' => date('Y-m-d H:i:s'),
-                ]);
+        $row = [
+            'invoice_id' => $invoiceId !== null ? mb_substr($invoiceId, 0, 64) : null,
+            'supplier'   => mb_substr($supplier, 0, 40),
+            'service'    => mb_substr($service, 0, 32),
+            'endpoint'   => mb_substr($endpoint, 0, 191),
+            'http_code'  => $httpCode !== null ? (int) $httpCode : null,
+            'request'    => $redact($request),
+            'response'   => $redact($response),
+            'error'      => $error !== null ? mb_substr((string) $error, 0, 2000) : null,
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+        $db = $GLOBALS['db'] ?? null;
+        if ($db) {
+            try {
+                $db->insert('supplier_api_log', $row);
                 return;
+            } catch (\Throwable $e) {
+                // The table may not exist yet (the gated schema-ensure block can be
+                // skipped on an install whose schema_ensure_version is already past
+                // this version). Create it ON DEMAND here and retry once, so logging
+                // is never silently lost waiting for a schema run. This is what makes
+                // the supplier log reliably capture from the very first call.
+                try {
+                    $db->query("CREATE TABLE IF NOT EXISTS `supplier_api_log` (
+                        `id` bigint(20) NOT NULL AUTO_INCREMENT,
+                        `invoice_id` varchar(64) DEFAULT NULL,
+                        `supplier` varchar(40) DEFAULT NULL,
+                        `service` varchar(32) DEFAULT NULL,
+                        `endpoint` varchar(191) DEFAULT NULL,
+                        `http_code` int(11) DEFAULT NULL,
+                        `request` mediumtext DEFAULT NULL,
+                        `response` mediumtext DEFAULT NULL,
+                        `error` text DEFAULT NULL,
+                        `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                        PRIMARY KEY (`id`),
+                        KEY `idx_invoice` (`invoice_id`),
+                        KEY `idx_supplier` (`supplier`),
+                        KEY `idx_created` (`created_at`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+                    $db->insert('supplier_api_log', $row);
+                    return;
+                } catch (\Throwable $e2) {
+                    error_log('supplierApiLog (after create): ' . $e2->getMessage());
+                }
             }
-        } catch (\Throwable $e) {
-            error_log('supplierApiLog: ' . $e->getMessage());
         }
         // Fallback so nothing is lost if the DB write is unavailable.
         error_log(sprintf('[SUPPLIER-LOG][%s/%s] %s http=%s inv=%s err=%s',

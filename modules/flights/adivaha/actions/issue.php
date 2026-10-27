@@ -270,11 +270,25 @@ $router->post('flights/adivaha/issue', function () use ($db) {
             if ($nat !== '') $entry['nationality'] = $nat;
 
             // Passport (international fares). Carry what the booking collected.
-            if (!empty($p['passport_no']) || !empty($p['passport'])) {
-                $entry['passport_no'] = (string) ($p['passport_no'] ?? $p['passport']);
+            // The flight booking form stores these as `passport_number` /
+            // `passport_expiry` (+ split expiry day/month/year); older/API paths use
+            // `passport_no`/`passport`/`passport_exp`. Read ALL known keys so a
+            // collected passport is actually sent (else the supplier rejects with
+            // "passport number is required" even though the user entered one).
+            $paxPassportNo = trim((string) (
+                $p['passport_no'] ?? $p['passport'] ?? $p['passport_number'] ?? ''
+            ));
+            if ($paxPassportNo !== '') {
+                $entry['passport_no'] = $paxPassportNo;
             }
-            if (!empty($p['passport_exp']) || !empty($p['passport_expiry'])) {
-                $entry['passport_exp'] = date('Y-m-d', strtotime((string) ($p['passport_exp'] ?? $p['passport_expiry'])));
+            $paxPassportExp = trim((string) ($p['passport_exp'] ?? $p['passport_expiry'] ?? ''));
+            if ($paxPassportExp === '' && !empty($p['passport_expiry_year']) && !empty($p['passport_expiry_month']) && !empty($p['passport_expiry_day'])) {
+                $paxPassportExp = $p['passport_expiry_year'] . '-'
+                    . str_pad((string) $p['passport_expiry_month'], 2, '0', STR_PAD_LEFT) . '-'
+                    . str_pad((string) $p['passport_expiry_day'], 2, '0', STR_PAD_LEFT);
+            }
+            if ($paxPassportExp !== '') {
+                $entry['passport_exp'] = date('Y-m-d', strtotime($paxPassportExp));
             }
             $issCountry = adivaha_country_iso2($p['passport_issuing_country'] ?? ($p['issuing_country'] ?? ''), $db);
             if ($issCountry !== '') $entry['passport_issuing_country'] = $issCountry;
