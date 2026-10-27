@@ -698,6 +698,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
             // data.flights[]). Render each as a native pickable card; a tap sends
             // 'pickfare|<ref>' -> the model calls flights_select then flights_book.
             if ($ok && $name === 'flights_search' && !empty($data['flights']) && is_array($data['flights'])) {
+                $fareCards = [];
                 foreach ($data['flights'] as $c) {
                     if (!is_array($c)) { continue; }
                     $ref = (string) ($c['ref'] ?? ($c['id'] ?? ''));
@@ -710,12 +711,32 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
                     $sub = trim((string) ($c['subtitle'] ?? '') . ($price !== null ? '  ' . trim($cur . ' ' . number_format((float) $price, 2)) : ''));
                     $retLine = trim((string) ($c['return_line'] ?? ''));
                     if ($retLine !== '') { $sub = trim($sub . "\n" . $retLine); }
-                    $cards[] = [
+                    $fareCards[] = [
                         'title'    => (string) ($c['title'] ?? ($c['name'] ?? 'Flight')),
                         'subtitle' => $sub,
                         'image'    => '',
                         'buttons'  => [['id' => 'pickfare|' . $ref, 'title' => 'Select this fare']],
+                        '_price'   => ($price !== null && is_numeric($price)) ? (float) $price : null,
                     ];
+                }
+                // HONEST "Best price" badge: mark the single cheapest fare — but only
+                // when there are 2+ fares with real numeric prices (so the badge means
+                // something). Never invented; derived purely from the tool's own prices.
+                $priced = array_values(array_filter($fareCards, static fn($x) => $x['_price'] !== null));
+                if (count($priced) >= 2) {
+                    $minIdx = null; $minVal = null;
+                    foreach ($fareCards as $i => $fc) {
+                        if ($fc['_price'] === null) { continue; }
+                        if ($minVal === null || $fc['_price'] < $minVal) { $minVal = $fc['_price']; $minIdx = $i; }
+                    }
+                    if ($minIdx !== null) {
+                        $fareCards[$minIdx]['subtitle'] = '✨ Best price  ' . $fareCards[$minIdx]['subtitle'];
+                        $fareCards[$minIdx]['featured'] = true;
+                    }
+                }
+                foreach ($fareCards as $fc) {
+                    unset($fc['_price']);
+                    $cards[] = $fc;
                 }
             }
             // FLIGHTS manifest complete: flights_add_passenger says needs_payment ->
