@@ -610,6 +610,43 @@ if (!function_exists('App\\lib\\ai\\gia_channel_is_pick_id')) {
     }
 }
 
+if (!function_exists('App\\lib\\ai\\gia_badge_cheapest')) {
+    /**
+     * HONEST "Best price" badge. Given a list of option cards each carrying a
+     * numeric '_price' (or null), find the SINGLE cheapest and prepend a
+     * "✨ Best price" marker to its subtitle + set a 'featured' flag — but only
+     * when at least TWO cards have real numeric prices (so "best" is meaningful).
+     * Purely derived from the caller's own tool prices — never invents scarcity,
+     * ratings or demand (respects GIA's no-fake-claims rule). Returns the cards
+     * with the badge applied; the '_price' helper key is left for the caller to
+     * strip. Idempotent-safe: skips if a card is already badged.
+     *
+     * @param array $cards each: [...,'subtitle'=>string,'_price'=>float|null]
+     * @return array
+     */
+    function gia_badge_cheapest(array $cards): array
+    {
+        $pricedCount = 0;
+        foreach ($cards as $c) { if (($c['_price'] ?? null) !== null) { $pricedCount++; } }
+        if ($pricedCount < 2) { return $cards; }
+
+        $minIdx = null; $minVal = null;
+        foreach ($cards as $i => $c) {
+            $p = $c['_price'] ?? null;
+            if ($p === null) { continue; }
+            if ($minVal === null || $p < $minVal) { $minVal = $p; $minIdx = $i; }
+        }
+        if ($minIdx === null) { return $cards; }
+
+        $sub = (string) ($cards[$minIdx]['subtitle'] ?? '');
+        if (\strpos($sub, 'Best price') === false) {
+            $cards[$minIdx]['subtitle'] = \trim('✨ Best price  ' . $sub);
+        }
+        $cards[$minIdx]['featured'] = true;
+        return $cards;
+    }
+}
+
 if (!function_exists('App\\lib\\ai\\gia_channel_resolve_numeric_pick')) {
     /**
      * If $text is a bare selection ("2", "option 2", "number 3", "the first one"),
@@ -719,21 +756,10 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
                         '_price'   => ($price !== null && is_numeric($price)) ? (float) $price : null,
                     ];
                 }
-                // HONEST "Best price" badge: mark the single cheapest fare — but only
-                // when there are 2+ fares with real numeric prices (so the badge means
-                // something). Never invented; derived purely from the tool's own prices.
-                $priced = array_values(array_filter($fareCards, static fn($x) => $x['_price'] !== null));
-                if (count($priced) >= 2) {
-                    $minIdx = null; $minVal = null;
-                    foreach ($fareCards as $i => $fc) {
-                        if ($fc['_price'] === null) { continue; }
-                        if ($minVal === null || $fc['_price'] < $minVal) { $minVal = $fc['_price']; $minIdx = $i; }
-                    }
-                    if ($minIdx !== null) {
-                        $fareCards[$minIdx]['subtitle'] = '✨ Best price  ' . $fareCards[$minIdx]['subtitle'];
-                        $fareCards[$minIdx]['featured'] = true;
-                    }
-                }
+                // HONEST "Best price" badge: mark the single cheapest fare when there
+                // are 2+ fares with real numeric prices. Never invented; derived
+                // purely from the tool's own prices.
+                $fareCards = gia_badge_cheapest($fareCards);
                 foreach ($fareCards as $fc) {
                     unset($fc['_price']);
                     $cards[] = $fc;
@@ -773,6 +799,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
                 }
             }
             if ($ok && $name === 'stays_rooms' && !empty($data['stays_rooms']) && is_array($data['stays_rooms'])) {
+                $roomCards = [];
                 foreach ($data['stays_rooms'] as $c) {
                     if (!is_array($c)) { continue; }
                     $ref = (string) ($c['ref'] ?? ($c['id'] ?? ''));
@@ -780,13 +807,19 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
                     $price = $c['price'] ?? null;
                     $cur   = (string) ($c['currency'] ?? '');
                     $sub   = trim((string) ($c['subtitle'] ?? '') . ($price !== null ? '  ' . trim($cur . ' ' . number_format((float) $price, 2)) : ''));
-                    $cards[] = [
+                    $roomCards[] = [
                         'title'    => (string) ($c['title'] ?? ($c['name'] ?? 'Room')),
                         'subtitle' => $sub,
                         'image'    => (string) ($c['image'] ?? ''),
                         'buttons'  => [['id' => 'pick|stays|' . $ref, 'title' => 'Choose this room']],
+                        '_price'   => ($price !== null && is_numeric($price)) ? (float) $price : null,
                     ];
                 }
+                // HONEST "Best price" badge: mark the single cheapest room when there
+                // are 2+ rooms with real numeric prices. Derived purely from the
+                // tool's own prices — never invented.
+                $roomCards = gia_badge_cheapest($roomCards);
+                foreach ($roomCards as $rc) { unset($rc['_price']); $cards[] = $rc; }
             }
             // STAYS held -> straight to pay (no passenger manifest). Capture invoice +
             // amount so the pay buttons appear.
@@ -893,6 +926,9 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
                 foreach ($data['searches'] as $sr) {
                     if (!is_array($sr) || empty($sr['cards']) || !is_array($sr['cards'])) { continue; }
                     $mod = (string) ($sr['module'] ?? ($sr['kind'] ?? ''));
+                    // Collect this module's cards first, so we can honestly badge the
+                    // cheapest WITHIN the same module (never across services).
+                    $modCards = [];
                     foreach ($sr['cards'] as $c) {
                         if (!is_array($c)) { continue; }
                         $ref = (string) ($c['ref'] ?? ($c['id'] ?? ($c['slug'] ?? '')));
@@ -901,13 +937,21 @@ if (!function_exists('App\\lib\\ai\\gia_channel_build_rich')) {
                         $price = $c['price'] ?? ($c['adult_price'] ?? null);
                         $cur   = (string) ($c['currency'] ?? '');
                         $sub   = trim((string) ($c['subtitle'] ?? ($c['location'] ?? '')) . ($price !== null ? '  ' . trim($cur . ' ' . $price) : ''));
-                        $cards[] = [
+                        $modCards[] = [
                             'title'    => $title,
                             'subtitle' => $sub,
                             'image'    => (string) ($c['image'] ?? ''),
                             'buttons'  => [['id' => 'pick|' . $mod . '|' . $ref, 'title' => 'Select']],
+                            '_price'   => ($price !== null && is_numeric($price)) ? (float) $price : null,
                         ];
                     }
+                    // Badge the cheapest ONLY for stays + tours (owner scope). Other
+                    // modules (bus/visa/umrah) keep their cards unbadged — their
+                    // "cheapest" is less meaningful / handled elsewhere.
+                    if (in_array($mod, ['stays', 'tours'], true)) {
+                        $modCards = gia_badge_cheapest($modCards);
+                    }
+                    foreach ($modCards as $mc) { unset($mc['_price']); $cards[] = $mc; }
                 }
             }
         }
