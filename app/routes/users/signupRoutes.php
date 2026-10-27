@@ -282,12 +282,28 @@ $router->post('/signup', function () use ($SECURE, $db) {
             // is non-blocking — email verification still gates status=active; the
             // phone OTP only sets users.phone_verified when confirmed at
             // /verify-phone. Fire-and-forget; failures are logged, never fatal.
+            //
+            // CRITICAL: only route the user to /verify-phone when the code was
+            // ACTUALLY DELIVERED. sendOtpWhatsApp returns ok=false when no WhatsApp/
+            // SMS provider is configured (SENDWHATSAPP/SENDSMS return false) — the
+            // old code ignored that return and set pending_phone_verify_user anyway,
+            // stranding the user on a verify page waiting for a code that never
+            // arrives. If delivery fails, skip the (optional) step entirely and let
+            // the normal login/email-verification path proceed; the number can still
+            // be verified later from the account once a channel is configured.
             if ($phone !== '' && function_exists('otp_issue') && function_exists('sendOtpWhatsApp')) {
                 try {
                     $otpRes = otp_issue($db, $insert_data['user_id'], 'phone_verify');
                     if (!empty($otpRes['ok'])) {
-                        sendOtpWhatsApp($db, $phone, $phone_country_code, $otpRes['code'], $first_name);
-                        $_SESSION['pending_phone_verify_user'] = $insert_data['user_id'];
+                        $deliver = sendOtpWhatsApp($db, $phone, $phone_country_code, $otpRes['code'], $first_name);
+                        if (!empty($deliver['ok'])) {
+                            $_SESSION['pending_phone_verify_user'] = $insert_data['user_id'];
+                        } else {
+                            // No usable delivery channel — do NOT send them to the
+                            // verify step. (Logged for ops; non-fatal.)
+                            error_log('signup phone-verify: OTP issued but not delivered for '
+                                . $insert_data['user_id'] . ' (' . ($deliver['error'] ?? 'delivery_failed') . ')');
+                        }
                     }
                 } catch (\Throwable $e) {
                     error_log('signup phone-verify otp: ' . $e->getMessage());
@@ -418,8 +434,15 @@ $router->post('/verify-phone/resend', function () use ($SECURE, $db) {
     if ($u && trim((string) ($u['phone'] ?? '')) !== '') {
         $res = otp_issue($db, $uid, 'phone_verify');
         if (!empty($res['ok'])) {
-            sendOtpWhatsApp($db, $u['phone'], $u['phone_country_code'] ?? '', $res['code'], $u['first_name'] ?? '');
-            $_SESSION['verify_phone_success'] = 'A new code has been sent.';
+            // Only claim "sent" when a channel actually delivered it — otherwise the
+            // customer keeps resending and waiting for a code that can't arrive.
+            $deliver = sendOtpWhatsApp($db, $u['phone'], $u['phone_country_code'] ?? '', $res['code'], $u['first_name'] ?? '');
+            if (!empty($deliver['ok'])) {
+                $_SESSION['verify_phone_success'] = 'A new code has been sent.';
+            } else {
+                $_SESSION['verify_phone_error'] = "We couldn't send a code right now — WhatsApp/SMS isn't available. You can skip this step; your number can be verified later.";
+                error_log('verify-phone resend: OTP issued but not delivered for ' . $uid . ' (' . ($deliver['error'] ?? 'delivery_failed') . ')');
+            }
         } else {
             $_SESSION['verify_phone_error'] = $res['message'] ?? 'Please wait before requesting another code.';
         }
