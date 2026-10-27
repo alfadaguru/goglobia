@@ -19,7 +19,14 @@ $sims = $prov['sims'] ?? [];
 $firstSim = is_array($sims) && !empty($sims) ? reset($sims) : [];
 $iccid = trim((string) ($firstSim['iccid'] ?? ($prov['iccid'] ?? '')));
 $ref = trim((string) ($booking['pnr'] ?? ($prov['order_id'] ?? $prov['reference'] ?? '')));
-$isConfirmed = $ref !== '' || $iccid !== '' || strtolower((string) ($booking['payment_status'] ?? '')) === 'paid';
+// For an eSIM, "Active / Ready" means a REAL eSIM exists — an ICCID or an order/
+// activation reference. Being merely 'paid' does NOT make an eSIM ready (a manual
+// eSIM awaiting provisioning, or a paid-but-not-yet-issued live one, is still
+// "Processing"). For other products, paid = confirmed as before.
+$hasEsimCredential = ($ref !== '' || $iccid !== '');
+$isConfirmed = $isEsim
+    ? $hasEsimCredential
+    : ($ref !== '' || $iccid !== '' || strtolower((string) ($booking['payment_status'] ?? '')) === 'paid');
 
 $packageName = (string) ($bookingData['package_name'] ?? ($bookingData['title'] ?? ($isEsim ? 'eSIM Package' : 'Travel Product')));
 $country = (string) ($bookingData['country'] ?? '');

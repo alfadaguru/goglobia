@@ -542,6 +542,19 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
         // MANUAL: typed-in details → branded voucher, NO supplier call. The
         // sentinel module 'manual' has no actions/issue.php, so the issue-gate
         // (and bm_settle) skip any supplier booking.
+        //
+        // eSIM GUARD: an eSIM cannot be hand-fabricated — a manual eSIM is only
+        // valid when it RECORDS one provisioned elsewhere (e.g. on the Airalo
+        // dashboard). So require a real credential: an ICCID or an activation
+        // reference. Without one there is nothing the customer can install, and
+        // the voucher would falsely read "Active/Ready". Reject here.
+        if ($serviceType === 'esim') {
+            $mIccid = trim((string) ($_POST['iccid'] ?? ''));
+            $mRef   = trim((string) ($_POST['reference'] ?? ''));
+            if ($mIccid === '' && $mRef === '') {
+                bmAdminJson(['status' => false, 'message' => 'A manual eSIM needs a real credential — paste the ICCID or the activation reference of an eSIM you already provisioned (e.g. on the Airalo dashboard). To issue a brand-new eSIM automatically, use Live mode instead.'], 422);
+            }
+        }
         $moduleName  = 'manual';
         $bookingChannel = 'admin_manual';
         $bookingData = bmBuildManualBookingData($serviceType, $_POST, $currency, $travellers);

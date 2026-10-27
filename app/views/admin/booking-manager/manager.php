@@ -476,8 +476,13 @@ $svcIcons = [
           <label class="form-control"><span class="form-label">Country / region</span><input class="input" x-model="manual.country" placeholder="Europe"></label>
           <label class="form-control"><span class="form-label">Data</span><input class="input" x-model="manual.data_amount" placeholder="10 GB"></label>
           <label class="form-control"><span class="form-label">Validity</span><input class="input" x-model="manual.validity" placeholder="30 days"></label>
-          <label class="form-control"><span class="form-label">ICCID (optional)</span><input class="input" x-model="manual.iccid"></label>
-          <label class="form-control"><span class="form-label">Activation reference (optional)</span><input class="input" x-model="manual.reference"></label>
+          <label class="form-control"><span class="form-label">ICCID <span class="text-red-500">*</span></span><input class="input" x-model="manual.iccid" :class="(!manual.iccid && !manual.reference) ? 'border-red-300' : ''"></label>
+          <label class="form-control"><span class="form-label">Activation reference <span class="text-red-500">*</span></span><input class="input" x-model="manual.reference" :class="(!manual.iccid && !manual.reference) ? 'border-red-300' : ''"></label>
+          <p class="sm:col-span-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+            A manual eSIM records one you already provisioned (e.g. on the Airalo dashboard).
+            <b>Enter the ICCID or the activation reference</b> — at least one is required, or the
+            customer receives a voucher with no usable eSIM. To auto-issue a brand-new eSIM, use <b>Live</b> mode.
+          </p>
         </div>
         <?php endif; ?>
         <label class="form-control mt-3"><span class="form-label">Attach original slip / e-ticket (optional)</span>
@@ -983,6 +988,7 @@ function bookingMgr() {
       if(this.mode==='live' && this.service==='ferries' && this.ferry.sel===null){ alert('Search sailings, then select one'); return; }
       if(this.mode==='live' && this.service!=='rail' && this.service!=='ferries' && this.selectedRaw===null){ alert('Select a supplier offer first'); return; }
       if(this.mode==='live' && this.isHotel && this.selectedRoom===null){ alert('Choose a room rate on the selected hotel first'); return; }
+      if(this.mode==='manual' && this.service==='esim' && !((this.manual.iccid||'').trim() || (this.manual.reference||'').trim())){ alert('A manual eSIM needs a real credential — enter the ICCID or activation reference of an eSIM you already provisioned. To auto-issue a new eSIM, switch to Live mode.'); return; }
       this.creating=true;
       try{
         const payload = {
