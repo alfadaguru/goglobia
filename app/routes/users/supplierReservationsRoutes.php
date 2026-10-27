@@ -600,12 +600,30 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                 $_SESSION['message'] = ['type' => 'error', 'text' => 'Amount must be positive.'];
             } else {
                 $fid = function_exists('folio_get_or_create') ? folio_get_or_create($db, $invoiceId) : 0;
-                $ok = $fid > 0 && function_exists('folio_add_item')
-                    && folio_add_item($db, $fid, $ftype, $famount, $fdesc, (string) ($_SESSION['user_id'] ?? ''), $fno);
-                $_SESSION['message'] = [
-                    'type' => $ok ? 'success' : 'error',
-                    'text' => $ok ? 'Folio updated.' : 'Could not add the folio line (is the folio closed?).',
-                ];
+                // Phase 4a — CREDIT ENFORCEMENT: a debt-INCREASING line on a folio that is
+                // direct-billed to a city-ledger account must fit under that account's
+                // credit limit. payment/refund/credit_note/preauth never increase debt, so
+                // they are exempt. Guest (unlinked) folios are never limited. Blocked for
+                // staff; the owner may override (logged) via the same override checkbox.
+                $blocked = false;
+                if ($fid > 0 && in_array($ftype, ['extra', 'charge', 'debit_note'], true) && function_exists('db_enforce_post')) {
+                    $dbOrg = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $hid) : 0;
+                    $ctx = supplier_acting_context($db);
+                    $isOwner = is_array($ctx) && !empty($ctx['is_owner']);
+                    $enf = db_enforce_post($db, $dbOrg, $fid, $famount, $isOwner, !empty($_POST['override']));
+                    if (empty($enf['ok'])) {
+                        $blocked = true;
+                        $_SESSION['message'] = ['type' => 'error', 'text' => $enf['message'] ?? 'Over credit limit.'];
+                    }
+                }
+                if (!$blocked) {
+                    $ok = $fid > 0 && function_exists('folio_add_item')
+                        && folio_add_item($db, $fid, $ftype, $famount, $fdesc, (string) ($_SESSION['user_id'] ?? ''), $fno);
+                    $_SESSION['message'] = [
+                        'type' => $ok ? 'success' : 'error',
+                        'text' => $ok ? 'Folio updated.' : 'Could not add the folio line (is the folio closed?).',
+                    ];
+                }
             }
         } elseif ($action === 'folio_void') {
             // MODULE 09 supervisor override: void a posted folio line (kept for audit).

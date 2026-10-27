@@ -268,6 +268,14 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
           <input type="text" name="folio_description" class="input text-sm" placeholder="e.g. Minibar"></div>
         <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Amount (<?= $cur ?>)</label>
           <input type="number" name="folio_amount" min="0" step="0.01" class="input text-sm w-28" required></div>
+        <?php // Phase 4a: owner may override a credit-limit block when posting a charge
+          //          to a direct-billed account. Only meaningful when this folio is
+          //          billed to a company/NGO (dbCurrent) and the actor is the owner. ?>
+        <?php if (!empty($dbIsOwner) && !empty($dbCurrent)): ?>
+          <label class="inline-flex items-center gap-1.5 text-xs text-gray-600 pb-2" title="Allow this charge even if it exceeds the billed account's credit limit (logged)">
+            <input type="checkbox" name="override" value="1" class="checkbox-input"> Override limit
+          </label>
+        <?php endif; ?>
         <button type="submit" class="btn secondary text-sm">Add line</button>
       </form>
       <p class="text-xs text-gray-400 mt-1">Pre-auth records a held amount (not charged). Credit/debit notes adjust the balance. Window routes a charge to a split folio (A/B/…).</p>

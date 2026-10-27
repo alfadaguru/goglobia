@@ -209,3 +209,53 @@ if (!function_exists('db_current_assignment')) {
         } catch (\Throwable $e) { error_log('db_current_assignment: ' . $e->getMessage()); return null; }
     }
 }
+
+if (!function_exists('db_enforce_post')) {
+    /**
+     * Phase 4a — CREDIT ENFORCEMENT at posting/checkout time. Given a folio and an extra
+     * amount about to be added to what it owes ($addAmount; 0 at checkout = "is the
+     * CURRENT balance already over?"), decide whether it is allowed when that folio is
+     * DIRECT-BILLED to a city-ledger account:
+     *   - folio NOT linked to an account  -> always ALLOW (a normal guest folio; the guest
+     *     settles it, so there is no account credit limit to breach).
+     *   - linked + within limit            -> ALLOW.
+     *   - linked + would exceed the limit  -> BLOCK, unless $isOwner && $override (logged).
+     * This is the SAME rule as Phase-3 direct-bill, now applied when charges are posted
+     * so a stay can't quietly run a company past its limit after assignment. It is called
+     * from the DESK action handlers (where auth + override live), NOT from the shared
+     * folio_add_item primitive (which has ~18 callers and must stay side-effect-free).
+     * Returns ['ok'=>bool,'message'=>,'over'=>bool,'needs_override'=>bool].
+     */
+    function db_enforce_post($db, int $orgId, int $folioId, float $addAmount, bool $isOwner, bool $override): array
+    {
+        $out = ['ok' => true, 'message' => '', 'over' => false, 'needs_override' => false];
+        if ($orgId <= 0 || $folioId <= 0) { return $out; }
+        // Only enforce when this folio is direct-billed to an account.
+        $acct = db_current_assignment($db, $orgId, $folioId);
+        if (!$acct || (int) ($acct['account_id'] ?? 0) <= 0) { return $out; } // guest folio → no limit
+        $acctId = (int) $acct['account_id'];
+
+        $bal = 0.0;
+        if (function_exists('folio_totals')) { $bal = round((float) (folio_totals($db, $folioId)['balance'] ?? 0), 2); }
+        // The balance AFTER this post is what we must fit under the limit.
+        $effective = round($bal + round($addAmount, 2), 2);
+        $chk = db_credit_check($db, $orgId, $acctId, $folioId, $effective);
+        if (!$chk['over']) { return $out; }
+
+        if (!($isOwner && $override)) {
+            return ['ok' => false, 'over' => true, 'needs_override' => true,
+                'message' => 'This charge would put ' . (string) ($acct['name'] ?? 'the account')
+                    . ' over its credit limit (' . number_format((float) $chk['available'], 2) . ' available). A manager can override.'];
+        }
+        // Owner override — allow + log to the AR trail (same place Phase-3 logs overrides).
+        if (function_exists('ar_ext_collection_add')) {
+            ar_ext_collection_add($db, $orgId, $acctId, [
+                'kind'   => 'note',
+                'detail' => 'Credit-limit OVERRIDE on posting by ' . ((string) ($_SESSION['user_id'] ?? '?'))
+                    . ': +' . number_format(round($addAmount, 2), 2) . ' (would owe '
+                    . number_format((float) $chk['would_owe'], 2) . ' vs limit ' . number_format((float) $chk['limit'], 2) . ').',
+            ]);
+        }
+        return ['ok' => true, 'over' => true, 'needs_override' => false, 'message' => 'Posted (credit limit overridden).'];
+    }
+}
