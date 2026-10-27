@@ -353,6 +353,14 @@ $router->get('/supplier/reservations/([A-Za-z0-9_-]+)', function ($invoiceId) us
     $roomPicker = $canEdit ? _supplier_resv_room_picker($db, $hid) : [];
     $bookingSources = function_exists('resv_booking_sources') ? resv_booking_sources() : [];
 
+    // Direct-bill (Phase 3): the company/NGO customers this folio can be billed to,
+    // and who it is currently billed to (if any). Org resolved from the property.
+    $dbOrgId = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $hid) : 0;
+    $dbFolioId  = (int) ($folioId ?? 0);
+    $dbContacts = ($dbOrgId > 0 && function_exists('db_eligible_contacts')) ? db_eligible_contacts($db, $dbOrgId) : [];
+    $dbCurrent  = ($dbOrgId > 0 && $dbFolioId > 0 && function_exists('db_current_assignment')) ? db_current_assignment($db, $dbOrgId, $dbFolioId) : null;
+    $dbIsOwner  = (function () use ($db) { $c = supplier_acting_context($db); return is_array($c) && !empty($c['is_owner']); })();
+
     $title = 'Reservation ' . $invoiceId;
     $description = '';
     $header = true; $footer = true;
@@ -405,6 +413,66 @@ $router->get('/supplier/reservations/([A-Za-z0-9_-]+)/reg-card', function ($invo
     $property = $db->get('stays', ['id', 'name', 'location', 'address', 'currency', 'checkin_time', 'checkout_time'], ['id' => $hid]);
     // Standalone printable — no header/footer chrome.
     require_once views . "supplier/reservations/reg-card.php";
+});
+
+// ============================================================================
+// DIRECT-BILL (Front-desk overhaul Phase 3) — bill a reservation's folio to a
+// company/NGO Customer-Book account (city ledger), or clear it. Credit-limit is
+// checked: blocked for staff when over, owner may override (logged). Reuses the
+// real ar_ext_assign_account via supplier_directbill.php.
+// POST /supplier/reservations/{invoiceId}/directbill  (contact_id, override?)
+// ============================================================================
+if (!function_exists('_resv_directbill_ctx')) {
+    /** Resolve [hid, orgId, isOwner] for a reservation direct-bill POST, or deny+exit.
+     *  Re-derives ownership from the booking (never a hidden field). */
+    function _resv_directbill_ctx($db, string $invoiceId): array
+    {
+        $owner = _supplier_stays_owner($db);
+        if ($owner === null) { header('Location: ' . root . 'login'); exit; }
+        $booking = $db->get('bookings', ['booking_data', 'module_type'], ['invoice_id' => $invoiceId]);
+        if (!$booking) { _supplier_stays_deny('Reservation not found.'); }
+        $hid = supplier_reservation_hotel_id($booking['booking_data'] ?? null);
+        $moduleType = strtolower((string) ($booking['module_type'] ?? ''));
+        if ($hid <= 0 || !in_array($moduleType, ['stays', 'hotels'], true) || !supplier_can($db, 'reservations', 'edit', $hid)) {
+            _supplier_stays_deny('That reservation is not for one of your properties.');
+        }
+        $orgId = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $hid) : 0;
+        $ctx = supplier_acting_context($db);
+        $isOwner = is_array($ctx) && !empty($ctx['is_owner']);
+        return [$hid, $orgId, $isOwner];
+    }
+}
+
+$router->post('/supplier/reservations/([A-Za-z0-9_-]+)/directbill', function ($invoiceId) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    [$hid, $orgId, $isOwner] = _resv_directbill_ctx($db, $invoiceId);
+    $back = root . 'supplier/reservations/' . rawurlencode($invoiceId);
+    if ($orgId <= 0) { $_SESSION['message'] = ['type' => 'error', 'text' => 'Direct-bill is not available for this property.']; header('Location: ' . $back); exit; }
+
+    $folioId = function_exists('folio_get_or_create') ? (int) folio_get_or_create($db, $invoiceId) : 0;
+    if ($folioId <= 0) { $_SESSION['message'] = ['type' => 'error', 'text' => 'No folio for this reservation.']; header('Location: ' . $back); exit; }
+
+    $contactId = (int) ($_POST['contact_id'] ?? 0);
+    $override = !empty($_POST['override']);
+    $res = db_assign($db, $orgId, $folioId, $contactId, $isOwner, $override);
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Done.'];
+    header('Location: ' . $back); exit;
+});
+
+// POST .../directbill/enable — one-click: create+link a city-ledger account for a
+// company/NGO contact that has none, so it becomes billable (owner decision).
+$router->post('/supplier/reservations/([A-Za-z0-9_-]+)/directbill/enable', function ($invoiceId) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    [$hid, $orgId, $isOwner] = _resv_directbill_ctx($db, $invoiceId);
+    $back = root . 'supplier/reservations/' . rawurlencode($invoiceId);
+    if ($orgId <= 0) { $_SESSION['message'] = ['type' => 'error', 'text' => 'Not available for this property.']; header('Location: ' . $back); exit; }
+    $contactId = (int) ($_POST['contact_id'] ?? 0);
+    $acctId = db_enable_account_billing($db, $orgId, $contactId);
+    $_SESSION['message'] = ['type' => $acctId > 0 ? 'success' : 'error',
+        'text' => $acctId > 0 ? 'Billing enabled for this customer — you can now bill stays to their account.' : 'Could not enable billing (is this a company or NGO customer?).'];
+    header('Location: ' . $back); exit;
 });
 
 // ============================================================================

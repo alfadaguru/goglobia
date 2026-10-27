@@ -175,6 +175,7 @@ require_once 'app/lib/supplier_direct_booking.php';
 require_once 'app/lib/supplier_bi.php';
 require_once 'app/lib/supplier_guests.php';
 require_once 'app/lib/supplier_contacts.php'; // Front-desk overhaul Phase 1: Customer Book (depends on corporate+guests+guestcrm libs above)
+require_once 'app/lib/supplier_directbill.php'; // Front-desk overhaul Phase 3: direct-bill a folio to a contact's city-ledger account (depends on ar_ext + corporate + contacts above)
 require_once 'app/lib/supplier_loyalty.php';
 require_once 'app/lib/supplier_reviews.php';
 require_once 'app/lib/supplier_procurement.php';

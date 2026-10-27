@@ -282,6 +282,71 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
     <?php endif; ?>
   </div>
 
+  <?php // DIRECT-BILL (Phase 3): bill this folio to a company/NGO city-ledger account. ?>
+  <?php
+    $dbContacts = (isset($dbContacts) && is_array($dbContacts)) ? $dbContacts : [];
+    $dbCurrent  = (isset($dbCurrent) && is_array($dbCurrent)) ? $dbCurrent : null;
+    $dbIsOwner  = !empty($dbIsOwner);
+  ?>
+  <?php if ($canEdit && !$isCancelled): ?>
+  <div class="card p-5">
+    <h2 class="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2"><span class="material-symbols-outlined text-violet-600 text-base">account_balance</span> Bill to a company / NGO</h2>
+    <p class="text-xs text-gray-500 mb-3">Route this stay to a corporate or NGO account (city ledger) instead of collecting from the guest. The balance stays on their statement for your accounts-receivable to collect.</p>
+
+    <?php if ($dbCurrent): ?>
+      <div class="flex items-center justify-between gap-2 bg-violet-50 rounded-lg px-3 py-2 mb-3">
+        <span class="text-sm">Currently billed to <strong><?= htmlspecialchars($dbCurrent['name']) ?></strong> <span class="text-xs text-gray-500">(<?= htmlspecialchars(ucfirst($dbCurrent['type'])) ?>)</span></span>
+        <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/directbill" method="POST" onsubmit="return confirm('Remove direct-bill? The guest will settle this folio.');">
+          <?= CSRF::tokenField() ?><input type="hidden" name="contact_id" value="0">
+          <button type="submit" class="btn ghost text-xs">Remove</button>
+        </form>
+      </div>
+    <?php endif; ?>
+
+    <?php if (empty($dbContacts)): ?>
+      <p class="text-xs text-gray-400">No company or NGO customers yet. Add one in <a href="<?= root ?>supplier/customers/new" class="text-blue-600 hover:underline">Customers</a> first.</p>
+    <?php else: ?>
+      <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/directbill" method="POST" class="flex flex-wrap items-end gap-2">
+        <?= CSRF::tokenField() ?>
+        <div class="form-control">
+          <label class="block text-xs text-gray-600 mb-1">Account</label>
+          <select name="contact_id" class="input text-sm min-w-[220px]">
+            <option value="0">— Select company / NGO —</option>
+            <?php foreach ($dbContacts as $c): ?>
+              <option value="<?= (int) $c['id'] ?>" <?= ($dbCurrent && (int) $dbCurrent['contact_id'] === (int) $c['id']) ? 'selected' : '' ?>>
+                <?= htmlspecialchars($c['display_name']) ?> (<?= htmlspecialchars(ucfirst($c['type'])) ?><?= empty($c['corp_account_id']) ? ' — no account' : '' ?>)
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <?php if ($dbIsOwner): ?>
+          <label class="inline-flex items-center gap-1.5 text-xs text-gray-600 pb-2" title="Allow billing even if it exceeds the account's credit limit (logged)">
+            <input type="checkbox" name="override" value="1" class="checkbox-input"> Override credit limit
+          </label>
+        <?php endif; ?>
+        <button type="submit" class="btn secondary text-sm">Bill to account</button>
+      </form>
+      <?php // Contacts without a billing account can be enabled one-click. ?>
+      <?php $noAcct = array_values(array_filter($dbContacts, fn($c) => empty($c['corp_account_id']))); ?>
+      <?php if (!empty($noAcct)): ?>
+        <details class="mt-2">
+          <summary class="text-xs text-gray-500 cursor-pointer">Some customers need billing enabled first</summary>
+          <div class="mt-2 space-y-1">
+            <?php foreach ($noAcct as $c): ?>
+              <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/directbill/enable" method="POST" class="flex items-center gap-2">
+                <?= CSRF::tokenField() ?><input type="hidden" name="contact_id" value="<?= (int) $c['id'] ?>">
+                <span class="text-sm text-gray-700"><?= htmlspecialchars($c['display_name']) ?></span>
+                <button type="submit" class="btn ghost text-xs">Enable billing</button>
+              </form>
+            <?php endforeach; ?>
+          </div>
+        </details>
+      <?php endif; ?>
+      <?php if (!$dbIsOwner): ?><p class="text-[11px] text-gray-400 mt-1">Over-limit accounts are blocked — ask a manager to override.</p><?php endif; ?>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
+
   <?php // MODULE 09: split-billing windows summary + transaction audit. ?>
   <?php $fwins = (isset($folioWindows) && is_array($folioWindows)) ? $folioWindows : []; $faudit = (isset($folioAudit) && is_array($folioAudit)) ? $folioAudit : []; ?>
   <?php if (count($fwins) > 1): ?>
