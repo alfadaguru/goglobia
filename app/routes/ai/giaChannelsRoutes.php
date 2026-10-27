@@ -462,6 +462,18 @@ if (!function_exists('gia_ch_parse_greenapi')) {
         if ($type === 'extendedTextMessage') {
             return ['sender' => $sender, 'id' => $id, 'kind' => 'text', 'text' => (string) ($md['extendedTextMessageData']['text'] ?? ''), 'name' => $senderName];
         }
+        // Interactive reply-button TAP (from sendInteractiveButtonsReply). Verified
+        // shape: typeMessage=templateButtonsReplyMessage, with
+        // templateButtonReplyMessage.{selectedId,selectedDisplayText}. We feed the
+        // selectedId (our pick-id, e.g. "pick|flights|<ref>") as the message text so
+        // GIA's existing callback-id handling resolves it exactly like a typed pick;
+        // fall back to the display text if no id came through.
+        if ($type === 'templateButtonsReplyMessage') {
+            $br = $md['templateButtonReplyMessage'] ?? [];
+            $picked = trim((string) ($br['selectedId'] ?? ''));
+            if ($picked === '') { $picked = trim((string) ($br['selectedDisplayText'] ?? '')); }
+            return ['sender' => $sender, 'id' => $id, 'kind' => 'text', 'text' => $picked, 'name' => $senderName];
+        }
         if ($type === 'locationMessage') {
             $loc = $md['locationMessageData'] ?? [];
             return ['sender' => $sender, 'id' => $id, 'kind' => 'location', 'media' => ['lat' => $loc['latitude'] ?? null, 'lng' => $loc['longitude'] ?? null]];

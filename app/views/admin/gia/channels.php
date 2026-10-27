@@ -136,6 +136,15 @@ $enableToggle = function (string $chan, bool $enabled) use ($e) {
             <div class="grid md:grid-cols-2 gap-4">
               <?php $secretField('gia_channels[whatsapp][webhook_secret]', 'Webhook secret', (string)($wa['webhook_secret'] ?? ''), 'Click Generate for a strong random value, or type your own. It authenticates Green API\'s calls to us (appended as ?secret=… on the URL). Save, then Connect.'); ?>
             </div>
+            <label class="flex items-start gap-3 rounded-lg border border-gray-200 px-4 py-3 cursor-pointer hover:bg-gray-50">
+              <input type="checkbox" name="gia_channels[whatsapp][greenapi_interactive_buttons]" value="1"
+                     <?php echo !empty($wa['greenapi_interactive_buttons']) ? 'checked' : ''; ?>
+                     class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+              <span class="text-[12.5px] text-gray-700">
+                <b>Tappable reply buttons (beta)</b> — show choices of 3 or fewer as tap buttons instead of a numbered list.
+                <span class="text-gray-500">Green API's buttons are beta and may be unreliable; longer lists always stay numbered, and GIA falls back to numbered text if a button send fails. Leave off if replies misbehave.</span>
+              </span>
+            </label>
             <?php
               $waUrl = $webhooks['whatsapp'] ?? '';
               $waShown = !empty($wa['webhook_secret']) ? $waUrl . '?secret=' . rawurlencode((string) $wa['webhook_secret']) : $waUrl;

@@ -162,6 +162,89 @@ class GreenapiProvider {
         }
     }
 
+    /**
+     * Send an INTERACTIVE reply-buttons message via Green API (BETA per Green API
+     * docs — "may work unstably"). Verified against
+     * https://green-api.com/en/docs/api/sending/SendInteractiveButtonsReply/ :
+     *   POST {apiHost}/waInstance{id}/sendInteractiveButtonsReply/{token}
+     *   body: { chatId, body, buttons:[{buttonId,buttonText}], header?, footer? }
+     *   MAX 3 buttons, buttonText <= 25 chars. Returns idMessage.
+     * The caller is responsible for keeping choices <= 3 (Green API has NO working
+     * list method — SendListMessage is archived/403). Returns true on success.
+     *
+     * @param string $to      recipient phone
+     * @param string $body    message text
+     * @param array  $buttons [ ['buttonId'=>string,'buttonText'=>string], ... ] (<=3)
+     * @param string $header  optional title
+     * @param string $footer  optional footer
+     */
+    public function sendInteractiveButtons($to, $body, array $buttons, $header = '', $footer = '') {
+        try {
+            if (empty($this->config['instance_id']) || empty($this->config['token'])) {
+                throw new Exception('Green API configuration incomplete.');
+            }
+            $buttons = array_values(array_filter($buttons, static function ($b) {
+                return is_array($b) && trim((string) ($b['buttonText'] ?? '')) !== '';
+            }));
+            if ($buttons === []) { return false; }
+            // Green API hard cap: max 3 buttons, 25-char text, unique ids.
+            $buttons = array_slice($buttons, 0, 3);
+            foreach ($buttons as $i => &$b) {
+                $b = [
+                    'buttonId'   => (string) ($b['buttonId'] ?? ('b' . ($i + 1))),
+                    'buttonText' => mb_substr(trim((string) $b['buttonText']), 0, 25),
+                ];
+            }
+            unset($b);
+
+            $phone  = $this->cleanPhoneNumber($to);
+            $payload = [
+                'chatId'  => $phone . '@c.us',
+                'body'    => (string) $body,
+                'buttons' => $buttons,
+            ];
+            if (trim((string) $header) !== '') { $payload['header'] = (string) $header; }
+            if (trim((string) $footer) !== '') { $payload['footer'] = (string) $footer; }
+
+            $instanceId = $this->config['instance_id'];
+            $token      = $this->config['token'];
+            // Token is a URL path segment — NEVER log this URL.
+            $url = $this->baseUrl . "/waInstance{$instanceId}/sendInteractiveButtonsReply/{$token}";
+
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $url,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => json_encode($payload),
+                CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
+                CURLOPT_TIMEOUT => 30,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($ch);
+            curl_close($ch);
+
+            if ($curlError) {
+                error_log("Green API sendInteractive CURL error (HTTP {$httpCode})");
+                $this->lastError = 'CURL Error: ' . $curlError;
+                return false;
+            }
+            $responseData = json_decode((string) $response, true);
+            if ($httpCode === 200 && isset($responseData['idMessage'])) { return true; }
+            $this->lastError = "HTTP {$httpCode}: " . $this->getErrorMessage($httpCode, $responseData);
+            error_log('Green API sendInteractive failed: ' . $this->lastError);
+            return false;
+
+        } catch (Exception $e) {
+            $this->lastError = $e->getMessage();
+            error_log('Green API sendInteractive Error: ' . $e->getMessage());
+            return false;
+        }
+    }
+
     private function sendWhatsAppMessage($messageData) {
         $instanceId = $this->config['instance_id'];
         $token = $this->config['token'];

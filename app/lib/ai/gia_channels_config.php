@@ -44,6 +44,13 @@ if (!function_exists('gia_channels_defaults')) {
                 // 'greenapi' (uses settings.whatsapp_providers_config creds for SEND)
                 // or 'meta' (Cloud API). Inbound adapter supports BOTH shapes.
                 'mode'             => 'greenapi',
+                // Green API interactive reply-buttons are BETA ("may work unstably"
+                // per Green API) and capped at 3; its list method is dead (403). So
+                // this is OFF by default — choices render as reliable NUMBERED TEXT.
+                // Turn ON (admin) to try tappable buttons for <=3-choice moments;
+                // >3 choices always stay numbered text. Meta mode ignores this (it
+                // has stable native buttons+lists).
+                'greenapi_interactive_buttons' => false,
                 // Shared secret we require on the inbound URL (?secret=) for Green API,
                 // since Green API does not sign its webhooks.
                 'webhook_secret'   => '',
@@ -132,13 +139,28 @@ if (!function_exists('gia_channels_save')) {
             foreach ($defaults as $chan => $defFields) {
                 $base = $current[$chan] ?? $defFields;
                 $in   = is_array($incoming[$chan] ?? null) ? $incoming[$chan] : [];
-                // Only overwrite known fields; coerce enabled to bool.
+                // Only overwrite known fields; coerce the BOOLEAN fields to bool.
+                // Checkboxes that are unchecked do NOT post, so for a known boolean
+                // field we must treat its ABSENCE as false (otherwise it could never
+                // be turned off). 'enabled' and 'greenapi_interactive_buttons' are
+                // the boolean fields in the shape.
+                $boolFields = ['enabled', 'greenapi_interactive_buttons'];
                 $row = $base;
                 foreach ($defFields as $k => $_) {
+                    if (in_array($k, $boolFields, true)) {
+                        // Only auto-default-to-false when the form actually submitted
+                        // THIS channel's section (so a partial save of another channel
+                        // doesn't silently clear this one). Presence of any key in $in
+                        // signals this channel's form was posted.
+                        if ($in !== []) {
+                            $row[$k] = array_key_exists($k, $in)
+                                ? (bool) filter_var($in[$k], FILTER_VALIDATE_BOOL)
+                                : false;
+                        }
+                        continue;
+                    }
                     if (array_key_exists($k, $in)) {
-                        $row[$k] = ($k === 'enabled')
-                            ? (bool) filter_var($in[$k], FILTER_VALIDATE_BOOL)
-                            : (is_string($in[$k]) ? trim($in[$k]) : $in[$k]);
+                        $row[$k] = is_string($in[$k]) ? trim($in[$k]) : $in[$k];
                     }
                 }
                 $merged[$chan] = $row;

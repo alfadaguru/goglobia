@@ -143,9 +143,18 @@ if (!function_exists('gia_channel_send_whatsapp')) {
             return $r['ok'];
         }
 
-        // Green API: its interactive buttons are BETA/unstable (verified in docs),
-        // so we render choices as reliable NUMBERED TEXT. The traveler replies with
-        // a number/name, read as a normal message — no callback needed.
+        // Green API: its interactive buttons are BETA/unstable and its list method
+        // is dead (verified in docs), so by DEFAULT we render choices as reliable
+        // NUMBERED TEXT (traveler replies with a number/name, read as a normal
+        // message — no callback needed). An admin MAY opt in to tappable buttons
+        // (waCfg.greenapi_interactive_buttons) for small (<=3) choice moments; we
+        // still fall back to numbered text for >3 choices or on any send failure.
+        $giaTryButtons = !empty($waCfg['greenapi_interactive_buttons']);
+        if ($giaTryButtons && !empty($norm['buttons']) && count($norm['buttons']) <= 3 && empty($norm['cards'])) {
+            $sent = gia_channel_send_greenapi_buttons($db, $toPhone, $norm);
+            if ($sent === true) { return true; }
+            // null/false => fall through to numbered text below.
+        }
         $out = $hasChoices ? gia_render_text_fallback($norm) : (string) $norm['text'];
         // Convert any Markdown the model emitted into WhatsApp-native formatting
         // (*bold*, _italic_, • bullets, no tables) so replies don't show literal
@@ -173,6 +182,50 @@ if (!function_exists('gia_channel_send_whatsapp')) {
             return (bool) $prov->send($toPhone, '', $out);
         } catch (\Throwable $e) {
             error_log('[gia] whatsapp(greenapi) send: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
+if (!function_exists('gia_channel_send_greenapi_buttons')) {
+    /**
+     * OPT-IN (admin): send a GIA choice set as Green API interactive reply buttons
+     * (BETA). Maps our normalized buttons ({id,title}) to Green API's
+     * ({buttonId,buttonText}); caps at 3 (the caller already guards count<=3). The
+     * message body is the normalized text (or a short fallback). Returns true only
+     * if Green API accepted it; the caller falls back to numbered text otherwise.
+     * Uses the GIA greenapi creds directly (same as gia_channel_send_whatsapp).
+     */
+    function gia_channel_send_greenapi_buttons($db, string $toPhone, array $norm): bool
+    {
+        try {
+            $buttons = [];
+            foreach (($norm['buttons'] ?? []) as $b) {
+                $title = trim((string) ($b['title'] ?? ''));
+                if ($title === '') { continue; }
+                $buttons[] = [
+                    'buttonId'   => (string) ($b['id'] ?? ''),
+                    'buttonText' => $title,
+                ];
+            }
+            if ($buttons === []) { return false; }
+
+            $body = trim((string) ($norm['text'] ?? ''));
+            if ($body === '') { $body = 'Please choose an option:'; }
+            if (function_exists('gia_md_to_whatsapp')) { $body = gia_md_to_whatsapp($body); }
+
+            $settings = $db->get('settings', ['whatsapp_providers_config'], ['id' => 1]) ?: [];
+            $allCfg = json_decode((string) ($settings['whatsapp_providers_config'] ?? '{}'), true);
+            $gc = (is_array($allCfg) && is_array($allCfg['greenapi'] ?? null)) ? $allCfg['greenapi'] : [];
+            if (empty($gc['instance_id']) || empty($gc['token'])) { return false; }
+
+            $provFile = dirname(__DIR__, 1) . '/notifications/whatsapp/greenapi.php';
+            if (!class_exists('GreenapiProvider') && is_file($provFile)) { require_once $provFile; }
+            if (!class_exists('GreenapiProvider') || !method_exists('GreenapiProvider', 'sendInteractiveButtons')) { return false; }
+            $prov = new \GreenapiProvider($gc);
+            return (bool) $prov->sendInteractiveButtons($toPhone, $body, $buttons);
+        } catch (\Throwable $e) {
+            error_log('[gia] whatsapp(greenapi) buttons: ' . $e->getMessage());
             return false;
         }
     }
