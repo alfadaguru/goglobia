@@ -282,10 +282,11 @@ if (!function_exists('pos_order_settle_ext')) {
         }
 
         $openShiftId = ($tender === 'cash') ? (int) (pos_open_shift($db, (int) $order['outlet_id'])['id'] ?? 0) : 0;
+        $orgId = ($order['org_id'] !== null) ? (int) $order['org_id'] : 0;
 
         $result = ['ok' => false, 'message' => 'Settlement failed'];
         try {
-            $db->action(function ($db) use ($orderId, $tender, $invoiceId, $folioId, $total, $b, $openShiftId, &$result) {
+            $db->action(function ($db) use ($orderId, $stayId, $order, $orgId, $tender, $invoiceId, $folioId, $total, $b, $openShiftId, &$result) {
                 $locked = $db->query('SELECT status FROM pos_orders WHERE id = :o FOR UPDATE', [':o' => $orderId]);
                 $cur = $locked ? $locked->fetch(\PDO::FETCH_ASSOC) : null;
                 if (!$cur || $cur['status'] !== 'open') { $result = ['ok' => false, 'message' => 'Order already settled']; return false; }
@@ -298,6 +299,37 @@ if (!function_exists('pos_order_settle_ext')) {
                     $ok = function_exists('folio_add_item')
                         && folio_add_item($db, $folioId, 'charge', $total, $desc, (string) ($_SESSION['user_id'] ?? ''));
                     if (!$ok) { $result = ['ok' => false, 'message' => 'Could not post to the folio']; return false; }
+                }
+
+                // CASH tender posts to the property's books now: DR Cash / CR F&B Revenue
+                // for the settled total (items − discount + service + tip). The breakdown
+                // models no tax component, so the whole take is revenue — a balanced
+                // two-line entry. Room-tender sales are recognised at folio_checkout, not
+                // here, to avoid double-counting. Idempotent on (org,'pos','pos-<id>');
+                // a GL failure (closed period / unknown account) rolls the settle back.
+                if ($tender === 'cash' && function_exists('gl_post')) {
+                    $oid = $orgId;
+                    if ($oid <= 0 && $stayId > 0 && function_exists('supplier_property_org_ensure')) {
+                        $oid = supplier_property_org_ensure($db, $stayId);
+                    }
+                    if ($oid > 0) {
+                        $currency = (string) ($order['currency'] ?? 'USD');
+                        $gres = gl_post($db, $oid, [
+                            ['code' => '1000', 'debit' => $total],   // Cash/Bank
+                            ['code' => '4100', 'credit' => $total],  // F&B Revenue
+                        ], [
+                            'source'      => 'pos',
+                            'reference'   => 'pos-' . $orderId,
+                            'currency'    => $currency,
+                            'property_id' => $stayId,
+                            'memo'        => 'POS cash sale — order #' . $orderId,
+                        ]);
+                        if (empty($gres['ok'])) {
+                            error_log('pos_order_settle_ext GL post: ' . ($gres['message'] ?? '?'));
+                            $result = ['ok' => false, 'message' => 'Could not post the sale to the books'];
+                            return false; // rollback
+                        }
+                    }
                 }
 
                 $db->insert('pos_payments', [

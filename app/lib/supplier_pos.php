@@ -192,6 +192,43 @@ if (!function_exists('_pos_settle')) {
                     if (!$ok) { $result = ['ok' => false, 'message' => 'Could not post to the folio']; return false; } // rollback
                 }
 
+                // CASH tender posts straight to the property's books now: a cash F&B sale
+                // is DR Cash (an asset we hold) / CR F&B Revenue. Room-tender sales are NOT
+                // posted here — their revenue is recognised once at folio_checkout via the
+                // guest bill, so a GL post here would double-count F&B revenue.
+                //
+                // This mirrors folio_checkout's contract exactly: gl_post is idempotent on
+                // (org, source, reference) so a double-click/retry is a no-op, and a
+                // validation failure (unbalanced / CLOSED fiscal period / unknown account)
+                // returns ok=false WITHOUT throwing — we abort the whole settle so a cash
+                // sale is never recorded with its books un-posted. Refusing a sale into a
+                // period the supplier has explicitly closed is correct, not a regression:
+                // gl_period_is_open() only blocks when such a period actually exists.
+                if ($tender === 'cash' && function_exists('gl_post')) {
+                    $orgId = ($order['org_id'] !== null) ? (int) $order['org_id'] : 0;
+                    if ($orgId <= 0 && $stayId > 0 && function_exists('supplier_property_org_ensure')) {
+                        $orgId = supplier_property_org_ensure($db, $stayId);
+                    }
+                    if ($orgId > 0) {
+                        $currency = (string) ($order['currency'] ?? 'USD');
+                        $gres = gl_post($db, $orgId, [
+                            ['code' => '1000', 'debit' => $total],   // Cash/Bank
+                            ['code' => '4100', 'credit' => $total],  // F&B Revenue
+                        ], [
+                            'source'      => 'pos',
+                            'reference'   => 'pos-' . $orderId,
+                            'currency'    => $currency,
+                            'property_id' => $stayId,
+                            'memo'        => 'POS cash sale — order #' . $orderId,
+                        ]);
+                        if (empty($gres['ok'])) {
+                            error_log('_pos_settle GL post: ' . ($gres['message'] ?? '?'));
+                            $result = ['ok' => false, 'message' => 'Could not post the sale to the books'];
+                            return false; // rollback the whole settle
+                        }
+                    }
+                }
+
                 $db->insert('pos_payments', [
                     'order_id'   => $orderId,
                     'tender'     => $tender,
