@@ -62,6 +62,7 @@ require_once 'app/routes/users/supplierHousekeepingRoutes.php'; // housekeeping 
 require_once 'app/routes/users/supplierPosRoutes.php'; // F&B / POS — outlets, menu, orders, charge-to-room (inc S24)
 require_once 'app/routes/users/supplierOwnersRoutes.php'; // property owners + agreements + owner statements (inc S26)
 require_once 'app/routes/users/supplierGuestsRoutes.php'; // guest CRM — profiles + history + notes (inc S29)
+require_once 'app/routes/users/supplierContactsRoutes.php'; // Front-desk overhaul Phase 1: Customer Book (individual/company/ngo/agent, phone/type search)
 require_once 'app/routes/users/supplierReviewsRoutes.php'; // reviews — public capture + owner moderation (inc S31)
 require_once 'app/routes/users/supplierProcurementRoutes.php'; // procurement — vendors/stock/PO/GRN (inc S32)
 require_once 'app/routes/users/supplierEventsRoutes.php'; // events / MICE — spaces + event bookings + folio (inc S33)

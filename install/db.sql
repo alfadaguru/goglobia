@@ -30055,6 +30055,42 @@ CREATE TABLE `stays_corporate_accounts` (
 -- --------------------------------------------------------
 
 --
+-- FRONT-DESK OVERHAUL Phase 1: the Customer Book. One first-class contact record
+-- (individual/company/ngo/agent) that UNIFIES guests + corporate accounts and is
+-- searchable by phone/name/email/type. Links (not copies) corp_account_id /
+-- guest_email_key. Mirrored by ensureSupplierStaysSchema (functions.php).
+--
+CREATE TABLE `stays_contacts` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `type` enum('individual','company','ngo','agent') NOT NULL DEFAULT 'individual',
+  `display_name` varchar(191) NOT NULL,
+  `email` varchar(191) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `phone_key` varchar(20) DEFAULT NULL,
+  `country` char(2) DEFAULT NULL,
+  `tax_id` varchar(60) DEFAULT NULL,
+  `tax_exempt` tinyint(1) NOT NULL DEFAULT 0,
+  `corp_account_id` int(11) DEFAULT NULL,
+  `guest_email_key` varchar(191) DEFAULT NULL,
+  `negotiated_discount_pct` decimal(5,2) DEFAULT NULL,
+  `credit_limit` decimal(14,2) DEFAULT NULL,
+  `status` enum('active','suspended') NOT NULL DEFAULT 'active',
+  `notes` varchar(500) DEFAULT NULL,
+  `created_by` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_org_type` (`org_id`,`type`,`status`),
+  KEY `idx_phone_key` (`org_id`,`phone_key`),
+  KEY `idx_email` (`org_id`,`email`),
+  KEY `idx_corp` (`corp_account_id`),
+  KEY `idx_guest` (`org_id`,`guest_email_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- MODULE 15: sales activity log per corporate account.
 --
 CREATE TABLE `stays_sales_activities` (

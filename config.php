@@ -174,6 +174,7 @@ require_once 'app/lib/supplier_owners.php';
 require_once 'app/lib/supplier_direct_booking.php';
 require_once 'app/lib/supplier_bi.php';
 require_once 'app/lib/supplier_guests.php';
+require_once 'app/lib/supplier_contacts.php'; // Front-desk overhaul Phase 1: Customer Book (depends on corporate+guests+guestcrm libs above)
 require_once 'app/lib/supplier_loyalty.php';
 require_once 'app/lib/supplier_reviews.php';
 require_once 'app/lib/supplier_procurement.php';
@@ -466,7 +467,9 @@ try {
         //     'N/A' address no longer gets the issue rejected as "Address is invalid").
         // v6: supplier_webhook_ensure_unique_key — adds the (endpoint_id,event_key)
         //     UNIQUE key the delivery table was missing (enables the delivery worker).
-        define('APP_SCHEMA_ENSURE_VERSION', 6);
+        // v7: stays_contacts (Front-Desk Overhaul Phase 1 — the Customer Book): the
+        //     unified individual/company/ngo/agent contact spine with phone/type search.
+        define('APP_SCHEMA_ENSURE_VERSION', 7);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);

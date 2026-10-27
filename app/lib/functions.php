@@ -9851,6 +9851,47 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_status` (`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- stays_contacts (Front-Desk Overhaul, Phase 1 — the Customer Book) -------
+        // ONE first-class customer record that UNIFIES what already exists but is
+        // disconnected: email-keyed guests, corporate/agent accounts, and the loose
+        // string-refs the tax/loyalty engines hang off. We LINK (not copy): a
+        // company/agent/NGO contact points at its stays_corporate_accounts row via
+        // corp_account_id; an individual points at its guest aggregate via
+        // guest_email_key. type adds 'individual' + 'ngo' (absent elsewhere today).
+        // phone_key = normalised last-9 digits (contacts_phone_key / guestcrm_phone_key)
+        // so the desk can SEARCH BY PHONE — impossible before this. tax_exempt is the
+        // NGO flag, OFF by default (owner flips per-account once the NG rule is known;
+        // the existing tax-exemption engine then honours it). credit_limit is stored
+        // here now; ENFORCEMENT lands in Phase 4 (manager-override). No data migration:
+        // the corporate/guest tables are untouched; this is an additive index + spine.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_contacts` (
+            `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `type` ENUM('individual','company','ngo','agent') NOT NULL DEFAULT 'individual',
+            `display_name` VARCHAR(191) NOT NULL,
+            `email` VARCHAR(191) DEFAULT NULL,
+            `phone` VARCHAR(40) DEFAULT NULL,
+            `phone_key` VARCHAR(20) DEFAULT NULL,
+            `country` CHAR(2) DEFAULT NULL,
+            `tax_id` VARCHAR(60) DEFAULT NULL,
+            `tax_exempt` TINYINT(1) NOT NULL DEFAULT 0,
+            `corp_account_id` INT(11) DEFAULT NULL,
+            `guest_email_key` VARCHAR(191) DEFAULT NULL,
+            `negotiated_discount_pct` DECIMAL(5,2) DEFAULT NULL,
+            `credit_limit` DECIMAL(14,2) DEFAULT NULL,
+            `status` ENUM('active','suspended') NOT NULL DEFAULT 'active',
+            `notes` VARCHAR(500) DEFAULT NULL,
+            `created_by` VARCHAR(255) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_org_type` (`org_id`,`type`,`status`),
+            KEY `idx_phone_key` (`org_id`,`phone_key`),
+            KEY `idx_email` (`org_id`,`email`),
+            KEY `idx_corp` (`corp_account_id`),
+            KEY `idx_guest` (`org_id`,`guest_email_key`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- supplier_quota_requests (inc S34): post-approval service/quota requests -
         // An approved supplier asks for a NEW service or a higher quota; admin approval
         // applies it to supplier_services (doesn't disturb live grants while pending).
