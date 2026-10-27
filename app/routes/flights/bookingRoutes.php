@@ -1128,8 +1128,13 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
             'email' => $primaryGuest['email'] ?? '',
             'phone_country_code' => getPhoneCode($countryIso, $db),
             'phone' => $primaryGuest['phone'] ?? '',
-            'country' => '',
-            'address' => '',
+            // Store the resolved guest country (ISO-2), not ''. This feeds the
+            // supplier contact block at issue time — leaving it empty made the
+            // Adivaha issue fall back to a hardcoded 'IN' (India) default, which
+            // made their India-centric system apply Indian rules (e.g. PAN
+            // required) to a non-Indian booking.
+            'country' => $countryIso ?: '',
+            'address' => $primaryGuest['address'] ?? '',
             'adults' => $adultsCount,
             'infants' => (string)$infantsCount,
             'childs' => $childrenCount,

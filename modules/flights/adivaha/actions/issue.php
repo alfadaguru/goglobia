@@ -379,10 +379,29 @@ $router->post('flights/adivaha/issue', function () use ($db) {
         // billing block when present, else fall back so the airline gets a
         // complete billing address.
         $billing   = is_array($booking_data['billing'] ?? null) ? $booking_data['billing'] : [];
+        // Resolve the contact country from the booking, then phone code. Do NOT
+        // fall back to a hardcoded 'IN' (India) — that made Adivaha's India-centric
+        // system apply Indian rules (PAN etc.) to non-Indian bookings. Instead fall
+        // back to the TRIP country (the departure airport's country, e.g. NG for a
+        // Nigerian flight) and finally the company's own country from settings.
         $countryIso = adivaha_country_iso2($booking['country'] ?? ($billing['country'] ?? ''), $db);
         if ($countryIso === '') {
-            $countryIso = adivaha_country_iso2($booking['phone_country_code'] ?? '', $db) ?: 'IN';
+            $countryIso = adivaha_country_iso2($booking['phone_country_code'] ?? '', $db);
         }
+        if ($countryIso === '') {
+            // Trip country from the departure airport (flights_airports.country).
+            try {
+                $__depCode = strtoupper(trim((string) ($fd['departure_code'] ?? $fd['departure_airport'] ?? '')));
+                if ($__depCode !== '') {
+                    $countryIso = adivaha_country_iso2((string) ($db->get('flights_airports', 'country', ['code' => $__depCode]) ?: ''), $db);
+                }
+            } catch (\Throwable $e) {}
+        }
+        if ($countryIso === '') {
+            // Company country from settings (clean billing-address field).
+            try { $countryIso = strtoupper(trim((string) ($db->get('settings', 'company_country', ['id' => 1]) ?: ''))); } catch (\Throwable $e) {}
+        }
+        if ($countryIso === '') { $countryIso = 'NG'; } // platform base market, not India
         $phoneIso = adivaha_country_iso2($booking['phone_country_code'] ?? '', $db) ?: $countryIso;
         $phoneE164 = function_exists('buildE164PhoneNumber')
             ? buildE164PhoneNumber($booking['phone'] ?? '', $phoneIso, $db)
