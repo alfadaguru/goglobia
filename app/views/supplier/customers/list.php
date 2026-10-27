@@ -45,6 +45,38 @@ $typeBadge = function ($t) {
     <?php if ($q !== ''): ?><a href="<?= $base . ($activeType !== '' ? '?type=' . urlencode($activeType) : '') ?>" class="text-sm text-gray-500 hover:underline">Clear</a><?php endif; ?>
   </form>
 
+  <?php // P2b: possible-duplicate groups with a one-click merge (pick which to keep). ?>
+  <?php $dupes = (isset($dupes) && is_array($dupes)) ? $dupes : []; ?>
+  <?php if ($canEdit && !empty($dupes)): ?>
+  <div class="card p-5 border-l-4 border-amber-400">
+    <h2 class="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2"><span class="material-symbols-outlined text-amber-500 text-base">join_inner</span> Possible duplicate customers</h2>
+    <p class="text-xs text-gray-500 mb-3">Same phone or name across more than one record. Choose which to keep; the other is merged in (its wallet balance &amp; history move to the one you keep).</p>
+    <div class="space-y-3">
+      <?php foreach ($dupes as $gi => $g): $members = $g['members'] ?? []; if (count($members) < 2) continue; ?>
+        <form action="<?= $base ?>/merge" method="POST" class="rounded-lg bg-amber-50/60 p-3"
+              onsubmit="return confirm('Merge these records into the one you selected? This can’t be undone.');">
+          <?= CSRF::tokenField() ?>
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <?php foreach ($members as $mi => $m): ?>
+              <label class="inline-flex items-center gap-2 text-sm">
+                <input type="radio" name="survivor_id" value="<?= (int) $m['id'] ?>" <?= $mi === 0 ? 'checked' : '' ?> required>
+                <span><strong><?= htmlspecialchars((string) $m['display_name']) ?></strong>
+                  <span class="text-xs text-gray-500"><?= htmlspecialchars((string) ($m['phone'] ?? '')) ?><?= !empty($m['email']) ? ' · ' . htmlspecialchars((string) $m['email']) : '' ?> · <?= htmlspecialchars(ucfirst((string) $m['type'])) ?></span>
+                </span>
+              </label>
+            <?php endforeach; ?>
+          </div>
+          <?php // Send the whole group's ids; the server merges every member EXCEPT the
+                // chosen survivor into it (so any radio pick is correct, incl. 3+ groups). ?>
+          <input type="hidden" name="group_ids" value='<?= htmlspecialchars(json_encode(array_map(fn($x) => (int) $x['id'], $members)), ENT_QUOTES) ?>'>
+          <div class="mt-2"><button type="submit" class="btn secondary text-xs">Keep selected &amp; merge the rest</button>
+            <span class="text-[11px] text-gray-400 ml-2">Keeps the one you pick; fills its blank fields from the other.</span></div>
+        </form>
+      <?php endforeach; ?>
+    </div>
+  </div>
+  <?php endif; ?>
+
   <?php
     // Type filter chips (preserve the current search q).
     $chip = function ($type, $label, $n) use ($base, $q, $activeType) {

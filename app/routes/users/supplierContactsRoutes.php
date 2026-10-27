@@ -43,12 +43,49 @@ $router->get('/supplier/customers', function () use ($SECURE, $db) {
     $counts = $orgId > 0 ? contacts_counts_by_type($db, $orgId) : ['all' => 0];
     $types = contacts_types();
     $canEdit = supplier_can($db, 'reservations', 'edit');
+    // P2b: surface possible duplicates (same phone / name) for a one-click merge — only
+    // on the unfiltered view, so it reads as a "tidy up your book" prompt, not noise.
+    $dupes = ($orgId > 0 && $q === '' && $type === '' && function_exists('contacts_duplicates'))
+        ? contacts_duplicates($db, $orgId) : [];
 
     $title = 'Customers';
     $header = true; $footer = true;
     require_once views . "includes/header.php";
     require_once views . "supplier/customers/list.php";
     require_once views . "includes/footer.php";
+});
+
+// ---------------------------------------------------------------------------
+// POST /supplier/customers/merge — fold a duplicate (loser) into a survivor.
+// Moves the loser's wallet balance into the survivor, keeps history, deletes loser.
+// ---------------------------------------------------------------------------
+$router->post('/supplier/customers/merge', function () use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $ctx = _contacts_ctx($db);
+    if ($ctx === null) { _supplier_stays_deny('Customers is not available for this account.'); }
+    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    $orgId = (int) $ctx['org'];
+    $survivor = (int) ($_POST['survivor_id'] ?? 0);
+    // The loser set = the OTHER members of this duplicate group (sent as a JSON id list),
+    // NOT a client-trusted single loser — so picking any radio as survivor is correct,
+    // and a 3+ group folds all the others into the chosen keeper. Validated server-side.
+    $groupIds = [];
+    $raw = (string) ($_POST['group_ids'] ?? '');
+    if ($raw !== '') { $d = json_decode($raw, true); if (is_array($d)) { foreach ($d as $x) { $groupIds[] = (int) $x; } } }
+    $losers = array_values(array_filter($groupIds, fn($x) => $x > 0 && $x !== $survivor));
+    if ($survivor <= 0 || empty($losers)) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Pick which record to keep.'];
+        header('Location: ' . root . 'supplier/customers'); exit;
+    }
+    $okAll = true; $lastMsg = '';
+    foreach ($losers as $loser) {
+        $res = function_exists('contacts_merge') ? contacts_merge($db, $orgId, $survivor, $loser) : ['ok' => false, 'message' => 'Merge unavailable.'];
+        if (empty($res['ok'])) { $okAll = false; $lastMsg = $res['message'] ?? 'Merge failed.'; break; }
+        $lastMsg = $res['message'] ?? 'Merged.';
+    }
+    $_SESSION['message'] = ['type' => $okAll ? 'success' : 'error', 'text' => $okAll ? ('Merged ' . count($losers) . ' record(s) into the one you kept.') : $lastMsg];
+    header('Location: ' . root . 'supplier/customers'); exit;
 });
 
 // ---------------------------------------------------------------------------

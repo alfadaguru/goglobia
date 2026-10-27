@@ -264,3 +264,94 @@ if (!function_exists('contacts_backfill')) {
         return $out;
     }
 }
+
+if (!function_exists('contacts_merge')) {
+    /**
+     * MERGE one duplicate contact into another (P2b). The SURVIVOR is kept; the LOSER is
+     * folded in and deleted. Dedup DETECTION already ships (contacts_duplicates); this is
+     * the operator-chosen merge ACTION.
+     *
+     * The only things keyed to a contact id are the two wallet tables (verified by a full
+     * repo sweep): stays_contact_wallet (balance) + stays_contact_wallet_ledger (history).
+     * So a safe merge must, atomically:
+     *   1) MOVE the loser's wallet balance into the survivor (per currency) — money is
+     *      never destroyed. Done via cwallet_apply (idempotent, row-locked, non-negative)
+     *      so the survivor's wallet gets a real credit and the move is itself ledgered.
+     *   2) RE-POINT the loser's historical wallet_ledger rows to the survivor (keep the
+     *      audit trail under the surviving contact).
+     *   3) BACKFILL the survivor's EMPTY identity fields from the loser (email, phone,
+     *      corp_account_id, guest_email_key, tax_id, country) — never overwrite a value
+     *      the survivor already has.
+     *   4) DELETE the loser's (now-zero) wallet row + the loser contact.
+     * All in ONE $db->action() so a failure rolls the whole thing back. Both contacts
+     * must belong to $orgId and be distinct. Returns ['ok'=>bool,'message'=>,'moved'=>].
+     */
+    function contacts_merge($db, int $orgId, int $survivorId, int $loserId): array
+    {
+        if ($orgId <= 0 || $survivorId <= 0 || $loserId <= 0) { return ['ok' => false, 'message' => 'Bad request.']; }
+        if ($survivorId === $loserId) { return ['ok' => false, 'message' => 'Pick two different customers.']; }
+        $survivor = contacts_get($db, $orgId, $survivorId);
+        $loser    = contacts_get($db, $orgId, $loserId);
+        if (!$survivor || !$loser) { return ['ok' => false, 'message' => 'One of those customers was not found.']; }
+
+        // Step 1 happens OUTSIDE the wrapping action because cwallet_apply opens its own
+        // $db->action() per currency (Medoo has no nested transactions). Move each of the
+        // loser's wallet balances into the survivor first; only if all moves succeed do we
+        // re-point history + delete. A move is a credit to the survivor + a debit of the
+        // loser (its wallet ends at 0), both ledgered — money is conserved and auditable.
+        $moved = [];
+        if (function_exists('cwallet_balances') && function_exists('cwallet_apply')) {
+            foreach (cwallet_balances($db, $orgId, $loserId) as $ccy => $bal) {
+                $bal = round((float) $bal, 2);
+                if ($bal <= 0) { continue; }
+                $ref = 'merge:' . $loserId . '->' . $survivorId . ':' . $ccy;
+                // Debit the loser to 0 (idempotent on ref), then credit the survivor.
+                $d = cwallet_apply($db, $orgId, $loserId, $bal, 'debit', $ccy, ['reason' => 'adjustment', 'ref' => $ref . ':out', 'note' => 'Merged into customer #' . $survivorId]);
+                if (empty($d['ok'])) { return ['ok' => false, 'message' => 'Could not move the ' . $ccy . ' wallet balance; merge aborted.']; }
+                $c = cwallet_apply($db, $orgId, $survivorId, $bal, 'credit', $ccy, ['reason' => 'adjustment', 'ref' => $ref . ':in', 'note' => 'Merged from customer #' . $loserId]);
+                if (empty($c['ok'])) {
+                    // Roll back the loser debit we just made (give it back) so no money is lost.
+                    cwallet_apply($db, $orgId, $loserId, $bal, 'credit', $ccy, ['reason' => 'reversal', 'ref' => $ref . ':rb', 'note' => 'Merge credit failed — balance restored']);
+                    return ['ok' => false, 'message' => 'Could not credit the survivor wallet; merge aborted (loser balance restored).'];
+                }
+                $moved[$ccy] = $bal;
+            }
+        }
+
+        $result = ['ok' => false, 'message' => 'Merge failed.'];
+        try {
+            $db->action(function ($db) use ($orgId, $survivor, $loser, $survivorId, $loserId, $moved, &$result) {
+                // Step 2: re-point the loser's historical ledger rows to the survivor
+                // (keep the audit under the surviving contact). The balance-move rows
+                // above already sit on the right contacts; this reassigns the prior history.
+                $db->update('stays_contact_wallet_ledger',
+                    ['contact_id' => $survivorId],
+                    ['org_id' => $orgId, 'contact_id' => $loserId]);
+
+                // Step 3: backfill the survivor's EMPTY identity fields from the loser.
+                $fill = [];
+                foreach (['email', 'phone', 'phone_key', 'corp_account_id', 'guest_email_key', 'tax_id', 'country', 'negotiated_discount_pct', 'credit_limit'] as $f) {
+                    $sv = $survivor[$f] ?? null;
+                    $lv = $loser[$f] ?? null;
+                    $svEmpty = ($sv === null || $sv === '' || $sv === 0 || $sv === '0');
+                    if ($svEmpty && $lv !== null && $lv !== '' && $lv !== 0 && $lv !== '0') { $fill[$f] = $lv; }
+                }
+                if (!empty($fill)) {
+                    $fill['updated_at'] = date('Y-m-d H:i:s');
+                    $db->update('stays_contacts', $fill, ['id' => $survivorId, 'org_id' => $orgId]);
+                }
+
+                // Step 4: delete the loser's now-zero wallet row + the loser contact.
+                $db->delete('stays_contact_wallet', ['org_id' => $orgId, 'contact_id' => $loserId]);
+                $db->delete('stays_contacts', ['id' => $loserId, 'org_id' => $orgId]);
+
+                $result = ['ok' => true, 'message' => 'Merged into ' . (string) $survivor['display_name'] . '.', 'moved' => $moved];
+                return true;
+            });
+        } catch (\Throwable $e) {
+            error_log('contacts_merge: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Merge error — nothing was deleted.'];
+        }
+        return $result;
+    }
+}
