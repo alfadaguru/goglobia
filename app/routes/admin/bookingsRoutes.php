@@ -315,17 +315,19 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
                     echo json_encode(['success' => false, 'status' => false, 'message' => 'Could not generate the ticket to send.']);
                     exit;
                 }
-                // Prefix the dialing code the way NOTIFY does, then upload the PDF
-                // with a short caption. Returns false if the WhatsApp provider has
-                // no document support (non-Green-API) or creds are missing.
+                // Prefix the dialing code the way NOTIFY does, then deliver the PDF.
+                // PREFERRED: a signed PUBLIC ticket URL that Green API fetches via
+                // sendFileByUrl (reliable — the upload host times out); local-file
+                // upload is the fallback inside SENDWHATSAPP.
                 $cc  = trim((string) ($booking['phone_country_code'] ?? ''));
                 $full = $cc !== '' ? (preg_replace('/[^\d]/', '', $cc) . preg_replace('/[^\d]/', '', $phone)) : $phone;
+                $ticketUrl = function_exists('ticket_public_url') ? ticket_public_url((string) $invoice_id) : null;
                 $sent = function_exists('SENDWHATSAPP')
-                    ? SENDWHATSAPP($full, trim((string) (($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), '🎫 Your ticket for booking ' . $invoice_id . ' is attached.', $ticketPath)
+                    ? SENDWHATSAPP($full, trim((string) (($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), '🎫 Your ticket for booking ' . $invoice_id . ' is attached.', $ticketPath, $ticketUrl)
                     : false;
                 echo json_encode($sent
                     ? ['success' => true, 'status' => true, 'message' => 'Ticket sent to the customer on WhatsApp (' . $phone . ').']
-                    : ['success' => false, 'status' => false, 'message' => 'Could not send on WhatsApp — check the WhatsApp provider is Green API and credentials are set.']);
+                    : ['success' => false, 'status' => false, 'message' => 'Could not send the ticket on WhatsApp. The message/credentials are fine for text, but the file send failed — check the WhatsApp provider is connected and the site is reachable over HTTPS (Green API fetches the ticket by link).']);
                 exit;
             }
 

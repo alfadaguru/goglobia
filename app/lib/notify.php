@@ -666,14 +666,16 @@ class NOTIFY {
             $internalMsg = "Hello $customerName, your $moduleType booking #$invoiceId status is " . ($templateData['payment_status'] ?? 'pending') . ". View: " . root . "invoice/$module/$invoiceId";
         }
 
-        // Send to Customer — price-free copy. If we have the traveller's TICKET pdf
-        // AND the provider supports document upload (Green API sendFileByUpload),
-        // send the PDF with the message as its caption so the ticket lands in-chat;
-        // otherwise a plain text message (the emailed ticket is the fallback).
+        // Send to Customer — price-free copy. If we have the traveller's TICKET pdf,
+        // deliver it as a WhatsApp document. PREFERRED delivery is a signed PUBLIC
+        // ticket URL (Green API fetches it via sendFileByUrl — reliable; the upload
+        // host times out); SENDWHATSAPP falls back to local-file upload, then text.
+        // The emailed ticket remains the guaranteed fallback.
         if (!empty($formattedPhone)) {
             $ticketFile = (is_string($customerPdfPath) && $customerPdfPath !== '' && is_file($customerPdfPath)) ? $customerPdfPath : null;
             if ($ticketFile !== null) {
-                SENDWHATSAPP($formattedPhone, $customerName, $customerMsg, $ticketFile);
+                $ticketUrl = ($invoiceId !== '' && function_exists('ticket_public_url')) ? ticket_public_url((string) $invoiceId) : null;
+                SENDWHATSAPP($formattedPhone, $customerName, $customerMsg, $ticketFile, $ticketUrl);
             } else {
                 SENDWHATSAPP($formattedPhone, $customerName, $customerMsg);
             }

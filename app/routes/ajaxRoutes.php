@@ -612,6 +612,53 @@ $router->get('/api/booking/download-ticket/([A-Za-z0-9]+)', function ($invoiceId
     }
 });
 
+// ============================================================================
+// GET /ticket-file/{invoiceId}?exp=...&sig=...  — PUBLIC, HMAC-SIGNED ticket PDF
+// ----------------------------------------------------------------------------
+// A session-FREE ticket link so an external service can FETCH the no-price ticket
+// by URL. This exists specifically so WhatsApp (Green API's sendFileByUrl, which
+// pulls the file from a public URL) can deliver the ticket — the upload host
+// (media.green-api.com) is unreliable/times out, but sendFileByUrl via the API
+// host works. Security: NO session; access is granted ONLY by a short-lived
+// HMAC token (ticket_public_token) bound to the invoice + expiry, so the link
+// can't be reused forever or point at a different booking. Still the no-price
+// TICKET only (never the priced invoice). Not cached by shared proxies.
+// ============================================================================
+$router->get('/ticket-file/([A-Za-z0-9]+)', function ($invoiceId) use ($SECURE, $db) {
+    try {
+        $exp = (int) ($_GET['exp'] ?? 0);
+        $sig = (string) ($_GET['sig'] ?? '');
+        if ($exp <= 0 || $sig === ''
+            || !function_exists('ticket_public_token_valid')
+            || !ticket_public_token_valid((string) $invoiceId, $exp, $sig)) {
+            http_response_code(403);
+            die('Invalid or expired ticket link');
+        }
+
+        $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
+        if (!$booking) { http_response_code(404); die('Booking not found'); }
+
+        $pdfPath = function_exists('GENERATE_BOOKING_PDF')
+            ? GENERATE_BOOKING_PDF($invoiceId, 'ticket')
+            : null;
+
+        if ($pdfPath && file_exists($pdfPath)) {
+            header('Content-Type: application/pdf');
+            // inline so WhatsApp/preview can render it; filename still set.
+            header('Content-Disposition: inline; filename="ticket_' . $invoiceId . '.pdf"');
+            header('Content-Length: ' . filesize($pdfPath));
+            header('Cache-Control: private, no-store, max-age=0');
+            header('Pragma: no-cache');
+            readfile($pdfPath);
+            exit;
+        }
+        throw new Exception('Failed to generate ticket PDF');
+    } catch (Exception $e) {
+        http_response_code(500);
+        die('Error fetching ticket');
+    }
+});
+
 
 // ====================================
 // GET USER WALLET BALANCE

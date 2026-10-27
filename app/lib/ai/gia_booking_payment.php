@@ -746,9 +746,22 @@ if (!function_exists('gia_bp_send_document')) {
             }
             $provFile = dirname(__DIR__, 1) . '/notifications/whatsapp/greenapi.php';
             if (!class_exists('GreenapiProvider') && is_file($provFile)) { require_once $provFile; }
-            if (!class_exists('GreenapiProvider') || !method_exists('GreenapiProvider', 'sendFile')) { return false; }
+            if (!class_exists('GreenapiProvider')) { return false; }
             $prov = new \GreenapiProvider($gc);
-            return (bool) $prov->sendFile($to, $filePath, $fileName !== '' ? $fileName : basename($filePath), $caption);
+            $fn = $fileName !== '' ? $fileName : basename($filePath);
+
+            // PREFERRED: deliver by a signed PUBLIC url (Green API's sendFileByUrl
+            // via the alive API host) — the upload host is unreliable. Fall back to
+            // the multipart upload if we can't build a URL or the URL send fails.
+            $invoiceId = (string) ($bp['invoice_id'] ?? '');
+            if ($invoiceId !== '' && function_exists('ticket_public_url') && method_exists($prov, 'sendFileByUrl')) {
+                $url = ticket_public_url($invoiceId);
+                if ($url !== '' && $prov->sendFileByUrl($to, $url, $fn, $caption)) { return true; }
+            }
+            if (method_exists($prov, 'sendFile')) {
+                return (bool) $prov->sendFile($to, $filePath, $fn, $caption);
+            }
+            return false;
         } catch (\Throwable $e) {
             error_log('[gia_bp] send_document: ' . $e->getMessage());
             return false;

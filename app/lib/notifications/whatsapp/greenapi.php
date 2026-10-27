@@ -30,6 +30,75 @@ class GreenapiProvider {
     /** The resolved instance API host (so callers like SetSettings use the same). */
     public function getBaseUrl() { return $this->baseUrl; }
 
+    /**
+     * Send a file by PUBLIC URL (sendFileByUrl). This goes through the normal API
+     * host (the SAME alive host as text sends), NOT the separate media-upload host
+     * which is frequently unreachable (times out / NXDOMAIN) and has no reliable
+     * per-instance address. So this is the PREFERRED way to deliver a document
+     * (e.g. the ticket PDF) when we have a publicly-fetchable URL for it.
+     * Verified live: returns HTTP 200 + idMessage on the instance API host.
+     *
+     * @param string $to       recipient phone
+     * @param string $urlFile  a PUBLICLY reachable URL to the file
+     * @param string $fileName file name shown to the recipient (incl. extension)
+     * @param string $caption  optional caption (<=1024)
+     */
+    public function sendFileByUrl($to, $urlFile, $fileName = '', $caption = '') {
+        try {
+            if (empty($this->config['instance_id']) || empty($this->config['token'])) {
+                throw new Exception('Green API configuration incomplete.');
+            }
+            if (!is_string($urlFile) || !preg_match('#^https?://#i', $urlFile)) {
+                throw new Exception('A public file URL is required for sendFileByUrl.');
+            }
+            $phone  = $this->cleanPhoneNumber($to);
+            if ($fileName === '') { $fileName = basename(parse_url($urlFile, PHP_URL_PATH) ?: 'file'); }
+
+            $payload = [
+                'chatId'   => $phone . '@c.us',
+                'urlFile'  => $urlFile,
+                'fileName' => $fileName,
+            ];
+            if ($caption !== '') { $payload['caption'] = mb_substr((string) $caption, 0, 1024); }
+
+            $instanceId = $this->config['instance_id'];
+            $token      = $this->config['token'];
+            // API host (alive) — token is a path segment; NEVER log this URL.
+            $url = $this->baseUrl . "/waInstance{$instanceId}/sendFileByUrl/{$token}";
+
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $url,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => json_encode($payload),
+                CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
+                CURLOPT_TIMEOUT => 60,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($ch);
+            curl_close($ch);
+
+            if ($curlError) {
+                error_log("Green API sendFileByUrl CURL error (HTTP {$httpCode})");
+                $this->lastError = 'CURL Error: ' . $curlError;
+                return false;
+            }
+            $responseData = json_decode((string) $response, true);
+            if ($httpCode === 200 && isset($responseData['idMessage'])) { return true; }
+            $this->lastError = "HTTP {$httpCode}: " . $this->getErrorMessage($httpCode, $responseData);
+            error_log('Green API sendFileByUrl failed: ' . $this->lastError);
+            return false;
+        } catch (Exception $e) {
+            $this->lastError = $e->getMessage();
+            error_log('Green API sendFileByUrl Error: ' . $e->getMessage());
+            return false;
+        }
+    }
+
     public function send($to, $to_name, $message, $subject = null, $from_name = null) {
         try {
             // Validate required configuration
@@ -96,17 +165,20 @@ class GreenapiProvider {
             $chatId = $phone . '@c.us';
             if ($fileName === '') { $fileName = basename($filePath); }
 
-            // Media host: Green API recommends media.green-api.com for uploads.
-            // Allow an explicit override via config['media_url']; else the documented host.
-            $mediaHost = trim((string) ($this->config['media_url'] ?? ''));
-            if ($mediaHost === '' || !preg_match('#^https://[a-z0-9.\-]+$#i', rtrim($mediaHost, '/'))) {
-                $mediaHost = 'https://media.green-api.com';
-            } else {
-                $mediaHost = rtrim($mediaHost, '/');
-            }
-
             $instanceId = $this->config['instance_id'];
             $token      = $this->config['token'];
+
+            // Media host for uploads. Order: explicit config['media_url'] (the value
+            // from the Green API console, the only guaranteed-correct host for an
+            // instance) -> the instance-specific host -> the generic host. The media
+            // host that actually serves a given instance varies, so an operator can
+            // set media_url explicitly; we derive a sensible default otherwise.
+            $mediaHost = trim((string) ($this->config['media_url'] ?? ''));
+            if ($mediaHost !== '' && preg_match('#^https://[a-z0-9.\-]+$#i', rtrim($mediaHost, '/'))) {
+                $mediaHost = rtrim($mediaHost, '/');
+            } else {
+                $mediaHost = 'https://media.green-api.com';
+            }
             // Token is a URL path segment (Green API design) — NEVER log this URL.
             $url = $mediaHost . "/waInstance{$instanceId}/sendFileByUpload/{$token}";
 

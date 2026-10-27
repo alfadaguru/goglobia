@@ -25,6 +25,39 @@ if (!function_exists('supplier_internal_token')) {
     }
 }
 
+if (!function_exists('ticket_public_token')) {
+    /**
+     * HMAC token for a PUBLIC, time-limited ticket-PDF link. Needed so an external
+     * service (Green API's sendFileByUrl) can FETCH the no-price ticket without a
+     * login session — the normal download-ticket route is session-gated. Binds the
+     * invoice + an expiry so the link can't be reused forever or for another
+     * booking. Reuses the per-install supplier secret (JWT_SECRET-derived).
+     *
+     * @param string $invoiceId booking invoice ref
+     * @param int    $exp       unix expiry timestamp
+     */
+    function ticket_public_token(string $invoiceId, int $exp): string
+    {
+        return hash_hmac('sha256', 'ticket-public:' . $invoiceId . '|' . $exp, supplier_internal_secret());
+    }
+
+    /** Build an absolute public ticket URL valid for $ttl seconds (default 30 min). */
+    function ticket_public_url(string $invoiceId, int $ttl = 1800): string
+    {
+        $exp = time() + max(60, $ttl);
+        $tok = ticket_public_token($invoiceId, $exp);
+        $base = defined('root') ? root : '';
+        return $base . 'ticket-file/' . rawurlencode($invoiceId) . '?exp=' . $exp . '&sig=' . $tok;
+    }
+
+    /** Constant-time verify of a public ticket token (invoice + not-expired). */
+    function ticket_public_token_valid(string $invoiceId, int $exp, string $sig): bool
+    {
+        if ($exp < time()) { return false; }
+        return hash_equals(ticket_public_token($invoiceId, $exp), $sig);
+    }
+}
+
 // DEBUG FUNCTION
 function dd($d)
 {
@@ -4469,7 +4502,7 @@ function LOG_EMAIL_SENT($bookingId, $notificationType, $recipientEmail, $status 
  * SENDWHATSAPP - SEND WHATSAPP NOTIFICATION
  * ============================================================================
  */
-function SENDWHATSAPP($toPhone, $toName, $message, $mediaUrl = null)
+function SENDWHATSAPP($toPhone, $toName, $message, $mediaUrl = null, $publicUrl = null)
 {
     global $db;
 
@@ -4501,17 +4534,38 @@ function SENDWHATSAPP($toPhone, $toName, $message, $mediaUrl = null)
         }
         $messenger = new $providerClass($providerConfig);
 
-        // STEP 4: SEND MESSAGE. If a local file path is supplied AND the provider
-        // supports document upload (currently Green API's sendFileByUpload), send
-        // the file WITH the message as its caption — this is how a traveller gets
-        // the ticket PDF on WhatsApp instead of just a text pointer. The $mediaUrl
-        // arg here is a LOCAL FILE PATH (e.g. a generated ticket PDF). Providers
-        // without a sendFile() method fall back to text (unchanged behaviour).
+        // STEP 4: SEND MESSAGE — document delivery, preferring the RELIABLE path.
+        // Two ways to send a file:
+        //   (A) sendFileByUrl  — Green API FETCHES a PUBLIC url via the alive API
+        //       host. This is PREFERRED: the upload host (media.green-api.com) is
+        //       frequently unreachable (504/NXDOMAIN) while the API host works.
+        //   (B) sendFileByUpload — multipart upload to the media host (fragile).
+        // $publicUrl is a publicly-fetchable URL to the file (e.g. a signed ticket
+        // link); $mediaUrl is the LOCAL file path. We try (A) first when we have a
+        // public URL, then fall back to (B) with the local file, then to text.
+        // $message rides along as the document caption.
+        $fileName = '';
+        if (is_string($publicUrl) && $publicUrl !== '') { $fileName = basename(parse_url($publicUrl, PHP_URL_PATH) ?: ''); }
+        if ($fileName === '' && is_string($mediaUrl) && $mediaUrl !== '') { $fileName = basename($mediaUrl); }
+
+        // (A) Preferred: by public URL.
+        if (!empty($publicUrl) && is_string($publicUrl) && preg_match('#^https?://#i', $publicUrl)
+            && method_exists($messenger, 'sendFileByUrl')) {
+            $result = $messenger->sendFileByUrl($toPhone, $publicUrl, $fileName, (string) $message);
+            error_log("SENDWHATSAPP (file-by-url) RESULT: " . ($result ? "SUCCESS" : "FAILURE: " . (method_exists($messenger, 'getLastError') ? $messenger->getLastError() : '')));
+            if ($result) { return true; }
+            // fall through to (B) upload if the URL send failed.
+        }
+
+        // (B) Fallback: upload the local file.
         if (!empty($mediaUrl) && is_string($mediaUrl) && is_file($mediaUrl) && method_exists($messenger, 'sendFile')) {
-            $fileName = basename($mediaUrl);
-            $result = $messenger->sendFile($toPhone, $mediaUrl, $fileName, (string) $message);
-            error_log("SENDWHATSAPP (file) FINAL RESULT: " . ($result ? "SUCCESS" : "FAILURE"));
-            return $result;
+            $result = $messenger->sendFile($toPhone, $mediaUrl, $fileName ?: basename($mediaUrl), (string) $message);
+            error_log("SENDWHATSAPP (file-upload) RESULT: " . ($result ? "SUCCESS" : "FAILURE: " . (method_exists($messenger, 'getLastError') ? $messenger->getLastError() : '')));
+            if ($result) { return true; }
+            // If a document send was requested but BOTH ways failed, still send the
+            // text so the customer at least gets the confirmation + email pointer.
+            $messenger->send($toPhone, $toName, (string) $message);
+            return false;
         }
 
         $result = $messenger->send($toPhone, $toName, $message);
