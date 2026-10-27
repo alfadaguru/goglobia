@@ -306,9 +306,14 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
             'last_name'  => trim((string) ($p['last_name'] ?? '')),
         ];
         // Optional identity — only when provided (domestic = name/contact only).
-        foreach (['dob', 'nationality', 'passport_number', 'passport_expiry'] as $k) {
+        // ticket_number is the airline-issued flight ticket (e-ticket) number the
+        // admin types for a MANUAL flight — the ticket PDF shows it per passenger
+        // instead of "On ticketing". Stored under both keys the ticket template
+        // reads ('ticket_number' and 'eticket') so either lookup resolves it.
+        foreach (['dob', 'nationality', 'passport_number', 'passport_expiry', 'ticket_number'] as $k) {
             if (!empty($p[$k])) $entry[$k] = trim((string) $p[$k]);
         }
+        if (!empty($p['ticket_number'])) { $entry['eticket'] = trim((string) $p['ticket_number']); }
         if ($entry['first_name'] === '' || $entry['last_name'] === '') {
             bmAdminJson(['status' => false, 'message' => 'Every passenger needs a first and last name.'], 422);
         }

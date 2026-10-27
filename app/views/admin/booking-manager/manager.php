@@ -520,6 +520,15 @@ $svcIcons = [
                 </template>
                 <button class="btn outline sm" @click="pax.splice(i,1)" x-show="pax.length>1"><span class="material-symbols-outlined">delete</span></button>
               </div>
+              <?php if ($svc === 'flights'): ?>
+              <!-- OPTIONAL airline-issued flight ticket (e-ticket) number for a
+                   MANUAL flight. When entered, it prints on the ticket PDF for this
+                   passenger instead of "On ticketing". Leave blank if not yet issued. -->
+              <label class="form-control sm:col-span-4">
+                <span class="form-label">Flight ticket number <span class="text-slate-400 font-normal">(optional)</span></span>
+                <input class="input" x-model="p.ticket_number" placeholder="e.g. 057-2149908877">
+              </label>
+              <?php endif; ?>
             </div>
           </template>
         </div>
@@ -665,7 +674,7 @@ function bookingMgr() {
       esim:    ['package_name','country','data_amount','validity','iccid','reference'],
     },
     cust: { first_name:'', last_name:'', email:'', phone:'', ticket_email:'' },
-    pax: [{ type:'adult', title:'Mr', first_name:'', last_name:'', passport_number:'' }],
+    pax: [{ type:'adult', title:'Mr', first_name:'', last_name:'', passport_number:'', ticket_number:'' }],
     price: { sell:0, cost:0, currency:'' },
 
     searching:false, searched:false, results:[], selectedOffer:null, selectedRaw:null, selectedSupplier:'', selectedGroup:null, selectedRoom:null, selectedOption:null, selectedRoomName:'',
@@ -704,7 +713,7 @@ function bookingMgr() {
     },
     segPickAirport(seg,side,a){ if(side==='from'){ seg.from=a.code; seg._fromText=a.city+' ('+a.code+')'; seg._fromOpen=false; } else { seg.to=a.code; seg._toText=a.city+' ('+a.code+')'; seg._toOpen=false; } },
     segBlur(seg,which){ setTimeout(()=>{ if(which==='al')seg._alOpen=false; else if(which==='from')seg._fromOpen=false; else seg._toOpen=false; },150); },
-    addPax(t){ this.pax.push({ type:t, title: t==='child'?'Mstr':'Mr', first_name:'', last_name:'', passport_number:'' }); },
+    addPax(t){ this.pax.push({ type:t, title: t==='child'?'Mstr':'Mr', first_name:'', last_name:'', passport_number:'', ticket_number:'' }); },
 
     form(o){ const f=new FormData(); f.append('csrf_token',this.csrf); for(const k in o){ let v=o[k]; if(v===null||v===undefined) v=''; if(typeof v==='object') v=JSON.stringify(v); f.append(k,v);} return f; },
 
@@ -864,7 +873,10 @@ function bookingMgr() {
     },
 
     buildPassengers(){
-      return this.pax.filter(p=>p.first_name&&p.last_name).map(p=>({ type:p.type, title:p.title, first_name:p.first_name, last_name:p.last_name, passport_number:p.passport_number||'' }));
+      // ticket_number is the optional airline-issued flight ticket (e-ticket) number
+      // for a MANUAL flight; carried through so the backend stores it on the
+      // traveller and the ticket PDF prints it instead of "On ticketing".
+      return this.pax.filter(p=>p.first_name&&p.last_name).map(p=>({ type:p.type, title:p.title, first_name:p.first_name, last_name:p.last_name, passport_number:p.passport_number||'', ticket_number:p.ticket_number||'' }));
     },
 
     // ---- LIVE RAIL (train search + seat-class select) ----
