@@ -50,11 +50,25 @@ if (!function_exists('gia_user_snapshot')) {
         try {
             $rows = $db->select('bookings', [
                 'invoice_id', 'module_type', 'module', 'booking_status', 'payment_status',
-                'pnr', 'price_markup', 'currency_markup', 'created_at', 'booking_date',
+                'pnr', 'price_markup', 'currency_markup', 'created_at', 'booking_date', 'booking_data',
             ], ['user_id' => $userId, 'ORDER' => ['id' => 'DESC']]) ?: [];
             foreach ($rows as $r) {
                 $svc  = strtolower(trim((string) ($r['module_type'] ?? '')));
                 $when = gia__booking_when($r['booking_date'] ?? '', $r['created_at'] ?? '');
+                // For FLIGHTS the meaningful "when" is the DEPARTURE date, not the
+                // booking/creation date. Parse it from booking_data (same robust
+                // parser the reminders use) so upcoming/past + proactive nudges are
+                // correct. Falls back to $when if no reliable departure time.
+                if ($svc === 'flights') {
+                    if (!function_exists('flight_reminders_departure_ts')) {
+                        $__frl = dirname(__DIR__, 1) . '/flight_reminders.php';
+                        if (is_file($__frl)) { require_once $__frl; }
+                    }
+                    if (function_exists('flight_reminders_departure_ts')) {
+                        $__depTs = flight_reminders_departure_ts($r);
+                        if ($__depTs > 0) { $when = date('Y-m-d', $__depTs); }
+                    }
+                }
                 $bookings[] = [
                     'service'  => $svc !== '' ? $svc : 'booking',
                     'ref'      => (string) ($r['invoice_id'] ?? ''),

@@ -484,6 +484,31 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             if ($accountId !== '' && function_exists('gia_user_profile')) {
                 $agent->setUserProfile(gia_user_profile($db, $accountId));
             }
+            // PROACTIVE GREETING: when we RECOGNISE the customer ($channelKnown) and
+            // it's the FIRST turn, pre-fetch their real account snapshot and hand GIA
+            // a single, grounded nudge about their LATEST/most-relevant booking so it
+            // can open with it ("I can see your flight to Kano on 28 Oct — want the
+            // status or your ticket?") instead of waiting to be asked. The note is
+            // built ONLY from real snapshot data (gia_user_proactive_note), so GIA
+            // can't invent a booking. Skipped if they have no bookings (note is '').
+            if ($channelKnown && $accountId !== '' && $history === []) {
+                try {
+                    require_once $aiDir . 'gia_account.php';
+                    if (function_exists('gia_user_snapshot') && function_exists('gia_user_proactive_note')) {
+                        $__snap = gia_user_snapshot($db, $accountId);
+                        $__nudge = gia_user_proactive_note($__snap);
+                        if ($__nudge !== '') {
+                            $agent->addSystemNote(
+                                "RETURNING TRAVELLER — OPEN PROACTIVELY: " . $__nudge
+                                . " Weave this into your FIRST reply naturally (a warm greeting by name that "
+                                . "references their booking and offers the obvious next step — its status, or to "
+                                . "resend the ticket). Use get_my_account / get_order_status for exact details if "
+                                . "they want them. Do NOT ask them to verify by email — you already recognise them."
+                            );
+                        }
+                    }
+                } catch (\Throwable $e) { error_log('[gia] proactive greeting: ' . $e->getMessage()); }
+            }
             // Identity guidance. Three cases on a channel:
             //  1) KNOWN via phone match (WhatsApp number = exactly one account, not
             //     yet email-verified): GIA CAN already read this person's account —
