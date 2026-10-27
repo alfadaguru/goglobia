@@ -390,9 +390,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             // (rather than only instructing the model) means the model CANNOT waste a
             // turn calling a payment tool or surface a confusing "not permitted" error.
             $agent->registerTool(new requestHumanTool());
-            // Account linking (verify_identity) is always available so GIA can
-            // offer to link the chat to an account.
-            $agent->registerTool(new verifyIdentityTool());
+
             // WHO COUNTS AS "KNOWN" ON THIS CHAT for account data:
             //   - verified  : confirmed via the email code (strongest), OR
             //   - match     : the WhatsApp sender number resolved to EXACTLY ONE
@@ -409,6 +407,17 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             // phone numbers, so they can't phone-match — email link only there).
             $channelKnown = !empty($ident['verified'])
                 || (!empty($ident['match']) && strtolower((string) $channel) === 'whatsapp');
+
+            // Account linking (verify_identity) — register ONLY when the chat is NOT
+            // already recognised. CRITICAL FIX: this tool's description says "use
+            // when they ask about 'my bookings'", which was OVERRIDING the
+            // phone-recognition — a recognised customer asking "my bookings" saw a
+            // tool telling GIA to email-verify, so GIA asked for the code anyway.
+            // A recognised customer has nothing to link, so we don't offer it; they
+            // get get_my_account/get_order_status instead (registered below).
+            if (!$channelKnown) {
+                $agent->registerTool(new verifyIdentityTool());
+            }
 
             // get_order_status reads a booking by invoice ref with NO owner scope
             // (shared tool). On a channel we register it for a KNOWN traveler only —
