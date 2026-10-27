@@ -69,6 +69,7 @@ if (!defined('root')) {
 // ==================================================
 
 require_once 'vendor/autoload.php';
+require_once 'modules/router.php'; // AppRouter\Router — the main app (index.php) instantiates it; it is NOT in composer autoload, so load it explicitly here in the bootstrap (the modules gateway requires it separately).
 require_once 'app/lib/csrf.php';
 require_once 'app/lib/crud.php';
 require_once 'app/lib/notify.php';
