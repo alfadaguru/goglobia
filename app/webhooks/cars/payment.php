@@ -31,6 +31,12 @@ if ($event === 'cars.payment.completed') {
     $booking = $db->get('bookings', '*', ['invoice_id' => $data['invoice_id']]);
     
     if ($booking) {
+        // Generate the documents: INVOICE (priced) for payer/owner/admin, and the
+        // no-price TICKET for the TRAVELLER (3-document model). Previously NO pdf
+        // was attached at all — the customer got a paid email with no document.
+        $pdfPath    = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($data['invoice_id']) : null;
+        $ticketPath = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($data['invoice_id'], 'ticket') : null;
+
         // Send payment confirmation notification
         NOTIFY::payment('cars', [
             'email' => $booking['email'] ?? '',
@@ -45,7 +51,7 @@ if ($event === 'cars.payment.completed') {
             'payment_status' => 'paid',
             'transaction_id' => $data['transaction_id'] ?? '',
             'module_type' => 'Car Rental'
-        ]);
+        ], $pdfPath, $ticketPath);
     }
     } catch (\Throwable $e) {
         error_log("CARS_PAYMENT_WEBHOOK ERROR: " . $e->getMessage());

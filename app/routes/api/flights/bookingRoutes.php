@@ -1147,7 +1147,7 @@ $router->post('/api/flights/booking/resend-invoice', function () use ($db) {
         enforceInvoiceAccess($db, $booking);
     }
 
-    $pdf = GENERATE_BOOKING_PDF($invoiceId);
+    $pdf = GENERATE_BOOKING_PDF($invoiceId, 'ticket');
 
     NOTIFY::resend('flights', [
         'email'=>$booking['email'],

@@ -701,7 +701,7 @@ $router->post('/api/ai/trip/resend-invoice', function () use ($SECURE, $db) {
         if (!is_array($bookingData)) {
             $bookingData = [];
         }
-        $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
+        $pdfPath = GENERATE_BOOKING_PDF($invoiceId, 'ticket');
         $notificationData = array_merge($bookingData, [
             'invoice_id' => $invoiceId,
             'amount' => $booking['price_markup'] ?? $booking['price_original'] ?? 0,

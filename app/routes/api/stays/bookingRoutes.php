@@ -982,7 +982,7 @@ $router->post('/api/stays/invoice/resend', function () use ($db) {
         }
         enforceInvoiceAccess($db, $booking);
 
-        $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
+        $pdfPath = GENERATE_BOOKING_PDF($invoiceId, 'ticket');
 
         NOTIFY::resend('stays', [
             'email' => $booking['email'],

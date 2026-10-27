@@ -564,8 +564,11 @@ if ($event === 'stays.payment.completed') {
             }
         }
 
-        // Generate PDF
-        $pdfPath = GENERATE_BOOKING_PDF($booking['invoice_id']);
+        // Generate PDF. The INVOICE (priced) is for the payer/owner/admin; the
+        // TRAVELLER must receive the no-price TICKET (3-document model). NOTIFY
+        // sends $ticketPath to the customer, $pdfPath (invoice) to owner/admin.
+        $pdfPath    = GENERATE_BOOKING_PDF($booking['invoice_id']);
+        $ticketPath = GENERATE_BOOKING_PDF($booking['invoice_id'], 'ticket');
 
         // Prepare notification data with hotel details
         $notificationData = [
@@ -605,7 +608,7 @@ if ($event === 'stays.payment.completed') {
             'first_name' => $booking['first_name'] ?? '',
             'last_name' => $booking['last_name'] ?? '',
             'country_code' => $booking['phone_country_code'] ?? ''
-        ], $notificationData, $pdfPath);
+        ], $notificationData, $pdfPath, $ticketPath);
     }
     } catch (\Throwable $e) {
         error_log("STAYS_PAYMENT_WEBHOOK ERROR: " . $e->getMessage());

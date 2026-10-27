@@ -759,7 +759,8 @@ $router->post('/api/rail/booking/resend-invoice', function () use ($SECURE, $db)
             throw new Exception('Customer email is required');
         }
 
-        $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
+        // Customer resend = the no-price TICKET (travel document), not the invoice.
+        $pdfPath = GENERATE_BOOKING_PDF($invoiceId, 'ticket');
         $bookingData = json_decode($booking['booking_data'] ?? '{}', true) ?: [];
 
         $notifData = array_merge($bookingData, [

@@ -269,7 +269,8 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/action', function ($invoiceId) use 
     if ($action === 'resend') {
         if (!agent_can($db, 'bookings', 'view')) { echo json_encode(['status'=>false,'message'=>'No permission.']); exit; }
         try {
-            $pdfPath = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF((string)$invoiceId) : null;
+            // Resend the VOUCHER = the TRAVELLER's no-price TICKET, not the invoice.
+            $pdfPath = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF((string)$invoiceId, 'ticket') : null;
             if (class_exists('NOTIFY')) {
                 NOTIFY::resend($module ?: $moduleType, $b, [
                     'invoice_id'  => (string)$invoiceId,

@@ -193,13 +193,16 @@ $router->post(admin.'/bookings/edit/(.*)', function ($invoice_id) use ($SECURE,$
         // Trigger Notifications for status changes
         // 1. Payment Confirmation
         if ($data['payment_status'] === 'paid' && $booking['payment_status'] !== 'paid') {
-            $pdfPath = GENERATE_BOOKING_PDF($invoice_id);
+            // INVOICE (priced) for payer/owner/admin; no-price TICKET for the
+            // TRAVELLER (3-document model). NOTIFY routes each to the right party.
+            $pdfPath    = GENERATE_BOOKING_PDF($invoice_id);
+            $ticketPath = GENERATE_BOOKING_PDF($invoice_id, 'ticket');
             NOTIFY::payment($booking['module'], $data, [
                 'invoice_id' => $invoice_id,
                 'amount' => $data['price_markup'],
                 'currency' => $booking['currency'] ?? '',
                 'module_type' => ucfirst($booking['module'])
-            ], $pdfPath);
+            ], $pdfPath, $ticketPath);
         }
 
         // 2. Cancellation Confirmation
@@ -363,8 +366,10 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
                 catch (\Throwable $e) { error_log('admin mark_paid accrue: ' . $e->getMessage()); }
             }
 
-            // Trigger Notification
-            $pdfPath = GENERATE_BOOKING_PDF($invoice_id);
+            // Trigger Notification. INVOICE (priced) for payer/owner/admin; no-price
+            // TICKET for the TRAVELLER (3-document model). NOTIFY routes each.
+            $pdfPath    = GENERATE_BOOKING_PDF($invoice_id);
+            $ticketPath = GENERATE_BOOKING_PDF($invoice_id, 'ticket');
             NOTIFY::payment($booking['module'], $booking, [
                 'invoice_id' => $invoice_id,
                 'amount' => $booking['price_markup'],
@@ -374,7 +379,7 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
                 'hotel_name' => $booking['hotel_name'] ?? '',
                 'tour_name' => $booking['tour_name'] ?? '',
                 'car_name' => $booking['car_name'] ?? ''
-            ], $pdfPath);
+            ], $pdfPath, $ticketPath);
 
             ob_clean();
             echo json_encode(['success' => true, 'message' => 'Payment status updated to paid']);
@@ -392,7 +397,14 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
         ], ['invoice_id' => $invoice_id]);
 
         if ($updated) {
-            // Trigger Notification (using 'booking' event as confirmation)
+            // Trigger Notification (using 'booking' event as confirmation). The
+            // TRAVELLER gets the no-price TICKET (5th arg). The owner/admin copy
+            // carries the priced INVOICE only when the booking is actually paid;
+            // otherwise no priced doc exists yet (4th arg null). Email body
+            // price-gates on payment_status regardless (3-document model).
+            $isPaid     = strtolower((string) ($booking['payment_status'] ?? '')) === 'paid';
+            $ticketPath = GENERATE_BOOKING_PDF($invoice_id, 'ticket');
+            $invoicePath = $isPaid ? GENERATE_BOOKING_PDF($invoice_id) : null;
             NOTIFY::booking($booking['module'], $booking, [
                 'invoice_id' => $invoice_id,
                 'amount' => $booking['price_markup'],
@@ -402,7 +414,7 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
                 'hotel_name' => $booking['hotel_name'] ?? '',
                 'tour_name' => $booking['tour_name'] ?? '',
                 'car_name' => $booking['car_name'] ?? ''
-            ]);
+            ], $invoicePath, $ticketPath);
 
             ob_clean();
             echo json_encode(['success' => true, 'message' => 'Booking status updated to confirmed']);

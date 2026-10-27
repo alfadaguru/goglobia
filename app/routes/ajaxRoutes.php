@@ -524,8 +524,9 @@ $router->post('/api/booking/resend-invoice', function () use ($SECURE, $db) {
             'country_code' => $booking['phone_country_code'] ?? ''
         ];
 
-        // 4. Generate PDF
-        $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
+        // 4. Generate PDF — customer resend gets the no-price TICKET (travel
+        // document), not the payer's priced invoice.
+        $pdfPath = GENERATE_BOOKING_PDF($invoiceId, 'ticket');
 
         // 5. Send Notification (Customer only)
         $notifData = [

@@ -47,8 +47,10 @@ if ($event === 'flights.payment.completed') {
             }
         }
 
-        // Generate PDF
-        $pdfPath = GENERATE_BOOKING_PDF($booking['invoice_id']);
+        // Generate PDF. INVOICE (priced) for payer/owner/admin; the TRAVELLER
+        // gets the no-price TICKET (3-document model). NOTIFY routes each.
+        $pdfPath    = GENERATE_BOOKING_PDF($booking['invoice_id']);
+        $ticketPath = GENERATE_BOOKING_PDF($booking['invoice_id'], 'ticket');
 
         // Prepare notification data with flight details for template
         $notificationData = [
@@ -77,7 +79,7 @@ if ($event === 'flights.payment.completed') {
             'first_name' => $booking['first_name'] ?? '',
             'last_name' => $booking['last_name'] ?? '',
             'country_code' => $booking['phone_country_code'] ?? ''
-        ], $notificationData, $pdfPath);
+        ], $notificationData, $pdfPath, $ticketPath);
     }
     } catch (\Throwable $e) {
         error_log("FLIGHTS_PAYMENT_WEBHOOK ERROR: " . $e->getMessage());

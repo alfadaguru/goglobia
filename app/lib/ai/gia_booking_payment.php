@@ -766,14 +766,20 @@ if (!function_exists('gia_bp_send_confirmation')) {
                 $svc = 'flights';
             }
 
-            // Generate the no-price TICKET (travel document) for the customer —
-            // skipped in chat-only mode (the BM sub-path already emailed a doc).
-            $ticketPdf = (!$chatOnly && function_exists('GENERATE_BOOKING_PDF'))
+            // Generate the documents — skipped in chat-only mode (the BM sub-path
+            // already emailed). The TRAVELLER gets the no-price TICKET; the
+            // payer/owner/admin get the priced INVOICE (3-document model). NOTIFY
+            // routes the ticket to the customer (5th arg) and the invoice to
+            // owner/admin (4th arg).
+            $ticketPdf  = (!$chatOnly && function_exists('GENERATE_BOOKING_PDF'))
                 ? GENERATE_BOOKING_PDF($invoiceId, 'ticket')
+                : null;
+            $invoicePdf = (!$chatOnly && function_exists('GENERATE_BOOKING_PDF'))
+                ? GENERATE_BOOKING_PDF($invoiceId)
                 : null;
 
             // EMAIL: reuse the proven NOTIFY::payment pipeline (paid receipt email +
-            // attached ticket). Only if we have a real guest email and not chat-only.
+            // attached document). Only if we have a real guest email and not chat-only.
             $email = trim((string) ($b['email'] ?? ''));
             if (!$chatOnly && $email !== '' && class_exists('NOTIFY')) {
                 NOTIFY::payment($svc, $b, [
@@ -782,7 +788,7 @@ if (!function_exists('gia_bp_send_confirmation')) {
                     'currency'       => $b['currency_markup'] ?? '',
                     'payment_status' => 'paid',
                     'module_type'    => ucfirst($svc),
-                ], $ticketPdf);
+                ], $invoicePdf, $ticketPdf);
             }
 
             // CHAT: nudge the payer on their GIA channel with a confirmation + a

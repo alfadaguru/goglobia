@@ -442,8 +442,9 @@ $router->post('/api/flight/booking/resend-invoice', function () use ($SECURE, $d
             throw new Exception('Booking not found');
         }
 
-        // Generate or get existing PDF
-        $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
+        // Generate or get existing PDF — the TRAVELLER's resend is the no-price
+        // TICKET (travel document), not the payer's priced invoice.
+        $pdfPath = GENERATE_BOOKING_PDF($invoiceId, 'ticket');
 
         // Send consolidated notification (Customer only)
         NOTIFY::resend('flights', [

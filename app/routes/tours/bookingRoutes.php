@@ -172,8 +172,9 @@ $router->post('/api/tour/booking/resend-invoice', function () use ($SECURE, $db)
         $customerEmail = $booking['email'];
         $customerName = $booking['first_name'] . ' ' . $booking['last_name'];
 
-        // Generate or get existing PDF
-        $pdfPath = GENERATE_BOOKING_PDF($invoiceId);
+        // Generate or get existing PDF — the TRAVELLER's resend is the no-price
+        // TICKET (travel document), not the payer's priced invoice.
+        $pdfPath = GENERATE_BOOKING_PDF($invoiceId, 'ticket');
 
         // Fetch booking data for additional info if needed
         $bookingData = json_decode($booking['booking_data'], true);
