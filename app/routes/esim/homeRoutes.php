@@ -120,6 +120,22 @@ $router->post('/esim/booking/submit', function () use ($SECURE, $db) {
         // the currency LABEL must come from the SAME authoritative source — not the
         // client's selected_package.currency, which could mislabel the amount owed.
         $currency = strtoupper((string) ($authPrice['currency'] ?? ($module['currency'] ?? 'USD'))) ?: 'USD';
+
+        // DISPLAY/SETTLE CURRENCY: the authoritative price is in the module currency
+        // (e.g. USD). Convert it into the customer's session currency (default = the
+        // platform default, e.g. NGN) so the amount shown == the amount charged, in
+        // the customer's currency. Everything downstream (promo math, price_markup,
+        // currency_markup) then uses the converted figures consistently.
+        $displayCurrency = strtoupper((string) ($_SESSION['app_currency'] ?? $currency)) ?: $currency;
+        if ($displayCurrency !== $currency && function_exists('CURRENCY_CONVERT')) {
+            $cp = CURRENCY_CONVERT($price, $db, $currency, $displayCurrency);
+            $cb = CURRENCY_CONVERT($basePrice, $db, $currency, $displayCurrency);
+            $price     = is_array($cp) ? round((float) ($cp['price'] ?? $price), 2) : round((float) $cp, 2);
+            $basePrice = is_array($cb) ? round((float) ($cb['price'] ?? $basePrice), 2) : round((float) $cb, 2);
+            $currency  = $displayCurrency;
+            $selectedPackage['price'] = $price;
+            $selectedPackage['base_price'] = $basePrice;
+        }
         $selectedPackage['currency'] = $currency; // keep the client-facing field consistent
 
         if (!empty($couponCodeStr)) {
@@ -589,6 +605,13 @@ $router->get('/esim/(\d+)/([a-z]{2})/([a-z]+)/packages/?', function ($moduleId, 
             return 'N/A';
         };
 
+        // DISPLAY CURRENCY: Airalo prices (and the markup rule) are in the module's
+        // currency (e.g. USD). Convert the final sell price into the customer's
+        // session/display currency (default = the platform default, e.g. NGN) so the
+        // listing shows what the customer will actually pay, in their currency.
+        $moduleCurrency  = strtoupper((string) ($module['currency'] ?? 'USD')) ?: 'USD';
+        $displayCurrency = strtoupper((string) ($_SESSION['app_currency'] ?? $moduleCurrency)) ?: $moduleCurrency;
+
         $localRules = $db->select('airalo_packages', '*', [
             'country' => strtoupper($country),
             'status' => 1,
@@ -615,16 +638,29 @@ $router->get('/esim/(\d+)/([a-z]{2})/([a-z]+)/packages/?', function ($moduleId, 
                 : $value;
             $finalPrice = $basePrice + $markupAmount;
 
+            // Convert the sell price into the customer's display currency.
+            $dispPrice = $finalPrice;
+            $dispBase  = $basePrice;
+            $dispMk    = $markupAmount;
+            if ($displayCurrency !== $moduleCurrency && function_exists('CURRENCY_CONVERT')) {
+                $cp = CURRENCY_CONVERT($finalPrice, $db, $moduleCurrency, $displayCurrency);
+                $cb = CURRENCY_CONVERT($basePrice, $db, $moduleCurrency, $displayCurrency);
+                $cm = CURRENCY_CONVERT($markupAmount, $db, $moduleCurrency, $displayCurrency);
+                $dispPrice = is_array($cp) ? (float) ($cp['price'] ?? $finalPrice) : (float) $cp;
+                $dispBase  = is_array($cb) ? (float) ($cb['price'] ?? $basePrice) : (float) $cb;
+                $dispMk    = is_array($cm) ? (float) ($cm['price'] ?? $markupAmount) : (float) $cm;
+            }
+
             $expandedPackages[] = [
                 'id' => (string) ($pkg['id'] ?? uniqid('pkg_', true)),
                 'title' => (string) ($pkg['title'] ?? 'Package'),
                 'country' => (string) ($pkg['_country'] ?? strtoupper($country)),
                 'data_limit' => $extractData($pkg),
                 'duration' => $extractDuration($pkg),
-                'base_price' => round(max(0, $basePrice), 2),
-                'commission' => round(max(0, $markupAmount), 2),
-                'price' => round(max(0, $finalPrice), 2),
-                'currency' => (string) ($module['currency'] ?? 'USD'),
+                'base_price' => round(max(0, $dispBase), 2),
+                'commission' => round(max(0, $dispMk), 2),
+                'price' => round(max(0, $dispPrice), 2),
+                'currency' => $displayCurrency,
                 'package_type' => $pkgType,
                 'commission_type' => $commType,
                 'commission_value' => $value,

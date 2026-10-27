@@ -23,16 +23,17 @@ $router->get('/api/esim/featured', function () use ($SECURE, $db) {
                 'message' => 'eSIM module is not enabled',
                 'data' => [
                     'featured' => [],
-                    'currency' => 'USD'
+                    'currency' => strtoupper($_SESSION['app_currency'] ?? 'USD')
                 ]
             ]);
             exit;
         }
 
         // ========================================
-        // DISPLAY CURRENCY (from query param)
+        // DISPLAY CURRENCY — query param, else the customer's session currency
+        // (default = platform default, e.g. NGN). Never hardcode USD.
         // ========================================
-        $displayCurrency = strtoupper($_GET['currency'] ?? 'USD');
+        $displayCurrency = strtoupper($_GET['currency'] ?? ($_SESSION['app_currency'] ?? 'USD'));
 
         // Fetch featured packages/rules
         $featuredRules = $db->select('airalo_packages', [
