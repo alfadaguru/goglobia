@@ -120,6 +120,18 @@ $base = root . admin . '/supplier-payouts';
                   <input type="hidden" name="id" value="<?= (int) $p['id'] ?>">
                   <button type="submit" class="btn secondary text-xs">Resolve</button>
                 </form>
+              <?php elseif ($st === 'approved' && strtoupper((string) $p['currency']) !== 'NGN'): ?>
+                <?php /* Non-NGN approved payout: no automated foreign rail — disburse out
+                         of band, then confirm here. NGN payouts never reach this branch. */ ?>
+                <div class="flex flex-col gap-1">
+                  <div class="text-[11px] text-blue-600">Recorded in <?= htmlspecialchars((string) $p['currency']) ?>. No automated payout rail — disburse manually, then confirm.</div>
+                  <form action="<?= $base ?>/mark-paid" method="POST" class="inline"
+                        onsubmit="return confirm('Confirm you have ALREADY paid this <?= htmlspecialchars((string) $p['currency']) ?> payout out of band? This marks it paid and debits the reserved earnings.');">
+                    <?= CSRF::tokenField() ?>
+                    <input type="hidden" name="id" value="<?= (int) $p['id'] ?>">
+                    <button type="submit" class="btn emerald text-xs">Mark paid (manual)</button>
+                  </form>
+                </div>
               <?php else: ?>
                 <span class="text-xs text-gray-400">—</span>
               <?php endif; ?>

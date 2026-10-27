@@ -73,6 +73,48 @@ $router->post(admin . '/supplier-payouts/approve', function () use ($SECURE, $db
 });
 
 // ----------------------------------------------------------------------------
+// POST /admin/supplier-payouts/mark-paid — confirm a MANUAL (out-of-band) payout
+// Only for a NON-NGN payout sitting in 'approved': there is no automated foreign
+// disbursement rail (Paystack is NGN-only), so the operator pays it manually
+// (bank/Wise/etc.) then confirms here. Finalising debits the reserved earnings
+// 'available'->'paid' via the currency-agnostic supplier_payout_finalize_transfer.
+// Hard guard: NGN payouts must NOT be marked paid this way — they MUST go through
+// the real Paystack transfer (the approve/resolve path), so a manual mark can never
+// bypass an actual NGN bank transfer.
+// ----------------------------------------------------------------------------
+$router->post(admin . '/supplier-payouts/mark-paid', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    admin_require($db, 'supplier_payouts', 'edit');
+    CSRF::guard();
+    $id = (int) ($_POST['id'] ?? 0);
+    $note = trim((string) ($_POST['note'] ?? ''));
+    $back = root . admin . '/supplier-payouts';
+    if ($id <= 0 || !function_exists('supplier_payout_finalize_transfer')) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Invalid payout.'];
+        header('Location: ' . $back); exit;
+    }
+    $p = $db->get('supplier_payouts', ['state', 'currency'], ['id' => $id]);
+    if (!$p) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Payout not found.'];
+        header('Location: ' . $back); exit;
+    }
+    if (strtoupper((string) $p['currency']) === 'NGN') {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'NGN payouts must be sent via the Paystack transfer (Approve/Resolve), not marked paid manually.'];
+        header('Location: ' . $back); exit;
+    }
+    if ((string) $p['state'] !== 'approved') {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Only an approved (recorded) payout can be marked manually paid (state: ' . $p['state'] . ').'];
+        header('Location: ' . $back); exit;
+    }
+    $res = supplier_payout_finalize_transfer($db, $id, 'success', '', 'manual ' . strtoupper((string) $p['currency']) . ' disbursement' . ($note !== '' ? ': ' . $note : ''));
+    $_SESSION['message'] = [
+        'type' => !empty($res['ok']) ? 'success' : 'error',
+        'text' => !empty($res['ok']) ? 'Marked paid (manual disbursement recorded).' : ($res['message'] ?? 'Could not mark paid.'),
+    ];
+    header('Location: ' . $back); exit;
+});
+
+// ----------------------------------------------------------------------------
 // POST /admin/supplier-payouts/reject — reject + release the reservation
 // ----------------------------------------------------------------------------
 $router->post(admin . '/supplier-payouts/reject', function () use ($SECURE, $db) {

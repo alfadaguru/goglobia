@@ -126,7 +126,11 @@ if (!function_exists('supplier_payout_request')) {
         // Resolve the destination: a provided bank-account snapshot wins; else fall back
         // to the legacy single account on the users row.
         $acct = (isset($opts['account']) && is_array($opts['account'])) ? $opts['account'] : null;
-        $u = $db->get('users', ['payout_bank_code', 'payout_account_number', 'payout_account_name', 'org_id'], ['user_id' => $owner]);
+        // NOTE: do NOT select users.org_id here — that column does not exist on `users`
+        // (it's not in install/db.sql and no ensure* adds it), so selecting it made this
+        // whole query throw 'Unknown column org_id' and broke every payout request. The
+        // org used below comes from supplier_org_for_owner(), not the users row.
+        $u = $db->get('users', ['payout_bank_code', 'payout_account_number', 'payout_account_name'], ['user_id' => $owner]);
         if ($acct !== null) {
             $bankCode = trim((string) ($acct['bank_code'] ?? ''));
             $acctNo   = trim((string) ($acct['account_number'] ?? ''));
@@ -462,10 +466,25 @@ if (!function_exists('supplier_payout_approve_and_send')) {
             return ['ok' => true, 'state' => 'approved', 'message' => 'Approved. Transfers are disabled (settings.supplier_payouts_live = 0) — nothing was sent.'];
         }
 
+        // NON-NGN: there is NO automated cross-border disbursement rail in this install
+        // (the only wired transfer provider is Paystack, which pays NGN only). We do NOT
+        // treat a non-NGN payout as an error — the earnings reservation is already in
+        // place, so we leave the payout 'approved' (recorded, reservation intact) and
+        // tell the operator to disburse it out of band, then confirm via the admin
+        // "mark manually paid" action (supplier_payout_finalize_transfer, currency-
+        // agnostic). This is the honest end state: accept + record in-code; the real
+        // foreign bank transfer is an external-credential step, never faked here.
+        $currency = strtoupper((string) $p['currency']);
+        if ($currency !== 'NGN') {
+            return ['ok' => true, 'state' => 'approved', 'manual' => true,
+                'message' => 'Approved and recorded in ' . $currency . '. No automated payout rail exists for ' . $currency
+                    . ' — disburse it manually, then mark it paid.'];
+        }
+
         // Resolve Paystack creds (NGN gateway). Only NGN transfers are supported here.
         $gw = function_exists('paystack_dva_gateway') ? paystack_dva_gateway($db) : null;
         $secret = $gw ? paystack_dva_secret($gw) : '';
-        if ($secret === '' || strtoupper((string) $p['currency']) !== 'NGN') {
+        if ($secret === '') {
             return ['ok' => false, 'message' => 'Paystack NGN gateway not configured for payouts.'];
         }
 
