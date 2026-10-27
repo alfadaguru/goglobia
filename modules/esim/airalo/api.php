@@ -307,7 +307,11 @@ if (!function_exists('airalo_authoritative_price')) {
         // the same package more than once. Cache within the request so we make at
         // most one Airalo call per (country,package) per request.
         static $memo = [];
-        $memoKey = $country . '|' . $packageId;
+        // Agent-aware memo key: an agent's tier discount can change the commission,
+        // so a customer and an agent in the same request must not share a cached price.
+        $memoAgent = (strtolower((string) ($_SESSION['user_role'] ?? '')) === 'agent')
+            ? ('a:' . (string) ($_SESSION['user_id'] ?? '')) : 'c';
+        $memoKey = $country . '|' . $packageId . '|' . $memoAgent;
         if (array_key_exists($memoKey, $memo)) { return $memo[$memoKey]; }
 
         $environment = (!empty($module['dev_mode']) && (string) $module['dev_mode'] === '1') ? 'sandbox' : 'production';
@@ -367,6 +371,23 @@ if (!function_exists('airalo_authoritative_price')) {
         $rule = $rulesByType[$pkgType] ?? $rulesByType['all'] ?? ['commission_type' => 'fixed', 'value' => 1];
         $value = (float) ($rule['value'] ?? 1);
         $commType = strtolower((string) ($rule['commission_type'] ?? 'fixed'));
+
+        // AGENT B2B: eSIM has a single public commission (no markup_b2b column), so
+        // agents otherwise paid the same as customers. Give them the SAME benefit as
+        // every other service: subtract the agent's tier discount from a PERCENTAGE
+        // commission (mirrors MARKUP() in modules/helpers.php). Fixed commissions are
+        // left as-is (same rule as MARKUP). Detected from the acting session role.
+        if ($commType === 'percentage'
+            && strtolower((string) ($_SESSION['user_role'] ?? '')) === 'agent'
+            && !empty($_SESSION['user_id'])
+            && function_exists('agent_tier_discount_percent')
+        ) {
+            $tierDiscount = (float) agent_tier_discount_percent($db, (string) $_SESSION['user_id']);
+            if ($tierDiscount > 0) {
+                $value = max(0.0, $value - $tierDiscount);
+            }
+        }
+
         $markupAmount = $commType === 'percentage' ? ($basePrice * $value / 100) : $value;
         $finalPrice = round(max(0, $basePrice + $markupAmount), 2);
         if ($finalPrice <= 0) { return ($memo[$memoKey] = null); }
