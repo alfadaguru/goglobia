@@ -106,42 +106,62 @@ if (!function_exists('gia_identity_phone_match')) {
         // split the sender into (national, dial code) and require BOTH to match. If
         // the split is ambiguous we return '' (no guess).
         try {
-            // Prefer the canonical (national, dial-code) split so storage format
-            // differences don't matter. Try each known dial code that prefixes the
-            // sender's digits and look for an EXACT (phone, phone_country_code) row.
-            $candidates = [];
-            // whole-digits exact (covers accounts that stored the full number)
-            $candidates[] = ['phone' => $digits];
-            // national + dial-code split: the sender's leading digits are the country
-            // code. Resolve it via the countries table so we don't hard-code lengths.
-            if (function_exists('getPhoneCode')) {
-                // Try the 1-4 digit leading prefixes as a possible dial code.
-                for ($len = 1; $len <= 4 && $len < strlen($digits); $len++) {
-                    $cc = substr($digits, 0, $len);
-                    $national = substr($digits, $len);
-                    if ($national === '') { continue; }
-                    // Only consider this split if $cc is a real dial code.
-                    $isRealCode = (bool) $db->get('countries', 'id', ['phonecode' => $cc]);
-                    if ($isRealCode) {
-                        $candidates[] = ['phone' => $national, 'phone_country_code' => $cc];
+            // Collect candidate user_ids from several match strategies, then only
+            // unlock if they ALL point to ONE account (unambiguous). Real stored
+            // phones are MESSY: leading zeros (09033329776), national-only, full
+            // international, and a frequently-WRONG stored phone_country_code (e.g.
+            // a default '92' on a Nigerian number). So we must NOT depend on the
+            // stored country code. The reliable key is the NATIONAL SIGNIFICANT
+            // DIGITS (the tail), compared zero-insensitively.
+            $uids = [];
+
+            // (1) EXACT whole-number match (accounts that stored the full intl number).
+            foreach (($db->select('users', ['user_id'], ['phone' => $digits]) ?: []) as $r) {
+                if (($r['user_id'] ?? '') !== '') { $uids[(string) $r['user_id']] = true; }
+            }
+
+            // (2) dial-code split: leading digits = a real country dial code, the
+            //     rest = national number (covers rows that stored the right cc).
+            for ($len = 1; $len <= 4 && $len < strlen($digits); $len++) {
+                $cc = substr($digits, 0, $len);
+                $national = substr($digits, $len);
+                if ($national === '') { continue; }
+                if ((bool) $db->get('countries', 'id', ['phonecode' => $cc])) {
+                    foreach (($db->select('users', ['user_id'], ['phone' => $national, 'phone_country_code' => $cc]) ?: []) as $r) {
+                        if (($r['user_id'] ?? '') !== '') { $uids[(string) $r['user_id']] = true; }
+                    }
+                    // also match the national part regardless of the (often wrong)
+                    // stored cc — still requires the national digits to be identical.
+                    foreach (($db->select('users', ['user_id'], ['phone' => $national]) ?: []) as $r) {
+                        if (($r['user_id'] ?? '') !== '') { $uids[(string) $r['user_id']] = true; }
+                    }
+                    foreach (($db->select('users', ['user_id'], ['phone' => '0' . $national]) ?: []) as $r) {
+                        if (($r['user_id'] ?? '') !== '') { $uids[(string) $r['user_id']] = true; }
                     }
                 }
             }
-            $matchedUser = '';
-            $matchCount = 0;
-            foreach ($candidates as $where) {
-                $rows = $db->select('users', ['user_id'], $where) ?: [];
-                foreach ($rows as $r) {
-                    $uid = (string) ($r['user_id'] ?? '');
-                    if ($uid === '') { continue; }
-                    if ($matchedUser === '') { $matchedUser = $uid; }
-                    if ($uid !== $matchedUser) { $matchCount = 99; break 2; } // >1 distinct -> ambiguous
-                    $matchCount = 1;
+
+            // (3) NATIONAL-TAIL match (the robust one): compare the last 10
+            //     significant digits (zeros stripped) of every stored phone against
+            //     the sender's last 10. 10 digits is a full national number for most
+            //     countries (incl. Nigeria), so a tail match is effectively the whole
+            //     number — strong enough to be safe when it resolves to ONE account.
+            $senderTail = substr($digits, -10);
+            if (strlen($senderTail) >= 9) {
+                // Pull candidate rows cheaply: those whose phone ends with the tail,
+                // OR with a leading zero before it. LIKE on the last digits.
+                $like = '%' . $senderTail;
+                foreach (($db->select('users', ['user_id', 'phone'], ['phone[~]' => $like]) ?: []) as $r) {
+                    $pd = ltrim(preg_replace('/[^0-9]/', '', (string) ($r['phone'] ?? '')), '0');
+                    if ($pd !== '' && strlen($pd) >= 9 && substr($pd, -10) === $senderTail) {
+                        if (($r['user_id'] ?? '') !== '') { $uids[(string) $r['user_id']] = true; }
+                    }
                 }
             }
-            // Return a match ONLY when it unambiguously resolves to one account.
-            if ($matchCount === 1 && $matchedUser !== '') {
-                return $matchedUser;
+
+            // Unlock ONLY when every strategy agreed on exactly ONE account.
+            if (count($uids) === 1) {
+                return (string) array_key_first($uids);
             }
         } catch (\Throwable $e) {
             error_log('[gia] identity phone_match: ' . $e->getMessage());
