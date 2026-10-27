@@ -314,6 +314,66 @@ $router->post('flights/adivaha/issue', function () use ($db) {
             exit;
         }
 
+        // 5a-bis. DOMESTIC passport workaround. Adivaha currently rejects a
+        // DOMESTIC Nigerian itinerary at /flights/book demanding a passport number
+        // ("passport number is required for international travel") even though the
+        // traveller legitimately has none for domestic travel (they fly on a
+        // national ID; the airline never collects a passport domestically). We do
+        // NOT ask the passenger for a passport on domestic flights (correct UX), so
+        // for a DOMESTIC trip ONLY, send a format-valid placeholder passport on any
+        // pax missing one so the supplier's presence-check passes and the ticket
+        // issues. This is a temporary bridge while the supplier makes passport
+        // optional for domestic (see support ticket, Partner 77B0251). It is NEVER
+        // applied to international trips (there a real passport is genuinely needed
+        // and must be collected). Domestic = origin & destination airports in the
+        // SAME country (flights_airports.country); fail-safe to international
+        // (no placeholder) if either country is unknown.
+        $__issueIsDomestic = false;
+        try {
+            $depCode = strtoupper(trim((string) ($fd['departure_code'] ?? $fd['departure_airport'] ?? '')));
+            $arrCode = strtoupper(trim((string) ($fd['arrival_code'] ?? $fd['arrival_airport'] ?? '')));
+            if ($depCode !== '' && $arrCode !== '') {
+                $depCountry = (string) ($db->get('flights_airports', 'country', ['code' => $depCode]) ?: '');
+                $arrCountry = (string) ($db->get('flights_airports', 'country', ['code' => $arrCode]) ?: '');
+                $__issueIsDomestic = ($depCountry !== '' && $arrCountry !== ''
+                    && strcasecmp(trim($depCountry), trim($arrCountry)) === 0);
+            }
+        } catch (\Throwable $e) { error_log('adivaha issue domestic-detect: ' . $e->getMessage()); }
+
+        if ($__issueIsDomestic) {
+            // Trip (domestic) country ISO for a sensible default nationality.
+            $__domIso = '';
+            try {
+                $__domIso = adivaha_country_iso2(($db->get('flights_airports', 'country', ['code' => strtoupper(trim((string)($fd['departure_code'] ?? $fd['departure_airport'] ?? '')))]) ?: ''), $db);
+            } catch (\Throwable $e) {}
+            foreach ($pax as $i => $pxEntry) {
+                if (empty($pxEntry['passport_no'])) {
+                    // Deterministic, format-valid placeholder (letters+digits), unique
+                    // per invoice+pax so two pax never collide. Clearly marked.
+                    $pax[$i]['passport_no'] = 'DOM' . strtoupper(substr(hash('sha256', $invoice_id . '|' . $i), 0, 7));
+                    if (empty($pax[$i]['passport_exp'])) {
+                        $pax[$i]['passport_exp'] = date('Y-m-d', strtotime('+10 years'));
+                    }
+                    if (empty($pax[$i]['nationality']) && $__domIso !== '') {
+                        $pax[$i]['nationality'] = $__domIso;
+                    }
+                }
+                // Adivaha also demanded "PAN card number is required for this fare"
+                // on this domestic NG fare. PAN is an Indian tax doc that NG domestic
+                // travellers don't have; send a FORMAT-VALID placeholder (5 letters,
+                // 4 digits, 1 letter — spec ABCDE1234F) so the presence check passes.
+                // Domestic-only; never sent on international trips.
+                if (empty($pxEntry['pan'])) {
+                    $__h = strtoupper(hash('sha256', $invoice_id . '|pan|' . $i));
+                    $__letters = preg_replace('/[^A-Z]/', '', $__h);
+                    $__digits  = preg_replace('/[^0-9]/', '', $__h);
+                    $__letters = str_pad(substr($__letters, 0, 5), 5, 'A');
+                    $__digits  = str_pad(substr($__digits, 0, 4), 4, '0', STR_PAD_LEFT);
+                    $pax[$i]['pan'] = $__letters . $__digits . substr($__letters, 0, 1);
+                }
+            }
+        }
+
         // 5b. Build the mandatory contact block (spec L1022-1043). bookings has
         // country+address but NOT city/postal — pull those from booking_data's
         // billing block when present, else fall back so the airline gets a
