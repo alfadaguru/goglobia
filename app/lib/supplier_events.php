@@ -95,7 +95,36 @@ if (!function_exists('emit_event')) {
         // 1) Always record the audit trail.
         audit_log($db, $event, $subjectType, $subjectId, $data, $orgId);
 
-        // 2) Dispatch to an existing handler only when present (no "file not found" noise).
+        // 2) OUTBOUND SUPPLIER WEBHOOKS: bridge this internal domain event to the supplier
+        //    webhook catalogue and enqueue a (signed, cron-delivered) delivery to every
+        //    subscribed endpoint of the owning org. Done HERE — the one place every domain
+        //    event already flows through — so we never scatter enqueue calls across the
+        //    booking/payout/review code paths (and can't miss one). The actual HTTP POST is
+        //    the /crons/supplier-webhooks worker; this only records intent (idempotent).
+        if ($orgId !== null && $orgId > 0 && function_exists('supplier_webhook_enqueue')) {
+            // internal event name -> public supplier webhook event
+            static $WH_MAP = [
+                'reservation.created'   => 'booking.created',
+                'reservation.cancelled' => 'booking.cancelled',
+                'reservation.modified'  => 'booking.modified',
+                'payout.paid'           => 'payout.sent',
+                'review.created'        => 'review.created',
+            ];
+            if (isset($WH_MAP[$event])) {
+                // Stable idempotency key: event + the subject it concerns (so a re-emit for
+                // the same business fact dedupes). Falls back to a data-hash if no subject.
+                $keyPart = ($subjectId !== null && $subjectId !== '')
+                    ? (string) $subjectId
+                    : substr(hash('sha256', $event . '|' . json_encode($data)), 0, 24);
+                try {
+                    supplier_webhook_enqueue($db, (int) $orgId, $WH_MAP[$event], $WH_MAP[$event] . ':' . $keyPart, $data);
+                } catch (\Throwable $e) {
+                    error_log('emit_event webhook enqueue (' . $event . '): ' . $e->getMessage());
+                }
+            }
+        }
+
+        // 3) Dispatch to an existing handler only when present (no "file not found" noise).
         if (!function_exists('triggerWebhook')) { return; }
         $parts = explode('.', $event, 2);
         if (count($parts) !== 2) { return; }

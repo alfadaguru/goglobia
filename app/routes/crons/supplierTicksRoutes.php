@@ -35,3 +35,23 @@ $router->get('/crons/workflow-tick', function () use ($SECURE, $db) {
         'ran_at'                  => $r['ran_at'] ?? date('Y-m-d H:i:s'),
     ]);
 });
+
+// OUTBOUND WEBHOOK DELIVERY — POSTs pending supplier webhook deliveries (signed) to the
+// supplier's own endpoint URLs, with retry accounting. The enqueue side already records
+// deliveries; this is the worker that actually sends them. Schedule, e.g.:
+//   */5 * * * * curl -s "https://yourdomain.com/crons/supplier-webhooks" > /dev/null 2>&1
+$router->get('/crons/supplier-webhooks', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 100;
+    $r = function_exists('supplier_webhook_dispatch_due')
+        ? supplier_webhook_dispatch_due($db, $limit)
+        : ['delivered' => 0, 'failed' => 0, 'skipped' => 0, 'considered' => 0];
+    echo json_encode([
+        'status'     => true,
+        'delivered'  => $r['delivered'] ?? 0,
+        'failed'     => $r['failed'] ?? 0,
+        'skipped'    => $r['skipped'] ?? 0,
+        'considered' => $r['considered'] ?? 0,
+        'ran_at'     => date('Y-m-d H:i:s'),
+    ]);
+});

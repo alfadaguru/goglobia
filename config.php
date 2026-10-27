@@ -463,7 +463,9 @@ try {
         // v4: supplier_api_log (raw supplier request/response per invoice, admin-viewable).
         // v5: settings.company_* clean billing address (sent to suppliers so a junk
         //     'N/A' address no longer gets the issue rejected as "Address is invalid").
-        define('APP_SCHEMA_ENSURE_VERSION', 5);
+        // v6: supplier_webhook_ensure_unique_key — adds the (endpoint_id,event_key)
+        //     UNIQUE key the delivery table was missing (enables the delivery worker).
+        define('APP_SCHEMA_ENSURE_VERSION', 6);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);
@@ -558,6 +560,12 @@ try {
     // stays listing-approval + inventory/holds + branded-site tables. Idempotent.
     if (function_exists('ensureSupplierStaysSchema')) {
         ensureSupplierStaysSchema($db);
+    }
+    // Supplier outbound-webhook idempotency: add the (endpoint_id,event_key) UNIQUE key
+    // that the delivery table's second CREATE-IF-NOT-EXISTS block could not add on an
+    // already-existing table. Makes a concurrent double-enqueue impossible at the DB.
+    if (function_exists('supplier_webhook_ensure_unique_key')) {
+        supplier_webhook_ensure_unique_key($db);
     }
     // Travel-Agent ERP portal (docs/agent/AGENT-ERP-SPEC.md) — agent_roles/staff/
     // clients/trip_plans/audit tables + agencies branding + bookings attribution +

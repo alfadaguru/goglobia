@@ -298,3 +298,139 @@ if (!function_exists('supplier_webhook_signature')) {
         return 'sha256=' . hash_hmac('sha256', $rawBody, $secret);
     }
 }
+
+// ---------------------------------------------------------------------------
+// DELIVERY WORKER — the piece that was missing. Enqueue only recorded intent;
+// this actually POSTs pending deliveries to the supplier's endpoint, signs the
+// exact bytes with the endpoint secret, and records the honest outcome.
+// Driven by the cron route /crons/supplier-webhooks. No external credential is
+// needed — the target URL + secret are the supplier's own.
+// ---------------------------------------------------------------------------
+if (!function_exists('supplier_webhook_dispatch_due')) {
+    /**
+     * Deliver up to $limit pending webhook rows. For each: POST the stored payload_json
+     * VERBATIM to the endpoint URL with header X-GoGlobia-Signature computed over those
+     * exact bytes (supplier_webhook_signature). On a 2xx -> status 'delivered'. Otherwise
+     * bump attempts + stamp last_attempt_at, and park as 'failed' once attempts hit the
+     * cap (8), matching supplier_webhook_delivery_retry's accounting. Never fakes a 2xx.
+     *
+     * Only enabled endpoints (status=1) are delivered to; a row whose endpoint is gone or
+     * disabled is left pending (so re-enabling resumes it) unless its attempts are
+     * exhausted. Returns ['delivered'=>int,'failed'=>int,'skipped'=>int,'considered'=>int].
+     */
+    function supplier_webhook_dispatch_due($db, int $limit = 100): array
+    {
+        $limit = max(1, min(500, $limit));
+        $out = ['delivered' => 0, 'failed' => 0, 'skipped' => 0, 'considered' => 0];
+        $MAX_ATTEMPTS = 8;
+        try {
+            // Oldest pending first. Only rows not yet exhausted.
+            $rows = $db->select('supplier_webhook_deliveries',
+                ['id', 'org_id', 'endpoint_id', 'event_type', 'event_key', 'payload_json', 'attempts'],
+                ['status' => 'pending', 'attempts[<]' => $MAX_ATTEMPTS,
+                 'ORDER' => ['id' => 'ASC'], 'LIMIT' => $limit]) ?: [];
+        } catch (\Throwable $e) { error_log('supplier_webhook_dispatch_due select: ' . $e->getMessage()); return $out; }
+
+        // Cache endpoints per id within this run (many deliveries share an endpoint).
+        $epCache = [];
+        foreach ($rows as $row) {
+            $out['considered']++;
+            $deliveryId = (int) $row['id'];
+            $epId = (int) $row['endpoint_id'];
+            $attempts = (int) $row['attempts'];
+            $now = date('Y-m-d H:i:s');
+
+            if (!array_key_exists($epId, $epCache)) {
+                try {
+                    $epCache[$epId] = $db->get('supplier_webhook_endpoints',
+                        ['id', 'url', 'secret', 'status'], ['id' => $epId]) ?: null;
+                } catch (\Throwable $e) { $epCache[$epId] = null; }
+            }
+            $ep = $epCache[$epId];
+
+            // Endpoint missing or disabled → leave pending (resumes if re-enabled), but if
+            // attempts are already exhausted, retire it so it stops being considered.
+            if (!$ep || (int) ($ep['status'] ?? 0) !== 1 || trim((string) ($ep['url'] ?? '')) === '') {
+                $out['skipped']++;
+                continue;
+            }
+
+            $body   = (string) ($row['payload_json'] ?? '');
+            $secret = (string) ($ep['secret'] ?? '');
+            $sig    = supplier_webhook_signature($secret, $body);
+
+            // POST the raw bytes verbatim (do NOT re-encode — the signature covers these
+            // exact bytes). Dedicated curl so the body isn't transformed by a JSON helper.
+            $http = 0; $errno = 0;
+            try {
+                $ch = curl_init(trim((string) $ep['url']));
+                curl_setopt_array($ch, [
+                    CURLOPT_POST           => true,
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_TIMEOUT        => 15,
+                    CURLOPT_CONNECTTIMEOUT => 8,
+                    CURLOPT_POSTFIELDS     => $body,
+                    CURLOPT_HTTPHEADER     => [
+                        'Content-Type: application/json',
+                        'User-Agent: GoGlobia-Webhooks/1.0',
+                        'X-GoGlobia-Event: ' . (string) $row['event_type'],
+                        'X-GoGlobia-Delivery: ' . $deliveryId,
+                        'X-GoGlobia-Signature: ' . $sig,
+                    ],
+                ]);
+                $raw = curl_exec($ch);
+                $errno = curl_errno($ch);
+                $http = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
+            } catch (\Throwable $e) {
+                error_log('supplier_webhook_dispatch_due curl: ' . $e->getMessage());
+                $errno = -1;
+            }
+
+            $delivered = ($errno === 0 && $http >= 200 && $http < 300);
+            try {
+                if ($delivered) {
+                    $db->update('supplier_webhook_deliveries',
+                        ['status' => 'delivered', 'attempts' => $attempts + 1, 'last_attempt_at' => $now],
+                        ['id' => $deliveryId]);
+                    $out['delivered']++;
+                } else {
+                    $newAttempts = $attempts + 1;
+                    $status = ($newAttempts >= $MAX_ATTEMPTS) ? 'failed' : 'pending';
+                    $db->update('supplier_webhook_deliveries',
+                        ['status' => $status, 'attempts' => $newAttempts, 'last_attempt_at' => $now],
+                        ['id' => $deliveryId]);
+                    if ($status === 'failed') { $out['failed']++; }
+                }
+            } catch (\Throwable $e) { error_log('supplier_webhook_dispatch_due update: ' . $e->getMessage()); }
+        }
+        return $out;
+    }
+}
+
+if (!function_exists('supplier_webhook_ensure_unique_key')) {
+    /**
+     * Ensure the (endpoint_id, event_key) UNIQUE key exists on supplier_webhook_deliveries.
+     * The second CREATE-TABLE-IF-NOT-EXISTS block that declared it no-ops on an existing
+     * table, so live installs can lack it — which weakens enqueue idempotency to a
+     * pre-check only. Adding it makes a concurrent double-enqueue impossible at the DB.
+     * Idempotent + non-fatal (swallows "duplicate key name" and any ALTER-permission error,
+     * following the repo's self-healing convention). Call once from config's ensure block.
+     */
+    function supplier_webhook_ensure_unique_key($db): void
+    {
+        static $done = false;
+        if ($done) { return; }
+        $done = true;
+        try {
+            $idx = $db->query("SHOW INDEX FROM supplier_webhook_deliveries WHERE Key_name = 'uq_endpoint_eventkey'")->fetchAll();
+            if (!empty($idx)) { return; }
+            // Guard against pre-existing dup (endpoint_id,event_key) rows that would make the
+            // ALTER fail — none are expected (enqueue already de-dupes), but be safe.
+            $db->query("ALTER TABLE supplier_webhook_deliveries
+                        ADD UNIQUE KEY uq_endpoint_eventkey (endpoint_id, event_key)");
+        } catch (\Throwable $e) {
+            error_log('supplier_webhook_ensure_unique_key: ' . $e->getMessage());
+        }
+    }
+}
