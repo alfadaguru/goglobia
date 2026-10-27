@@ -457,3 +457,4 @@ require_once 'app/routes/crons/campaignsDispatchRoutes.php'; // scheduled email 
 require_once 'app/routes/crons/airaloSyncRoutes.php'; // Airalo eSIM country catalogue sync (/cron/airalo-sync)
 require_once 'app/routes/crons/giaPaymentsRoutes.php'; // GIA per-booking payment reminders + expiry sweep
 require_once 'app/routes/crons/supportShiftNudgeRoutes.php'; // GIA WhatsApps staff not clocked in at shift start, every 15m, capped at 3
+require_once 'app/routes/crons/supplierTicksRoutes.php'; // supplier PMS: /crons/notify-tick (alert rules) + /crons/workflow-tick (automations + recurring tasks)
