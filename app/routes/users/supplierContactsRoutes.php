@@ -119,11 +119,52 @@ $router->get('/supplier/customers/([0-9]+)', function ($id) use ($SECURE, $db) {
     $types = contacts_types();
     $canEdit = supplier_can($db, 'reservations', 'edit');
 
+    // Phase 4b: the customer's deposit wallet (balances per currency + recent ledger).
+    $walletBalances = function_exists('cwallet_balances') ? cwallet_balances($db, $orgId, (int) $id) : [];
+    $walletLedger   = function_exists('cwallet_ledger') ? cwallet_ledger($db, $orgId, (int) $id, 25) : [];
+
     $title = $contact['display_name'];
     $header = true; $footer = true;
     require_once views . "includes/header.php";
     require_once views . "supplier/customers/detail.php";
     require_once views . "includes/footer.php";
+});
+
+// ---------------------------------------------------------------------------
+// POST /supplier/customers/{id}/wallet — top-up or draw-down the deposit wallet
+// (stored value the hotel holds for this customer). Prepaid: draw-down can't overdraw.
+// ---------------------------------------------------------------------------
+$router->post('/supplier/customers/([0-9]+)/wallet', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $ctx = _contacts_ctx($db);
+    if ($ctx === null) { _supplier_stays_deny('Customers is not available for this account.'); }
+    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    $orgId = (int) $ctx['org'];
+    $back = root . 'supplier/customers/' . (int) $id;
+    if (!contacts_get($db, $orgId, (int) $id)) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Customer not found.'];
+        header('Location: ' . root . 'supplier/customers'); exit;
+    }
+    $dir = (string) ($_POST['direction'] ?? '');
+    $amount = round((float) ($_POST['amount'] ?? 0), 2);
+    $currency = strtoupper(substr((string) ($_POST['currency'] ?? 'USD'), 0, 3)) ?: 'USD';
+    $note = trim((string) ($_POST['note'] ?? ''));
+    if ($amount <= 0) {
+        $_SESSION['message'] = ['type' => 'error', 'text' => 'Enter a positive amount.'];
+        header('Location: ' . $back); exit;
+    }
+    if ($dir === 'topup') {
+        $res = cwallet_topup($db, $orgId, (int) $id, $amount, $currency, ['note' => $note]);
+        $msg = !empty($res['ok']) ? 'Deposit added to the wallet.' : ($res['message'] ?? 'Could not add deposit.');
+    } elseif ($dir === 'drawdown') {
+        $res = cwallet_drawdown($db, $orgId, (int) $id, $amount, $currency, ['reason' => 'adjustment', 'note' => $note ?: 'Manual draw-down']);
+        $msg = !empty($res['ok']) ? 'Wallet drawn down.' : ($res['message'] ?? 'Could not draw down.');
+    } else {
+        $res = ['ok' => false]; $msg = 'Pick top-up or draw-down.';
+    }
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $msg];
+    header('Location: ' . $back); exit;
 });
 
 // ---------------------------------------------------------------------------

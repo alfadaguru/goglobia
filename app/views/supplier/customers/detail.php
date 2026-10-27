@@ -56,7 +56,60 @@ $e = function ($k) use ($contact) { return htmlspecialchars((string) ($contact[$
         <div class="flex justify-between"><dt class="text-gray-400">Negotiated discount</dt><dd><?= $contact['negotiated_discount_pct'] !== null ? htmlspecialchars((string) $contact['negotiated_discount_pct']) . '%' : '—' ?></dd></div>
         <div class="flex justify-between"><dt class="text-gray-400">Credit limit</dt><dd><?= $contact['credit_limit'] !== null ? number_format((float) $contact['credit_limit'], 2) : '—' ?></dd></div>
       </dl>
-      <p class="text-[11px] text-gray-400">Applied/enforced in a later phase. Direct-bill &amp; city-ledger via Accounts Receivable.</p>
+      <p class="text-[11px] text-gray-400">Credit limit is enforced when a stay is direct-billed to this account. Direct-bill &amp; city-ledger via Accounts Receivable.</p>
+    </div>
+    <?php endif; ?>
+  </div>
+
+  <!-- Deposit wallet (Phase 4b): stored value the hotel holds for this customer -->
+  <?php
+    $walletBalances = (isset($walletBalances) && is_array($walletBalances)) ? $walletBalances : [];
+    $walletLedger   = (isset($walletLedger) && is_array($walletLedger)) ? $walletLedger : [];
+  ?>
+  <div class="card p-5">
+    <h2 class="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2"><span class="material-symbols-outlined text-violet-600 text-base">account_balance_wallet</span> Deposit wallet</h2>
+    <p class="text-xs text-gray-500 mb-3">Stored value you hold for this customer — top up from a deposit they pay, draw down toward their stays.</p>
+
+    <div class="flex flex-wrap gap-3 mb-3">
+      <?php if (empty($walletBalances)): ?>
+        <div class="px-3 py-2 rounded-lg bg-gray-100 text-gray-500 text-sm">No deposit on file.</div>
+      <?php else: foreach ($walletBalances as $ccy => $bal): ?>
+        <div class="px-3 py-2 rounded-lg bg-violet-50 text-violet-800"><span class="text-lg font-bold tabular-nums"><?= htmlspecialchars((string) $ccy) ?> <?= number_format((float) $bal, 2) ?></span></div>
+      <?php endforeach; endif; ?>
+    </div>
+
+    <?php if ($canEdit): ?>
+    <form action="<?= $base ?>/<?= (int) $contact['id'] ?>/wallet" method="POST" class="flex flex-wrap items-end gap-2">
+      <?= CSRF::tokenField() ?>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Action</label>
+        <select name="direction" class="input text-sm"><option value="topup">Top up (deposit)</option><option value="drawdown">Draw down</option></select></div>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Amount</label>
+        <input type="number" name="amount" min="0" step="0.01" class="input text-sm w-28" required></div>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Currency</label>
+        <input type="text" name="currency" maxlength="3" value="USD" class="input text-sm w-20"></div>
+      <div class="form-control flex-1 min-w-[160px]"><label class="block text-xs text-gray-600 mb-1">Note</label>
+        <input type="text" name="note" class="input text-sm w-full" placeholder="e.g. cash deposit at desk"></div>
+      <button type="submit" class="btn secondary text-sm">Apply</button>
+    </form>
+    <p class="text-[11px] text-gray-400 mt-1">Prepaid — a draw-down can't exceed the balance. Credit terms are separate (direct-bill to the city ledger).</p>
+    <?php endif; ?>
+
+    <?php if (!empty($walletLedger)): ?>
+    <div class="mt-3 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-left text-gray-500 border-b border-gray-100"><th class="px-2 py-1.5 font-medium">When</th><th class="px-2 py-1.5 font-medium">Type</th><th class="px-2 py-1.5 font-medium text-right">Amount</th><th class="px-2 py-1.5 font-medium text-right">Balance</th><th class="px-2 py-1.5 font-medium">Note</th></tr></thead>
+        <tbody class="divide-y divide-gray-50">
+          <?php foreach ($walletLedger as $l): ?>
+            <tr>
+              <td class="px-2 py-1.5 text-xs text-gray-500"><?= htmlspecialchars(substr((string) $l['created_at'], 0, 16)) ?></td>
+              <td class="px-2 py-1.5 text-xs"><?= ($l['direction'] === 'credit') ? '<span class="text-emerald-600">Top-up</span>' : '<span class="text-amber-600">Draw-down</span>' ?></td>
+              <td class="px-2 py-1.5 text-right tabular-nums <?= $l['direction'] === 'credit' ? 'text-emerald-700' : 'text-amber-700' ?>"><?= $l['direction'] === 'credit' ? '+' : '−' ?><?= htmlspecialchars((string) $l['currency']) ?> <?= number_format((float) $l['amount'], 2) ?></td>
+              <td class="px-2 py-1.5 text-right tabular-nums"><?= number_format((float) $l['balance_after'], 2) ?></td>
+              <td class="px-2 py-1.5 text-xs text-gray-500"><?= htmlspecialchars((string) ($l['note'] ?? '')) ?></td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
     </div>
     <?php endif; ?>
   </div>

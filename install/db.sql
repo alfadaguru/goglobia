@@ -30091,6 +30091,46 @@ CREATE TABLE `stays_contacts` (
 -- --------------------------------------------------------
 
 --
+-- FRONT-DESK OVERHAUL Phase 4b: hotel-scoped CUSTOMER WALLET (stored value the hotel
+-- holds for a Customer-Book contact, drawn down on stays). Keyed by (org_id,contact_id,
+-- currency) — separate from the platform `wallets`/`users` spine. Mirrored by
+-- ensureSupplierStaysSchema (functions.php). Row-locked apply, non-negative, UNIQUE ref
+-- for idempotency.
+--
+CREATE TABLE `stays_contact_wallet` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `contact_id` bigint(20) unsigned NOT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `balance` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_contact_currency` (`org_id`,`contact_id`,`currency`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `stays_contact_wallet_ledger` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `contact_id` bigint(20) unsigned NOT NULL,
+  `wallet_id` bigint(20) unsigned NOT NULL,
+  `direction` enum('credit','debit') NOT NULL,
+  `amount` decimal(14,2) NOT NULL,
+  `balance_after` decimal(14,2) NOT NULL,
+  `currency` char(3) NOT NULL DEFAULT 'USD',
+  `reason` varchar(40) NOT NULL DEFAULT 'adjustment',
+  `ref` varchar(120) DEFAULT NULL,
+  `note` varchar(255) DEFAULT NULL,
+  `created_by` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_ref` (`org_id`,`ref`),
+  KEY `idx_wallet` (`wallet_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- MODULE 15: sales activity log per corporate account.
 --
 CREATE TABLE `stays_sales_activities` (

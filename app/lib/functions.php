@@ -9899,6 +9899,44 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_guest` (`org_id`,`guest_email_key`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // --- stays_contact_wallet + _ledger (Front-desk overhaul Phase 4b) -----------
+        // A hotel-scoped STORED-VALUE wallet for a Customer-Book contact (deposit the
+        // hotel holds + draws down on stays). Keyed by (org_id, contact_id, currency) —
+        // DELIBERATELY SEPARATE from the platform `wallets`/`users` spine (a hotel
+        // customer is a stays_contacts row, not a platform user), the same separation
+        // the hotel GL/AR already keep. Safety mirrors wallet.php: the balance row is
+        // locked FOR UPDATE on apply, a debit can never take it negative, and the ledger
+        // carries a UNIQUE ref so a retried top-up/draw-down can't double-apply.
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_contact_wallet` (
+            `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `contact_id` BIGINT UNSIGNED NOT NULL,
+            `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+            `balance` DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_contact_currency` (`org_id`,`contact_id`,`currency`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_contact_wallet_ledger` (
+            `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `contact_id` BIGINT UNSIGNED NOT NULL,
+            `wallet_id` BIGINT UNSIGNED NOT NULL,
+            `direction` ENUM('credit','debit') NOT NULL,
+            `amount` DECIMAL(14,2) NOT NULL,
+            `balance_after` DECIMAL(14,2) NOT NULL,
+            `currency` CHAR(3) NOT NULL DEFAULT 'USD',
+            `reason` VARCHAR(40) NOT NULL DEFAULT 'adjustment',
+            `ref` VARCHAR(120) DEFAULT NULL,
+            `note` VARCHAR(255) DEFAULT NULL,
+            `created_by` VARCHAR(255) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_ref` (`org_id`,`ref`),
+            KEY `idx_wallet` (`wallet_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
         // --- supplier_quota_requests (inc S34): post-approval service/quota requests -
         // An approved supplier asks for a NEW service or a higher quota; admin approval
         // applies it to supplier_services (doesn't disturb live grants while pending).

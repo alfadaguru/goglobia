@@ -176,6 +176,7 @@ require_once 'app/lib/supplier_bi.php';
 require_once 'app/lib/supplier_guests.php';
 require_once 'app/lib/supplier_contacts.php'; // Front-desk overhaul Phase 1: Customer Book (depends on corporate+guests+guestcrm libs above)
 require_once 'app/lib/supplier_directbill.php'; // Front-desk overhaul Phase 3: direct-bill a folio to a contact's city-ledger account (depends on ar_ext + corporate + contacts above)
+require_once 'app/lib/supplier_contact_wallet.php'; // Front-desk overhaul Phase 4b: hotel-scoped customer deposit wallet (stays_contact_wallet)
 require_once 'app/lib/supplier_loyalty.php';
 require_once 'app/lib/supplier_reviews.php';
 require_once 'app/lib/supplier_procurement.php';
@@ -470,7 +471,9 @@ try {
         //     UNIQUE key the delivery table was missing (enables the delivery worker).
         // v7: stays_contacts (Front-Desk Overhaul Phase 1 — the Customer Book): the
         //     unified individual/company/ngo/agent contact spine with phone/type search.
-        define('APP_SCHEMA_ENSURE_VERSION', 7);
+        // v8: stays_contact_wallet + _ledger (Front-Desk Overhaul Phase 4b): a hotel-
+        //     scoped customer deposit wallet (separate from the platform wallet spine).
+        define('APP_SCHEMA_ENSURE_VERSION', 8);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);
