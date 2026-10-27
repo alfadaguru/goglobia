@@ -296,6 +296,30 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                 <span>Resend ticket — WhatsApp</span>
             </button>
 
+            <!-- SEND TRAVEL REMINDER (manual) — fire a warm flight reminder (with
+                 their ticket details + check-in note) or a post-trip thank-you to
+                 the customer on email + WhatsApp, on demand. Same message the auto
+                 cron sends; staff can nudge a traveller any time. -->
+            <button type="button" @click="sendReminder('pre')" :disabled="actionLoading['Send Reminder']"
+                    class="btn inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-amber-400 to-amber-500 text-white hover:from-amber-500 hover:to-amber-600 transition-all duration-200">
+                <svg x-show="actionLoading['Send Reminder']" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span x-show="!actionLoading['Send Reminder']" class="material-symbols-outlined text-lg">notifications_active</span>
+                <span>Send flight reminder</span>
+            </button>
+
+            <button type="button" @click="sendReminder('post')" :disabled="actionLoading['Send Thanks']"
+                    class="btn inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-400 to-emerald-500 text-white hover:from-emerald-500 hover:to-emerald-600 transition-all duration-200">
+                <svg x-show="actionLoading['Send Thanks']" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span x-show="!actionLoading['Send Thanks']" class="material-symbols-outlined text-lg">reviews</span>
+                <span>Send thank-you + next trip</span>
+            </button>
+
             <!-- Raise a support ticket pre-linked to this booking (POSTs to
                  /support/tickets/from-booking; backend = support_ticket_create_for_booking). -->
             <button type="button" @click="raiseTicket()" :disabled="actionLoading['Raise Ticket']"
@@ -1636,6 +1660,33 @@ function bookingEdit() {
                 alert(data.message || ((data.status === true || data.success === true) ? 'Ticket re-sent.' : 'Could not re-send the ticket.'));
             })
             .catch(() => { this.actionLoading[label] = false; alert('Could not re-send the ticket.'); });
+        },
+        sendReminder(kind) {
+            // Manually send a warm travel reminder to the customer on email+WhatsApp.
+            // kind='pre' => upcoming-flight reminder (flight details + check-in note);
+            // kind='post' => thank-you + next-trip invite + review ask. POSTs
+            // action=send_reminder; CSRF auto-attached by app.js.
+            const label = kind === 'post' ? 'Send Thanks' : 'Send Reminder';
+            const what = kind === 'post'
+                ? 'a thank-you + next-trip message'
+                : 'a flight reminder (with their flight details)';
+            if (!confirm('Send ' + what + ' to the customer by email and WhatsApp?')) { return; }
+            this.actionLoading[label] = true;
+            const params = new URLSearchParams();
+            params.set('invoice_id', '<?= $invoice_id ?>');
+            params.set('action', 'send_reminder');
+            params.set('kind', kind);
+            fetch('<?= root . admin ?>/bookings/action/<?= $invoice_id ?>', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.actionLoading[label] = false;
+                alert(data.message || ((data.status === true || data.success === true) ? 'Reminder sent.' : 'Could not send the reminder.'));
+            })
+            .catch(() => { this.actionLoading[label] = false; alert('Could not send the reminder.'); });
         },
         handleAction(action, extraParams = {}) {
             if (action === 'Issue Booking' && this.hotelbedsNeedsReconcile) {

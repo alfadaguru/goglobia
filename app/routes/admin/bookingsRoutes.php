@@ -351,6 +351,39 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
         exit;
     }
 
+    // SEND TRAVEL REMINDER — manually fire a warm flight reminder to the customer
+    // on email + WhatsApp (the same message the auto cron sends). Lets staff nudge
+    // a traveller on demand. $_POST['kind'] = 'pre' (upcoming-flight reminder,
+    // default) or 'post' (thank-you + rebook + review). Read-only; allowed even on
+    // cancelled bookings (staff judgement). Reuses flight_reminders_send().
+    if ($action === 'send_reminder') {
+        try {
+            require_once dirname(__DIR__, 3) . '/app/lib/flight_reminders.php';
+            if (!function_exists('flight_reminders_send')) {
+                echo json_encode(['success' => false, 'status' => false, 'message' => 'Reminder sender is unavailable.']);
+                exit;
+            }
+            $kind = strtolower(trim((string) ($_POST['kind'] ?? 'pre')));
+            if (!in_array($kind, ['pre', 'post'], true)) { $kind = 'pre'; }
+            $hasEmail = trim((string) ($booking['email'] ?? '')) !== '';
+            $hasPhone = trim((string) ($booking['phone'] ?? '')) !== '';
+            if (!$hasEmail && !$hasPhone) {
+                echo json_encode(['success' => false, 'status' => false, 'message' => 'No email or phone on this booking to send a reminder to.']);
+                exit;
+            }
+            flight_reminders_send($db, $booking, $kind);
+            $where = trim(($hasEmail ? 'email' : '') . ($hasEmail && $hasPhone ? ' + ' : '') . ($hasPhone ? 'WhatsApp' : ''));
+            echo json_encode([
+                'success' => true, 'status' => true,
+                'message' => ($kind === 'post' ? 'Thank-you + next-trip' : 'Flight') . ' reminder sent to the customer via ' . $where . '.',
+            ]);
+        } catch (\Throwable $e) {
+            error_log('[admin] send_reminder ' . $invoice_id . ': ' . $e->getMessage());
+            echo json_encode(['success' => false, 'status' => false, 'message' => 'Could not send the reminder.']);
+        }
+        exit;
+    }
+
     if ($action === 'mark_paid') {
         // ALREADY-PAID GUARD (audit #46): without this, re-firing mark_paid on an
         // already-paid booking re-runs NOTIFY::payment + regenerates the PDF every time,
