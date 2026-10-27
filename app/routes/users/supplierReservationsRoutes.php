@@ -616,6 +616,36 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                         $_SESSION['message'] = ['type' => 'error', 'text' => $enf['message'] ?? 'Over credit limit.'];
                     }
                 }
+                // Phase 6 — ROLE-BOUND DISCOUNTS: a credit_note is how the desk grants a
+                // discount. Its size (as a % of the folio's charges) is capped per staff
+                // ROLE via the existing approval-limit spine (supplier_can_approve with
+                // the 'discount_percent' key). Owner/admin = unlimited; a staff member is
+                // bound by their role's configured cap; an UNCONFIGURED cap denies
+                // (escalate to a manager). The owner can tick the same override box to
+                // grant beyond a cap, which is logged to the audit trail.
+                if (!$blocked && $ftype === 'credit_note' && function_exists('supplier_can_approve')) {
+                    // Discount % = this credit note ÷ the folio's current charges. If there
+                    // are no charges yet, treat any discount as 100% (so it still gates).
+                    $charges = 0.0;
+                    if ($fid > 0 && function_exists('folio_totals')) { $charges = round((float) (folio_totals($db, $fid)['charges'] ?? 0), 2); }
+                    $pct = $charges > 0 ? round($famount / $charges * 100, 2) : 100.0;
+                    $ctx6 = supplier_acting_context($db);
+                    $isOwner6 = is_array($ctx6) && !empty($ctx6['is_owner']);
+                    if (!supplier_can_approve($db, 'discount_percent', $pct, $hid)) {
+                        if ($isOwner6 && !empty($_POST['override'])) {
+                            // Owner override — allowed, logged.
+                            if (function_exists('emit_event')) {
+                                $org6 = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $hid) : 0;
+                                emit_event($db, 'discount.override', ['invoice_id' => $invoiceId, 'amount' => $famount, 'pct' => $pct],
+                                    'reservation', $invoiceId, $org6 > 0 ? $org6 : null);
+                            }
+                        } else {
+                            $blocked = true;
+                            $_SESSION['message'] = ['type' => 'error',
+                                'text' => 'That discount (' . $pct . '%) exceeds your role’s limit — a manager must approve it.'];
+                        }
+                    }
+                }
                 // Phase 5 — TYPED DESK TENDERS: a PAYMENT line records HOW it was paid.
                 // Stash the tender in the description (no tender column on folio_items),
                 // and for CASH feed the acting cashier's open shift so the drawer
