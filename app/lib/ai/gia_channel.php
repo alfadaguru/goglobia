@@ -393,22 +393,34 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             // Account linking (verify_identity) is always available so GIA can
             // offer to link the chat to an account.
             $agent->registerTool(new verifyIdentityTool());
+            // WHO COUNTS AS "KNOWN" ON THIS CHAT for account data:
+            //   - verified  : confirmed via the email code (strongest), OR
+            //   - match     : the WhatsApp sender number resolved to EXACTLY ONE
+            //                 account via the STRICT, UNAMBIGUOUS phone match
+            //                 (uq_users_phone; a fuzzy/ambiguous match already
+            //                 returns '' upstream, so a match means this number is
+            //                 registered to precisely this one account).
+            // Owner decision (2026-10-27): an unambiguous WhatsApp phone match is
+            // treated as full identity on WhatsApp, so a customer we just messaged
+            // can get their booking/ticket WITHOUT the email-code dance. The strict
+            // single-account uniqueness is the safety floor (we never unlock on a
+            // fuzzy or multi-hit match). Verified-via-email remains available and is
+            // still required for the other channels (Telegram/Messenger ids aren't
+            // phone numbers, so they can't phone-match — email link only there).
+            $channelKnown = !empty($ident['verified'])
+                || (!empty($ident['match']) && strtolower((string) $channel) === 'whatsapp');
+
             // get_order_status reads a booking by invoice ref with NO owner scope
-            // (shared tool). On a channel we therefore register it ONLY for a
-            // VERIFIED traveler — a stranger can't look up arbitrary bookings here.
-            // (Web behavior is unchanged; this gate is channel-only.)
-            if (!empty($ident['verified'])) {
+            // (shared tool). On a channel we register it for a KNOWN traveler only —
+            // a stranger can't look up arbitrary bookings here. (Web unchanged.)
+            if ($channelKnown) {
                 $agent->registerTool(new getOrderStatusTool());
             }
-            // Full account awareness + profile update: these READ/WRITE private
-            // account data (bookings, wallet, saved travellers, profile), so they
-            // are gated to a VERIFIED identity — a confirmed account link, NOT a
-            // passive phone match. A passive match (same phone, unverified) can be
-            // the WRONG person (shared/recycled number), so it may greet by name but
-            // must NOT unlock account data (IDOR hard guard — matches getOrderStatus
-            // above). An unverified sender gets registerAccountTool / verify_identity
-            // instead (below). The tools also self-refuse on empty account_id.
-            if (!empty($ident['verified']) && ($toolContext['account_id'] ?? '') !== '') {
+            // Full account awareness + profile update (bookings, wallet, saved
+            // travellers, profile). Gated to a KNOWN identity (verified OR an
+            // unambiguous WhatsApp phone match) with a resolved account_id. The
+            // tools also self-refuse on an empty account_id.
+            if ($channelKnown && ($toolContext['account_id'] ?? '') !== '') {
                 $agent->registerTool(new userAccountTool());
                 $agent->registerTool(new myTravellersTool());
                 $agent->registerTool(new updateProfileTool());
@@ -472,16 +484,33 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             if ($accountId !== '' && function_exists('gia_user_profile')) {
                 $agent->setUserProfile(gia_user_profile($db, $accountId));
             }
-            // Identity guidance: if NOT verified on this channel, GIA must link the
-            // account (verify_identity) before anything account-specific — it has no
-            // way to read "my bookings" here until then.
-            if (empty($ident['verified'])) {
+            // Identity guidance. Three cases on a channel:
+            //  1) KNOWN via phone match (WhatsApp number = exactly one account, not
+            //     yet email-verified): GIA CAN already read this person's account —
+            //     their bookings, order status, saved travellers. Acknowledge them by
+            //     name and PROACTIVELY surface what they likely want (their latest
+            //     booking / its status / resend the ticket) without demanding an
+            //     email code. This is the "I just got a WhatsApp from GoGlobia and
+            //     GIA knows my booking" experience.
+            //  2) KNOWN via email verification: same, fully linked.
+            //  3) UNKNOWN (no match, no verify): can't read any account; offer to
+            //     link by email (verify_identity) for account-specific asks.
+            if ($channelKnown && empty($ident['verified'])) {
                 $agent->addSystemNote(
-                    "ACCOUNT: this chat is NOT yet linked to a GoGlobia account. If the traveler asks about "
-                    . "'my bookings', their order status, or wants to pay from their wallet, first link their "
-                    . "account using the verify_identity tool (ask for their account email, send a code, confirm "
-                    . "it). You cannot look up their bookings until the chat is verified. You can still help them "
-                    . "search and plan new trips without linking."
+                    "ACCOUNT (recognised by phone): this WhatsApp number is linked to the traveler's GoGlobia "
+                    . "account, so you CAN look up THEIR bookings and order status right now with "
+                    . "get_my_account / get_order_status — do NOT ask them to verify by email just to see their "
+                    . "own booking. If they open with a greeting or ask 'what's my booking', proactively check "
+                    . "their latest booking and offer its status + to resend the ticket. Only fall back to email "
+                    . "verification (verify_identity) if the account lookup finds nothing or they ask to switch "
+                    . "to a different account."
+                );
+            } elseif (empty($channelKnown)) {
+                $agent->addSystemNote(
+                    "ACCOUNT: this chat is NOT yet linked to a GoGlobia account and the number doesn't match one. "
+                    . "If the traveler asks about 'my bookings', their order status, or wants to pay from their "
+                    . "wallet, link their account using the verify_identity tool (ask for their account email, send "
+                    . "a code, confirm it). You can still help them search and plan new trips without linking."
                 );
             }
             // DETERMINISTIC NUMERIC PICK: on WhatsApp a >3-option list is shown as a
