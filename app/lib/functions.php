@@ -58,6 +58,53 @@ if (!function_exists('ticket_public_token')) {
     }
 }
 
+if (!function_exists('ticket_whatsapp_caption')) {
+    /**
+     * Build a WARM, branded, service-aware WhatsApp caption to accompany a ticket
+     * PDF (or to send as the confirmation text). Used by EVERY ticket-send path
+     * (admin Booking Manager, website, agent portal, GIA) so the customer always
+     * gets a friendly message — never a bare "ticket attached". Includes the
+     * booking reference, PNR when present, a service-specific good wish (safe
+     * flight / enjoy your stay / blessed journey ...), and the brand name.
+     *
+     * @param array  $booking   bookings row (reads first_name, pnr)
+     * @param string $invoiceId booking reference
+     * @param string $service   module/service key (flights/stays/umrah/...)
+     * @param array|null $settings settings row (for brand name)
+     */
+    function ticket_whatsapp_caption(array $booking, string $invoiceId, string $service = '', ?array $settings = null): string
+    {
+        $svc  = strtolower(trim($service !== '' ? $service : (string) ($booking['module_type'] ?? $booking['module'] ?? '')));
+        $name = trim((string) ($booking['first_name'] ?? ''));
+        $pnr  = trim((string) ($booking['pnr'] ?? ''));
+        $brand = function_exists('getBrandName') ? getBrandName($settings) : 'GoGlobia';
+
+        // Service-specific sign-off (the "warm wish").
+        $wish = 'Have a wonderful trip';
+        $icon = '🎫';
+        switch ($svc) {
+            case 'flights': case 'ai_trip': $wish = 'Wishing you a safe and pleasant flight ✈️'; $icon = '🎫'; break;
+            case 'stays': case 'hotels':    $wish = 'Enjoy your stay 🏨';                         $icon = '🏨'; break;
+            case 'umrah':                   $wish = 'We wish you a blessed and safe journey 🕋';  $icon = '🕋'; break;
+            case 'tours':                   $wish = 'Enjoy every moment of your tour 🌍';          $icon = '🎟️'; break;
+            case 'cars':                    $wish = 'Enjoy the drive 🚗';                          $icon = '🚗'; break;
+            case 'rail':                    $wish = 'Have a smooth journey 🚄';                    $icon = '🚄'; break;
+            case 'ferries':                 $wish = 'Enjoy your voyage ⛴️';                        $icon = '⛴️'; break;
+            case 'esim':                    $wish = 'Stay connected on your travels 📶';           $icon = '📶'; break;
+            case 'visa':                    $wish = 'Best wishes with your travel plans 🛂';       $icon = '🛂'; break;
+        }
+
+        $hi = $name !== '' ? ('Hello ' . $name . ',') : 'Hello,';
+        $lines = [];
+        $lines[] = $hi;
+        $lines[] = $icon . ' Your ticket for booking *' . $invoiceId . '* is attached — please keep it for your journey.';
+        if ($pnr !== '') { $lines[] = 'Booking reference (PNR): *' . $pnr . '*.'; }
+        $lines[] = $wish . '.';
+        $lines[] = 'Thank you for choosing *' . $brand . '*.';
+        return implode("\n", $lines);
+    }
+}
+
 // DEBUG FUNCTION
 function dd($d)
 {

@@ -322,8 +322,11 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
                 $cc  = trim((string) ($booking['phone_country_code'] ?? ''));
                 $full = $cc !== '' ? (preg_replace('/[^\d]/', '', $cc) . preg_replace('/[^\d]/', '', $phone)) : $phone;
                 $ticketUrl = function_exists('ticket_public_url') ? ticket_public_url((string) $invoice_id) : null;
+                $waCaption = function_exists('ticket_whatsapp_caption')
+                    ? ticket_whatsapp_caption($booking, (string) $invoice_id, $module)
+                    : ('🎫 Your ticket for booking ' . $invoice_id . ' is attached.');
                 $sent = function_exists('SENDWHATSAPP')
-                    ? SENDWHATSAPP($full, trim((string) (($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), '🎫 Your ticket for booking ' . $invoice_id . ' is attached.', $ticketPath, $ticketUrl)
+                    ? SENDWHATSAPP($full, trim((string) (($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), $waCaption, $ticketPath, $ticketUrl)
                     : false;
                 echo json_encode($sent
                     ? ['success' => true, 'status' => true, 'message' => 'Ticket sent to the customer on WhatsApp (' . $phone . ').']

@@ -96,7 +96,9 @@ if ($event === 'cars.booking.confirmed') {
         
         // Send notification
         try {
-            NOTIFY::booking('cars', $customerData, $notificationData, $pdfPath);
+            // Ticket as BOTH owner (4th) + customer (5th) doc so the customer
+            // WhatsApp copy carries the ticket PDF (5th arg triggers the WA doc send).
+            NOTIFY::booking('cars', $customerData, $notificationData, $pdfPath, $pdfPath);
         } catch (Exception $e) {
             error_log("CAR_BOOKING_WEBHOOK ERROR (NOTIFY): " . $e->getMessage());
         }

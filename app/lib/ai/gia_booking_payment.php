@@ -866,10 +866,13 @@ if (!function_exists('gia_bp_send_confirmation')) {
                 // "sent here" instead of "check email" when it worked).
                 $docSent = false;
                 if (!empty($ticketPdf) && is_file((string) $ticketPdf) && function_exists('gia_bp_send_document')) {
+                    $docCaption = function_exists('ticket_whatsapp_caption')
+                        ? ticket_whatsapp_caption($b, $invoiceId, (string) ($svc ?? ''))
+                        : ('🎫 Your ticket — booking ' . $invoiceId);
                     $docSent = gia_bp_send_document(
                         $db, $bp, (string) $ticketPdf,
                         'ticket_' . $invoiceId . '.pdf',
-                        'Your ticket — booking ' . $invoiceId
+                        $docCaption
                     );
                 }
 

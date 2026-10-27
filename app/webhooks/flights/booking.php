@@ -100,7 +100,11 @@ if ($event === 'flights.booking.confirmed') {
         $pdfPath = GENERATE_BOOKING_PDF($booking['invoice_id'], 'ticket');
         
         // Send notification
-        $notifyResult = NOTIFY::booking('flights', $customerData, $notificationData, $pdfPath);
+        // Pass the ticket as BOTH the owner/admin doc (4th) AND the customer doc
+        // (5th) so the customer's WhatsApp copy carries the ticket PDF too (the 5th
+        // arg is what triggers the WhatsApp document send + price-free body). At
+        // booking time there is no separate priced invoice yet, so ticket-to-all.
+        $notifyResult = NOTIFY::booking('flights', $customerData, $notificationData, $pdfPath, $pdfPath);
     }
     } catch (\Throwable $e) {
         error_log("FLIGHTS_BOOKING_WEBHOOK ERROR: " . $e->getMessage());

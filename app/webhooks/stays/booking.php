@@ -106,7 +106,9 @@ if ($event === 'stays.booking.confirmed') {
         $pdfPath = GENERATE_BOOKING_PDF($booking['invoice_id'], 'ticket');
 
         // Send notification
-        $notifyResult = NOTIFY::booking('stays', $customerData, $notificationData, $pdfPath);
+        // Ticket as BOTH owner (4th) + customer (5th) doc so the customer WhatsApp
+        // copy carries the ticket PDF (5th arg triggers the WA document send).
+        $notifyResult = NOTIFY::booking('stays', $customerData, $notificationData, $pdfPath, $pdfPath);
     }
     } catch (\Throwable $e) {
         error_log("STAYS_BOOKING_WEBHOOK ERROR: " . $e->getMessage());
