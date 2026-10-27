@@ -55,6 +55,36 @@ if (!function_exists('util_table_exists')) {
         }
     }
 }
+if (!function_exists('util_lock_owned_row')) {
+    /**
+     * Lock a single row by id with SELECT … FOR UPDATE and return it ONLY if its
+     * stay_id is one the caller owns. Replaces the invalid Medoo `'FOR UPDATE'=>true`
+     * option (Medoo has no such option — it reads FOR as a column and the query
+     * errors, so every caller using it silently failed). We lock by primary key
+     * (the real contention target) and verify ownership in PHP, preserving the exact
+     * `['id'=>, 'stay_id'=>$stayIds]` semantics. Returns the row array or null.
+     * MUST be called inside an open $db->action().
+     */
+    function util_lock_owned_row($db, string $table, int $id, array $stayIds): ?array
+    {
+        if ($id <= 0 || empty($stayIds)) { return null; }
+        try {
+            $stmt = $db->query('SELECT * FROM ' . $table . ' WHERE id = :id LIMIT 1 FOR UPDATE', [':id' => $id]);
+            $row = $stmt ? $stmt->fetch(\PDO::FETCH_ASSOC) : null;
+            if (!$row) { return null; }
+            $owned = array_map('intval', $stayIds);
+            if (!in_array((int) ($row['stay_id'] ?? 0), $owned, true)) { return null; }
+            return $row;
+        } catch (\Throwable $e) { error_log('util_lock_owned_row: ' . $e->getMessage()); return null; }
+    }
+}
+if (!function_exists('util_lock_owned_bill')) {
+    /** Lock an owned utility bill by id. Thin wrapper over util_lock_owned_row. */
+    function util_lock_owned_bill($db, int $billId, array $stayIds): ?array
+    {
+        return util_lock_owned_row($db, 'stays_utility_bills', $billId, $stayIds);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // UTILITY ACCOUNTS (provider / account registry)
@@ -317,7 +347,7 @@ if (!function_exists('util_bill_post')) {
         $result = ['ok' => false, 'message' => 'Post failed.'];
         try {
             $db->action(function ($db) use ($billId, $stayIds, &$result) {
-                $bill = $db->get('stays_utility_bills', '*', ['id' => $billId, 'stay_id' => $stayIds, 'FOR UPDATE' => true]);
+                $bill = util_lock_owned_bill($db, $billId, $stayIds);
                 if (!$bill) { $result = ['ok' => false, 'message' => 'Not your bill.']; return false; }
                 if ((string) $bill['status'] !== 'draft') { $result = ['ok' => false, 'message' => 'Only a draft bill can be posted.']; return true; }
                 $amount = round((float) $bill['amount'], 2);
@@ -389,7 +419,7 @@ if (!function_exists('util_bill_allocate')) {
         $result = ['ok' => false, 'message' => 'Allocation failed.', 'allocated' => 0.0];
         try {
             $db->action(function ($db) use ($billId, $stayIds, $clean, $totalWeight, &$result) {
-                $bill = $db->get('stays_utility_bills', '*', ['id' => $billId, 'stay_id' => $stayIds, 'FOR UPDATE' => true]);
+                $bill = util_lock_owned_bill($db, $billId, $stayIds);
                 if (!$bill) { $result = ['ok' => false, 'message' => 'Not your bill.']; return false; }
                 if ((string) $bill['status'] !== 'posted') { $result = ['ok' => false, 'message' => 'Only a posted bill can be allocated.']; return true; }
                 // Refuse double-allocation.
@@ -520,7 +550,7 @@ if (!function_exists('service_charge_post')) {
         $result = ['ok' => false, 'message' => 'Post failed.'];
         try {
             $db->action(function ($db) use ($chargeId, $stayIds, $periodKey, $folioId, &$result) {
-                $sc = $db->get('stays_service_charges', '*', ['id' => $chargeId, 'stay_id' => $stayIds, 'FOR UPDATE' => true]);
+                $sc = util_lock_owned_row($db, 'stays_service_charges', $chargeId, $stayIds);
                 if (!$sc) { $result = ['ok' => false, 'message' => 'Not your charge.']; return false; }
                 if ((string) $sc['status'] !== 'active') { $result = ['ok' => false, 'message' => 'Charge is not active.']; return true; }
                 $amount = round((float) $sc['amount'], 2);

@@ -362,9 +362,13 @@ if (!function_exists('sfx_damage_bill_folio')) {
         $result = ['ok' => false, 'msg' => 'Could not bill the claim.'];
         try {
             $db->action(function ($db) use ($id, $stayId, $amount, $actor, &$result) {
-                // Lock the claim row so concurrent bills serialize.
-                $claim = $db->get('stays_damage_claims', ['id', 'invoice_id', 'status', 'billed_amount', 'item'],
-                    ['id' => $id, 'stay_id' => $stayId, 'FOR UPDATE' => true]);
+                // Lock the claim row so concurrent bills serialize. Raw SELECT … FOR UPDATE
+                // (Medoo has no 'FOR UPDATE'=>true option — it would be read as a column).
+                $claimStmt = $db->query(
+                    'SELECT id, invoice_id, status, billed_amount, item FROM stays_damage_claims
+                     WHERE id = :id AND stay_id = :s LIMIT 1 FOR UPDATE',
+                    [':id' => $id, ':s' => $stayId]);
+                $claim = $claimStmt ? $claimStmt->fetch(\PDO::FETCH_ASSOC) : null;
                 if (!$claim) { $result = ['ok' => false, 'msg' => 'Claim not found.']; return false; }
                 if ((float) ($claim['billed_amount'] ?? 0) > 0) {
                     $result = ['ok' => false, 'msg' => 'This claim was already billed.']; return false;
