@@ -268,6 +268,15 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
           <input type="text" name="folio_description" class="input text-sm" placeholder="e.g. Minibar"></div>
         <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Amount (<?= $cur ?>)</label>
           <input type="number" name="folio_amount" min="0" step="0.01" class="input text-sm w-28" required></div>
+        <?php // Phase 5: tender type — used for a PAYMENT line (how the guest paid).
+          //          Cash additionally feeds the cashier drawer. Ignored for other types. ?>
+        <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Tender <span class="text-gray-400">(payments)</span></label>
+          <select name="tender" class="input text-sm">
+            <?php foreach ((function_exists('desk_tender_types') ? desk_tender_types() : ['cash'=>'Cash']) as $tv => $tl): ?>
+              <option value="<?= htmlspecialchars($tv) ?>"><?= htmlspecialchars($tl) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
         <?php // Phase 4a: owner may override a credit-limit block when posting a charge
           //          to a direct-billed account. Only meaningful when this folio is
           //          billed to a company/NGO (dbCurrent) and the actor is the owner. ?>

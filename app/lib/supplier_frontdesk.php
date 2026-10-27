@@ -197,3 +197,64 @@ if (!function_exists('fd_occupancy')) {
         return ['in_house' => $inHouse, 'sellable' => $sellable, 'available' => $available, 'pct' => $pct];
     }
 }
+
+// ===========================================================================
+// TYPED DESK TENDERS (Front-desk overhaul Phase 5) — when the desk takes a folio
+// PAYMENT, record HOW it was paid (tender type) and, for CASH, feed the acting
+// cashier's open shift so the drawer reconciles. The folio_items table has no
+// tender column, so the tender is captured in the payment line's description
+// (e.g. "Payment — Cash · ref123"); the cashier shift is the existing
+// supplier_ledger engine (cashier_shift_open/cash_movement_add/close).
+// ===========================================================================
+if (!function_exists('desk_tender_types')) {
+    /** The tender types a front desk handles. value => label. */
+    function desk_tender_types(): array
+    {
+        return [
+            'cash'            => 'Cash',
+            'card'            => 'Card',
+            'bank_transfer'   => 'Bank transfer',
+            'wallet'          => 'Customer wallet',
+            'company_account' => 'Company / NGO account',
+        ];
+    }
+}
+
+if (!function_exists('desk_tender_label')) {
+    /** Human label for a tender value (falls back to the raw value titled). */
+    function desk_tender_label(string $tender): string
+    {
+        $t = desk_tender_types();
+        return $t[$tender] ?? ucfirst(str_replace('_', ' ', $tender));
+    }
+}
+
+if (!function_exists('desk_cash_to_shift')) {
+    /**
+     * Feed a CASH desk payment into the acting user's OPEN cashier shift as a 'received'
+     * movement, so the drawer's expected total reconciles. Resolves the shift by
+     * (org_id, user_id, status=open) — the same key the cashier screen uses. Returns
+     * ['fed'=>bool,'shift_id'=>int,'message'=>]. Non-fatal: if there is no open shift,
+     * the payment still stands (fed=false) — we never block taking the guest's money,
+     * we just can't attribute it to a drawer that isn't open.
+     */
+    function desk_cash_to_shift($db, int $orgId, string $userId, float $amount, string $reference = ''): array
+    {
+        $out = ['fed' => false, 'shift_id' => 0, 'message' => ''];
+        if ($orgId <= 0 || trim($userId) === '' || $amount <= 0) { return $out; }
+        if (!function_exists('cash_movement_add')) { return $out; }
+        try {
+            $shift = $db->get('cashier_shifts', ['id'], ['org_id' => $orgId, 'user_id' => $userId, 'status' => 'open']);
+            if (!$shift) { $out['message'] = 'no open cashier shift'; return $out; }
+            $shiftId = (int) $shift['id'];
+            $ok = cash_movement_add($db, $shiftId, 'received', round($amount, 2), [
+                'reference' => $reference !== '' ? $reference : null,
+                'memo'      => 'Desk payment (cash)',
+            ]);
+            $out['fed'] = (bool) $ok;
+            $out['shift_id'] = $shiftId;
+            if (!$ok) { $out['message'] = 'could not record to shift'; }
+            return $out;
+        } catch (\Throwable $e) { error_log('desk_cash_to_shift: ' . $e->getMessage()); return $out; }
+    }
+}

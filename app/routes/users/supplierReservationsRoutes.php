@@ -616,12 +616,29 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                         $_SESSION['message'] = ['type' => 'error', 'text' => $enf['message'] ?? 'Over credit limit.'];
                     }
                 }
+                // Phase 5 — TYPED DESK TENDERS: a PAYMENT line records HOW it was paid.
+                // Stash the tender in the description (no tender column on folio_items),
+                // and for CASH feed the acting cashier's open shift so the drawer
+                // reconciles. Other line types ignore tender.
+                $cashNote = '';
+                if (!$blocked && $ftype === 'payment') {
+                    $tender = (string) ($_POST['tender'] ?? '');
+                    if (function_exists('desk_tender_types') && isset(desk_tender_types()[$tender])) {
+                        $label = desk_tender_label($tender);
+                        $fdesc = $fdesc !== '' ? ($label . ' · ' . $fdesc) : ('Payment — ' . $label);
+                        if ($tender === 'cash' && function_exists('desk_cash_to_shift')) {
+                            $dbOrg = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $hid) : 0;
+                            $fed = desk_cash_to_shift($db, $dbOrg, (string) ($_SESSION['user_id'] ?? ''), $famount, $invoiceId);
+                            $cashNote = !empty($fed['fed']) ? ' Cash added to your drawer.' : ' (no open cashier shift — open one to track the drawer).';
+                        }
+                    }
+                }
                 if (!$blocked) {
                     $ok = $fid > 0 && function_exists('folio_add_item')
                         && folio_add_item($db, $fid, $ftype, $famount, $fdesc, (string) ($_SESSION['user_id'] ?? ''), $fno);
                     $_SESSION['message'] = [
                         'type' => $ok ? 'success' : 'error',
-                        'text' => $ok ? 'Folio updated.' : 'Could not add the folio line (is the folio closed?).',
+                        'text' => $ok ? ('Folio updated.' . $cashNote) : 'Could not add the folio line (is the folio closed?).',
                     ];
                 }
             }
