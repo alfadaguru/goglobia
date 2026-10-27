@@ -147,8 +147,13 @@ if (!function_exists('owner_coowner_set')) {
             $db->action(function ($db) use ($orgId, $stayId, $ownerId, $sharePct, &$result) {
                 // Lock the property's existing co-owner rows; sum everyone EXCEPT the one
                 // we're about to (re)write so an edit replaces rather than double-counts.
-                $existing = $db->select('stays_owner_coowners', ['id', 'owner_id', 'share_pct'],
-                    ['org_id' => $orgId, 'stay_id' => $stayId, 'FOR UPDATE' => true]) ?: [];
+                // Raw SELECT … FOR UPDATE — Medoo has no 'FOR UPDATE'=>true option (it would
+                // be read as a column named FOR), so use the repo's query() lock idiom.
+                $lockStmt = $db->query(
+                    'SELECT id, owner_id, share_pct FROM stays_owner_coowners
+                     WHERE org_id = :o AND stay_id = :s FOR UPDATE',
+                    [':o' => $orgId, ':s' => $stayId]);
+                $existing = $lockStmt ? ($lockStmt->fetchAll(\PDO::FETCH_ASSOC) ?: []) : [];
                 $otherTotal = 0.0; $mineId = 0;
                 foreach ($existing as $r) {
                     if ((int) $r['owner_id'] === $ownerId) { $mineId = (int) $r['id']; continue; }
@@ -304,15 +309,62 @@ if (!function_exists('owner_document_remove')) {
 // OWNER-USAGE RESERVATIONS  (new table: stays_owner_usage)
 // The owner blocks their own unit for personal use over a date range. This is a
 // NON-revenue internal block (no folio, no GL, no earnings). We overlap-guard it
-// per property so two owner-usage blocks can't collide. NOTE: this writes an
-// owner-usage RECORD only; wiring it into the live availability/hold engine so it
-// actually blocks guest bookings is DB-GATED follow-on (see deferred[]).
+// per property so two owner-usage blocks can't collide.
+//
+// It ALSO decrements live sellable inventory so guests cannot book the dates the
+// owner has taken: owner_usage_add materialises the block as PERMANENT (state
+// 'consumed') rows in stays_holds — the single chokepoint every availability read
+// and the no-oversell booking lock already subtract (stays_inventory.php:473-477,
+// stays_calendar_committed_on). One qty=1 hold is placed per sellable (room,option)
+// for the range, all tagged ref="ownerblock:{usageId}" so the cancel can release
+// them via stays_hold_release($ref). Granularity: inventory is per room-type but an
+// owner block is per-property, so we take ONE unit of each room-type off the market
+// (the honest reading of "the owner uses their unit" — not seizing the whole hotel).
 // =============================================================================
+
+if (!function_exists('owner_usage_block_inventory')) {
+    /**
+     * Materialise an owner-usage block as permanent 'consumed' holds — one qty=1 hold
+     * per sellable (room_id, option_id) spanning [from, to) — so the dates drop out of
+     * guest availability. Tagged ref="ownerblock:{usageId}" for release on cancel.
+     * MUST be called inside an open $db->action() (it does raw inserts, no own txn).
+     * Returns the number of holds created. Non-fatal: logs and returns what it managed.
+     */
+    function owner_usage_block_inventory($db, int $stayId, int $usageId, string $from, string $to): int
+    {
+        if ($stayId <= 0 || $usageId <= 0) { return 0; }
+        if (!function_exists('stays_room_option_ids')) { return 0; } // inventory engine absent
+        $ref = 'ownerblock:' . $usageId;
+        $now = date('Y-m-d H:i:s');
+        $made = 0;
+        $rooms = $db->select('stays_rooms', ['id'], ['stay_id' => $stayId]) ?: [];
+        foreach ($rooms as $room) {
+            $roomId = (int) $room['id'];
+            foreach (stays_room_option_ids($db, $roomId, $stayId) as $opt) {
+                $optionId = (int) ($opt['option_id'] ?? 0);
+                if ($optionId <= 0) { continue; }
+                // A permanent consumed hold: no expiry (consumed rows are counted by the
+                // availability checks regardless of expires_at). Idempotency: skip if a
+                // hold for this exact (ref, room, option) already exists.
+                if ($db->has('stays_holds', ['ref' => $ref, 'room_id' => $roomId, 'option_id' => $optionId])) { continue; }
+                $db->insert('stays_holds', [
+                    'stay_id' => $stayId, 'room_id' => $roomId, 'option_id' => $optionId,
+                    'date_from' => $from, 'date_to' => $to,
+                    'qty' => 1, 'state' => 'consumed', 'ref' => $ref,
+                    'expires_at' => null, 'created_at' => $now,
+                ]);
+                $made++;
+            }
+        }
+        return $made;
+    }
+}
 
 if (!function_exists('owner_usage_add')) {
     /**
-     * Record an owner-usage block [date_from, date_to) for a property. Overlap-checked
-     * under a lock. date_to is the checkout (exclusive). Returns ['ok','message','id'].
+     * Record an owner-usage block [date_from, date_to) for a property AND take the dates
+     * off the guest market. Overlap-checked under a lock. date_to is the checkout
+     * (exclusive). Returns ['ok','message','id','blocked_units'].
      */
     function owner_usage_add($db, int $orgId, int $stayId, int $ownerId, string $from, string $to, string $note = ''): array
     {
@@ -328,9 +380,14 @@ if (!function_exists('owner_usage_add')) {
         try {
             $db->action(function ($db) use ($orgId, $stayId, $ownerId, $from, $to, $note, &$result) {
                 // Half-open overlap test: existing.from < new.to AND existing.to > new.from.
-                $clash = $db->get('stays_owner_usage', ['id', 'date_from', 'date_to'],
-                    ['org_id' => $orgId, 'stay_id' => $stayId, 'status' => 'booked',
-                     'date_from[<]' => $to, 'date_to[>]' => $from, 'FOR UPDATE' => true]);
+                // Raw SELECT … FOR UPDATE (Medoo has no 'FOR UPDATE'=>true option).
+                $clashStmt = $db->query(
+                    'SELECT id, date_from, date_to FROM stays_owner_usage
+                     WHERE org_id = :o AND stay_id = :s AND status = :st
+                       AND date_from < :to AND date_to > :from
+                     LIMIT 1 FOR UPDATE',
+                    [':o' => $orgId, ':s' => $stayId, ':st' => 'booked', ':to' => $to, ':from' => $from]);
+                $clash = $clashStmt ? $clashStmt->fetch(\PDO::FETCH_ASSOC) : null;
                 if ($clash) {
                     $result = ['ok' => false, 'message' => 'Overlaps an existing owner block (' . $clash['date_from'] . ' → ' . $clash['date_to'] . ').'];
                     return false;
@@ -340,7 +397,12 @@ if (!function_exists('owner_usage_add')) {
                     'date_from' => $from, 'date_to' => $to, 'status' => 'booked',
                     'note' => substr(trim($note), 0, 255) ?: null, 'created_at' => date('Y-m-d H:i:s'),
                 ]);
-                $result = ['ok' => true, 'message' => 'Owner-usage block recorded.', 'id' => (int) $db->id()];
+                $usageId = (int) $db->id();
+                // Take the dates off the guest market (same transaction → atomic with the
+                // record). A failure here rolls the whole block back.
+                $blocked = function_exists('owner_usage_block_inventory')
+                    ? owner_usage_block_inventory($db, $stayId, $usageId, $from, $to) : 0;
+                $result = ['ok' => true, 'message' => 'Owner-usage block recorded.', 'id' => $usageId, 'blocked_units' => $blocked];
                 return true;
             });
         } catch (\Throwable $e) {
@@ -364,14 +426,21 @@ if (!function_exists('owner_usage_list')) {
 }
 
 if (!function_exists('owner_usage_cancel')) {
-    /** Cancel an owner-usage block (state-guarded booked→cancelled). Org-scoped. */
+    /** Cancel an owner-usage block (state-guarded booked→cancelled) AND release the
+     *  inventory it blocked, so the dates return to the guest market. Org-scoped. */
     function owner_usage_cancel($db, int $orgId, int $usageId): bool
     {
         if ($orgId <= 0 || $usageId <= 0) { return false; }
         try {
             $r = $db->update('stays_owner_usage', ['status' => 'cancelled', 'updated_at' => date('Y-m-d H:i:s')],
                 ['id' => $usageId, 'org_id' => $orgId, 'status' => 'booked']);
-            return $r && $r->rowCount() === 1;
+            $ok = $r && $r->rowCount() === 1;
+            if ($ok && function_exists('stays_hold_release')) {
+                // Free the consumed owner-block holds (ref-based release frees 'consumed'
+                // rows too). Only runs when WE flipped the row (idempotent on re-cancel).
+                stays_hold_release($db, 'ownerblock:' . $usageId);
+            }
+            return $ok;
         } catch (\Throwable $e) { error_log('owner_usage_cancel: ' . $e->getMessage()); return false; }
     }
 }
