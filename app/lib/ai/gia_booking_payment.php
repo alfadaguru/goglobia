@@ -707,6 +707,55 @@ if (!function_exists('gia_bp_notify')) {
     }
 }
 
+if (!function_exists('gia_bp_send_document')) {
+    /**
+     * Deliver a DOCUMENT (e.g. the no-price ticket PDF) to the traveller on their
+     * GIA channel. Today only the WhatsApp (Green API) upload path exists
+     * (sendFileByUpload — verified), so Telegram/Messenger are no-ops for now and
+     * fall back to the emailed copy + the chat text pointer. Best effort; never
+     * throws. Returns true only if the document was actually sent.
+     *
+     * @param array  $bp       gia_booking_payments row (carries channel + channel_user_id)
+     * @param string $filePath absolute path to a readable local PDF
+     * @param string $fileName file name shown to the recipient (incl. extension)
+     * @param string $caption  optional short caption
+     */
+    function gia_bp_send_document($db, array $bp, string $filePath, string $fileName = '', string $caption = ''): bool
+    {
+        $channel = strtolower((string) ($bp['channel'] ?? ''));
+        $to      = (string) ($bp['channel_user_id'] ?? '');
+        if ($channel === '' || $to === '' || $filePath === '' || !is_file($filePath)) { return false; }
+
+        // Only WhatsApp has a working document-send in our stack today. Green API's
+        // sendFileByUpload is the reliable path (its SendListMessage is dead and
+        // interactive buttons are beta — see the GIA WhatsApp send code). For
+        // other channels we rely on the emailed ticket + the chat text pointer.
+        if ($channel !== 'whatsapp') { return false; }
+
+        try {
+            // Use the GIA WhatsApp account = Green API creds explicitly (same as
+            // gia_channel_send_whatsapp), NOT settings.whatsapp_provider, so a
+            // different global NOTIFICATION provider doesn't send from the wrong
+            // account for GIA's chat documents.
+            $settings = $db->get('settings', ['whatsapp_providers_config'], ['id' => 1]) ?: [];
+            $allCfg = json_decode((string) ($settings['whatsapp_providers_config'] ?? '{}'), true);
+            $gc = (is_array($allCfg) && is_array($allCfg['greenapi'] ?? null)) ? $allCfg['greenapi'] : [];
+            if (empty($gc['instance_id']) || empty($gc['token'])) {
+                error_log('[gia_bp] send_document: Green API credentials not set — ticket stays email-only.');
+                return false;
+            }
+            $provFile = dirname(__DIR__, 1) . '/notifications/whatsapp/greenapi.php';
+            if (!class_exists('GreenapiProvider') && is_file($provFile)) { require_once $provFile; }
+            if (!class_exists('GreenapiProvider') || !method_exists('GreenapiProvider', 'sendFile')) { return false; }
+            $prov = new \GreenapiProvider($gc);
+            return (bool) $prov->sendFile($to, $filePath, $fileName !== '' ? $fileName : basename($filePath), $caption);
+        } catch (\Throwable $e) {
+            error_log('[gia_bp] send_document: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
 if (!function_exists('gia_bp_send_confirmation')) {
     /**
      * Notify the end user once a GIA booking is settled: email them the no-price
@@ -791,13 +840,31 @@ if (!function_exists('gia_bp_send_confirmation')) {
                 ], $invoicePdf, $ticketPdf);
             }
 
-            // CHAT: nudge the payer on their GIA channel with a confirmation + a
-            // pointer to their emailed ticket. Keep it short + channel-friendly.
+            // CHAT: nudge the payer on their GIA channel with a confirmation. Where
+            // the channel supports it (WhatsApp/Green API), also UPLOAD the ticket
+            // PDF right into the chat so the traveller gets the document in-thread
+            // — not just a 'check your email' line. The emailed copy remains the
+            // guaranteed fallback. The document is the no-price TICKET, never the
+            // priced invoice. Generated above as $ticketPdf (null in chat-only mode).
             if (!empty($bp)) {
                 $pnr = trim((string) ($b['pnr'] ?? ''));
+
+                // Try to deliver the ticket PDF in-chat first (so the text can say
+                // "sent here" instead of "check email" when it worked).
+                $docSent = false;
+                if (!empty($ticketPdf) && is_file((string) $ticketPdf) && function_exists('gia_bp_send_document')) {
+                    $docSent = gia_bp_send_document(
+                        $db, $bp, (string) $ticketPdf,
+                        'ticket_' . $invoiceId . '.pdf',
+                        'Your ticket — booking ' . $invoiceId
+                    );
+                }
+
                 $lines = ['✅ Your booking is confirmed — reference ' . $invoiceId . '.'];
                 if ($pnr !== '') { $lines[] = 'Booking ref (PNR): ' . $pnr . '.'; }
-                if ($email !== '') {
+                if ($docSent) {
+                    $lines[] = '🎫 Your ticket is attached above' . ($email !== '' ? ' and also emailed to ' . $email : '') . '. Please keep it for your travel.';
+                } elseif ($email !== '') {
                     $lines[] = 'Your ticket has been sent to ' . $email . '. Please keep it for your travel.';
                 } else {
                     $lines[] = 'Your ticket is ready — ask me any time and I\'ll resend it.';

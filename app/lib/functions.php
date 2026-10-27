@@ -4456,7 +4456,19 @@ function SENDWHATSAPP($toPhone, $toName, $message, $mediaUrl = null)
         }
         $messenger = new $providerClass($providerConfig);
 
-        // STEP 4: SEND MESSAGE
+        // STEP 4: SEND MESSAGE. If a local file path is supplied AND the provider
+        // supports document upload (currently Green API's sendFileByUpload), send
+        // the file WITH the message as its caption — this is how a traveller gets
+        // the ticket PDF on WhatsApp instead of just a text pointer. The $mediaUrl
+        // arg here is a LOCAL FILE PATH (e.g. a generated ticket PDF). Providers
+        // without a sendFile() method fall back to text (unchanged behaviour).
+        if (!empty($mediaUrl) && is_string($mediaUrl) && is_file($mediaUrl) && method_exists($messenger, 'sendFile')) {
+            $fileName = basename($mediaUrl);
+            $result = $messenger->sendFile($toPhone, $mediaUrl, $fileName, (string) $message);
+            error_log("SENDWHATSAPP (file) FINAL RESULT: " . ($result ? "SUCCESS" : "FAILURE"));
+            return $result;
+        }
+
         $result = $messenger->send($toPhone, $toName, $message);
         error_log("SENDWHATSAPP FINAL RESULT: " . ($result ? "SUCCESS" : "FAILURE"));
         return $result;

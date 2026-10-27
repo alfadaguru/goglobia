@@ -451,10 +451,13 @@ class NOTIFY {
                 error_log("NOTIFY EMAIL ERROR: " . $e->getMessage());
             }
             
-            // WhatsApp (Skip if resend event)
+            // WhatsApp (Skip if resend event). Pass the customer TICKET pdf so the
+            // traveller's WhatsApp copy can carry the document (via Green API
+            // sendFileByUpload) instead of only a text pointer. Owner/admin copies
+            // stay text (they get the invoice by email).
             if ($enableWhatsApp && $event !== 'resend') {
                 try {
-                    self::sendWhatsAppNotifications($module, $event, $customerName, $formattedPhone, $templateData, $invoiceId, $moduleType, $amount, $currency, $settings, $db);
+                    self::sendWhatsAppNotifications($module, $event, $customerName, $formattedPhone, $templateData, $invoiceId, $moduleType, $amount, $currency, $settings, $db, $customerPdfPath);
                 } catch (\Throwable $e) {
                     error_log("NOTIFY WHATSAPP ERROR: " . $e->getMessage());
                 }
@@ -644,7 +647,7 @@ class NOTIFY {
     /**
      * Send WhatsApp notifications to customer and admins
      */
-    private static function sendWhatsAppNotifications($module, $event, $customerName, $formattedPhone, $templateData, $invoiceId, $moduleType, $amount, $currency, $settings, $db) {
+    private static function sendWhatsAppNotifications($module, $event, $customerName, $formattedPhone, $templateData, $invoiceId, $moduleType, $amount, $currency, $settings, $db, $customerPdfPath = null) {
         // TWO renders of the WhatsApp template:
         //  - CUSTOMER (traveller): price-free, no login-gated invoice link — the
         //    travel ticket is delivered by EMAIL (3-document model). $hide_price=1.
@@ -663,9 +666,17 @@ class NOTIFY {
             $internalMsg = "Hello $customerName, your $moduleType booking #$invoiceId status is " . ($templateData['payment_status'] ?? 'pending') . ". View: " . root . "invoice/$module/$invoiceId";
         }
 
-        // Send to Customer — price-free copy.
+        // Send to Customer — price-free copy. If we have the traveller's TICKET pdf
+        // AND the provider supports document upload (Green API sendFileByUpload),
+        // send the PDF with the message as its caption so the ticket lands in-chat;
+        // otherwise a plain text message (the emailed ticket is the fallback).
         if (!empty($formattedPhone)) {
-            SENDWHATSAPP($formattedPhone, $customerName, $customerMsg);
+            $ticketFile = (is_string($customerPdfPath) && $customerPdfPath !== '' && is_file($customerPdfPath)) ? $customerPdfPath : null;
+            if ($ticketFile !== null) {
+                SENDWHATSAPP($formattedPhone, $customerName, $customerMsg, $ticketFile);
+            } else {
+                SENDWHATSAPP($formattedPhone, $customerName, $customerMsg);
+            }
         }
 
         // Owner/admin copies carry the internal (priced) message.

@@ -64,6 +64,104 @@ class GreenapiProvider {
         }
     }
 
+    /**
+     * Send a FILE (e.g. the ticket PDF) to a WhatsApp chat via Green API's
+     * sendFileByUpload (multipart upload — no public URL needed). Verified against
+     * https://green-api.com/en/docs/api/sending/SendFileByUpload/ :
+     *   POST {mediaHost}/waInstance{id}/sendFileByUpload/{token}  (multipart/form-data)
+     *   fields: chatId, file, fileName, caption(<=1024). Max 100MB. Returns idMessage.
+     * Green API recommends the media.green-api.com host for uploads; an explicit
+     * config['media_url'] overrides. Returns true on success, false otherwise.
+     *
+     * @param string $to       recipient phone (any format; cleaned here)
+     * @param string $filePath absolute path to a readable local file
+     * @param string $fileName file name shown to the recipient (must include ext)
+     * @param string $caption  optional caption (<=1024 chars)
+     */
+    public function sendFile($to, $filePath, $fileName = '', $caption = '') {
+        try {
+            if (empty($this->config['instance_id']) || empty($this->config['token'])) {
+                throw new Exception('Green API configuration incomplete. Instance ID and Token are required.');
+            }
+            if (!is_string($filePath) || $filePath === '' || !is_file($filePath) || !is_readable($filePath)) {
+                throw new Exception('File not found or not readable for WhatsApp upload.');
+            }
+            // 100MB cap per Green API docs — guard before uploading.
+            $size = @filesize($filePath);
+            if ($size !== false && $size > 100 * 1024 * 1024) {
+                throw new Exception('File exceeds the 100MB WhatsApp upload limit.');
+            }
+
+            $phone  = $this->cleanPhoneNumber($to);
+            $chatId = $phone . '@c.us';
+            if ($fileName === '') { $fileName = basename($filePath); }
+
+            // Media host: Green API recommends media.green-api.com for uploads.
+            // Allow an explicit override via config['media_url']; else the documented host.
+            $mediaHost = trim((string) ($this->config['media_url'] ?? ''));
+            if ($mediaHost === '' || !preg_match('#^https://[a-z0-9.\-]+$#i', rtrim($mediaHost, '/'))) {
+                $mediaHost = 'https://media.green-api.com';
+            } else {
+                $mediaHost = rtrim($mediaHost, '/');
+            }
+
+            $instanceId = $this->config['instance_id'];
+            $token      = $this->config['token'];
+            // Token is a URL path segment (Green API design) — NEVER log this URL.
+            $url = $mediaHost . "/waInstance{$instanceId}/sendFileByUpload/{$token}";
+
+            // Resolve a sane MIME so the recipient's client previews the document.
+            $mime = 'application/octet-stream';
+            if (function_exists('finfo_open')) {
+                $fi = finfo_open(FILEINFO_MIME_TYPE);
+                if ($fi) { $detected = finfo_file($fi, $filePath); finfo_close($fi); if (is_string($detected) && $detected !== '') { $mime = $detected; } }
+            } elseif (strtolower((string) pathinfo($fileName, PATHINFO_EXTENSION)) === 'pdf') {
+                $mime = 'application/pdf';
+            }
+
+            $postFields = [
+                'chatId'   => $chatId,
+                'fileName' => $fileName,
+                'file'     => new \CURLFile($filePath, $mime, $fileName),
+            ];
+            if ($caption !== '') { $postFields['caption'] = mb_substr((string) $caption, 0, 1024); }
+
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $url,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => $postFields,   // array => multipart/form-data
+                CURLOPT_TIMEOUT => 120,              // uploads can be slow
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
+            ]);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($ch);
+            curl_close($ch);
+
+            if ($curlError) {
+                error_log("Green API sendFile CURL error (HTTP {$httpCode})");
+                $this->lastError = 'CURL Error: ' . $curlError;
+                return false;
+            }
+
+            $responseData = json_decode((string) $response, true);
+            if ($httpCode === 200 && isset($responseData['idMessage'])) {
+                return true;
+            }
+            $this->lastError = "HTTP {$httpCode}: " . $this->getErrorMessage($httpCode, $responseData);
+            error_log('Green API sendFile failed: ' . $this->lastError);
+            return false;
+
+        } catch (Exception $e) {
+            $this->lastError = $e->getMessage();
+            error_log('Green API sendFile Error: ' . $e->getMessage());
+            return false;
+        }
+    }
+
     private function sendWhatsAppMessage($messageData) {
         $instanceId = $this->config['instance_id'];
         $token = $this->config['token'];
