@@ -806,7 +806,7 @@ $router->post(admin.'/stays/delete', function () use ($SECURE,$db) {
         ];
     }
 
-    redirect(root . admin . '/hotels');
+    redirect(root . admin . '/stays');
 });
 
 // ================================ GET /hotels/view/{id} - VIEW HOTEL DETAILS
@@ -821,14 +821,14 @@ $router->get(admin.'/stays/view/(.*)', function ($id) use ($SECURE,$db) {
     $hotel_id = intval($id);
 
     // FETCH HOTEL DETAILS
-    $hotel = $db->get('hotels', '*', ['id' => $hotel_id]);
+    $hotel = $db->get('stays', '*', ['id' => $hotel_id]);
 
     if (empty($hotel)) {
         $_SESSION['message'] = [
             'type' => 'error',
             'text' => T::hotel_not_found
         ];
-        redirect(root . admin . '/hotels');
+        redirect(root . admin . '/stays');
         return;
     }
 
@@ -844,7 +844,7 @@ $router->get(admin.'/stays/view/(.*)', function ($id) use ($SECURE,$db) {
     // FETCH AMENITIES LIST
     $amenities_list = [];
     if (!empty($selected_amenity_ids)) {
-        $amenities_list = $db->select('hotels_settings', ['id', 'name', 'translations'], ['id' => $selected_amenity_ids, 'setting_type' => 'hotel_amenity', 'status' => 1]);
+        $amenities_list = $db->select('stays_settings', ['id', 'name', 'translations'], ['id' => $selected_amenity_ids, 'setting_type' => 'stay_amenity', 'status' => 1]);
     }
 
     // EXTRACT COORDINATES
@@ -1159,10 +1159,10 @@ $router->get(admin.'/stays/rooms/(.*)', function ($hotel_id) use ($SECURE,$db) {
     ADMIN_AUTH();
     admin_require($db, 'stays', 'view');
     $hotel_id = intval($hotel_id);
-    $hotel = $db->get('hotels', ['id', 'name'], ['id' => $hotel_id]);
+    $hotel = $db->get('stays', ['id', 'name'], ['id' => $hotel_id]);
     if (!$hotel) {
         $_SESSION['message'] = ['type' => 'error', 'text' => T::hotel_not_found];
-        redirect(root . admin . '/hotels');
+        redirect(root . admin . '/stays');
         return;
     }
     $title = 'Rooms Management - ' . $hotel['name'];
