@@ -634,6 +634,17 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
                 <span class="material-symbols-outlined text-[18px]">settings</span>
                 <?= $__paidNotIssued ? 'Issue ticket / manage booking' : 'Manage booking (admin)' ?>
             </a>
+            <!-- RESEND TICKET (admin) — re-deliver the traveller's no-price TICKET
+                 straight from here. Same resend_ticket action as the booking-edit
+                 screen. Email always works; WhatsApp needs Green API configured. -->
+            <button type="button" onclick="resendTicketAdmin('email', this)" class="btn light w-full flex items-center justify-start gap-2">
+                <span class="material-symbols-outlined text-[18px]">confirmation_number</span>
+                Resend ticket — Email
+            </button>
+            <button type="button" onclick="resendTicketAdmin('whatsapp', this)" class="btn light w-full flex items-center justify-start gap-2">
+                <span class="material-symbols-outlined text-[18px]">chat</span>
+                Resend ticket — WhatsApp
+            </button>
             <button type="button" onclick="openSupplierLog()" class="btn light w-full flex items-center justify-start gap-2">
                 <span class="material-symbols-outlined text-[18px]">data_object</span>
                 Supplier log (raw)
@@ -746,6 +757,33 @@ function confirmResendInvoice() {
         btn.disabled = false;
         btn.innerHTML = originalContent;
     });
+}
+
+// ADMIN: resend the traveller's no-price TICKET by email or WhatsApp. POSTs to the
+// admin bookings action route (action=resend_ticket + channel); CSRF header is
+// auto-attached by app.js; the route runs CSRF::guard() + admin bookings.edit.
+function resendTicketAdmin(channel, btn) {
+    const invoiceId = <?= json_encode((string)$invoiceId) ?>;
+    const where = channel === 'whatsapp' ? "the customer's WhatsApp" : 'the customer by email';
+    if (!confirm('Resend the ticket to ' + where + '?')) { return; }
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined animate-spin !text-sm">sync</span> Sending...';
+    const params = new URLSearchParams();
+    params.set('invoice_id', invoiceId);
+    params.set('action', 'resend_ticket');
+    params.set('channel', channel);
+    fetch(<?= json_encode(root . admin . '/bookings/action/') ?> + encodeURIComponent(invoiceId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+        body: params.toString()
+    })
+    .then(r => r.json())
+    .then(data => {
+        alert(data.message || ((data.status === true || data.success === true) ? 'Ticket re-sent.' : 'Could not re-send the ticket.'));
+    })
+    .catch(() => { alert('Network error. Please try again.'); })
+    .finally(() => { btn.disabled = false; btn.innerHTML = original; });
 }
 </script>
 

@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "a48631b5650e27927d2221bee32b8411",
+    "content-hash": "98064d9ff640005ad251716be6250c16",
     "packages": [
         {
             "name": "catfan/medoo",
-            "version": "v2.6.0",
+            "version": "v2.6.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/catfan/Medoo.git",
-                "reference": "f0e443d420d6844c89da18b0420918739ddb2d5d"
+                "reference": "54fbd8f509329c287600db05e10e4b3a7562b9d0"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/catfan/Medoo/zipball/f0e443d420d6844c89da18b0420918739ddb2d5d",
-                "reference": "f0e443d420d6844c89da18b0420918739ddb2d5d",
+                "url": "https://api.github.com/repos/catfan/Medoo/zipball/54fbd8f509329c287600db05e10e4b3a7562b9d0",
+                "reference": "54fbd8f509329c287600db05e10e4b3a7562b9d0",
                 "shasum": ""
             },
             "require": {
@@ -81,20 +81,20 @@
                     "type": "open_collective"
                 }
             ],
-            "time": "2026-08-22T03:52:08+00:00"
+            "time": "2026-10-19T07:51:04+00:00"
         },
         {
             "name": "filp/whoops",
-            "version": "2.18.4",
+            "version": "2.18.7",
             "source": {
                 "type": "git",
                 "url": "https://github.com/filp/whoops.git",
-                "reference": "d2102955e48b9fd9ab24280a7ad12ed552752c4d"
+                "reference": "50670ba239926c50f2073e868f6672f775cd57ec"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/filp/whoops/zipball/d2102955e48b9fd9ab24280a7ad12ed552752c4d",
-                "reference": "d2102955e48b9fd9ab24280a7ad12ed552752c4d",
+                "url": "https://api.github.com/repos/filp/whoops/zipball/50670ba239926c50f2073e868f6672f775cd57ec",
+                "reference": "50670ba239926c50f2073e868f6672f775cd57ec",
                 "shasum": ""
             },
             "require": {
@@ -103,8 +103,8 @@
             },
             "require-dev": {
                 "mockery/mockery": "^1.0",
-                "phpunit/phpunit": "^7.5.20 || ^8.5.8 || ^9.3.3",
-                "symfony/var-dumper": "^4.0 || ^5.0"
+                "phpunit/phpunit": "^7.5.20 || ^8.5.8 || ^9.3.3 || ^10.5.58",
+                "symfony/var-dumper": "^4.0 || ^5.0 || ^6.0 || ^7.0 || ^8.0"
             },
             "suggest": {
                 "symfony/var-dumper": "Pretty print complex values better with var-dumper available",
@@ -144,7 +144,7 @@
             ],
             "support": {
                 "issues": "https://github.com/filp/whoops/issues",
-                "source": "https://github.com/filp/whoops/tree/2.18.4"
+                "source": "https://github.com/filp/whoops/tree/2.18.7"
             },
             "funding": [
                 {
@@ -152,7 +152,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2025-08-08T12:00:00+00:00"
+            "time": "2026-10-18T13:17:38+00:00"
         },
         {
             "name": "mpdf/mpdf",
@@ -327,6 +327,74 @@
                 "source": "https://github.com/mpdf/psr-log-aware-trait/tree/v3.0.0"
             },
             "time": "2023-05-03T06:19:36+00:00"
+        },
+        {
+            "name": "mpdf/qrcode",
+            "version": "v1.2.2",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/mpdf/qrcode.git",
+                "reference": "d4fa19117a7241c30ac84902b6236a02c7a3f268"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/mpdf/qrcode/zipball/d4fa19117a7241c30ac84902b6236a02c7a3f268",
+                "reference": "d4fa19117a7241c30ac84902b6236a02c7a3f268",
+                "shasum": ""
+            },
+            "require": {
+                "paragonie/random_compat": "^1.4|^2.0|^9.99.99",
+                "php": "^5.6 || ^7.0 || ^8.0"
+            },
+            "require-dev": {
+                "mockery/mockery": "^0.9.5 || ^1.0",
+                "squizlabs/php_codesniffer": "^3.4",
+                "tracy/tracy": "^2.5",
+                "yoast/phpunit-polyfills": "^1.0"
+            },
+            "suggest": {
+                "ext-gd": "To output QR codes to PNG files",
+                "ext-simplexml": "To output QR codes to SVG files"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Mpdf\\QrCode\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "LGPL-2.1-or-later"
+            ],
+            "authors": [
+                {
+                    "name": "Matěj Humpál",
+                    "role": "maintainer"
+                },
+                {
+                    "name": "Laurent Minguet",
+                    "role": "author"
+                }
+            ],
+            "description": "QR code generator for mPDF",
+            "keywords": [
+                "mpdf",
+                "pdf",
+                "php",
+                "qr",
+                "qrcode"
+            ],
+            "support": {
+                "issues": "https://github.com/mpdf/qrcode/issues",
+                "source": "https://github.com/mpdf/qrcode/tree/v1.2.2"
+            },
+            "funding": [
+                {
+                    "url": "https://www.paypal.me/mpdf",
+                    "type": "custom"
+                }
+            ],
+            "time": "2025-12-19T16:21:49+00:00"
         },
         {
             "name": "myclabs/deep-copy",
@@ -676,21 +744,21 @@
         },
         {
             "name": "setasign/fpdi",
-            "version": "v2.6.8",
+            "version": "v2.6.9",
             "source": {
                 "type": "git",
                 "url": "https://github.com/Setasign/FPDI.git",
-                "reference": "881945be29a4996ad3d008eb18ddc01fa3df890c"
+                "reference": "d97ade6368aa0b51b6316d5dc16a567e2bf60167"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/Setasign/FPDI/zipball/881945be29a4996ad3d008eb18ddc01fa3df890c",
-                "reference": "881945be29a4996ad3d008eb18ddc01fa3df890c",
+                "url": "https://api.github.com/repos/Setasign/FPDI/zipball/d97ade6368aa0b51b6316d5dc16a567e2bf60167",
+                "reference": "d97ade6368aa0b51b6316d5dc16a567e2bf60167",
                 "shasum": ""
             },
             "require": {
                 "ext-zlib": "*",
-                "php": ">=7.2 <=8.5.99999"
+                "php": ">=7.2 <=8.6.99999"
             },
             "conflict": {
                 "setasign/tfpdf": "<1.31"
@@ -699,7 +767,6 @@
                 "phpunit/phpunit": "^8.5.52",
                 "setasign/fpdf": "^1.9.0",
                 "setasign/tfpdf": "~1.33",
-                "squizlabs/php_codesniffer": "^3.5",
                 "tecnickcom/tcpdf": "^6.8"
             },
             "suggest": {
@@ -736,7 +803,7 @@
             ],
             "support": {
                 "issues": "https://github.com/Setasign/FPDI/issues",
-                "source": "https://github.com/Setasign/FPDI/tree/v2.6.8"
+                "source": "https://github.com/Setasign/FPDI/tree/v2.6.9"
             },
             "funding": [
                 {
@@ -744,7 +811,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-06-11T10:37:24+00:00"
+            "time": "2026-10-13T07:36:28+00:00"
         },
         {
             "name": "stripe/stripe-php",
@@ -814,9 +881,7 @@
     "stability-flags": {},
     "prefer-stable": false,
     "prefer-lowest": false,
-    "platform": {
-        "php": ">=8.2"
-    },
+    "platform": {},
     "platform-dev": {},
-    "plugin-api-version": "2.9.0"
+    "plugin-api-version": "2.6.0"
 }
