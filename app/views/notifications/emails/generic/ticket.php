@@ -63,7 +63,7 @@ $bodyHtml = ob_get_clean();
 echo goglobia_ticket_render([
     'booking' => $booking, 'bookingData' => $bookingData, 'settings' => $settings,
     'businessName' => $businessName, 'businessEmail' => $businessEmail, 'businessPhone' => $businessPhone,
-    'siteUrl' => $siteUrl, 'wlPdfLogo' => $wlPdfLogo, 'agentBrandColors' => $agentBrandColors,
+    'siteUrl' => $siteUrl, 'wlPdfLogo' => $wlPdfLogo, 'pdfLogoSrc' => ($pdfLogoSrc ?? ''), 'agentBrandColors' => $agentBrandColors,
     'bookingDate' => $bookingDate,
     'docTitle' => $isEsim ? 'eSIM Voucher' : 'Booking Voucher',
     'docSub' => $isEsim ? 'Digital SIM · Activation' : 'Confirmation',

@@ -3971,6 +3971,42 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
         $businessPhone = $settings['contact_phone'] ?? '+1234567890';
         $siteUrl = $settings['site_url'] ?? 'https://goglobia.com';
 
+        // ====================================================================
+        // LOGO FOR THE PDF — ROBUST ACROSS ENVIRONMENTS (mPDF imageVars)
+        // ====================================================================
+        // An <img src="/absolute/path"> is fragile on production: the uploads/
+        // folder is excluded from the file updater (so the logo file may be absent
+        // at the live path), and open_basedir / path-resolution can differ from
+        // local. The bulletproof method in mPDF 8.x is to register the raw image
+        // BINARY as an imageVar and reference it as <img src="var:NAME"> — no
+        // filesystem lookup at render time. We resolve the logo ONCE here:
+        //   - a readable LOCAL file (agency/WL logo path, or the platform PNG)
+        //     -> read its bytes into $pdfLogoBinary, src = 'var:pdflogo'
+        //   - a remote URL ($wlPdfLogo as http...) -> leave as the URL (mPDF fetches)
+        //   - nothing readable -> src = '' (templates show the text wordmark)
+        // Templates read $pdfLogoSrc for the <img>; $wlPdfLogo is kept for back-compat.
+        $pdfLogoBinary = null;
+        $pdfLogoSrc = '';
+        $__wl = trim((string) ($wlPdfLogo ?? ''));
+        $__localLogoCandidate = '';
+        if ($__wl !== '' && preg_match('#^https?://#i', $__wl)) {
+            // Remote brand logo URL — let mPDF fetch it as-is.
+            $pdfLogoSrc = $__wl;
+        } elseif ($__wl !== '' && is_file($__wl) && is_readable($__wl)) {
+            // Agency/WL logo given as a local path.
+            $__localLogoCandidate = $__wl;
+        } elseif (defined('uploads') && is_file(uploads . 'global/logo.png') && is_readable(uploads . 'global/logo.png')) {
+            // Standard GoGlobia platform logo.
+            $__localLogoCandidate = uploads . 'global/logo.png';
+        }
+        if ($__localLogoCandidate !== '') {
+            $__bytes = @file_get_contents($__localLogoCandidate);
+            if ($__bytes !== false && $__bytes !== '') {
+                $pdfLogoBinary = $__bytes;      // registered on mPDF below (imageVars)
+                $pdfLogoSrc = 'var:pdflogo';
+            }
+        }
+
         // Get payment gateway display name from ID (customer-facing label only —
         // the technical gateway record/routing is untouched by this substitution)
         $paymentGatewayId = $booking['payment_gateway'];
@@ -4172,6 +4208,15 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
             'margin_bottom' => 10,
             'tempDir' => $mpdfTempDir,
         ], $fontConfig));
+
+        // Register the logo BINARY as an mPDF image variable so templates can use
+        // <img src="var:pdflogo"> — no filesystem lookup at render time, so it
+        // works identically on local + production (immune to open_basedir, the
+        // updater's uploads/ exclusion, and path differences). Only set when we
+        // actually read a local logo above; URL/empty logos skip this.
+        if ($pdfLogoBinary !== null && $pdfLogoBinary !== '') {
+            $mpdf->imageVars['pdflogo'] = $pdfLogoBinary;
+        }
 
         // Set PDF metadata — title reflects the document type (ticket vs invoice)
         $mpdf->SetTitle(($docType === 'ticket' ? 'Ticket ' : 'Invoice ') . $invoiceId);

@@ -155,8 +155,18 @@ if (!function_exists('goglobia_ticket_render')) {
             // Logo: agent/white-label logo if set, else the GoGlobia platform PNG
             // (uploads/global/logo.png) — same as the invoice templates. Only fall
             // back to a TEXT wordmark if the platform logo file is genuinely missing.
-            $__logoSrc = ($wlPdfLogo !== '') ? $wlPdfLogo
-                       : (defined('uploads') && is_file(uploads . 'global/logo.png') ? uploads . 'global/logo.png' : '');
+            // $__pdfLogoSrc is resolved ONCE by GENERATE_BOOKING_PDF and passed in
+            // via $cfg['pdfLogoSrc'] — it is either 'var:pdflogo' (the logo binary
+            // registered on mPDF, which renders identically on local + production,
+            // immune to open_basedir / the updater's uploads/ exclusion / path
+            // differences), a remote URL, or '' (show the text wordmark). Fall back
+            // to the old absolute-path logic only when a template is rendered
+            // OUTSIDE GENERATE_BOOKING_PDF (so it didn't get the resolved src).
+            $__pdfLogoSrc = (string) ($cfg['pdfLogoSrc'] ?? '');
+            $__logoSrc = ($__pdfLogoSrc !== '')
+                       ? $__pdfLogoSrc
+                       : (($wlPdfLogo !== '') ? $wlPdfLogo
+                          : (defined('uploads') && is_file(uploads . 'global/logo.png') ? uploads . 'global/logo.png' : ''));
             ?>
             <?php if ($__logoSrc !== ''): ?>
                 <img src="<?= $e($__logoSrc) ?>" class="logo-img" alt="<?= $e($businessName) ?>">
