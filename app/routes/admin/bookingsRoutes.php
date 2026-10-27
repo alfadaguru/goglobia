@@ -290,26 +290,58 @@ $router->post(admin.'/bookings/action/(.*)', function ($invoice_id) use ($SECURE
         }
     }
 
-    // RESEND VOUCHER / INVOICE — re-email the booking PDF to the customer. A
-    // read-only action (no state change), so it is allowed even on cancelled/
-    // voided bookings. Reuses the proven GENERATE_BOOKING_PDF + NOTIFY::resend
-    // path (same as the payment email). Support agents often need exactly this.
-    if ($action === 'resend_voucher') {
+    // RESEND TICKET — re-deliver the traveller's no-price TICKET to the customer,
+    // per CHANNEL (email or WhatsApp). A read-only action (no state change), so
+    // it is allowed even on cancelled/voided bookings. The document is ALWAYS the
+    // no-price ticket (travel document), never the priced invoice. Admins often
+    // need exactly this ("the customer lost their ticket — resend it").
+    //   channel = 'email'    -> NOTIFY::resend (customer-only) with the ticket pdf
+    //   channel = 'whatsapp' -> upload the ticket pdf to the customer's WhatsApp
+    //                           (Green API sendFileByUpload, via SENDWHATSAPP)
+    if ($action === 'resend_voucher' || $action === 'resend_ticket') {
         try {
-            $module = (string) ($booking['module'] ?? $booking['module_type'] ?? '');
-            $pdfPath = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($invoice_id) : null;
+            $channel = strtolower(trim((string) ($_POST['channel'] ?? 'email')));
+            $module  = (string) ($booking['module'] ?? $booking['module_type'] ?? '');
+            // Always the no-price TICKET — the traveller's travel document.
+            $ticketPath = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($invoice_id, 'ticket') : null;
+
+            if ($channel === 'whatsapp') {
+                $phone = trim((string) ($booking['phone'] ?? ''));
+                if ($phone === '') {
+                    echo json_encode(['success' => false, 'status' => false, 'message' => 'No phone number on this booking to send a WhatsApp ticket.']);
+                    exit;
+                }
+                if (!$ticketPath || !is_file($ticketPath)) {
+                    echo json_encode(['success' => false, 'status' => false, 'message' => 'Could not generate the ticket to send.']);
+                    exit;
+                }
+                // Prefix the dialing code the way NOTIFY does, then upload the PDF
+                // with a short caption. Returns false if the WhatsApp provider has
+                // no document support (non-Green-API) or creds are missing.
+                $cc  = trim((string) ($booking['phone_country_code'] ?? ''));
+                $full = $cc !== '' ? (preg_replace('/[^\d]/', '', $cc) . preg_replace('/[^\d]/', '', $phone)) : $phone;
+                $sent = function_exists('SENDWHATSAPP')
+                    ? SENDWHATSAPP($full, trim((string) (($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))), '🎫 Your ticket for booking ' . $invoice_id . ' is attached.', $ticketPath)
+                    : false;
+                echo json_encode($sent
+                    ? ['success' => true, 'status' => true, 'message' => 'Ticket sent to the customer on WhatsApp (' . $phone . ').']
+                    : ['success' => false, 'status' => false, 'message' => 'Could not send on WhatsApp — check the WhatsApp provider is Green API and credentials are set.']);
+                exit;
+            }
+
+            // Default: EMAIL the ticket (customer-only via NOTIFY::resend).
             if (class_exists('NOTIFY')) {
                 NOTIFY::resend($module, $booking, [
                     'invoice_id'  => $invoice_id,
                     'amount'      => $booking['price_markup'] ?? '',
                     'currency'    => $booking['currency_markup'] ?? ($booking['currency'] ?? ''),
                     'module_type' => ucfirst($module),
-                ], $pdfPath);
+                ], $ticketPath);
             }
-            echo json_encode(['success' => true, 'status' => true, 'message' => 'Voucher re-sent to ' . ($booking['email'] ?: 'the customer') . '.']);
+            echo json_encode(['success' => true, 'status' => true, 'message' => 'Ticket re-sent by email to ' . ($booking['email'] ?: 'the customer') . '.']);
         } catch (\Throwable $e) {
-            error_log('[admin] resend_voucher ' . $invoice_id . ': ' . $e->getMessage());
-            echo json_encode(['success' => false, 'status' => false, 'message' => 'Could not re-send the voucher.']);
+            error_log('[admin] resend_ticket ' . $invoice_id . ': ' . $e->getMessage());
+            echo json_encode(['success' => false, 'status' => false, 'message' => 'Could not re-send the ticket.']);
         }
         exit;
     }

@@ -273,6 +273,29 @@ $countries = $db->select('countries', ['iso', 'nicename'], ['ORDER' => ['nicenam
                 <span><?= T::view ?> <?= T::voucher ?></span>
             </a>
 
+            <!-- RESEND TICKET — per channel. Re-delivers the traveller's no-price
+                 TICKET (not the priced invoice): by email, or straight to the
+                 customer's WhatsApp as a PDF (Green API). Harmless + repeatable. -->
+            <button type="button" @click="resendTicket('email')" :disabled="actionLoading['Resend Email']"
+                    class="btn secondary inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-600 hover:!text-white hover:!bg-slate-600 transition-all duration-200">
+                <svg x-show="actionLoading['Resend Email']" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span x-show="!actionLoading['Resend Email']" class="material-symbols-outlined text-lg">mail</span>
+                <span>Resend ticket — Email</span>
+            </button>
+
+            <button type="button" @click="resendTicket('whatsapp')" :disabled="actionLoading['Resend WhatsApp']"
+                    class="btn secondary inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-slate-200 text-slate-600 hover:!text-white hover:!bg-emerald-600 transition-all duration-200">
+                <svg x-show="actionLoading['Resend WhatsApp']" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span x-show="!actionLoading['Resend WhatsApp']" class="material-symbols-outlined text-lg">chat</span>
+                <span>Resend ticket — WhatsApp</span>
+            </button>
+
             <!-- Raise a support ticket pre-linked to this booking (POSTs to
                  /support/tickets/from-booking; backend = support_ticket_create_for_booking). -->
             <button type="button" @click="raiseTicket()" :disabled="actionLoading['Raise Ticket']"
@@ -1588,6 +1611,31 @@ function bookingEdit() {
                 }
             })
             .catch(() => { this.actionLoading['Raise Ticket'] = false; alert('Could not raise the ticket.'); });
+        },
+        resendTicket(channel) {
+            // Re-send the traveller's NO-PRICE ticket by the chosen channel. POSTs
+            // to /admin/bookings/action/<invoice> with action=resend_ticket (+channel);
+            // CSRF header auto-attached by app.js; route runs CSRF::guard() +
+            // admin_require('bookings','edit'). Harmless + repeatable (no state change).
+            const label = channel === 'whatsapp' ? 'Resend WhatsApp' : 'Resend Email';
+            const where = channel === 'whatsapp' ? "the customer's WhatsApp" : 'the customer by email';
+            if (!confirm('Resend the ticket to ' + where + '?')) { return; }
+            this.actionLoading[label] = true;
+            const params = new URLSearchParams();
+            params.set('invoice_id', '<?= $invoice_id ?>');
+            params.set('action', 'resend_ticket');
+            params.set('channel', channel);
+            fetch('<?= root . admin ?>/bookings/action/<?= $invoice_id ?>', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString()
+            })
+            .then(r => r.json())
+            .then(data => {
+                this.actionLoading[label] = false;
+                alert(data.message || ((data.status === true || data.success === true) ? 'Ticket re-sent.' : 'Could not re-send the ticket.'));
+            })
+            .catch(() => { this.actionLoading[label] = false; alert('Could not re-send the ticket.'); });
         },
         handleAction(action, extraParams = {}) {
             if (action === 'Issue Booking' && this.hotelbedsNeedsReconcile) {
