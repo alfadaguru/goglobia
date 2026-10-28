@@ -673,11 +673,26 @@ class NOTIFY {
         // The emailed ticket remains the guaranteed fallback.
         if (!empty($formattedPhone)) {
             $ticketFile = (is_string($customerPdfPath) && $customerPdfPath !== '' && is_file($customerPdfPath)) ? $customerPdfPath : null;
+            // WARM, SERVICE-AWARE CAPTION: when a ticket/voucher is going out, lead
+            // with the branded per-service good wish (safe flight ✈️ / enjoy your
+            // stay 🏨 / blessed journey 🕋 ...) so EVERY channel message reads warm —
+            // not just the GIA/resend paths. Falls back to the template message.
+            $outMsg = $customerMsg;
+            if ($ticketFile !== null && function_exists('ticket_whatsapp_caption')) {
+                $svcKey = strtolower((string) ($templateData['module_type'] ?? $module));
+                $warm = ticket_whatsapp_caption(
+                    ['first_name' => $customerName, 'pnr' => (string) ($templateData['pnr'] ?? '')],
+                    (string) $invoiceId,
+                    $svcKey,
+                    is_array($settings ?? null) ? $settings : null
+                );
+                if (trim($warm) !== '') { $outMsg = $warm; }
+            }
             if ($ticketFile !== null) {
                 $ticketUrl = ($invoiceId !== '' && function_exists('ticket_public_url')) ? ticket_public_url((string) $invoiceId) : null;
-                SENDWHATSAPP($formattedPhone, $customerName, $customerMsg, $ticketFile, $ticketUrl);
+                SENDWHATSAPP($formattedPhone, $customerName, $outMsg, $ticketFile, $ticketUrl);
             } else {
-                SENDWHATSAPP($formattedPhone, $customerName, $customerMsg);
+                SENDWHATSAPP($formattedPhone, $customerName, $outMsg);
             }
         }
 
