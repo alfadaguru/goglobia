@@ -24,7 +24,26 @@
 @$SECURE or die('Access Denied!');
 
 if (!function_exists('supplier_owned_stay_ids')) {
-    /** The set of stays.id owned by $owner (int ids). Empty array if none. */
+    /**
+     * The set of stays.id for $owner that the ACTING user may see (int ids).
+     *
+     * For the owner (or admin) acting, this is every stay the owner owns. For a STAFF
+     * member whose role is property-scoped (scope_type='selected'), it is narrowed to the
+     * stays explicitly granted to that role via supplier_role_property.
+     *
+     * Why here: ~75 list/aggregate screens across the supplier PMS call this to decide
+     * which properties to show, then query bookings/guests/etc. for that set. The role
+     * property-scope was only enforced on PER-PROPERTY routes (which pass a stayId to
+     * supplier_can); the list screens called supplier_can(...,'view') with no stayId, so
+     * the scope check was skipped and they enumerated ALL the owner's properties —
+     * leaking a scoped staffer another property's bookings, guest PII and the full
+     * Customer Book (audit MEDIUM). Narrowing at the single source every list screen
+     * already uses fixes them all at once, with no per-route change.
+     *
+     * Scoping only applies when the passed $owner IS the acting user's resolved owner
+     * (the normal case — routes pass _supplier_stays_owner()'s value). If a caller passes
+     * some other owner id (owner-level/internal use), it is returned unscoped.
+     */
     function supplier_owned_stay_ids($db, string $owner): array
     {
         try {
@@ -35,7 +54,30 @@ if (!function_exists('supplier_owned_stay_ids')) {
         }
         $ids = [];
         foreach ($rows as $r) { $ids[] = (int) $r['id']; }
-        return $ids;
+        if (empty($ids)) { return $ids; }
+
+        // Narrow to the acting STAFF member's property scope, if any. Owner/admin acting,
+        // or a role with scope_type='all', keep the full set. Fail-safe: any error leaves
+        // the set unchanged (never widens — it only ever removes out-of-scope stays).
+        try {
+            if (!function_exists('supplier_acting_context')) { return $ids; }
+            $ctx = supplier_acting_context($db);
+            if (!is_array($ctx) || !empty($ctx['is_admin']) || !empty($ctx['is_owner'])) { return $ids; }
+            // Only scope when THIS call is for the acting staffer's own owner.
+            if ((string) ($ctx['owner'] ?? "\0") !== (string) $owner) { return $ids; }
+            $roleId = isset($ctx['role_id']) ? (int) $ctx['role_id'] : 0;
+            if ($roleId <= 0) { return $ids; } // staff with no role sees nothing actionable, but don't widen here
+            $role = $db->get('supplier_roles', ['scope_type'], ['id' => $roleId]);
+            if (!$role || ($role['scope_type'] ?? 'all') !== 'selected') { return $ids; }
+            // scope_type = selected → intersect with the role's whitelisted stays.
+            $allowedRows = $db->select('supplier_role_property', ['stay_id'], ['role_id' => $roleId]) ?: [];
+            $allowed = [];
+            foreach ($allowedRows as $r) { $allowed[(int) $r['stay_id']] = true; }
+            return array_values(array_filter($ids, static fn($id) => isset($allowed[$id])));
+        } catch (\Throwable $e) {
+            error_log('supplier_owned_stay_ids scope: ' . $e->getMessage());
+            return $ids; // fail-safe: never widen on error
+        }
     }
 }
 
