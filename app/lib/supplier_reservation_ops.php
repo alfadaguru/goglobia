@@ -859,6 +859,31 @@ if (!function_exists('resv_tape_chart')) {
             }
         }
         $out['rows'] = array_values($cellsByRoom);
+
+        // Floor-by-floor grouping for the tape chart (keeps $rows above intact for any
+        // other reader). Each floor section: ['floor'=>raw, 'label'=>'Floor N'/'No floor',
+        // 'rows'=>[...]], ordered numerically where the floor is a number, else
+        // alphabetically, with un-floored rooms last.
+        $byFloor = [];
+        foreach ($out['rows'] as $row) {
+            $fl = trim((string) ($row['room']['floor'] ?? ''));
+            $byFloor[$fl][] = $row;
+        }
+        uksort($byFloor, function ($a, $b) {
+            if ($a === '') { return 1; } if ($b === '') { return -1; } // blank floor last
+            $na = is_numeric($a); $nb = is_numeric($b);
+            if ($na && $nb) { return (float) $a <=> (float) $b; }
+            if ($na !== $nb) { return $na ? -1 : 1; } // numbered floors before named
+            return strcasecmp($a, $b);
+        });
+        $out['floors'] = [];
+        foreach ($byFloor as $fl => $rws) {
+            $out['floors'][] = [
+                'floor' => $fl,
+                'label' => $fl === '' ? 'No floor set' : (is_numeric($fl) ? ('Floor ' . $fl) : (string) $fl),
+                'rows'  => $rws,
+            ];
+        }
         return $out;
     }
 }

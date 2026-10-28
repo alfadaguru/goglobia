@@ -4,14 +4,19 @@
   $stayId = (int) ($stayId ?? 0);
   $dates = $chart['dates'] ?? [];
   $rows = $chart['rows'] ?? [];
+  // Floor-by-floor sections (falls back to a single unlabelled section = the flat list).
+  $floors = (isset($chart['floors']) && is_array($chart['floors']) && !empty($chart['floors']))
+      ? $chart['floors']
+      : (!empty($rows) ? [['floor' => '', 'label' => '', 'rows' => $rows]] : []);
   $unassigned = $chart['unassigned'] ?? [];
   $from = $dates[0] ?? date('Y-m-d');
+  $colspan = count($dates) + 1;
 ?>
 <div class="max-w-full mx-auto px-4 py-8 space-y-5">
   <div class="flex items-center justify-between flex-wrap gap-3">
     <div>
       <h1 class="text-2xl font-bold text-gray-900">Room rack / tape chart</h1>
-      <p class="text-sm text-gray-600">Physical rooms across the next nights. Occupied cells link to the reservation.</p>
+      <p class="text-sm text-gray-600">Physical rooms grouped by floor, across the next nights. Occupied cells link to the reservation.</p>
     </div>
     <div class="flex items-center gap-2">
       <a href="<?= root ?>supplier/stays/<?= $stayId ?>" class="btn secondary text-sm">‹ Property</a>
@@ -36,17 +41,26 @@
           </tr>
         </thead>
         <tbody>
-          <?php foreach ($rows as $row): $rm = $row['room']; ?>
-            <tr>
-              <td class="sticky left-0 bg-white px-3 py-1.5 font-medium text-gray-800 border-b border-gray-50 whitespace-nowrap"><?= htmlspecialchars((string) $rm['room_number']) ?><?php if (!empty($rm['floor'])): ?><span class="text-gray-400 ml-1">fl <?= htmlspecialchars((string) $rm['floor']) ?></span><?php endif; ?></td>
-              <?php foreach ($dates as $d): $cell = $row['cells'][$d] ?? null; ?>
-                <td class="px-1 py-1 border-b border-gray-50 text-center">
-                  <?php if ($cell): ?>
-                    <a href="<?= root ?>supplier/reservations/<?= rawurlencode((string) $cell['invoice']) ?>" title="<?= htmlspecialchars((string) $cell['label']) ?>" class="block bg-violet-200 text-violet-900 rounded px-1 truncate max-w-[90px] mx-auto hover:bg-violet-300"><?= htmlspecialchars((string) $cell['label']) ?></a>
-                  <?php else: ?><span class="block text-gray-200">·</span><?php endif; ?>
+          <?php foreach ($floors as $fl): ?>
+            <?php if (($fl['label'] ?? '') !== ''): ?>
+              <tr>
+                <td colspan="<?= (int) $colspan ?>" class="sticky left-0 bg-gray-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500 border-y border-gray-100">
+                  <?= htmlspecialchars((string) $fl['label']) ?> <span class="font-normal text-gray-400">· <?= count($fl['rows']) ?> room<?= count($fl['rows']) === 1 ? '' : 's' ?></span>
                 </td>
-              <?php endforeach; ?>
-            </tr>
+              </tr>
+            <?php endif; ?>
+            <?php foreach ($fl['rows'] as $row): $rm = $row['room']; ?>
+              <tr>
+                <td class="sticky left-0 bg-white px-3 py-1.5 font-medium text-gray-800 border-b border-gray-50 whitespace-nowrap"><?= htmlspecialchars((string) $rm['room_number']) ?></td>
+                <?php foreach ($dates as $d): $cell = $row['cells'][$d] ?? null; ?>
+                  <td class="px-1 py-1 border-b border-gray-50 text-center">
+                    <?php if ($cell): ?>
+                      <a href="<?= root ?>supplier/reservations/<?= rawurlencode((string) $cell['invoice']) ?>" title="<?= htmlspecialchars((string) $cell['label']) ?>" class="block bg-violet-200 text-violet-900 rounded px-1 truncate max-w-[90px] mx-auto hover:bg-violet-300"><?= htmlspecialchars((string) $cell['label']) ?></a>
+                    <?php else: ?><span class="block text-gray-200">·</span><?php endif; ?>
+                  </td>
+                <?php endforeach; ?>
+              </tr>
+            <?php endforeach; ?>
           <?php endforeach; ?>
         </tbody>
       </table>
