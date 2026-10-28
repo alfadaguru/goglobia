@@ -25,8 +25,53 @@
   <?php if (empty($picker)): ?>
     <div class="alert-error"><span class="material-symbols-outlined">error</span><p class="text-sm">This property has no bookable rooms/rates yet. Add rooms &amp; rates first.</p></div>
   <?php else: ?>
+
+  <!-- C3: single ⇄ group toggle. One room is a single booking (this form); many rooms /
+       a room block + rooming list is a GROUP booking (the existing group flow). -->
+  <div class="inline-flex rounded-lg border border-gray-200 p-1 bg-gray-50" role="tablist" aria-label="Booking type">
+    <button type="button" id="tabSingle" role="tab" aria-selected="true"
+            class="px-4 py-1.5 text-sm font-medium rounded-md bg-white shadow-sm text-gray-900">
+      Single booking
+    </button>
+    <a href="<?= root ?>supplier/groups?stay_id=<?= $sid ?>" id="tabGroup" role="tab"
+       class="px-4 py-1.5 text-sm font-medium rounded-md text-gray-500 hover:text-gray-800">
+      Group booking
+    </a>
+  </div>
+  <p id="groupHint" class="hidden text-sm text-gray-500">A group holds a block of rooms against one account with a rooming list and a master folio. You'll be taken to the group desk.</p>
+
   <form action="<?= root ?>supplier/stays/<?= $sid ?>/reservations/new" method="POST" class="card p-6 space-y-5">
     <?= CSRF::tokenField() ?>
+
+    <!-- C3: WHO IS THE CUSTOMER. Search an existing payer or create one on the spot.
+         The chosen id is written onto the booking (customer_id), connecting the
+         reservation to the Customer Book. Left blank, the guest below is auto-created
+         as an individual customer by the engine. -->
+    <div class="form-control">
+      <label class="block text-sm font-medium text-gray-700 mb-1">Customer (payer / account)</label>
+      <input type="hidden" name="customer_id" id="customerId" value="">
+      <div id="custPicked" class="hidden items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 mb-2">
+        <span class="flex items-center gap-2 text-sm text-emerald-900">
+          <span class="material-symbols-outlined text-base">account_circle</span>
+          <span id="custPickedLabel" class="font-medium"></span>
+          <span id="custPickedType" class="text-xs uppercase tracking-wide text-emerald-700"></span>
+        </span>
+        <button type="button" id="custClear" class="text-emerald-700 hover:text-emerald-900" title="Clear">
+          <span class="material-symbols-outlined text-base">close</span>
+        </button>
+      </div>
+      <div class="relative" id="custSearchWrap">
+        <div class="flex gap-2">
+          <input type="text" id="custSearch" autocomplete="off" class="input"
+                 placeholder="Search by name, email or phone…">
+          <button type="button" id="custCreateOpen" class="btn secondary whitespace-nowrap">
+            <span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">add</span> Create new</span>
+          </button>
+        </div>
+        <div id="custResults" class="hidden absolute z-20 mt-1 w-full max-h-64 overflow-auto rounded-md border border-gray-200 bg-white shadow-lg"></div>
+      </div>
+      <p class="text-xs text-gray-400 mt-1">Optional. Leave blank to use the guest below as the customer.</p>
+    </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div class="form-control">
@@ -72,22 +117,22 @@
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div class="form-control">
         <label class="block text-sm font-medium text-gray-700 mb-1">Guest first name *</label>
-        <input type="text" name="first_name" required class="input">
+        <input type="text" name="first_name" id="gFirst" required class="input">
       </div>
       <div class="form-control">
         <label class="block text-sm font-medium text-gray-700 mb-1">Guest last name</label>
-        <input type="text" name="last_name" class="input">
+        <input type="text" name="last_name" id="gLast" class="input">
       </div>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div class="form-control">
         <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-        <input type="email" name="email" class="input">
+        <input type="email" name="email" id="gEmail" class="input">
       </div>
       <div class="form-control">
         <label class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-        <input type="text" name="phone" class="input">
+        <input type="text" name="phone" id="gPhone" class="input">
       </div>
     </div>
 
@@ -120,6 +165,48 @@
       </button>
     </div>
   </form>
+
+  <!-- C3: "+ Create new customer" popup. Posts to /supplier/customers/quick-create via
+       fetch, then attaches the returned id to the booking without leaving the page. -->
+  <div id="custCreateModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div class="w-full max-w-md rounded-lg bg-white shadow-xl">
+      <div class="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+        <h2 class="text-lg font-semibold text-gray-900">New customer</h2>
+        <button type="button" id="custCreateClose" class="text-gray-400 hover:text-gray-700"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <div class="px-5 py-4 space-y-3">
+        <div id="custCreateErr" class="hidden alert-error"><span class="material-symbols-outlined">error</span><p class="text-sm"></p></div>
+        <div class="form-control">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+          <select id="ncType" class="input">
+            <option value="individual">Individual</option>
+            <option value="company">Company</option>
+            <option value="ngo">NGO / Non-profit</option>
+            <option value="agent">Travel agent</option>
+          </select>
+        </div>
+        <div class="form-control">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+          <input type="text" id="ncName" class="input" placeholder="Full name or company name">
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="form-control">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input type="email" id="ncEmail" class="input">
+          </div>
+          <div class="form-control">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+            <input type="text" id="ncPhone" class="input">
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center justify-end gap-3 border-t border-gray-100 px-5 py-3">
+        <button type="button" id="custCreateCancel" class="btn secondary">Cancel</button>
+        <button type="button" id="custCreateSave" class="btn emerald">Create &amp; use</button>
+      </div>
+    </div>
+  </div>
+
   <?php endif; ?>
 </div>
 
@@ -149,5 +236,129 @@
   }
   roomSel.addEventListener('change', fill);
   fill();
+})();
+
+// C3: customer search + pick + inline create.
+(function () {
+  var ROOT = <?= json_encode((string) root) ?>;
+  var CSRF = document.querySelector('input[name="csrf_token"]');
+  var CSRF_VAL = CSRF ? CSRF.value : '';
+
+  var search = document.getElementById('custSearch');
+  var results = document.getElementById('custResults');
+  var hidden = document.getElementById('customerId');
+  var picked = document.getElementById('custPicked');
+  var pickedLabel = document.getElementById('custPickedLabel');
+  var pickedType = document.getElementById('custPickedType');
+  var clearBtn = document.getElementById('custClear');
+  var searchWrap = document.getElementById('custSearchWrap');
+  var gFirst = document.getElementById('gFirst'), gLast = document.getElementById('gLast'),
+      gEmail = document.getElementById('gEmail'), gPhone = document.getElementById('gPhone');
+  if (!search) { return; }
+
+  function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+
+  function selectCustomer(c) {
+    hidden.value = c.id;
+    pickedLabel.textContent = c.name;
+    pickedType.textContent = c.type || '';
+    picked.classList.remove('hidden'); picked.classList.add('flex');
+    searchWrap.classList.add('hidden');
+    results.classList.add('hidden');
+    // Prefill guest identity for convenience (staff can still edit the stayer's name).
+    if (gFirst && !gFirst.value && c.name) {
+      var parts = String(c.name).trim().split(/\s+/);
+      gFirst.value = parts.shift() || '';
+      if (gLast && !gLast.value) { gLast.value = parts.join(' '); }
+    }
+    if (gEmail && !gEmail.value && c.email) { gEmail.value = c.email; }
+    if (gPhone && !gPhone.value && c.phone) { gPhone.value = c.phone; }
+  }
+
+  function clearCustomer() {
+    hidden.value = '';
+    picked.classList.add('hidden'); picked.classList.remove('flex');
+    searchWrap.classList.remove('hidden');
+    search.value = ''; results.innerHTML = ''; results.classList.add('hidden');
+  }
+  clearBtn && clearBtn.addEventListener('click', clearCustomer);
+
+  var t = null;
+  search.addEventListener('input', function () {
+    var q = search.value.trim();
+    if (t) { clearTimeout(t); }
+    if (q.length < 2) { results.classList.add('hidden'); results.innerHTML = ''; return; }
+    t = setTimeout(function () {
+      fetch(ROOT + 'supplier/customers/search?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          results.innerHTML = '';
+          var rows = (d && d.results) || [];
+          if (!rows.length) {
+            results.innerHTML = '<div class="px-3 py-2 text-sm text-gray-400">No match. Use “Create new”.</div>';
+            results.classList.remove('hidden'); return;
+          }
+          rows.forEach(function (c) {
+            var el = document.createElement('button');
+            el.type = 'button';
+            el.className = 'block w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0';
+            el.innerHTML = '<div class="text-sm font-medium text-gray-900">' + esc(c.name) +
+              ' <span class="text-xs uppercase tracking-wide text-gray-400">' + esc(c.type) + '</span></div>' +
+              '<div class="text-xs text-gray-500">' + esc([c.email, c.phone].filter(Boolean).join(' · ')) + '</div>';
+            el.addEventListener('click', function () { selectCustomer(c); });
+            results.appendChild(el);
+          });
+          results.classList.remove('hidden');
+        })
+        .catch(function () { results.classList.add('hidden'); });
+    }, 220);
+  });
+  document.addEventListener('click', function (e) {
+    if (searchWrap && !searchWrap.contains(e.target)) { results.classList.add('hidden'); }
+  });
+
+  // --- inline create popup ---
+  var modal = document.getElementById('custCreateModal');
+  var openBtn = document.getElementById('custCreateOpen');
+  var closeBtn = document.getElementById('custCreateClose');
+  var cancelBtn = document.getElementById('custCreateCancel');
+  var saveBtn = document.getElementById('custCreateSave');
+  var errBox = document.getElementById('custCreateErr');
+  function openModal() {
+    // Seed from the search box / guest fields so staff don't retype.
+    document.getElementById('ncName').value = (search.value.trim()) || ((gFirst && gFirst.value ? (gFirst.value + ' ' + (gLast ? gLast.value : '')).trim() : ''));
+    document.getElementById('ncEmail').value = gEmail ? gEmail.value : '';
+    document.getElementById('ncPhone').value = gPhone ? gPhone.value : '';
+    errBox.classList.add('hidden');
+    modal.classList.remove('hidden');
+  }
+  function closeModal() { modal.classList.add('hidden'); }
+  openBtn && openBtn.addEventListener('click', openModal);
+  closeBtn && closeBtn.addEventListener('click', closeModal);
+  cancelBtn && cancelBtn.addEventListener('click', closeModal);
+  modal && modal.addEventListener('click', function (e) { if (e.target === modal) { closeModal(); } });
+
+  saveBtn && saveBtn.addEventListener('click', function () {
+    var name = document.getElementById('ncName').value.trim();
+    if (!name) { errBox.querySelector('p').textContent = 'A name is required.'; errBox.classList.remove('hidden'); return; }
+    saveBtn.disabled = true;
+    var fd = new FormData();
+    fd.append('type', document.getElementById('ncType').value);
+    fd.append('display_name', name);
+    fd.append('email', document.getElementById('ncEmail').value.trim());
+    fd.append('phone', document.getElementById('ncPhone').value.trim());
+    fd.append('csrf_token', CSRF_VAL);
+    fetch(ROOT + 'supplier/customers/quick-create', {
+      method: 'POST', body: fd, credentials: 'same-origin',
+      headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF_VAL }
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        saveBtn.disabled = false;
+        if (d && d.ok && d.contact) { closeModal(); selectCustomer(d.contact); }
+        else { errBox.querySelector('p').textContent = (d && d.message) || 'Could not create.'; errBox.classList.remove('hidden'); }
+      })
+      .catch(function () { saveBtn.disabled = false; errBox.querySelector('p').textContent = 'Network error.'; errBox.classList.remove('hidden'); });
+  });
 })();
 </script>

@@ -888,6 +888,10 @@ $router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($
         'source'     => (string) ($_POST['source'] ?? 'walk_in'),
         'mark_paid'  => !empty($_POST['mark_paid']),
         'notes'      => (string) ($_POST['notes'] ?? ''),
+        // C3: a customer picked from the search box (the engine re-validates it
+        // is in-org and falls back to identity dedupe if it isn't). Blank => the
+        // engine auto-materialises the guest as an individual customer.
+        'customer_id' => (int) ($_POST['customer_id'] ?? 0),
     ]);
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not create the reservation.'];
     if (!empty($res['ok']) && !empty($res['invoice_id'])) {

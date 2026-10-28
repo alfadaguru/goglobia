@@ -56,6 +56,63 @@ $router->get('/supplier/customers', function () use ($SECURE, $db) {
 });
 
 // ---------------------------------------------------------------------------
+// GET /supplier/customers/search — JSON typeahead for the booking form (C3).
+// Reuses contacts_list (name/email/phone search); org-scoped; view permission.
+// Returns a compact list the "find a customer" box renders; it carries the
+// customer_id that gets written onto the booking (C2), closing the connection.
+// ---------------------------------------------------------------------------
+$router->get('/supplier/customers/search', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $ctx = _contacts_ctx($db);
+    if ($ctx === null || !supplier_can($db, 'reservations', 'view')) {
+        echo json_encode(['ok' => false, 'results' => []]); exit;
+    }
+    $orgId = (int) $ctx['org'];
+    $q = trim((string) ($_GET['q'] ?? ''));
+    $type = (string) ($_GET['type'] ?? '');
+    $rows = ($orgId > 0 && strlen($q) >= 2)
+        ? contacts_list($db, $orgId, ['q' => $q, 'type' => $type, 'limit' => 12]) : [];
+    $out = [];
+    foreach ($rows as $r) {
+        $out[] = [
+            'id'    => (int) $r['id'],
+            'name'  => (string) ($r['display_name'] ?? ''),
+            'email' => (string) ($r['email'] ?? ''),
+            'phone' => (string) ($r['phone'] ?? ''),
+            'type'  => (string) ($r['type'] ?? 'individual'),
+        ];
+    }
+    echo json_encode(['ok' => true, 'results' => $out]); exit;
+});
+
+// ---------------------------------------------------------------------------
+// POST /supplier/customers/quick-create — inline "+ Create new" popup (C3).
+// Creates a contact and returns its id as JSON so the booking form can attach
+// it without leaving the screen. Same guard + contacts_save as /save.
+// ---------------------------------------------------------------------------
+$router->post('/supplier/customers/quick-create', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard(); // reads X-CSRF-TOKEN header (fetch) or csrf_token field; emits JSON 403 on fail
+    $ctx = _contacts_ctx($db);
+    if ($ctx === null || !supplier_can($db, 'reservations', 'edit')) {
+        echo json_encode(['ok' => false, 'message' => 'Not authorised.']); exit;
+    }
+    $orgId = (int) $ctx['org'];
+    $res = contacts_save($db, $orgId, $_POST, 0);
+    if (empty($res['ok'])) { echo json_encode(['ok' => false, 'message' => $res['message'] ?? 'Could not create.']); exit; }
+    $row = contacts_get($db, $orgId, (int) $res['id']);
+    echo json_encode(['ok' => true, 'id' => (int) $res['id'], 'contact' => [
+        'id'    => (int) $res['id'],
+        'name'  => (string) ($row['display_name'] ?? ''),
+        'email' => (string) ($row['email'] ?? ''),
+        'phone' => (string) ($row['phone'] ?? ''),
+        'type'  => (string) ($row['type'] ?? 'individual'),
+    ]]); exit;
+});
+
+// ---------------------------------------------------------------------------
 // POST /supplier/customers/merge — fold a duplicate (loser) into a survivor.
 // Moves the loser's wallet balance into the survivor, keeps history, deletes loser.
 // ---------------------------------------------------------------------------
