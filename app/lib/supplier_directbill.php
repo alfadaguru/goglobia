@@ -110,11 +110,24 @@ if (!function_exists('db_credit_check')) {
         if (!function_exists('ar_ext_statement')) { return $out; }
         $st = ar_ext_statement($db, $orgId, $accountId);
         $limit = $st['credit_limit'] ?? null;
-        // Sum what the account already owes across its open folios — EXCLUDING this folio
-        // (so a re-check of an already-linked folio doesn't double-count it).
+        // The currency this check is about = the folio-under-check's own currency. The AR
+        // engine is deliberately per-currency ("never net two currencies") so we compare
+        // ONLY the same-currency debt against the (single) credit limit — summing NGN and
+        // USD into one number and comparing to one limit is arithmetically meaningless
+        // (audit fix). Default to the account statement's single currency, else USD.
+        $folioCur = '';
+        try {
+            $fc = $db->get('stays_folios', ['currency'], ['id' => $folioId]);
+            $folioCur = strtoupper(trim((string) ($fc['currency'] ?? '')));
+        } catch (\Throwable $e) { $folioCur = ''; }
+        if ($folioCur === '') { $folioCur = 'USD'; }
+        $out['currency'] = $folioCur;
+        // Sum what the account already owes IN THIS CURRENCY across its open folios —
+        // EXCLUDING this folio (so a re-check of an already-linked folio is stable).
         $owed = 0.0;
         foreach (($st['lines'] ?? []) as $ln) {
             if ((int) ($ln['folio_id'] ?? 0) === $folioId) { continue; }
+            if (strtoupper(trim((string) ($ln['currency'] ?? 'USD'))) !== $folioCur) { continue; } // only same-currency debt
             $owed += (float) ($ln['balance'] ?? 0);
         }
         $owed = round($owed, 2);
@@ -156,6 +169,17 @@ if (!function_exists('db_assign')) {
         if ($acctId <= 0 || !$db->has('stays_corporate_accounts', ['id' => $acctId, 'org_id' => $orgId])) {
             return ['ok' => false, 'message' => 'This customer has no billing account yet — enable billing first.', 'over' => false, 'needs_override' => false, 'needs_enable' => true];
         }
+        // A SUSPENDED city-ledger account must NOT accept new direct-bill (audit fix): the
+        // whole point of corp_set_status('suspended') is to stop extending it credit. The
+        // contact's own status is checked upstream (db_eligible_contacts filters active),
+        // but that is a DIFFERENT entity from the corporate/credit account — check it here.
+        try {
+            $acctStatus = (string) ($db->get('stays_corporate_accounts', 'status', ['id' => $acctId, 'org_id' => $orgId]) ?? '');
+            if ($acctStatus === 'suspended') {
+                return ['ok' => false, 'over' => false, 'needs_override' => false,
+                    'message' => 'That account is suspended — reactivate it before billing stays to it.'];
+            }
+        } catch (\Throwable $e) { error_log('db_assign status check: ' . $e->getMessage()); }
 
         // Credit check against this folio's current balance.
         $bal = 0.0;

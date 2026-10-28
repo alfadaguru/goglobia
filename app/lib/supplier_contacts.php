@@ -321,12 +321,25 @@ if (!function_exists('contacts_merge')) {
         $result = ['ok' => false, 'message' => 'Merge failed.'];
         try {
             $db->action(function ($db) use ($orgId, $survivor, $loser, $survivorId, $loserId, $moved, &$result) {
-                // Step 2: re-point the loser's historical ledger rows to the survivor
-                // (keep the audit under the surviving contact). The balance-move rows
-                // above already sit on the right contacts; this reassigns the prior history.
-                $db->update('stays_contact_wallet_ledger',
-                    ['contact_id' => $survivorId],
-                    ['org_id' => $orgId, 'contact_id' => $loserId]);
+                // Step 2: re-point the loser's GENUINE prior ledger history to the survivor
+                // (so the audit lives under the surviving contact and isn't orphaned when
+                // the loser is deleted). EXCLUDE the merge-move rows themselves (ref LIKE
+                // 'merge:…') — those '…:out' debit rows were computed against the LOSER's
+                // balance, so their balance_after is meaningless on the survivor; they are
+                // bookkeeping of the move, not customer activity. Delete them with the
+                // loser (audit fix). The survivor's own ':in' credit row already sits
+                // correctly on the survivor and is left in place.
+                // Re-point every loser row whose ref is NOT a merge-move artifact.
+                $db->query(
+                    "UPDATE stays_contact_wallet_ledger SET contact_id = :sv
+                     WHERE org_id = :o AND contact_id = :ls
+                       AND (ref IS NULL OR ref NOT LIKE 'merge:%')",
+                    [':sv' => $survivorId, ':o' => $orgId, ':ls' => $loserId]);
+                // Delete the loser's merge-move artifact rows (the ':out' debit etc).
+                $db->query(
+                    "DELETE FROM stays_contact_wallet_ledger
+                     WHERE org_id = :o AND contact_id = :ls AND ref LIKE 'merge:%'",
+                    [':o' => $orgId, ':ls' => $loserId]);
 
                 // Step 3: backfill the survivor's EMPTY identity fields from the loser.
                 $fill = [];

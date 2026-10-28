@@ -84,9 +84,12 @@ if (!function_exists('cwallet_apply')) {
         $result = ['ok' => false, 'message' => 'Wallet update failed.'];
         try {
             $db->action(function ($db) use ($orgId, $contactId, $amount, $direction, $currency, $ref, $opts, &$result) {
-                // Idempotency: a ledger row with this (org, ref) means the money already
-                // moved — return the current balance, do NOT apply again.
-                if ($ref !== null && $db->has('stays_contact_wallet_ledger', ['org_id' => $orgId, 'ref' => $ref])) {
+                // Idempotency: a ledger row with this (org, contact, ref) means the money
+                // already moved — return the current balance, do NOT apply again. Keyed on
+                // contact_id too (not just org+ref) so a ref reused across two contacts in
+                // one org can't false-dedupe the second contact's money (defence in depth;
+                // callers should already scope the ref per contact).
+                if ($ref !== null && $db->has('stays_contact_wallet_ledger', ['org_id' => $orgId, 'contact_id' => $contactId, 'ref' => $ref])) {
                     $bal = (float) ($db->get('stays_contact_wallet', 'balance', ['org_id' => $orgId, 'contact_id' => $contactId, 'currency' => $currency]) ?? 0);
                     $result = ['ok' => true, 'balance' => round($bal, 2), 'already' => true];
                     return true;
@@ -129,10 +132,18 @@ if (!function_exists('cwallet_apply')) {
             });
         } catch (\Throwable $e) {
             error_log('cwallet_apply: ' . $e->getMessage());
-            // A duplicate-ref race hits the UNIQUE key → treat as already-applied no-op.
+            // A duplicate-ref RACE hits the UNIQUE key and rolls back — that is a safe
+            // no-op ONLY IF the ledger row for this ref actually exists (the other writer
+            // committed it). We must NOT blindly report success on ANY exception, or a
+            // genuine failure (deadlock, bad data) would be masked as applied-money. So
+            // re-check: success-as-already only when the row is really there.
             if ($ref !== null) {
-                $bal = cwallet_balance($db, $orgId, $contactId, $currency);
-                return ['ok' => true, 'balance' => $bal, 'already' => true];
+                try {
+                    if ($db->has('stays_contact_wallet_ledger', ['org_id' => $orgId, 'contact_id' => $contactId, 'ref' => $ref])) {
+                        $bal = cwallet_balance($db, $orgId, $contactId, $currency);
+                        return ['ok' => true, 'balance' => $bal, 'already' => true];
+                    }
+                } catch (\Throwable $e2) { error_log('cwallet_apply recheck: ' . $e2->getMessage()); }
             }
             return ['ok' => false, 'message' => 'Wallet update error.'];
         }

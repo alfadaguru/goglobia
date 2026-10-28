@@ -191,12 +191,21 @@ $router->post('/supplier/customers/([0-9]+)/wallet', function ($id) use ($SECURE
         $_SESSION['message'] = ['type' => 'error', 'text' => 'Enter a positive amount.'];
         header('Location: ' . $back); exit;
     }
+    // IDEMPOTENCY (audit fix): a double-submit must NOT double-apply the wallet. The
+    // form carries a one-time nonce; we derive a stable per-submit ref from it so a
+    // resubmit of the same form is a no-op in cwallet_apply (idempotent on that ref).
+    // The ref is scoped to this contact so the (org_id, ref) unique key can never
+    // collide across contacts. If the nonce is missing (old form / no JS), fall back
+    // to a content hash so a rapid double-click of identical inputs still dedupes.
+    $nonce = preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($_POST['wallet_nonce'] ?? ''));
+    if ($nonce === '') { $nonce = substr(hash('sha256', $dir . '|' . $amount . '|' . $currency . '|' . $note), 0, 24); }
+    $ref = 'cwui:' . (int) $id . ':' . $nonce;
     if ($dir === 'topup') {
-        $res = cwallet_topup($db, $orgId, (int) $id, $amount, $currency, ['note' => $note]);
-        $msg = !empty($res['ok']) ? 'Deposit added to the wallet.' : ($res['message'] ?? 'Could not add deposit.');
+        $res = cwallet_topup($db, $orgId, (int) $id, $amount, $currency, ['note' => $note, 'ref' => $ref]);
+        $msg = !empty($res['ok']) ? (!empty($res['already']) ? 'Deposit already recorded.' : 'Deposit added to the wallet.') : ($res['message'] ?? 'Could not add deposit.');
     } elseif ($dir === 'drawdown') {
-        $res = cwallet_drawdown($db, $orgId, (int) $id, $amount, $currency, ['reason' => 'adjustment', 'note' => $note ?: 'Manual draw-down']);
-        $msg = !empty($res['ok']) ? 'Wallet drawn down.' : ($res['message'] ?? 'Could not draw down.');
+        $res = cwallet_drawdown($db, $orgId, (int) $id, $amount, $currency, ['reason' => 'adjustment', 'note' => $note ?: 'Manual draw-down', 'ref' => $ref]);
+        $msg = !empty($res['ok']) ? (!empty($res['already']) ? 'Draw-down already recorded.' : 'Wallet drawn down.') : ($res['message'] ?? 'Could not draw down.');
     } else {
         $res = ['ok' => false]; $msg = 'Pick top-up or draw-down.';
     }

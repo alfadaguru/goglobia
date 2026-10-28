@@ -81,6 +81,9 @@ $e = function ($k) use ($contact) { return htmlspecialchars((string) ($contact[$
     <?php if ($canEdit): ?>
     <form action="<?= $base ?>/<?= (int) $contact['id'] ?>/wallet" method="POST" class="flex flex-wrap items-end gap-2">
       <?= CSRF::tokenField() ?>
+      <?php // One-time nonce so a double-submit of this form can't double-apply the wallet
+            // (the server turns it into an idempotency ref). Regenerated each render. ?>
+      <input type="hidden" name="wallet_nonce" value="<?= htmlspecialchars(bin2hex(random_bytes(12))) ?>">
       <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Action</label>
         <select name="direction" class="input text-sm"><option value="topup">Top up (deposit)</option><option value="drawdown">Draw down</option></select></div>
       <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Amount</label>
