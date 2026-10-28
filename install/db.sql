@@ -1237,6 +1237,7 @@ CREATE TABLE `bookings` (
   `cancellation_status` tinyint(4) NOT NULL DEFAULT 0,
   `cancellation_response` text DEFAULT NULL,
   `booking_data` longtext DEFAULT NULL,
+  `customer_id` bigint(20) unsigned DEFAULT NULL,
   `booking_channel` varchar(20) NOT NULL DEFAULT 'web',
   `created_by_admin` varchar(255) DEFAULT NULL,
   `payment_verified_by` varchar(255) DEFAULT NULL,
@@ -30036,7 +30037,7 @@ CREATE TABLE `stays_recipes` (
 CREATE TABLE `stays_corporate_accounts` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `org_id` int(11) DEFAULT NULL,
-  `type` enum('company','agent') NOT NULL DEFAULT 'company',
+  `type` enum('company','agent','ngo') NOT NULL DEFAULT 'company',
   `name` varchar(191) NOT NULL,
   `contact_name` varchar(120) DEFAULT NULL,
   `email` varchar(191) DEFAULT NULL,
@@ -36084,3 +36085,6 @@ ALTER TABLE `bookings` ADD COLUMN IF NOT EXISTS `agent_client_margin` DECIMAL(14
 ALTER TABLE `settings` ADD COLUMN IF NOT EXISTS `agent_portal_enabled` ENUM('1','0') NOT NULL DEFAULT '1';
 ALTER TABLE `settings` ADD COLUMN IF NOT EXISTS `agent_dva_enabled` ENUM('1','0') NOT NULL DEFAULT '1';
 ALTER TABLE `settings` ADD COLUMN IF NOT EXISTS `agent_self_markup_enabled` ENUM('1','0') NOT NULL DEFAULT '1';
+-- Front-desk CONSOLIDATION C1: booking -> customer (payer) link. Nullable FK-style
+-- column to stays_contacts.id. Idempotent; the index is added by ensureSupplierStaysSchema.
+ALTER TABLE `bookings` ADD COLUMN IF NOT EXISTS `customer_id` BIGINT UNSIGNED DEFAULT NULL;

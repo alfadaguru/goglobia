@@ -473,7 +473,9 @@ try {
         //     unified individual/company/ngo/agent contact spine with phone/type search.
         // v8: stays_contact_wallet + _ledger (Front-Desk Overhaul Phase 4b): a hotel-
         //     scoped customer deposit wallet (separate from the platform wallet spine).
-        define('APP_SCHEMA_ENSURE_VERSION', 8);
+        // v9: Front-desk CONSOLIDATION C1 — bookings.customer_id (booking→payer link) +
+        //     'ngo' added to the stays_corporate_accounts type enum.
+        define('APP_SCHEMA_ENSURE_VERSION', 9);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);

@@ -11087,7 +11087,7 @@ function ensureSupplierStaysSchema($db): void
         $db->query("CREATE TABLE IF NOT EXISTS `stays_corporate_accounts` (
             `id` INT(11) NOT NULL AUTO_INCREMENT,
             `org_id` INT(11) DEFAULT NULL,
-            `type` ENUM('company','agent') NOT NULL DEFAULT 'company',
+            `type` ENUM('company','agent','ngo') NOT NULL DEFAULT 'company',
             `name` VARCHAR(191) NOT NULL,
             `contact_name` VARCHAR(120) DEFAULT NULL,
             `email` VARCHAR(191) DEFAULT NULL,
@@ -11101,6 +11101,33 @@ function ensureSupplierStaysSchema($db): void
             PRIMARY KEY (`id`),
             KEY `idx_org_status` (`org_id`,`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // Front-desk CONSOLIDATION C1 (existing installs): widen the corporate-account
+        // type enum to include 'ngo', so an NGO reads correctly on the backing AR ledger
+        // instead of masquerading as 'company'. Idempotent — only ALTER when 'ngo' is
+        // absent from the current column type. (New installs get it from the CREATE above.)
+        try {
+            $tcol = $db->query("SHOW COLUMNS FROM `stays_corporate_accounts` LIKE 'type'")->fetch(\PDO::FETCH_ASSOC);
+            if ($tcol && strpos((string) ($tcol['Type'] ?? ''), "'ngo'") === false) {
+                $db->pdo->exec("ALTER TABLE `stays_corporate_accounts` MODIFY `type` ENUM('company','agent','ngo') NOT NULL DEFAULT 'company'");
+            }
+        } catch (\Throwable $e) { error_log('consolidation C1 corp type enum: ' . $e->getMessage()); }
+
+        // Front-desk CONSOLIDATION C1: the booking→customer link. A reservation now
+        // carries a nullable customer_id → stays_contacts.id (the payer/account), while
+        // the guest name stays on the booking's own columns. This is the FK that connects
+        // the booking flow to the Customer Book (the fix for the disconnection). Nullable
+        // so every existing booking + the public/online path (which has no customer) are
+        // unaffected; resolved/attached by the desk flow in a later consolidation phase.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `bookings` LIKE 'customer_id'")->fetch()) {
+                $db->query("ALTER TABLE `bookings` ADD COLUMN `customer_id` BIGINT UNSIGNED NULL DEFAULT NULL");
+                // Index it so "all bookings for this customer" is cheap (the customer
+                // detail / stay-history join the consolidation will use).
+                try { $db->query("ALTER TABLE `bookings` ADD KEY `idx_customer` (`customer_id`)"); }
+                catch (\Throwable $e) { error_log('consolidation C1 bookings customer_id index: ' . $e->getMessage()); }
+            }
+        } catch (\Throwable $e) { error_log('consolidation C1 bookings customer_id: ' . $e->getMessage()); }
 
         // --- Trust / client-money ledger (PMS Phase 3 #50) --------------------------
         // An append-only ledger of money held ON BEHALF of owners/third parties,
