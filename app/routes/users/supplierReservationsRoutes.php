@@ -251,6 +251,11 @@ $router->get('/supplier/front-desk', function () use ($SECURE, $db) {
     $roomStatus = function_exists('fd_room_status') ? fd_room_status($db, $boardStayIds) : [];
     $occupancy  = function_exists('fd_occupancy') ? fd_occupancy($buckets, $roomStatus) : [];
     $canEdit    = supplier_can($db, 'reservations', 'edit', $stayFilter > 0 ? $stayFilter : null);
+    // Per-room board (individual room tiles with occupant + clean/dirty status) — only
+    // when ONE property is in view (a cross-property grid would be meaningless). The view
+    // renders each as a colour-coded tile with hover details + an inline status change.
+    $roomBoard  = ($stayFilter > 0 && function_exists('fd_room_board')) ? fd_room_board($db, $stayFilter) : [];
+    $canEditRooms = $stayFilter > 0 && supplier_can($db, 'rooms', 'edit', $stayFilter);
 
     // C4 (console-as-hub): resolve this owner's org once, then batch the VIP flags for
     // every guest on the day so the lists can star VIPs and link to the Customer Book.

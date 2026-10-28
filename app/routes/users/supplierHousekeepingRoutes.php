@@ -60,7 +60,11 @@ $router->post('/supplier/housekeeping/status', function () use ($SECURE, $db) {
     $prid = (int) ($_POST['physical_room_id'] ?? 0);
     $stayId = (int) ($_POST['stay_id'] ?? 0);
     $to = strtolower(trim((string) ($_POST['to'] ?? '')));
-    $back = root . 'supplier/housekeeping' . ($stayId > 0 ? '?stay_id=' . $stayId : '');
+    // Default back to the housekeeping page; the front-desk room board sets return=front-desk
+    // so a status change made there bounces back to the front desk, not away from it.
+    $back = (($_POST['return'] ?? '') === 'front-desk')
+        ? root . 'supplier/front-desk' . ($stayId > 0 ? '?stay_id=' . $stayId : '')
+        : root . 'supplier/housekeeping' . ($stayId > 0 ? '?stay_id=' . $stayId : '');
 
     if (!supplier_can($db, 'rooms', 'edit', $stayId)) { _supplier_stays_deny('Not your property.'); }
     $ok = function_exists('hk_room_set_status') && hk_room_set_status($db, $prid, $stayId, $to, (string) ($_SESSION['user_id'] ?? ''));

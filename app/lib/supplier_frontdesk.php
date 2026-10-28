@@ -190,6 +190,55 @@ if (!function_exists('fd_room_status')) {
     }
 }
 
+if (!function_exists('fd_room_board')) {
+    /**
+     * PER-ROOM board for ONE property (the front-desk room grid). fd_room_status returns
+     * only COUNTS; this returns a tile per physical room so the desk can SEE each room's
+     * clean/dirty/inspected/out-of-order state at a glance, who is in it, and act on it.
+     * Each row: id, room_number, floor, hk_status, occupant_name, occupant_invoice, notes.
+     * Occupancy comes from hk_rooms_in_use (checked-in bookings → physical room). Sorted
+     * by floor then room number. Read-only; the view posts status changes to the existing
+     * /supplier/housekeeping/status endpoint.
+     */
+    function fd_room_board($db, int $stayId): array
+    {
+        if ($stayId <= 0) { return []; }
+        try {
+            $rooms = $db->select('stays_physical_rooms',
+                ['id', 'room_number', 'floor', 'hk_status', 'notes'],
+                ['stay_id' => $stayId, 'active' => 1, 'ORDER' => ['floor' => 'ASC', 'room_number' => 'ASC']]) ?: [];
+        } catch (\Throwable $e) { error_log('fd_room_board: ' . $e->getMessage()); return []; }
+        if (empty($rooms)) { return []; }
+
+        // Which rooms are currently occupied (checked-in) + by whom.
+        $inUse = function_exists('hk_rooms_in_use') ? hk_rooms_in_use($db, $stayId) : [];
+        $names = [];
+        if (!empty($inUse)) {
+            try {
+                $invs = array_values($inUse);
+                foreach ($db->select('bookings', ['invoice_id', 'first_name', 'last_name'], ['invoice_id' => $invs]) ?: [] as $b) {
+                    $names[(string) $b['invoice_id']] = trim((string) ($b['first_name'] ?? '') . ' ' . (string) ($b['last_name'] ?? ''));
+                }
+            } catch (\Throwable $e) {}
+        }
+        $out = [];
+        foreach ($rooms as $r) {
+            $prid = (int) $r['id'];
+            $inv  = $inUse[$prid] ?? '';
+            $out[] = [
+                'id'               => $prid,
+                'room_number'      => (string) ($r['room_number'] ?? ''),
+                'floor'            => (string) ($r['floor'] ?? ''),
+                'hk_status'        => (string) ($r['hk_status'] ?? 'clean'),
+                'notes'            => (string) ($r['notes'] ?? ''),
+                'occupant_invoice' => (string) $inv,
+                'occupant_name'    => $inv !== '' ? (string) ($names[$inv] ?? '') : '',
+            ];
+        }
+        return $out;
+    }
+}
+
 if (!function_exists('fd_occupancy')) {
     /**
      * Occupancy read for the business date: in-house room-nights vs sellable physical
