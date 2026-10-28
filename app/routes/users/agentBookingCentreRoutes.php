@@ -440,6 +440,18 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/action', function ($invoiceId) use 
         try { $db->update('bookings', ['booking_status'=>'cancelled','cancelled_at'=>date('Y-m-d H:i:s')], ['invoice_id'=>(string)$invoiceId]); }
         catch (\Throwable $e) { error_log('agent cancel mark '.$invoiceId.': '.$e->getMessage()); }
 
+        // 2b) Reverse any own-inventory supplier earning. On payment an own-inventory
+        //      stay/tour/car accrues a supplier_earnings row (pending/available); if we
+        //      cancel without voiding it, the supplier could still be paid out for a
+        //      booking we are cancelling/refunding — money drifts (refund + payout for
+        //      the same booking). Idempotent, and it refuses to void a row already
+        //      reserved for a payout (see supplier_earning_void_for_booking). A no-op
+        //      for aggregator modules (flights/bus) which never accrue an earning.
+        if (function_exists('supplier_earning_void_for_booking')) {
+            try { supplier_earning_void_for_booking($db, (string)$invoiceId); }
+            catch (\Throwable $e) { error_log('agent cancel earning-void '.$invoiceId.': '.$e->getMessage()); }
+        }
+
         // 3) Refund to the AGENCY WALLET when requested AND the booking was paid
         //    FROM THE WALLET. Idempotent per invoice (so a repeat click never
         //    double-refunds). Only the amount the AGENT paid us (price_markup).

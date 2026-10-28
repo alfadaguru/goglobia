@@ -230,6 +230,20 @@ $router->post(admin.'/bookings/edit/(.*)', function ($invoice_id) use ($SECURE,$
             if (function_exists('stays_on_cancelled')) {
                 stays_on_cancelled($db, (string) $invoice_id);
             }
+        } elseif ($wasCancelledNow && in_array(strtolower((string) ($booking['module_type'] ?? '')), ['tours', 'cars'], true)) {
+            // tours/cars also accrue an own-inventory supplier earning (see
+            // supplier_earning_resolve_owner) but have no room/availability hold, so
+            // stays_on_cancelled does not apply. Void the earning directly so an admin
+            // cancel here does not leave the supplier payable for a cancelled booking.
+            // Idempotent; refuses rows already reserved for a payout; no-op for API suppliers.
+            if (!function_exists('supplier_earning_void_for_booking')) {
+                $seLib = dirname(__DIR__, 2) . '/lib/supplier_earnings.php';
+                if (is_file($seLib)) { require_once $seLib; }
+            }
+            if (function_exists('supplier_earning_void_for_booking')) {
+                try { supplier_earning_void_for_booking($db, (string) $invoice_id); }
+                catch (\Throwable $e) { error_log('admin cancel earning-void ' . $invoice_id . ': ' . $e->getMessage()); }
+            }
         }
 
         $_SESSION['message'] = [

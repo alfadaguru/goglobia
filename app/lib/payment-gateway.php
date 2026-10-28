@@ -370,11 +370,14 @@ function handle_payment_callback($token, $action, $data = [])
             // on the transaction; a re-fired callback never double-credits).
             // ============================================================
             if (strtolower((string) ($booking['module'] ?? '')) === 'wallet_topup') {
+                // Do NOT mark the top-up booking paid/confirmed up-front: the credit must
+                // succeed first. Previously this row was stamped 'paid' before the wallet
+                // credit, so a credit that threw left the booking 'paid' with a stale
+                // balance and only an error_log — reconciled only if the gateway happened
+                // to re-fire its webhook. Record only the txn ref now; flip to paid below,
+                // after the wallet is actually credited (or confirmed already-credited).
                 $db->update('bookings', [
-                    'payment_status' => 'paid',
-                    'booking_status' => 'confirmed',
                     'transaction_id' => $data['transaction_id'] ?? null,
-                    'paid_at'        => date('Y-m-d H:i:s'),
                 ], ['invoice_id' => $tokenData['invoice_id']]);
 
                 $creditOk = false; $creditMsg = '';
@@ -410,6 +413,27 @@ function handle_payment_callback($token, $action, $data = [])
                         error_log('wallet top-up credit: ' . $eTop->getMessage());
                         $creditMsg = $eTop->getMessage();
                     }
+                }
+
+                // Flip the top-up booking to paid/confirmed ONLY once the wallet was
+                // actually credited (or confirmed already-credited, idempotent). If the
+                // credit failed/threw, leave the booking un-paid and flag it: the money
+                // was received by the gateway, so Paystack's webhook retry (or an admin)
+                // will re-run this idempotent credit path and complete it — rather than
+                // showing 'paid' over a balance that never moved.
+                if ($creditOk) {
+                    $db->update('bookings', [
+                        'payment_status' => 'paid',
+                        'booking_status' => 'confirmed',
+                        'paid_at'        => date('Y-m-d H:i:s'),
+                    ], ['invoice_id' => $tokenData['invoice_id']]);
+                } else {
+                    error_log('WALLET TOPUP NOT CREDITED | invoice=' . $tokenData['invoice_id'] . ' — left unpaid for webhook/admin retry. ' . $creditMsg);
+                    try {
+                        $db->update('bookings', [
+                            'booking_payment_issue' => 'Top-up payment received but wallet credit pending — awaiting retry. ' . substr($creditMsg, 0, 160),
+                        ], ['invoice_id' => $tokenData['invoice_id']]);
+                    } catch (\Throwable $eFlag) { /* column variance — non-fatal */ }
                 }
 
                 // SAVE-ON-FIRST-TOP-UP (Paystack cards): a Paystack card charge
@@ -1556,6 +1580,20 @@ function record_transaction($tokenData, $transactionId, $status, $gatewayData = 
         }
     }
 
+    // Dedup the legacy audit row: if a payment callback fires more than once for the
+    // same gateway reference (browser return + a retried webhook), we must not write a
+    // SECOND `transactions` row for the same payment — it would double-count in reports
+    // and reconciliation (the money paths — spine/wallet/booking — are each idempotent,
+    // so only this audit mirror was at risk). The Adyen path already guards this; make
+    // it uniform. Only guards non-empty refs (a '' ref can't be deduped safely).
+    if (!empty($transactionId)) {
+        try {
+            if ($db->get('transactions', 'id', ['trx_id' => $transactionId])) {
+                return; // already recorded for this gateway reference — no-op
+            }
+        } catch (\Throwable $e) { /* table/col variance — fall through and record */ }
+    }
+
     $db->insert('transactions', [
         'invoice_id' => $tokenData['invoice_id'],
         // 'booking_id' => $tokenData['booking_id'],
@@ -2338,6 +2376,13 @@ if (!function_exists('_auto_refund_on_issue_failure')) {
                     'booking_payment_issue' => 'Auto-refunded: supplier issue failed. ' . substr($error, 0, 180),
                 ], ['invoice_id' => $invoiceId]);
                 error_log('AUTO-REFUND OK | invoice=' . $invoiceId . ' gateway=' . $gwName . ' ref=' . ($res['reference'] ?? '?'));
+                // Reverse any own-inventory supplier earning: a refunded booking must not
+                // remain payable to the supplier. Idempotent; refuses to void a row already
+                // reserved for a payout; a no-op for aggregator modules (no earning accrued).
+                if (function_exists('supplier_earning_void_for_booking')) {
+                    try { supplier_earning_void_for_booking($db, (string) $invoiceId); }
+                    catch (\Throwable $e) { error_log('auto-refund earning-void ' . $invoiceId . ': ' . $e->getMessage()); }
+                }
                 // Referral clawback: a refunded qualifying booking reverses its reward.
                 if (function_exists('referral_reverse_reward')) {
                     try { referral_reverse_reward($db, (string) $invoiceId); } catch (\Throwable $e) { error_log('referral clawback (auto): ' . $e->getMessage()); }
