@@ -601,7 +601,7 @@ $router->post('/api/bus/booking/app-submit', function () use ($SECURE, $db) {
                     'currency'       => $displayCurrency,
                     'payment_status' => 'unpaid',
                     'module_type'    => 'Bus',
-                ], $ticketPdf);
+                ], $ticketPdf, $ticketPdf);
             } catch (\Throwable $e) {
                 error_log('BUS_APP_SUBMIT_NOTIFY: ' . $e->getMessage());
             }

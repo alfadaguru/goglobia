@@ -254,12 +254,33 @@ if (!function_exists('bm_settle_booking_payment')) {
 }
 
 if (!function_exists('bm_notify_paid')) {
-    /** Fire the paid notification + generate the branded PDF, once, best effort. */
+    /** Fire the paid notification + generate the branded PDF, ONCE, best effort. */
     function bm_notify_paid($db, string $invoiceId): void
     {
         try {
             $b = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
             if (!$b) return;
+
+            // IDEMPOTENCY GUARD. bm_notify_paid is now called from several paths
+            // (BM pay, agent settle, admin mark_paid, the payment-callback fallback,
+            // the ferries webhook). Without a guard, two of them firing for the same
+            // booking would send the customer TWO tickets. Stamp a one-time
+            // `notified_paid_at` and no-op on a second call. Self-healing column.
+            if (empty($b['notified_paid_at'])) {
+                static $ensured = false;
+                if (!$ensured) {
+                    try { $db->query("ALTER TABLE `bookings` ADD COLUMN `notified_paid_at` DATETIME DEFAULT NULL"); } catch (\Throwable $e) { /* exists */ }
+                    $ensured = true;
+                }
+                // Claim atomically: only the FIRST caller flips NULL -> now and proceeds.
+                $claim = $db->query(
+                    "UPDATE bookings SET notified_paid_at = NOW() WHERE invoice_id = :inv AND notified_paid_at IS NULL",
+                    [':inv' => $invoiceId]
+                );
+                if (!$claim || $claim->rowCount() < 1) { return; } // another path already notified
+            } else {
+                return; // already notified
+            }
             // TWO documents (3-document model): the priced INVOICE for the payer/
             // owner/admin, and the no-price TICKET (travel document) for the
             // TRAVELLER. NOTIFY sends $ticketPdf to the customer and $invoicePdf to

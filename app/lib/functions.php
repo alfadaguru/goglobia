@@ -4645,6 +4645,15 @@ function SENDWHATSAPP($toPhone, $toName, $message, $mediaUrl = null, $publicUrl 
             return false;
         }
 
+        // If a DOCUMENT was requested but we reach here, the active provider can't
+        // send files (only Green API implements sendFile/sendFileByUrl today).
+        // Make the silent degradation VISIBLE so ops know the ticket went by text
+        // only (the emailed copy is still the guaranteed fallback). Was: silent.
+        if ((!empty($mediaUrl) || !empty($publicUrl))
+            && !method_exists($messenger, 'sendFileByUrl') && !method_exists($messenger, 'sendFile')) {
+            error_log("SENDWHATSAPP WARNING: a document was requested but provider '$provider' has no file-send support — sent TEXT ONLY. Use Green API for in-chat document delivery.");
+        }
+
         $result = $messenger->send($toPhone, $toName, $message);
         error_log("SENDWHATSAPP FINAL RESULT: " . ($result ? "SUCCESS" : "FAILURE"));
         return $result;

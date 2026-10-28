@@ -698,7 +698,7 @@ $router->post('/api/visas/booking/submit', function () use ($db) {
                     'payment_status' => 'unpaid',
                     'amount' => $displayFinalTotal,
                     'currency' => $displayCurrency
-                ]), $pdfPath);
+                ]), $pdfPath, $pdfPath);
         } catch (Exception $e) {
             error_log('Visa notifications failed' . $e->getMessage());
         }

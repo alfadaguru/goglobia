@@ -438,7 +438,9 @@ $router->post('/cars/booking/submit', function () use ($SECURE, $db) {
                 // Attach the no-price TICKET (travel document) to the confirmation.
                 // Priced invoice stays payer-only (receipt + on-demand download).
                 $ticketPdf = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($invoiceId, 'ticket') : null;
-                NOTIFY::booking('cars', $customerData, $notifyData, $ticketPdf);
+                // Pass the ticket as BOTH owner (4th) + customer (5th) so the
+                // customer's WhatsApp copy carries the ticket PDF + price-free body.
+                NOTIFY::booking('cars', $customerData, $notifyData, $ticketPdf, $ticketPdf);
             }
 
             // Let the (possibly guest) session that created this invoice view it —

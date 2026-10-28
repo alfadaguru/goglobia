@@ -1061,7 +1061,7 @@ $router->post('/api/ferries/booking/submit', function () use ($SECURE, $db) {
                     'currency'       => $displayCurrency,
                     'payment_status' => 'unpaid',
                     'module_type'    => 'Ferries',
-                ], $ticketPdf);
+                ], $ticketPdf, $ticketPdf);
             } catch (\Throwable $e) {
                 error_log('FERRIES_APP_SUBMIT_NOTIFY: ' . $e->getMessage());
             }

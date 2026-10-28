@@ -401,7 +401,7 @@ $router->post('/api/visa/booking/submit', function () use ($SECURE, $db) {
                 'payment_status' => 'unpaid',
                 'amount' => $finalPriceMarkup,
                 'currency' => $defaultCurrency
-            ]), $pdfPath);
+            ]), $pdfPath, $pdfPath);
         } catch (Exception $e) {
             // Log error but don't fail booking
             error_log('Visa inquiry notifications failed: ' . $e->getMessage());

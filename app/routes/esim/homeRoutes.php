@@ -386,7 +386,7 @@ $router->post('/esim/booking/submit', function () use ($SECURE, $db) {
             // Attach the no-price TICKET (travel document) to the confirmation.
             // Priced invoice stays payer-only (receipt + on-demand download).
             $ticketPdf = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($invoiceId, 'ticket') : null;
-            NOTIFY::booking('esim', $customerData, $notifyData, $ticketPdf);
+            NOTIFY::booking('esim', $customerData, $notifyData, $ticketPdf, $ticketPdf);
         }
 
         // Let the (possibly guest) session that created this invoice view it —
