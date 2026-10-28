@@ -269,7 +269,7 @@ if (!function_exists('_bi_ext_report_reservations')) {
         if (empty($stayIds)) { return []; }
         $set = array_fill_keys(array_map('intval', $stayIds), true);
         $likeValues = [];
-        foreach ($stayIds as $sid) { $likeValues[] = '"hotel_id":' . (int) $sid; }
+        foreach ($stayIds as $sid) { $likeValues[] = '%"hotel_id":' . (int) $sid . '%'; } // wrap % ourselves: the _ in hotel_id defeats Medoo auto-wrap (Medoo.php:1163)
         $byDay = [];
         $rows = $db->select('bookings', ['booking_status', 'booking_data', 'date'],
             ['module_type' => ['stays', 'hotels'], 'booking_data[~]' => $likeValues,

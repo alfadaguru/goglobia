@@ -44,7 +44,7 @@ if (!function_exists('guest_scan_bookings')) {
         if (empty($stayIds)) { return []; }
         $set = array_fill_keys(array_map('intval', $stayIds), true);
         $likeValues = [];
-        foreach ($stayIds as $sid) { $likeValues[] = '"hotel_id":' . (int) $sid; }
+        foreach ($stayIds as $sid) { $likeValues[] = '%"hotel_id":' . (int) $sid . '%'; } // wrap % ourselves: the _ in hotel_id defeats Medoo auto-wrap (Medoo.php:1163)
         $out = [];
         try {
             $rows = $db->select('bookings',

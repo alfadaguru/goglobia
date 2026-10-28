@@ -137,7 +137,7 @@ if (!function_exists('hk_rooms_in_use')) {
             // Candidate: own-inventory bookings for this property that are checked_in.
             $rows = $db->select('bookings', ['invoice_id', 'booking_data'],
                 ['module_type' => ['stays', 'hotels'],
-                 'booking_data[~]' => '"hotel_id":' . (int) $stayId,
+                 'booking_data[~]' => '%"hotel_id":' . (int) $stayId . '%', // wrap % ourselves: _ in hotel_id defeats Medoo auto-wrap (Medoo.php:1163)
                  'ORDER' => ['id' => 'DESC'], 'LIMIT' => 500]) ?: [];
             foreach ($rows as $r) {
                 $bd = json_decode((string) ($r['booking_data'] ?? ''), true);

@@ -707,6 +707,33 @@ if (!function_exists('resv_dashboard_buckets')) {
     }
 }
 
+if (!function_exists('fd_vip_map')) {
+    /**
+     * C4 (console-as-hub): batch-resolve which of these reservations belong to a VIP
+     * guest, in ONE query, so the front-desk lists can flag VIPs without an N+1 lookup.
+     * VIP lives in stays_guest_profiles keyed by (org_id, guest_email_key). Returns a
+     * set of normalised email keys that are VIP => [emailKey => true]. The caller matches
+     * a row by guest_email_key($row['email']). Fail-safe: returns [] on any error.
+     */
+    function fd_vip_map($db, int $orgId, array $reservations): array
+    {
+        if ($orgId <= 0 || empty($reservations) || !function_exists('guest_email_key')) { return []; }
+        $keys = [];
+        foreach ($reservations as $r) {
+            $k = guest_email_key((string) ($r['email'] ?? ''));
+            if ($k !== '') { $keys[$k] = true; }
+        }
+        if (empty($keys)) { return []; }
+        try {
+            $rows = $db->select('stays_guest_profiles', ['email'],
+                ['org_id' => $orgId, 'email' => array_keys($keys), 'vip' => 1]) ?: [];
+            $vip = [];
+            foreach ($rows as $row) { $vip[(string) $row['email']] = true; }
+            return $vip;
+        } catch (\Throwable $e) { error_log('fd_vip_map: ' . $e->getMessage()); return []; }
+    }
+}
+
 if (!function_exists('resv_tape_chart')) {
     /**
      * Room rack / tape chart for one property over a date window: a grid of physical

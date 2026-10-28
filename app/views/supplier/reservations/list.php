@@ -123,12 +123,13 @@ $payBadge = function ($s) {
             <?php
               $inv = (string) ($r['invoice_id'] ?? '');
               $hid = (int) ($r['_hotel_id'] ?? 0);
+              $cid = (int) ($r['customer_id'] ?? 0); // C4: linked payer/account
               $guest = trim(($r['first_name'] ?? '') . ' ' . ($r['last_name'] ?? ''));
               $ci = $r['_checkin'] ?? ''; $co = $r['_checkout'] ?? '';
             ?>
             <tr>
               <td class="px-4 py-3 font-mono text-xs text-gray-700"><?= htmlspecialchars($inv) ?></td>
-              <td class="px-4 py-3 text-gray-900"><?= htmlspecialchars($guest ?: '—') ?><?php if (!empty($r['_no_show'])): ?> <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-50 text-orange-700">NO-SHOW</span><?php endif; ?></td>
+              <td class="px-4 py-3 text-gray-900"><?= htmlspecialchars($guest ?: '—') ?><?php if (!empty($r['_no_show'])): ?> <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-50 text-orange-700">NO-SHOW</span><?php endif; ?><?php if ($cid > 0): ?><a href="<?= root ?>supplier/customers/<?= $cid ?>" class="block text-xs text-blue-600 hover:underline">customer profile →</a><?php endif; ?></td>
               <td class="px-4 py-3 text-gray-600"><?= htmlspecialchars($propMap[$hid] ?? ('#' . $hid)) ?></td>
               <td class="px-4 py-3 text-gray-600 whitespace-nowrap text-xs"><?= $ci !== '' ? htmlspecialchars($ci) : '—' ?><?= $co !== '' ? ' → ' . htmlspecialchars($co) : '' ?></td>
               <td class="px-4 py-3 text-gray-900 font-medium tabular-nums whitespace-nowrap"><?= htmlspecialchars((string) ($r['currency_markup'] ?? '')) ?> <?= number_format((float) ($r['price_markup'] ?? 0), 2) ?></td>

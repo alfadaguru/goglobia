@@ -9,24 +9,40 @@
   $propMap    = (isset($propMap) && is_array($propMap)) ? $propMap : [];
   $roomStatus = (isset($roomStatus) && is_array($roomStatus)) ? $roomStatus : [];
   $occupancy  = (isset($occupancy) && is_array($occupancy)) ? $occupancy : [];
+  $vipMap     = (isset($vipMap) && is_array($vipMap)) ? $vipMap : []; // C4: emailKey => true
   $canEdit    = !empty($canEdit);
   $date       = (string) ($buckets['date'] ?? date('Y-m-d'));
   $stayFilter = (int) ($stayFilter ?? 0);
   $actionBase = root . 'supplier/reservations/';
+  $custBase   = root . 'supplier/customers/';
   $guestName  = function ($r) { return trim((string) ($r['first_name'] ?? '') . ' ' . (string) ($r['last_name'] ?? '')) ?: (string) ($r['invoice_id'] ?? ''); };
+  // C4: is this reservation's guest a VIP? (matched by normalised email key)
+  $isVip = function ($r) use ($vipMap) {
+    if (empty($vipMap) || !function_exists('guest_email_key')) { return false; }
+    $k = guest_email_key((string) ($r['email'] ?? ''));
+    return $k !== '' && !empty($vipMap[$k]);
+  };
 
   // One action-list row with an optional inline quick-action button.
-  $rowList = function ($rows, $quick = '') use ($guestName, $propMap, $canEdit, $actionBase) {
+  $rowList = function ($rows, $quick = '') use ($guestName, $isVip, $propMap, $canEdit, $actionBase, $custBase) {
     if (empty($rows)) { echo '<p class="text-xs text-gray-400 px-1 py-3">None.</p>'; return; }
     echo '<ul class="text-sm divide-y divide-gray-50">';
     foreach ($rows as $r) {
       $inv  = (string) ($r['invoice_id'] ?? '');
       $hid  = (int) ($r['_hotel_id'] ?? 0);
+      $cid  = (int) ($r['customer_id'] ?? 0);
       $paid = strtolower((string) ($r['payment_status'] ?? '')) === 'paid';
       echo '<li class="py-2 flex items-center justify-between gap-2">';
       echo '<span class="min-w-0">';
+      echo '<span class="flex items-center gap-1">';
+      if ($isVip($r)) { echo '<span class="material-symbols-outlined text-amber-500 text-base" title="VIP guest">star</span>'; }
       echo '<a href="' . $actionBase . rawurlencode($inv) . '" class="text-violet-600 hover:underline font-medium">' . htmlspecialchars($guestName($r)) . '</a>';
-      echo '<span class="block text-xs text-gray-400 truncate">' . htmlspecialchars((string) ($propMap[$hid] ?? '')) . ($paid ? '' : ' · <span class="text-amber-600">unpaid</span>') . '</span>';
+      echo '</span>';
+      // C4: the payer/account this reservation is linked to (the connection C2/C3 made).
+      $sub = htmlspecialchars((string) ($propMap[$hid] ?? ''));
+      if (!$paid) { $sub .= ' · <span class="text-amber-600">unpaid</span>'; }
+      if ($cid > 0) { $sub .= ' · <a href="' . $custBase . $cid . '" class="text-blue-600 hover:underline">customer</a>'; }
+      echo '<span class="block text-xs text-gray-400 truncate">' . $sub . '</span>';
       echo '</span>';
       // Inline quick action (only when the staffer can edit and a verb is given).
       if ($canEdit && $quick !== '' && $inv !== '') {
@@ -62,6 +78,7 @@
       <p class="text-sm text-gray-600">Run the day — arrivals, departures, in-house, room status.</p>
     </div>
     <div class="flex items-end gap-2">
+      <a href="<?= root ?>supplier/customers" class="btn secondary text-sm inline-flex items-center gap-1.5"><span class="material-symbols-outlined text-base">groups</span> Customers</a>
       <?php if ($canEdit && $stayFilter > 0): ?>
         <a href="<?= root ?>supplier/stays/<?= $stayFilter ?>/reservations/new" class="btn primary text-sm inline-flex items-center gap-1.5"><span class="material-symbols-outlined text-base">add</span> Walk-in</a>
       <?php endif; ?>

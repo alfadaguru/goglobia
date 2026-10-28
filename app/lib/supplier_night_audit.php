@@ -53,7 +53,7 @@ if (!function_exists('na_property_bookings')) {
             $rows = $db->select('bookings',
                 ['invoice_id', 'booking_status', 'payment_status', 'price_original', 'price_markup', 'tax', 'booking_data'],
                 ['module_type' => ['stays', 'hotels'],
-                 'booking_data[~]' => '"hotel_id":' . (int) $stayId,
+                 'booking_data[~]' => '%"hotel_id":' . (int) $stayId . '%', // wrap % ourselves: _ in hotel_id defeats Medoo auto-wrap (Medoo.php:1163)
                  'ORDER' => ['id' => 'DESC'], 'LIMIT' => max(1, $limit)]) ?: [];
             foreach ($rows as $r) {
                 $bd = json_decode((string) ($r['booking_data'] ?? ''), true);

@@ -135,7 +135,7 @@ if (!function_exists('ai_ext_cancellation_risk')) {
 
         $set = array_fill_keys(array_map('intval', $stayIds), true);
         $likeValues = [];
-        foreach ($stayIds as $sid) { $likeValues[] = '"hotel_id":' . (int) $sid; }
+        foreach ($stayIds as $sid) { $likeValues[] = '%"hotel_id":' . (int) $sid . '%'; } // wrap % ourselves: the _ in hotel_id defeats Medoo auto-wrap (Medoo.php:1163)
         try {
             $rows = $db->select('bookings',
                 ['booking_status', 'booking_data', 'created_at', 'paid_at'],

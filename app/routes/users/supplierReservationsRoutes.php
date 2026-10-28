@@ -83,14 +83,22 @@ if (!function_exists('supplier_fetch_reservations')) {
         }
 
         // Medoo: an ARRAY value on a [~] (LIKE) column ORs the LIKE clauses, each
-        // parameter-bound and auto-wrapped with %...% (vendor/catfan/medoo Medoo.php
-        // :1136-1170). Match both "hotel_id":<id> and "hotel_id":"<id>" so a JSON
+        // parameter-bound. Match both "hotel_id":<id> and "hotel_id":"<id>" so a JSON
         // encoder that stringifies the id is still caught. This is only a PREFILTER —
         // every returned row is re-verified by decoding booking_data below.
+        //
+        // IMPORTANT (bug fix): Medoo only auto-wraps a [~] value in %...% when the value
+        // contains NO wildcard chars (* ? ! % # ^ _ or [..], see Medoo.php:1163). The
+        // needle "hotel_id" contains an UNDERSCORE, which SQL LIKE treats as a wildcard,
+        // so Medoo skips the auto-wrap and emits an ANCHORED  LIKE '"hotel_id":240'  that
+        // matches nothing. We therefore wrap the % ourselves. (The literal _ still acts as
+        // a single-char wildcard inside the needle, but that is harmless here — the row is
+        // re-verified by decoding booking_data, and a stray _-match only widens the cheap
+        // prefilter, never the authoritative result.)
         $likeValues = [];
         foreach ($scopeIds as $sid) {
-            $likeValues[] = '"hotel_id":' . (int) $sid;
-            $likeValues[] = '"hotel_id":"' . (int) $sid . '"';
+            $likeValues[] = '%"hotel_id":' . (int) $sid . '%';
+            $likeValues[] = '%"hotel_id":"' . (int) $sid . '"%';
         }
         $where['booking_data[~]'] = $likeValues;
         $where['ORDER'] = ['id' => 'DESC'];
@@ -101,7 +109,7 @@ if (!function_exists('supplier_fetch_reservations')) {
                 ['id', 'invoice_id', 'booking_status', 'payment_status', 'first_name',
                  'last_name', 'email', 'phone', 'adults', 'childs', 'price_markup',
                  'currency_markup', 'booking_data', 'created_at', 'booking_date',
-                 'cancelled_at', 'module'],
+                 'cancelled_at', 'module', 'customer_id'], // C4: carry the payer link to every consumer
                 $where) ?: [];
         } catch (\Throwable $e) {
             error_log('supplier_fetch_reservations: ' . $e->getMessage());
@@ -201,6 +209,11 @@ $router->get('/supplier/front-desk', function () use ($SECURE, $db) {
     $roomStatus = function_exists('fd_room_status') ? fd_room_status($db, $boardStayIds) : [];
     $occupancy  = function_exists('fd_occupancy') ? fd_occupancy($buckets, $roomStatus) : [];
     $canEdit    = supplier_can($db, 'reservations', 'edit', $stayFilter > 0 ? $stayFilter : null);
+
+    // C4 (console-as-hub): resolve this owner's org once, then batch the VIP flags for
+    // every guest on the day so the lists can star VIPs and link to the Customer Book.
+    $orgId = function_exists('supplier_org_for_owner') ? (int) supplier_org_for_owner($db, $owner) : 0;
+    $vipMap = function_exists('fd_vip_map') ? fd_vip_map($db, $orgId, $reservations) : [];
 
     $title = 'Front desk'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";

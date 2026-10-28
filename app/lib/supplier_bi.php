@@ -27,7 +27,7 @@ if (!function_exists('bi_reservations_by_status')) {
         if (empty($stayIds)) { return ['status' => $status, 'channels' => $channels, 'total' => 0]; }
         $set = array_fill_keys(array_map('intval', $stayIds), true);
         $likeValues = [];
-        foreach ($stayIds as $sid) { $likeValues[] = '"hotel_id":' . (int) $sid; }
+        foreach ($stayIds as $sid) { $likeValues[] = '%"hotel_id":' . (int) $sid . '%'; } // wrap % ourselves: the _ in hotel_id defeats Medoo auto-wrap (Medoo.php:1163)
         try {
             $rows = $db->select('bookings', ['booking_status', 'booking_data'],
                 ['module_type' => ['stays', 'hotels'], 'booking_data[~]' => $likeValues,
