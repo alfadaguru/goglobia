@@ -72,6 +72,51 @@ $router->post('/supplier/housekeeping/status', function () use ($SECURE, $db) {
     header('Location: ' . $back); exit;
 });
 
+// POST /supplier/housekeeping/room-move — MOVE an in-house guest between physical rooms
+// (the front-desk board's drag-and-drop). JSON in/out. Reassigning pms_physical_room_id to
+// the target room IS the move (occupancy is derived from that key); the old room is then
+// marked dirty (the same convention as checkout). Reuses hk_assign_room_to_booking, which
+// is atomic + validates the target is this property's, active, assignable and NOT already
+// in use — so a drop onto an occupied/OOO room is rejected, not a silent double-book.
+$router->post('/supplier/housekeeping/room-move', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard(); // reads X-CSRF-TOKEN header (fetch) or csrf_token field; JSON-403s on fail
+    $owner = _supplier_stays_owner($db);
+    if ($owner === null) { echo json_encode(['ok' => false, 'message' => 'Not signed in.']); exit; }
+
+    $invoiceId = trim((string) ($_POST['invoice_id'] ?? ''));
+    $stayId    = (int) ($_POST['stay_id'] ?? 0);
+    $fromRoom  = (int) ($_POST['from_room_id'] ?? 0);
+    $toRoom    = (int) ($_POST['to_room_id'] ?? 0);
+
+    // Moving a guest is a reservation action (it changes where they stay).
+    if (!supplier_can($db, 'reservations', 'edit', $stayId)) { echo json_encode(['ok' => false, 'message' => 'Not authorised.']); exit; }
+    if ($invoiceId === '' || $stayId <= 0 || $toRoom <= 0) { echo json_encode(['ok' => false, 'message' => 'Missing move details.']); exit; }
+    if ($fromRoom === $toRoom) { echo json_encode(['ok' => false, 'message' => 'Same room.']); exit; }
+
+    // The booking must be this property's own-inventory stay AND currently in the room the
+    // operator dragged FROM — so a stale board can't move the wrong (or a departed) guest.
+    $b = $db->get('bookings', ['invoice_id', 'module_type', 'booking_data'], ['invoice_id' => $invoiceId]);
+    if (!$b || !in_array(strtolower((string) $b['module_type']), ['stays', 'hotels'], true)) { echo json_encode(['ok' => false, 'message' => 'Reservation not found.']); exit; }
+    $bd = json_decode((string) ($b['booking_data'] ?? ''), true); $bd = is_array($bd) ? $bd : [];
+    if ((int) ($bd['hotel_id'] ?? 0) !== $stayId) { echo json_encode(['ok' => false, 'message' => 'That reservation is not for this property.']); exit; }
+    if ($fromRoom > 0 && (int) ($bd['pms_physical_room_id'] ?? 0) !== $fromRoom) {
+        echo json_encode(['ok' => false, 'message' => 'That guest is no longer in that room — refresh the board.']); exit;
+    }
+
+    // Reassign to the target room (atomic; rejects an occupied/OOO/other-property target).
+    $moved = function_exists('hk_assign_room_to_booking') && hk_assign_room_to_booking($db, $invoiceId, $toRoom, $stayId);
+    if (!$moved) { echo json_encode(['ok' => false, 'message' => 'That room isn’t available (occupied, out of order, or not assignable).']); exit; }
+
+    // Vacated room → dirty (needs cleaning), unless it was out of order. Mirrors checkout.
+    if ($fromRoom > 0) {
+        try { $db->update('stays_physical_rooms', ['hk_status' => 'dirty', 'updated_at' => date('Y-m-d H:i:s')], ['id' => $fromRoom, 'stay_id' => $stayId, 'hk_status[!]' => 'out_of_order']); }
+        catch (\Throwable $e) { error_log('room-move dirty old room: ' . $e->getMessage()); }
+    }
+    echo json_encode(['ok' => true, 'message' => 'Guest moved.']); exit;
+});
+
 // POST /supplier/housekeeping/assign — assign an attendant to a room (PMS #24)
 $router->post('/supplier/housekeeping/assign', function () use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);

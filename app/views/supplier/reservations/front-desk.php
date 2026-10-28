@@ -160,7 +160,13 @@
                   $tileTitle = '';
               }
             ?>
-            <div class="group relative">
+            <div class="group relative fd-room-tile"
+                 data-room-id="<?= (int) $rm['id'] ?>"
+                 data-room-no="<?= htmlspecialchars((string) ($rm['room_number'] ?? '')) ?>"
+                 data-status="<?= htmlspecialchars($st) ?>"
+                 data-occupant-invoice="<?= htmlspecialchars($occInv) ?>"
+                 data-occupant-name="<?= htmlspecialchars($occ) ?>"
+                 <?php if ($canEditRooms && $occInv !== ''): ?>draggable="true"<?php endif; ?>>
               <?php if ($tileHref !== ''): ?>
                 <a href="<?= htmlspecialchars($tileHref) ?>" title="<?= htmlspecialchars($tileTitle) ?>"
                    class="block border rounded-lg px-2 py-2 text-center transition hover:ring-2 hover:ring-offset-1 hover:ring-violet-300 cursor-pointer <?= $cls ?>">
@@ -200,7 +206,78 @@
             </div>
           <?php endforeach; ?>
         </div>
-        <p class="text-[11px] text-gray-400 mt-2">Hover a room for details<?= $canEditRooms ? '; change its status with the dropdown' : '' ?>.</p>
+        <p class="text-[11px] text-gray-400 mt-2">Hover a room for details<?= $canEditRooms ? '; change its status with the dropdown; drag an occupied room onto a free one to move the guest' : '' ?>.</p>
+        <?php if ($canEditRooms): ?>
+        <!-- DRAG-TO-MOVE: drag an occupied room onto a vacant, sellable room to move the
+             guest. Posts to /housekeeping/room-move (which re-validates everything), then
+             reloads so the board + the old room's new 'dirty' status are reflected. -->
+        <div id="fdMoveToast" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-gray-900 text-white text-sm px-4 py-2 shadow-xl"></div>
+        <script>
+        (function () {
+          var ROOT = <?= json_encode((string) root) ?>;
+          var STAY = <?= (int) $stayFilter ?>;
+          var CSRF = <?= json_encode((string) (class_exists('CSRF') ? CSRF::getToken() : '')) ?>;
+          var tiles = document.querySelectorAll('.fd-room-tile');
+          if (!tiles.length) { return; }
+          var toast = document.getElementById('fdMoveToast');
+          function say(msg, ok) {
+            if (!toast) { return; }
+            toast.textContent = msg;
+            toast.style.background = ok ? '#15803d' : '#b4232a';
+            toast.classList.remove('hidden');
+            setTimeout(function () { toast.classList.add('hidden'); }, ok ? 1200 : 3000);
+          }
+          var dragInv = '', dragFrom = 0;
+          tiles.forEach(function (t) {
+            if (t.getAttribute('draggable') === 'true') {
+              t.addEventListener('dragstart', function (e) {
+                dragInv = t.getAttribute('data-occupant-invoice') || '';
+                dragFrom = parseInt(t.getAttribute('data-room-id') || '0', 10);
+                e.dataTransfer.effectAllowed = 'move';
+                try { e.dataTransfer.setData('text/plain', dragInv); } catch (x) {}
+                t.classList.add('opacity-40');
+              });
+              t.addEventListener('dragend', function () { t.classList.remove('opacity-40'); });
+            }
+            // every tile is a potential drop target; validity is decided on drop + server-side.
+            t.addEventListener('dragover', function (e) {
+              if (!dragInv) { return; }
+              var occupied = (t.getAttribute('data-occupant-invoice') || '') !== '';
+              var ooo = (t.getAttribute('data-status') || '') === 'out_of_order';
+              var self = parseInt(t.getAttribute('data-room-id') || '0', 10) === dragFrom;
+              if (occupied || ooo || self) { return; } // not a valid target → no drop
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              t.classList.add('ring-2', 'ring-emerald-400');
+            });
+            t.addEventListener('dragleave', function () { t.classList.remove('ring-2', 'ring-emerald-400'); });
+            t.addEventListener('drop', function (e) {
+              t.classList.remove('ring-2', 'ring-emerald-400');
+              if (!dragInv) { return; }
+              e.preventDefault();
+              var toRoom = parseInt(t.getAttribute('data-room-id') || '0', 10);
+              if (!toRoom || toRoom === dragFrom) { return; }
+              var toNo = t.getAttribute('data-room-no') || '';
+              var fd = new FormData();
+              fd.append('invoice_id', dragInv);
+              fd.append('stay_id', STAY);
+              fd.append('from_room_id', dragFrom);
+              fd.append('to_room_id', toRoom);
+              fd.append('csrf_token', CSRF);
+              say('Moving guest to room ' + toNo + '…', true);
+              fetch(ROOT + 'supplier/housekeeping/room-move', {
+                method: 'POST', body: fd, credentials: 'same-origin',
+                headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF }
+              }).then(function (r) { return r.json(); }).then(function (d) {
+                if (d && d.ok) { say('Moved to room ' + toNo + '.', true); setTimeout(function () { location.reload(); }, 600); }
+                else { say((d && d.message) || 'Could not move the guest.', false); }
+              }).catch(function () { say('Network error moving the guest.', false); });
+              dragInv = ''; dragFrom = 0;
+            });
+          });
+        })();
+        </script>
+        <?php endif; ?>
       <?php elseif ($stayFilter > 0): ?>
         <p class="text-xs text-gray-400 mt-3">No individual rooms to show — add physical rooms under <a href="<?= root ?>supplier/stays/<?= $stayFilter ?>/rooms" class="text-blue-600 hover:underline">Manage rooms</a>.</p>
       <?php else: ?>
