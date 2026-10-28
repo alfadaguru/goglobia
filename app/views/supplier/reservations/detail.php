@@ -269,10 +269,15 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
         <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Amount (<?= $cur ?>)</label>
           <input type="number" name="folio_amount" min="0" step="0.01" class="input text-sm w-28" required></div>
         <?php // Phase 5: tender type — used for a PAYMENT line (how the guest paid).
-          //          Cash additionally feeds the cashier drawer. Ignored for other types. ?>
+          //          Cash feeds the cashier drawer; "Customer wallet" debits the guest's
+          //          stored-value deposit. "Company / NGO account" is intentionally NOT a
+          //          payment tender — billing a company is the Direct-bill action below
+          //          (it keeps the balance on the account's statement), not a folio
+          //          payment that would clear the bill with nothing backing it. ?>
         <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Tender <span class="text-gray-400">(payments)</span></label>
           <select name="tender" class="input text-sm">
             <?php foreach ((function_exists('desk_tender_types') ? desk_tender_types() : ['cash'=>'Cash']) as $tv => $tl): ?>
+              <?php if ($tv === 'company_account') { continue; } // billed via Direct-bill, not a payment line ?>
               <option value="<?= htmlspecialchars($tv) ?>"><?= htmlspecialchars($tl) ?></option>
             <?php endforeach; ?>
           </select>

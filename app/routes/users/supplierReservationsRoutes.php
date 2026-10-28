@@ -668,17 +668,77 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                 // post, and even on a closed folio (folio_get_or_create returns a closed
                 // folio id), over-reconciling the shift with no matching folio line.
                 $isCashTender = false;
+                $walletDrawn = false;            // did we actually debit the deposit wallet?
+                $walletBackMsg = '';             // extra message when wallet was used
                 if (!$blocked && $ftype === 'payment') {
                     $tender = (string) ($_POST['tender'] ?? '');
                     if (function_exists('desk_tender_types') && isset(desk_tender_types()[$tender])) {
                         $label = desk_tender_label($tender);
                         $fdesc = $fdesc !== '' ? ($label . ' · ' . $fdesc) : ('Payment — ' . $label);
                         $isCashTender = ($tender === 'cash');
+
+                        // ── AUDIT FIX (money): back the tender with a real money movement ──
+                        // Before this, 'wallet' / 'company_account' only decorated the
+                        // description and posted a folio 'payment' line — the guest's bill
+                        // dropped but NOTHING was debited: the stored-value deposit stayed
+                        // fully available (double-spendable) and a company receivable
+                        // vanished with no AR/GL entry. We now require the backing movement
+                        // to succeed BEFORE the folio payment is recorded.
+                        $dbOrgT = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $hid) : 0;
+
+                        if ($tender === 'wallet') {
+                            // Pay from the customer's stored-value deposit → debit the
+                            // wallet first; the folio 'payment' line only posts if it cleared.
+                            $cid = (int) $db->get('bookings', 'customer_id', ['invoice_id' => $invoiceId]);
+                            $fcur = strtoupper((string) ($db->get('stays_folios', 'currency', ['invoice_id' => $invoiceId]) ?: 'USD'));
+                            if ($cid <= 0) {
+                                $blocked = true;
+                                $_SESSION['message'] = ['type' => 'error', 'text' => 'This reservation has no linked customer, so there is no deposit wallet to draw from. Link a customer (or pick another tender).'];
+                            } elseif (!function_exists('cwallet_drawdown') || $dbOrgT <= 0) {
+                                $blocked = true;
+                                $_SESSION['message'] = ['type' => 'error', 'text' => 'Wallet payments are not available for this property.'];
+                            } else {
+                                // Idempotency ref ties the drawdown to THIS folio+amount so a
+                                // double-submit can't debit the deposit twice.
+                                $wref = 'folio_pay:' . $invoiceId . ':' . number_format($famount, 2, '.', '');
+                                $dr = cwallet_drawdown($db, $dbOrgT, $cid, $famount, $fcur, ['reason' => 'stay', 'ref' => $wref, 'note' => 'Folio payment ' . $invoiceId]);
+                                if (empty($dr['ok'])) {
+                                    $blocked = true;
+                                    $bal = isset($dr['balance']) ? (' Available: ' . $fcur . ' ' . number_format((float) $dr['balance'], 2) . '.') : '';
+                                    $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not take this from the customer wallet (' . ($dr['message'] ?? 'insufficient balance') . ').' . $bal];
+                                } else {
+                                    $walletDrawn = true;
+                                    $walletBackMsg = ' Deposit wallet debited (new balance ' . $fcur . ' ' . number_format((float) ($dr['balance'] ?? 0), 2) . ').';
+                                }
+                            }
+                        } elseif ($tender === 'company_account') {
+                            // "Bill to the company" is NOT a folio payment — it leaves the
+                            // balance as the company's city-ledger receivable, settled later
+                            // via an AR receipt. Recording a 'payment' line here would write
+                            // off the balance with nothing backing it (the audit's vanished
+                            // receivable). Route the operator to Direct-bill (db_assign),
+                            // which assigns the folio to the account and keeps the AR.
+                            $blocked = true;
+                            $_SESSION['message'] = ['type' => 'error', 'text' => 'To bill a company/NGO account, use “Direct-bill to account” — that keeps the balance on their statement. A folio payment here would clear the bill without charging anyone.'];
+                        }
                     }
                 }
                 if (!$blocked) {
                     $ok = $fid > 0 && function_exists('folio_add_item')
                         && folio_add_item($db, $fid, $ftype, $famount, $fdesc, (string) ($_SESSION['user_id'] ?? ''), $fno);
+                    // If we ALREADY debited the deposit wallet but the folio line failed
+                    // (e.g. closed folio), the money must not stay drawn with no matching
+                    // credit — reverse the drawdown so the deposit is restored. (A distinct
+                    // ref so the reversal isn't deduped against the original debit.)
+                    if (!$ok && $walletDrawn && function_exists('cwallet_topup')) {
+                        $cidR = (int) $db->get('bookings', 'customer_id', ['invoice_id' => $invoiceId]);
+                        $fcurR = strtoupper((string) ($db->get('stays_folios', 'currency', ['invoice_id' => $invoiceId]) ?: 'USD'));
+                        $dbOrgR = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $hid) : 0;
+                        if ($cidR > 0 && $dbOrgR > 0) {
+                            cwallet_topup($db, $dbOrgR, $cidR, $famount, $fcurR, ['reason' => 'reversal', 'ref' => 'folio_pay_reverse:' . $invoiceId . ':' . number_format($famount, 2, '.', ''), 'note' => 'Reversal — folio payment line failed ' . $invoiceId]);
+                        }
+                        $walletBackMsg = ' Deposit wallet restored (the folio line did not post).';
+                    }
                     // Feed the cashier drawer ONLY once the cash payment line actually
                     // posted — so the drawer and the folio can never disagree.
                     $cashNote = '';
@@ -689,7 +749,7 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                     }
                     $_SESSION['message'] = [
                         'type' => $ok ? 'success' : 'error',
-                        'text' => $ok ? ('Folio updated.' . $cashNote) : 'Could not add the folio line (is the folio closed?).',
+                        'text' => $ok ? ('Folio updated.' . $cashNote . $walletBackMsg) : ('Could not add the folio line (is the folio closed?).' . $walletBackMsg),
                     ];
                 }
             }
