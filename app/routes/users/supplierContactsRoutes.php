@@ -36,6 +36,13 @@ $router->get('/supplier/customers', function () use ($SECURE, $db) {
         try { contacts_backfill($db, $orgId, (string) $ctx['owner']); }
         catch (\Throwable $e) { error_log('contacts backfill (list): ' . $e->getMessage()); }
     }
+    // C6 (data reconcile): link EXISTING own-inventory bookings that pre-date the
+    // consolidation to a customer, so the book and the reservations share one record.
+    // Idempotent (only NULL customer_id rows), capped per call, self-healing on re-open.
+    if ($orgId > 0 && function_exists('contacts_backfill_bookings')) {
+        try { contacts_backfill_bookings($db, $orgId, (string) $ctx['owner']); }
+        catch (\Throwable $e) { error_log('contacts backfill bookings (list): ' . $e->getMessage()); }
+    }
 
     $q = trim((string) ($_GET['q'] ?? ''));
     $type = (string) ($_GET['type'] ?? '');

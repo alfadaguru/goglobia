@@ -323,6 +323,77 @@ if (!function_exists('contacts_backfill')) {
     }
 }
 
+if (!function_exists('contacts_backfill_bookings')) {
+    /**
+     * C6 (data reconcile): link EXISTING own-inventory stays bookings that still have a
+     * NULL customer_id to a customer in the book. Reuses contacts_resolve_for_booking so
+     * each booking is deduped into (or auto-materialised as) the right contact — the same
+     * resolver the live walk-in flow (C2/C3) uses, so backfilled and new bookings converge
+     * on identical records. This is the one-time pass that connects history the owner's
+     * pre-consolidation data never had.
+     *
+     * Safe + idempotent: only touches rows where customer_id IS NULL, is org-scoped to the
+     * owner's own stays (verified by decoding booking_data.hotel_id, never trusting LIKE),
+     * caps the work per call so a first open is never slow, and swallows per-row errors.
+     * Returns ['linked'=>int,'scanned'=>int,'remaining'=>int].
+     */
+    function contacts_backfill_bookings($db, int $orgId, string $owner, int $limit = 500): array
+    {
+        $out = ['linked' => 0, 'scanned' => 0, 'remaining' => 0];
+        if ($orgId <= 0) { return $out; }
+        if (!function_exists('contacts_resolve_for_booking')
+            || !function_exists('supplier_owned_stay_ids')
+            || !function_exists('supplier_reservation_hotel_id')) { return $out; }
+
+        $stayIds = supplier_owned_stay_ids($db, $owner);
+        if (empty($stayIds)) { return $out; }
+        $scopeSet = array_fill_keys(array_map('intval', $stayIds), true);
+
+        // Own-inventory stays bookings still missing a customer link. Prefilter on the
+        // owner's hotel ids (explicit %-wrapped LIKE — the _ in hotel_id defeats Medoo's
+        // auto-wrap, see medoo-tilde-underscore note), verify by decoding below.
+        $likeValues = [];
+        foreach ($stayIds as $sid) {
+            $likeValues[] = '%"hotel_id":' . (int) $sid . '%';
+            $likeValues[] = '%"hotel_id":"' . (int) $sid . '"%';
+        }
+        try {
+            $rows = $db->select('bookings',
+                ['id', 'first_name', 'last_name', 'email', 'phone', 'booking_data'],
+                ['module_type' => ['stays', 'hotels'], 'customer_id' => null,
+                 'booking_data[~]' => $likeValues, 'ORDER' => ['id' => 'ASC'], 'LIMIT' => $limit]) ?: [];
+        } catch (\Throwable $e) { error_log('contacts_backfill_bookings select: ' . $e->getMessage()); return $out; }
+
+        foreach ($rows as $r) {
+            $out['scanned']++;
+            $hid = supplier_reservation_hotel_id($r['booking_data'] ?? null);
+            if ($hid <= 0 || empty($scopeSet[$hid])) { continue; } // VERIFY — not just LIKE
+            try {
+                $cid = (int) contacts_resolve_for_booking($db, $orgId, [
+                    'first_name' => (string) ($r['first_name'] ?? ''),
+                    'last_name'  => (string) ($r['last_name'] ?? ''),
+                    'email'      => (string) ($r['email'] ?? ''),
+                    'phone'      => (string) ($r['phone'] ?? ''),
+                ]);
+                if ($cid > 0) {
+                    // Re-assert the NULL guard in the WHERE so two concurrent passes can't
+                    // double-write / clobber a link that another path just set.
+                    $db->update('bookings', ['customer_id' => $cid], ['id' => (int) $r['id'], 'customer_id' => null]);
+                    $out['linked']++;
+                }
+            } catch (\Throwable $e) { error_log('contacts_backfill_bookings row ' . (int) $r['id'] . ': ' . $e->getMessage()); }
+        }
+
+        // How many still remain unlinked (so the caller can decide to run again).
+        try {
+            $out['remaining'] = (int) $db->count('bookings',
+                ['module_type' => ['stays', 'hotels'], 'customer_id' => null, 'booking_data[~]' => $likeValues]);
+        } catch (\Throwable $e) { /* best-effort */ }
+
+        return $out;
+    }
+}
+
 if (!function_exists('contacts_merge')) {
     /**
      * MERGE one duplicate contact into another (P2b). The SURVIVOR is kept; the LOSER is
