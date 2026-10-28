@@ -191,13 +191,26 @@ if (!function_exists('resv_create_walkin')) {
                     'paid_at'         => $markPaid ? $now : null,
                     'price_original'  => round($net, 2),
                     'price_markup'    => $finalTotal,
-                    'currency_original' => $currency,
+                    // NB: the bookings table has only `currency_markup` (install/db.sql);
+                    // there is no `currency_original` column — inserting it threw 1054 and
+                    // (together with the nested-transaction bug) was a second reason every
+                    // walk-in failed. The whole codebase keys currency off currency_markup.
                     'currency_markup' => $currency,
                     'tax'             => $taxAmount,
                     'first_name'      => $firstName,
                     'last_name'       => $lastName,
-                    'email'           => trim((string) ($in['email'] ?? '')) ?: null,
-                    'phone'           => trim((string) ($in['phone'] ?? '')) ?: null,
+                    // These columns are NOT NULL in the bookings schema (install/db.sql).
+                    // A walk-in legitimately has little contact data (no email/phone is
+                    // normal), so default the missing ones to '' rather than NULL —
+                    // inserting NULL / omitting them threw 1048 "cannot be null" and was a
+                    // third reason every walk-in failed.
+                    'email'              => trim((string) ($in['email'] ?? '')),
+                    'phone'              => trim((string) ($in['phone'] ?? '')),
+                    'phone_country_code' => trim((string) ($in['phone_country_code'] ?? '')),
+                    'country'            => trim((string) ($in['country'] ?? '')),
+                    'address'            => trim((string) ($in['address'] ?? '')),
+                    'child_ages'         => trim((string) ($in['child_ages'] ?? '')),
+                    'travellers'         => trim((string) ($in['travellers'] ?? '')),
                     'adults'          => max(1, (int) ($in['adults'] ?? 1)),
                     'childs'          => max(0, (int) ($in['children'] ?? 0)),
                     'booking_data'    => json_encode($bookingData),

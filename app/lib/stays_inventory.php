@@ -16,6 +16,49 @@
 // Modeled on umrah_hold_create() (app/lib/umrah/services.php:362) — the proven
 // FOR-UPDATE capacity-hold precedent. All functions are defensive/non-fatal.
 
+if (!function_exists('stays_tx_run')) {
+    /**
+     * TRANSACTION-AWARE runner. Medoo's $db->action() unconditionally begins a PDO
+     * transaction and has NO re-entrancy guard, so calling it from INSIDE another
+     * $db->action() throws "There is already an active transaction" (PDO cannot nest).
+     * That silently broke every caller that wanted hold+insert to be one atomic unit —
+     * notably resv_create_walkin / resv_clone, where the walk-in opens a transaction and
+     * then calls stays_hold_create (which used to open its own) -> the whole front-desk
+     * walk-in/clone flow failed on every attempt.
+     *
+     * This runner lets a transactional helper nest safely:
+     *   - If a PDO transaction is ALREADY open, run $fn($db) INLINE under the caller's
+     *     transaction (which supplies atomicity; the helper's FOR UPDATE locks still
+     *     apply). The helper reports success/failure the usual way — via the &$result
+     *     it captures — so a caller that opened the transaction can inspect that result
+     *     and decide to commit or roll back (e.g. resv_create_walkin returns false from
+     *     its own closure on a failed hold, which rolls the whole unit back). We do NOT
+     *     commit/rollback here: the transaction belongs to the caller.
+     *   - Otherwise, open our own $db->action() exactly as before (standalone callers
+     *     — web/API/GIA/groups booking — are unchanged).
+     *
+     * $fn MUST follow the $db->action() convention: return false to roll back (honoured
+     * only when WE own the transaction), any other value to commit, and set its result
+     * via a captured &$ref. Returns nothing; inspect the captured result afterwards,
+     * exactly as the old direct $db->action() calls did.
+     */
+    function stays_tx_run($db, callable $fn): void
+    {
+        $inTx = false;
+        try { $inTx = isset($db->pdo) && $db->pdo instanceof \PDO && $db->pdo->inTransaction(); }
+        catch (\Throwable $e) { $inTx = false; }
+
+        if ($inTx) {
+            // Already inside the caller's transaction — run inline, no begin/commit.
+            // The helper's &$result tells the caller what happened; the caller (which
+            // owns the transaction) is responsible for commit vs rollback.
+            $fn($db);
+            return;
+        }
+        $db->action($fn);
+    }
+}
+
 if (!function_exists('stays_hold_ttl_minutes')) {
     /**
      * Lifetime (minutes) of a booking availability hold between submit and payment.
@@ -411,7 +454,10 @@ if (!function_exists('stays_hold_create')) {
 
         $result = ['ok' => false, 'message' => 'Could not create hold'];
         try {
-            $db->action(function ($db) use ($stayId, $roomId, $optionId, $nights, $checkout, $qty, $ref, $holdMinutes, $defaultQty, $losLength, $arrivalNight, &$result) {
+            // Transaction-aware: opens its own transaction when called standalone
+            // (web/API/GIA/groups), or runs inline when a caller (resv_create_walkin /
+            // resv_clone) already opened one — PDO cannot nest transactions.
+            stays_tx_run($db, function ($db) use ($stayId, $roomId, $optionId, $nights, $checkout, $qty, $ref, $holdMinutes, $defaultQty, $losLength, $arrivalNight, &$result) {
                 $now = date('Y-m-d H:i:s');
 
                 // 1) Lock + verify EVERY night first (all-or-nothing). Seed a row
