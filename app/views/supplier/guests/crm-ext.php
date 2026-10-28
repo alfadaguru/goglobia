@@ -28,6 +28,13 @@ $segMeta = [
     <a href="<?= htmlspecialchars($guestBase) ?>" class="btn secondary text-sm">All guests</a>
   </div>
 
+  <!-- C5: connective nav — same one-book strip as Customers/Guests. -->
+  <div class="flex flex-wrap items-center gap-2 text-sm">
+    <a href="<?= root ?>supplier/customers" class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-gray-700 hover:border-violet-300"><span class="material-symbols-outlined text-base">contacts</span> Customers (payers)</a>
+    <a href="<?= htmlspecialchars($guestBase) ?>" class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-gray-700 hover:border-violet-300"><span class="material-symbols-outlined text-base">groups</span> Guests (stayers)</a>
+    <span class="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-3 py-1.5 font-medium text-violet-800"><span class="material-symbols-outlined text-base">insights</span> CRM: segments &amp; duplicates</span>
+  </div>
+
   <!-- Segment summary chips (click to filter) -->
   <div class="flex flex-wrap gap-2">
     <a href="<?= htmlspecialchars($base) ?>" class="px-3 py-1.5 rounded-lg text-sm font-medium <?= $seg === '' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200' ?>">All</a>

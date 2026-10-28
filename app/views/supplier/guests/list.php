@@ -20,13 +20,21 @@ $base = root . 'supplier/guests';
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
     <div>
       <h1 class="text-2xl font-bold text-gray-900">Guests</h1>
-      <p class="text-sm text-gray-600">Everyone who has booked with your properties, aggregated by email.</p>
+      <p class="text-sm text-gray-600">Everyone who has <em>stayed</em> at your properties, aggregated by email. The payer/account behind a stay lives in the <a href="<?= root ?>supplier/customers" class="text-blue-600 hover:underline">Customers</a> book.</p>
     </div>
     <form method="GET" action="<?= $base ?>" class="flex items-center gap-2">
       <input type="text" name="q" value="<?= htmlspecialchars($search) ?>" class="input text-sm" placeholder="Search name or email">
       <button type="submit" class="btn secondary text-sm">Search</button>
       <?php if ($search !== ''): ?><a href="<?= $base ?>" class="text-sm text-gray-500 hover:underline">Clear</a><?php endif; ?>
     </form>
+  </div>
+
+  <!-- C5: connective nav — one guest "book" surfacing its facets instead of parallel
+       orphaned surfaces. Customers = payer/account; Guests = stayers; CRM = segments/LTV. -->
+  <div class="flex flex-wrap items-center gap-2 text-sm">
+    <a href="<?= root ?>supplier/customers" class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-gray-700 hover:border-violet-300"><span class="material-symbols-outlined text-base">contacts</span> Customers (payers)</a>
+    <span class="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-3 py-1.5 font-medium text-violet-800"><span class="material-symbols-outlined text-base">groups</span> Guests (stayers)</span>
+    <a href="<?= root ?>supplier/guests-crm" class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-gray-700 hover:border-violet-300"><span class="material-symbols-outlined text-base">insights</span> CRM: segments &amp; duplicates</a>
   </div>
 
   <?php

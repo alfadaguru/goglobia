@@ -31,11 +31,19 @@ $typeBadge = function ($t) {
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
     <div>
       <h1 class="text-2xl font-bold text-gray-900">Customers</h1>
-      <p class="text-sm text-gray-600">Your guests, companies and NGOs — one book, searchable by phone, name or email.</p>
+      <p class="text-sm text-gray-600">The payers/accounts you bill — individuals, companies, NGOs and agents — one book, searchable by phone, name or email. Who actually <em>stays</em> is in <a href="<?= root ?>supplier/guests" class="text-blue-600 hover:underline">Guests</a>.</p>
     </div>
     <?php if ($canEdit): ?>
       <a href="<?= $base ?>/new" class="btn primary text-sm inline-flex items-center gap-1.5"><span class="material-symbols-outlined text-base">person_add</span> New customer</a>
     <?php endif; ?>
+  </div>
+
+  <!-- C5: connective nav — the same one-book strip as Guests, so the two facets + CRM
+       read as one connected customer/guest book, not parallel orphaned surfaces. -->
+  <div class="flex flex-wrap items-center gap-2 text-sm">
+    <span class="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-3 py-1.5 font-medium text-violet-800"><span class="material-symbols-outlined text-base">contacts</span> Customers (payers)</span>
+    <a href="<?= root ?>supplier/guests" class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-gray-700 hover:border-violet-300"><span class="material-symbols-outlined text-base">groups</span> Guests (stayers)</a>
+    <a href="<?= root ?>supplier/guests-crm" class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-gray-700 hover:border-violet-300"><span class="material-symbols-outlined text-base">insights</span> CRM: segments &amp; duplicates</a>
   </div>
 
   <form method="GET" action="<?= $base ?>" class="flex flex-wrap items-center gap-2">

@@ -150,7 +150,7 @@
       </span>
       <span>
         <span class="block text-sm font-semibold text-gray-900">Customers</span>
-        <span class="block text-xs text-gray-500">Guests, companies &amp; NGOs</span>
+        <span class="block text-xs text-gray-500">Payers you bill — people, companies, NGOs</span>
       </span>
     </a>
     <a href="<?= root ?>supplier/guests" class="card px-4 py-3 flex items-center gap-3 hover:border-violet-300 transition">
@@ -159,7 +159,7 @@
       </span>
       <span>
         <span class="block text-sm font-semibold text-gray-900">Guests</span>
-        <span class="block text-xs text-gray-500">Profiles &amp; stay history</span>
+        <span class="block text-xs text-gray-500">Who stays — profiles, history &amp; CRM</span>
       </span>
     </a>
     <a href="<?= root ?>supplier/reviews" class="card px-4 py-3 flex items-center gap-3 hover:border-violet-300 transition">
