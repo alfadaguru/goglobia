@@ -245,7 +245,7 @@ if (!function_exists('umrah_notify')) {
      * via the configured channel. Non-fatal. Templates: payment_confirmed,
      * traveller_incomplete, visa_approved, ticket_issued, etc.
      */
-    function umrah_notify($db, ?int $umrahBookingId, string $template, string $subject, string $body, string $channel = 'email', ?array $customer = null): int
+    function umrah_notify($db, ?int $umrahBookingId, string $template, string $subject, string $body, string $channel = 'email', ?array $customer = null, string $invoiceId = ''): int
     {
         $id = 0;
         try {
@@ -257,15 +257,85 @@ if (!function_exists('umrah_notify')) {
             ]);
             $id = (int) $db->id();
             $sent = false;
-            if ($customer && class_exists('NOTIFY') && method_exists('NOTIFY', 'payment')) {
-                // Reuse the platform email path where a customer contact exists.
-                try {
-                    if (function_exists('SENDEMAIL') && !empty($customer['email'])) {
-                        SENDEMAIL($customer['email'], $customer['name'] ?? '', $subject, $body);
-                        $sent = true;
-                    }
-                } catch (\Throwable $e) { /* fall through to queued */ }
+
+            // Resolve the invoice + contact. $customer may carry email/name/phone;
+            // when $invoiceId is given we also read the bookings row for phone/cc +
+            // can attach the branded Umrah Voucher PDF (the no-price travel doc).
+            $email = trim((string) ($customer['email'] ?? ''));
+            $name  = trim((string) ($customer['name'] ?? ''));
+            $phone = trim((string) ($customer['phone'] ?? ''));
+            $phoneCc = trim((string) ($customer['phone_country_code'] ?? ''));
+            $brand = function_exists('getBrandName') ? getBrandName(null) : 'GoGlobia';
+
+            // Should this template carry the voucher PDF? Confirmation / payment /
+            // ticket milestones = yes (the traveller's document). Reminders +
+            // waitlist = no doc (nothing issued yet / not a booking).
+            // 'booking_received' is PRE-payment — nothing is confirmed/issued yet,
+            // so no voucher is attached there (just the warm message). The voucher
+            // rides the confirmation/payment/ticket milestones.
+            $withVoucher = in_array($template, [
+                'payment_confirmed', 'payment_installment', 'payment_completed',
+                'ticket_issued', 'visa_approved',
+            ], true);
+
+            if ($invoiceId !== '') {
+                $gb = $db->get('bookings', ['first_name', 'last_name', 'email', 'phone', 'phone_country_code'], ['invoice_id' => $invoiceId]);
+                if (is_array($gb)) {
+                    if ($email === '') { $email = trim((string) ($gb['email'] ?? '')); }
+                    if ($name === '')  { $name = trim((string) (($gb['first_name'] ?? '') . ' ' . ($gb['last_name'] ?? ''))); }
+                    if ($phone === '') { $phone = trim((string) ($gb['phone'] ?? '')); }
+                    if ($phoneCc === '') { $phoneCc = trim((string) ($gb['phone_country_code'] ?? '')); }
+                }
             }
+
+            // The branded Umrah Voucher PDF (no-price travel document).
+            $voucherPdf = ($withVoucher && $invoiceId !== '' && function_exists('GENERATE_BOOKING_PDF'))
+                ? GENERATE_BOOKING_PDF($invoiceId, 'ticket')
+                : null;
+
+            // ---- EMAIL (branded HTML body + voucher attached) ----
+            if ($email !== '' && function_exists('SENDEMAIL')) {
+                try {
+                    // Wrap the plain-text body in the branded email header/footer so it
+                    // reads as a real GoGlobia email, not raw ASCII.
+                    $htmlBody = $body;
+                    if (defined('root') || true) {
+                        $SECURE = true;
+                        $inner = '<div style="padding:28px 32px;background:#f8fafc;font-size:15px;color:#2d3748;line-height:1.7;">';
+                        foreach (preg_split('/\n{2,}/', trim($body)) as $para) {
+                            $inner .= '<p style="margin:0 0 14px;">' . nl2br(htmlspecialchars($para, ENT_QUOTES, 'UTF-8')) . '</p>';
+                        }
+                        $inner .= '</div>';
+                        $hdr = __DIR__ . '/../../views/notifications/emails/header.php';
+                        $ftr = __DIR__ . '/../../views/notifications/emails/footer.php';
+                        if (is_file($hdr) && is_file($ftr)) {
+                            ob_start();
+                            @include $hdr; echo $inner; @include $ftr;
+                            $htmlBody = ob_get_clean();
+                        }
+                    }
+                    SENDEMAIL($email, $name, $subject, $htmlBody, $voucherPdf ?: null);
+                    $sent = true;
+                } catch (\Throwable $e) { error_log('umrah_notify email: ' . $e->getMessage()); }
+            }
+
+            // ---- WHATSAPP (warm caption + voucher via the public-URL path) ----
+            if ($phone !== '' && function_exists('SENDWHATSAPP')) {
+                try {
+                    $full = $phoneCc !== '' ? (preg_replace('/[^\d]/', '', $phoneCc) . preg_replace('/[^\d]/', '', $phone)) : $phone;
+                    // A warm WhatsApp message: the body's first line + the subject, kept
+                    // short + branded. For voucher templates, deliver the PDF too.
+                    $waMsg = '🕋 ' . $subject . "\n\n" . trim($body) . "\n\nThank you for choosing *" . $brand . "*.";
+                    if ($voucherPdf && is_file((string) $voucherPdf)) {
+                        $ticketUrl = function_exists('ticket_public_url') ? ticket_public_url($invoiceId) : null;
+                        SENDWHATSAPP($full, $name, $waMsg, $voucherPdf, $ticketUrl);
+                    } else {
+                        SENDWHATSAPP($full, $name, $waMsg);
+                    }
+                    $sent = true;
+                } catch (\Throwable $e) { error_log('umrah_notify whatsapp: ' . $e->getMessage()); }
+            }
+
             $db->update('umrah_notifications', [
                 'status' => $sent ? 'sent' : 'queued',
                 'sent_at' => $sent ? date('Y-m-d H:i:s') : null,

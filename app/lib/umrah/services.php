@@ -692,7 +692,7 @@ if (!function_exists('umrah_installment_reminder_sweep')) {
                     $db->update('umrah_installments', ['reminder_sent_at' => $now], ['id' => (int) $r['id']]);
                     continue;
                 }
-                $gen = $db->get('bookings', ['first_name', 'last_name', 'email'], ['invoice_id' => $r['invoice_id']]);
+                $gen = $db->get('bookings', ['first_name', 'last_name', 'email', 'phone', 'phone_country_code'], ['invoice_id' => $r['invoice_id']]);
                 if (function_exists('umrah_notify')) {
                     $ccy = (string) $r['currency'];
                     $amt = number_format((float) $r['amount'], 2) . ' ' . $ccy;
@@ -701,8 +701,15 @@ if (!function_exists('umrah_installment_reminder_sweep')) {
                     $body = "Assalamu Alaikum,\n\nThis is a friendly reminder that installment #{$r['seq']} for your GoGlobia Umrah booking {$ref} is due on {$due}.\n\n"
                         . "Amount due: {$amt}\nOutstanding balance: " . number_format((float) $r['balance'], 2) . " {$ccy}\n\n"
                         . "Please pay from your booking page to keep your seats and locked price.\n";
+                    // Reminder on BOTH email + WhatsApp (no voucher — not a milestone).
                     umrah_notify($db, $ubId, 'installment_reminder', 'Umrah payment due soon — ' . $ref, $body, 'email',
-                        $gen ? ['email' => $gen['email'] ?? '', 'name' => trim(($gen['first_name'] ?? '') . ' ' . ($gen['last_name'] ?? ''))] : null);
+                        $gen ? [
+                            'email' => $gen['email'] ?? '',
+                            'name'  => trim(($gen['first_name'] ?? '') . ' ' . ($gen['last_name'] ?? '')),
+                            'phone' => $gen['phone'] ?? '',
+                            'phone_country_code' => $gen['phone_country_code'] ?? '',
+                        ] : null,
+                        (string) $r['invoice_id']);
                 }
                 $db->update('umrah_installments', ['reminder_sent_at' => $now], ['id' => (int) $r['id']]);
                 $reminded++;
@@ -1068,6 +1075,31 @@ if (!function_exists('umrah_booking_create')) {
         if (!empty($result['ok']) && function_exists('umrah_audit')) {
             umrah_audit($db, 'umrah_booking', $result['booking_ref'], 'created', null, ['invoice_id' => $invoiceId, 'total' => $total, 'plan' => $planCode], $userId);
         }
+
+        // BOOKING RECEIVED — tell the pilgrim their booking is in + what to pay next.
+        // This was previously SILENT (the first message only came after payment),
+        // so the customer never got a "we've received your booking, here's your
+        // deposit" nudge. Email + WhatsApp, no voucher yet (nothing confirmed).
+        if (!empty($result['ok']) && function_exists('umrah_notify')) {
+            try {
+                $ref = (string) ($result['booking_ref'] ?? '');
+                $ccy = (string) ($result['currency'] ?? 'NGN');
+                $dueNow = number_format((float) ($result['amount_due_now'] ?? $total), 2) . ' ' . $ccy;
+                $totStr = number_format((float) ($result['total_price'] ?? $total), 2) . ' ' . $ccy;
+                $recipient = [
+                    'email' => (string) ($lead['email'] ?? ''),
+                    'name'  => trim((string) (($lead['first_name'] ?? '') . ' ' . ($lead['last_name'] ?? ''))),
+                    'phone' => (string) ($lead['phone'] ?? ''),
+                    'phone_country_code' => (string) ($lead['phone_country_code'] ?? ''),
+                ];
+                $subject = 'Umrah booking received — ' . $ref;
+                $body = "Assalamu Alaikum,\n\n"
+                      . "Thank you — we've received your GoGlobia Umrah booking {$ref}. Your seats are held while you complete payment.\n\n"
+                      . "Package total: {$totStr}\nTo confirm now, pay your deposit of: {$dueNow}\n\n"
+                      . "Next: pay the deposit from your dashboard to lock your price and confirm your seats, then complete each pilgrim's details and documents. We'll remind you before each installment falls due.\n";
+                umrah_notify($db, (int) ($result['umrah_booking_id'] ?? 0), 'booking_received', $subject, $body, 'email', $recipient, (string) $invoiceId);
+            } catch (\Throwable $e) { error_log('umrah booking_received notify: ' . $e->getMessage()); }
+        }
         return $result;
     }
 }
@@ -1232,8 +1264,13 @@ if (!function_exists('umrah_settle_payment')) {
         // 'already' (idempotent re-fire of the same txn) returns before here, so a
         // duplicate gateway callback never double-emails.
         if (!empty($result['ok']) && ($result['status'] ?? '') === 'settled' && function_exists('umrah_notify')) {
-            $gen = $db->get('bookings', ['first_name', 'last_name', 'email'], ['invoice_id' => $invoiceId]);
-            $recipient = $gen ? ['email' => $gen['email'] ?? '', 'name' => trim(($gen['first_name'] ?? '') . ' ' . ($gen['last_name'] ?? ''))] : null;
+            $gen = $db->get('bookings', ['first_name', 'last_name', 'email', 'phone', 'phone_country_code'], ['invoice_id' => $invoiceId]);
+            $recipient = $gen ? [
+                'email' => $gen['email'] ?? '',
+                'name'  => trim(($gen['first_name'] ?? '') . ' ' . ($gen['last_name'] ?? '')),
+                'phone' => $gen['phone'] ?? '',
+                'phone_country_code' => $gen['phone_country_code'] ?? '',
+            ] : null;
             $ref      = $ub['booking_ref'];
             $ccy      = $ub['currency'];
             $paidStr  = number_format((float) ($result['amount_paid'] ?? 0), 2) . ' ' . $ccy;
@@ -1264,7 +1301,9 @@ if (!function_exists('umrah_settle_payment')) {
                     . "Total paid so far: {$paidStr}\nBalance remaining: {$balStr}\n\n"
                     . "Please pay the remaining balance before your next installment falls due.\n";
             }
-            umrah_notify($db, (int) $ub['id'], $template, $subject, $body, 'email', $recipient);
+            // Deliver on BOTH email + WhatsApp WITH the branded Umrah voucher PDF
+            // (pass the invoiceId so umrah_notify can resolve phone + attach the doc).
+            umrah_notify($db, (int) $ub['id'], $template, $subject, $body, 'email', $recipient, (string) $invoiceId);
         }
         return $result;
     }
