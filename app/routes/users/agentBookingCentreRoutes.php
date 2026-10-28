@@ -298,6 +298,22 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/pay', function ($invoiceId) use ($S
     $rec = _agent_issue_with_recovery($db, (string)$invoiceId, $service, $module, $owner, $agentCost, $currency);
     $issued = !empty($rec['issued']);
 
+    // NOTIFY THE CUSTOMER — email + WhatsApp with the (agent-branded) ticket. This
+    // was MISSING: an agent booking settled from the wallet left the traveller with
+    // no confirmation at all. bm_notify_paid sends to bookings.email + phone and
+    // generates the branded voucher (agent brand applied inside GENERATE_BOOKING_PDF).
+    // Fire when the booking actually reached the customer: issued (live supplier),
+    // OR confirmed with no issue step (own-inventory/manual/static service). Never
+    // notify a failed+refunded one (there's no ticket). Best-effort.
+    if (function_exists('bm_notify_paid')) {
+        $hasIssueEndpoint = function_exists('bm_module_has_issue_endpoint')
+            && bm_module_has_issue_endpoint($service, $module);
+        if ($issued || !$hasIssueEndpoint) {
+            try { bm_notify_paid($db, (string) $invoiceId); }
+            catch (\Throwable $e) { error_log('agent settle notify: ' . $e->getMessage()); }
+        }
+    }
+
     if (function_exists('agent_audit_log')) {
         agent_audit_log($db, $owner, $actor, 'booking.pay',
             $service . ' ' . $invoiceId . ' ' . $currency . ' ' . $agentCost

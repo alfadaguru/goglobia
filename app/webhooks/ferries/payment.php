@@ -61,6 +61,15 @@ if ($event === 'ferries.payment.completed') {
 
         error_log("FERRIES_PAYMENT_WEBHOOK: Confirmed {$invoiceId}, locators: " . implode(',', $locators));
 
+        // NOTIFY THE CUSTOMER — email + WhatsApp with the branded ferry ticket. The
+        // webhook previously confirmed the booking but sent NO customer notification
+        // (parity gap). bm_notify_paid sends to bookings.email + phone with the
+        // no-price ticket voucher (3-document model); best-effort, never blocks.
+        if (function_exists('bm_notify_paid')) {
+            try { bm_notify_paid($db, (string) $invoiceId); }
+            catch (\Throwable $e) { error_log("FERRIES_PAYMENT_WEBHOOK notify: " . $e->getMessage()); }
+        }
+
     } catch (\Throwable $e) {
         error_log("FERRIES_PAYMENT_WEBHOOK ERROR: " . $e->getMessage());
         return ['status' => 'error', 'message' => $e->getMessage()];

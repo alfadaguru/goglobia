@@ -1233,6 +1233,21 @@ function handle_payment_callback($token, $action, $data = [])
                 'timestamp' => date('Y-m-d H:i:s')
             ]);
 
+            // CUSTOMER NOTIFICATION FALLBACK (parity fix). Several services have NO
+            // app/webhooks/<svc>/payment.php, so the triggerWebhook above is a no-op
+            // and the website customer was never emailed/WhatsApp'd their ticket.
+            // When the service has no payment-webhook file, notify directly here via
+            // the shared bm_notify_paid (email + WhatsApp + branded voucher, 3-doc
+            // model). EXCLUDE umrah (its own umrah_settle_payment path already
+            // notifies with the voucher) to avoid double-sending.
+            try {
+                $__mt = strtolower((string) ($tokenData['module_type'] ?? ($bookingData['module_type'] ?? '')));
+                $__hasPayWebhook = $__mt !== '' && file_exists(__DIR__ . '/../webhooks/' . $__mt . '/payment.php');
+                if (!$__hasPayWebhook && $__mt !== '' && $__mt !== 'umrah' && function_exists('bm_notify_paid')) {
+                    bm_notify_paid($db, (string) $tokenData['invoice_id']);
+                }
+            } catch (\Throwable $__e) { error_log('callback notify fallback: ' . $__e->getMessage()); }
+
             // Clear token
             clear_payment_token($token);
 
