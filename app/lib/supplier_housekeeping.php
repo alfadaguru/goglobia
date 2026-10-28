@@ -170,9 +170,21 @@ if (!function_exists('hk_assign_room_to_booking')) {
             if (!$room || (int) $room['active'] !== 1) { return false; }
             if (!in_array((string) $room['hk_status'], hk_assignable_statuses(), true)) { return false; }
 
+            // ATOMIC booking_data mutation (audit fix) with the in-use check re-run INSIDE
+            // the row lock — so two concurrent check-ins can't both pass an earlier
+            // "not in use" read and assign the SAME physical room to two guests.
+            if (function_exists('booking_data_mutate')) {
+                $res = booking_data_mutate($db, $invoiceId, function (array &$bd, array $row, bool &$abort) use ($db, $stayId, $physicalRoomId, $invoiceId) {
+                    $inUse = function_exists('hk_rooms_in_use') ? hk_rooms_in_use($db, $stayId) : [];
+                    if (isset($inUse[$physicalRoomId]) && $inUse[$physicalRoomId] !== $invoiceId) { $abort = true; return false; } // taken
+                    $bd['pms_physical_room_id'] = $physicalRoomId;
+                    return true;
+                });
+                return !empty($res['ok']);
+            }
+
             $inUse = hk_rooms_in_use($db, $stayId);
             if (isset($inUse[$physicalRoomId]) && $inUse[$physicalRoomId] !== $invoiceId) { return false; } // taken
-
             $b = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
             if (!$b) { return false; }
             $bd = json_decode((string) ($b['booking_data'] ?? ''), true);

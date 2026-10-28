@@ -524,14 +524,17 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                 // Operational cancel by the property owner. We DO NOT process refunds
                 // here — money is the platform spine (a later increment). We mark the
                 // booking cancelled + flag a cancellation request for the admin.
-                $bd['supplier_cancelled_at'] = $now;
-                $db->update('bookings', [
+                // ATOMIC (audit fix): mutate booking_data under a row lock so a concurrent
+                // desk action can't clobber the cancel (or vice-versa); booking_status etc.
+                // write in the SAME locked update via $extraCols.
+                booking_data_mutate($db, $invoiceId, function (array &$bd) use ($now) {
+                    $bd['supplier_cancelled_at'] = $now;
+                    return true;
+                }, [
                     'booking_status'       => 'cancelled',
                     'cancelled_at'         => $now,
                     'cancellation_request' => 1,
-                    'booking_data'         => json_encode($bd),
-                    'updated_at'           => $now,
-                ], ['invoice_id' => $invoiceId]);
+                ]);
                 // Release any live availability holds tied to this invoice so the
                 // nights free up immediately.
                 if (function_exists('stays_hold_release')) { stays_hold_release($db, $invoiceId); }
@@ -543,17 +546,17 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                 $_SESSION['message'] = ['type' => 'success', 'text' => 'Reservation cancelled.'];
             }
         } elseif ($action === 'no_show') {
-            $bd['supplier_no_show'] = true;
-            $bd['supplier_no_show_at'] = $now;
-            $db->update('bookings',
-                ['booking_data' => json_encode($bd), 'updated_at' => $now],
-                ['invoice_id' => $invoiceId]);
+            booking_data_mutate($db, $invoiceId, function (array &$bd) use ($now) {
+                $bd['supplier_no_show'] = true;
+                $bd['supplier_no_show_at'] = $now;
+                return true;
+            });
             $_SESSION['message'] = ['type' => 'success', 'text' => 'Marked as no-show.'];
         } elseif ($action === 'clear_no_show') {
-            unset($bd['supplier_no_show'], $bd['supplier_no_show_at']);
-            $db->update('bookings',
-                ['booking_data' => json_encode($bd), 'updated_at' => $now],
-                ['invoice_id' => $invoiceId]);
+            booking_data_mutate($db, $invoiceId, function (array &$bd) {
+                unset($bd['supplier_no_show'], $bd['supplier_no_show_at']);
+                return true;
+            });
             $_SESSION['message'] = ['type' => 'success', 'text' => 'No-show cleared.'];
         } elseif ($action === 'check_in') {
             // Front desk (inc S21): mark checked-in + ensure a folio exists.

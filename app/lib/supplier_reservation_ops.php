@@ -20,6 +20,82 @@
 //
 // NOT runtime-verified (no MySQL in the build env) — logic-reasoned + php -l + harness.
 
+if (!function_exists('booking_data_mutate')) {
+    /**
+     * ATOMIC read-modify-write of a booking's booking_data JSON (audit HIGH fix).
+     *
+     * The whole front desk stored per-reservation state (check-in/out state, security
+     * deposit, no-show, repeat/source flags, room assignment, ...) as keys inside the
+     * single booking_data JSON column, and every mutator did an UNLOCKED
+     * read -> decode -> change one key -> write the WHOLE column back. Two concurrent
+     * desk actions on the same reservation both read the old blob, and the second write
+     * clobbered the first — e.g. recording a security deposit while a colleague checks
+     * the guest in lost whichever landed second (deposit money-state gone, or the
+     * check-in state gone so checkout later refuses). The folio FOR UPDATE locks are on
+     * stays_folios, not the bookings row, so they never covered this.
+     *
+     * This runs the mutation inside a transaction with the bookings ROW locked
+     * (SELECT ... FOR UPDATE), decodes the FRESH booking_data (so it sees any concurrent
+     * writer's committed change), hands it to $mutator by reference to apply ONLY its own
+     * change, and writes it back. Concurrent callers serialise on the row lock, so no
+     * update is lost. Transaction-aware (stays_tx_run) so it is safe if a caller already
+     * opened a transaction.
+     *
+     * $mutator(array &$bd, array $row): mixed
+     *   - mutate $bd in place; return the caller's result value.
+     *   - return (or set via a captured &$ref) ['ok'=>false, ...] / false to ABORT with
+     *     NO write (e.g. "no held deposit to release") — checked against the FRESH state.
+     *
+     * $extraCols: additional bookings columns to write alongside booking_data in the same
+     *   locked update (e.g. booking_status on cancel). Values are written verbatim.
+     *
+     * Returns ['ok'=>bool, 'result'=>mixed, 'message'=>?] — 'result' is the mutator's
+     * return value when it committed. On a missing booking: ['ok'=>false,'message'=>...].
+     */
+    function booking_data_mutate($db, string $invoiceId, callable $mutator, array $extraCols = []): array
+    {
+        $invoiceId = trim($invoiceId);
+        if ($invoiceId === '') { return ['ok' => false, 'message' => 'No invoice.']; }
+        $out = ['ok' => false, 'message' => 'Could not update the reservation.'];
+        $runner = function_exists('stays_tx_run') ? 'stays_tx_run' : null;
+        $work = function ($db) use ($invoiceId, $mutator, $extraCols, &$out) {
+            // Lock the bookings row and re-read booking_data FRESH under the lock. Raw
+            // query — Medoo get() has no row-lock option (matches supplier_folio.php).
+            $st = $db->query('SELECT booking_data FROM bookings WHERE invoice_id = :inv FOR UPDATE', [':inv' => $invoiceId]);
+            $row = $st ? $st->fetch(\PDO::FETCH_ASSOC) : null;
+            if (!$row) { $out = ['ok' => false, 'message' => 'Reservation not found.']; return false; }
+            $bd = json_decode((string) ($row['booking_data'] ?? ''), true);
+            if (!is_array($bd)) { $bd = []; }
+
+            $abort = false;
+            $result = $mutator($bd, $row, $abort);
+            // A mutator aborts by (a) setting the by-ref $abort flag, or (b) returning an
+            // array with ok===false, or (c) returning the literal false. In all cases we
+            // write NOTHING and roll back (no partial state).
+            if ($abort === true || $result === false
+                || (is_array($result) && array_key_exists('ok', $result) && $result['ok'] === false)) {
+                $out = is_array($result) ? (['ok' => false] + $result) : ['ok' => false, 'message' => 'No change.'];
+                return false;
+            }
+            $cols = $extraCols + [
+                'booking_data' => json_encode($bd),
+                'updated_at'   => date('Y-m-d H:i:s'),
+            ];
+            $db->update('bookings', $cols, ['invoice_id' => $invoiceId]);
+            $out = ['ok' => true, 'result' => $result];
+            return true;
+        };
+        try {
+            if ($runner) { $runner($db, $work); }
+            else { $db->action($work); }
+        } catch (\Throwable $e) {
+            error_log('booking_data_mutate(' . $invoiceId . '): ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Could not update the reservation.'];
+        }
+        return $out;
+    }
+}
+
 if (!function_exists('resv_booking_sources')) {
     /** Canonical booking-source tags. */
     function resv_booking_sources(): array
@@ -253,20 +329,12 @@ if (!function_exists('resv_set_source')) {
     function resv_set_source($db, string $invoiceId, string $source): bool
     {
         if (!array_key_exists($source, resv_booking_sources())) { return false; }
-        try {
-            $b = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
-            if (!$b) { return false; }
-            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
-            if (!is_array($bd)) { $bd = []; }
+        // ATOMIC booking_data mutation (audit fix) — row-locked, fresh re-read.
+        $res = booking_data_mutate($db, $invoiceId, function (array &$bd) use ($source) {
             $bd['booking_source'] = $source;
-            $db->update('bookings',
-                ['booking_data' => json_encode($bd), 'updated_at' => date('Y-m-d H:i:s')],
-                ['invoice_id' => $invoiceId]);
             return true;
-        } catch (\Throwable $e) {
-            error_log('resv_set_source: ' . $e->getMessage());
-            return false;
-        }
+        });
+        return !empty($res['ok']);
     }
 }
 
@@ -347,13 +415,13 @@ if (!function_exists('resv_online_checkin')) {
     {
         $invoiceId = trim($invoiceId);
         if ($invoiceId === '') { return ['ok' => false, 'message' => 'No booking reference.']; }
-        try {
-            $b = $db->get('bookings', ['invoice_id', 'booking_status', 'module_type', 'booking_data'], ['invoice_id' => $invoiceId]);
-            if (!$b) { return ['ok' => false, 'message' => 'Booking not found.']; }
-            if (!in_array(strtolower((string) $b['module_type']), ['stays', 'hotels'], true)) { return ['ok' => false, 'message' => 'Not a stay booking.']; }
-            if (strtolower((string) $b['booking_status']) === 'cancelled') { return ['ok' => false, 'message' => 'This booking is cancelled.']; }
-            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
-            if (!is_array($bd)) { $bd = []; }
+        // Value-stable guards first (type / cancelled don't change under this flow).
+        $b = $db->get('bookings', ['booking_status', 'module_type'], ['invoice_id' => $invoiceId]);
+        if (!$b) { return ['ok' => false, 'message' => 'Booking not found.']; }
+        if (!in_array(strtolower((string) $b['module_type']), ['stays', 'hotels'], true)) { return ['ok' => false, 'message' => 'Not a stay booking.']; }
+        if (strtolower((string) $b['booking_status']) === 'cancelled') { return ['ok' => false, 'message' => 'This booking is cancelled.']; }
+        // ATOMIC booking_data mutation (audit fix) — row-locked, fresh re-read.
+        $res = booking_data_mutate($db, $invoiceId, function (array &$bd) use ($d) {
             $bd['online_checkin'] = [
                 'done'          => true,
                 'eta'           => substr(trim((string) ($d['eta'] ?? '')), 0, 20) ?: null,
@@ -362,12 +430,10 @@ if (!function_exists('resv_online_checkin')) {
                 'special_requests' => substr(trim((string) ($d['special_requests'] ?? '')), 0, 500) ?: null,
                 'submitted_at'  => date('Y-m-d H:i:s'),
             ];
-            $db->update('bookings', ['booking_data' => json_encode($bd), 'updated_at' => date('Y-m-d H:i:s')], ['invoice_id' => $invoiceId]);
-            return ['ok' => true, 'message' => 'Online check-in complete — see you soon!'];
-        } catch (\Throwable $e) {
-            error_log('resv_online_checkin: ' . $e->getMessage());
-            return ['ok' => false, 'message' => 'Could not complete check-in.'];
-        }
+            return true;
+        });
+        if (empty($res['ok'])) { return ['ok' => false, 'message' => 'Could not complete check-in.']; }
+        return ['ok' => true, 'message' => 'Online check-in complete — see you soon!'];
     }
 }
 
@@ -375,16 +441,13 @@ if (!function_exists('resv_set_vip')) {
     /** Flag/unflag a reservation as VIP (stored in booking_data). (PMS #07 front desk.) */
     function resv_set_vip($db, string $invoiceId, bool $vip): bool
     {
-        try {
-            $b = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
-            if (!$b) { return false; }
-            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
-            if (!is_array($bd)) { $bd = []; }
+        // ATOMIC booking_data mutation (audit fix) — row-locked, fresh re-read.
+        $res = booking_data_mutate($db, $invoiceId, function (array &$bd) use ($vip) {
             if ($vip) { $bd['vip'] = true; $bd['vip_at'] = date('Y-m-d H:i:s'); }
             else { unset($bd['vip'], $bd['vip_at']); }
-            $db->update('bookings', ['booking_data' => json_encode($bd), 'updated_at' => date('Y-m-d H:i:s')], ['invoice_id' => $invoiceId]);
             return true;
-        } catch (\Throwable $e) { error_log('resv_set_vip: ' . $e->getMessage()); return false; }
+        });
+        return !empty($res['ok']);
     }
 }
 
@@ -398,22 +461,22 @@ if (!function_exists('resv_add_trace')) {
     {
         $note = trim($note);
         if ($note === '') { return false; }
-        try {
-            $b = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
-            if (!$b) { return false; }
-            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
-            if (!is_array($bd)) { $bd = []; }
+        // ATOMIC (audit fix): a trace APPENDS to booking_data.traces[]. Two concurrent
+        // traces on a stale blob would drop one; the row lock + fresh re-read serialises
+        // the append so every trace is kept.
+        $actor = (string) ($_SESSION['user_id'] ?? '');
+        $res = booking_data_mutate($db, $invoiceId, function (array &$bd) use ($note, $forDate, $actor) {
             if (!isset($bd['traces']) || !is_array($bd['traces'])) { $bd['traces'] = []; }
             $bd['traces'][] = [
                 'note'     => substr($note, 0, 500),
                 'for_date' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $forDate) ? $forDate : null,
-                'by'       => (string) ($_SESSION['user_id'] ?? ''),
+                'by'       => $actor,
                 'at'       => date('Y-m-d H:i:s'),
                 'done'     => false,
             ];
-            $db->update('bookings', ['booking_data' => json_encode($bd), 'updated_at' => date('Y-m-d H:i:s')], ['invoice_id' => $invoiceId]);
             return true;
-        } catch (\Throwable $e) { error_log('resv_add_trace: ' . $e->getMessage()); return false; }
+        });
+        return !empty($res['ok']);
     }
 }
 
@@ -421,16 +484,16 @@ if (!function_exists('resv_resolve_trace')) {
     /** Mark the Nth trace (0-based index) resolved. (PMS #07.) */
     function resv_resolve_trace($db, string $invoiceId, int $index): bool
     {
-        try {
-            $b = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
-            if (!$b) { return false; }
-            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
-            if (!is_array($bd) || !isset($bd['traces'][$index])) { return false; }
+        // ATOMIC (audit fix): resolving the Nth trace indexes into booking_data.traces,
+        // which a concurrent add_trace reorders — row-lock + fresh re-read so the index
+        // is resolved against the current trace list.
+        $res = booking_data_mutate($db, $invoiceId, function (array &$bd, array $row, bool &$abort) use ($index) {
+            if (!isset($bd['traces'][$index])) { $abort = true; return false; }
             $bd['traces'][$index]['done'] = true;
             $bd['traces'][$index]['done_at'] = date('Y-m-d H:i:s');
-            $db->update('bookings', ['booking_data' => json_encode($bd), 'updated_at' => date('Y-m-d H:i:s')], ['invoice_id' => $invoiceId]);
             return true;
-        } catch (\Throwable $e) { error_log('resv_resolve_trace: ' . $e->getMessage()); return false; }
+        });
+        return !empty($res['ok']);
     }
 }
 
@@ -447,24 +510,24 @@ if (!function_exists('resv_deposit_set')) {
     function resv_deposit_set($db, string $invoiceId, string $action, float $amount = 0.0, string $reason = ''): array
     {
         if (!in_array($action, ['hold', 'release', 'deduct'], true)) { return ['ok' => false, 'message' => 'Unknown deposit action']; }
-        try {
-            $b = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
-            if (!$b) { return ['ok' => false, 'message' => 'Booking not found.']; }
-            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
-            if (!is_array($bd)) { $bd = []; }
+        // ATOMIC: the deposit money-state lives in booking_data; mutate it under a row
+        // lock (fresh re-read) so a concurrent check-in / no-show can't clobber it, and
+        // the state checks below run against the FRESH deposit, not a stale read.
+        $now = date('Y-m-d H:i:s');
+        $actor = (string) ($_SESSION['user_id'] ?? '');
+        $msg = '';
+        $res = booking_data_mutate($db, $invoiceId, function (array &$bd, array $row, bool &$abort) use ($action, &$amount, $reason, $now, $actor, &$msg) {
             $dep = (isset($bd['deposit']) && is_array($bd['deposit'])) ? $bd['deposit'] : [];
-            $now = date('Y-m-d H:i:s');
-            $actor = (string) ($_SESSION['user_id'] ?? '');
             if ($action === 'hold') {
-                if ($amount <= 0) { return ['ok' => false, 'message' => 'Enter the deposit amount taken.']; }
+                if ($amount <= 0) { $abort = true; return ['ok' => false, 'message' => 'Enter the deposit amount taken.']; }
                 $dep = ['state' => 'held', 'amount' => round($amount, 2), 'held_at' => $now, 'by' => $actor];
                 $msg = 'Security deposit recorded.';
             } elseif ($action === 'release') {
-                if (($dep['state'] ?? '') !== 'held') { return ['ok' => false, 'message' => 'No held deposit to release.']; }
+                if (($dep['state'] ?? '') !== 'held') { $abort = true; return ['ok' => false, 'message' => 'No held deposit to release.']; }
                 $dep['state'] = 'released'; $dep['released_at'] = $now; $dep['released_by'] = $actor;
                 $msg = 'Deposit released in full.';
             } else { // deduct
-                if (($dep['state'] ?? '') !== 'held') { return ['ok' => false, 'message' => 'No held deposit to deduct from.']; }
+                if (($dep['state'] ?? '') !== 'held') { $abort = true; return ['ok' => false, 'message' => 'No held deposit to deduct from.']; }
                 $held = (float) ($dep['amount'] ?? 0);
                 $amount = round(max(0, min($amount, $held)), 2); // can't deduct more than held
                 $dep['state'] = 'deducted'; $dep['deducted'] = $amount;
@@ -474,12 +537,10 @@ if (!function_exists('resv_deposit_set')) {
                 $msg = 'Deposit: ' . number_format($amount, 2) . ' deducted, ' . number_format($held - $amount, 2) . ' refunded.';
             }
             $bd['deposit'] = $dep;
-            $db->update('bookings', ['booking_data' => json_encode($bd), 'updated_at' => $now], ['invoice_id' => $invoiceId]);
-            return ['ok' => true, 'message' => $msg];
-        } catch (\Throwable $e) {
-            error_log('resv_deposit_set: ' . $e->getMessage());
-            return ['ok' => false, 'message' => 'Could not update the deposit.'];
-        }
+            return true;
+        });
+        if (empty($res['ok'])) { return ['ok' => false, 'message' => $res['message'] ?? 'Could not update the deposit.']; }
+        return ['ok' => true, 'message' => $msg];
     }
 }
 
@@ -837,14 +898,11 @@ if (!function_exists('resv_unassign_physical_room')) {
      */
     function resv_unassign_physical_room($db, string $invoiceId): bool
     {
-        try {
-            $b = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
-            if (!$b) { return false; }
-            $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
-            if (!is_array($bd)) { $bd = []; }
+        // ATOMIC booking_data mutation (audit fix) — row-locked, fresh re-read.
+        $res = booking_data_mutate($db, $invoiceId, function (array &$bd) {
             unset($bd['pms_physical_room_id']);
-            $db->update('bookings', ['booking_data' => json_encode($bd), 'updated_at' => date('Y-m-d H:i:s')], ['invoice_id' => $invoiceId]);
             return true;
-        } catch (\Throwable $e) { error_log('resv_unassign_physical_room: ' . $e->getMessage()); return false; }
+        });
+        return !empty($res['ok']);
     }
 }

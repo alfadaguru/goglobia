@@ -425,6 +425,18 @@ if (!function_exists('_folio_set_stay_state')) {
     function _folio_set_stay_state($db, string $invoiceId, string $state, array $flags = []): bool
     {
         try {
+            // ATOMIC: the stay state (checked_in/out) lives in booking_data; mutate it
+            // under a row lock so a concurrent deposit/no-show write can't clobber the
+            // check-in state (the audit's lost-update). Falls back to the direct path
+            // only if the shared helper isn't loaded (it is, at request time).
+            if (function_exists('booking_data_mutate')) {
+                $res = booking_data_mutate($db, $invoiceId, function (array &$bd) use ($state, $flags) {
+                    $bd['pms_stay_state'] = $state;
+                    foreach ($flags as $k => $v) { $bd['pms_' . $k . '_at'] = date('Y-m-d H:i:s'); }
+                    return true;
+                });
+                return !empty($res['ok']);
+            }
             $b = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
             if (!$b) { return false; }
             $bd = json_decode((string) ($b['booking_data'] ?? ''), true);

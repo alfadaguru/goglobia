@@ -15,12 +15,22 @@ if (!function_exists('fd_set_early_late')) {
     function fd_set_early_late($db, string $invoiceId, string $which, bool $on, string $time = ''): bool
     {
         $which = $which === 'late_checkout' ? 'late_checkout' : 'early_checkin';
+        $key = 'fd_' . $which;
+        // ATOMIC booking_data mutation (audit fix) — row-locked so a concurrent desk
+        // write can't clobber this flag. Falls back only if the helper isn't loaded.
+        if (function_exists('booking_data_mutate')) {
+            $res = booking_data_mutate($db, $invoiceId, function (array &$bd) use ($key, $on, $time) {
+                if ($on) { $bd[$key] = ['on' => true, 'time' => substr(trim($time), 0, 10), 'at' => date('Y-m-d H:i:s')]; }
+                else { unset($bd[$key]); }
+                return true;
+            });
+            return !empty($res['ok']);
+        }
         try {
             $b = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
             if (!$b) { return false; }
             $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
             if (!is_array($bd)) { $bd = []; }
-            $key = 'fd_' . $which;
             if ($on) { $bd[$key] = ['on' => true, 'time' => substr(trim($time), 0, 10), 'at' => date('Y-m-d H:i:s')]; }
             else { unset($bd[$key]); }
             $db->update('bookings', ['booking_data' => json_encode($bd), 'updated_at' => date('Y-m-d H:i:s')], ['invoice_id' => $invoiceId]);
