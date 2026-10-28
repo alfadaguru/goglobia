@@ -245,12 +245,19 @@
       var o = document.createElement('option'); o.value = ''; o.textContent = 'Select a room first…'; optSel.appendChild(o);
       return;
     }
+    // When a room type has MULTIPLE rates, auto-select the CHEAPEST (best available rate)
+    // rather than whatever happens to be first in the list — a sensible desk default the
+    // operator can still override. A single-rate type is unaffected.
+    var cheapestVal = null, cheapestPrice = Infinity;
     opts.forEach(function (op) {
       var o = document.createElement('option');
       o.value = op.option_id;
       o.textContent = op.label;
       optSel.appendChild(o);
+      var p = parseFloat(op.price);
+      if (!isNaN(p) && p < cheapestPrice) { cheapestPrice = p; cheapestVal = op.option_id; }
     });
+    if (cheapestVal !== null) { optSel.value = cheapestVal; }
   }
   roomSel.addEventListener('change', fill);
   fill();
