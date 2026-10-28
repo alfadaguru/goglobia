@@ -974,6 +974,15 @@ $router->get('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($S
 
     $roomPicker = _supplier_resv_room_picker($db, $stayId);
     $sources = function_exists('resv_booking_sources') ? resv_booking_sources() : [];
+    // "Click a vacant room on the front desk to reserve it" passes ?physical_room_id —
+    // carry it to the form (shown + posted) so the created booking is assigned to THAT
+    // physical room. Validate it belongs to this property + is active before trusting it.
+    $presetRoom = null;
+    $presetRoomId = (int) ($_GET['physical_room_id'] ?? 0);
+    if ($presetRoomId > 0) {
+        $presetRoom = $db->get('stays_physical_rooms', ['id', 'room_number', 'floor', 'hk_status'],
+            ['id' => $presetRoomId, 'stay_id' => $stayId, 'active' => 1]);
+    }
     $title = 'New reservation — ' . ($stay['name'] ?? ''); $description = '';
     $header = true; $footer = true;
     require_once views . "includes/header.php";
@@ -1016,7 +1025,20 @@ $router->post('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($
         // engine auto-materialises the guest as an individual customer.
         'customer_id' => (int) ($_POST['customer_id'] ?? 0),
     ]);
-    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not create the reservation.'];
+    $assignNote = '';
+    // "Reserve this room" from the front-desk board passes physical_room_id — assign the
+    // new booking to that physical room via the canonical helper (it validates the room is
+    // this property's, active, assignable + not in use; stores pms_physical_room_id). Best
+    // effort: a failed assignment never fails the reservation (the room can be assigned at
+    // check-in), it just notes it.
+    if (!empty($res['ok']) && !empty($res['invoice_id'])) {
+        $prid = (int) ($_POST['physical_room_id'] ?? 0);
+        if ($prid > 0 && function_exists('hk_assign_room_to_booking')) {
+            $assigned = hk_assign_room_to_booking($db, (string) $res['invoice_id'], $prid, $stayId);
+            $assignNote = $assigned ? ' Room assigned.' : ' (couldn’t pre-assign that room — assign it at check-in.)';
+        }
+    }
+    $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => ($res['message'] ?? 'Could not create the reservation.') . $assignNote];
     if (!empty($res['ok']) && !empty($res['invoice_id'])) {
         header('Location: ' . root . 'supplier/reservations/' . rawurlencode($res['invoice_id']));
     } else {

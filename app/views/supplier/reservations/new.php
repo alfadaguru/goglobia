@@ -4,6 +4,7 @@
   $picker = (isset($roomPicker) && is_array($roomPicker)) ? $roomPicker : [];
   $srcList = (isset($sources) && is_array($sources)) ? $sources : [];
   $cur = htmlspecialchars((string) ($stay['currency'] ?? 'USD'));
+  $presetRoom = (isset($presetRoom) && is_array($presetRoom)) ? $presetRoom : null; // clicked from the room board
 ?>
 <div class="max-w-2xl mx-auto px-4 py-8 space-y-6">
 
@@ -21,6 +22,13 @@
     <a href="<?= root ?>supplier/reservations" class="text-sm text-blue-600 hover:underline">&larr; Reservations</a>
   </div>
   <p class="text-sm text-gray-600"><?= htmlspecialchars((string) ($stay['name'] ?? '')) ?> — take a walk-in, phone, or manual booking. The price is calculated from your room rates; a room is held immediately.</p>
+
+  <?php if ($presetRoom): ?>
+    <div class="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900">
+      <span class="material-symbols-outlined text-base">meeting_room</span>
+      Reserving <strong>Room <?= htmlspecialchars((string) ($presetRoom['room_number'] ?? '')) ?></strong><?= !empty($presetRoom['floor']) ? ' · Floor ' . htmlspecialchars((string) $presetRoom['floor']) : '' ?> — this room will be assigned to the booking. Pick the rate &amp; dates below.
+    </div>
+  <?php endif; ?>
 
   <?php if (empty($picker)): ?>
     <div class="alert-error"><span class="material-symbols-outlined">error</span><p class="text-sm">This property has no bookable rooms/rates yet. Add rooms &amp; rates first.</p></div>
@@ -42,6 +50,7 @@
 
   <form action="<?= root ?>supplier/stays/<?= $sid ?>/reservations/new" method="POST" class="card p-6 space-y-5">
     <?= CSRF::tokenField() ?>
+    <?php if ($presetRoom): ?><input type="hidden" name="physical_room_id" value="<?= (int) $presetRoom['id'] ?>"><?php endif; ?>
 
     <!-- C3: WHO IS THE CUSTOMER. Search an existing payer or create one on the spot.
          The chosen id is written onto the booking (customer_id), connecting the
