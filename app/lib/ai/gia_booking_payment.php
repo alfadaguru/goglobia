@@ -436,11 +436,50 @@ if (!function_exists('gia_bp_confirm')) {
                 ], ['invoice_id' => $invoiceId]);
             } catch (\Throwable $e) { error_log('[gia_bp] late-pay stamp: ' . $e->getMessage()); }
             $ref = gia_bp_refund($db, $invoiceId, 'Payment received after booking expired — auto refund');
-            return ['ok' => true, 'status' => 'late_refunded', 'refund' => $ref];
+            // Propagate the refund outcome. If the gateway refund did NOT succeed,
+            // gia_bp_refund already released its 'refunding' claim back to the prior
+            // status (so it's safe to retry) — but the row is 'expired', which the
+            // sweep (status='pending' only) will never revisit, so there is no OTHER
+            // retry path. Return ok=false so the Paystack webhook replies 500 and
+            // Paystack re-delivers; gia_bp_refund is idempotent (returns early on
+            // 'refunded'/'refunding'), so a later redelivery completes it exactly once.
+            // Returning ok=true here would 200 the webhook and strand the late money.
+            $refundOk = is_array($ref) && !empty($ref['ok']);
+            return [
+                'ok'     => $refundOk,
+                'status' => $refundOk ? 'late_refunded' : 'late_refund_pending',
+                'refund' => $ref,
+                'message' => $refundOk ? 'Late payment auto-refunded.' : 'Late payment received; refund not yet confirmed — will retry.',
+            ];
         }
 
+        // DOUBLE-CONFIRM CLAIM (defense-in-depth): two near-simultaneous Paystack
+        // webhook deliveries for the same invoice both pass the status checks above
+        // (still 'pending') and would both run the settle/issue flow. Every settle
+        // sub-path called below IS independently idempotent (umrah_settle_payment +
+        // stays_on_paid by invoice, the ai_trip/BM issue loopback claims), so a race
+        // cannot double-charge or double-issue — but claim here too so the window is
+        // closed explicitly, not only by four downstream guards. Conditionally flip
+        // pending -> paying; if another worker already did, bail as 'already'. The
+        // claim is released back to 'pending' on any RETRYABLE early-return below so a
+        // genuine retry isn't blocked, and is overwritten by 'paid'/'refunded' on the
+        // success path (line ~598). Fail-open on DB variance (never block a lone confirm).
+        try {
+            $claim = $db->update('gia_booking_payments',
+                ['status' => 'paying', 'updated_at' => date('Y-m-d H:i:s')],
+                ['id' => $bp['id'], 'status' => $bp['status']]);
+            if ($claim instanceof \PDOStatement && $claim->rowCount() < 1) {
+                return ['ok' => true, 'status' => 'already'];
+            }
+        } catch (\Throwable $e) { error_log('[gia_bp] confirm claim: ' . $e->getMessage()); }
+        // Helper: restore the pre-claim status so a retryable failure can be re-driven.
+        $releaseClaim = function () use ($db, $bp) {
+            try { $db->update('gia_booking_payments', ['status' => $bp['status'], 'updated_at' => date('Y-m-d H:i:s')], ['id' => $bp['id'], 'status' => 'paying']); }
+            catch (\Throwable $e) { error_log('[gia_bp] confirm claim-release: ' . $e->getMessage()); }
+        };
+
         $facts = gia_bp_booking_facts($db, $invoiceId);
-        if ($facts === []) { return ['ok' => false, 'message' => 'Booking missing']; }
+        if ($facts === []) { $releaseClaim(); return ['ok' => false, 'message' => 'Booking missing']; }
         $amount = (float) (($data['amount'] ?? 0) ? round(((int) $data['amount']) / 100, 2) : $facts['due_now']);
         $currency = strtoupper((string) ($data['currency'] ?? $facts['currency'])) ?: 'NGN';
 
@@ -574,6 +613,7 @@ if (!function_exists('gia_bp_confirm')) {
                 }
             }
             if (!$ok) {
+                $releaseClaim(); // back to the pre-claim status so a retry can re-drive it
                 return ['ok' => false, 'message' => 'post-payment flow failed']; // retryable
             }
             // Ledger status: 'paid' normally, but 'refunded' when a flight issue
@@ -603,6 +643,7 @@ if (!function_exists('gia_bp_confirm')) {
             return ['ok' => true, 'status' => 'paid', 'module' => $facts['module']];
         } catch (\Throwable $e) {
             error_log('[gia_bp] confirm ' . $invoiceId . ': ' . $e->getMessage());
+            $releaseClaim(); // exception mid-settle: restore status so the webhook retry re-drives it
             return ['ok' => false, 'message' => 'confirm exception']; // retryable
         }
     }

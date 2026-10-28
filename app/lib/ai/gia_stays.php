@@ -214,6 +214,69 @@ if (!function_exists('App\\lib\\ai\\gia_stays_expiry_minutes')) {
     }
 }
 
+if (!function_exists('App\\lib\\ai\\gia_stays_find_held')) {
+    /**
+     * Double-book guard (mirrors gia_flights_find_held). Return the book-shaped result
+     * for an EXISTING unpaid stays booking THIS conversation is already holding for the
+     * SAME stay + exact dates, or null if none. gia_stays_book previously minted a fresh
+     * invoice + a fresh stays_hold on EVERY call, so a model double-call (user double-
+     * sends "book it" / a trailing "yes") created a SECOND hold on the same room — a live
+     * inventory leak (two holds, only one can settle; the orphan blocks the room until it
+     * expires ~20 min). Match on gia_conv_key (ownership, hash_equals) + unpaid + recent +
+     * SAME stay_id + checkin + checkout, so a genuine rebooking of a DIFFERENT hotel/dates
+     * still proceeds. Once the old hold is paid/cancelled/aged-out, a new booking proceeds.
+     *
+     * @return array|null book-shaped array (same shape gia_stays_book returns) or null
+     */
+    function gia_stays_find_held($db, string $convKey, int $stayId, string $checkin, string $checkout): ?array
+    {
+        if ($convKey === '' || $stayId <= 0) { return null; }
+        $freshAfter = \date('Y-m-d H:i:s', \time() - 60 * 60); // ignore holds older than 60 min
+        try {
+            $rows = $db->select('bookings',
+                ['invoice_id', 'price_markup', 'currency_markup', 'booking_data', 'created_at'],
+                [
+                    'module_type'       => 'ai_trip',
+                    'payment_status[!]' => 'paid',
+                    'booking_status[!]' => 'cancelled',
+                    'created_at[>=]'    => $freshAfter,
+                    'ORDER'             => ['id' => 'DESC'],
+                    'LIMIT'             => 10,
+                ]
+            );
+        } catch (\Throwable $e) { return null; }
+        if (!\is_array($rows)) { return null; }
+        foreach ($rows as $r) {
+            $bd = \json_decode((string) ($r['booking_data'] ?? ''), true);
+            if (!\is_array($bd)) { continue; }
+            if (\strtolower((string) ($bd['gia_service'] ?? '')) !== 'stays') { continue; }
+            $bdConv = (string) ($bd['gia_conv_key'] ?? '');
+            if ($bdConv === '' || !\hash_equals($bdConv, $convKey)) { continue; }
+            // Same stay + exact dates only — a different hotel/dates is a real new booking.
+            if ((int) ($bd['stay_id'] ?? 0) !== $stayId) { continue; }
+            if ((string) ($bd['checkin'] ?? '') !== $checkin || (string) ($bd['checkout'] ?? '') !== $checkout) { continue; }
+            $amount   = (float) ($r['price_markup'] ?? 0);
+            $currency = (string) ($r['currency_markup'] ?? 'USD');
+            $nights   = \function_exists('stays_date_range') ? \count(\stays_date_range($checkin, $checkout)) : \max(1, (int) \round((\strtotime($checkout) - \strtotime($checkin)) / 86400));
+            return [
+                'ok'             => true,
+                'invoice_id'     => (string) ($r['invoice_id'] ?? ''),
+                'module'         => 'stays',
+                'stay_id'        => $stayId,
+                'amount'         => $amount,
+                'amount_due_now' => $amount,
+                'currency'       => $currency,
+                'nights'         => $nights,
+                'checkin'        => $checkin,
+                'checkout'       => $checkout,
+                'needs_payment'  => true,
+                'reused'         => true, // reused an existing hold — did NOT create a second
+            ];
+        }
+        return null;
+    }
+}
+
 if (!function_exists('App\\lib\\ai\\gia_stays_book')) {
     /**
      * Create a HELD, UNPAID stays booking for a chosen room-option + real dates.
@@ -245,6 +308,19 @@ if (!function_exists('App\\lib\\ai\\gia_stays_book')) {
             || $checkout === '' || \strtotime($checkout) === false
             || \strtotime($checkout) <= \strtotime($checkin)) {
             return ['ok' => false, 'need_dates' => true, 'message' => 'I need valid check-in and check-out dates to book.'];
+        }
+
+        // 0) DOUBLE-BOOK GUARD: if THIS conversation is already holding an unpaid stay
+        //    for the same hotel + exact dates, reuse it instead of minting a second
+        //    invoice + a second hold on the same room (which would leak inventory). A
+        //    model double-call / user "yes, book it" twice is the common trigger.
+        $convKey = (string) ($lead['conv_key'] ?? '');
+        if ($convKey !== '') {
+            $heldExisting = gia_stays_find_held($db, $convKey, $stayId, $checkin, $checkout);
+            if ($heldExisting !== null) {
+                \error_log('[gia_stays] reusing existing unpaid hold ' . ($heldExisting['invoice_id'] ?? '?') . ' (double-book guard)');
+                return $heldExisting;
+            }
         }
 
         $selectedRooms = [['room_id' => $roomId, 'option_id' => $optId, 'quantity' => $qty]];
