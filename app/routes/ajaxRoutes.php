@@ -659,6 +659,47 @@ $router->get('/ticket-file/([A-Za-z0-9]+)', function ($invoiceId) use ($SECURE, 
     }
 });
 
+// ============================================================================
+// GET /umrah-doc/{id}?exp=...&sig=...  — PUBLIC, HMAC-SIGNED umrah document
+// ----------------------------------------------------------------------------
+// Session-free fetch of an uploaded UMRAH document (visa/ticket PDF/image) so
+// WhatsApp (Green API sendFileByUrl) can deliver it when the admin approves a
+// visa / issues a ticket. The files live behind Deny-all; access here is granted
+// ONLY by a short-lived HMAC token bound to the document id + expiry. Streams the
+// file inline. Expired/tampered/bad-sig => 403.
+// ============================================================================
+$router->get('/umrah-doc/([0-9]+)', function ($docId) use ($SECURE, $db) {
+    try {
+        $docId = (int) $docId;
+        $exp = (int) ($_GET['exp'] ?? 0);
+        $sig = (string) ($_GET['sig'] ?? '');
+        if ($docId <= 0 || $exp <= 0 || $sig === ''
+            || !function_exists('umrah_doc_token_valid')
+            || !umrah_doc_token_valid($docId, $exp, $sig)) {
+            http_response_code(403);
+            die('Invalid or expired document link');
+        }
+        $doc = $db->get('umrah_documents', ['file_path', 'original_name', 'mime'], ['id' => $docId]);
+        if (!$doc || empty($doc['file_path'])) { http_response_code(404); die('Document not found'); }
+        $rel = ltrim((string) $doc['file_path'], '/');
+        $abs = dirname(__DIR__, 2) . '/' . $rel;   // app/routes -> repo root
+        if (!is_file($abs)) { http_response_code(404); die('File missing'); }
+        $mime = (string) ($doc['mime'] ?? '');
+        if ($mime === '') {
+            $mime = (strtolower(pathinfo($abs, PATHINFO_EXTENSION)) === 'pdf') ? 'application/pdf' : 'application/octet-stream';
+        }
+        header('Content-Type: ' . $mime);
+        header('Content-Disposition: inline; filename="' . basename((string) ($doc['original_name'] ?: $rel)) . '"');
+        header('Content-Length: ' . filesize($abs));
+        header('Cache-Control: private, no-store, max-age=0');
+        readfile($abs);
+        exit;
+    } catch (Exception $e) {
+        http_response_code(500);
+        die('Error fetching document');
+    }
+});
+
 
 // ====================================
 // GET USER WALLET BALANCE

@@ -56,6 +56,29 @@ if (!function_exists('ticket_public_token')) {
         if ($exp < time()) { return false; }
         return hash_equals(ticket_public_token($invoiceId, $exp), $sig);
     }
+
+    /**
+     * Signed, time-limited PUBLIC link to an uploaded UMRAH document (visa/ticket
+     * PDF/image stored behind Deny-all). Same HMAC pattern as the ticket link, so
+     * an external service (Green API sendFileByUrl) can fetch the exact doc by id
+     * without a session. Bound to the document id + expiry.
+     */
+    function umrah_doc_token(int $docId, int $exp): string
+    {
+        return hash_hmac('sha256', 'umrah-doc:' . $docId . '|' . $exp, supplier_internal_secret());
+    }
+    function umrah_doc_public_url(int $docId, int $ttl = 1800): string
+    {
+        $exp = time() + max(60, $ttl);
+        $tok = umrah_doc_token($docId, $exp);
+        $base = defined('root') ? root : '';
+        return $base . 'umrah-doc/' . $docId . '?exp=' . $exp . '&sig=' . $tok;
+    }
+    function umrah_doc_token_valid(int $docId, int $exp, string $sig): bool
+    {
+        if ($exp < time()) { return false; }
+        return hash_equals(umrah_doc_token($docId, $exp), $sig);
+    }
 }
 
 if (!function_exists('ticket_whatsapp_caption')) {

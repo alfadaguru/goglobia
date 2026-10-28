@@ -230,11 +230,143 @@ if (!function_exists('umrah_traveller_set_status')) {
         $col = $domain . '_status';
         $old = $db->get('umrah_booking_travellers', [$col], ['id' => $travellerId]);
         if (!$old) { return ['ok' => false, 'message' => 'Traveller not found']; }
+        $wasValue = (string) ($old[$col] ?? '');
         $db->update('umrah_booking_travellers', [$col => $value, 'updated_at' => date('Y-m-d H:i:s')], ['id' => $travellerId]);
         if (function_exists('umrah_audit')) {
-            umrah_audit($db, 'umrah_traveller', (string) $travellerId, $domain . '_' . $value, [$col => $old[$col]], [$col => $value]);
+            umrah_audit($db, 'umrah_traveller', (string) $travellerId, $domain . '_' . $value, [$col => $wasValue], [$col => $value]);
+        }
+
+        // NOTIFY THE PILGRIM on a real milestone transition (not a re-save):
+        //   - visa => 'approved'  -> "your Umrah visa is approved" + the visa PDF
+        //   - ticket => 'ticketed' -> "your Umrah flight ticket is issued"
+        // The visa doc the admin uploaded (umrah_documents.doc_type='visa') is
+        // delivered to the pilgrim on WhatsApp + email. Best-effort; never blocks
+        // the status change.
+        if ($wasValue !== $value
+            && (($domain === 'visa' && $value === 'approved') || ($domain === 'ticket' && $value === 'ticketed'))
+            && function_exists('umrah_notify_traveller_doc')) {
+            try { umrah_notify_traveller_doc($db, $travellerId, $domain); }
+            catch (\Throwable $e) { error_log('umrah set_status notify: ' . $e->getMessage()); }
         }
         return ['ok' => true];
+    }
+}
+
+if (!function_exists('umrah_notify_traveller_doc')) {
+    /**
+     * Send a pilgrim their VISA (or TICKET) document + a warm message on BOTH
+     * email and WhatsApp, when the admin approves the visa / issues the ticket.
+     * Attaches the ACTUAL uploaded file from umrah_documents (doc_type = domain),
+     * so the traveller receives their real visa/ticket PDF — not just a text note.
+     *
+     * @param int    $travellerId umrah_booking_travellers.id
+     * @param string $domain      'visa' | 'ticket'
+     */
+    function umrah_notify_traveller_doc($db, int $travellerId, string $domain): void
+    {
+        $tr = $db->get('umrah_booking_travellers', ['umrah_booking_id', 'first_name', 'last_name'], ['id' => $travellerId]);
+        if (!$tr) { return; }
+        $ubId = (int) ($tr['umrah_booking_id'] ?? 0);
+        $pilgrim = trim((string) (($tr['first_name'] ?? '') . ' ' . ($tr['last_name'] ?? '')));
+
+        // Resolve the booking's invoice + the lead contact (email/phone).
+        $ub = $db->get('umrah_bookings', ['invoice_id', 'booking_ref'], ['id' => $ubId]);
+        $invoiceId = (string) ($ub['invoice_id'] ?? '');
+        $ref = (string) ($ub['booking_ref'] ?? '');
+        if ($invoiceId === '') { return; }
+        $gb = $db->get('bookings', ['first_name', 'last_name', 'email', 'phone', 'phone_country_code'], ['invoice_id' => $invoiceId]);
+        $email = trim((string) ($gb['email'] ?? ''));
+        $name  = trim((string) (($gb['first_name'] ?? '') . ' ' . ($gb['last_name'] ?? '')));
+        $phone = trim((string) ($gb['phone'] ?? ''));
+        $phoneCc = trim((string) ($gb['phone_country_code'] ?? ''));
+        $brand = function_exists('getBrandName') ? getBrandName(null) : 'GoGlobia';
+
+        // The actual uploaded document (newest one for this pilgrim+type).
+        $doc = $db->get('umrah_documents', ['id', 'file_path', 'original_name', 'mime'],
+            ['traveller_id' => $travellerId, 'doc_type' => $domain, 'ORDER' => ['id' => 'DESC']]);
+        $docPath = ''; $docPublicUrl = ''; $docName = $domain . '.pdf';
+        if (is_array($doc) && !empty($doc['file_path'])) {
+            $rel = ltrim((string) $doc['file_path'], '/');
+            // app/lib/umrah/operations.php -> repo root is 3 levels up.
+            $abs = dirname(__DIR__, 3) . '/' . $rel;
+            if (is_file($abs)) {
+                $docPath = $abs;
+                $docName = (string) ($doc['original_name'] ?? basename($rel));
+                // Signed public URL so Green API's sendFileByUrl can fetch it
+                // (the file is behind Deny-all; the upload host is unreliable).
+                if (function_exists('umrah_doc_public_url')) {
+                    $docPublicUrl = umrah_doc_public_url((int) $doc['id']);
+                }
+            }
+        }
+
+        if ($domain === 'visa') {
+            $subject = 'Your Umrah visa is approved — ' . $ref;
+            $body = "Assalamu Alaikum" . ($pilgrim !== '' ? ' ' . $pilgrim : '') . ",\n\n"
+                  . "Great news — your Umrah visa for booking {$ref} has been *approved*. "
+                  . ($docPath !== '' ? "Your visa document is attached — please keep it safe and carry it with your passport.\n" : "Your visa document will follow shortly.\n")
+                  . "\nMake sure your passport is valid for at least 6 months. We'll keep you posted as your flights and hotel are confirmed.\n";
+            $template = 'visa_approved';
+        } else {
+            $subject = 'Your Umrah flight ticket is issued — ' . $ref;
+            $body = "Assalamu Alaikum" . ($pilgrim !== '' ? ' ' . $pilgrim : '') . ",\n\n"
+                  . "Your Umrah flight ticket for booking {$ref} has been *issued*. "
+                  . ($docPath !== '' ? "Your ticket is attached — please keep it for your journey.\n" : "Your ticket details will follow shortly.\n")
+                  . "\nArrive at the airport in good time and carry your passport and visa. We look forward to your blessed journey. 🕋\n";
+            $template = 'ticket_issued';
+        }
+
+        // Log it to the umrah notifications ledger for the record.
+        try {
+            $db->insert('umrah_notifications', [
+                'umrah_booking_id' => $ubId, 'channel' => 'email+whatsapp', 'template' => $template,
+                'subject' => mb_substr($subject, 0, 200), 'body' => $body,
+                'status' => 'queued', 'created_at' => date('Y-m-d H:i:s'),
+            ]);
+            $logId = (int) $db->id();
+        } catch (\Throwable $e) { $logId = 0; }
+
+        $sent = false;
+
+        // ---- EMAIL (branded, with the real doc attached) ----
+        if ($email !== '' && function_exists('SENDEMAIL')) {
+            try {
+                $SECURE = true;
+                $inner = '<div style="padding:28px 32px;background:#f8fafc;font-size:15px;color:#2d3748;line-height:1.7;">';
+                foreach (preg_split('/\n{2,}/', trim($body)) as $para) {
+                    $html = preg_replace('/\*([^*]+)\*/', '<strong>$1</strong>', htmlspecialchars($para, ENT_QUOTES, 'UTF-8'));
+                    $inner .= '<p style="margin:0 0 14px;">' . nl2br($html) . '</p>';
+                }
+                $inner .= '</div>';
+                $htmlBody = $inner;
+                $hdr = __DIR__ . '/../../views/notifications/emails/header.php';
+                $ftr = __DIR__ . '/../../views/notifications/emails/footer.php';
+                if (is_file($hdr) && is_file($ftr)) { ob_start(); @include $hdr; echo $inner; @include $ftr; $htmlBody = ob_get_clean(); }
+                SENDEMAIL($email, $name, $subject, $htmlBody, $docPath ?: null);
+                $sent = true;
+            } catch (\Throwable $e) { error_log('umrah doc email: ' . $e->getMessage()); }
+        }
+
+        // ---- WHATSAPP (warm message + the real doc) ----
+        if ($phone !== '' && function_exists('SENDWHATSAPP')) {
+            try {
+                $full = $phoneCc !== '' ? (preg_replace('/[^\d]/', '', $phoneCc) . preg_replace('/[^\d]/', '', $phone)) : $phone;
+                $waMsg = '🕋 ' . $subject . "\n\n" . trim($body) . "\n\nThank you for choosing *" . $brand . "*.";
+                if ($docPath !== '') {
+                    // Prefer the signed public URL (sendFileByUrl via the alive API
+                    // host); local-file upload is the fallback inside SENDWHATSAPP.
+                    SENDWHATSAPP($full, $name, $waMsg, $docPath, $docPublicUrl ?: null);
+                } else {
+                    SENDWHATSAPP($full, $name, $waMsg);
+                }
+                $sent = true;
+            } catch (\Throwable $e) { error_log('umrah doc whatsapp: ' . $e->getMessage()); }
+        }
+
+        if ($logId > 0) {
+            try { $db->update('umrah_notifications', ['status' => $sent ? 'sent' : 'queued', 'sent_at' => $sent ? date('Y-m-d H:i:s') : null], ['id' => $logId]); }
+            catch (\Throwable $e) { /* best effort */ }
+        }
     }
 }
 
