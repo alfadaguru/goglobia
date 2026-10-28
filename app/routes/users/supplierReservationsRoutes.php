@@ -980,7 +980,9 @@ $router->get('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($S
     $presetRoom = null;
     $presetRoomId = (int) ($_GET['physical_room_id'] ?? 0);
     if ($presetRoomId > 0) {
-        $presetRoom = $db->get('stays_physical_rooms', ['id', 'room_number', 'floor', 'hk_status'],
+        // room_id maps the physical room to its bookable ROOM-TYPE (stays_rooms.id) — the
+        // form pre-selects that type so the matching rate auto-fills (no re-picking).
+        $presetRoom = $db->get('stays_physical_rooms', ['id', 'room_number', 'floor', 'hk_status', 'room_id'],
             ['id' => $presetRoomId, 'stay_id' => $stayId, 'active' => 1]);
     }
     $title = 'New reservation — ' . ($stay['name'] ?? ''); $description = '';

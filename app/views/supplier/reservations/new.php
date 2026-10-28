@@ -5,6 +5,14 @@
   $srcList = (isset($sources) && is_array($sources)) ? $sources : [];
   $cur = htmlspecialchars((string) ($stay['currency'] ?? 'USD'));
   $presetRoom = (isset($presetRoom) && is_array($presetRoom)) ? $presetRoom : null; // clicked from the room board
+  // Auto-pick the bookable room-type the clicked physical room maps to (room_id), but ONLY
+  // if that type is actually sellable (present in the picker, i.e. has a priced rate). The
+  // dependent-rate JS then auto-fills the first rate for that type on load.
+  $presetRoomTypeId = 0;
+  if ($presetRoom && (int) ($presetRoom['room_id'] ?? 0) > 0) {
+      $wantRt = (int) $presetRoom['room_id'];
+      foreach ($picker as $__p) { if ((int) $__p['room_id'] === $wantRt) { $presetRoomTypeId = $wantRt; break; } }
+  }
 ?>
 <div class="max-w-2xl mx-auto px-4 py-8 space-y-6">
 
@@ -26,7 +34,8 @@
   <?php if ($presetRoom): ?>
     <div class="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900">
       <span class="material-symbols-outlined text-base">meeting_room</span>
-      Reserving <strong>Room <?= htmlspecialchars((string) ($presetRoom['room_number'] ?? '')) ?></strong><?= !empty($presetRoom['floor']) ? ' · Floor ' . htmlspecialchars((string) $presetRoom['floor']) : '' ?> — this room will be assigned to the booking. Pick the rate &amp; dates below.
+      <span>Reserving <strong>Room <?= htmlspecialchars((string) ($presetRoom['room_number'] ?? '')) ?></strong><?= !empty($presetRoom['floor']) ? ' · Floor ' . htmlspecialchars((string) $presetRoom['floor']) : '' ?> — this room will be assigned to the booking.
+      <?php if ($presetRoomTypeId > 0): ?>Its room type &amp; rate are pre-selected; just set the dates.<?php else: ?>Pick a rate &amp; dates below.<?php endif; ?></span>
     </div>
   <?php endif; ?>
 
@@ -88,7 +97,7 @@
         <select name="room_id" id="roomSelect" required class="input">
           <option value="">Select a room…</option>
           <?php foreach ($picker as $p): ?>
-            <option value="<?= (int) $p['room_id'] ?>"><?= htmlspecialchars((string) $p['room_name']) ?></option>
+            <option value="<?= (int) $p['room_id'] ?>" <?= ($presetRoomTypeId > 0 && (int) $p['room_id'] === $presetRoomTypeId) ? 'selected' : '' ?>><?= htmlspecialchars((string) $p['room_name']) ?></option>
           <?php endforeach; ?>
         </select>
       </div>
