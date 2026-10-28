@@ -224,19 +224,28 @@ if (!function_exists('resv_create_walkin')) {
         // individual customer from the guest's name/email/phone (deduped, so a repeat
         // guest reuses their record). customer_id 0 → leave NULL (never blocks the booking).
         // Resolve the org from the property owner.
-        $custId = 0;
-        if (function_exists('contacts_resolve_for_booking')) {
-            $orgForContacts = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $stayId) : 0;
-            if ($orgForContacts <= 0 && function_exists('supplier_property_org_ensure')) {
-                $orgForContacts = (int) supplier_property_org_ensure($db, $stayId);
-            }
-            if ($orgForContacts > 0) {
-                $custId = (int) contacts_resolve_for_booking($db, $orgForContacts, [
-                    'customer_id' => (int) ($in['customer_id'] ?? 0),
-                    'first_name'  => $firstName, 'last_name' => $lastName,
-                    'email'       => (string) ($in['email'] ?? ''), 'phone' => (string) ($in['phone'] ?? ''),
-                ]);
-            }
+        $custId = 0; $guestId = 0;
+        $orgForContacts = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $stayId) : 0;
+        if ($orgForContacts <= 0 && function_exists('supplier_property_org_ensure')) {
+            $orgForContacts = (int) supplier_property_org_ensure($db, $stayId);
+        }
+        if ($orgForContacts > 0 && function_exists('contacts_resolve_for_booking')) {
+            $custId = (int) contacts_resolve_for_booking($db, $orgForContacts, [
+                'customer_id' => (int) ($in['customer_id'] ?? 0),
+                'first_name'  => $firstName, 'last_name' => $lastName,
+                'email'       => (string) ($in['email'] ?? ''), 'phone' => (string) ($in['phone'] ?? ''),
+            ]);
+        }
+        // Store the GUEST (the stayer) as a first-class record — ALWAYS, even with no
+        // email (phone-primary identity). Links back to the payer via customer_id.
+        if ($orgForContacts > 0 && function_exists('guests_resolve_for_booking')) {
+            $guestId = (int) guests_resolve_for_booking($db, $orgForContacts, [
+                'guest_id'    => (int) ($in['guest_id'] ?? 0),
+                'first_name'  => $firstName, 'last_name' => $lastName,
+                'email'       => (string) ($in['email'] ?? ''), 'phone' => (string) ($in['phone'] ?? ''),
+                'id_doc'      => (string) ($in['id_doc'] ?? ''), 'nationality' => (string) ($in['nationality'] ?? ''),
+                'customer_id' => $custId,
+            ]);
         }
 
         $result = ['ok' => false, 'message' => 'Could not create the reservation.'];
@@ -244,7 +253,7 @@ if (!function_exists('resv_create_walkin')) {
             $db->action(function ($db) use (
                 $stayId, $roomId, $optionId, $qty, $checkin, $checkout, $invoiceId,
                 $firstName, $lastName, $in, $net, $finalTotal, $taxAmount, $currency,
-                $bookingData, $markPaid, $source, $now, $custId, &$result
+                $bookingData, $markPaid, $source, $now, $custId, $guestId, &$result
             ) {
                 // 1) Place the no-oversell hold FIRST — a failed hold aborts the whole
                 //    create (can't take a walk-in for a room we don't have).
@@ -291,6 +300,7 @@ if (!function_exists('resv_create_walkin')) {
                     'childs'          => max(0, (int) ($in['children'] ?? 0)),
                     'booking_data'    => json_encode($bookingData),
                     'customer_id'     => $custId > 0 ? $custId : null, // C2: booking→payer link
+                    'guest_id'        => $guestId > 0 ? $guestId : null, // booking→stayer link
                     'payment_gateway' => $markPaid ? 'Front desk' : null,
                     'created_at'      => $now,
                     'updated_at'      => $now,

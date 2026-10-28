@@ -36090,3 +36090,30 @@ ALTER TABLE `settings` ADD COLUMN IF NOT EXISTS `agent_self_markup_enabled` ENUM
 -- Front-desk CONSOLIDATION C1: booking -> customer (payer) link. Nullable FK-style
 -- column to stays_contacts.id. Idempotent; the index is added by ensureSupplierStaysSchema.
 ALTER TABLE `bookings` ADD COLUMN IF NOT EXISTS `customer_id` BIGINT UNSIGNED DEFAULT NULL;
+-- Front-desk: booking -> guest (the STAYER) link. Nullable FK-style to stays_guests.id.
+ALTER TABLE `bookings` ADD COLUMN IF NOT EXISTS `guest_id` BIGINT UNSIGNED DEFAULT NULL;
+
+-- The GUEST as a first-class record (who stays), phone-primary identity. Managed by
+-- ensureSupplierStaysSchema; shipped here so a fresh install has it + the admin DB tool diffs it.
+CREATE TABLE IF NOT EXISTS `stays_guests` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `org_id` int(11) NOT NULL,
+  `display_name` varchar(191) NOT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `phone_key` varchar(20) DEFAULT NULL,
+  `email` varchar(191) DEFAULT NULL,
+  `email_key` varchar(191) DEFAULT NULL,
+  `id_doc` varchar(80) DEFAULT NULL,
+  `nationality` varchar(80) DEFAULT NULL,
+  `country` char(2) DEFAULT NULL,
+  `contact_id` bigint(20) unsigned DEFAULT NULL,
+  `notes` varchar(500) DEFAULT NULL,
+  `created_by` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_org_phone` (`org_id`,`phone_key`),
+  KEY `idx_org_email` (`org_id`,`email_key`),
+  KEY `idx_org_name` (`org_id`,`display_name`),
+  KEY `idx_contact` (`contact_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

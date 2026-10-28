@@ -156,23 +156,13 @@ if (!function_exists('contacts_resolve_for_booking')) {
         $name  = trim(((string) ($g['first_name'] ?? '')) . ' ' . ((string) ($g['last_name'] ?? '')));
         $phone = trim((string) ($g['phone'] ?? ''));
         try {
-            // 2) dedupe by email (the guest key). Match either guest_email_key or the email column.
-            if ($email !== '') {
-                $key = function_exists('guest_email_key') ? guest_email_key($email) : $email;
-                $hit = $db->get('stays_contacts', ['id'],
-                    ['org_id' => $orgId, 'OR' => ['guest_email_key' => $key, 'email' => $email], 'LIMIT' => 1]);
-                if ($hit) { return (int) $hit['id']; }
-            }
-            // 3) dedupe by phone (last-9 key) for an individual with no email match —
-            //    but ONLY when the NAME also matches. A phone key alone is the last 9
-            //    digits, which collides across genuinely different people (a shared
-            //    landline, an office/front-desk number, a placeholder, or local-vs-
-            //    international formatting of unrelated numbers). Reusing a contact on
-            //    phone alone stamped the WRONG payer on the booking and misrouted that
-            //    person's wallet/direct-bill/loyalty (audit finding). Requiring a name
-            //    match keeps the real benefit (the same guest re-booking by phone) while
-            //    never collapsing two different guests. No usable name -> don't reuse by
-            //    phone; create a fresh contact instead.
+            // 2) dedupe by PHONE FIRST (Nigeria: a phone is the reliable identity; email is
+            //    often absent). The phone_key is the last 9 digits, which collides across
+            //    genuinely different people (a shared landline, an office/front-desk number,
+            //    a placeholder, or local-vs-international formatting of unrelated numbers),
+            //    so reuse ONLY when the NAME also matches — otherwise a stranger would be
+            //    stamped as the payer and inherit their wallet/credit/loyalty. No usable
+            //    name -> skip phone reuse (fall through to email / create).
             if ($phone !== '' && $name !== '' && function_exists('contacts_phone_key')) {
                 $pk = contacts_phone_key($phone);
                 if ($pk !== '') {
@@ -184,6 +174,13 @@ if (!function_exists('contacts_resolve_for_booking')) {
                         if ($nameKey !== '' && $cKey === $nameKey) { return (int) $c['id']; }
                     }
                 }
+            }
+            // 3) dedupe by email (secondary). Match either guest_email_key or the email column.
+            if ($email !== '') {
+                $key = function_exists('guest_email_key') ? guest_email_key($email) : $email;
+                $hit = $db->get('stays_contacts', ['id'],
+                    ['org_id' => $orgId, 'OR' => ['guest_email_key' => $key, 'email' => $email], 'LIMIT' => 1]);
+                if ($hit) { return (int) $hit['id']; }
             }
             // 4) create a fresh individual customer from the guest details.
             if ($name === '' && $email === '' && $phone === '') { return 0; } // nothing to key on

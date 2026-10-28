@@ -21,6 +21,88 @@ if (!function_exists('guest_email_key')) {
     }
 }
 
+if (!function_exists('guests_phone_key')) {
+    /** Normalised phone identity = last 9 digits (Nigeria-appropriate: a phone is the
+     *  reliable key; local vs +234 forms converge on the same trailing digits). '' if too short. */
+    function guests_phone_key(?string $phone): string
+    {
+        $digits = preg_replace('/\D+/', '', (string) $phone);
+        return strlen($digits) >= 7 ? substr($digits, -9) : '';
+    }
+}
+
+if (!function_exists('guests_resolve_for_booking')) {
+    /**
+     * Resolve (or CREATE) the first-class GUEST record (the stayer) for a booking, and
+     * return its stays_guests.id. The guest is ALWAYS stored when we have at least a name
+     * or a phone — email is optional (a walk-in often has none). Dedupe order is
+     * PHONE-FIRST, email-second (Nigeria: phone is the reliable identity):
+     *   1) explicit guest_id, validated in-org.
+     *   2) phone_key match + NAME match (phone alone collides across different people —
+     *      shared lines, placeholders; the name guard stops a stranger-merge).
+     *   3) email_key match.
+     *   4) create a fresh guest.
+     * Returns 0 only if there's nothing to key on (no name/phone/email) or org invalid —
+     * caller leaves bookings.guest_id NULL (never fatal). Non-fatal + logged.
+     */
+    function guests_resolve_for_booking($db, int $orgId, array $g): int
+    {
+        if ($orgId <= 0) { return 0; }
+        $picked = (int) ($g['guest_id'] ?? 0);
+        if ($picked > 0 && $db->has('stays_guests', ['id' => $picked, 'org_id' => $orgId])) { return $picked; }
+
+        $name  = trim(((string) ($g['first_name'] ?? '')) . ' ' . ((string) ($g['last_name'] ?? '')));
+        if ($name === '' && !empty($g['display_name'])) { $name = trim((string) $g['display_name']); }
+        $phone = trim((string) ($g['phone'] ?? ''));
+        $email = strtolower(trim((string) ($g['email'] ?? '')));
+        $pk    = guests_phone_key($phone);
+        $ek    = function_exists('guest_email_key') ? guest_email_key($email) : ($email ?: '');
+        $nameKey = function_exists('guestcrm_name_key') ? guestcrm_name_key($name) : strtolower($name);
+
+        try {
+            // 2) phone-first dedupe, guarded by a name match (unless we have no name to compare).
+            if ($pk !== '') {
+                $cands = $db->select('stays_guests', ['id', 'display_name'], ['org_id' => $orgId, 'phone_key' => $pk, 'LIMIT' => 20]) ?: [];
+                foreach ($cands as $c) {
+                    $cKey = function_exists('guestcrm_name_key') ? guestcrm_name_key($c['display_name'] ?? '') : strtolower((string) ($c['display_name'] ?? ''));
+                    if ($nameKey === '' || $cKey === $nameKey) { return (int) $c['id']; }
+                }
+            }
+            // 3) email dedupe (secondary).
+            if ($ek !== '') {
+                $hit = $db->get('stays_guests', ['id'], ['org_id' => $orgId, 'email_key' => $ek, 'LIMIT' => 1]);
+                if ($hit) { return (int) $hit['id']; }
+            }
+            // 4) create — need at least a name or a phone.
+            if ($name === '' && $pk === '') { return 0; }
+            $row = [
+                'org_id'       => $orgId,
+                'display_name' => substr($name !== '' ? $name : $phone, 0, 191),
+                'phone'        => $phone ?: null,
+                'phone_key'    => $pk ?: null,
+                'email'        => $email ?: null,
+                'email_key'    => $ek ?: null,
+                'id_doc'       => isset($g['id_doc']) ? substr(trim((string) $g['id_doc']), 0, 80) : null,
+                'nationality'  => isset($g['nationality']) ? substr(trim((string) $g['nationality']), 0, 80) : null,
+                'contact_id'   => ((int) ($g['customer_id'] ?? 0)) > 0 ? (int) $g['customer_id'] : null,
+                'created_by'   => (string) ($_SESSION['user_id'] ?? '') ?: null,
+                'created_at'   => date('Y-m-d H:i:s'),
+            ];
+            $db->insert('stays_guests', $row);
+            $id = (int) $db->id();
+            return $id > 0 ? $id : 0;
+        } catch (\Throwable $e) {
+            // UNIQUE(org,phone_key) race: another request created this guest — resolve to it.
+            if ($pk !== '' && (strpos((string) $e->getCode(), '23000') !== false || stripos($e->getMessage(), 'duplicate') !== false)) {
+                try { $hit = $db->get('stays_guests', ['id'], ['org_id' => $orgId, 'phone_key' => $pk, 'LIMIT' => 1]); if ($hit) { return (int) $hit['id']; } }
+                catch (\Throwable $e2) { error_log('guests_resolve dup: ' . $e2->getMessage()); }
+            }
+            error_log('guests_resolve_for_booking: ' . $e->getMessage());
+            return 0;
+        }
+    }
+}
+
 if (!function_exists('guest_token')) {
     /** URL-safe token for an email (so raw emails aren't in URLs). Reversible via
      *  guest_token_decode. Not secret — scoping still enforces ownership. */

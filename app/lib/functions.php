@@ -11224,6 +11224,47 @@ function ensureSupplierStaysSchema($db): void
             }
         } catch (\Throwable $e) { error_log('consolidation C1 bookings customer_id: ' . $e->getMessage()); }
 
+        // --- stays_guests (Front-desk: the GUEST as a first-class record) -----------
+        // A GUEST is WHO STAYS; a CUSTOMER (stays_contacts) is WHO PAYS. Previously a
+        // walk-in only wrote a flat first_name on the booking + optionally a customer, so
+        // the stayer was never stored in its own right — and a guest with NO email was
+        // invisible (the derived guest_list keys on email). This table stores every guest,
+        // email or not. In Nigeria a PHONE is the reliable identity, so phone_key is the
+        // PRIMARY dedupe key (UNIQUE per org); email is secondary. A booking links
+        // guest_id (the stayer, always set when we have a name/phone) + customer_id (payer).
+        $db->query("CREATE TABLE IF NOT EXISTS `stays_guests` (
+            `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            `org_id` INT(11) NOT NULL,
+            `display_name` VARCHAR(191) NOT NULL,
+            `phone` VARCHAR(40) DEFAULT NULL,
+            `phone_key` VARCHAR(20) DEFAULT NULL,
+            `email` VARCHAR(191) DEFAULT NULL,
+            `email_key` VARCHAR(191) DEFAULT NULL,
+            `id_doc` VARCHAR(80) DEFAULT NULL,
+            `nationality` VARCHAR(80) DEFAULT NULL,
+            `country` CHAR(2) DEFAULT NULL,
+            `contact_id` BIGINT UNSIGNED DEFAULT NULL,
+            `notes` VARCHAR(500) DEFAULT NULL,
+            `created_by` VARCHAR(255) DEFAULT NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` DATETIME DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_org_phone` (`org_id`,`phone_key`),
+            KEY `idx_org_email` (`org_id`,`email_key`),
+            KEY `idx_org_name` (`org_id`,`display_name`),
+            KEY `idx_contact` (`contact_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // bookings.guest_id → stays_guests.id (the stayer). Nullable so existing + online
+        // bookings are unaffected; set by the desk flow + a backfill. Mirrors customer_id.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `bookings` LIKE 'guest_id'")->fetch()) {
+                $db->query("ALTER TABLE `bookings` ADD COLUMN `guest_id` BIGINT UNSIGNED NULL DEFAULT NULL");
+                try { $db->query("ALTER TABLE `bookings` ADD KEY `idx_guest_id` (`guest_id`)"); }
+                catch (\Throwable $e) { error_log('bookings guest_id index: ' . $e->getMessage()); }
+            }
+        } catch (\Throwable $e) { error_log('bookings guest_id: ' . $e->getMessage()); }
+
         // --- Trust / client-money ledger (PMS Phase 3 #50) --------------------------
         // An append-only ledger of money held ON BEHALF of owners/third parties,
         // SEPARATE from the platform's own funds. Signed entries; balance = sum.

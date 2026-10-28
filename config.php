@@ -477,7 +477,9 @@ try {
         //     'ngo' added to the stays_corporate_accounts type enum.
         // v10: stays_contacts UNIQUE(org_id,guest_email_key) + UNIQUE(org_id,corp_account_id)
         //      (Customer-Book dedupe at the DB level; existing dups folded first).
-        define('APP_SCHEMA_ENSURE_VERSION', 10);
+        // v11: stays_guests (the GUEST as a first-class record — phone-primary identity,
+        //      email secondary) + bookings.guest_id. The stayer is now always stored.
+        define('APP_SCHEMA_ENSURE_VERSION', 11);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);
