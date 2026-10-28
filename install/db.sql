@@ -1215,6 +1215,7 @@ CREATE TABLE `bookings` (
   `booking_status` enum('confirmed','pending','cancelled') NOT NULL DEFAULT 'pending',
   `payment_status` enum('paid','unpaid','refunded','partially_paid','awaiting_verification') NOT NULL DEFAULT 'unpaid',
   `issue_claimed_at` datetime DEFAULT NULL,
+  `issue_loopback_at` datetime DEFAULT NULL,
   `price_original` double NOT NULL,
   `price_markup` varchar(225) DEFAULT '',
   `agent_earning` varchar(255) DEFAULT '',

@@ -28,7 +28,10 @@ $router->post('flights/googleflights/void', function () use ($db) {
             exit;
         }
 
-        $db->update('bookings', ['booking_status' => 'voided'], ['invoice_id' => $invoice_id]);
+        // booking_status is ENUM('confirmed','pending','cancelled') — 'voided' is NOT a
+        // valid value and MySQL coerces it to '' (corrupting the row). Use 'cancelled',
+        // the in-enum terminal state every other void handler writes (sabre/duffel/kiwi).
+        $db->update('bookings', ['booking_status' => 'cancelled'], ['invoice_id' => $invoice_id]);
 
         ob_clean();
         echo json_encode([

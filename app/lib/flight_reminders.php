@@ -322,7 +322,10 @@ if (!function_exists('flight_reminders_sweep')) {
         // Only confirmed, future-or-recent flights. Pull a bounded set to stay cheap.
         try {
             $rows = $db->select('bookings', ['invoice_id', 'first_name', 'last_name', 'email', 'phone', 'phone_country_code', 'booking_status', 'booking_data', 'module_type'],
-                ['module_type' => 'flights', 'booking_status' => ['confirmed', 'issued', 'ticketed'], 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 500]) ?: [];
+                // booking_status is ENUM('confirmed','pending','cancelled'); an issued
+                // flight IS 'confirmed'. 'issued'/'ticketed' are not valid enum values
+                // (they can never match a stored row), so filter on 'confirmed' only.
+                ['module_type' => 'flights', 'booking_status' => 'confirmed', 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 500]) ?: [];
         } catch (\Throwable $e) {
             error_log('[flight_reminders] sweep select: ' . $e->getMessage());
             return ['ok' => false];

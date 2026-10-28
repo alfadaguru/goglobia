@@ -110,7 +110,10 @@ if (!function_exists('busModuleAction')) {
                         throw new Exception('Booking is already ' . $status);
                     }
                     $restoreSeats();
-                    $db->update('bookings', ['booking_status' => 'voided'], ['invoice_id' => $invoiceId]);
+                    // booking_status is ENUM('confirmed','pending','cancelled') — 'voided'
+                    // is not a valid value and MySQL coerces it to '' (corrupting the row).
+                    // Use the in-enum terminal state 'cancelled'.
+                    $db->update('bookings', ['booking_status' => 'cancelled'], ['invoice_id' => $invoiceId]);
                     echo json_encode(['status' => true, 'success' => true, 'message' => 'Booking voided successfully.']);
                     exit;
 

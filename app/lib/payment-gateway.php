@@ -671,6 +671,71 @@ function handle_payment_callback($token, $action, $data = [])
                     // (tours / no endpoint) that never set this still confirm.
                     $issueWasAttempted = true;
 
+                    // ============================================================
+                    // TOP-LEVEL DOUBLE-ISSUE CLAIM (platform-wide)
+                    // handle_payment_callback is reached only from the browser-return
+                    // /invoice routes (NOT an async webhook), but a buyer who double-
+                    // submits / reloads the return URL can drive TWO concurrent callbacks:
+                    // payment_status is written 'paid' only AFTER this issue block, so
+                    // the top-level 'already paid' guard cannot serialize them, and both
+                    // could POST to a supplier issue.php and place TWO real orders.
+                    // Several supplier issue.php carry their OWN issue_claimed_at claim
+                    // (duffel/adivaha/...) but most do not — so claim ONCE here before the
+                    // loopback to cover every supplier uniformly. IMPORTANT: use a SEPARATE
+                    // column (issue_loopback_at), NOT the per-supplier `issue_claimed_at`:
+                    // stamping issue_claimed_at here would make the sub-request's own claim
+                    // (WHERE issue_claimed_at IS NULL OR stale) see our fresh stamp and
+                    // reject its own legitimate issue. A distinct column serializes the
+                    // top-level double-submit without colliding with the inner claim.
+                    // Same proven shape: nullable timestamp, claimable only while un-issued
+                    // and free-or-stale (>10 min so a crash self-recovers), released on
+                    // shutdown if still un-issued so a legit retry isn't blocked for 10 min.
+                    $__issueClaimOk = true;
+                    try { $db->query("ALTER TABLE `bookings` ADD COLUMN `issue_loopback_at` datetime DEFAULT NULL"); } catch (\Throwable $e) { /* exists */ }
+                    try {
+                        $__claim = $db->query(
+                            "UPDATE bookings SET issue_loopback_at = NOW()
+                             WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')
+                               AND booking_status NOT IN ('confirmed','cancelled')
+                               AND (issue_loopback_at IS NULL OR issue_loopback_at < (NOW() - INTERVAL 10 MINUTE))",
+                            [':inv' => $tokenData['invoice_id']]
+                        );
+                        $__issueClaimOk = ($__claim && $__claim->rowCount() >= 1);
+                    } catch (\Throwable $e) {
+                        // DB variance — fail OPEN (proceed) so a claim-infra error never
+                        // blocks a legitimate single issue; the per-supplier guard still applies.
+                        error_log('top-level issue loopback claim: ' . $e->getMessage());
+                        $__issueClaimOk = true;
+                    }
+                    if ($__issueClaimOk) {
+                        // Release the claim on any failure/exit path so a retry isn't
+                        // blocked for 10 min (only if still un-issued — never a success).
+                        register_shutdown_function(function () use ($db, $tokenData) {
+                            try {
+                                $b = $db->get('bookings', ['pnr'], ['invoice_id' => $tokenData['invoice_id']]);
+                                if ($b && empty($b['pnr'])) {
+                                    $db->query("UPDATE bookings SET issue_loopback_at = NULL WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')", [':inv' => $tokenData['invoice_id']]);
+                                }
+                            } catch (\Throwable $e) { error_log('top-level issue loopback release: ' . $e->getMessage()); }
+                        });
+                    }
+
+                    if (!$__issueClaimOk) {
+                        // A concurrent callback already claimed this booking's issue and is
+                        // in flight (or it just issued). Do NOT fire a second supplier order
+                        // and do NOT mark it failed/refund it — the other thread owns the
+                        // outcome. Acknowledge success; the booking's real state is whatever
+                        // the in-flight issuer writes. clear_payment_token so the buyer's
+                        // duplicate return is consumed.
+                        error_log('TOP-LEVEL ISSUE CLAIM BUSY | invoice=' . $tokenData['invoice_id'] . ' — concurrent issue in flight, skipping duplicate loopback');
+                        clear_payment_token($token);
+                        return [
+                            'success' => true,
+                            'message' => 'Payment received; booking is being issued.',
+                            'booking' => $db->get('bookings', '*', ['invoice_id' => $tokenData['invoice_id']]),
+                        ];
+                    }
+
                     try {
 
                         // ============================================================
