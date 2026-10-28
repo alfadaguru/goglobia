@@ -103,6 +103,89 @@ if (!function_exists('guests_resolve_for_booking')) {
     }
 }
 
+if (!function_exists('guests_backfill_from_bookings')) {
+    /**
+     * ONE-TIME, IDEMPOTENT: materialise a stored guest (stays_guests) for every existing
+     * booking across the owner's stays, and link bookings.guest_id. This is how the
+     * pre-existing book becomes first-class guest records (incl. the no-email walk-ins the
+     * derived guest_list never showed). Reuses guests_resolve_for_booking so backfilled and
+     * new guests dedupe identically (phone-first). Only touches bookings with NULL guest_id;
+     * capped per call; non-fatal. Returns ['linked'=>int,'scanned'=>int].
+     */
+    function guests_backfill_from_bookings($db, int $orgId, array $stayIds, int $limit = 1000): array
+    {
+        $out = ['linked' => 0, 'scanned' => 0];
+        if ($orgId <= 0 || empty($stayIds) || !function_exists('guests_resolve_for_booking')) { return $out; }
+        $set = array_fill_keys(array_map('intval', $stayIds), true);
+        $likeValues = [];
+        foreach ($stayIds as $sid) { $likeValues[] = '%"hotel_id":' . (int) $sid . '%'; }
+        try {
+            $rows = $db->select('bookings',
+                ['id', 'first_name', 'last_name', 'email', 'phone', 'customer_id', 'booking_data'],
+                ['module_type' => ['stays', 'hotels'], 'guest_id' => null,
+                 'booking_data[~]' => $likeValues, 'ORDER' => ['id' => 'ASC'], 'LIMIT' => $limit]) ?: [];
+        } catch (\Throwable $e) { error_log('guests_backfill select: ' . $e->getMessage()); return $out; }
+        foreach ($rows as $r) {
+            $out['scanned']++;
+            $bd = json_decode((string) ($r['booking_data'] ?? ''), true);
+            $hid = is_array($bd) ? (int) ($bd['hotel_id'] ?? 0) : 0;
+            if ($hid <= 0 || empty($set[$hid])) { continue; } // verify ownership (not just LIKE)
+            try {
+                $gid = (int) guests_resolve_for_booking($db, $orgId, [
+                    'first_name' => (string) ($r['first_name'] ?? ''), 'last_name' => (string) ($r['last_name'] ?? ''),
+                    'email' => (string) ($r['email'] ?? ''), 'phone' => (string) ($r['phone'] ?? ''),
+                    'customer_id' => (int) ($r['customer_id'] ?? 0),
+                ]);
+                if ($gid > 0) {
+                    $db->update('bookings', ['guest_id' => $gid], ['id' => (int) $r['id'], 'guest_id' => null]);
+                    $out['linked']++;
+                }
+            } catch (\Throwable $e) { error_log('guests_backfill row ' . (int) $r['id'] . ': ' . $e->getMessage()); }
+        }
+        return $out;
+    }
+}
+
+if (!function_exists('guests_stored_list')) {
+    /**
+     * The STORED Customer-facing guest list — reads stays_guests (the first-class record),
+     * enriched with booking stats (stays/last-seen) joined by guest_id. This is the source
+     * of truth for "who are my guests" (incl. no-email walk-ins). $opts: 'q' (name/phone/
+     * email), 'limit'. Org-scoped. Phone search matches phone_key (last-9 digits).
+     */
+    function guests_stored_list($db, int $orgId, array $opts = []): array
+    {
+        if ($orgId <= 0) { return []; }
+        $q = trim((string) ($opts['q'] ?? ''));
+        $limit = max(1, min(1000, (int) ($opts['limit'] ?? 300)));
+        $where = ['org_id' => $orgId];
+        if ($q !== '') {
+            $digits = preg_replace('/\D+/', '', $q);
+            if (strlen($digits) >= 4 && strlen($digits) >= (strlen($q) - 2)) {
+                $where['phone_key[~]'] = $digits; // phone search
+            } else {
+                $where['OR'] = ['display_name[~]' => $q, 'email[~]' => $q];
+            }
+        }
+        $where['ORDER'] = ['updated_at' => 'DESC', 'id' => 'DESC'];
+        $where['LIMIT'] = $limit;
+        try {
+            $rows = $db->select('stays_guests',
+                ['id', 'display_name', 'phone', 'email', 'id_doc', 'nationality', 'contact_id', 'created_at'], $where) ?: [];
+        } catch (\Throwable $e) { error_log('guests_stored_list: ' . $e->getMessage()); return []; }
+        // Cheap per-guest booking stats (count + last-seen) by guest_id.
+        foreach ($rows as &$g) {
+            try {
+                $g['stays'] = (int) $db->count('bookings', ['guest_id' => (int) $g['id'], 'booking_status[!]' => 'cancelled']);
+                $last = $db->get('bookings', ['created_at'], ['guest_id' => (int) $g['id'], 'ORDER' => ['id' => 'DESC']]);
+                $g['last_seen'] = $last ? (string) $last['created_at'] : '';
+            } catch (\Throwable $e) { $g['stays'] = 0; $g['last_seen'] = ''; }
+        }
+        unset($g);
+        return $rows;
+    }
+}
+
 if (!function_exists('guest_token')) {
     /** URL-safe token for an email (so raw emails aren't in URLs). Reversible via
      *  guest_token_decode. Not secret — scoping still enforces ownership. */

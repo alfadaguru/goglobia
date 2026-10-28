@@ -39,6 +39,7 @@ $base = root . 'supplier/guests';
 
   <?php
     $loyaltyCfg = (isset($loyaltyCfg) && is_array($loyaltyCfg)) ? $loyaltyCfg : ['enabled' => false, 'points_per_currency' => 1.0];
+  $ppc = (float) ($loyaltyCfg['points_per_currency'] ?? 1); $rvp = (float) ($loyaltyCfg['redeem_value_per_point'] ?? 0);
     $isOwner = !empty($isOwner);
   ?>
   <?php if ($isOwner): ?>
@@ -48,8 +49,8 @@ $base = root . 'supplier/guests';
     <form action="<?= $base ?>/loyalty/config" method="POST" class="flex flex-wrap items-end gap-3">
       <?= CSRF::tokenField() ?>
       <label class="inline-flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" name="enabled" value="1" class="checkbox-input" <?= !empty($loyaltyCfg['enabled']) ? 'checked' : '' ?>> Enable loyalty</label>
-      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Points per 1.00 spent</label><input type="number" name="points_per_currency" min="0" step="0.0001" value="<?= htmlspecialchars((string) (float) $loyaltyCfg['points_per_currency']) ?>" class="input text-sm w-28"></div>
-      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Cash value per point</label><input type="number" name="redeem_value_per_point" min="0" step="0.0001" value="<?= htmlspecialchars((string) (float) ($loyaltyCfg['redeem_value_per_point'] ?? 0)) ?>" class="input text-sm w-28"></div>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Points per 1.00 spent</label><input type="number" name="points_per_currency" min="0" step="0.0001" value="<?= htmlspecialchars((string) $ppc) ?>" class="input text-sm w-28"></div>
+      <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Cash value per point</label><input type="number" name="redeem_value_per_point" min="0" step="0.0001" value="<?= htmlspecialchars((string) $rvp) ?>" class="input text-sm w-28"></div>
       <button type="submit" class="btn secondary text-sm">Save</button>
     </form>
   </div>
@@ -64,25 +65,24 @@ $base = root . 'supplier/guests';
     <div class="card overflow-x-auto">
       <table class="w-full text-sm">
         <thead><tr class="text-left text-gray-500 border-b border-gray-100">
-          <th class="px-4 py-3 font-medium">Guest</th><th class="px-4 py-3 font-medium">Stays</th>
-          <th class="px-4 py-3 font-medium">Total spent</th><th class="px-4 py-3 font-medium">Properties</th>
-          <th class="px-4 py-3 font-medium">Last stay</th><th class="px-4 py-3 font-medium"></th>
+          <th class="px-4 py-3 font-medium">Guest</th><th class="px-4 py-3 font-medium">Phone</th>
+          <th class="px-4 py-3 font-medium">Stays</th><th class="px-4 py-3 font-medium">Last stay</th>
+          <th class="px-4 py-3 font-medium"></th>
         </tr></thead>
         <tbody class="divide-y divide-gray-100">
           <?php foreach ($guests as $g): ?>
             <tr>
               <td class="px-4 py-3">
                 <div class="font-medium text-gray-900 flex items-center gap-1.5">
-                  <?= htmlspecialchars($g['name'] ?: $g['email']) ?>
-                  <?php if (!empty($vip[$g['email']])): ?><span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700">VIP</span><?php endif; ?>
+                  <?= htmlspecialchars($g['name'] ?: ($g['email'] ?: ($g['phone'] ?? ''))) ?>
+                  <?php if (!empty($g['email']) && !empty($vip[$g['email']])): ?><span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700">VIP</span><?php endif; ?>
                 </div>
-                <div class="text-xs text-gray-500"><?= htmlspecialchars($g['email']) ?></div>
+                <?php if (!empty($g['email'])): ?><div class="text-xs text-gray-500"><?= htmlspecialchars($g['email']) ?></div><?php endif; ?>
               </td>
-              <td class="px-4 py-3 tabular-nums"><?= (int) $g['stays'] ?><?php if ((int) $g['cancelled'] > 0): ?> <span class="text-xs text-gray-400">(<?= (int) $g['cancelled'] ?> cxl)</span><?php endif; ?></td>
-              <td class="px-4 py-3 tabular-nums font-medium"><?= htmlspecialchars((string) $g['currency']) ?> <?= number_format((float) $g['total_spent'], 2) ?></td>
-              <td class="px-4 py-3 tabular-nums"><?= count($g['properties']) ?></td>
-              <td class="px-4 py-3 text-gray-500 text-xs"><?= htmlspecialchars(substr((string) $g['last_seen'], 0, 10)) ?></td>
-              <td class="px-4 py-3"><a href="<?= $base ?>/<?= htmlspecialchars($g['token']) ?>" class="text-blue-600 hover:underline text-xs font-medium">View</a></td>
+              <td class="px-4 py-3 text-gray-700 tabular-nums"><?= htmlspecialchars((string) ($g['phone'] ?? '')) ?: '<span class="text-gray-300">—</span>' ?></td>
+              <td class="px-4 py-3 tabular-nums"><?= (int) ($g['stays'] ?? 0) ?><?php if ((int) ($g['cancelled'] ?? 0) > 0): ?> <span class="text-xs text-gray-400">(<?= (int) $g['cancelled'] ?> cxl)</span><?php endif; ?></td>
+              <td class="px-4 py-3 text-gray-500 text-xs"><?= $g['last_seen'] ? htmlspecialchars(substr((string) $g['last_seen'], 0, 10)) : '—' ?></td>
+              <td class="px-4 py-3"><a href="<?= htmlspecialchars($g['link'] ?? ($base . '/' . ($g['token'] ?? ''))) ?>" class="text-blue-600 hover:underline text-xs font-medium">View</a></td>
             </tr>
           <?php endforeach; ?>
         </tbody>

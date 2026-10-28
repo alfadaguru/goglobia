@@ -28,11 +28,33 @@ $router->get('/supplier/guests', function () use ($SECURE, $db) {
 
     $stayIds = supplier_owned_stay_ids($db, $c['owner']);
     $search = trim((string) ($_GET['q'] ?? ''));
-    $guests = function_exists('guest_list') ? guest_list($db, $stayIds, $search) : [];
-    // VIP flags for the listed guests (small set).
+    // One-time idempotent backfill so the STORED book reflects existing bookings —
+    // including the no-email walk-ins the old derived (email-keyed) list dropped.
+    if ($c['org'] > 0 && function_exists('guests_backfill_from_bookings')) {
+        try { guests_backfill_from_bookings($db, (int) $c['org'], $stayIds); }
+        catch (\Throwable $e) { error_log('guests backfill (list): ' . $e->getMessage()); }
+    }
+    // Source of truth = the STORED guest records (stays_guests). Normalise to the fields
+    // the list view reads; the detail link uses the email token when present (keeps the
+    // existing email-keyed guest page), else a guest-by-id route for no-email guests.
     $vip = [];
-    if ($c['org'] > 0) {
-        foreach ($guests as $g) { $m = guest_profile_meta($db, $c['org'], $g['email']); if (!empty($m['vip'])) { $vip[$g['email']] = true; } }
+    if (function_exists('guests_stored_list')) {
+        $guests = guests_stored_list($db, (int) $c['org'], ['q' => $search]);
+        foreach ($guests as &$g) {
+            $em = (string) ($g['email'] ?? '');
+            $g['name']  = (string) ($g['display_name'] ?? '');
+            $g['email'] = $em;
+            $g['phone'] = (string) ($g['phone'] ?? '');
+            $g['link']  = $em !== '' ? (root . 'supplier/guests/' . rawurlencode(guest_token($em)))
+                                     : (root . 'supplier/guests/g/' . (int) ($g['id'] ?? 0));
+            if ($c['org'] > 0 && $em !== '') { $m = guest_profile_meta($db, $c['org'], $em); if (!empty($m['vip'])) { $vip[$em] = true; } }
+        }
+        unset($g);
+    } else {
+        $guests = function_exists('guest_list') ? guest_list($db, $stayIds, $search) : [];
+        foreach ($guests as &$g) { $g['link'] = root . 'supplier/guests/' . rawurlencode($g['token'] ?? ''); }
+        unset($g);
+        if ($c['org'] > 0) { foreach ($guests as $g) { $m = guest_profile_meta($db, $c['org'], $g['email']); if (!empty($m['vip'])) { $vip[$g['email']] = true; } } }
     }
     $propMap = [];
     if (!empty($stayIds)) {
@@ -45,6 +67,38 @@ $router->get('/supplier/guests', function () use ($SECURE, $db) {
     $title = 'Guests'; $description = ''; $header = true; $footer = true;
     require_once views . "includes/header.php";
     require_once views . "supplier/guests/list.php";
+    require_once views . "includes/footer.php";
+});
+
+// GET /supplier/guests/g/{id} — a STORED guest's profile (by stays_guests id). The detail
+// page for guests without an email (no email token). Registered BEFORE the generic token
+// route so 'g' is never mistaken for a token. If the guest HAS an email we redirect to the
+// richer email-keyed page (history + loyalty); else we render the stored row + its bookings.
+$router->get('/supplier/guests/g/([0-9]+)', function ($id) use ($SECURE, $db) {
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $c = _guests_ctx($db);
+    if ($c === null) { header('Location: ' . root . 'login'); exit; }
+    if (!supplier_can($db, 'reservations', 'view')) { _supplier_stays_deny('Not authorised.'); }
+    $gid = (int) $id;
+    $guest = ($c['org'] > 0) ? $db->get('stays_guests',
+        ['id', 'display_name', 'phone', 'email', 'id_doc', 'nationality', 'contact_id', 'created_at'],
+        ['id' => $gid, 'org_id' => (int) $c['org']]) : null;
+    if (!$guest) { _supplier_stays_deny('Guest not found.'); }
+    if (!empty($guest['email']) && function_exists('guest_token')) {
+        header('Location: ' . root . 'supplier/guests/' . rawurlencode(guest_token((string) $guest['email']))); exit;
+    }
+    $stayIds = supplier_owned_stay_ids($db, $c['owner']);
+    $bookings = [];
+    try {
+        $bookings = $db->select('bookings',
+            ['invoice_id', 'booking_status', 'payment_status', 'price_markup', 'currency_markup', 'booking_data', 'created_at'],
+            ['guest_id' => $gid, 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 200]) ?: [];
+    } catch (\Throwable $e) {}
+    $linkedCustomer = (!empty($guest['contact_id']) && function_exists('contacts_get'))
+        ? contacts_get($db, (int) $c['org'], (int) $guest['contact_id']) : null;
+    $title = 'Guest — ' . ($guest['display_name'] ?? ''); $description = ''; $header = true; $footer = true;
+    require_once views . "includes/header.php";
+    require_once views . "supplier/guests/detail-stored.php";
     require_once views . "includes/footer.php";
 });
 
