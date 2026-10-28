@@ -126,6 +126,87 @@ if (!function_exists('_agent_booking_for_settle')) {
     }
 }
 
+// Shared: issue a paid agent booking with RECOVERY — try to issue, RETRY ONCE on
+// failure, and if it still fails AUTO-REFUND the agency wallet + cancel the
+// booking so the agent is never left paid-with-no-ticket. Used by the pay handler
+// (post-charge) and the manual "retry issue" action. Returns:
+//   ['issued'=>bool, 'refunded'=>bool, 'message'=>string]
+// Safe to call repeatedly: issue.php is idempotent on PNR, and wallet_refund is
+// idempotent on idempotency_key (AGT-REFUND-{inv}) so money never double-moves.
+if (!function_exists('_agent_issue_with_recovery')) {
+    function _agent_issue_with_recovery($db, string $invoiceId, string $service, string $module, string $owner, float $agentCost, string $currency): array
+    {
+        // Own-inventory / static services have no supplier issue endpoint → the
+        // booking is simply confirmed (no supplier call, nothing to recover).
+        if (!function_exists('bm_module_has_issue_endpoint') || !function_exists('bm_fire_supplier_issue')
+            || $service === '' || $module === '' || !bm_module_has_issue_endpoint($service, $module)) {
+            try { $db->update('bookings', ['booking_status'=>'confirmed'], ['invoice_id'=>$invoiceId]); } catch (\Throwable $e) {}
+            return ['issued'=>true, 'refunded'=>false, 'message'=>'Booking confirmed.'];
+        }
+
+        // Attempt the supplier issue, RETRY ONCE on failure (covers a transient
+        // glitch / timeout; issue.php is idempotent so a retry never double-books).
+        $issued = false; $lastMsg = '';
+        for ($attempt = 1; $attempt <= 2 && !$issued; $attempt++) {
+            try {
+                $res = bm_fire_supplier_issue($db, $invoiceId, $service, $module);
+                $issued = !empty($res['ok']) || !empty($res['status']);
+                $lastMsg = (string) ($res['message'] ?? '');
+            } catch (\Throwable $e) {
+                $lastMsg = $e->getMessage();
+                error_log("agent issue attempt $attempt $invoiceId: " . $e->getMessage());
+            }
+        }
+
+        if ($issued) {
+            return ['issued'=>true, 'refunded'=>false, 'message'=>'Ticket issued.'];
+        }
+
+        // Issue failed after a retry → AUTO-REFUND to the agency wallet + cancel,
+        // so the agent is made whole instead of stuck paid+pending. Idempotent via
+        // AGT-REFUND-{inv} (the same key the manual refund uses, so the two never
+        // double-refund the same booking). Only refund a genuine WALLET payment.
+        $refunded = false;
+        try {
+            $b = $db->get('bookings', ['payment_status','payment_gateway','price_markup','currency_markup'], ['invoice_id'=>$invoiceId]);
+            $paidFromWallet = $b && ($b['payment_gateway'] ?? '') === 'Wallet' && ($b['payment_status'] ?? '') === 'paid';
+            if ($paidFromWallet && function_exists('wallet_refund')) {
+                $amt = round((float) ($b['price_markup'] ?? $agentCost), 2);
+                $cur = (string) ($b['currency_markup'] ?? $currency);
+                if ($amt > 0) {
+                    $r = wallet_refund($db, $owner, $amt, $cur, [
+                        'reason' => 'refund',
+                        'invoice_id' => $invoiceId,
+                        'ref_type' => 'invoice',
+                        'ref_id' => $invoiceId,
+                        'idempotency_key' => 'AGT-REFUND-' . $invoiceId,
+                        'note' => 'Auto-refund: supplier issue failed for ' . $invoiceId,
+                    ]);
+                    $refunded = !empty($r['ok']);
+                }
+            }
+        } catch (\Throwable $e) { error_log('agent auto-refund '.$invoiceId.': '.$e->getMessage()); }
+
+        if ($refunded) {
+            try { $db->update('bookings', [
+                'booking_status' => 'cancelled',
+                'payment_status' => 'refunded',
+                'refund_amount'  => round((float)($agentCost), 2),
+                'refund_status'  => 'refunded',
+                'cancelled_at'   => date('Y-m-d H:i:s'),
+            ], ['invoice_id'=>$invoiceId]); } catch (\Throwable $e) {}
+        }
+
+        return [
+            'issued'   => false,
+            'refunded' => $refunded,
+            'message'  => $refunded
+                ? ('Ticket could not be issued (' . ($lastMsg ?: 'supplier declined') . ') — your payment was refunded to your wallet.')
+                : ('Ticket could not be issued (' . ($lastMsg ?: 'supplier declined') . '). It is paid and pending — retry or request a refund.'),
+        ];
+    }
+}
+
 // ---- GET /agent/booking/{inv}/pay  (confirm) -------------------------------
 $router->get('/agent/booking/([A-Za-z0-9]+)/pay', function ($invoiceId) use ($SECURE, $db) {
     AGENT_OR_STAFF_AUTH($db);
@@ -211,25 +292,25 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/pay', function ($invoiceId) use ($S
         ], ['invoice_id' => $invoiceId]);
     } catch (\Throwable $e) { error_log('agent settle mark-paid: ' . $e->getMessage()); }
 
-    // Fire the supplier issue loopback where the module supports it (reuses the
-    // audited booking-manager primitive). Non-fatal: a failed issue leaves the
-    // booking paid+pending for admin follow-up, exactly like the admin flow.
-    $issued = false;
+    // Fire the supplier issue with RECOVERY: retry once, then AUTO-REFUND + cancel
+    // if it still fails — so the agent is never left paid-with-no-ticket.
     $module = (string) ($booking['module'] ?? '');
-    if (function_exists('bm_module_has_issue_endpoint') && function_exists('bm_fire_supplier_issue')
-        && $service !== '' && $module !== '' && bm_module_has_issue_endpoint($service, $module)) {
-        try { $res = bm_fire_supplier_issue($db, (string)$invoiceId, $service, $module); $issued = !empty($res['ok']); }
-        catch (\Throwable $e) { error_log('agent settle issue: ' . $e->getMessage()); }
-    } else {
-        // No supplier issue endpoint → confirm directly.
-        try { $db->update('bookings', ['booking_status'=>'confirmed'], ['invoice_id'=>$invoiceId]); } catch (\Throwable $e) {}
-    }
+    $rec = _agent_issue_with_recovery($db, (string)$invoiceId, $service, $module, $owner, $agentCost, $currency);
+    $issued = !empty($rec['issued']);
 
     if (function_exists('agent_audit_log')) {
-        agent_audit_log($db, $owner, $actor, 'booking.pay', $service . ' ' . $invoiceId . ' ' . $currency . ' ' . $agentCost);
+        agent_audit_log($db, $owner, $actor, 'booking.pay',
+            $service . ' ' . $invoiceId . ' ' . $currency . ' ' . $agentCost
+            . ($issued ? ' issued' : (!empty($rec['refunded']) ? ' issue-failed+auto-refunded' : ' issue-failed+pending')));
     }
 
-    $_SESSION['message'] = ['type'=>'success','text'=>'Booking paid from wallet'.($issued?' and issued':'').'. Invoice '.$invoiceId.'.'];
+    // Honest message: issued, or auto-refunded, or paid+pending.
+    $_SESSION['message'] = [
+        'type' => (!$issued && empty($rec['refunded'])) ? 'error' : ($issued ? 'success' : 'warning'),
+        'text' => $issued
+            ? ('Booking paid from wallet and issued. Invoice ' . $invoiceId . '.')
+            : ($rec['message'] ?? ('Booking paid. Invoice ' . $invoiceId . '.')),
+    ];
     header('Location: ' . root . 'agent/bookings');
     exit;
 });
@@ -264,6 +345,34 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/action', function ($invoiceId) use 
 
     $moduleType = (string) ($b['module_type'] ?? '');
     $module     = (string) ($b['module'] ?? '');
+
+    // ---- RETRY ISSUE (paid + pending → re-fire supplier issue) -------------
+    // One-click recovery for a booking that was paid but whose ticket did not
+    // issue. Reuses _agent_issue_with_recovery: retries, and if it STILL fails,
+    // auto-refunds the wallet + cancels (so a retry can never leave money stuck).
+    if ($action === 'retry_issue') {
+        if (!agent_can($db, 'bookings', 'add')) { echo json_encode(['status'=>false,'message'=>'No permission.']); exit; }
+        if (($b['payment_status'] ?? '') !== 'paid') {
+            echo json_encode(['status'=>false,'message'=>'Only a paid booking can be re-issued.']); exit;
+        }
+        if (in_array(($b['booking_status'] ?? ''), ['confirmed','issued','cancelled'], true)) {
+            echo json_encode(['status'=>false,'message'=>'This booking is already ' . ($b['booking_status'] ?? '') . '.']); exit;
+        }
+        $agentCost = round((float) ($b['price_markup'] ?? $b['price_original'] ?? 0), 2);
+        $currency  = (string) ($b['currency_markup'] ?? (function_exists('wallet_default_currency') ? wallet_default_currency($db) : 'NGN'));
+        $rec = _agent_issue_with_recovery($db, (string)$invoiceId, $moduleType, $module, $owner, $agentCost, $currency);
+        if (function_exists('agent_audit_log')) {
+            agent_audit_log($db, $owner, $actor, 'booking.retry_issue',
+                (string)$invoiceId . (!empty($rec['issued']) ? ' issued' : (!empty($rec['refunded']) ? ' failed+auto-refunded' : ' failed+pending')));
+        }
+        echo json_encode([
+            'status'   => !empty($rec['issued']) || !empty($rec['refunded']),
+            'issued'   => !empty($rec['issued']),
+            'refunded' => !empty($rec['refunded']),
+            'message'  => $rec['message'] ?? 'Retry attempted.',
+        ]);
+        exit;
+    }
 
     // ---- RESEND VOUCHER (reuses GENERATE_BOOKING_PDF + NOTIFY::resend) ------
     if ($action === 'resend') {

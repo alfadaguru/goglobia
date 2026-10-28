@@ -56,6 +56,13 @@ $fmt = fn($n) => number_format((float)$n, 2);
                             <?php if ($unpaid && agent_can($db,'bookings','add')): ?>
                                 <a href="<?= root ?>agent/booking/<?= urlencode($inv) ?>/pay" class="text-xs px-3 py-1.5 rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-700">Pay</a>
                             <?php else: ?>
+                                <?php
+                                // Paid but ticket not issued yet (pending) → one-click retry.
+                                $__paidPending = (($b['payment_status']??'')==='paid')
+                                    && !in_array(($b['booking_status']??''), ['confirmed','issued','cancelled'], true);
+                                if ($__paidPending && agent_can($db,'bookings','add')): ?>
+                                    <button type="button" onclick="agentBookingAction('<?= htmlspecialchars($inv, ENT_QUOTES) ?>','retry_issue')" class="text-xs px-2.5 py-1 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600 mr-2">Retry issue</button>
+                                <?php endif; ?>
                                 <?php if (agent_can($db,'bookings','view')): ?>
                                     <button type="button" onclick="agentBookingAction('<?= htmlspecialchars($inv, ENT_QUOTES) ?>','resend')" class="text-xs text-slate-600 hover:underline mr-2">Resend</button>
                                 <?php endif; ?>
@@ -78,7 +85,9 @@ $fmt = fn($n) => number_format((float)$n, 2);
 function agentBookingAction(inv, action){
     var confirmMsg = action === 'resend'
         ? 'Re-send the booking voucher to the client?'
-        : (action === 'refund' ? 'Cancel this booking and refund to your wallet?' : 'Cancel this booking?');
+        : (action === 'refund' ? 'Cancel this booking and refund to your wallet?'
+        : (action === 'retry_issue' ? 'Retry issuing this ticket? If it fails again, your payment is refunded to your wallet automatically.'
+        : 'Cancel this booking?'));
     if (!confirm(confirmMsg)) return;
     var fd = new FormData();
     fd.append('action', action);
