@@ -108,6 +108,64 @@ if (!function_exists('contacts_get')) {
     }
 }
 
+if (!function_exists('contacts_resolve_for_booking')) {
+    /**
+     * CONSOLIDATION C2 — the booking↔customer link resolver. Given what the desk knows
+     * about a booking (an explicitly PICKED customer, or a guest's name/email/phone),
+     * return the customer_id (stays_contacts.id) to stamp on the booking. Per the owner's
+     * model, a staying guest auto-materialises as an INDIVIDUAL customer, but DEDUPED so
+     * a repeat guest reuses their existing record (not a new row every stay):
+     *   1) explicit picked id → validate it belongs to $orgId, use it.
+     *   2) else email given → find the individual contact linked to that email
+     *      (guest_email_key) OR with that email; reuse it.
+     *   3) else phone given → find an individual by phone_key (last-9); reuse it.
+     *   4) else → create a fresh individual contact (reuse contacts_save).
+     * Returns the contact id (0 only if org invalid / creation failed — caller treats
+     * 0 as "leave customer_id NULL", never fatal to the booking). Non-fatal + logged.
+     */
+    function contacts_resolve_for_booking($db, int $orgId, array $g): int
+    {
+        if ($orgId <= 0) { return 0; }
+        // 1) explicit pick (a real customer chosen in the booking search) — validate in-org.
+        $picked = (int) ($g['customer_id'] ?? 0);
+        if ($picked > 0) {
+            if ($db->has('stays_contacts', ['id' => $picked, 'org_id' => $orgId])) { return $picked; }
+            // a stale/foreign id must never silently attach — fall through to resolve by identity.
+        }
+        $email = strtolower(trim((string) ($g['email'] ?? '')));
+        $name  = trim(((string) ($g['first_name'] ?? '')) . ' ' . ((string) ($g['last_name'] ?? '')));
+        $phone = trim((string) ($g['phone'] ?? ''));
+        try {
+            // 2) dedupe by email (the guest key). Match either guest_email_key or the email column.
+            if ($email !== '') {
+                $key = function_exists('guest_email_key') ? guest_email_key($email) : $email;
+                $hit = $db->get('stays_contacts', ['id'],
+                    ['org_id' => $orgId, 'OR' => ['guest_email_key' => $key, 'email' => $email], 'LIMIT' => 1]);
+                if ($hit) { return (int) $hit['id']; }
+            }
+            // 3) dedupe by phone (last-9 key) for an individual with no email match.
+            if ($phone !== '' && function_exists('contacts_phone_key')) {
+                $pk = contacts_phone_key($phone);
+                if ($pk !== '') {
+                    $hit = $db->get('stays_contacts', ['id'], ['org_id' => $orgId, 'phone_key' => $pk, 'type' => 'individual', 'LIMIT' => 1]);
+                    if ($hit) { return (int) $hit['id']; }
+                }
+            }
+            // 4) create a fresh individual customer from the guest details.
+            if ($name === '' && $email === '' && $phone === '') { return 0; } // nothing to key on
+            $res = contacts_save($db, $orgId, [
+                'type'            => 'individual',
+                'display_name'    => $name !== '' ? $name : ($email !== '' ? $email : $phone),
+                'email'           => $email ?: null,
+                'phone'           => $phone ?: null,
+                'guest_email_key' => $email !== '' && function_exists('guest_email_key') ? guest_email_key($email) : null,
+                'notes'           => 'Auto-created from a front-desk booking.',
+            ]);
+            return !empty($res['ok']) ? (int) $res['id'] : 0;
+        } catch (\Throwable $e) { error_log('contacts_resolve_for_booking: ' . $e->getMessage()); return 0; }
+    }
+}
+
 if (!function_exists('contacts_list')) {
     /**
      * The searchable Customer Book. $opts: 'q' (phone/name/email), 'type' (one of

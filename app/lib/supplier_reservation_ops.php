@@ -142,12 +142,33 @@ if (!function_exists('resv_create_walkin')) {
         ];
         if (!empty($in['notes'])) { $bookingData['desk_notes'] = substr((string) $in['notes'], 0, 1000); }
 
+        // CONSOLIDATION C2 — link this booking to a CUSTOMER (the payer). Resolve BEFORE
+        // the booking transaction (the resolver does its own writes via contacts_save):
+        // use an explicitly-picked customer if the desk chose one, else find-or-create an
+        // individual customer from the guest's name/email/phone (deduped, so a repeat
+        // guest reuses their record). customer_id 0 → leave NULL (never blocks the booking).
+        // Resolve the org from the property owner.
+        $custId = 0;
+        if (function_exists('contacts_resolve_for_booking')) {
+            $orgForContacts = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $stayId) : 0;
+            if ($orgForContacts <= 0 && function_exists('supplier_property_org_ensure')) {
+                $orgForContacts = (int) supplier_property_org_ensure($db, $stayId);
+            }
+            if ($orgForContacts > 0) {
+                $custId = (int) contacts_resolve_for_booking($db, $orgForContacts, [
+                    'customer_id' => (int) ($in['customer_id'] ?? 0),
+                    'first_name'  => $firstName, 'last_name' => $lastName,
+                    'email'       => (string) ($in['email'] ?? ''), 'phone' => (string) ($in['phone'] ?? ''),
+                ]);
+            }
+        }
+
         $result = ['ok' => false, 'message' => 'Could not create the reservation.'];
         try {
             $db->action(function ($db) use (
                 $stayId, $roomId, $optionId, $qty, $checkin, $checkout, $invoiceId,
                 $firstName, $lastName, $in, $net, $finalTotal, $taxAmount, $currency,
-                $bookingData, $markPaid, $source, $now, &$result
+                $bookingData, $markPaid, $source, $now, $custId, &$result
             ) {
                 // 1) Place the no-oversell hold FIRST — a failed hold aborts the whole
                 //    create (can't take a walk-in for a room we don't have).
@@ -180,6 +201,7 @@ if (!function_exists('resv_create_walkin')) {
                     'adults'          => max(1, (int) ($in['adults'] ?? 1)),
                     'childs'          => max(0, (int) ($in['children'] ?? 0)),
                     'booking_data'    => json_encode($bookingData),
+                    'customer_id'     => $custId > 0 ? $custId : null, // C2: booking→payer link
                     'payment_gateway' => $markPaid ? 'Front desk' : null,
                     'created_at'      => $now,
                     'updated_at'      => $now,
@@ -740,7 +762,7 @@ if (!function_exists('resv_clone')) {
     function resv_clone($db, string $srcInvoiceId, string $newCheckin, string $newCheckout): array
     {
         if (!function_exists('resv_create_walkin')) { return ['ok' => false, 'message' => 'Unavailable.']; }
-        $b = $db->get('bookings', ['first_name', 'last_name', 'email', 'phone', 'adults', 'childs', 'booking_data'], ['invoice_id' => $srcInvoiceId]);
+        $b = $db->get('bookings', ['first_name', 'last_name', 'email', 'phone', 'adults', 'childs', 'booking_data', 'customer_id'], ['invoice_id' => $srcInvoiceId]);
         if (!$b) { return ['ok' => false, 'message' => 'Source reservation not found.']; }
         $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
         if (!is_array($bd)) { return ['ok' => false, 'message' => 'Source reservation is unreadable.']; }
@@ -759,6 +781,8 @@ if (!function_exists('resv_clone')) {
             'email' => (string) $b['email'], 'phone' => (string) $b['phone'],
             'adults' => (int) $b['adults'], 'children' => (int) $b['childs'],
             'source' => 'repeat', 'mark_paid' => false,
+            // C2 (owner decision #3): a repeat booking INHERITS the same payer/customer.
+            'customer_id' => (int) ($b['customer_id'] ?? 0),
         ]);
     }
 }
