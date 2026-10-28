@@ -475,7 +475,9 @@ try {
         //     scoped customer deposit wallet (separate from the platform wallet spine).
         // v9: Front-desk CONSOLIDATION C1 — bookings.customer_id (booking→payer link) +
         //     'ngo' added to the stays_corporate_accounts type enum.
-        define('APP_SCHEMA_ENSURE_VERSION', 9);
+        // v10: stays_contacts UNIQUE(org_id,guest_email_key) + UNIQUE(org_id,corp_account_id)
+        //      (Customer-Book dedupe at the DB level; existing dups folded first).
+        define('APP_SCHEMA_ENSURE_VERSION', 10);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);

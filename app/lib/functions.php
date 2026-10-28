@@ -9931,6 +9931,69 @@ function ensureSupplierStaysSchema($db): void
             KEY `idx_guest` (`org_id`,`guest_email_key`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // Front-desk CONSOLIDATION follow-up (audit HIGH): the Customer Book spine had
+        // NO unique constraint, so the dedupe (has()->insert) was racy — two concurrent
+        // walk-ins / a double-click / two tabs running the first-open backfill each saw
+        // "not found" and both inserted, splitting one customer's wallet + AR + history
+        // across duplicate rows. Add UNIQUE(org_id,guest_email_key) and
+        // UNIQUE(org_id,corp_account_id) so the DB itself serialises dedupe (contacts_save
+        // now resolves the 23000 to the surviving row). NULLs don't collide in a MySQL
+        // unique index, so companies (no guest_email_key) and individuals (no
+        // corp_account_id) are unaffected — only real same-key duplicates are blocked.
+        //
+        // Existing installs may ALREADY hold duplicates (the very bug), which would make
+        // ADD UNIQUE fail; so first fold each duplicate group into its lowest id (idempotent),
+        // then add the indexes. All guarded + non-fatal (a DB user without ALTER rights,
+        // or a MySQL that already has the index, just no-ops).
+        try {
+            $hasGuestUnique = false; $hasCorpUnique = false;
+            try {
+                foreach (($db->query("SHOW INDEX FROM `stays_contacts`")->fetchAll(\PDO::FETCH_ASSOC) ?: []) as $ix) {
+                    if ((int) ($ix['Non_unique'] ?? 1) === 0) {
+                        if (($ix['Key_name'] ?? '') === 'uq_org_guest_email') { $hasGuestUnique = true; }
+                        if (($ix['Key_name'] ?? '') === 'uq_org_corp') { $hasCorpUnique = true; }
+                    }
+                }
+            } catch (\Throwable $e) { /* SHOW INDEX unsupported -> attempt the adds anyway */ }
+
+            if (!$hasGuestUnique) {
+                // Collapse duplicate (org_id, guest_email_key) groups: keep MIN(id), re-point
+                // any bookings to the survivor, delete the losers — so the UNIQUE can apply.
+                try {
+                    $dups = $db->query("SELECT org_id, guest_email_key, MIN(id) AS keep_id, GROUP_CONCAT(id) AS ids
+                        FROM `stays_contacts` WHERE guest_email_key IS NOT NULL AND guest_email_key <> ''
+                        GROUP BY org_id, guest_email_key HAVING COUNT(*) > 1")->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+                    foreach ($dups as $g) {
+                        $keep = (int) $g['keep_id'];
+                        $losers = array_values(array_filter(array_map('intval', explode(',', (string) $g['ids'])), fn($x) => $x !== $keep));
+                        if ($keep > 0 && !empty($losers)) {
+                            try { $db->update('bookings', ['customer_id' => $keep], ['customer_id' => $losers]); } catch (\Throwable $e) {}
+                            try { $db->delete('stays_contacts', ['id' => $losers]); } catch (\Throwable $e) {}
+                        }
+                    }
+                } catch (\Throwable $e) { error_log('stays_contacts guest dedupe: ' . $e->getMessage()); }
+                try { $db->query("ALTER TABLE `stays_contacts` ADD UNIQUE KEY `uq_org_guest_email` (`org_id`,`guest_email_key`)"); }
+                catch (\Throwable $e) { error_log('stays_contacts uq_org_guest_email: ' . $e->getMessage()); }
+            }
+            if (!$hasCorpUnique) {
+                try {
+                    $dups = $db->query("SELECT org_id, corp_account_id, MIN(id) AS keep_id, GROUP_CONCAT(id) AS ids
+                        FROM `stays_contacts` WHERE corp_account_id IS NOT NULL
+                        GROUP BY org_id, corp_account_id HAVING COUNT(*) > 1")->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+                    foreach ($dups as $g) {
+                        $keep = (int) $g['keep_id'];
+                        $losers = array_values(array_filter(array_map('intval', explode(',', (string) $g['ids'])), fn($x) => $x !== $keep));
+                        if ($keep > 0 && !empty($losers)) {
+                            try { $db->update('bookings', ['customer_id' => $keep], ['customer_id' => $losers]); } catch (\Throwable $e) {}
+                            try { $db->delete('stays_contacts', ['id' => $losers]); } catch (\Throwable $e) {}
+                        }
+                    }
+                } catch (\Throwable $e) { error_log('stays_contacts corp dedupe: ' . $e->getMessage()); }
+                try { $db->query("ALTER TABLE `stays_contacts` ADD UNIQUE KEY `uq_org_corp` (`org_id`,`corp_account_id`)"); }
+                catch (\Throwable $e) { error_log('stays_contacts uq_org_corp: ' . $e->getMessage()); }
+            }
+        } catch (\Throwable $e) { error_log('stays_contacts unique-index ensure: ' . $e->getMessage()); }
+
         // --- stays_contact_wallet + _ledger (Front-desk overhaul Phase 4b) -----------
         // A hotel-scoped STORED-VALUE wallet for a Customer-Book contact (deposit the
         // hotel holds + draws down on stays). Keyed by (org_id, contact_id, currency) —

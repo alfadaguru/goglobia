@@ -30082,6 +30082,8 @@ CREATE TABLE `stays_contacts` (
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_org_guest_email` (`org_id`,`guest_email_key`),
+  UNIQUE KEY `uq_org_corp` (`org_id`,`corp_account_id`),
   KEY `idx_org_type` (`org_id`,`type`,`status`),
   KEY `idx_phone_key` (`org_id`,`phone_key`),
   KEY `idx_email` (`org_id`,`email`),

@@ -90,6 +90,26 @@ if (!function_exists('contacts_save')) {
                 ? ['ok' => true, 'id' => $newId, 'message' => 'Contact created.']
                 : ['ok' => false, 'id' => 0, 'message' => 'Could not save.'];
         } catch (\Throwable $e) {
+            // A concurrent insert of the SAME contact hits the UNIQUE index
+            // (org_id,guest_email_key) / (org_id,corp_account_id) and throws 23000.
+            // That is the dedupe working at the DB level: resolve to the row the
+            // winning request created rather than reporting a failure, so two
+            // simultaneous walk-ins converge on ONE customer (no duplicate rows).
+            if (strpos((string) $e->getCode(), '23000') !== false
+                || stripos($e->getMessage(), 'duplicate') !== false) {
+                try {
+                    $existing = null;
+                    if (!empty($row['guest_email_key'])) {
+                        $existing = $db->get('stays_contacts', ['id'], ['org_id' => $orgId, 'guest_email_key' => $row['guest_email_key'], 'LIMIT' => 1]);
+                    }
+                    if (!$existing && !empty($row['corp_account_id'])) {
+                        $existing = $db->get('stays_contacts', ['id'], ['org_id' => $orgId, 'corp_account_id' => (int) $row['corp_account_id'], 'LIMIT' => 1]);
+                    }
+                    if ($existing && (int) $existing['id'] > 0) {
+                        return ['ok' => true, 'id' => (int) $existing['id'], 'message' => 'Contact already exists.'];
+                    }
+                } catch (\Throwable $e2) { error_log('contacts_save dup-resolve: ' . $e2->getMessage()); }
+            }
             error_log('contacts_save: ' . $e->getMessage());
             return ['ok' => false, 'id' => 0, 'message' => 'Could not save the contact.'];
         }
@@ -143,12 +163,26 @@ if (!function_exists('contacts_resolve_for_booking')) {
                     ['org_id' => $orgId, 'OR' => ['guest_email_key' => $key, 'email' => $email], 'LIMIT' => 1]);
                 if ($hit) { return (int) $hit['id']; }
             }
-            // 3) dedupe by phone (last-9 key) for an individual with no email match.
-            if ($phone !== '' && function_exists('contacts_phone_key')) {
+            // 3) dedupe by phone (last-9 key) for an individual with no email match —
+            //    but ONLY when the NAME also matches. A phone key alone is the last 9
+            //    digits, which collides across genuinely different people (a shared
+            //    landline, an office/front-desk number, a placeholder, or local-vs-
+            //    international formatting of unrelated numbers). Reusing a contact on
+            //    phone alone stamped the WRONG payer on the booking and misrouted that
+            //    person's wallet/direct-bill/loyalty (audit finding). Requiring a name
+            //    match keeps the real benefit (the same guest re-booking by phone) while
+            //    never collapsing two different guests. No usable name -> don't reuse by
+            //    phone; create a fresh contact instead.
+            if ($phone !== '' && $name !== '' && function_exists('contacts_phone_key')) {
                 $pk = contacts_phone_key($phone);
                 if ($pk !== '') {
-                    $hit = $db->get('stays_contacts', ['id'], ['org_id' => $orgId, 'phone_key' => $pk, 'type' => 'individual', 'LIMIT' => 1]);
-                    if ($hit) { return (int) $hit['id']; }
+                    $nameKey = function_exists('guestcrm_name_key') ? guestcrm_name_key($name) : strtolower(trim($name));
+                    $cands = $db->select('stays_contacts', ['id', 'display_name'],
+                        ['org_id' => $orgId, 'phone_key' => $pk, 'type' => 'individual', 'LIMIT' => 20]) ?: [];
+                    foreach ($cands as $c) {
+                        $cKey = function_exists('guestcrm_name_key') ? guestcrm_name_key($c['display_name'] ?? '') : strtolower(trim((string) ($c['display_name'] ?? '')));
+                        if ($nameKey !== '' && $cKey === $nameKey) { return (int) $c['id']; }
+                    }
                 }
             }
             // 4) create a fresh individual customer from the guest details.
