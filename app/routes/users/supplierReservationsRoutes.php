@@ -685,8 +685,23 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
             $itemId = (int) ($_POST['item_id'] ?? 0);
             $reason = trim((string) ($_POST['void_reason'] ?? ''));
             $fid = function_exists('folio_get_or_create') ? folio_get_or_create($db, $invoiceId) : 0;
+            // Capture the line TYPE before voiding — voiding a payment/refund/preauth
+            // RAISES what a direct-billed account owes, which the credit gate on the
+            // charge path never sees. We don't BLOCK the void (a reversal must be
+            // possible), but we record the credit exposure afterwards (re-audit fix).
+            $voidedType = '';
+            if ($fid > 0 && $itemId > 0) {
+                try { $vrow = $db->get('stays_folio_items', ['type'], ['id' => $itemId, 'folio_id' => $fid]); $voidedType = (string) ($vrow['type'] ?? ''); }
+                catch (\Throwable $e) { $voidedType = ''; }
+            }
             $ok = $fid > 0 && function_exists('folio_void_item') && folio_void_item($db, $fid, $itemId, $reason);
-            $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $ok ? 'Line voided.' : 'Could not void (closed folio / already void?).'];
+            $voidMsg = $ok ? 'Line voided.' : 'Could not void (closed folio / already void?).';
+            if ($ok && $voidedType !== '' && function_exists('db_note_void_exposure')) {
+                $dbOrgV = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $hid) : 0;
+                $exp = db_note_void_exposure($db, $dbOrgV, $fid, $voidedType);
+                if (!empty($exp['over'])) { $voidMsg .= ' ⚠ This account is now over its credit limit — logged for accounts receivable.'; }
+            }
+            $_SESSION['message'] = ['type' => $ok ? 'success' : 'error', 'text' => $voidMsg];
         } elseif ($action === 'redeem_loyalty') {
             // Redeem the guest's loyalty points as a cash discount on this folio (PMS #22).
             $pts = (int) ($_POST['points'] ?? 0);

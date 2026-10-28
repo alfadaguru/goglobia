@@ -283,3 +283,47 @@ if (!function_exists('db_enforce_post')) {
         return ['ok' => true, 'over' => true, 'needs_override' => false, 'message' => 'Posted (credit limit overridden).'];
     }
 }
+
+if (!function_exists('db_note_void_exposure')) {
+    /**
+     * Re-audit fix: voiding a PAYMENT (or other debt-REDUCING line) on a direct-billed
+     * folio RAISES what the company/NGO account owes — a back door that could push the
+     * account past its credit limit without the gate the charge path enforces. Blocking a
+     * void is the wrong control (the payment genuinely didn't happen / must be reversible),
+     * so the right control is VISIBILITY: if, AFTER such a void, the direct-billed folio's
+     * balance now exceeds the account's credit limit, record the exposure to the AR
+     * collections trail (same log the direct-bill/credit overrides use) and tell the
+     * operator. Called from the desk folio_void handler. $voidedType is the type of the
+     * line that was just voided. Returns ['over'=>bool,'available'=>?f] for the UI.
+     */
+    function db_note_void_exposure($db, int $orgId, int $folioId, string $voidedType): array
+    {
+        $out = ['over' => false, 'available' => null];
+        // Only debt-REDUCING lines, when voided, increase what's owed. (Voiding a charge
+        // reduces debt → never a credit-limit concern.)
+        if (!in_array($voidedType, ['payment', 'refund', 'preauth'], true)) { return $out; }
+        if ($orgId <= 0 || $folioId <= 0) { return $out; }
+        if (!function_exists('db_current_assignment') || !function_exists('db_credit_check')) { return $out; }
+        $acct = db_current_assignment($db, $orgId, $folioId);
+        if (!$acct || (int) ($acct['account_id'] ?? 0) <= 0) { return $out; } // guest folio → no limit
+
+        $bal = 0.0;
+        if (function_exists('folio_totals')) { $bal = round((float) (folio_totals($db, $folioId)['balance'] ?? 0), 2); }
+        // db_credit_check EXCLUDES $folioId from the "already owed" sum and adds the
+        // passed balance separately — so to ask "is THIS folio's current (post-void)
+        // balance over the account limit?" we pass the folio's real balance ($bal), not 0.
+        $chk = db_credit_check($db, $orgId, (int) $acct['account_id'], $folioId, $bal);
+        if (empty($chk['over'])) { return $out; }
+        $out['over'] = true;
+        $out['available'] = $chk['available'] ?? null;
+        if (function_exists('ar_ext_collection_add')) {
+            ar_ext_collection_add($db, $orgId, (int) $acct['account_id'], [
+                'kind'   => 'note',
+                'detail' => 'Credit EXPOSURE from a ' . $voidedType . ' void by ' . ((string) ($_SESSION['user_id'] ?? '?'))
+                    . ' on direct-billed folio: balance now ' . number_format($bal, 2)
+                    . ' exceeds the credit limit (' . number_format((float) ($chk['limit'] ?? 0), 2) . ').',
+            ]);
+        }
+        return $out;
+    }
+}
