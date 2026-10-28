@@ -479,7 +479,9 @@ try {
         //      (Customer-Book dedupe at the DB level; existing dups folded first).
         // v11: stays_guests (the GUEST as a first-class record — phone-primary identity,
         //      email secondary) + bookings.guest_id. The stayer is now always stored.
-        define('APP_SCHEMA_ENSURE_VERSION', 11);
+        // v12: stays_contact_wallet_ledger idempotency UNIQUE widened (org_id,ref) ->
+        //      (org_id,contact_id,ref) so a ref reused across two contacts can't fail.
+        define('APP_SCHEMA_ENSURE_VERSION', 12);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);

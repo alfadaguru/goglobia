@@ -10028,9 +10028,37 @@ function ensureSupplierStaysSchema($db): void
             `created_by` VARCHAR(255) DEFAULT NULL,
             `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (`id`),
-            UNIQUE KEY `uq_ref` (`org_id`,`ref`),
+            UNIQUE KEY `uq_ref_contact` (`org_id`,`contact_id`,`ref`),
             KEY `idx_wallet` (`wallet_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // Audit (low) fix: the wallet-ledger idempotency UNIQUE was (org_id, ref), but
+        // cwallet_apply's dedupe pre-check keys on (org_id, contact_id, ref) — so the SAME
+        // ref legitimately reused across TWO contacts in one org passed the pre-check for
+        // the 2nd contact, then the narrow DB UNIQUE REJECTED the insert, failing that
+        // contact's money instead of applying it. Widen the index to match the code's
+        // intent (a ref is unique PER CONTACT). Existing installs: drop the old narrow
+        // key + add the wider one. Idempotent + non-fatal; widening never rejects rows the
+        // old key accepted, so it can't fail on existing data.
+        try {
+            $hasWide = false; $narrowNames = [];
+            foreach (($db->query("SHOW INDEX FROM `stays_contact_wallet_ledger`")->fetchAll(\PDO::FETCH_ASSOC) ?: []) as $ix) {
+                $kn = (string) ($ix['Key_name'] ?? '');
+                if ($kn === 'uq_ref_contact') { $hasWide = true; }
+                // The narrow (org_id, ref) unique has shipped under BOTH names across installs:
+                // 'uq_ref' (ensure-function CREATE) and 'uqref' (the older seed in install/db.sql
+                // / live DBs). Drop whichever exists so the wider key can replace it.
+                if ($kn === 'uq_ref' || $kn === 'uqref') { $narrowNames[$kn] = true; }
+            }
+            if (!$hasWide) {
+                foreach (array_keys($narrowNames) as $nn) {
+                    try { $db->query("ALTER TABLE `stays_contact_wallet_ledger` DROP INDEX `" . $nn . "`"); }
+                    catch (\Throwable $e) { error_log('cwallet ledger drop ' . $nn . ': ' . $e->getMessage()); }
+                }
+                try { $db->query("ALTER TABLE `stays_contact_wallet_ledger` ADD UNIQUE KEY `uq_ref_contact` (`org_id`,`contact_id`,`ref`)"); }
+                catch (\Throwable $e) { error_log('cwallet ledger add uq_ref_contact: ' . $e->getMessage()); }
+            }
+        } catch (\Throwable $e) { error_log('cwallet ledger unique migrate: ' . $e->getMessage()); }
 
         // --- supplier_quota_requests (inc S34): post-approval service/quota requests -
         // An approved supplier asks for a NEW service or a higher quota; admin approval

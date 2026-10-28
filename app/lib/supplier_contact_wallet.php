@@ -85,10 +85,10 @@ if (!function_exists('cwallet_apply')) {
         try {
             $db->action(function ($db) use ($orgId, $contactId, $amount, $direction, $currency, $ref, $opts, &$result) {
                 // Idempotency: a ledger row with this (org, contact, ref) means the money
-                // already moved — return the current balance, do NOT apply again. Keyed on
-                // contact_id too (not just org+ref) so a ref reused across two contacts in
-                // one org can't false-dedupe the second contact's money (defence in depth;
-                // callers should already scope the ref per contact).
+                // already moved — return the current balance, do NOT apply again. The DB
+                // UNIQUE is (org_id, contact_id, ref) to match — so a ref reused across two
+                // contacts in one org dedupes per-contact (the 2nd contact's money applies
+                // correctly) rather than being rejected by a too-narrow (org, ref) key.
                 if ($ref !== null && $db->has('stays_contact_wallet_ledger', ['org_id' => $orgId, 'contact_id' => $contactId, 'ref' => $ref])) {
                     $bal = (float) ($db->get('stays_contact_wallet', 'balance', ['org_id' => $orgId, 'contact_id' => $contactId, 'currency' => $currency]) ?? 0);
                     $result = ['ok' => true, 'balance' => round($bal, 2), 'already' => true];

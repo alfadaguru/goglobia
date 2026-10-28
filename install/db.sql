@@ -30128,7 +30128,7 @@ CREATE TABLE `stays_contact_wallet_ledger` (
   `created_by` varchar(255) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_ref` (`org_id`,`ref`),
+  UNIQUE KEY `uq_ref_contact` (`org_id`,`contact_id`,`ref`),
   KEY `idx_wallet` (`wallet_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

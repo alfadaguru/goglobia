@@ -66,31 +66,48 @@ if (!function_exists('db_enable_account_billing')) {
         $c = db_contact($db, $orgId, $contactId);
         if (!$c) { return 0; }
         if (!in_array((string) $c['type'], ['company', 'ngo', 'agent'], true)) { return 0; } // individuals can't direct-bill
-        $existing = (int) ($c['corp_account_id'] ?? 0);
-        if ($existing > 0 && $db->has('stays_corporate_accounts', ['id' => $existing, 'org_id' => $orgId])) {
-            return $existing; // already enabled
-        }
         if (!function_exists('corp_add')) { return 0; }
+
+        // Audit (low) fix: a double-click used to run this check-then-create UNLOCKED,
+        // so two concurrent requests both saw corp_account_id = 0 and each created a
+        // SEPARATE city-ledger account for one contact (the 2nd update then orphaned the
+        // 1st). Serialise per contact: lock the stays_contacts row and re-read
+        // corp_account_id FRESH inside the lock; the loser of the race sees the account
+        // the winner just linked and returns it instead of creating a duplicate.
+        $acctId = 0;
         try {
-            // corp_add's type enum is company|agent; an NGO contact maps to a 'company'
-            // account record (the NGO distinction lives on the Customer-Book contact +
-            // its tax_exempt flag, not the AR account).
-            $acctType = ((string) $c['type'] === 'agent') ? 'agent' : 'company';
-            $acctId = corp_add($db, $orgId, [
-                'type'         => $acctType,
-                'name'         => (string) $c['display_name'],
-                'contact_name' => (string) ($c['display_name'] ?? ''),
-                'email'        => (string) ($c['email'] ?? ''),
-                'phone'        => (string) ($c['phone'] ?? ''),
-                'negotiated_discount_pct' => $c['negotiated_discount_pct'] ?? '',
-                'credit_limit' => $c['credit_limit'] ?? '',
-            ]);
-            if ($acctId <= 0) { return 0; }
-            $db->update('stays_contacts',
-                ['corp_account_id' => $acctId, 'updated_at' => date('Y-m-d H:i:s')],
-                ['id' => $contactId, 'org_id' => $orgId]);
-            return $acctId;
+            $db->action(function ($db) use ($orgId, $contactId, $c, &$acctId) {
+                $lock = $db->query('SELECT corp_account_id FROM stays_contacts WHERE id = :id AND org_id = :org FOR UPDATE',
+                    [':id' => $contactId, ':org' => $orgId]);
+                $row = $lock ? $lock->fetch(\PDO::FETCH_ASSOC) : null;
+                if ($row === null || $row === false) { $acctId = 0; return false; } // contact vanished
+                $existing = (int) ($row['corp_account_id'] ?? 0);
+                if ($existing > 0 && $db->has('stays_corporate_accounts', ['id' => $existing, 'org_id' => $orgId])) {
+                    $acctId = $existing; // already enabled (possibly by the request we raced)
+                    return true;
+                }
+                // corp_add's type enum is company|agent; an NGO contact maps to a 'company'
+                // account record (the NGO distinction lives on the Customer-Book contact +
+                // its tax_exempt flag, not the AR account).
+                $acctType = ((string) $c['type'] === 'agent') ? 'agent' : 'company';
+                $newId = (int) corp_add($db, $orgId, [
+                    'type'         => $acctType,
+                    'name'         => (string) $c['display_name'],
+                    'contact_name' => (string) ($c['display_name'] ?? ''),
+                    'email'        => (string) ($c['email'] ?? ''),
+                    'phone'        => (string) ($c['phone'] ?? ''),
+                    'negotiated_discount_pct' => $c['negotiated_discount_pct'] ?? '',
+                    'credit_limit' => $c['credit_limit'] ?? '',
+                ]);
+                if ($newId <= 0) { $acctId = 0; return false; } // nothing created → rollback
+                $db->update('stays_contacts',
+                    ['corp_account_id' => $newId, 'updated_at' => date('Y-m-d H:i:s')],
+                    ['id' => $contactId, 'org_id' => $orgId]);
+                $acctId = $newId;
+                return true;
+            });
         } catch (\Throwable $e) { error_log('db_enable_account_billing: ' . $e->getMessage()); return 0; }
+        return $acctId;
     }
 }
 
