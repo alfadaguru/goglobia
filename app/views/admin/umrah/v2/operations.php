@@ -54,6 +54,18 @@ $fmt = fn($n) => '₦' . number_format((float) $n, 0);
                 <?php else: ?>
                   <div class="text-xs text-slate-400 mt-1">no documents</div>
                 <?php endif; ?>
+                <!-- Admin: upload an ISSUED visa / ticket / hotel voucher for this
+                     pilgrim. Once uploaded + visa marked 'approved' (or ticket
+                     'ticketed'), the pilgrim is sent the document on WhatsApp + email. -->
+                <div class="mt-2 flex items-center gap-1 text-xs">
+                  <select id="trdockind<?= (int)$t['id'] ?>" class="select select-xs border border-slate-200 rounded px-1 py-0.5">
+                    <option value="visa">visa</option>
+                    <option value="ticket">ticket</option>
+                    <option value="hotel">hotel</option>
+                  </select>
+                  <input type="file" id="trdocfile<?= (int)$t['id'] ?>" accept="image/*,application/pdf" class="text-xs">
+                  <button type="button" class="text-primary hover:underline" onclick="umrahOpsUploadDoc(<?= (int)$t['id'] ?>)">upload</button>
+                </div>
               </td>
               <td><?= $sel('visa',$t['visa_status'],['not_started','ready_to_submit','submitted','approved','rejected','action_required']) ?></td>
               <td><?= $sel('ticket',$t['ticket_status'],['not_started','reserved','ticketed','changed','cancelled']) ?></td>
@@ -135,5 +147,16 @@ async function umrahOpsVerifyDoc(docId, decision){
   const f=new FormData(); f.append('csrf_token','<?= htmlspecialchars($csrf, ENT_QUOTES) ?>'); f.append('document_id',docId); f.append('decision',decision);
   const r=await fetch('<?= $base ?>/verify-document',{method:'POST',body:f}); const j=await r.json();
   if(j.success) location.reload(); else alert(j.message||'Failed');
+}
+async function umrahOpsUploadDoc(tid){
+  const kind=document.getElementById('trdockind'+tid).value;
+  const fi=document.getElementById('trdocfile'+tid);
+  if(!fi.files || !fi.files[0]){ alert('Choose a file to upload.'); return; }
+  const f=new FormData();
+  f.append('csrf_token','<?= htmlspecialchars($csrf, ENT_QUOTES) ?>');
+  f.append('traveller_id',tid); f.append('kind',kind); f.append('doc',fi.files[0]);
+  const r=await fetch('<?= $base ?>/traveller-doc',{method:'POST',body:f}); const j=await r.json();
+  if(j.success){ alert('Uploaded. Set '+kind+' status to approved/issued to send it to the pilgrim.'); location.reload(); }
+  else alert(j.message||'Upload failed');
 }
 </script>

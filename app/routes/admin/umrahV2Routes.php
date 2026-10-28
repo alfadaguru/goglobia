@@ -817,6 +817,39 @@ $router->post(admin.'/umrah-manager/operations/verify-document', function () use
     umrahV2AdminJson($r, !empty($r['ok']) ? 200 : 422);
 });
 
+// ---- UPLOAD A TRAVELLER DOCUMENT (admin): POST .../operations/traveller-doc ---
+// Lets staff upload an ISSUED visa / ticket / hotel voucher for ONE traveller
+// (the per-traveller equivalent of the group member-doc upload). Writes to
+// umrah_documents with doc_type=kind, so when the admin then marks visa=approved
+// / ticket=ticketed, umrah_notify_traveller_doc finds THIS file and sends it to
+// the pilgrim on WhatsApp + email. Previously only GROUP members could have a
+// visa uploaded — an individual booking had no path, so the pilgrim got a
+// "visa approved" message with no document. This closes that gap.
+$router->post(admin.'/umrah-manager/operations/traveller-doc', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    admin_require($db, 'bookings', 'edit');
+    CSRF::guard();
+    if (!umrahV2AdminCsrfOk()) { umrahV2AdminJson(['success' => false, 'message' => 'Invalid form submission']); }
+    $tid  = (int) ($_POST['traveller_id'] ?? 0);
+    $kind = in_array($_POST['kind'] ?? '', ['visa', 'ticket', 'hotel'], true) ? (string) $_POST['kind'] : '';
+    if ($tid <= 0 || $kind === '') { umrahV2AdminJson(['success' => false, 'message' => 'traveller_id and kind (visa/ticket/hotel) are required'], 422); }
+    if (!function_exists('umrah_document_upload')) { umrahV2AdminJson(['success' => false, 'message' => 'Upload unavailable'], 500); }
+    // Reuse the hardened uploader (MIME + size + php-injection checked). It writes
+    // umrah_documents with verify_status='pending'; an admin-issued visa/ticket is
+    // authoritative, so mark it verified right away.
+    $res = umrah_document_upload($db, $tid, $kind, 'doc');
+    if (empty($res['ok'])) { umrahV2AdminJson(['success' => false, 'message' => $res['message'] ?? 'Upload failed'], 422); }
+    $docId = (int) ($res['document_id'] ?? 0);
+    if ($docId > 0) {
+        $db->update('umrah_documents', [
+            'verify_status' => 'verified',
+            'verified_by'   => (string) ($_SESSION['user_id'] ?? 'admin'),
+            'verified_at'   => date('Y-m-d H:i:s'),
+        ], ['id' => $docId]);
+    }
+    umrahV2AdminJson(['success' => true, 'document_id' => $docId, 'kind' => $kind]);
+});
+
 // ---- SERVE DOCUMENT (audit H6): GET admin/umrah-manager/document/{id} ---
 // Streams an uploaded passport/ID to an authenticated admin. The files live
 // under uploads/umrah/documents/ behind a Deny-all .htaccess; this is the ONLY
