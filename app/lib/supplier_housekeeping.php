@@ -154,6 +154,71 @@ if (!function_exists('hk_rooms_in_use')) {
     }
 }
 
+if (!function_exists('hk_rooms_blocking')) {
+    /**
+     * Map [physical_room_id => invoice_id] of rooms that are assigned to a reservation
+     * which would CONFLICT with a stay over [$checkin,$checkout). This is the guard the
+     * room-assignment path needs — unlike hk_rooms_in_use() (which only counts guests
+     * already CHECKED IN), a room is blocked by ANY live reservation that has it assigned,
+     * including ones still 'confirmed' (assigned pre-arrival, not yet checked in).
+     *
+     * A reservation blocks a room only when ALL of:
+     *   - it is own-inventory for this property (hotel_id === $stayId),
+     *   - it holds a pms_physical_room_id,
+     *   - it is still LIVE: booking_status !== 'cancelled', not a no-show,
+     *     and pms_stay_state !== 'checked_out' (a departed guest frees the room),
+     *   - its date range OVERLAPS [$checkin,$checkout) — half-open, so a departure on
+     *     the morning another guest arrives is NOT a conflict. When the subject booking's
+     *     dates are unknown (empty), date filtering is skipped (every live assignment
+     *     blocks — the safe, conservative default).
+     *
+     * $exceptInvoice lets a booking ignore its OWN existing assignment (re-assign/move).
+     */
+    function hk_rooms_blocking($db, int $stayId, string $checkin = '', string $checkout = '', string $exceptInvoice = ''): array
+    {
+        $out = [];
+        $exceptInvoice = trim($exceptInvoice);
+        $haveWindow = preg_match('/^\d{4}-\d{2}-\d{2}$/', $checkin) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $checkout);
+        $aStart = $haveWindow ? strtotime($checkin) : 0;
+        $aEnd   = $haveWindow ? strtotime($checkout) : 0;
+        try {
+            $rows = $db->select('bookings', ['invoice_id', 'booking_status', 'booking_data'],
+                ['module_type' => ['stays', 'hotels'],
+                 'booking_data[~]' => '%"hotel_id":' . (int) $stayId . '%', // wrap % ourselves (underscore defeats Medoo auto-wrap)
+                 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 2000]) ?: [];
+            foreach ($rows as $r) {
+                $inv = (string) $r['invoice_id'];
+                if ($exceptInvoice !== '' && $inv === $exceptInvoice) { continue; } // ignore our own assignment
+                $bd = json_decode((string) ($r['booking_data'] ?? ''), true);
+                if (!is_array($bd)) { continue; }
+                if ((int) ($bd['hotel_id'] ?? 0) !== $stayId) { continue; } // verify, not just LIKE
+                $prid = (int) ($bd['pms_physical_room_id'] ?? 0);
+                if ($prid <= 0) { continue; }                                             // no room assigned
+                // LIVE filter: cancelled / no-show / checked-out reservations free the room.
+                if (strtolower((string) ($r['booking_status'] ?? '')) === 'cancelled') { continue; }
+                if (!empty($bd['supplier_no_show'])) { continue; }
+                if (($bd['pms_stay_state'] ?? '') === 'checked_out') { continue; }
+                // DATE OVERLAP (half-open): skip when the subject window is known and the
+                // two ranges do not overlap. A booking with no dates stored is treated as
+                // conflicting (conservative) when we DO have a window to compare against.
+                if ($haveWindow) {
+                    $bInRaw = (string) ($bd['checkin'] ?? '');
+                    $bOutRaw = (string) ($bd['checkout'] ?? '');
+                    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $bInRaw) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $bOutRaw)) {
+                        $bStart = strtotime($bInRaw); $bEnd = strtotime($bOutRaw);
+                        if (!($aStart < $bEnd && $bStart < $aEnd)) { continue; } // disjoint → no conflict
+                    }
+                    // else: the other booking has no/invalid dates → fall through (treat as conflict).
+                }
+                $out[$prid] = $inv;
+            }
+        } catch (\Throwable $e) {
+            error_log('hk_rooms_blocking: ' . $e->getMessage());
+        }
+        return $out;
+    }
+}
+
 if (!function_exists('hk_assign_room_to_booking')) {
     /**
      * Assign a physical room to a reservation (at/after check-in). Validates the room
@@ -170,25 +235,36 @@ if (!function_exists('hk_assign_room_to_booking')) {
             if (!$room || (int) $room['active'] !== 1) { return false; }
             if (!in_array((string) $room['hk_status'], hk_assignable_statuses(), true)) { return false; }
 
-            // ATOMIC booking_data mutation (audit fix) with the in-use check re-run INSIDE
-            // the row lock — so two concurrent check-ins can't both pass an earlier
-            // "not in use" read and assign the SAME physical room to two guests.
+            // ATOMIC booking_data mutation (audit fix) with the conflict check re-run INSIDE
+            // the row lock — so two concurrent assignments can't both pass an earlier
+            // "free" read and assign the SAME physical room to two overlapping guests.
+            // The guard is hk_rooms_blocking (NOT hk_rooms_in_use): a room is taken by ANY
+            // live reservation that holds it over an OVERLAPPING date range, including ones
+            // still 'confirmed' and not yet checked in (the audit #4 double-book). The
+            // subject booking's own dates come from its locked booking_data; its own
+            // existing assignment is excluded so a re-assign to the same room is a no-op.
             if (function_exists('booking_data_mutate')) {
                 $res = booking_data_mutate($db, $invoiceId, function (array &$bd, array $row, bool &$abort) use ($db, $stayId, $physicalRoomId, $invoiceId) {
-                    $inUse = function_exists('hk_rooms_in_use') ? hk_rooms_in_use($db, $stayId) : [];
-                    if (isset($inUse[$physicalRoomId]) && $inUse[$physicalRoomId] !== $invoiceId) { $abort = true; return false; } // taken
+                    $ci = (string) ($bd['checkin'] ?? ''); $co = (string) ($bd['checkout'] ?? '');
+                    $blocking = function_exists('hk_rooms_blocking')
+                        ? hk_rooms_blocking($db, $stayId, $ci, $co, $invoiceId)
+                        : (function_exists('hk_rooms_in_use') ? hk_rooms_in_use($db, $stayId) : []);
+                    if (isset($blocking[$physicalRoomId])) { $abort = true; return false; } // taken by an overlapping reservation
                     $bd['pms_physical_room_id'] = $physicalRoomId;
                     return true;
                 });
                 return !empty($res['ok']);
             }
 
-            $inUse = hk_rooms_in_use($db, $stayId);
-            if (isset($inUse[$physicalRoomId]) && $inUse[$physicalRoomId] !== $invoiceId) { return false; } // taken
             $b = $db->get('bookings', ['booking_data'], ['invoice_id' => $invoiceId]);
             if (!$b) { return false; }
             $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
             if (!is_array($bd)) { $bd = []; }
+            $ci = (string) ($bd['checkin'] ?? ''); $co = (string) ($bd['checkout'] ?? '');
+            $blocking = function_exists('hk_rooms_blocking')
+                ? hk_rooms_blocking($db, $stayId, $ci, $co, $invoiceId)
+                : hk_rooms_in_use($db, $stayId);
+            if (isset($blocking[$physicalRoomId])) { return false; } // taken by an overlapping reservation
             $bd['pms_physical_room_id'] = $physicalRoomId;
             $db->update('bookings',
                 ['booking_data' => json_encode($bd), 'updated_at' => date('Y-m-d H:i:s')],
