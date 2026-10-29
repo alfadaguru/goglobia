@@ -839,7 +839,7 @@ if (!function_exists('resv_tape_chart')) {
         $out['dates'] = $dates;
         // Physical rooms for this property.
         $phys = [];
-        try { $phys = $db->select('stays_physical_rooms', ['id', 'room_number', 'floor', 'room_id'],
+        try { $phys = $db->select('stays_physical_rooms', ['id', 'room_number', 'floor', 'floor_id', 'room_id'],
             ['stay_id' => $stayId, 'active' => 1, 'ORDER' => ['room_number' => 'ASC']]) ?: []; } catch (\Throwable $e) {}
         // Resolve each room's TYPE NAME (Deluxe / King / …) so the rack reads "Deluxe D-12".
         $typeByRoomId = [];
@@ -849,9 +849,16 @@ if (!function_exists('resv_tape_chart')) {
             $ridSet = array_values(array_unique(array_filter(array_map(fn($p) => (int) ($p['room_id'] ?? 0), $phys))));
             if (!empty($ridSet)) { foreach ($db->select('stays_rooms', ['id', 'room_type_id'], ['id' => $ridSet]) ?: [] as $sr) { $typeByRoomId[(int) $sr['id']] = $rtNames[(int) $sr['room_type_id']] ?? ''; } }
         } catch (\Throwable $e) {}
+        // Resolve the FLOOR NAME from the structured floor_id (stays_floors) — that's what
+        // the room-manager form actually sets; the plain `floor` text is a legacy fallback.
+        $floorNameById = [];
+        try { foreach ($db->select('stays_floors', ['id', 'name'], ['stay_id' => $stayId]) ?: [] as $f) { $floorNameById[(int) $f['id']] = (string) $f['name']; } } catch (\Throwable $e) {}
         $cellsByRoom = [];
         foreach ($phys as $p) {
             $p['room_type'] = $typeByRoomId[(int) ($p['room_id'] ?? 0)] ?? '';
+            // Effective floor label: structured floor name first, else legacy text.
+            $fid = (int) ($p['floor_id'] ?? 0);
+            $p['floor_label'] = $fid > 0 && isset($floorNameById[$fid]) ? $floorNameById[$fid] : trim((string) ($p['floor'] ?? ''));
             $cellsByRoom[(int) $p['id']] = ['room' => $p, 'cells' => array_fill_keys($dates, null)];
         }
         $end = $dates[count($dates) - 1];
@@ -877,7 +884,7 @@ if (!function_exists('resv_tape_chart')) {
         // alphabetically, with un-floored rooms last.
         $byFloor = [];
         foreach ($out['rows'] as $row) {
-            $fl = trim((string) ($row['room']['floor'] ?? ''));
+            $fl = trim((string) ($row['room']['floor_label'] ?? ($row['room']['floor'] ?? '')));
             $byFloor[$fl][] = $row;
         }
         uksort($byFloor, function ($a, $b) {

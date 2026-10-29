@@ -205,10 +205,15 @@ if (!function_exists('fd_room_board')) {
         if ($stayId <= 0) { return []; }
         try {
             $rooms = $db->select('stays_physical_rooms',
-                ['id', 'room_number', 'floor', 'hk_status', 'notes', 'room_id'],
+                ['id', 'room_number', 'floor', 'floor_id', 'hk_status', 'notes', 'room_id'],
                 ['stay_id' => $stayId, 'active' => 1, 'ORDER' => ['floor' => 'ASC', 'room_number' => 'ASC']]) ?: [];
         } catch (\Throwable $e) { error_log('fd_room_board: ' . $e->getMessage()); return []; }
         if (empty($rooms)) { return []; }
+
+        // Floor NAME from the structured floor_id (what the room-manager form sets); the
+        // plain `floor` text is a legacy fallback.
+        $floorNameById = [];
+        try { foreach ($db->select('stays_floors', ['id', 'name'], ['stay_id' => $stayId]) ?: [] as $f) { $floorNameById[(int) $f['id']] = (string) $f['name']; } } catch (\Throwable $e) {}
 
         // Resolve each physical room's TYPE NAME (Deluxe / King / …) so the board can show
         // it alongside the number — the way front desks identify rooms ("Deluxe 101").
@@ -242,11 +247,13 @@ if (!function_exists('fd_room_board')) {
         foreach ($rooms as $r) {
             $prid = (int) $r['id'];
             $inv  = $inUse[$prid] ?? '';
+            $fid  = (int) ($r['floor_id'] ?? 0);
+            $floorLabel = $fid > 0 && isset($floorNameById[$fid]) ? $floorNameById[$fid] : trim((string) ($r['floor'] ?? ''));
             $out[] = [
                 'id'               => $prid,
                 'room_number'      => (string) ($r['room_number'] ?? ''),
                 'room_type'        => $typeByRoomId[(int) ($r['room_id'] ?? 0)] ?? '',
-                'floor'            => (string) ($r['floor'] ?? ''),
+                'floor'            => $floorLabel,
                 'hk_status'        => (string) ($r['hk_status'] ?? 'clean'),
                 'notes'            => (string) ($r['notes'] ?? ''),
                 'occupant_invoice' => (string) $inv,
