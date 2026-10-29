@@ -481,7 +481,10 @@ try {
         //      email secondary) + bookings.guest_id. The stayer is now always stored.
         // v12: stays_contact_wallet_ledger idempotency UNIQUE widened (org_id,ref) ->
         //      (org_id,contact_id,ref) so a ref reused across two contacts can't fail.
-        define('APP_SCHEMA_ENSURE_VERSION', 12);
+        // v13: stays_folio_items.ref + UNIQUE(ref) — folio-posting idempotency so a
+        //      double-submit cannot post the same payment/charge line twice (fixes the
+        //      folio double-submit money bugs: double-credited bill, double-fed drawer).
+        define('APP_SCHEMA_ENSURE_VERSION', 13);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);

@@ -251,6 +251,10 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
     <?php if ($canEdit && $folioOpen && !$isCancelled): ?>
       <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="mt-4 flex flex-wrap items-end gap-2 border-t border-gray-100 pt-4">
         <?= CSRF::tokenField() ?><input type="hidden" name="action" value="folio_add">
+        <?php // One submission nonce per page render. A double-click / back-button resubmit
+              // reuses THIS nonce → the server dedupes it (same folio line never posts twice);
+              // a genuinely separate second payment needs a fresh page load → fresh nonce. ?>
+        <input type="hidden" name="folio_nonce" value="<?= htmlspecialchars(bin2hex(random_bytes(8))) ?>">
         <div class="form-control"><label class="block text-xs text-gray-600 mb-1">Type</label>
           <select name="folio_type" class="input text-sm">
             <option value="extra">Extra charge</option><option value="charge">Charge</option>

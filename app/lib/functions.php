@@ -10792,6 +10792,24 @@ function ensureSupplierStaysSchema($db): void
                 $db->query("ALTER TABLE `stays_folio_items` MODIFY COLUMN `type` ENUM('room','tax','extra','charge','payment','refund','credit_note','debit_note','preauth') NOT NULL");
             }
         } catch (\Throwable $e) { error_log('folio type enum widen: ' . $e->getMessage()); }
+        // IDEMPOTENCY: a posting may carry a stable `ref` so a double-submit (double-click /
+        // browser retry) cannot post the same payment/charge line twice. A UNIQUE index on
+        // the ref makes the second insert fail cleanly (23000), which folio_add_item maps to
+        // 'duplicate' so the caller does NOT re-feed the drawer or reverse the wallet. NULL
+        // refs are unconstrained (MySQL allows many NULLs in a UNIQUE index), so manual /
+        // legacy lines without a ref are unaffected.
+        try {
+            if (!$db->query("SHOW COLUMNS FROM `stays_folio_items` LIKE 'ref'")->fetch()) {
+                $db->query("ALTER TABLE `stays_folio_items` ADD COLUMN `ref` VARCHAR(191) DEFAULT NULL AFTER `amount`");
+            }
+            $hasUq = false;
+            foreach ($db->query("SHOW INDEX FROM `stays_folio_items`")->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $ix) {
+                if (($ix['Key_name'] ?? '') === 'uq_folio_ref') { $hasUq = true; break; }
+            }
+            if (!$hasUq) {
+                $db->query("ALTER TABLE `stays_folio_items` ADD UNIQUE KEY `uq_folio_ref` (`ref`)");
+            }
+        } catch (\Throwable $e) { error_log('folio ref idempotency: ' . $e->getMessage()); }
         // Append-only folio transaction audit (who posted/voided what, when).
         $db->query("CREATE TABLE IF NOT EXISTS `stays_folio_audit` (
             `id` BIGINT(20) NOT NULL AUTO_INCREMENT,

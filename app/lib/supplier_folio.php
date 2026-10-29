@@ -168,30 +168,57 @@ if (!function_exists('folio_totals')) {
 
 if (!function_exists('folio_add_item')) {
     /** Add a line to an OPEN folio (front-desk extra charge / payment / refund).
-     *  Returns bool. Refuses a closed folio or an unknown type / non-positive amount. */
-    function folio_add_item($db, int $folioId, string $type, float $amount, string $description = '', string $actor = '', int $folioNo = 1): bool
+     *  Returns bool (true = the line is on the folio; false = could not post).
+     *  Refuses a closed folio or an unknown type / non-positive amount.
+     *
+     *  IDEMPOTENCY: pass a stable $ref (e.g. "folio:INV:payment:100.00:1") to make the
+     *  post idempotent — a duplicate submit hits the UNIQUE index on stays_folio_items.ref
+     *  and is rejected at the DB, so the SAME line can never post twice (fixes the folio
+     *  double-submit money bugs). On a duplicate the function returns TRUE (the desired
+     *  end-state — the line already exists) and sets &$status='duplicate' so the caller
+     *  knows NOT to re-feed the cash drawer or reverse a wallet debit. A fresh post sets
+     *  &$status='ok'; any failure sets &$status='fail'. $ref=null (the default) is
+     *  unconstrained, preserving every existing caller's behaviour unchanged. */
+    function folio_add_item($db, int $folioId, string $type, float $amount, string $description = '', string $actor = '', int $folioNo = 1, ?string $ref = null, ?string &$status = null): bool
     {
+        $status = 'fail';
         $type = in_array($type, folio_item_types(), true) ? $type : '';
         $amount = round($amount, 2);
         if ($folioId <= 0 || $type === '' || $amount <= 0) { return false; }
         $folioNo = max(1, min(9, $folioNo)); // windows A..I
+        $ref = ($ref !== null && $ref !== '') ? substr($ref, 0, 191) : null;
         try {
             $f = $db->get('stays_folios', ['id', 'status', 'invoice_id'], ['id' => $folioId]);
             if (!$f || $f['status'] !== 'open') { return false; }
-            $db->insert('stays_folio_items', [
-                'folio_id'   => $folioId,
-                'folio_no'   => $folioNo,
-                'type'       => $type,
-                'description'=> $description !== '' ? substr($description, 0, 191) : ucfirst(str_replace('_', ' ', $type)),
-                'amount'     => $amount,
-                'created_by' => $actor !== '' ? substr($actor, 0, 155) : 'desk',
-                'created_at' => date('Y-m-d H:i:s'),
-            ]);
+            try {
+                $db->insert('stays_folio_items', [
+                    'folio_id'   => $folioId,
+                    'folio_no'   => $folioNo,
+                    'type'       => $type,
+                    'description'=> $description !== '' ? substr($description, 0, 191) : ucfirst(str_replace('_', ' ', $type)),
+                    'amount'     => $amount,
+                    'ref'        => $ref,
+                    'created_by' => $actor !== '' ? substr($actor, 0, 155) : 'desk',
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+            } catch (\PDOException $pe) {
+                // Duplicate ref → this exact line already posted (double-submit). Treat as a
+                // success-no-op: the folio already holds the line; the caller must not double
+                // any side effects (drawer / wallet). Any OTHER DB error is a real failure.
+                if ($ref !== null && (int) ($pe->errorInfo[1] ?? 0) === 1062) {
+                    $status = 'duplicate';
+                    folio_audit($db, $folioId, 'post:dup:' . $type, ['invoice_id' => $f['invoice_id'] ?? null, 'amount' => $amount, 'detail' => 'duplicate submit ignored · ref ' . $ref]);
+                    return true;
+                }
+                throw $pe;
+            }
             $itemId = (int) $db->id();
+            $status = 'ok';
             folio_audit($db, $folioId, 'post:' . $type, ['invoice_id' => $f['invoice_id'] ?? null, 'item_id' => $itemId, 'amount' => $amount, 'detail' => 'window ' . $folioNo . ' · ' . $description]);
             return true;
         } catch (\Throwable $e) {
             error_log('folio_add_item: ' . $e->getMessage());
+            $status = 'fail';
             return false;
         }
     }

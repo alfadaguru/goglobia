@@ -29608,12 +29608,14 @@ CREATE TABLE `stays_folio_items` (
   `type` enum('room','tax','extra','charge','payment','refund','credit_note','debit_note','preauth') NOT NULL,
   `description` varchar(191) DEFAULT NULL,
   `amount` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `ref` varchar(191) DEFAULT NULL,
   `void` tinyint(1) NOT NULL DEFAULT 0,
   `void_reason` varchar(191) DEFAULT NULL,
   `void_by` varchar(155) DEFAULT NULL,
   `created_by` varchar(155) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_folio_ref` (`ref`),
   KEY `idx_folio` (`folio_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

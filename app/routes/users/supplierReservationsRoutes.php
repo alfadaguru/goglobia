@@ -774,12 +774,32 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                     }
                 }
                 if (!$blocked) {
+                    // IDEMPOTENCY (fixes folio double-submit money bugs): post with a stable
+                    // ref so a double-click / browser-retry of the SAME line (type+amount+
+                    // window) cannot post a second folio line. On a duplicate, folio_add_item
+                    // returns true with $postStatus='duplicate' — the line already exists, so
+                    // we must NOT re-feed the cash drawer (bug #3) and must NOT reverse the
+                    // wallet (the wallet drawdown is itself idempotent, so the 2nd submit drew
+                    // nothing — bug #2). The ref includes the folio id so distinct folios
+                    // (windows/split billing already distinguished by $fno) never collide.
+                    // The ref carries a PER-RENDER submission nonce from the form, so two
+                    // clicks of the SAME rendered form share a nonce (deduped), while two
+                    // intentional separate payments of the same amount come from two page
+                    // renders → two nonces → both post. Fall back to a content-only ref when
+                    // no nonce is present (older cached form / API caller) — still blocks the
+                    // classic rapid double-submit of an identical line.
+                    $postStatus = 'fail';
+                    $nonce = preg_replace('/[^a-f0-9]/i', '', (string) ($_POST['folio_nonce'] ?? ''));
+                    $fref = 'folio:' . $invoiceId . ':' . $fid . ':' . $ftype . ':' . number_format($famount, 2, '.', '') . ':w' . $fno
+                        . ($nonce !== '' ? (':n' . substr($nonce, 0, 32)) : '');
                     $ok = $fid > 0 && function_exists('folio_add_item')
-                        && folio_add_item($db, $fid, $ftype, $famount, $fdesc, (string) ($_SESSION['user_id'] ?? ''), $fno);
+                        && folio_add_item($db, $fid, $ftype, $famount, $fdesc, (string) ($_SESSION['user_id'] ?? ''), $fno, $fref, $postStatus);
+                    $wasDuplicate = ($postStatus === 'duplicate');
                     // If we ALREADY debited the deposit wallet but the folio line failed
                     // (e.g. closed folio), the money must not stay drawn with no matching
                     // credit — reverse the drawdown so the deposit is restored. (A distinct
-                    // ref so the reversal isn't deduped against the original debit.)
+                    // ref so the reversal isn't deduped against the original debit.) A
+                    // DUPLICATE is NOT a failure (the line is present) so it never reverses.
                     if (!$ok && $walletDrawn && function_exists('cwallet_topup')) {
                         $cidR = (int) $db->get('bookings', 'customer_id', ['invoice_id' => $invoiceId]);
                         $fcurR = strtoupper((string) ($db->get('stays_folios', 'currency', ['invoice_id' => $invoiceId]) ?: 'USD'));
@@ -790,16 +810,21 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                         $walletBackMsg = ' Deposit wallet restored (the folio line did not post).';
                     }
                     // Feed the cashier drawer ONLY once the cash payment line actually
-                    // posted — so the drawer and the folio can never disagree.
+                    // posted FRESH — so the drawer and the folio can never disagree, and a
+                    // duplicate submit (which posted no new folio line) adds no new cash.
                     $cashNote = '';
-                    if ($ok && $isCashTender && function_exists('desk_cash_to_shift')) {
+                    if ($ok && !$wasDuplicate && $isCashTender && function_exists('desk_cash_to_shift')) {
                         $dbOrg = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $hid) : 0;
                         $fed = desk_cash_to_shift($db, $dbOrg, (string) ($_SESSION['user_id'] ?? ''), $famount, $invoiceId);
                         $cashNote = !empty($fed['fed']) ? ' Cash added to your drawer.' : ' (no open cashier shift — open one to track the drawer).';
                     }
                     $_SESSION['message'] = [
                         'type' => $ok ? 'success' : 'error',
-                        'text' => $ok ? ('Folio updated.' . $cashNote . $walletBackMsg) : ('Could not add the folio line (is the folio closed?).' . $walletBackMsg),
+                        'text' => $ok
+                            ? ($wasDuplicate
+                                ? 'This line was already posted — ignored the duplicate submit (nothing was charged twice).'
+                                : ('Folio updated.' . $cashNote . $walletBackMsg))
+                            : ('Could not add the folio line (is the folio closed?).' . $walletBackMsg),
                     ];
                 }
             }
