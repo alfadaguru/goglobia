@@ -478,6 +478,15 @@ $router->post(admin.'/settings/modules/(\d+)', function ($moduleId) use ($SECURE
             echo json_encode(['success' => false, 'message' => 'Authentication required']);
             exit;
         }
+        // CSRF: this ajax branch toggles module status/dev_mode/ancillaries — it was
+        // unguarded while the sibling /settings/modules/ajax-update + /toggle validate.
+        // Accepts the POST token or the X-CSRF-TOKEN header app.js sends.
+        if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
+            ob_clean();
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Invalid security token']);
+            exit;
+        }
 
         $field = $_POST['field'] ?? '';
         $value = $_POST['value'] ?? '';
@@ -626,6 +635,7 @@ $router->post(admin.'/settings/modules/(\d+)', function ($moduleId) use ($SECURE
 $router->post(admin . '/settings/modules/rail/import-stations', function () use ($SECURE, $db) {
     ADMIN_AUTH();
     admin_require($db, 'modules', 'edit');
+    CSRF::guard(); // state-changing bulk import (writes stations) — was unguarded
     header('Content-Type: application/json; charset=utf-8');
     require_once dirname(__DIR__, 3) . '/modules/rail/train/stations.php';
     try {
@@ -1117,6 +1127,7 @@ $router->post(admin.'/settings/modules/upload-certs', function () use ($db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
     admin_require($db, 'modules', 'edit');
+    CSRF::guard(); // writes mTLS cert files to disk — state-changing, was unguarded
 
     header('Content-Type: application/json');
 

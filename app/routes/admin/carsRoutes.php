@@ -193,6 +193,7 @@ $router->get(admin.'/cars/edit/(.*)', function ($id) use ($SECURE,$db) {
 $router->post(admin.'/cars/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
     admin_require($db, 'cars', 'edit');
+    CSRF::guard(); // state-changing admin POST — matches the /cars/add + /cars/delete siblings
     $car_id = intval($id);
 
 

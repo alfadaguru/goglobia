@@ -33,6 +33,39 @@ if (!function_exists('_moduleLogsSafeSegments')) {
 }
 
 /**
+ * SECURITY (audit — provider include whitelist): the email/sms/whatsapp/push
+ * provider NAME comes from admin POST and was concatenated straight into a
+ * require_once path (lib/notifications/<channel>/<provider>.php), gated only by
+ * file_exists. A value like '../../uploads/x' (with a planted x.php) could include
+ * arbitrary code. Admin+settings-gated, so this is a footgun / lower-trust-staff
+ * escalation rather than a remote RCE — but an admin-set string must never build an
+ * include path unchecked. Resolve ONLY to a real .php inside the exact channel dir:
+ * reject any name with path/./null chars, then require realpath() to still live
+ * under that channel directory. Returns the safe absolute path or null.
+ */
+if (!function_exists('_notificationProviderFile')) {
+    function _notificationProviderFile(string $channel, string $provider): ?string
+    {
+        $channel = strtolower(trim($channel));
+        $provider = trim($provider);
+        if (!in_array($channel, ['email', 'sms', 'whatsapp', 'push'], true)) { return null; }
+        // Provider name charset guard: letters/digits/_/- only (covers amazon_ses,
+        // amazon-SES, greenapi, etc.). Blocks '/', '\\', '.', NUL — i.e. any traversal.
+        if ($provider === '' || !preg_match('/^[A-Za-z0-9_-]+$/', $provider)) { return null; }
+        $dir  = __DIR__ . '/../../lib/notifications/' . $channel;
+        $path = $dir . '/' . $provider . '.php';
+        if (!is_file($path)) { return null; }
+        // Defence-in-depth: the resolved real path must still be inside the channel dir.
+        $realDir  = realpath($dir);
+        $realPath = realpath($path);
+        if ($realDir === false || $realPath === false || strpos($realPath, $realDir . DIRECTORY_SEPARATOR) !== 0) {
+            return null;
+        }
+        return $realPath;
+    }
+}
+
+/**
  * Ensure app_settings exists and has usable JSON defaults.
  * Also migrates legacy typo column app_settions when present.
  */
@@ -203,6 +236,12 @@ $router->get(admin.'/settings', function () use ($SECURE,$db) {
 $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
     ADMIN_AUTH();
     admin_require($db, 'settings', 'edit');
+    // CSRF: this form POST rewrites ALL core site settings (branding, URLs, provider
+    // configs/credentials, offline toggle). It previously carried only the stub
+    // `form_token` (verifyFormToken() always returns true — see CLAUDE.md §11.4), i.e.
+    // NO real protection. Validate the real token the form now sends (hidden field +
+    // the X-CSRF-TOKEN header app.js adds). guard() dies 403 on a bad/absent token.
+    CSRF::guard();
 
     try {
         ensureAppSettingsColumn($db);
@@ -545,8 +584,8 @@ $router->post(admin.'/update-settings', function () use ($SECURE,$db) {
         $emailProviderWarning = '';
         $activeEmailProvider = $settingsData['email_provider'] ?? '';
         if ($activeEmailProvider !== '') {
-            $providerFile = __DIR__ . '/../../lib/notifications/email/' . $activeEmailProvider . '.php';
-            if (file_exists($providerFile)) {
+            $providerFile = _notificationProviderFile('email', (string) $activeEmailProvider);
+            if ($providerFile !== null) {
                 require_once $providerFile;
                 $providerClass = ucfirst($activeEmailProvider) . 'Provider';
                 if (class_exists($providerClass)) {
@@ -697,9 +736,9 @@ $router->post('/admin/test-email', function() use ($db) {
             exit;
         }
 
-        $providerFile = __DIR__ . '/../../lib/notifications/email/' . $emailProvider . '.php';
+        $providerFile = _notificationProviderFile('email', (string) $emailProvider);
 
-        if (!file_exists($providerFile)) {
+        if ($providerFile === null) {
             echo json_encode(['success' => false, 'message' => 'Email provider not found: ' . $emailProvider]);
             exit;
         }
@@ -775,9 +814,9 @@ $router->post('/admin/test-whatsapp', function() use ($db) {
             exit;
         }
 
-        $providerFile = __DIR__ . '/../../lib/notifications/whatsapp/' . $whatsappProvider . '.php';
+        $providerFile = _notificationProviderFile('whatsapp', (string) $whatsappProvider);
 
-        if (!file_exists($providerFile)) {
+        if ($providerFile === null) {
             echo json_encode(['success' => false, 'message' => 'WhatsApp provider not found: ' . $whatsappProvider]);
             exit;
         }
@@ -860,9 +899,9 @@ $router->post('/admin/test-sms', function() use ($db) {
             exit;
         }
 
-        $providerFile = __DIR__ . '/../../lib/notifications/sms/' . $smsProvider . '.php';
+        $providerFile = _notificationProviderFile('sms', (string) $smsProvider);
 
-        if (!file_exists($providerFile)) {
+        if ($providerFile === null) {
             echo json_encode(['success' => false, 'message' => 'SMS provider not found: ' . $smsProvider]);
             exit;
         }
@@ -937,9 +976,9 @@ $router->post('/admin/test-push', function() use ($db) {
         $pushProvider = $input['push_provider'] ?? 'pusher';
         $providerConfig = $input['provider_config'] ?? [];
 
-        $providerFile = __DIR__ . '/../../lib/notifications/push/' . $pushProvider . '.php';
+        $providerFile = _notificationProviderFile('push', (string) $pushProvider);
 
-        if (!file_exists($providerFile)) {
+        if ($providerFile === null) {
             echo json_encode(['success' => false, 'message' => 'Push provider not found']);
             exit;
         }

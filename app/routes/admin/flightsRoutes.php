@@ -451,6 +451,7 @@ $router->post(admin.'/flights/edit/(.*)', function ($id) use ($SECURE,$db) {
     // ADMIN AUTH CHECK
     ADMIN_AUTH();
     admin_require($db, 'flights', 'edit');
+    CSRF::guard(); // state-changing admin POST — matches the /flights/add + /flights/delete siblings
 
     $flight_id = intval($id);
     

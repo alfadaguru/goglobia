@@ -133,6 +133,15 @@ $router->post(admin.'/settings/gateway/update/(\d+)', function ($gatewayId) use 
             echo json_encode(['success' => false, 'message' => 'Authentication required']);
             exit;
         }
+        // CSRF: this ajax branch toggles gateway status/dev_mode — it was unguarded
+        // while the sibling form branch (below, ~line 180) and /gateway/ajax-update
+        // both validate. Accepts the POST token or the X-CSRF-TOKEN header app.js sends.
+        if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
+            ob_clean();
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => 'Invalid security token']);
+            exit;
+        }
 
         $field = $_POST['field'] ?? '';
         $value = $_POST['value'] ?? '';

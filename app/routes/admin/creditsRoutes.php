@@ -60,20 +60,27 @@ $router->post(admin.'/finance/credits', function () use ($SECURE,$db) {
         $errors[] = T::description_max_length;
     }
 
-    // CHECK IF USER EXISTS AND GET CURRENT CREDITS
+    // CHECK IF USER EXISTS
     $user = null;
     if ($user_id > 0) {
-        $user = $db->get('users', ['user_id', 'credit_limits'], ['user_id' => $user_id]);
+        $user = $db->get('users', ['user_id'], ['user_id' => $user_id]);
         if (!$user) {
             $errors[] = T::user_not_exist;
         }
     }
 
-    // ADDITIONAL VALIDATION FOR DEBIT TRANSACTIONS
+    // DEBIT SUFFICIENCY: this screen tops up / draws down the WALLET (owner decision:
+    // wallet-only — credit_limits is the credit LINE, managed elsewhere, NOT touched
+    // here). Validate the debit against the authoritative wallet balance, and let
+    // wallet_spend() be the final guard (it re-checks under a row lock).
     if ($transaction_type === 'debit' && $user) {
-        // SIRF CREDIT_LIMITS CHECK KARENGE (AVAILABLE BALANCE)
-        if ($credits > $user['credit_limits']) {
-            $errors[] = T::insufficient_credits . " " . T::available . ": {$user['credit_limits']}, " . T::requested . ": {$credits}";
+        if (!function_exists('wallet_balance')) {
+            require_once dirname(__DIR__, 2) . '/lib/wallet.php';
+        }
+        $currencyForCheck = $_POST['currency'] ?? $db->get('currencies', 'name', ['default' => '1']);
+        $walletBal = function_exists('wallet_balance') ? (float) wallet_balance($db, (string) $user_id, (string) $currencyForCheck) : 0.0;
+        if ($credits > $walletBal) {
+            $errors[] = T::insufficient_credits . " " . T::available . ": {$walletBal}, " . T::requested . ": {$credits}";
         }
     }
 
@@ -120,36 +127,16 @@ $router->post(admin.'/finance/credits', function () use ($SECURE,$db) {
         $result = $spineOk;
 
         if ($result) {
+            // Money has already moved on the wallet SPINE above (wallet_refund/
+            // wallet_spend) — that is the single source of truth. Owner decision:
+            // this screen tops up / draws down the WALLET only. It must NOT also
+            // mutate users.credit_limits — that column is the agent's credit LINE
+            // (overdraft headroom, read by wallet_apply), a DIFFERENT lever managed
+            // on its own control. The old code moved BOTH from one action, so a
+            // "credit 1000" gave +1000 balance AND +1000 overdraft room (double
+            // benefit); a debit silently shrank the credit line. Removed.
             // Keep the agent's member tier in step with the new lifetime balance.
             if (function_exists('agent_recompute_tier')) { agent_recompute_tier($db, (string) $user_id); }
-            // UPDATE USER'S CREDIT_LIMITS BASED ON TRANSACTION TYPE
-            if ($transaction_type === 'credit') {
-                $new_credit_limits = $user['credit_limits'] + $credits;
-            } else {
-                // DEBIT MEIN BHI CREDIT_LIMITS KO MINUS KARENGE
-                $new_credit_limits = $user['credit_limits'] - $credits;
-                if ($new_credit_limits < 0) {
-                    $new_credit_limits = 0;
-                }
-            }
-
-            $update_data = ['credit_limits' => $new_credit_limits];
-
-            // If this is a RECHARGE (credit), reset the usage date
-            if ($transaction_type === 'credit') {
-                $update_data['first_credit_usage_date'] = null;
-            }
-
-            // If this is the FIRST credit usage (debit), record the date
-            // This date is used by the cron job to calculate when payment is due
-            if ($transaction_type === 'debit') {
-                $existing_usage = $db->get('users', 'first_credit_usage_date', ['user_id' => $user_id]);
-                if (empty($existing_usage)) {
-                    $update_data['first_credit_usage_date'] = date('Y-m-d H:i:s');
-                }
-            }
-
-            $db->update('users', $update_data, ['user_id' => $user_id]);
 
             $_SESSION['message'] = [
                 'type' => 'success',

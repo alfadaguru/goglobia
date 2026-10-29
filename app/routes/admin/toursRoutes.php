@@ -323,6 +323,7 @@ $router->get(admin.'/tours/edit/(.*)', function ($id) use ($SECURE,$db) {
 $router->post(admin.'/tours/edit/(.*)', function ($id) use ($SECURE,$db) {
     ADMIN_AUTH();
     admin_require($db, 'tours', 'edit');
+    CSRF::guard(); // state-changing admin POST — matches the /tours/add + /tours/delete siblings
     $tour_id = intval($id);
     
     $tour = $db->get('tours', '*', ['id' => $tour_id]);

@@ -17,8 +17,17 @@ if ($user_id) {
         'credit_payment_days', 'first_credit_usage_date', 'credit_usage_reminder_percent', 'role'
     ], ['user_id' => $user_id]);
     if ($user) {
-        $credit_limits = $user['credit_limits'];
-        $available_credit = $credit_limits;
+        $credit_limits = $user['credit_limits']; // the credit LINE (overdraft ceiling) — shown separately
+        // AVAILABLE = the authoritative WALLET balance (the spine), not credit_limits.
+        // This screen tops up / draws down the wallet (owner decision); credit_limits
+        // is a different lever. Previously this mislabeled the credit line as the balance.
+        if (!function_exists('wallet_balance')) {
+            @require_once dirname(__DIR__, 3) . '/lib/wallet.php';
+        }
+        $walletCurrency = $db->get('currencies', 'name', ['default' => '1']);
+        $available_credit = function_exists('wallet_balance')
+            ? (float) wallet_balance($db, (string) $user_id, (string) $walletCurrency)
+            : (float) $credit_limits;
         $payment_days = intval($user['credit_payment_days'] ?? 0);
         $first_usage_date = $user['first_credit_usage_date'] ?? null;
         $usage_percent = max(0, min(100, intval($user['credit_usage_reminder_percent'] ?? 0)));

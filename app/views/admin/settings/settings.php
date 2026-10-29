@@ -307,7 +307,7 @@ $messageSuccess = false;
             <div class="flex-1 min-w-0 w-full">
 
         <form id="settings-form" action="update-settings" method="post" enctype="multipart/form-data">
-            <input type="hidden" name="form_token" value="<?= hash('sha256', session_id() . time()) ?>">
+            <?= CSRF::field() ?><!-- real CSRF token; replaces the old no-op form_token stub (CLAUDE.md §11.4) -->
             <input type="hidden" name="current_tab" id="currentTabInput" value="general">
             <!-- General Tab — visible by default; JS hides it when another tab is selected -->
             <div id="tab-general" class="tab-content">
