@@ -137,7 +137,10 @@
             $cls = $tileCls[$st] ?? 'bg-gray-50 border-gray-200 text-gray-700';
             $occ = (string) ($rm['occupant_name'] ?? '');
             $occInv = (string) ($rm['occupant_invoice'] ?? '');
-            $tip = 'Room ' . ($rm['room_number'] ?? '')
+            $rtype = (string) ($rm['room_type'] ?? '');
+            // How a front desk names a room: "Deluxe Room · 101" (type + number).
+            $roomLabel = ($rtype !== '' ? $rtype . ' · ' : '') . (string) ($rm['room_number'] ?? '');
+            $tip = $roomLabel
                  . ($rm['floor'] !== '' ? ' · Floor ' . $rm['floor'] : '')
                  . ' · ' . ($statusLabel[$st] ?? $st)
                  . ($occ !== '' ? ' · ' . $occ . ' (in-house)' : ' · vacant')
@@ -151,10 +154,10 @@
               $isOOO = ($st === 'out_of_order');
               if ($occInv !== '') {
                   $tileHref = $actionBase . rawurlencode($occInv);      // the reservation
-                  $tileTitle = 'Open ' . ($occ !== '' ? $occ : 'guest') . '’s reservation';
+                  $tileTitle = 'Open ' . ($occ !== '' ? $occ : 'guest') . '’s reservation — ' . $roomLabel;
               } elseif ($canEditRooms && !$isOOO && $stayFilter > 0) {
                   $tileHref = root . 'supplier/stays/' . $stayFilter . '/reservations/new?physical_room_id=' . (int) $rm['id'];
-                  $tileTitle = 'Reserve room ' . ($rm['room_number'] ?? '');
+                  $tileTitle = 'Reserve ' . $roomLabel;
               } else {
                   $tileHref = '';                                       // not clickable
                   $tileTitle = '';
@@ -171,6 +174,7 @@
                 <a href="<?= htmlspecialchars($tileHref) ?>" title="<?= htmlspecialchars($tileTitle) ?>"
                    class="block border rounded-lg px-2 py-2 text-center transition hover:ring-2 hover:ring-offset-1 hover:ring-violet-300 cursor-pointer <?= $cls ?>">
                   <div class="text-sm font-bold tabular-nums leading-tight"><?= htmlspecialchars((string) ($rm['room_number'] ?? '—')) ?></div>
+                  <?php if ($rtype !== ''): ?><div class="text-[9px] uppercase tracking-wide opacity-70 leading-tight truncate"><?= htmlspecialchars($rtype) ?></div><?php endif; ?>
                   <div class="text-[10px] leading-tight truncate"><?= $occ !== '' ? htmlspecialchars($occ) : '<span class="opacity-60">reserve →</span>' ?></div>
                   <?php if ($occInv !== ''): ?><span class="material-symbols-outlined text-[13px] absolute top-1 right-1 opacity-70">person</span>
                   <?php else: ?><span class="material-symbols-outlined text-[13px] absolute top-1 right-1 opacity-50">add</span><?php endif; ?>
@@ -178,12 +182,13 @@
               <?php else: ?>
                 <div class="border rounded-lg px-2 py-2 text-center cursor-default <?= $cls ?>" tabindex="0">
                   <div class="text-sm font-bold tabular-nums leading-tight"><?= htmlspecialchars((string) ($rm['room_number'] ?? '—')) ?></div>
+                  <?php if ($rtype !== ''): ?><div class="text-[9px] uppercase tracking-wide opacity-70 leading-tight truncate"><?= htmlspecialchars($rtype) ?></div><?php endif; ?>
                   <div class="text-[10px] leading-tight truncate"><?= $occ !== '' ? htmlspecialchars($occ) : '<span class="opacity-60">' . ($isOOO ? 'out of order' : 'vacant') . '</span>' ?></div>
                 </div>
               <?php endif; ?>
               <!-- hover / focus details -->
               <div class="pointer-events-none group-hover:block group-focus-within:block hidden absolute z-30 left-1/2 -translate-x-1/2 mt-1 w-56 rounded-lg bg-gray-900 text-white text-xs shadow-xl p-3 space-y-1">
-                <div class="font-semibold">Room <?= htmlspecialchars((string) ($rm['room_number'] ?? '')) ?><?= $rm['floor'] !== '' ? ' · Floor ' . htmlspecialchars((string) $rm['floor']) : '' ?></div>
+                <div class="font-semibold"><?= $rtype !== '' ? htmlspecialchars($rtype) . ' · ' : '' ?><?= htmlspecialchars((string) ($rm['room_number'] ?? '')) ?><?= $rm['floor'] !== '' ? ' · Floor ' . htmlspecialchars((string) $rm['floor']) : '' ?></div>
                 <div>Status: <span class="font-medium"><?= htmlspecialchars($statusLabel[$st] ?? $st) ?></span></div>
                 <div>Guest: <?= $occ !== '' ? htmlspecialchars($occ) : '<span class="opacity-70">vacant</span>' ?></div>
                 <?php if ($rm['notes'] !== ''): ?><div class="opacity-80">Note: <?= htmlspecialchars((string) $rm['notes']) ?></div><?php endif; ?>

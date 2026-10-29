@@ -51,7 +51,7 @@
             <?php endif; ?>
             <?php foreach ($fl['rows'] as $row): $rm = $row['room']; ?>
               <tr>
-                <td class="sticky left-0 bg-white px-3 py-1.5 font-medium text-gray-800 border-b border-gray-50 whitespace-nowrap"><?= htmlspecialchars((string) $rm['room_number']) ?></td>
+                <td class="sticky left-0 bg-white px-3 py-1.5 border-b border-gray-50 whitespace-nowrap"><span class="font-medium text-gray-800"><?= htmlspecialchars((string) $rm['room_number']) ?></span><?php if (!empty($rm['room_type'])): ?> <span class="text-gray-400 text-[11px]"><?= htmlspecialchars((string) $rm['room_type']) ?></span><?php endif; ?></td>
                 <?php foreach ($dates as $d): $cell = $row['cells'][$d] ?? null; ?>
                   <td class="px-1 py-1 border-b border-gray-50 text-center">
                     <?php if ($cell): ?>

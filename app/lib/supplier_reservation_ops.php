@@ -839,10 +839,21 @@ if (!function_exists('resv_tape_chart')) {
         $out['dates'] = $dates;
         // Physical rooms for this property.
         $phys = [];
-        try { $phys = $db->select('stays_physical_rooms', ['id', 'room_number', 'floor'],
+        try { $phys = $db->select('stays_physical_rooms', ['id', 'room_number', 'floor', 'room_id'],
             ['stay_id' => $stayId, 'active' => 1, 'ORDER' => ['room_number' => 'ASC']]) ?: []; } catch (\Throwable $e) {}
+        // Resolve each room's TYPE NAME (Deluxe / King / …) so the rack reads "Deluxe D-12".
+        $typeByRoomId = [];
+        try {
+            $rtNames = [];
+            foreach ($db->select('stays_settings', ['id', 'name'], ['setting_type' => 'room_type']) ?: [] as $rt) { $rtNames[(int) $rt['id']] = (string) $rt['name']; }
+            $ridSet = array_values(array_unique(array_filter(array_map(fn($p) => (int) ($p['room_id'] ?? 0), $phys))));
+            if (!empty($ridSet)) { foreach ($db->select('stays_rooms', ['id', 'room_type_id'], ['id' => $ridSet]) ?: [] as $sr) { $typeByRoomId[(int) $sr['id']] = $rtNames[(int) $sr['room_type_id']] ?? ''; } }
+        } catch (\Throwable $e) {}
         $cellsByRoom = [];
-        foreach ($phys as $p) { $cellsByRoom[(int) $p['id']] = ['room' => $p, 'cells' => array_fill_keys($dates, null)]; }
+        foreach ($phys as $p) {
+            $p['room_type'] = $typeByRoomId[(int) ($p['room_id'] ?? 0)] ?? '';
+            $cellsByRoom[(int) $p['id']] = ['room' => $p, 'cells' => array_fill_keys($dates, null)];
+        }
         $end = $dates[count($dates) - 1];
         foreach ($reservations as $r) {
             if (strtolower((string) ($r['booking_status'] ?? '')) === 'cancelled') { continue; }

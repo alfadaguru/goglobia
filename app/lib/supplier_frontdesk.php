@@ -205,10 +205,27 @@ if (!function_exists('fd_room_board')) {
         if ($stayId <= 0) { return []; }
         try {
             $rooms = $db->select('stays_physical_rooms',
-                ['id', 'room_number', 'floor', 'hk_status', 'notes'],
+                ['id', 'room_number', 'floor', 'hk_status', 'notes', 'room_id'],
                 ['stay_id' => $stayId, 'active' => 1, 'ORDER' => ['floor' => 'ASC', 'room_number' => 'ASC']]) ?: [];
         } catch (\Throwable $e) { error_log('fd_room_board: ' . $e->getMessage()); return []; }
         if (empty($rooms)) { return []; }
+
+        // Resolve each physical room's TYPE NAME (Deluxe / King / …) so the board can show
+        // it alongside the number — the way front desks identify rooms ("Deluxe 101").
+        // Path: stays_physical_rooms.room_id -> stays_rooms.room_type_id -> stays_settings.name.
+        $typeByRoomId = [];
+        try {
+            $rtNames = [];
+            foreach ($db->select('stays_settings', ['id', 'name'], ['setting_type' => 'room_type']) ?: [] as $rt) {
+                $rtNames[(int) $rt['id']] = (string) $rt['name'];
+            }
+            $ridSet = array_values(array_unique(array_filter(array_map(fn($r) => (int) ($r['room_id'] ?? 0), $rooms))));
+            if (!empty($ridSet)) {
+                foreach ($db->select('stays_rooms', ['id', 'room_type_id'], ['id' => $ridSet]) ?: [] as $sr) {
+                    $typeByRoomId[(int) $sr['id']] = $rtNames[(int) $sr['room_type_id']] ?? '';
+                }
+            }
+        } catch (\Throwable $e) { error_log('fd_room_board types: ' . $e->getMessage()); }
 
         // Which rooms are currently occupied (checked-in) + by whom.
         $inUse = function_exists('hk_rooms_in_use') ? hk_rooms_in_use($db, $stayId) : [];
@@ -228,6 +245,7 @@ if (!function_exists('fd_room_board')) {
             $out[] = [
                 'id'               => $prid,
                 'room_number'      => (string) ($r['room_number'] ?? ''),
+                'room_type'        => $typeByRoomId[(int) ($r['room_id'] ?? 0)] ?? '',
                 'floor'            => (string) ($r['floor'] ?? ''),
                 'hk_status'        => (string) ($r['hk_status'] ?? 'clean'),
                 'notes'            => (string) ($r['notes'] ?? ''),
