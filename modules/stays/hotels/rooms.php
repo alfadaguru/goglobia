@@ -14,6 +14,15 @@ $router->post('stays/hotels/rooms', function() use ($db) {
         $__inv = __DIR__ . '/../../../app/lib/stays_inventory.php';
         if (is_file($__inv)) { require_once $__inv; }
     }
+    // MODULE 06 yield rate-rules live in supplier_rates.php (self-contained, functions
+    // are function_exists-guarded, no app/lib/functions.php dependency). The AUTHORITATIVE
+    // pricer (stays_recompute_net) applies these per night when charging; the customer
+    // display MUST apply the identical adjustment or an upward rule overcharges vs the
+    // shown price (audit #5). Load it here so the display and the charge agree.
+    if (!function_exists('rate_rules_adjust_nightly')) {
+        $__rates = __DIR__ . '/../../../app/lib/supplier_rates.php';
+        if (is_file($__rates)) { require_once $__rates; }
+    }
 
     // Start output buffering
     ob_start();
@@ -130,6 +139,20 @@ $router->post('stays/hotels/rooms', function() use ($db) {
             }
         }
 
+        // ── MODULE 06 yield rate-rules for the displayed price (audit #5) ──────
+        // The same rules + context stays_recompute_net uses to CHARGE, so the shown
+        // price matches the charged price. Empty rules → no change (legacy pricing
+        // preserved exactly). los/lead_days computed identically to the pricer.
+        $rateRules = [];
+        $losNights = count($stayDates);
+        $leadDays  = !empty($stayDates)
+            ? max(0, (int) floor((strtotime($stayDates[0]) - strtotime(date('Y-m-d'))) / 86400))
+            : 0;
+        if (!empty($stayDates) && function_exists('rate_rules_for_stay')) {
+            try { $rateRules = rate_rules_for_stay($db, (int) $hotelId); }
+            catch (Exception $e) { $rateRules = []; }
+        }
+
         // Fetch all rooms for this hotel
         $hotelRooms = $db->select('stays_rooms', '*', [
             'stay_id' => $hotelId,
@@ -223,6 +246,19 @@ $router->post('stays/hotels/rooms', function() use ($db) {
                                 foreach ($stayDates as $stayDate) {
                                     $calKey   = $room['id'] . '_' . $optionId . '_' . $stayDate;
                                     $nightPx  = isset($calendarRates[$calKey]) ? $calendarRates[$calKey] : $basePrice;
+                                    // Apply the same yield rules the charge uses, so the
+                                    // displayed price == the charged price (audit #5). Same
+                                    // context keys as stays_recompute_net; occupancy-based
+                                    // rules no-op here (occupancy_pct=null) exactly as they
+                                    // do in the pricer's cheap path, keeping them consistent.
+                                    if (!empty($rateRules) && function_exists('rate_rules_adjust_nightly')) {
+                                        $nightPx = rate_rules_adjust_nightly($rateRules, (float) $nightPx, [
+                                            'room_id' => (int) $room['id'], 'option_id' => (int) $optionId,
+                                            'los' => $losNights, 'lead_days' => $leadDays,
+                                            'weekday' => (string) (int) date('w', strtotime($stayDate)),
+                                            'occupancy_pct' => null,
+                                        ]);
+                                    }
                                     $totalRaw += $nightPx;
                                     $nightMk   = MARKUP($nightPx, $module, $db, $hotelCurrency, $currency);
                                     $totalMarked += $nightMk['price'];

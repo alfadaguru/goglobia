@@ -143,6 +143,13 @@
 $router->post('stays/hotels/search', function() use ($db) {
     // search_guard_v2: session lock release + configurable timeouts for long supplier requests
     @set_time_limit(30);
+    // MODULE 06 yield rate-rules (audit #5): the search card's "from" estimate must apply
+    // the same upward/downward rules the booking charges, or it under/over-quotes. Load the
+    // self-contained rates lib idempotently (the gateway doesn't load app/lib/functions.php).
+    if (!function_exists('rate_rules_adjust_nightly')) {
+        $__rates = dirname(__DIR__, 3) . '/app/lib/supplier_rates.php';
+        if (is_file($__rates)) { require_once $__rates; }
+    }
     $connectTimeout = defined('SUPPLIER_CONNECT_TIMEOUT') ? SUPPLIER_CONNECT_TIMEOUT : 10;
     $requestTimeout = defined('SUPPLIER_REQUEST_TIMEOUT') ? SUPPLIER_REQUEST_TIMEOUT : 30;
     $searchSessionData = [];
@@ -388,6 +395,17 @@ $router->post('stays/hotels/search', function() use ($db) {
         $number_of_nights = 1;
     }
 
+    // Rate-rule context for the search estimate (audit #5). los = nights; lead_days =
+    // days from today to check-in; weekday = the check-in night (representative — search
+    // prices a flat per-night, unlike the per-night detail pricer). Same keys the charge
+    // uses. $checkinYmd stays '' when dates are absent → rules skipped (legacy behaviour).
+    $checkinYmd = isset($checkin_date) ? (string) $checkin_date : '';
+    $searchLos  = (int) $number_of_nights;
+    $searchLead = $checkinYmd !== ''
+        ? max(0, (int) floor((strtotime($checkinYmd) - strtotime(date('Y-m-d'))) / 86400))
+        : 0;
+    $searchWeekday = $checkinYmd !== '' ? (string) (int) date('w', strtotime($checkinYmd)) : '';
+
     // ========================================
     // DATABASE QUERY - Fetch hotels from stays table with filters
     // ========================================
@@ -466,6 +484,10 @@ $router->post('stays/hotels/search', function() use ($db) {
         // Each row = one room type (e.g., "Standard Twin", "Deluxe Suite")
         $roomsData = $db->select('stays_rooms', '*', ['stay_id' => $hotel['id'], 'status' => 1]);
 
+        // MODULE 06 yield rate-rules for THIS hotel (audit #5). Empty → no change.
+        $hotelRateRules = ($checkinYmd !== '' && function_exists('rate_rules_for_stay'))
+            ? rate_rules_for_stay($db, (int) $hotel['id']) : [];
+
         $groupedRoomOptions = [];
 
         foreach ($roomsData as $room) {
@@ -540,6 +562,20 @@ $router->post('stays/hotels/search', function() use ($db) {
                     foreach ($room_options as $optionIndex => $option) {
                         if (isset($option['price']) && $option['price'] > 0) {
                             $price_per_night_per_room = $option['price'];  // Base price from DB
+
+                            // Apply the same yield rules the charge uses, so the card's
+                            // "from" estimate doesn't under/over-quote vs the booked price
+                            // (audit #5). Occupancy rules no-op (occupancy_pct=null), as in
+                            // the pricer's cheap path. Guarded on dates + loaded engine.
+                            if (!empty($hotelRateRules) && function_exists('rate_rules_adjust_nightly')) {
+                                $__oid = isset($option['option_id']) && (int) $option['option_id'] > 0
+                                    ? (int) $option['option_id'] : ($optionIndex + 1);
+                                $price_per_night_per_room = rate_rules_adjust_nightly($hotelRateRules, (float) $price_per_night_per_room, [
+                                    'room_id' => (int) $room['id'], 'option_id' => $__oid,
+                                    'los' => $searchLos, 'lead_days' => $searchLead,
+                                    'weekday' => $searchWeekday, 'occupancy_pct' => null,
+                                ]);
+                            }
 
                             // Ensure hotel currency defaults to USD if not set
                             $hotelCurrency = !empty($hotel['currency']) ? $hotel['currency'] : 'USD';
