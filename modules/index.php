@@ -115,6 +115,12 @@ $db = new Medoo([
 // Initialize PDO globally for modules using direct PDO queries
 $pdo = $db->pdo;
 
+// Expose the gateway's DB as $GLOBALS['db'] so shared helpers that look there
+// work inside a /modules/* sub-request too. Without this, functions like
+// supplierApiLog() (which read $GLOBALS['db']) silently no-op in the gateway —
+// e.g. supplier API-call logging from a flight issue/cancel was never persisted.
+$GLOBALS['db'] = $db;
+
 // ============================================================================
 // SECURITY LAYER 1: RATE LIMITER & ORIGIN VALIDATION
 // ============================================================================

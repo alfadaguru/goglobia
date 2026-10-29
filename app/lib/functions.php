@@ -7575,7 +7575,7 @@ if (!function_exists('supplierApiLog')) {
      *
      *   supplierApiLog('adivaha','flights','flights/book',$req,$res,409,'...', 'INV123');
      */
-    function supplierApiLog(string $supplier, string $service, string $endpoint, $request, $response, $httpCode = null, $error = null, ?string $invoiceId = null): void
+    function supplierApiLog(string $supplier, string $service, string $endpoint, $request, $response, $httpCode = null, $error = null, ?string $invoiceId = null, $dbArg = null): void
     {
         // Redact anything key/token/secret/authorization-shaped from req + res.
         $redact = function ($v) {
@@ -7596,7 +7596,12 @@ if (!function_exists('supplierApiLog')) {
             'error'      => $error !== null ? mb_substr((string) $error, 0, 2000) : null,
             'created_at' => date('Y-m-d H:i:s'),
         ];
-        $db = $GLOBALS['db'] ?? null;
+        // The /modules/* supplier gateway runs its OWN bootstrap with a LOCAL $db
+        // and NEVER sets $GLOBALS['db'] — so in a supplier issue/cancel sub-request
+        // $GLOBALS['db'] is null and the write would silently fall back to
+        // error_log (why the supplier log appeared empty). Accept an explicit $db
+        // from the caller (adivahaLog passes the gateway's $db) and prefer it.
+        $db = $dbArg ?: ($GLOBALS['db'] ?? null);
         if ($db) {
             try {
                 $db->insert('supplier_api_log', $row);
