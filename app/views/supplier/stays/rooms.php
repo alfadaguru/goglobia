@@ -360,7 +360,14 @@ foreach ($rooms as $r) {
   </details>
 
   <script>
-    function physRooms(floorsByBuilding) {
+    // Register the physical-rooms editor component the way the rest of the app does
+    // (Alpine.data via alpine:init) instead of a bare global function. Alpine loads
+    // deferred; a bare `function physRooms(){}` could be evaluated by Alpine BEFORE the
+    // inline script defined it -> "physRooms is not defined" -> the whole editor silently
+    // dead, so the Edit buttons did nothing. Registering on alpine:init guarantees the
+    // component exists when Alpine resolves x-data. A plain re-declared global is kept as
+    // a fallback for any code path that references it directly.
+    function physRoomsComponent(floorsByBuilding) {
       return {
         floorsByBuilding: floorsByBuilding || {},
         editId: null,
@@ -384,6 +391,12 @@ foreach ($rooms as $r) {
         },
       };
     }
+    // Make it available as an Alpine component (resolves regardless of script order) AND
+    // as a global function (x-data='physRooms(...)' calls it directly).
+    window.physRooms = physRoomsComponent;
+    document.addEventListener('alpine:init', function () {
+      window.Alpine.data('physRooms', physRoomsComponent);
+    });
   </script>
   <?php endif; ?>
 
