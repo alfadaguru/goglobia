@@ -1705,3 +1705,68 @@ if (!function_exists('_reconcile_block')) {
         return ['ok' => false, 'reason' => $reason, 'paid' => $paid, 'supplier' => $supplier, 'delta_pct' => round($deltaPct, 2)];
     }
 }
+
+// ============================================================================
+// SUPPLIER API LOG — MODULES-GATEWAY copy.
+//
+// supplierApiLog() lives in app/lib/functions.php, which this gateway does NOT
+// load (see the note at the top of this file). So inside a supplier issue/cancel
+// sub-request, function_exists('supplierApiLog') was ALWAYS false and the raw
+// supplier request/response was never persisted — the admin "Supplier log" panel
+// stayed empty even though the /flights/book call (and its rejection) happened.
+//
+// This is the same implementation as the functions.php copy (self-contained:
+// only $GLOBALS['db'] + standard PHP; $GLOBALS['db'] is set in modules/index.php).
+// Guarded so there is no redeclare if functions.php is ever loaded here.
+// ============================================================================
+if (!function_exists('supplierApiLog')) {
+    function supplierApiLog(string $supplier, string $service, string $endpoint, $request, $response, $httpCode = null, $error = null, ?string $invoiceId = null, $dbArg = null): void
+    {
+        $redact = function ($v) {
+            $s = is_string($v) ? $v : json_encode($v, JSON_UNESCAPED_SLASHES);
+            if (!is_string($s)) { return ''; }
+            $s = preg_replace('/("?(?:api[_-]?key|token|secret|authorization|bearer|password|x-api-key|access[_-]?token)"?\s*[:=]\s*")[^"]*(")/i', '$1***REDACTED***$2', $s);
+            $s = preg_replace('/(Bearer\s+)[A-Za-z0-9._\-]+/i', '$1***REDACTED***', $s);
+            return mb_substr($s, 0, 60000);
+        };
+        $row = [
+            'invoice_id' => $invoiceId !== null ? mb_substr($invoiceId, 0, 64) : null,
+            'supplier'   => mb_substr($supplier, 0, 40),
+            'service'    => mb_substr($service, 0, 32),
+            'endpoint'   => mb_substr($endpoint, 0, 191),
+            'http_code'  => $httpCode !== null ? (int) $httpCode : null,
+            'request'    => $redact($request),
+            'response'   => $redact($response),
+            'error'      => $error !== null ? mb_substr((string) $error, 0, 2000) : null,
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+        $db = $dbArg ?: ($GLOBALS['db'] ?? null);
+        if ($db) {
+            try { $db->insert('supplier_api_log', $row); return; }
+            catch (\Throwable $e) {
+                try {
+                    $db->query("CREATE TABLE IF NOT EXISTS `supplier_api_log` (
+                        `id` bigint(20) NOT NULL AUTO_INCREMENT,
+                        `invoice_id` varchar(64) DEFAULT NULL,
+                        `supplier` varchar(40) DEFAULT NULL,
+                        `service` varchar(32) DEFAULT NULL,
+                        `endpoint` varchar(191) DEFAULT NULL,
+                        `http_code` int(11) DEFAULT NULL,
+                        `request` mediumtext DEFAULT NULL,
+                        `response` mediumtext DEFAULT NULL,
+                        `error` text DEFAULT NULL,
+                        `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+                        PRIMARY KEY (`id`),
+                        KEY `idx_invoice` (`invoice_id`),
+                        KEY `idx_supplier` (`supplier`),
+                        KEY `idx_created` (`created_at`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+                    $db->insert('supplier_api_log', $row);
+                    return;
+                } catch (\Throwable $e2) { error_log('supplierApiLog(gateway) after create: ' . $e2->getMessage()); }
+            }
+        }
+        error_log(sprintf('[SUPPLIER-LOG][%s/%s] %s http=%s inv=%s err=%s',
+            $supplier, $service, $endpoint, (string) $httpCode, (string) $invoiceId, (string) $error));
+    }
+}
