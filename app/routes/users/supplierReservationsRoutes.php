@@ -932,7 +932,15 @@ if (!function_exists('_supplier_resv_room_picker')) {
     {
         $out = [];
         try {
-            $rooms = $db->select('stays_rooms', ['id', 'room_type_id', 'room_options'], ['stay_id' => $stayId, 'status' => 1]) ?: [];
+            // Pull each sellable room's OWN descriptive fields, not just its shared room_type.
+            // A property typically has several distinct rooms under one type (e.g. five
+            // different "Single Room" records — Standard King, Deluxe Queen, …), each with
+            // its own name, bed/view and price. Labelling the picker by room_type alone makes
+            // them indistinguishable at the desk, so we label by the room's own room_name
+            // (falling back to the type name) and tag the type + a bed/view hint for context.
+            $rooms = $db->select('stays_rooms',
+                ['id', 'room_type_id', 'room_name', 'bed_config', 'view_type', 'room_options'],
+                ['stay_id' => $stayId, 'status' => 1]) ?: [];
             $roomTypes = [];
             try { foreach ($db->select('stays_settings', ['id', 'name'], ['setting_type' => 'room_type']) ?: [] as $rt) { $roomTypes[(int) $rt['id']] = $rt['name']; } } catch (\Throwable $e) {}
             foreach ($rooms as $r) {
@@ -949,9 +957,23 @@ if (!function_exists('_supplier_resv_room_picker')) {
                     $optOut[] = ['option_id' => $oid, 'label' => $label, 'price' => $price];
                 }
                 if (empty($optOut)) { continue; }
+                $typeName = $roomTypes[(int) $r['room_type_id']] ?? ('Room type ' . (int) $r['room_type_id']);
+                $ownName  = trim((string) ($r['room_name'] ?? ''));
+                // Primary label = the room's own name; fall back to the type when unnamed.
+                $primary  = $ownName !== '' ? $ownName : $typeName;
+                // A short distinguishing hint from the room's own attributes (bed / view),
+                // to further tell apart same-named rooms. Purely from stored data.
+                $bits = [];
+                $bed = trim((string) ($r['bed_config'] ?? '')); if ($bed !== '') { $bits[] = $bed; }
+                $view = trim((string) ($r['view_type'] ?? '')); if ($view !== '') { $bits[] = $view; }
                 $out[] = [
                     'room_id'   => $rid,
-                    'room_name' => $roomTypes[(int) $r['room_type_id']] ?? ('Room type ' . (int) $r['room_type_id']),
+                    // room_name is what the dropdown shows. Append the room TYPE as context when
+                    // it differs from the name so the operator still sees the category.
+                    'room_name' => $primary . (($ownName !== '' && $typeName !== '' && strcasecmp($ownName, $typeName) !== 0) ? ' · ' . $typeName : ''),
+                    'room_label'=> $primary,                       // the room's own name (for any UI that wants it bare)
+                    'room_type' => $typeName,                      // the category, exposed separately
+                    'room_hint' => $bits ? implode(' · ', $bits) : '',
                     'options'   => $optOut,
                 ];
             }

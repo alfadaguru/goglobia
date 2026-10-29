@@ -93,13 +93,20 @@
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div class="form-control">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Room type *</label>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Room *</label>
         <select name="room_id" id="roomSelect" required class="input">
           <option value="">Select a room…</option>
           <?php foreach ($picker as $p): ?>
-            <option value="<?= (int) $p['room_id'] ?>" <?= ($presetRoomTypeId > 0 && (int) $p['room_id'] === $presetRoomTypeId) ? 'selected' : '' ?>><?= htmlspecialchars((string) $p['room_name']) ?></option>
+            <?php
+              // Show the room's OWN name (+ its type as context); append a short bed/view
+              // hint so two same-named rooms are still distinguishable in the list.
+              $__opt = (string) $p['room_name'];
+              if (!empty($p['room_hint'])) { $__opt .= ' — ' . $p['room_hint']; }
+            ?>
+            <option value="<?= (int) $p['room_id'] ?>" <?= ($presetRoomTypeId > 0 && (int) $p['room_id'] === $presetRoomTypeId) ? 'selected' : '' ?>><?= htmlspecialchars($__opt) ?></option>
           <?php endforeach; ?>
         </select>
+        <p class="text-xs text-gray-400 mt-1">Each room is its own listing with its own rate — pick the exact room, not just the category.</p>
       </div>
       <div class="form-control">
         <label class="block text-sm font-medium text-gray-700 mb-1">Rate *</label>
