@@ -290,11 +290,17 @@ foreach ($rooms as $r) {
       <?php endif; ?>
 
       <!-- Single add / edit -->
-      <form :action="editId ? '<?= root ?>supplier/housekeeping/room/update' : '<?= root ?>supplier/housekeeping/add'"
-            method="POST" class="grid grid-cols-2 md:grid-cols-6 gap-2 items-end">
+      <form x-ref="physForm"
+            :action="editId ? '<?= root ?>supplier/housekeeping/room/update' : '<?= root ?>supplier/housekeeping/add'"
+            method="POST"
+            class="grid grid-cols-2 md:grid-cols-6 gap-2 items-end rounded-lg p-3 transition-colors"
+            :class="editId ? 'bg-violet-50 ring-1 ring-violet-200' : ''">
         <?= CSRF::tokenField() ?>
         <input type="hidden" name="stay_id" value="<?= $stayId ?>">
         <input type="hidden" name="phys_id" :value="editId || ''">
+        <div class="col-span-2 md:col-span-6" x-show="editId" x-cloak>
+          <p class="text-sm font-semibold text-violet-800">Editing room <span x-text="f.room_number"></span></p>
+        </div>
         <div class="form-control col-span-2 md:col-span-1"><label class="block text-xs text-gray-600 mb-1" x-text="editId ? 'Editing room' : 'Room type'"></label>
           <select name="room_id" class="input text-sm" x-model="f.room_id">
             <?php foreach ($rooms as $room): ?>
@@ -383,7 +389,15 @@ foreach ($rooms as $r) {
             floor_id: String(r.floor_id || '0'),
             wing: r.wing || '',
           };
-          this.$el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Scroll to the EDIT FORM itself (not the whole section — with a long room
+          // table, centering the section landed mid-table and the form stayed off-screen,
+          // so it looked like nothing happened). $nextTick so the form is in edit state first.
+          this.$nextTick(() => {
+            var form = this.$refs.physForm;
+            if (form && form.scrollIntoView) { form.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+            var first = form && form.querySelector('[name="room_number"]');
+            if (first && first.focus) { try { first.focus(); } catch (e) {} }
+          });
         },
         resetForm() {
           this.editId = null;
