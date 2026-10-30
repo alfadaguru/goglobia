@@ -537,6 +537,68 @@ $router->post('flights/sabre/issue', function() use ($db) {
             : 'PNR created; no ticket number in response (PNR-only or ticketing pending)'));
 
         // ========================================
+        // STEP 8c: PRICE-BEFORE-TICKET RECONCILE (customer-journey audit #13)
+        // ========================================
+        // Sabre's CreatePassengerNameRecordRQ books+prices+tickets in ONE
+        // irreversible call, so there is no safe pre-ticket reconcile in the
+        // default auto-ticket mode (owner decision 2026-10-30) — that mode relies
+        // on Sabre's own fare-change rejection at ticketing. BUT when the PCC runs
+        // in PNR-only mode (module c5='noticket' → $sabreAutoTicket=false, no
+        // AirTicketRQ sent), the PNR is created and PRICED but NOT ticketed yet, so
+        // the AirPrice total in THIS response is a genuine pre-ticket fare we can
+        // reconcile against what the customer paid — and hold for review before the
+        // ticket is ever issued. Fail-OPEN: only a confirmed adverse move holds; a
+        // missing/zero price (unknown response shape) never blocks the PNR.
+        if (!$sabreAutoTicket && !$isTicketed && function_exists('reconcilePostPaymentPrice')) {
+            // Probe the known OTA AirPrice total locations in the CreatePNR response.
+            $priceRoot = $responseData['CreatePassengerNameRecordRS'] ?? $responseData;
+            $airPriceRS = $priceRoot['AirPriceRS'] ?? $priceRoot['OTA_AirPriceRS'] ?? $responseData['AirPriceRS'] ?? null;
+            $itinTotal = null;
+            if (is_array($airPriceRS)) {
+                // PricedItinerary[].AirItineraryPricingInfo.ItinTotalFare.TotalFare{Amount,CurrencyCode}
+                $pi = $airPriceRS['PricedItineraries']['PricedItinerary']
+                    ?? $airPriceRS['PricedItinerary']
+                    ?? null;
+                if (isset($pi[0])) { $pi = $pi[0]; }
+                $itinTotal = $pi['AirItineraryPricingInfo']['ItinTotalFare']['TotalFare']
+                    ?? $pi['AirItineraryPricingInfo'][0]['ItinTotalFare']['TotalFare']
+                    ?? $airPriceRS['ItinTotalFare']['TotalFare']
+                    ?? null;
+            }
+            $supAmt = 0.0; $supCur = '';
+            if (is_array($itinTotal)) {
+                $supAmt = (float) ($itinTotal['Amount'] ?? $itinTotal['amount'] ?? 0);
+                $supCur = strtoupper((string) ($itinTotal['CurrencyCode'] ?? $itinTotal['currencyCode'] ?? ''));
+            }
+            if ($supAmt > 0 && $supCur !== '') {
+                $paidCur = strtoupper((string) ($booking['currency_markup'] ?? $supCur));
+                $supInPaid = $supAmt;
+                if ($paidCur !== '' && $paidCur !== $supCur && function_exists('CURRENCY_CONVERT')) {
+                    $cv = CURRENCY_CONVERT($supAmt, $db, $supCur, $paidCur);
+                    $supInPaid = is_array($cv) ? (float) ($cv['price'] ?? $supAmt) : (float) $cv;
+                }
+                $pc = reconcilePostPaymentPrice($db, $booking, $supInPaid, $paidCur);
+                if (empty($pc['ok'])) {
+                    // reconcilePostPaymentPrice already flagged the booking 'pending'
+                    // with the mismatch context. The PNR exists but is un-ticketed;
+                    // surface for review instead of confirming + emailing a ticket.
+                    error_log('SABRE ISSUE: price reconcile HELD (noticket mode) invoice=' . $invoice_id . ' pnr=' . $pnr . ' — ' . (string) ($pc['reason'] ?? ''));
+                    echo json_encode([
+                        'status'         => false,
+                        'message'        => 'Booking held for review: the live fare rose above the amount paid. ' . (string) ($pc['reason'] ?? ''),
+                        'response_error' => 'price_review',
+                        'price_review'   => $pc,
+                        'pnr'            => $pnr,
+                        'invoice_id'     => $invoice_id,
+                    ]);
+                    exit;
+                }
+            } else {
+                error_log('SABRE ISSUE: noticket-mode reconcile skipped (no readable AirPrice total in response) — leaving PNR for ticketing.');
+            }
+        }
+
+        // ========================================
         // STEP 9: UPDATE DATABASE
         // ========================================
 

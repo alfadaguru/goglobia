@@ -272,6 +272,88 @@ $router->post('flights/pkfare/issue', function() use ($db) {
         }
 
         // ========================================
+        // STEP 4b: PRICE-BEFORE-TICKET RECONCILE (customer-journey audit #13)
+        // ========================================
+        // preciseBooking_V6 books AND tickets in one irreversible call, so there
+        // was no chance to compare the live fare to what the customer paid — a fare
+        // that moved up after payment would ticket at a loss. PKFare's standard flow
+        // is shopping -> precisePricing_V6 -> preciseBooking_V6; we call the
+        // (non-mutating) precisePricing step here to get the authoritative live net,
+        // convert it to the paid currency, and reconcile. Only a genuine adverse move
+        // HOLDS the booking for review; any pricing-infra gap (error/timeout/missing
+        // price) falls through to booking so we never block a legit issue on
+        // reconcile infrastructure. Fields per PKFare docs: data.solution.{adtFare,
+        // adtTax,chdFare,chdTax,infFare,infTax,qCharge,tktFee,currency}.
+        if (function_exists('reconcilePostPaymentPrice')) {
+            try {
+                $pxAdt = 0; $pxChd = 0; $pxInf = 0;
+                foreach ($passengerList as $__p) {
+                    $t = strtoupper((string) ($__p['psgType'] ?? 'ADT'));
+                    if ($t === 'CHD') { $pxChd++; } elseif ($t === 'INF') { $pxInf++; } else { $pxAdt++; }
+                }
+                $pricingRequest = [
+                    'authentication' => ['partnerId' => $partnerId, 'sign' => $sign],
+                    'pricing' => [
+                        'adults'     => $pxAdt,
+                        'children'   => $pxChd,
+                        'infants'    => $pxInf,
+                        'solutionId' => $solutionId,
+                        'journeys'   => $solution['journeys'],
+                    ],
+                ];
+                $pch = curl_init();
+                curl_setopt($pch, CURLOPT_URL, 'https://api.pkfare.com/json/precisePricing_V6');
+                curl_setopt($pch, CURLOPT_POST, true);
+                curl_setopt($pch, CURLOPT_POSTFIELDS, json_encode($pricingRequest));
+                curl_setopt($pch, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($pch, CURLOPT_HTTPHEADER, ['Content-Type: application/json', 'Accept: application/json']);
+                curl_setopt($pch, CURLOPT_TIMEOUT, 45);
+                curl_setopt($pch, CURLOPT_SSL_VERIFYPEER, true);
+                $pResp = curl_exec($pch);
+                $pErr  = curl_error($pch);
+                curl_close($pch);
+
+                $pData = $pErr ? null : json_decode((string) $pResp, true);
+                $sol   = is_array($pData) ? ($pData['data']['solution'] ?? null) : null;
+                // errorCode "0" === success; only reconcile on a clean price we can read.
+                if (is_array($sol) && (string) ($pData['errorCode'] ?? '') === '0') {
+                    $supCur = strtoupper((string) ($sol['currency'] ?? ''));
+                    $perAdt = (float) ($sol['adtFare'] ?? 0) + (float) ($sol['adtTax'] ?? 0);
+                    $perChd = (float) ($sol['chdFare'] ?? 0) + (float) ($sol['chdTax'] ?? 0);
+                    $perInf = (float) ($sol['infFare'] ?? 0) + (float) ($sol['infTax'] ?? 0);
+                    // Per-booking fees PKFare adds on top of per-pax fares.
+                    $bookingFees = (float) ($sol['qCharge'] ?? 0) + (float) ($sol['tktFee'] ?? 0)
+                        + (float) ($sol['platformServiceFee'] ?? 0) + (float) ($sol['merchantFee'] ?? 0);
+                    $supTotal = ($perAdt * $pxAdt) + ($perChd * $pxChd) + ($perInf * $pxInf) + $bookingFees;
+
+                    if ($supTotal > 0 && $supCur !== '') {
+                        $paidCur = strtoupper((string) ($booking['currency_markup'] ?? $supCur));
+                        $supInPaid = $supTotal;
+                        if ($paidCur !== '' && $paidCur !== $supCur && function_exists('CURRENCY_CONVERT')) {
+                            $cv = CURRENCY_CONVERT($supTotal, $db, $supCur, $paidCur);
+                            $supInPaid = is_array($cv) ? (float) ($cv['price'] ?? $supTotal) : (float) $cv;
+                        }
+                        $pc = reconcilePostPaymentPrice($db, $booking, $supInPaid, $paidCur);
+                        if (empty($pc['ok'])) {
+                            echo json_encode([
+                                'status'       => false,
+                                'message'      => 'Booking held for review: the live fare rose above the amount paid. ' . (string) ($pc['reason'] ?? ''),
+                                'response_error' => 'price_review',
+                                'price_review' => $pc,
+                                'invoice_id'   => $invoice_id,
+                            ]);
+                            exit;
+                        }
+                    }
+                } else {
+                    error_log('PKFARE ISSUE: precisePricing skipped reconcile (errorCode=' . ($pData['errorCode'] ?? '?') . ', err=' . $pErr . ') — proceeding to book.');
+                }
+            } catch (\Throwable $__e) {
+                error_log('PKFARE ISSUE: precisePricing reconcile exception (proceeding to book): ' . $__e->getMessage());
+            }
+        }
+
+        // ========================================
         // STEP 5: PREPARE BOOKING REQUEST
         // ========================================
 
