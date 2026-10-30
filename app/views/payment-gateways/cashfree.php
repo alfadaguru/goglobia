@@ -69,6 +69,22 @@ if (isset($_POST['payload'])) {
 // c1 = App ID (x-client-id)
 // c2 = Secret Key (x-client-secret)
 // ============================================================================
+// IDEMPOTENCY GUARD (customer-journey audit #3): block a second real charge for
+// an already-paid invoice reached via browser-back / stale-tab replay of the GET
+// gateway-loader routes (which bypass process_payment's guard). See paystack.php.
+if (!empty($booking['invoice_id'])) {
+    global $db;
+    $freshPayStatus = $db->get('bookings', 'payment_status', ['invoice_id' => $booking['invoice_id']]);
+    if (($freshPayStatus ?? '') === 'paid') {
+        echo '<div style="max-width:420px;margin:0 auto;padding:20px;background:#fff;border-radius:12px;border:1px solid #bbf7d0;">';
+        echo '<h4 style="color:#16a34a;margin-top:0;">Already Paid</h4>';
+        echo '<p style="color:#166534;margin-bottom:10px;">This invoice has already been paid — no further charge was made.</p>';
+        echo '<p style="margin-top:15px;"><a href="' . htmlspecialchars(root . 'invoice/' . $booking['invoice_id']) . '" style="color:#2563eb;">← Return to Invoice</a></p>';
+        echo '</div>';
+        return;
+    }
+}
+
 $appId = $config['api_key'] ?? $gateway['c1'] ?? '';
 $secretKey = $config['secret_key'] ?? $gateway['c2'] ?? '';
 

@@ -343,6 +343,51 @@ $router->post('/payment/process', function () use ($SECURE, $db) {
         exit;
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // SERVER-SIDE MONEY GUARDS (customer-journey audit #4).
+    // This live payment path does NOT call process_payment(); historically the
+    // already-paid / unbookable-supplier / actor / currency-routing guards lived
+    // ONLY inside process_payment() (dead on the web flow) and in the chooser UI,
+    // so a client POSTing a chosen gateway_id straight to /payment/process
+    // bypassed all of them (e.g. driving a non-NGN booking to an NGN-only
+    // gateway → card charged in the wrong currency, verify then rejects it,
+    // money taken for an unpaid booking). Enforce the same guards here, before a
+    // token is minted. Mirrors app/lib/payment-gateway.php:82-145.
+    // ────────────────────────────────────────────────────────────────────────
+    $__payBlock = function (string $msg) use ($invoiceId) {
+        $_SESSION['payment_notice'] = ['type' => 'error', 'title' => 'Payment Blocked', 'message' => $msg];
+        header('Location: ' . root . 'invoice/' . $invoiceId);
+        exit;
+    };
+    // (a) already paid — no second charge.
+    if (strtolower((string) ($booking['payment_status'] ?? '')) === 'paid') {
+        $__payBlock('This invoice has already been paid.');
+    }
+    // (b) affiliate/redirect/stub supplier with no local issue path — never charge.
+    if (function_exists('payment_supplier_is_unbookable') && payment_supplier_is_unbookable($booking)) {
+        error_log('/payment/process BLOCKED unbookable supplier module=' . ($booking['module'] ?? '') . ' invoice=' . $invoiceId);
+        $__payBlock('This item is booked directly with the provider and cannot be paid here.');
+    }
+    // Overlay per-service gateway credentials so the actor/currency checks and the
+    // charge itself use the correct account (no-op when none configured).
+    if (function_exists('payment_gateway_apply_service_creds')) {
+        payment_gateway_apply_service_creds($db, $gateway, $booking);
+    }
+    // (c) actor rule: an agent may pay ONLY from their wallet.
+    if (function_exists('payment_gateway_allowed_for_actor') && !payment_gateway_allowed_for_actor($db, $gateway)) {
+        if (function_exists('payment_actor_is_agent') && payment_actor_is_agent($db)) {
+            $__payBlock('Agents can only pay from their wallet. Please top up your wallet and pay from it.');
+        }
+        $__payBlock('This payment method is not available for your account.');
+    }
+    // (d) currency routing: the external gateway must support the booking currency.
+    if (function_exists('payment_gateway_allowed_for_currency')) {
+        $__payCurrency = strtoupper(trim((string) ($booking['currency_markup'] ?? '')));
+        if ($__payCurrency !== '' && !payment_gateway_allowed_for_currency($db, $gateway, $__payCurrency)) {
+            $__payBlock('This payment method does not support ' . $__payCurrency . ' payments. Please choose the payment method for your currency.');
+        }
+    }
+
     // Mozio hosted_checkout: never charge a site gateway (would double-bill).
     if (strtolower((string)($booking['module_type'] ?? '')) === 'cars' && strtolower((string)($booking['module'] ?? '')) === 'mozio') {
         require_once 'modules/cars/mozio/lib.php';

@@ -40,6 +40,29 @@ if (isset($_POST['payload'])) {
     $config = get_gateway_config($gateway);
 }
 
+// ============================================================================
+// IDEMPOTENCY GUARD (customer-journey audit #3): never start a SECOND real
+// charge for an invoice that is already paid. The GET gateway-loader routes
+// (/payment/gateway/{hash}, /payment/{hash}) include this view directly and
+// bypass process_payment()'s already-paid guard, so a browser-back / stale-tab
+// / re-visited-hash replay would otherwise create a duplicate Paystack charge
+// (the callback idempotency guard then KEEPS the second charge with no refund).
+// Mirrors wallet_balance.php / credits.php. Re-read status from the DB because
+// the synthetic $booking above carries no payment_status.
+// ============================================================================
+if (!empty($booking['invoice_id'])) {
+    global $db;
+    $freshPayStatus = $db->get('bookings', 'payment_status', ['invoice_id' => $booking['invoice_id']]);
+    if (($freshPayStatus ?? '') === 'paid') {
+        echo '<div style="max-width:420px;margin:0 auto;padding:20px;background:#fff;border-radius:12px;border:1px solid #bbf7d0;">';
+        echo '<h4 style="color:#16a34a;margin-top:0;">Already Paid</h4>';
+        echo '<p style="color:#166534;margin-bottom:10px;">This invoice has already been paid — no further charge was made.</p>';
+        echo '<p style="margin-top:15px;"><a href="' . htmlspecialchars(root . 'invoice/' . $booking['invoice_id']) . '" style="color:#2563eb;">← Return to Invoice</a></p>';
+        echo '</div>';
+        return;
+    }
+}
+
 // Try multiple possible field names for secret key
 $secretKey = $config['c1'] ?? $gateway['c1'] ?? $config['secret_key'] ?? $gateway['secret_key'] ?? '';
 if (empty($secretKey)) {
