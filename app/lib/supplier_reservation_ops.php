@@ -668,6 +668,22 @@ if (!function_exists('_resv_reprice_and_rehold')) {
                 $bd = $ctx['bd'];
                 $bd['checkin']  = $newCheckin;
                 $bd['checkout'] = $newCheckout;
+                // CLEAR a now-mismatched physical-room assignment (audit N9). An assigned
+                // physical room belongs to a specific sellable room (stays_physical_rooms.
+                // room_id). If this transfer changes the booked room/type, the old physical
+                // unit no longer matches — leaving pms_physical_room_id pointing at it made
+                // the tape chart/front-desk show the guest in the wrong-type room, marked the
+                // wrong room dirty on checkout, and kept it blocking under a type the
+                // reservation no longer books. Drop the assignment (the desk re-assigns a
+                // room of the new type) when the mapped room_id differs; keep it when the
+                // physical room still belongs to the new room (e.g. a dates-only modify).
+                $prevPrid = (int) ($bd['pms_physical_room_id'] ?? 0);
+                if ($prevPrid > 0) {
+                    $prMappedRoom = (int) ($db->get('stays_physical_rooms', 'room_id', ['id' => $prevPrid]) ?: 0);
+                    if ($prMappedRoom !== (int) $newRoomId) {
+                        unset($bd['pms_physical_room_id']);
+                    }
+                }
                 $bd['selected_rooms'] = [[
                     'room_id'  => $newRoomId,
                     'quantity' => $newQty,
