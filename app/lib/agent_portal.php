@@ -734,6 +734,66 @@ if (!function_exists('agent_api_webhook_new_secret')) {
     }
 }
 
+if (!function_exists('agent_api_webhook_url_safe')) {
+    /**
+     * SSRF guard for agent-supplied webhook URLs. An agent controls this URL and
+     * the server makes an outbound request to it, so an unguarded URL lets them
+     * reach INTERNAL hosts (127.0.0.1, 10.x, cloud metadata 169.254.169.254, …).
+     * Require https, resolve the host, and reject if ANY resolved IP is in a
+     * private/loopback/link-local/CGNAT/reserved range. Returns the SAFE pinned
+     * IP (to connect to, defeating DNS-rebinding) or '' if the URL is unsafe.
+     *
+     *   $ip = agent_api_webhook_url_safe('https://hooks.example.com/x');
+     *   if ($ip === '') { reject }   // else curl with CURLOPT_RESOLVE host:443:$ip
+     */
+    function agent_api_webhook_url_safe(string $url): string
+    {
+        $url = trim($url);
+        if (!filter_var($url, FILTER_VALIDATE_URL) || stripos($url, 'https://') !== 0) {
+            return '';
+        }
+        $parts = parse_url($url);
+        $host  = isset($parts['host']) ? strtolower((string) $parts['host']) : '';
+        if ($host === '') { return ''; }
+        // No userinfo / non-443-weird ports that commonly front internal services.
+        if (isset($parts['user']) || isset($parts['pass'])) { return ''; }
+
+        // Resolve ALL A/AAAA records; a single private hit rejects the whole URL.
+        $ips = [];
+        $a = @dns_get_record($host, DNS_A);
+        if (is_array($a)) { foreach ($a as $r) { if (!empty($r['ip'])) { $ips[] = $r['ip']; } } }
+        $aaaa = @dns_get_record($host, DNS_AAAA);
+        if (is_array($aaaa)) { foreach ($aaaa as $r) { if (!empty($r['ipv6'])) { $ips[] = $r['ipv6']; } } }
+        // Fallback for environments where dns_get_record is limited.
+        if (empty($ips)) {
+            $resolved = @gethostbynamel($host);
+            if (is_array($resolved)) { $ips = $resolved; }
+        }
+        // A literal IP host (no DNS) still goes through the range check.
+        if (empty($ips) && filter_var($host, FILTER_VALIDATE_IP)) { $ips = [$host]; }
+        if (empty($ips)) { return ''; } // cannot resolve → refuse rather than risk it
+
+        foreach ($ips as $ip) {
+            // Reject anything NOT in the public range: this flag filters out
+            // private (10/8,172.16/12,192.168/16), loopback (127/8,::1),
+            // link-local (169.254/16 incl. cloud metadata, fe80::/10) and reserved.
+            if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                return '';
+            }
+            // Extra belt: CGNAT 100.64.0.0/10 is not caught by NO_PRIV_RANGE.
+            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                $long = ip2long($ip);
+                if ($long !== false && ($long & 0xFFC00000) === (ip2long('100.64.0.0') & 0xFFC00000)) {
+                    return '';
+                }
+            }
+        }
+        // Return the first safe IP to pin the connection to (prevents the host
+        // re-resolving to a private IP between validation and the actual request).
+        return (string) $ips[0];
+    }
+}
+
 if (!function_exists('agent_api_webhook_fire')) {
     /** Deliver $event+$payload to every active webhook of $owner subscribed to it.
      *  Best-effort, short timeout; logs each attempt. Called from booking flows. */
@@ -751,13 +811,23 @@ if (!function_exists('agent_api_webhook_fire')) {
             if ((string)($h['env'] ?? 'sandbox') !== $env) { continue; }
             $subs = array_filter(array_map('trim', explode(',', (string)($h['events'] ?? ''))));
             if ($subs && !in_array($event, $subs, true)) { continue; } // empty = all events
+            // SSRF guard at delivery time too (defends against DNS-rebinding and a
+            // URL that became internal since it was saved): re-validate + pin IP.
+            $pinIp = function_exists('agent_api_webhook_url_safe') ? agent_api_webhook_url_safe((string)$h['url']) : '';
+            if ($pinIp === '') { error_log('agent_api_webhook_fire: refused unsafe url for hook ' . ($h['id'] ?? '?')); continue; }
             $sig = hash_hmac('sha256', $body, (string)$h['secret']);
             $code = 0; $respBody = '';
             try {
+                $__u = parse_url((string)$h['url']);
+                $__host = $__u['host'] ?? '';
+                $__port = (int) ($__u['port'] ?? 443);
                 $ch = curl_init((string)$h['url']);
                 curl_setopt_array($ch, [
                     CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body,
                     CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 6,
+                    CURLOPT_FOLLOWLOCATION => false,           // never follow a redirect to an internal host
+                    CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,      // https only, no file:// gopher:// etc
+                    CURLOPT_RESOLVE => $__host !== '' ? [$__host . ':' . $__port . ':' . $pinIp] : [], // pin the validated IP
                     CURLOPT_HTTPHEADER => [
                         'Content-Type: application/json',
                         'X-Goglobia-Event: ' . $event,
@@ -799,14 +869,30 @@ if (!function_exists('agent_api_webhook_test_one')) {
         catch (\Throwable $e) { error_log('agent_api_webhook_test_one get: ' . $e->getMessage()); return; }
         if (!$h) { return; }
 
+        // SSRF guard: re-validate + pin the resolved IP before the test POST.
+        $pinIp = function_exists('agent_api_webhook_url_safe') ? agent_api_webhook_url_safe((string) $h['url']) : '';
+        if ($pinIp === '') {
+            try { $db->insert('agent_api_webhook_deliveries', [
+                'webhook_id' => (int) $h['id'], 'user_id' => (string) $h['user_id'], 'event' => 'ping',
+                'payload' => '', 'response_code' => 0, 'response_body' => 'Refused: URL resolves to a non-public address.',
+                'attempt' => 1, 'delivered' => 0, 'created_at' => date('Y-m-d H:i:s'),
+            ]); } catch (\Throwable $e) {}
+            return;
+        }
         $body = json_encode(['event' => 'ping', 'data' => ['message' => 'Test delivery from Goglobia API console'], 'ts' => time()], JSON_UNESCAPED_SLASHES);
         $sig  = hash_hmac('sha256', $body, (string) $h['secret']);
         $code = 0; $respBody = '';
         try {
+            $__u = parse_url((string) $h['url']);
+            $__host = $__u['host'] ?? '';
+            $__port = (int) ($__u['port'] ?? 443);
             $ch = curl_init((string) $h['url']);
             curl_setopt_array($ch, [
                 CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body,
                 CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 6,
+                CURLOPT_FOLLOWLOCATION => false,
+                CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+                CURLOPT_RESOLVE => $__host !== '' ? [$__host . ':' . $__port . ':' . $pinIp] : [],
                 CURLOPT_HTTPHEADER => [
                     'Content-Type: application/json',
                     'X-Goglobia-Event: ping',

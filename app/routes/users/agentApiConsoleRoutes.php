@@ -246,9 +246,10 @@ $router->post('/agent/api/webhooks/save', function () use ($SECURE, $db) {
     $events = array_values(array_intersect($valid, (array) ($_POST['events'] ?? [])));
     $eventsCsv = implode(',', $events);
 
-    // Validate URL: must be a real https:// endpoint.
-    if (!filter_var($url, FILTER_VALIDATE_URL) || stripos($url, 'https://') !== 0) {
-        $_SESSION['message'] = ['type'=>'error','text'=>'Enter a valid https:// webhook URL.'];
+    // Validate URL: must be a real https:// endpoint AND not resolve to an
+    // internal/private address (SSRF guard — the server will POST to this URL).
+    if (!function_exists('agent_api_webhook_url_safe') || agent_api_webhook_url_safe($url) === '') {
+        $_SESSION['message'] = ['type'=>'error','text'=>'Enter a valid public https:// webhook URL. Internal, private, or loopback addresses are not allowed.'];
         header('Location: ' . $back); exit;
     }
     try {
@@ -335,6 +336,22 @@ $router->post('/agent/api/webhooks/test', function () use ($SECURE, $db) {
     CSRF::guard();
     $back = root . 'agent/api/webhooks';
     $id = (int) ($_POST['id'] ?? 0);
+
+    // RATE LIMIT (anti-SSRF/DoS amplification): cap test deliveries per agency to
+    // 5 per rolling 60s. Each test makes the server fire an outbound request to an
+    // agent-supplied URL — unthrottled it is a scan/DoS primitive. Count this
+    // agency's recent 'ping' delivery rows (no new infra needed).
+    try {
+        $recent = (int) $db->count('agent_api_webhook_deliveries', [
+            'user_id' => $owner, 'event' => 'ping',
+            'created_at[>]' => date('Y-m-d H:i:s', time() - 60),
+        ]);
+        if ($recent >= 5) {
+            $_SESSION['message'] = ['type'=>'error','text'=>'Too many test deliveries. Please wait a minute and try again.'];
+            header('Location: ' . $back); exit;
+        }
+    } catch (\Throwable $e) { /* table may be absent pre-deploy — allow, non-fatal */ }
+
     try {
         $row = $db->get('agent_api_webhooks', ['id','user_id'], ['id' => $id]);
         if ($row && (string)$row['user_id'] === $owner && function_exists('agent_api_webhook_test_one')) {
