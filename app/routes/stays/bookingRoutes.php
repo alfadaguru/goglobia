@@ -283,6 +283,13 @@ $router->post('/api/stay/booking/resend-invoice', function () use ($SECURE, $db)
             throw new Exception('Invoice ID is required');
         }
 
+        // CSRF (customer-journey audit #8): state-changing POST that regenerates a
+        // PDF and emails a ticket. Site JS attaches X-CSRF-TOKEN to all fetch/XHR.
+        $csrfToken = $input['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!CSRF::validateToken($csrfToken)) {
+            throw new Exception('Invalid security token');
+        }
+
         $invoiceId = $input['invoice_id'];
 
         // Fetch booking details
@@ -290,6 +297,12 @@ $router->post('/api/stay/booking/resend-invoice', function () use ($SECURE, $db)
 
         if (!$booking) {
             throw new Exception('Booking not found');
+        }
+
+        // IDOR (customer-journey audit #8): without an ownership check an attacker
+        // could enumerate invoice ids and force a ticket-PDF email to any customer.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
         }
 
         // Fetch payment gateway name

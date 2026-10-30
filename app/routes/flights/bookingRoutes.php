@@ -435,11 +435,27 @@ $router->post('/api/flight/booking/resend-invoice', function () use ($SECURE, $d
             throw new Exception('Invoice ID is required');
         }
 
+        // CSRF (customer-journey audit #7): this state-changing POST regenerates a
+        // PDF and emails a ticket. The site JS attaches X-CSRF-TOKEN to all fetch/
+        // XHR (assets/js/app.js), so the owner's browser passes transparently.
+        $csrfToken = $input['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!CSRF::validateToken($csrfToken)) {
+            throw new Exception('Invalid security token');
+        }
+
         // Get booking details
         $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
 
         if (!$booking) {
             throw new Exception('Booking not found');
+        }
+
+        // IDOR (customer-journey audit #7): flight invoice_ids are enumerable
+        // (8-digit numeric). Without an ownership check an attacker could enumerate
+        // ids and force a ticket-PDF email to any customer (inbox abuse + id oracle).
+        // Mirror the umrah resend + the sibling cancellation route.
+        if (function_exists('enforceInvoiceAccess')) {
+            enforceInvoiceAccess($db, $booking);
         }
 
         // Generate or get existing PDF — the TRAVELLER's resend is the no-price

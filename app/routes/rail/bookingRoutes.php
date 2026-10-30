@@ -737,24 +737,28 @@ $router->get('/api/rail/booking/download-invoice/([a-zA-Z0-9]+)', function ($inv
 // RESEND INVOICE EMAIL (same pattern as stays / flights)
 // POST /api/rail/booking/resend-invoice
 // ============================================================================
-$router->post('/api/rail/booking/resend-invoice', function () use ($SECURE, $db) {
+$router->post('/api/rail/booking/resend-invoice', function () use ($SECURE, $db, $__railGuardOwnedBooking) {
     header('Content-Type: application/json');
 
     try {
         $input = json_decode(file_get_contents('php://input'), true) ?: [];
         $invoiceId = trim((string)($input['invoice_id'] ?? ''));
-        $emailOverride = trim((string)($input['customer_email'] ?? ''));
 
         if ($invoiceId === '') {
             throw new Exception('Invoice ID is required');
         }
 
-        $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId, 'module_type' => 'rail']);
-        if (!$booking) {
-            throw new Exception('Booking not found');
-        }
+        // CSRF + IDOR (customer-journey audit #9): route through the shared owned-
+        // booking guard like the cancel/change/refund handlers — this resend had
+        // neither check, so an attacker could enumerate invoice ids and force a
+        // ticket email. The guard emits its own 403/404 JSON and returns false/exits.
+        $booking = $__railGuardOwnedBooking($db, ['invoice_id' => $invoiceId]);
+        if (!$booking) { exit; }
 
-        $customerEmail = $emailOverride !== '' ? $emailOverride : ($booking['email'] ?? '');
+        // Always send to the booking's ON-FILE address. The old handler honoured a
+        // client customer_email override, which let a verified request redirect a
+        // victim's ticket PDF (PII) to an attacker-chosen inbox — exfiltration.
+        $customerEmail = (string) ($booking['email'] ?? '');
         if ($customerEmail === '') {
             throw new Exception('Customer email is required');
         }
