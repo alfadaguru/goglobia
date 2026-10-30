@@ -369,17 +369,33 @@ if (!function_exists('group_checkin_all')) {
     {
         $out = ['checked_in' => 0, 'skipped' => 0];
         try {
+            // SCOPE THE GROUP to $stayId (audit #15): every sibling group function keys
+            // stays_groups by id AND stay_id, but this one didn't — so a caller could bulk
+            // check-in members of a group belonging to another property/org. Verify first.
+            if (!$db->has('stays_groups', ['id' => $groupId, 'stay_id' => $stayId])) {
+                return $out; // not this property's group → do nothing
+            }
             $members = $db->select('stays_group_members', ['id', 'email', 'guest_name'],
                 ['group_id' => $groupId]) ?: [];
             foreach ($members as $m) {
-                // A member is linked to a booking by email match on an own-inventory stays
-                // booking for this property (best-effort; members without one are skipped).
+                // Link a member to a booking by email match — SCOPED to THIS property
+                // (audit #15: an unscoped email+module_type match across the whole bookings
+                // table could resolve to, and then check in, a foreign property's/org's
+                // booking). Filter booking_data.hotel_id to this stay; verify after decode.
                 $inv = null;
                 $email = trim((string) ($m['email'] ?? ''));
                 if ($email !== '') {
-                    $b = $db->get('bookings', ['invoice_id'],
-                        ['email' => $email, 'module_type' => ['stays', 'hotels'], 'ORDER' => ['id' => 'DESC']]);
-                    if ($b) { $inv = (string) $b['invoice_id']; }
+                    $cands = $db->select('bookings', ['invoice_id', 'booking_data'],
+                        ['email' => $email, 'module_type' => ['stays', 'hotels'],
+                         'booking_data[~]' => '%"hotel_id":' . (int) $stayId . '%', // % wrapped (underscore defeats Medoo auto-wrap)
+                         'ORDER' => ['id' => 'DESC'], 'LIMIT' => 20]) ?: [];
+                    foreach ($cands as $cb) {
+                        $bd = json_decode((string) ($cb['booking_data'] ?? ''), true);
+                        if (is_array($bd) && (int) ($bd['hotel_id'] ?? 0) === $stayId) { // verify, not just LIKE
+                            $inv = (string) $cb['invoice_id'];
+                            break;
+                        }
+                    }
                 }
                 if ($inv !== null && function_exists('folio_checkin') && folio_checkin($db, $inv)) {
                     if (function_exists('folio_get_or_create')) { folio_get_or_create($db, $inv); }
