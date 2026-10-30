@@ -335,6 +335,30 @@ if (!function_exists('App\\lib\\ai\\gia_stays_book')) {
         if (empty($price['ok']) || (float) ($price['net'] ?? 0) <= 0) {
             return ['ok' => false, 'message' => 'That room is no longer available for those dates. Please pick another.'];
         }
+
+        // 1b) Enforce booking RESTRICTIONS (CTA/CTD, min/max stay, advance window) — the web
+        //     and mobile-API stays submits both gate on these, but the GIA chat booking
+        //     path never did, so GIA could book dates the owner explicitly closed (audit N5,
+        //     same class as #12). Load the self-contained rates lib idempotently; check the
+        //     selected room; refuse on violation with the owner's message.
+        if (!\function_exists('rate_restrictions_check')) {
+            $ratesLib = \dirname(__DIR__) . '/supplier_rates.php';
+            if (\is_file($ratesLib)) { require_once $ratesLib; }
+        }
+        if (\function_exists('rate_restrictions_check')) {
+            $losN  = \max(1, (int) ((\strtotime($checkout) - \strtotime($checkin)) / 86400));
+            $leadN = \max(0, (int) \floor((\strtotime($checkin) - \strtotime(\date('Y-m-d'))) / 86400));
+            foreach ($selectedRooms as $sr) {
+                $rc = \rate_restrictions_check($db, $stayId, [
+                    'checkin' => $checkin, 'checkout' => $checkout, 'los' => $losN, 'lead_days' => $leadN,
+                    'room_id' => (int) ($sr['room_id'] ?? 0), 'option_id' => (int) ($sr['option_id'] ?? 0),
+                ]);
+                if (empty($rc['ok'])) {
+                    return ['ok' => false, 'message' => (string) ($rc['message'] ?? 'Those dates can’t be booked for this room under the property’s rules. Please pick other dates.')];
+                }
+            }
+        }
+
         $amount   = \round((float) $price['net'], 2);
         $currency = \strtoupper((string) ($price['hotel_currency'] ?? ''));
 

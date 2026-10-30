@@ -129,6 +129,18 @@ $router->post('/ajax', function () use ($SECURE,$db) {
 });
 
 $router->post('/markup_calculate', function () use ($SECURE, $db) {
+    // ADMIN ONLY: MARKUP() returns the platform's COST + MARGIN (base_price, markup,
+    // markup_percentage/value) — competitive-intel that must never be exposed to the
+    // public. This endpoint is a pricing-admin helper (no customer flow calls it:
+    // verified zero callers), so gate it. An unauthenticated caller previously got the
+    // full margin breakdown for any price/module.
+    ADMIN_AUTH();
+    header('Content-Type: application/json');
+    if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
+        http_response_code(403);
+        echo json_encode(['status' => 'error', 'message' => 'Invalid security token']);
+        exit;
+    }
     // Get POST data
     $price = floatval($_POST['price'] ?? 0);
     $type = $_POST['type'] ?? '';
@@ -1017,12 +1029,14 @@ $router->post('/api/deposit/add', function () use ($SECURE, $db) {
             unlink($uploadPath);
         }
 
+        // Log the full detail server-side; never leak file/line/message to the client
+        // (internal path + line number = reconnaissance aid). Give the caller a generic
+        // error only.
+        error_log('[deposit/add] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
         http_response_code(500);
         echo json_encode([
             'status' => 'error',
-            'message' => 'Server error: ' . $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine()
+            'message' => 'Something went wrong processing your deposit. Please try again.',
         ]);
     }
     exit;

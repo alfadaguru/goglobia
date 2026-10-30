@@ -96,22 +96,30 @@ $router->post('/resend-verification', function () use ($SECURE, $db) {
     }
 
     $userId = $_POST['user_id'] ?? 0;
-    if (!$userId) {
-        $_SESSION['error'] = T::error_invalid_request;
-        header('Location: ' . root . 'login');
-        exit;
-    }
 
+    // ENUMERATION-SAFE: this endpoint is unauthenticated and takes a client user_id.
+    // It must NOT reveal whether an id exists / is verified (the old distinct error
+    // messages let an attacker enumerate accounts), and the verification link is only
+    // ever emailed to the ACCOUNT'S OWN address — never to the caller. Always answer
+    // with the SAME neutral success message regardless of outcome, and silently no-op
+    // on missing/verified/recently-sent users. We still do the real send when valid.
+    $neutralDone = function () {
+        $_SESSION['success'] = T::success_verification_email_sent
+            ?? 'If that account needs verification, we\'ve sent a fresh link to its email.';
+        header('Location: ' . root . 'login');
+        exit;
+    };
+
+    if (!$userId) { $neutralDone(); }
     $user = $db->get('users', '*', ['id' => $userId]);
-    if (!$user) {
-        $_SESSION['error'] = T::error_user_not_found;
-        header('Location: ' . root . 'login');
-        exit;
-    }
-    if ($user['email_verified']) {
-        $_SESSION['error'] = T::error_email_already_verified;
-        header('Location: ' . root . 'login');
-        exit;
+    if (!$user || !empty($user['email_verified'])) { $neutralDone(); }
+
+    // COOLDOWN: don't let an attacker spam-clobber a user's token / inbox. If a
+    // verification token was issued in the last 5 minutes, no-op (still neutral).
+    $lastExpires = strtotime((string) ($user['reset_token_expires'] ?? '')) ?: 0;
+    // token lives 24h, so "issued within 5 min" == expires is within (24h - 5min) of now.
+    if ($lastExpires > 0 && ($lastExpires - time()) > (24 * 3600 - 300)) {
+        $neutralDone();
     }
 
     $verificationToken = bin2hex(random_bytes(32));
@@ -139,13 +147,14 @@ $router->post('/resend-verification', function () use ($SECURE, $db) {
         $whatsappSent = $notificationResults['whatsapp'] ?? false;
         $smsSent = $notificationResults['sms'] ?? false;
 
-        if ($emailSent || $whatsappSent || $smsSent) {
-            $_SESSION['success'] = T::success_verification_email_sent;
-        } else {
-            $_SESSION['success'] = T::success_verification_no_email;
-        }
+        // Uniform neutral success regardless of which channel fired (no enumeration /
+        // no "no email on file" signal). Real failures are logged, not surfaced.
+        $_SESSION['success'] = T::success_verification_email_sent
+            ?? 'If that account needs verification, we\'ve sent a fresh link to its email.';
     } catch (Exception $e) {
-        $_SESSION['error'] = T::error_resend_verification_failed;
+        error_log('[resend-verification] ' . $e->getMessage());
+        $_SESSION['success'] = T::success_verification_email_sent
+            ?? 'If that account needs verification, we\'ve sent a fresh link to its email.';
     }
     header('Location: ' . root . 'login');
     exit;

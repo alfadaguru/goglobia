@@ -15,7 +15,9 @@ $router->get('/r/([A-Za-z0-9]{4,32})', function ($code) use ($SECURE, $db) {
             'expires'  => time() + 30 * 86400,
             'path'     => '/',
             'secure'   => !empty($_SERVER['HTTPS']),
-            'httponly' => false,
+            // Read server-side only (signup handler reads $_COOKIE['gg_ref']); no JS
+            // needs it, so httponly keeps it out of reach of any XSS (referral-fraud hardening).
+            'httponly' => true,
             'samesite' => 'Lax',
         ]);
     }
@@ -649,7 +651,20 @@ $router->get('/invoice/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE, $db)
     exit;
 });
 
+// Debug session-destroy leftover. A bare GET here let any cross-site <img src=".../sd">
+// force-log-out a logged-in user (CSRF logout / harassment vector). It has ZERO
+// legitimate callers (the real logout route is elsewhere), so neutralize the GET:
+// only destroy the session on an explicit, CSRF-validated POST.
 $router->get('sd', function () use ($SECURE,$db) {
+    header('Location: ' . root);
+    exit;
+});
+$router->post('sd', function () use ($SECURE,$db) {
+    if (!CSRF::validateToken($_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
+        http_response_code(403);
+        echo 'Invalid security token.';
+        exit;
+    }
     session_destroy();
     echo "Session destroyed.";
 });
