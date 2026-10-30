@@ -461,20 +461,28 @@ if (!function_exists('contacts_merge')) {
         // loser (its wallet ends at 0), both ledgered — money is conserved and auditable.
         $moved = [];
         if (function_exists('cwallet_balances') && function_exists('cwallet_apply')) {
-            foreach (cwallet_balances($db, $orgId, $loserId) as $ccy => $bal) {
-                $bal = round((float) $bal, 2);
-                if ($bal <= 0) { continue; }
-                $ref = 'merge:' . $loserId . '->' . $survivorId . ':' . $ccy;
-                // Debit the loser to 0 (idempotent on ref), then credit the survivor.
-                $d = cwallet_apply($db, $orgId, $loserId, $bal, 'debit', $ccy, ['reason' => 'adjustment', 'ref' => $ref . ':out', 'note' => 'Merged into customer #' . $survivorId]);
-                if (empty($d['ok'])) { return ['ok' => false, 'message' => 'Could not move the ' . $ccy . ' wallet balance; merge aborted.']; }
-                $c = cwallet_apply($db, $orgId, $survivorId, $bal, 'credit', $ccy, ['reason' => 'adjustment', 'ref' => $ref . ':in', 'note' => 'Merged from customer #' . $loserId]);
-                if (empty($c['ok'])) {
-                    // Roll back the loser debit we just made (give it back) so no money is lost.
-                    cwallet_apply($db, $orgId, $loserId, $bal, 'credit', $ccy, ['reason' => 'reversal', 'ref' => $ref . ':rb', 'note' => 'Merge credit failed — balance restored']);
-                    return ['ok' => false, 'message' => 'Could not credit the survivor wallet; merge aborted (loser balance restored).'];
+            // Move each loser balance to the survivor. RE-READ the balance per currency in a
+            // bounded loop (audit #16): a concurrent top-up to the loser between the first
+            // read and the delete used to be destroyed by the unconditional wallet-row delete
+            // below. Each iteration re-reads, so a credit that lands mid-merge is swept too;
+            // cwallet_apply locks the row for its own debit, making the drawdown atomic.
+            foreach (array_keys(cwallet_balances($db, $orgId, $loserId)) as $ccy) {
+                $pass = 0;
+                while ($pass < 5) { // bound the loop; 5 sweeps is far beyond any real contention
+                    $pass++;
+                    $bal = round((float) (function_exists('cwallet_balance') ? cwallet_balance($db, $orgId, $loserId, $ccy) : 0), 2);
+                    if ($bal <= 0) { break; }
+                    $ref = 'merge:' . $loserId . '->' . $survivorId . ':' . $ccy . ':p' . $pass;
+                    $d = cwallet_apply($db, $orgId, $loserId, $bal, 'debit', $ccy, ['reason' => 'adjustment', 'ref' => $ref . ':out', 'note' => 'Merged into customer #' . $survivorId]);
+                    if (empty($d['ok'])) { return ['ok' => false, 'message' => 'Could not move the ' . $ccy . ' wallet balance; merge aborted.']; }
+                    $c = cwallet_apply($db, $orgId, $survivorId, $bal, 'credit', $ccy, ['reason' => 'adjustment', 'ref' => $ref . ':in', 'note' => 'Merged from customer #' . $loserId]);
+                    if (empty($c['ok'])) {
+                        // Roll back the loser debit we just made (give it back) so no money is lost.
+                        cwallet_apply($db, $orgId, $loserId, $bal, 'credit', $ccy, ['reason' => 'reversal', 'ref' => $ref . ':rb', 'note' => 'Merge credit failed — balance restored']);
+                        return ['ok' => false, 'message' => 'Could not credit the survivor wallet; merge aborted (loser balance restored).'];
+                    }
+                    $moved[$ccy] = round(($moved[$ccy] ?? 0) + $bal, 2);
                 }
-                $moved[$ccy] = $bal;
             }
         }
 
@@ -514,8 +522,19 @@ if (!function_exists('contacts_merge')) {
                     $db->update('stays_contacts', $fill, ['id' => $survivorId, 'org_id' => $orgId]);
                 }
 
-                // Step 4: delete the loser's now-zero wallet row + the loser contact.
-                $db->delete('stays_contact_wallet', ['org_id' => $orgId, 'contact_id' => $loserId]);
+                // Step 4: delete the loser's wallet rows — but ONLY zero-balance ones (audit
+                // #16). If a top-up credited the loser after the final move-sweep above, that
+                // row is non-zero; deleting it blanket would destroy the money. The guarded
+                // delete leaves any such row intact (money preserved on the loser) and we
+                // refuse to delete the loser contact, so the operator can re-run the merge to
+                // sweep the late credit. No silent loss.
+                $db->delete('stays_contact_wallet', ['org_id' => $orgId, 'contact_id' => $loserId, 'balance' => 0.00]);
+                $residual = (int) $db->count('stays_contact_wallet', ['org_id' => $orgId, 'contact_id' => $loserId, 'balance[>]' => 0]);
+                if ($residual > 0) {
+                    // A late credit landed after the sweep — do NOT delete the loser; surface it.
+                    $result = ['ok' => false, 'message' => 'A wallet credit arrived during the merge; nothing was deleted. Re-run the merge to move it.', 'moved' => $moved];
+                    return false; // rollback the whole action — re-point stays reversible
+                }
                 $db->delete('stays_contacts', ['id' => $loserId, 'org_id' => $orgId]);
 
                 $result = ['ok' => true, 'message' => 'Merged into ' . (string) $survivor['display_name'] . '.', 'moved' => $moved];
