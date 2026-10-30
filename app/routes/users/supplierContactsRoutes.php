@@ -185,6 +185,11 @@ $router->post('/supplier/customers/save', function () use ($SECURE, $db) {
     if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = (int) $ctx['org'];
     $id = (int) ($_POST['id'] ?? 0);
+    // EDITING an existing org-wide customer (id>0) is the cross-property class (audit N8):
+    // a 'selected'-scope staffer must not alter a customer tied to properties they can't
+    // see. Creating a NEW customer (id=0) stays allowed — the front-desk walk-in form
+    // needs it (parity with /quick-create, see audit #10).
+    if ($id > 0 && !supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised to edit an org-wide customer.'); }
 
     $res = contacts_save($db, $orgId, $_POST, $id);
     $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Done.'];
@@ -220,11 +225,16 @@ $router->get('/supplier/customers/([0-9]+)', function ($id) use ($SECURE, $db) {
         if (function_exists('guest_token')) { $guestToken = guest_token((string) $contact['guest_email_key']); }
     }
     $types = contacts_types();
-    $canEdit = supplier_can($db, 'reservations', 'edit');
+    // A 'selected'-scope staffer may see the shared profile, but editing an org-wide
+    // customer and seeing its deposit-wallet money (balances/ledger span properties they
+    // cannot see) is the org-wide class (audit N8). Gate both on supplier_can_orgwide.
+    $canOrgWide = supplier_can_orgwide($db, 'reservations', 'edit');
+    $canEdit = $canOrgWide;
 
-    // Phase 4b: the customer's deposit wallet (balances per currency + recent ledger).
-    $walletBalances = function_exists('cwallet_balances') ? cwallet_balances($db, $orgId, (int) $id) : [];
-    $walletLedger   = function_exists('cwallet_ledger') ? cwallet_ledger($db, $orgId, (int) $id, 25) : [];
+    // Phase 4b: the customer's deposit wallet (balances per currency + recent ledger) —
+    // money data, only for owner/all-scope (not property-restricted staff).
+    $walletBalances = ($canOrgWide && function_exists('cwallet_balances')) ? cwallet_balances($db, $orgId, (int) $id) : [];
+    $walletLedger   = ($canOrgWide && function_exists('cwallet_ledger')) ? cwallet_ledger($db, $orgId, (int) $id, 25) : [];
 
     $title = $contact['display_name'];
     $header = true; $footer = true;
@@ -242,7 +252,10 @@ $router->post('/supplier/customers/([0-9]+)/wallet', function ($id) use ($SECURE
     CSRF::guard();
     $ctx = _contacts_ctx($db);
     if ($ctx === null) { _supplier_stays_deny('Customers is not available for this account.'); }
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    // Org-wide MONEY MOVE on a customer's deposit wallet (keyed only by org, not property)
+    // — a 'selected'-scope staffer must not reach it (audit N3). supplier_can with no
+    // stayId would skip the property whitelist entirely.
+    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = (int) $ctx['org'];
     $back = root . 'supplier/customers/' . (int) $id;
     if (!contacts_get($db, $orgId, (int) $id)) {
