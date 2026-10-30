@@ -235,6 +235,37 @@ $router->post('flights/travelport/issue', function () use ($db) {
                 exit;
             }
 
+            // POST-PAYMENT PRICE RECONCILIATION (customer-journey audit #13): the
+            // live Air Price total is the authoritative supplier net right before
+            // the irreversible book+ticket. Compare it to what the customer paid
+            // (booking.price_markup) and HOLD for review if the fare rose beyond
+            // tolerance, rather than ticketing at a loss. Mirrors duffel. Converts
+            // the supplier total into the paid currency first so a foreign-currency
+            // fare does not trip the reconcile currency guard. Best-effort: only a
+            // genuine adverse move blocks; missing inputs never block ticketing.
+            if (function_exists('reconcilePostPaymentPrice')) {
+                $supTotal = (float) ($priced['total_price'] ?? 0);
+                $supCur   = strtoupper((string) ($priced['currency'] ?? ''));
+                if ($supTotal > 0 && $supCur !== '') {
+                    $paidCur = strtoupper((string) ($booking['currency_markup'] ?? $supCur));
+                    $supInPaid = $supTotal;
+                    if ($paidCur !== '' && $paidCur !== $supCur && function_exists('CURRENCY_CONVERT')) {
+                        $cv = CURRENCY_CONVERT($supTotal, $db, $supCur, $paidCur);
+                        $supInPaid = is_array($cv) ? (float) ($cv['price'] ?? $supTotal) : (float) $cv;
+                    }
+                    $pc = reconcilePostPaymentPrice($db, $booking, $supInPaid, $paidCur);
+                    if (empty($pc['ok'])) {
+                        echo json_encode([
+                            'status'       => false,
+                            'message'      => 'Booking held for review: the live fare rose above the amount paid. ' . (string) ($pc['reason'] ?? ''),
+                            'price_review' => $pc,
+                            'invoice_id'   => $invoice_id,
+                        ]);
+                        exit;
+                    }
+                }
+            }
+
             // Prefer priced offer ids (from Air Price) over original search selections
             $catalogId = $priced['price_id'] ?: ($flight_offer['search_id'] ?? '');
             $catalogAuth = $flight_offer['search_auth'] ?? 'Travelport';
