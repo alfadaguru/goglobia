@@ -8433,6 +8433,14 @@ if (!function_exists('agent_api_settle_booking')) {
         $charge = agent_api_charge_wallet($db, $agentUserId, $service, $baseTotal, $invoiceId);
         if (empty($charge['ok'])) {
             if ($bookingId) { $db->delete('bookings', ['id' => $bookingId]); }
+            // RELEASE any inventory holds placed for this invoice before we exit (audit N1).
+            // This helper exits directly on a wallet decline, so the route's catch-block
+            // hold-release (which fixed #1) never runs — the state='held' rows would survive
+            // and phantom-block the room-nights until TTL. Release by invoice ref (keyed on
+            // the invoice at hold-create); a no-op for services that place no holds.
+            if (function_exists('stays_hold_release')) {
+                try { stays_hold_release($db, $invoiceId); } catch (\Throwable $ignore) {}
+            }
             if (!headers_sent()) { http_response_code(402); header('Content-Type: application/json'); }
             echo json_encode([
                 'success'  => false,
