@@ -73,6 +73,21 @@ if (!function_exists('guests_resolve_for_booking')) {
                 $hit = $db->get('stays_guests', ['id'], ['org_id' => $orgId, 'email_key' => $ek, 'LIMIT' => 1]);
                 if ($hit) { return (int) $hit['id']; }
             }
+            // 3b) RAW-PHONE + NAME fallback (audit N11). A guest who shares a phone with a
+            //     different person was stored with phone_key = NULL (step 4 below, the #14
+            //     fix) and, with no email, step 2's phone_key match never finds them again —
+            //     so every repeat stay created a NEW duplicate record, fragmenting their
+            //     history. Match on the RAW phone column + the same name to recover that
+            //     prior null-key record. Name-guarded so it never merges two different people
+            //     who share the number (that's exactly why the key was nulled).
+            if ($pk !== '' && $phone !== '' && $nameKey !== '') {
+                $byPhone = $db->select('stays_guests', ['id', 'display_name'],
+                    ['org_id' => $orgId, 'phone' => $phone, 'LIMIT' => 20]) ?: [];
+                foreach ($byPhone as $c) {
+                    $cKey = function_exists('guestcrm_name_key') ? guestcrm_name_key($c['display_name'] ?? '') : strtolower((string) ($c['display_name'] ?? ''));
+                    if ($cKey === $nameKey) { return (int) $c['id']; } // same person, recovered
+                }
+            }
             // 4) create — need at least a name or a phone.
             if ($name === '' && $pk === '') { return 0; }
             // PHONE-KEY COLLISION (audit #14): the name guard at (2) already declined to
