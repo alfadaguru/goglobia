@@ -75,11 +75,27 @@ if (!function_exists('guests_resolve_for_booking')) {
             }
             // 4) create — need at least a name or a phone.
             if ($name === '' && $pk === '') { return 0; }
+            // PHONE-KEY COLLISION (audit #14): the name guard at (2) already declined to
+            // merge into a same-phone_key DIFFERENT-named guest, so we're about to create a
+            // genuinely distinct person. But UNIQUE(org,phone_key) would then throw and the
+            // old catch resolved ANY phone_key hit back to the stranger — collapsing two
+            // different people onto one record. Instead: if a same-phone_key guest with a
+            // DIFFERENT name already exists, store this new guest with phone_key = NULL (the
+            // raw phone is still saved + searchable); only the dedupe key is dropped for the
+            // shared-number case. Same name → that's a real match and (2) already returned it.
+            $pkForRow = $pk;
+            if ($pk !== '') {
+                $clash = $db->select('stays_guests', ['display_name'], ['org_id' => $orgId, 'phone_key' => $pk, 'LIMIT' => 20]) ?: [];
+                if (!empty($clash)) {
+                    // (2) didn't return → none of these share this name → all are different people.
+                    $pkForRow = null;
+                }
+            }
             $row = [
                 'org_id'       => $orgId,
                 'display_name' => substr($name !== '' ? $name : $phone, 0, 191),
                 'phone'        => $phone ?: null,
-                'phone_key'    => $pk ?: null,
+                'phone_key'    => $pkForRow ?: null,
                 'email'        => $email ?: null,
                 'email_key'    => $ek ?: null,
                 'id_doc'       => isset($g['id_doc']) ? substr(trim((string) $g['id_doc']), 0, 80) : null,
@@ -92,9 +108,34 @@ if (!function_exists('guests_resolve_for_booking')) {
             $id = (int) $db->id();
             return $id > 0 ? $id : 0;
         } catch (\Throwable $e) {
-            // UNIQUE(org,phone_key) race: another request created this guest — resolve to it.
+            // UNIQUE(org,phone_key) hit. Only resolve to the existing guest if the NAME also
+            // matches (a true duplicate / concurrent race for the SAME person). If the name
+            // differs, this is a shared-phone collision between two DIFFERENT people — create
+            // a distinct guest with phone_key = NULL rather than returning the stranger
+            // (audit #14: the old catch returned ANY phone_key hit, merging two people).
             if ($pk !== '' && (strpos((string) $e->getCode(), '23000') !== false || stripos($e->getMessage(), 'duplicate') !== false)) {
-                try { $hit = $db->get('stays_guests', ['id'], ['org_id' => $orgId, 'phone_key' => $pk, 'LIMIT' => 1]); if ($hit) { return (int) $hit['id']; } }
+                try {
+                    $cands = $db->select('stays_guests', ['id', 'display_name'], ['org_id' => $orgId, 'phone_key' => $pk, 'LIMIT' => 20]) ?: [];
+                    foreach ($cands as $c) {
+                        $cKey = function_exists('guestcrm_name_key') ? guestcrm_name_key($c['display_name'] ?? '') : strtolower((string) ($c['display_name'] ?? ''));
+                        if ($nameKey === '' || $cKey === $nameKey) { return (int) $c['id']; } // true match
+                    }
+                    // No name match → different person sharing the number. Create with NULL key.
+                    if ($name !== '') {
+                        $db->insert('stays_guests', [
+                            'org_id' => $orgId, 'display_name' => substr($name, 0, 191),
+                            'phone' => $phone ?: null, 'phone_key' => null,
+                            'email' => $email ?: null, 'email_key' => $ek ?: null,
+                            'id_doc' => isset($g['id_doc']) ? substr(trim((string) $g['id_doc']), 0, 80) : null,
+                            'nationality' => isset($g['nationality']) ? substr(trim((string) $g['nationality']), 0, 80) : null,
+                            'contact_id' => ((int) ($g['customer_id'] ?? 0)) > 0 ? (int) $g['customer_id'] : null,
+                            'created_by' => (string) ($_SESSION['user_id'] ?? '') ?: null,
+                            'created_at' => date('Y-m-d H:i:s'),
+                        ]);
+                        $nid = (int) $db->id();
+                        if ($nid > 0) { return $nid; }
+                    }
+                }
                 catch (\Throwable $e2) { error_log('guests_resolve dup: ' . $e2->getMessage()); }
             }
             error_log('guests_resolve_for_booking: ' . $e->getMessage());
