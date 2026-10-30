@@ -868,6 +868,20 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
 
     } catch (Exception $e) {
 
+        // RELEASE ANY INVENTORY HOLDS placed for this booking (audit #1). If the bookings
+        // INSERT (or anything after the holds were placed) threw, the holds would otherwise
+        // survive as state='held' and phantom-block those room-nights across web/GIA/every
+        // API client until their ~60-min TTL expires — a sold-out with no booking behind it.
+        // Release by the specific hold ids we captured (id-release only frees 'held' rows,
+        // so it can never free a legitimately consumed/paid seat from another flow). The
+        // booking failed → no payment was taken → these holds are unconfirmed. Idempotent
+        // and best-effort: never let cleanup mask the original error.
+        if (!empty($staysHoldIds) && function_exists('stays_hold_release')) {
+            foreach ($staysHoldIds as $hid) {
+                try { stays_hold_release($db, (int) $hid); } catch (\Throwable $ignore) {}
+            }
+        }
+
         // ============================================================================
         // WEBHOOK: Booking Failed
         // ============================================================================
