@@ -727,6 +727,14 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                 $isCashTender = false;
                 $walletDrawn = false;            // did we actually debit the deposit wallet?
                 $walletBackMsg = '';             // extra message when wallet was used
+                // Per-render submission nonce — computed ONCE here so the wallet-drawdown ref
+                // and the folio-line ref share it (audit N2). If they didn't, two legitimate
+                // same-amount wallet payments from two page renders would dedupe the wallet
+                // debit (content-only key) but still post two folio credit lines → money
+                // credited that was never drawn. Same nonce → both keys agree: two clicks of
+                // ONE render dedupe both; two separate renders post both.
+                $nonce = preg_replace('/[^a-f0-9]/i', '', (string) ($_POST['folio_nonce'] ?? ''));
+                $nonceSuffix = $nonce !== '' ? (':n' . substr($nonce, 0, 32)) : '';
                 if (!$blocked && $ftype === 'payment') {
                     $tender = (string) ($_POST['tender'] ?? '');
                     if (function_exists('desk_tender_types') && isset(desk_tender_types()[$tender])) {
@@ -755,14 +763,29 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                                 $blocked = true;
                                 $_SESSION['message'] = ['type' => 'error', 'text' => 'Wallet payments are not available for this property.'];
                             } else {
-                                // Idempotency ref ties the drawdown to THIS folio+amount so a
-                                // double-submit can't debit the deposit twice.
-                                $wref = 'folio_pay:' . $invoiceId . ':' . number_format($famount, 2, '.', '');
+                                // Idempotency ref ties the drawdown to THIS folio+amount AND
+                                // the per-render nonce (audit N2) so it stays in lockstep with
+                                // the folio-line ref: two clicks of one render dedupe BOTH the
+                                // wallet debit and the folio line; two separate renders (two
+                                // real payments of the same amount) post BOTH. Without the
+                                // nonce the wallet key was content-only and deduped a genuine
+                                // second payment while the nonce-keyed folio line still posted
+                                // → folio credited money never drawn from the wallet.
+                                $wref = 'folio_pay:' . $invoiceId . ':' . number_format($famount, 2, '.', '') . $nonceSuffix;
                                 $dr = cwallet_drawdown($db, $dbOrgT, $cid, $famount, $fcur, ['reason' => 'stay', 'ref' => $wref, 'note' => 'Folio payment ' . $invoiceId]);
                                 if (empty($dr['ok'])) {
                                     $blocked = true;
                                     $bal = isset($dr['balance']) ? (' Available: ' . $fcur . ' ' . number_format((float) $dr['balance'], 2) . '.') : '';
                                     $_SESSION['message'] = ['type' => 'error', 'text' => 'Could not take this from the customer wallet (' . ($dr['message'] ?? 'insufficient balance') . ').' . $bal];
+                                } elseif (!empty($dr['already'])) {
+                                    // The drawdown was a REPLAY of this exact (folio+amount+nonce)
+                                    // debit — i.e. a true double-submit. Nothing new left the
+                                    // wallet, so do NOT post a fresh folio credit. The folio
+                                    // line below (same nonce) would dedupe anyway, but short-
+                                    // circuit here so $walletDrawn stays false (no spurious
+                                    // reversal) and the operator sees the duplicate message.
+                                    $blocked = true;
+                                    $_SESSION['message'] = ['type' => 'success', 'text' => 'This wallet payment was already taken — ignored the duplicate submit (nothing charged twice).'];
                                 } else {
                                     $walletDrawn = true;
                                     $walletBackMsg = ' Deposit wallet debited (new balance ' . $fcur . ' ' . number_format((float) ($dr['balance'] ?? 0), 2) . ').';
@@ -796,9 +819,10 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                     // no nonce is present (older cached form / API caller) — still blocks the
                     // classic rapid double-submit of an identical line.
                     $postStatus = 'fail';
-                    $nonce = preg_replace('/[^a-f0-9]/i', '', (string) ($_POST['folio_nonce'] ?? ''));
+                    // Same per-render $nonceSuffix the wallet drawdown used (hoisted above) —
+                    // keeps the two idempotency domains in lockstep (audit N2).
                     $fref = 'folio:' . $invoiceId . ':' . $fid . ':' . $ftype . ':' . number_format($famount, 2, '.', '') . ':w' . $fno
-                        . ($nonce !== '' ? (':n' . substr($nonce, 0, 32)) : '');
+                        . $nonceSuffix;
                     $ok = $fid > 0 && function_exists('folio_add_item')
                         && folio_add_item($db, $fid, $ftype, $famount, $fdesc, (string) ($_SESSION['user_id'] ?? ''), $fno, $fref, $postStatus);
                     $wasDuplicate = ($postStatus === 'duplicate');
