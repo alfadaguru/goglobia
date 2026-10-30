@@ -224,6 +224,42 @@ if (!function_exists('hk_rooms_blocking')) {
     }
 }
 
+if (!function_exists('hk_room_has_ooo_overlap')) {
+    /**
+     * True if the physical room has an ACTIVE out-of-order/out-of-service block overlapping
+     * [$checkin,$checkout) (audit N10). The hk_status flag alone is insufficient: it is
+     * date-insensitive and hk_room_set_status permits out_of_order -> clean WITHOUT clearing
+     * an active OOO block, so a room can read 'clean' while still OOO for these dates. This
+     * consults stays_ooo_blocks directly. Half-open overlap (a block ending the morning a
+     * guest arrives does not conflict). Empty/invalid dates → treat any active block as a
+     * conflict (conservative). Fail-closed on read error (don't assign into a possible OOO).
+     */
+    function hk_room_has_ooo_overlap($db, int $physicalRoomId, string $checkin, string $checkout): bool
+    {
+        if ($physicalRoomId <= 0) { return false; }
+        try {
+            $blocks = $db->select('stays_ooo_blocks', ['date_from', 'date_to'],
+                ['physical_room_id' => $physicalRoomId, 'state' => 'active']) ?: [];
+            if (empty($blocks)) { return false; }
+            $haveWin = preg_match('/^\d{4}-\d{2}-\d{2}$/', $checkin) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $checkout);
+            if (!$haveWin) { return true; } // unknown stay window + an active block → conservative conflict
+            $aStart = strtotime($checkin); $aEnd = strtotime($checkout);
+            foreach ($blocks as $b) {
+                $bStart = strtotime((string) $b['date_from']);
+                // OOO blocks are inclusive date ranges [date_from, date_to]; a block on
+                // date_to still makes that night unusable, so treat the block end as the
+                // morning AFTER date_to for half-open comparison.
+                $bEnd = strtotime((string) $b['date_to'] . ' +1 day');
+                if ($aStart < $bEnd && $bStart < $aEnd) { return true; }
+            }
+            return false;
+        } catch (\Throwable $e) {
+            error_log('hk_room_has_ooo_overlap: ' . $e->getMessage());
+            return true; // fail-closed: don't assign into a possible OOO window on a read error
+        }
+    }
+}
+
 if (!function_exists('hk_assign_room_to_booking')) {
     /**
      * Assign a physical room to a reservation (at/after check-in). Validates the room
@@ -251,6 +287,9 @@ if (!function_exists('hk_assign_room_to_booking')) {
             if (function_exists('booking_data_mutate')) {
                 $res = booking_data_mutate($db, $invoiceId, function (array &$bd, array $row, bool &$abort) use ($db, $stayId, $physicalRoomId, $invoiceId) {
                     $ci = (string) ($bd['checkin'] ?? ''); $co = (string) ($bd['checkout'] ?? '');
+                    // Active OOO block overlapping the stay (audit N10) — the hk_status flag
+                    // is bypassable, so check stays_ooo_blocks directly.
+                    if (hk_room_has_ooo_overlap($db, $physicalRoomId, $ci, $co)) { $abort = true; return false; }
                     $blocking = function_exists('hk_rooms_blocking')
                         ? hk_rooms_blocking($db, $stayId, $ci, $co, $invoiceId)
                         : (function_exists('hk_rooms_in_use') ? hk_rooms_in_use($db, $stayId) : []);
@@ -266,6 +305,7 @@ if (!function_exists('hk_assign_room_to_booking')) {
             $bd = json_decode((string) ($b['booking_data'] ?? ''), true);
             if (!is_array($bd)) { $bd = []; }
             $ci = (string) ($bd['checkin'] ?? ''); $co = (string) ($bd['checkout'] ?? '');
+            if (hk_room_has_ooo_overlap($db, $physicalRoomId, $ci, $co)) { return false; } // active OOO block (audit N10)
             $blocking = function_exists('hk_rooms_blocking')
                 ? hk_rooms_blocking($db, $stayId, $ci, $co, $invoiceId)
                 : hk_rooms_in_use($db, $stayId);
