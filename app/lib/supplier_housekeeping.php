@@ -276,16 +276,23 @@ if (!function_exists('hk_assign_room_to_booking')) {
             if (!$room || (int) $room['active'] !== 1) { return false; }
             if (!in_array((string) $room['hk_status'], hk_assignable_statuses(), true)) { return false; }
 
-            // ATOMIC booking_data mutation (audit fix) with the conflict check re-run INSIDE
-            // the row lock — so two concurrent assignments can't both pass an earlier
-            // "free" read and assign the SAME physical room to two overlapping guests.
-            // The guard is hk_rooms_blocking (NOT hk_rooms_in_use): a room is taken by ANY
-            // live reservation that holds it over an OVERLAPPING date range, including ones
-            // still 'confirmed' and not yet checked in (the audit #4 double-book). The
-            // subject booking's own dates come from its locked booking_data; its own
-            // existing assignment is excluded so a re-assign to the same room is a no-op.
+            // ATOMIC booking_data mutation with the conflict check re-run INSIDE the
+            // transaction (audit #4). CONCURRENCY (audit #4 follow-up): booking_data_mutate
+            // only locks the SUBJECT booking row, and hk_rooms_blocking is a non-locking read
+            // of OTHER bookings — so two simultaneous assignments of the SAME physical room
+            // to DIFFERENT invoices would lock different booking rows and, under REPEATABLE
+            // READ, each miss the other's uncommitted assignment and both commit. To actually
+            // serialize them we take a FOR UPDATE lock on the stays_physical_rooms ROW (the
+            // one thing both assignments share) at the top of the mutation: the second assign
+            // blocks until the first commits, then its hk_rooms_blocking read sees the first's
+            // committed assignment and aborts. The guard itself: a room is taken by ANY live
+            // reservation holding it over an OVERLAPPING date range (incl. not-yet-checked-in),
+            // plus an active OOO block (N10); the booking's own assignment is excluded.
             if (function_exists('booking_data_mutate')) {
                 $res = booking_data_mutate($db, $invoiceId, function (array &$bd, array $row, bool &$abort) use ($db, $stayId, $physicalRoomId, $invoiceId) {
+                    // Serialize concurrent assigns of THIS physical room (shared lock point).
+                    try { $db->query('SELECT id FROM stays_physical_rooms WHERE id = :id FOR UPDATE', [':id' => $physicalRoomId]); }
+                    catch (\Throwable $e) { error_log('hk_assign lock: ' . $e->getMessage()); $abort = true; return false; }
                     $ci = (string) ($bd['checkin'] ?? ''); $co = (string) ($bd['checkout'] ?? '');
                     // Active OOO block overlapping the stay (audit N10) — the hk_status flag
                     // is bypassable, so check stays_ooo_blocks directly.
