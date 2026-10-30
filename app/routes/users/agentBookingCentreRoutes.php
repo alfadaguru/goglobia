@@ -114,11 +114,15 @@ if (!function_exists('_agent_booking_for_settle')) {
             $_SESSION['message'] = ['type'=>'error','text'=>'Booking not found.'];
             header('Location: ' . root . 'agent/bookings'); exit;
         }
-        // Ownership: the booking must belong to this agency (agency_id) OR have been
-        // created by the agent owner/actor (user_id) before attribution was stamped.
+        // Ownership: the booking must belong to THIS AGENCY — by agency_id, or by
+        // user_id === the agency OWNER (covers legacy bookings made before
+        // agency_id existed). Scope strictly to the agency; do NOT also accept
+        // "created by the current actor", which let a user who is active staff of
+        // two agencies settle/refund one agency's booking while acting as the
+        // other → charging/refunding the WRONG agency's wallet (audit HIGH).
         $ownBy = (string) ($b['agency_id'] ?? '');
         $byUser = (string) ($b['user_id'] ?? '');
-        if ($ownBy !== $owner && $byUser !== $owner && $byUser !== (string)$ctx['actor']) {
+        if ($ownBy !== $owner && $byUser !== $owner) {
             $_SESSION['message'] = ['type'=>'error','text'=>'That booking does not belong to your agency.'];
             header('Location: ' . root . 'agent/bookings'); exit;
         }
@@ -148,6 +152,34 @@ if (!function_exists('_agent_issue_with_recovery')) {
         // glitch / timeout; issue.php is idempotent so a retry never double-books).
         $issued = false; $lastMsg = '';
         for ($attempt = 1; $attempt <= 2 && !$issued; $attempt++) {
+            // Before a RETRY, re-read the booking: a prior attempt may have reached
+            // the supplier and booked/ticketed even though our loopback timed out
+            // (false negative). If a PNR or a supplier reference now exists, or the
+            // booking is already confirmed, DO NOT fire again — that could double-
+            // book a supplier that isn't idempotent (audit). (Adivaha is already
+            // protected by a stable Idempotency-Key, but this guards every module.)
+            if ($attempt > 1) {
+                try {
+                    $chk = $db->get('bookings', ['pnr','booking_status','booking_data'], ['invoice_id'=>$invoiceId]);
+                    $hasPnr = $chk && trim((string)($chk['pnr'] ?? '')) !== '';
+                    $isConfirmed = $chk && in_array(strtolower((string)($chk['booking_status'] ?? '')), ['confirmed','issued'], true);
+                    $bd = $chk ? json_decode((string)($chk['booking_data'] ?? ''), true) : null;
+                    $hasSupplierRef = is_array($bd) && (
+                        trim((string)($bd['supplier_ref'] ?? '')) !== '' || trim((string)($bd['order_id'] ?? '')) !== ''
+                    );
+                    if ($hasPnr || $isConfirmed) {
+                        $issued = true; $lastMsg = 'Already issued (confirmed on re-check).';
+                        break;
+                    }
+                    if ($hasSupplierRef) {
+                        // Supplier created the booking but we have no PNR yet — treat
+                        // as a real supplier booking; do NOT re-fire. Leave pending
+                        // for the supplier to confirm / admin to reconcile.
+                        $lastMsg = 'Supplier booking exists (awaiting ticketing); not re-fired.';
+                        break;
+                    }
+                } catch (\Throwable $e) { error_log("agent issue recheck $invoiceId: " . $e->getMessage()); }
+            }
             try {
                 $res = bm_fire_supplier_issue($db, $invoiceId, $service, $module);
                 $issued = !empty($res['ok']) || !empty($res['status']);
@@ -167,20 +199,29 @@ if (!function_exists('_agent_issue_with_recovery')) {
         // AGT-REFUND-{inv} (the same key the manual refund uses, so the two never
         // double-refund the same booking). Only refund a genuine WALLET payment.
         $refunded = false;
+        $refundAmt = 0.0;
         try {
             $b = $db->get('bookings', ['payment_status','payment_gateway','price_markup','currency_markup'], ['invoice_id'=>$invoiceId]);
             $paidFromWallet = $b && ($b['payment_gateway'] ?? '') === 'Wallet' && ($b['payment_status'] ?? '') === 'paid';
             if ($paidFromWallet && function_exists('wallet_refund')) {
-                $amt = round((float) ($b['price_markup'] ?? $agentCost), 2);
+                // Refund the FULL amount that was charged = booking + the SAME
+                // per-service fee agent_api_charge_wallet debited (it charged
+                // bookingAmount + agent_api_service_fee). Refunding price_markup
+                // alone stranded the fee on every refund (audit HIGH). Recompute
+                // the identical fee so the refund equals the actual debit.
+                $bookingAmt = round((float) ($b['price_markup'] ?? $agentCost), 2);
+                $fee = function_exists('agent_api_service_fee')
+                    ? (float) agent_api_service_fee($db, $owner, $service ?: 'booking', $bookingAmt) : 0.0;
+                $refundAmt = round($bookingAmt + $fee, 2);
                 $cur = (string) ($b['currency_markup'] ?? $currency);
-                if ($amt > 0) {
-                    $r = wallet_refund($db, $owner, $amt, $cur, [
+                if ($refundAmt > 0) {
+                    $r = wallet_refund($db, $owner, $refundAmt, $cur, [
                         'reason' => 'refund',
                         'invoice_id' => $invoiceId,
                         'ref_type' => 'invoice',
                         'ref_id' => $invoiceId,
                         'idempotency_key' => 'AGT-REFUND-' . $invoiceId,
-                        'note' => 'Auto-refund: supplier issue failed for ' . $invoiceId,
+                        'note' => 'Auto-refund (booking+fee): supplier issue failed for ' . $invoiceId,
                     ]);
                     $refunded = !empty($r['ok']);
                 }
@@ -191,7 +232,7 @@ if (!function_exists('_agent_issue_with_recovery')) {
             try { $db->update('bookings', [
                 'booking_status' => 'cancelled',
                 'payment_status' => 'refunded',
-                'refund_amount'  => round((float)($agentCost), 2),
+                'refund_amount'  => round($refundAmt, 2),
                 'refund_status'  => 'refunded',
                 'cancelled_at'   => date('Y-m-d H:i:s'),
             ], ['invoice_id'=>$invoiceId]); } catch (\Throwable $e) {}
@@ -351,11 +392,13 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/action', function ($invoiceId) use 
     $actor = (string) $ctx['actor'];
     $action = (string) ($input['action'] ?? '');
 
-    // Ownership: the booking must belong to this agency.
+    // Ownership: the booking must belong to THIS AGENCY (agency_id, or user_id ===
+    // the agency OWNER for legacy bookings). NOT "created by the current actor" —
+    // that let a dual-agency staffer act on the wrong agency's booking (audit HIGH).
     $b = $db->get('bookings', '*', ['invoice_id' => (string)$invoiceId]);
     if (!$b) { echo json_encode(['status'=>false,'message'=>'Booking not found.']); exit; }
     $ownBy = (string)($b['agency_id'] ?? ''); $byUser = (string)($b['user_id'] ?? '');
-    if ($ownBy !== $owner && $byUser !== $owner && $byUser !== $actor) {
+    if ($ownBy !== $owner && $byUser !== $owner) {
         echo json_encode(['status'=>false,'message'=>'That booking does not belong to your agency.']); exit;
     }
 
@@ -393,6 +436,13 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/action', function ($invoiceId) use 
     // ---- RESEND VOUCHER (reuses GENERATE_BOOKING_PDF + NOTIFY::resend) ------
     if ($action === 'resend') {
         if (!agent_can($db, 'bookings', 'view')) { echo json_encode(['status'=>false,'message'=>'No permission.']); exit; }
+        // STATE GUARD: only resend a voucher for a PAID + ISSUED/CONFIRMED booking.
+        // Resending for an unpaid/pending booking would email the traveller a
+        // "ticket" for a booking that was never issued = a false confirmation (audit).
+        if (($b['payment_status'] ?? '') !== 'paid'
+            || !in_array(strtolower((string)($b['booking_status'] ?? '')), ['confirmed','issued','completed'], true)) {
+            echo json_encode(['status'=>false,'message'=>'The voucher can only be resent once the booking is paid and the ticket is issued.']); exit;
+        }
         try {
             // Resend the VOUCHER = the TRAVELLER's no-price TICKET, not the invoice.
             $pdfPath = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF((string)$invoiceId, 'ticket') : null;
@@ -454,16 +504,23 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/action', function ($invoiceId) use 
 
         // 3) Refund to the AGENCY WALLET when requested AND the booking was paid
         //    FROM THE WALLET. Idempotent per invoice (so a repeat click never
-        //    double-refunds). Only the amount the AGENT paid us (price_markup).
+        //    double-refunds). Refund the FULL amount charged = price_markup + the
+        //    SAME per-service fee agent_api_charge_wallet debited (recomputed), not
+        //    price_markup alone — else the fee is stranded (audit HIGH).
         //    The payment_gateway==='Wallet' assertion is REQUIRED: without it a
         //    booking marked 'paid' by any non-wallet means (admin mark-paid, a
         //    legacy/mixed-gateway settlement) would mint wallet credit that was
         //    never debited. The agent settle path stamps payment_gateway='Wallet'
         //    (this file, line ~208), so a genuine wallet-paid booking matches.
+        //    Shares the SAME idempotency key as auto-refund so the two never
+        //    double-refund the same invoice.
         $refunded = false;
         $paidFromWallet = strcasecmp((string) ($b['payment_gateway'] ?? ''), 'Wallet') === 0;
         if ($action === 'refund' && ($b['payment_status'] ?? '') === 'paid' && $paidFromWallet) {
-            $amount = round((float)($b['price_markup'] ?? 0), 2);
+            $bookingAmt = round((float)($b['price_markup'] ?? 0), 2);
+            $fee = function_exists('agent_api_service_fee')
+                ? (float) agent_api_service_fee($db, $owner, $moduleType ?: 'booking', $bookingAmt) : 0.0;
+            $amount = round($bookingAmt + $fee, 2);
             $currency = (string)($b['currency_markup'] ?? (function_exists('wallet_default_currency') ? wallet_default_currency($db) : 'NGN'));
             if ($amount > 0 && function_exists('wallet_refund')) {
                 $r = wallet_refund($db, $owner, $amount, $currency, [
@@ -472,7 +529,7 @@ $router->post('/agent/booking/([A-Za-z0-9]+)/action', function ($invoiceId) use 
                     'ref_type' => 'invoice',
                     'ref_id' => (string)$invoiceId,
                     'idempotency_key' => 'AGT-REFUND-' . $invoiceId,
-                    'note' => 'Agent booking refund ' . $invoiceId,
+                    'note' => 'Agent booking refund (booking+fee) ' . $invoiceId,
                 ]);
                 $refunded = !empty($r['ok']);
                 if ($refunded) {
