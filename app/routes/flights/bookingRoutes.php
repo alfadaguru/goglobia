@@ -950,6 +950,70 @@ $router->post('/api/flight/booking/submit', function () use ($SECURE, $db) {
         // that lowers base_price to pay a fraction of the fare. 10% tolerance
         // absorbs currency-rounding / legitimate revalidation variance.
         $trustedBase = (float)($flightData['actual_price'] ?? $flightData['price'] ?? 0);
+
+        // ─────────────────────────────────────────────────────────────────────
+        // PRICE-TRUST GUARD (customer-journey audit, finding #2).
+        // For the INTERNAL `flights` supplier the "$trustedBase" above is itself
+        // client-controlled: the draft is save-draft(json_encode($input)) verbatim,
+        // 'flights' is in $noRevalidateAllowed so no supplier re-quote refreshes it,
+        // and the listing JS even converts the price with a client-supplied
+        // conversionFactor. A customer could POST actual_price=1 so the 90% floor
+        // compares 1 >= 1*0.9 and passes — buying a real local fare for ~nothing,
+        // with no reconcile at issue (modules/flights/flights has no issue.php).
+        // The authoritative fare lives in our own `flights` table, so re-derive it
+        // here from (adult/child/infant price × pax) for the selected class,
+        // converted server-side into the base currency (mirrors
+        // modules/flights/flights/search.php:309-340). Live suppliers are untouched
+        // (they revalidate and reconcile at issue).
+        // ─────────────────────────────────────────────────────────────────────
+        if (strtolower((string) $supplierName) === 'flights') {
+            $fltBd = flightResolveBookingData($flightData);
+            $fltId = (int) ($fltBd['flight_id'] ?? $flightData['booking_data']['flight_id'] ?? 0);
+            $fltClass = strtolower((string) ($fltBd['class'] ?? $flightData['class'] ?? 'economy'));
+            if ($fltId > 0) {
+                $prefix = match ($fltClass) {
+                    'business' => 'business_',
+                    'first' => 'first_',
+                    'premium_economy' => 'premium_economy_',
+                    default => 'economy_',
+                };
+                $fltRow = $db->get('flights', [
+                    $prefix . 'adult_price(ad)',
+                    $prefix . 'child_price(ch)',
+                    $prefix . 'infant_price(inf)',
+                    'currency',
+                ], ['id' => $fltId, 'status' => 1]);
+                if (is_array($fltRow)) {
+                    if (!function_exists('CURRENCY_CONVERT')) {
+                        require_once dirname(__DIR__, 3) . '/modules/helpers.php';
+                    }
+                    $fltCur = !empty($fltRow['currency']) ? (string) $fltRow['currency'] : 'USD';
+                    $toCur  = (string) ($input['base_currency'] ?? $flightData['currency'] ?? 'USD');
+                    $cvA = CURRENCY_CONVERT((float) $fltRow['ad'], $db, $fltCur, $toCur);
+                    $cvC = CURRENCY_CONVERT((float) $fltRow['ch'], $db, $fltCur, $toCur);
+                    $cvI = CURRENCY_CONVERT((float) $fltRow['inf'], $db, $fltCur, $toCur);
+                    $netA = is_array($cvA) ? (float) ($cvA['price'] ?? 0) : (float) $cvA;
+                    $netC = is_array($cvC) ? (float) ($cvC['price'] ?? 0) : (float) $cvC;
+                    $netI = is_array($cvI) ? (float) ($cvI['price'] ?? 0) : (float) $cvI;
+                    $serverNet = round(($netA * $adultsCount) + ($netC * $childrenCount) + ($netI * $infantsCount), 2);
+                    if ($serverNet > 0) {
+                        if (abs($serverNet - $actualPriceBase) > 0.01) {
+                            error_log(sprintf(
+                                'FLIGHTS PRICE-TRUST | invoice=%s | flight_id=%d class=%s | client_base=%.2f server_net=%.2f',
+                                $invoiceId, $fltId, $fltClass, $actualPriceBase, $serverNet
+                            ));
+                        }
+                        // For internal fares we KNOW the true net — pin both the floor
+                        // reference AND the fare the sell price is derived from to the
+                        // DB value, so the client cannot undercut even within the 10%
+                        // floor tolerance. (Honest bookings already equal $serverNet.)
+                        $trustedBase     = $serverNet;
+                        $actualPriceBase = $serverNet;
+                    }
+                }
+            }
+        }
+
         if ($trustedBase > 0 && ($actualPriceBase + 0.01) < ($trustedBase * 0.90)) {
             error_log(sprintf(
                 'PRICE TAMPER BLOCKED | invoice=%s | client_base=%.2f trusted_base=%.2f',

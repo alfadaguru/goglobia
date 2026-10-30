@@ -328,6 +328,53 @@ $router->post('/api/tour/booking/submit', function () use ($SECURE, $db) {
         $markupPrice = $bookingData['markup_total_tour_price'] ?? 0;
         $currency = $bookingData['currency'] ?? 'USD';
 
+        // ─────────────────────────────────────────────────────────────────────
+        // PRICE-TRUST GUARD (customer-journey audit, finding #1).
+        // The net ($actualPrice) above comes from the client-stored draft
+        // (save-draft stores json_encode($input) verbatim), so a customer could
+        // POST actual_total_tour_price=1 and buy a real tour for ~nothing — there
+        // was NO server-side re-derivation and the internal tours issuer never
+        // calls reconcilePostPaymentPrice. For the INTERNAL `tours` supplier the
+        // authoritative net lives in our own `tours` table, so re-derive it here
+        // from (adult_price × adults) + (child_price × children), converted into
+        // the same base/system-default currency the draft's net is expressed in
+        // (mirrors modules/tours/tours/details.php:312-348). Live-booking
+        // suppliers (e.g. Adivaha) price at the supplier and reconcile at issue,
+        // so they are intentionally skipped here (their net is not in `tours`).
+        // ─────────────────────────────────────────────────────────────────────
+        $supplierNameForTrust = strtolower(trim((string) ($bookingData['supplier'] ?? '')));
+        $isInternalTours = ($supplierNameForTrust === '' || $supplierNameForTrust === 'tours');
+        if ($isInternalTours && !empty($bookingData['tour_id'])) {
+            $trustTourRow = $db->get('tours', ['adult_price', 'child_price', 'currency'], [
+                'id'     => $bookingData['tour_id'],
+                'status' => '1',
+            ]);
+            if (is_array($trustTourRow)) {
+                $trustAdults   = max(0, (int) ($bookingData['total_adults'] ?? 0));
+                $trustChildren = max(0, (int) ($bookingData['total_children'] ?? 0));
+                if ($trustAdults < 1 && $trustChildren < 1) { $trustAdults = 1; }
+                $tourCur       = !empty($trustTourRow['currency']) ? (string) $trustTourRow['currency'] : 'USD';
+                $sysDefaultCur = $db->get('currencies', 'name', ['default' => '1']) ?: 'USD';
+                // Net per pax in base currency (markup-free, currency-converted).
+                $cvAdult = CURRENCY_CONVERT((float) $trustTourRow['adult_price'], $db, $tourCur, $sysDefaultCur);
+                $cvChild = CURRENCY_CONVERT((float) $trustTourRow['child_price'], $db, $tourCur, $sysDefaultCur);
+                $netAdult = is_array($cvAdult) ? (float) ($cvAdult['price'] ?? 0) : (float) $cvAdult;
+                $netChild = is_array($cvChild) ? (float) ($cvChild['price'] ?? 0) : (float) $cvChild;
+                $authoritativeNet = round(($netAdult * $trustAdults) + ($netChild * $trustChildren), 2);
+                // The server figure is authoritative — always use it, never the
+                // client draft. (Logged if the client lied so abuse is visible.)
+                if ($authoritativeNet > 0) {
+                    if (abs($authoritativeNet - (float) $actualPrice) > 0.01) {
+                        error_log('TOURS PRICE-TRUST | invoice-pending | tour_id=' . $bookingData['tour_id']
+                            . ' | client_net=' . (float) $actualPrice . ' | server_net=' . $authoritativeNet
+                            . ' | adults=' . $trustAdults . ' children=' . $trustChildren);
+                    }
+                    $actualPrice = $authoritativeNet;
+                    $currency    = $sysDefaultCur; // net is now in base/system-default currency
+                }
+            }
+        }
+
         // MARKUP NORMALISATION (docs/MONEY-WALLET-AUDIT.md §C.4 step 6): re-derive
         // the sell price SERVER-SIDE via MARKUP() from the trusted supplier net
         // ($actualPrice from the server draft) so the agent's b2b rate + member-
