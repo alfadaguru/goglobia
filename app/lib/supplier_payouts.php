@@ -226,15 +226,14 @@ if (!function_exists('supplier_payout_request')) {
                 $payoutId = (int) $db->id();
                 if ($payoutId <= 0) { $result = ['ok' => false, 'message' => 'Insert failed']; return false; }
 
-                // RESERVE covering earnings (oldest first) up to the amount by setting
-                // payout_id. They stay 'available' (reserved) until the transfer succeeds.
-                $need = $amount;
-                foreach ($rows as $r) {
-                    if ($need <= 1e-9) { break; }
-                    $db->update('supplier_earnings',
-                        ['payout_id' => $payoutId, 'updated_at' => date('Y-m-d H:i:s')],
-                        ['id' => (int) $r['id'], 'state' => 'available', 'payout_id' => null]);
-                    $need = round($need - (float) $r['net_amount'], 2);
+                // RESERVE covering earnings (oldest first) up to EXACTLY the amount by
+                // setting payout_id. The boundary row is SPLIT so no overshoot is reserved
+                // (audit #6: reserving a whole row then flipping it 'paid' on settle used to
+                // lose the supplier the remainder). They stay 'available' (reserved) until
+                // the transfer succeeds. $rows are already locked FOR UPDATE above.
+                if (!supplier_payout_reserve_rows($db, $payoutId, $rows, (float) $amount)) {
+                    $result = ['ok' => false, 'message' => 'Could not reserve the earnings for this payout.'];
+                    return false; // rollback
                 }
                 $result = ['ok' => true, 'payout_id' => $payoutId, 'message' => 'Payout requested.'];
                 return true; // commit
@@ -243,6 +242,83 @@ if (!function_exists('supplier_payout_request')) {
             error_log('supplier_payout_request: ' . $e->getMessage());
         }
         return $result;
+    }
+}
+
+if (!function_exists('supplier_payout_reserve_rows')) {
+    /**
+     * Reserve covering earnings for a payout up to EXACTLY $amount, SPLITTING the boundary
+     * row so no overshoot is ever reserved (audit #6). $lockedRows are the owner's
+     * 'available', payout_id=NULL rows, oldest first, ALREADY SELECT ... FOR UPDATE'd by
+     * the caller inside its transaction (so this must run inside that same transaction).
+     *
+     * For each row until $amount is covered:
+     *   - if the row fits within the remaining need → stamp payout_id on the whole row;
+     *   - if the row OVERSHOOTS the remaining need → shrink it to exactly the need and
+     *     stamp payout_id, then INSERT a residual 'available' row (payout_id NULL) for the
+     *     leftover so the supplier keeps it. The residual carries a derived, unique
+     *     invoice_id ("<invoice>#r<payoutId>") because supplier_earnings has
+     *     UNIQUE(invoice_id); the RESERVED piece keeps the real invoice_id so the paid
+     *     portion stays traceable and settle/void match it unchanged.
+     *
+     * Returns true iff the full $amount was reserved. Pure DB writes; no transaction of
+     * its own (relies on the caller's).
+     */
+    function supplier_payout_reserve_rows($db, int $payoutId, array $lockedRows, float $amount): bool
+    {
+        $need = round($amount, 2);
+        if ($need <= 0) { return false; }
+        $now = date('Y-m-d H:i:s');
+        foreach ($lockedRows as $r) {
+            if ($need <= 1e-9) { break; }
+            $rowId = (int) $r['id'];
+            $rowNet = round((float) $r['net_amount'], 2);
+            if ($rowNet <= 0) { continue; }
+            if ($rowNet <= $need + 1e-9) {
+                // Whole row fits — reserve it entirely.
+                $db->update('supplier_earnings',
+                    ['payout_id' => $payoutId, 'updated_at' => $now],
+                    ['id' => $rowId, 'state' => 'available', 'payout_id' => null]);
+                $need = round($need - $rowNet, 2);
+            } else {
+                // Row overshoots — split. Reserved piece = $need; residual = rowNet-$need.
+                $residual = round($rowNet - $need, 2);
+                // 1) shrink the original to exactly the needed amount + reserve it (state
+                //    guard so a concurrent writer can't race the split).
+                $shrunk = $db->update('supplier_earnings',
+                    ['net_amount' => $need, 'payout_id' => $payoutId, 'updated_at' => $now],
+                    ['id' => $rowId, 'state' => 'available', 'payout_id' => null]);
+                if (!$shrunk || $shrunk->rowCount() < 1) {
+                    // The row changed under us — bail; caller's txn will roll back.
+                    return false;
+                }
+                // 2) insert the residual as a fresh 'available' row the supplier still owns.
+                $src = $db->get('supplier_earnings',
+                    ['org_id', 'owner_user_id', 'invoice_id', 'stay_id', 'currency',
+                     'gross_amount', 'commission_amount', 'available_at'],
+                    ['id' => $rowId]);
+                if (is_array($src)) {
+                    $db->insert('supplier_earnings', [
+                        'org_id'            => $src['org_id'],
+                        'owner_user_id'     => $src['owner_user_id'],
+                        'invoice_id'        => substr((string) $src['invoice_id'] . '#r' . $payoutId, 0, 255),
+                        'stay_id'           => $src['stay_id'],
+                        'currency'          => $src['currency'],
+                        'gross_amount'      => 0.00,     // financial split is on NET only;
+                        'commission_amount' => 0.00,     // gross/commission stay on the paid piece
+                        'net_amount'        => $residual,
+                        'state'             => 'available',
+                        'payout_id'         => null,
+                        'available_at'      => $src['available_at'] ?: $now,
+                        'created_at'        => $now,
+                        'updated_at'        => $now,
+                    ]);
+                }
+                $need = 0.0;
+                break;
+            }
+        }
+        return $need <= 1e-9;
     }
 }
 
@@ -289,13 +365,11 @@ if (!function_exists('supplier_payout_reserve_earnings')) {
                 foreach ($rows as $r) { $avail = round($avail + (float) $r['net_amount'], 2); }
                 if ($amount > $avail + 1e-9) { $ok = false; return false; } // rollback — can't cover
 
-                $need = $amount;
-                foreach ($rows as $r) {
-                    if ($need <= 1e-9) { break; }
-                    $db->update('supplier_earnings',
-                        ['payout_id' => $payoutId, 'updated_at' => date('Y-m-d H:i:s')],
-                        ['id' => (int) $r['id'], 'state' => 'available', 'payout_id' => null]);
-                    $need = round($need - (float) $r['net_amount'], 2);
+                // Split-aware reservation (audit #6) — same no-overshoot logic as the
+                // initial request, so a failed-retry re-reservation never loses the
+                // remainder either. $rows are locked FOR UPDATE above.
+                if (!supplier_payout_reserve_rows($db, $payoutId, $rows, (float) $amount)) {
+                    $ok = false; return false; // rollback
                 }
                 $ok = true;
                 return true;
