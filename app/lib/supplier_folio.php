@@ -334,11 +334,16 @@ if (!function_exists('folio_checkout')) {
         //   credit_note → reduces non-tax revenue (a discount on charges)
         //   debit_note  → adds to extra (a surcharge)
         //   preauth     → a held amount, never posted
-        $room = 0.0; $tax = 0.0; $extra = 0.0; $payments = 0.0;
+        // $payments = all net payments (for the balance). $glCashPayments = the subset the
+        // CHECKOUT must still post to the cash GL — EXCLUDING AR-receipt lines (ref starts
+        // 'ar_receipt:'), which already posted their OWN cash GL entry in ar_ext_receive_payment
+        // (DR 1000 Cash / CR 1200 City-AR). Re-posting them here double-counted cash (audit #8).
+        $room = 0.0; $tax = 0.0; $extra = 0.0; $payments = 0.0; $glCashPayments = 0.0;
         try {
-            foreach ($db->select('stays_folio_items', ['type', 'amount', 'void'], ['folio_id' => $folioId]) ?: [] as $it) {
+            foreach ($db->select('stays_folio_items', ['type', 'amount', 'void', 'ref'], ['folio_id' => $folioId]) ?: [] as $it) {
                 if ((int) ($it['void'] ?? 0) === 1) { continue; } // voided → not posted
                 $amt = round((float) $it['amount'], 2);
+                $isArOrigin = strpos((string) ($it['ref'] ?? ''), 'ar_receipt:') === 0;
                 switch ((string) $it['type']) {
                     case 'room':        $room += $amt; break;
                     case 'tax':         $tax += $amt; break;
@@ -346,13 +351,14 @@ if (!function_exists('folio_checkout')) {
                     case 'charge':
                     case 'debit_note':  $extra += $amt; break;
                     case 'credit_note': $extra -= $amt; break; // discount off revenue
-                    case 'payment':     $payments += $amt; break;
-                    case 'refund':      $payments -= $amt; break;
+                    case 'payment':     $payments += $amt; if (!$isArOrigin) { $glCashPayments += $amt; } break;
+                    case 'refund':      $payments -= $amt; if (!$isArOrigin) { $glCashPayments -= $amt; } break;
                     case 'preauth':     break;                  // held, not charged
                 }
             }
         } catch (\Throwable $e) { error_log('folio_checkout tally: ' . $e->getMessage()); }
-        $room = round($room, 2); $tax = round($tax, 2); $extra = round($extra, 2); $payments = round($payments, 2);
+        $room = round($room, 2); $tax = round($tax, 2); $extra = round($extra, 2);
+        $payments = round($payments, 2); $glCashPayments = round($glCashPayments, 2);
         // A credit note could push non-tax revenue slightly negative in odd cases; floor
         // the revenue components at 0 for the GL (the balance math above is unaffected).
         if ($extra < 0 && ($room + $extra) < 0) { $extra = -$room; }
@@ -391,16 +397,33 @@ if (!function_exists('folio_checkout')) {
                         if (empty($res['ok'])) { error_log('folio_checkout GL bill: ' . ($res['message'] ?? '?')); return false; }
                         $glEntry = $res['entry_id'];
                     }
-                    // Payment side: DR Cash ; CR Guest AR.
-                    if ($payments > 0) {
+                    // Payment side. Two sources settle the guest bill (1100 Guest-AR):
+                    //  (a) desk payments (cash/wallet/etc.) → DR 1000 Cash / CR 1100, posted
+                    //      here at checkout (these never hit the GL before).
+                    //  (b) AR receipts → their CASH already posted at receipt time
+                    //      (DR 1000 / CR 1200 City-AR), so we must NOT re-debit cash (audit #8).
+                    //      We only RECLASSIFY that settled portion off guest-AR onto city-AR:
+                    //      DR 1200 City-AR / CR 1100 Guest-AR. Net: cash is debited exactly once.
+                    $arPortion = round($payments - $glCashPayments, 2); // the AR-receipt payments
+                    if ($glCashPayments > 0) {
                         $pres = gl_post($db, $orgId, [
-                            ['code' => '1000', 'debit' => $payments],
-                            ['code' => '1100', 'credit' => $payments],
+                            ['code' => '1000', 'debit' => $glCashPayments],
+                            ['code' => '1100', 'credit' => $glCashPayments],
                         ], [
                             'source' => 'folio_payment', 'reference' => $invoiceId, 'currency' => $currency,
                             'property_id' => $stayId, 'memo' => 'Payment ' . $invoiceId,
                         ]);
                         if (empty($pres['ok'])) { error_log('folio_checkout GL payment: ' . ($pres['message'] ?? '?')); return false; }
+                    }
+                    if ($arPortion > 0) {
+                        $ares = gl_post($db, $orgId, [
+                            ['code' => '1200', 'debit' => $arPortion],  // City-AR down (already cash-settled at receipt)
+                            ['code' => '1100', 'credit' => $arPortion], // Guest-AR cleared
+                        ], [
+                            'source' => 'folio_ar_reclass', 'reference' => $invoiceId, 'currency' => $currency,
+                            'property_id' => $stayId, 'memo' => 'AR-settled portion ' . $invoiceId,
+                        ]);
+                        if (empty($ares['ok'])) { error_log('folio_checkout GL ar-reclass: ' . ($ares['message'] ?? '?')); return false; }
                     }
                 }
                 $db->update('stays_folios',

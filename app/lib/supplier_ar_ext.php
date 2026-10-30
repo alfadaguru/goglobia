@@ -270,8 +270,12 @@ if (!function_exists('ar_ext_receive_payment')) {
                 $applied = min($amount, $bal); // never over-apply
 
                 $desc = 'AR receipt (' . $method . ')' . ($ref !== '' ? ' ref ' . $ref : '');
+                // Tag the folio line with an 'ar_receipt:' ref so checkout can tell this
+                // payment ALREADY posted its own cash GL entry below (DR 1000 / CR 1200)
+                // and must NOT re-post it to cash at checkout (audit #8 double-count).
+                $arRef = 'ar_receipt:' . $folioId . ':' . date('YmdHis') . ':' . substr(bin2hex(random_bytes(4)), 0, 8);
                 $okItem = function_exists('folio_add_item')
-                    ? folio_add_item($db, $folioId, 'payment', $applied, $desc, $actor, 1)
+                    ? folio_add_item($db, $folioId, 'payment', $applied, $desc, $actor, 1, $arRef)
                     : false;
                 if (!$okItem) { $result = ['ok' => false, 'message' => 'Could not post folio payment']; return false; }
 
