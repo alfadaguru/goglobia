@@ -263,21 +263,77 @@ if (!function_exists('supplier_payout_request')) {
                     return false; // rollback
                 }
 
-                // RETIRE chargeback debt (audit #17: netted_at was set NOWHERE, so the debt
-                // kept re-subtracting from every future request forever). The debt is only
-                // truly settled once the supplier has forgone enough payable to absorb it —
-                // i.e. once this reservation brings their REMAINING unreserved available at
-                // or below the debt amount (they've effectively "paid" it by not taking it).
-                // At that point stamp netted_at so it stops capping future earnings. If they
-                // only took part of the netted balance, the debt still stands (correctly
-                // caps the next request — not a platform loss). Locked above FOR UPDATE.
+                // CONSUME chargeback debt by actually VOIDING covering earnings (audit
+                // N7/#17 fix). The earlier version merely stamped netted_at when the
+                // remaining available dropped to <= the debt — but that remaining available
+                // stayed 'available' and re-withdrawable, so once the debt was netted (and
+                // thus no longer subtracted by supplier_payable_available) the supplier could
+                // withdraw it anyway → the platform lost the full debt. Correct behaviour:
+                // the debt is money the platform already paid out on a reversed booking; to
+                // recover it we must permanently remove debt-worth of the supplier's
+                // UNRESERVED available earnings (state → 'void'), then retire the debt. The
+                // request was already capped at (avail − debt) above, so there is always at
+                // least $debtTotal of unreserved available left to void here.
                 if ($debtTotal > 0 && !empty($debtRows)) {
-                    $remainingAvail = round($avail - $amount, 2); // unreserved earnings left after this payout
-                    if ($remainingAvail <= $debtTotal + 1e-9) {
-                        $debtIds = array_map(fn($d) => (int) $d['id'], $debtRows);
-                        $db->update('supplier_chargebacks',
-                            ['netted_at' => date('Y-m-d H:i:s')],
-                            ['id' => $debtIds, 'netted_at' => null]);
+                    // Re-read the owner's still-unreserved available rows (excludes the ones
+                    // we just reserved for THIS payout, which now carry payout_id). Oldest
+                    // first; they are inside the same locked transaction.
+                    $freeRows = $db->select('supplier_earnings', ['id', 'net_amount'],
+                        ['owner_user_id' => $owner, 'currency' => $currency, 'state' => 'available',
+                         'payout_id' => null, 'ORDER' => ['id' => 'ASC']]) ?: [];
+                    $toVoid = $debtTotal;
+                    $voided = 0.0;
+                    foreach ($freeRows as $fr) {
+                        if ($toVoid <= 1e-9) { break; }
+                        $rid = (int) $fr['id'];
+                        $rnet = round((float) $fr['net_amount'], 2);
+                        if ($rnet <= 0) { continue; }
+                        if ($rnet <= $toVoid + 1e-9) {
+                            // Void the whole row as clawback.
+                            $upd = $db->update('supplier_earnings',
+                                ['state' => 'void', 'updated_at' => date('Y-m-d H:i:s')],
+                                ['id' => $rid, 'state' => 'available', 'payout_id' => null]);
+                            if ($upd && $upd->rowCount() > 0) { $voided = round($voided + $rnet, 2); $toVoid = round($toVoid - $rnet, 2); }
+                        } else {
+                            // Row larger than the remaining debt — split: shrink it to the
+                            // residual the supplier keeps, and void a $toVoid clawback slice.
+                            $residual = round($rnet - $toVoid, 2);
+                            $shrunk = $db->update('supplier_earnings',
+                                ['net_amount' => $residual, 'updated_at' => date('Y-m-d H:i:s')],
+                                ['id' => $rid, 'state' => 'available', 'payout_id' => null]);
+                            if ($shrunk && $shrunk->rowCount() > 0) {
+                                $src = $db->get('supplier_earnings',
+                                    ['org_id', 'owner_user_id', 'invoice_id', 'stay_id', 'currency', 'available_at'],
+                                    ['id' => $rid]);
+                                if (is_array($src)) {
+                                    $db->insert('supplier_earnings', [
+                                        'org_id' => $src['org_id'], 'owner_user_id' => $src['owner_user_id'],
+                                        'invoice_id' => substr((string) $src['invoice_id'] . '#cbvoid' . (int) ($debtRows[0]['id'] ?? 0), 0, 255),
+                                        'stay_id' => $src['stay_id'], 'currency' => $src['currency'],
+                                        'gross_amount' => 0.00, 'commission_amount' => 0.00, 'net_amount' => $toVoid,
+                                        'state' => 'void', 'payout_id' => null,
+                                        'available_at' => $src['available_at'] ?: date('Y-m-d H:i:s'),
+                                        'created_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s'),
+                                    ]);
+                                    $voided = round($voided + $toVoid, 2); $toVoid = 0.0;
+                                }
+                            }
+                        }
+                    }
+                    // Retire debt rows in order, up to what we actually voided — so a debt is
+                    // netted ONLY to the extent its clawback earnings were truly removed. Any
+                    // uncovered remainder keeps netted_at NULL and keeps capping future payouts.
+                    $coverLeft = $voided;
+                    foreach ($debtRows as $d) {
+                        $damt = round((float) $d['amount'], 2);
+                        if ($coverLeft + 1e-9 >= $damt) {
+                            $db->update('supplier_chargebacks',
+                                ['netted_at' => date('Y-m-d H:i:s')],
+                                ['id' => (int) $d['id'], 'netted_at' => null]);
+                            $coverLeft = round($coverLeft - $damt, 2);
+                        } else {
+                            break; // not enough voided to fully retire this (and later) debt rows
+                        }
                     }
                 }
 
