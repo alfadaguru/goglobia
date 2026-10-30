@@ -372,7 +372,7 @@ if (!function_exists('folio_checkout')) {
         $glEntry = null; $closed = false;
         try {
             $db->action(function ($db) use ($folioId, $orgId, $stayId, $currency, $invoiceId,
-                $charges, $room, $tax, $extra, $payments, &$glEntry, &$closed) {
+                $charges, $room, $tax, $extra, $payments, $glCashPayments, &$glEntry, &$closed) {
                 $lock = $db->query('SELECT status FROM stays_folios WHERE id=:id FOR UPDATE', [':id' => $folioId]);
                 $cur = $lock ? $lock->fetch(\PDO::FETCH_ASSOC) : null;
                 if (!$cur || ($cur['status'] ?? '') !== 'open') {
