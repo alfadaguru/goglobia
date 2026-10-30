@@ -59,6 +59,45 @@ if (!function_exists('loyalty_tiers')) {
         return [ 0 => 'Member', 1000 => 'Silver', 5000 => 'Gold', 15000 => 'Platinum' ];
     }
 }
+if (!function_exists('loyalty_reverse_for_booking')) {
+    /**
+     * Reverse the loyalty points earned for a stay when it is later CANCELLED/refunded
+     * (audit #18: points earned at checkout used to survive a cancellation — staying
+     * tier-inflating and cash-redeemable). Idempotent: inserts a single negating 'adjust'
+     * row (points = −earned) that zeroes the stay's balance contribution. The original
+     * 'earn' row is kept for audit; the reversal row carries invoice_id = NULL (the
+     * UNIQUE(org,invoice_id) key already holds the earn row) and is deduped by its reason.
+     * No-op if nothing was earned or it was already reversed. Returns ['ok','reversed'].
+     */
+    function loyalty_reverse_for_booking($db, int $orgId, string $invoiceId): array
+    {
+        $invoiceId = trim($invoiceId);
+        if ($orgId <= 0 || $invoiceId === '') { return ['ok' => false, 'message' => 'Bad input']; }
+        try {
+            $earn = $db->get('stays_loyalty_ledger', ['email', 'points'],
+                ['org_id' => $orgId, 'invoice_id' => $invoiceId, 'type' => 'earn']);
+            if (!$earn) { return ['ok' => true, 'reversed' => 0, 'message' => 'Nothing earned']; }
+            $pts = (int) $earn['points'];
+            $email = (string) $earn['email'];
+            if ($pts <= 0 || $email === '') { return ['ok' => true, 'reversed' => 0]; }
+            $reason = 'Reversal — stay ' . $invoiceId . ' cancelled';
+            // Idempotency: don't double-reverse (no invoice_id to key on, so match the reason).
+            if ($db->has('stays_loyalty_ledger', ['org_id' => $orgId, 'email' => $email, 'type' => 'adjust', 'reason' => $reason])) {
+                return ['ok' => true, 'reversed' => 0, 'already' => true];
+            }
+            $db->insert('stays_loyalty_ledger', [
+                'org_id' => $orgId, 'email' => $email, 'type' => 'adjust',
+                'points' => -$pts, 'invoice_id' => null, 'reason' => $reason,
+                'created_by' => 'system', 'created_at' => date('Y-m-d H:i:s'),
+            ]);
+            return ['ok' => true, 'reversed' => $pts];
+        } catch (\Throwable $e) {
+            error_log('loyalty_reverse_for_booking: ' . $e->getMessage());
+            return ['ok' => false, 'message' => 'Reverse error'];
+        }
+    }
+}
+
 if (!function_exists('loyalty_tier_for')) {
     function loyalty_tier_for(int $lifetimePoints): string
     {

@@ -590,6 +590,13 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
                 if (function_exists('supplier_earning_void_for_booking')) {
                     supplier_earning_void_for_booking($db, $invoiceId);
                 }
+                // Reverse any loyalty points earned at checkout (audit #18) — otherwise a
+                // refunded/cancelled stay keeps tier-inflating + cash-redeemable points.
+                // Idempotent + non-fatal; no-op if none earned or loyalty disabled.
+                if (function_exists('loyalty_reverse_for_booking')) {
+                    $__lorg = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $hid) : 0;
+                    if ($__lorg > 0) { try { loyalty_reverse_for_booking($db, $__lorg, $invoiceId); } catch (\Throwable $e) { error_log('cancel loyalty reverse: ' . $e->getMessage()); } }
+                }
                 $_SESSION['message'] = ['type' => 'success', 'text' => 'Reservation cancelled.'];
             }
         } elseif ($action === 'no_show') {
