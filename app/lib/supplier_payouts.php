@@ -172,8 +172,35 @@ if (!function_exists('supplier_payout_request')) {
                 $rows = $locked ? $locked->fetchAll(\PDO::FETCH_ASSOC) : [];
                 $avail = 0.0;
                 foreach ($rows as $r) { $avail = round($avail + (float) $r['net_amount'], 2); }
-                if ($amount > $avail + 1e-9) {
-                    $result = ['ok' => false, 'message' => 'Requested amount exceeds your available balance.'];
+
+                // NET APPLIED CHARGEBACK DEBT inside the AUTHORITATIVE locked check (audit
+                // #9/#17). The advisory precheck (supplier_payable_available, un-locked)
+                // subtracted this, but the committing reservation did not — so concurrent
+                // requests could reserve/pay out more than the debt-netted balance and the
+                // platform ate the clawback. Lock the owner's un-netted applied 'debt'
+                // chargebacks in this currency FOR UPDATE, subtract them, and (on a
+                // successful reservation) stamp netted_at so the same debt can't re-subtract
+                // forever (the other half of #17: netted_at was never set anywhere).
+                $debtRows = [];
+                $debtTotal = 0.0;
+                try {
+                    $dLock = $db->query(
+                        "SELECT id, amount FROM supplier_chargebacks
+                         WHERE owner_user_id = :o AND currency = :c AND state = 'applied'
+                           AND mode = 'debt' AND netted_at IS NULL
+                         ORDER BY id ASC FOR UPDATE",
+                        [':o' => $owner, ':c' => $currency]
+                    );
+                    $debtRows = $dLock ? $dLock->fetchAll(\PDO::FETCH_ASSOC) : [];
+                    foreach ($debtRows as $d) { $debtTotal = round($debtTotal + (float) $d['amount'], 2); }
+                } catch (\Throwable $e) {
+                    // Narrow-schema / table absent — no debt to net (parity with the advisory read).
+                    $debtRows = []; $debtTotal = 0.0;
+                }
+                $netAvail = round($avail - $debtTotal, 2);
+                if ($amount > $netAvail + 1e-9) {
+                    $result = ['ok' => false, 'message' => 'Requested amount exceeds your available balance'
+                        . ($debtTotal > 0 ? ' (after deducting ' . $currency . ' ' . number_format($debtTotal, 2) . ' in chargeback debt).' : '.')];
                     return false; // rollback
                 }
 
@@ -235,6 +262,25 @@ if (!function_exists('supplier_payout_request')) {
                     $result = ['ok' => false, 'message' => 'Could not reserve the earnings for this payout.'];
                     return false; // rollback
                 }
+
+                // RETIRE chargeback debt (audit #17: netted_at was set NOWHERE, so the debt
+                // kept re-subtracting from every future request forever). The debt is only
+                // truly settled once the supplier has forgone enough payable to absorb it —
+                // i.e. once this reservation brings their REMAINING unreserved available at
+                // or below the debt amount (they've effectively "paid" it by not taking it).
+                // At that point stamp netted_at so it stops capping future earnings. If they
+                // only took part of the netted balance, the debt still stands (correctly
+                // caps the next request — not a platform loss). Locked above FOR UPDATE.
+                if ($debtTotal > 0 && !empty($debtRows)) {
+                    $remainingAvail = round($avail - $amount, 2); // unreserved earnings left after this payout
+                    if ($remainingAvail <= $debtTotal + 1e-9) {
+                        $debtIds = array_map(fn($d) => (int) $d['id'], $debtRows);
+                        $db->update('supplier_chargebacks',
+                            ['netted_at' => date('Y-m-d H:i:s')],
+                            ['id' => $debtIds, 'netted_at' => null]);
+                    }
+                }
+
                 $result = ['ok' => true, 'payout_id' => $payoutId, 'message' => 'Payout requested.'];
                 return true; // commit
             });
