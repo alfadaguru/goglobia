@@ -134,16 +134,21 @@ if (!function_exists('hk_rooms_in_use')) {
     {
         $out = [];
         try {
-            // Candidate: own-inventory bookings for this property that are checked_in.
+            // Candidate: own-inventory bookings for this property that are CHECKED IN.
+            // Filter pms_stay_state in SQL (not just hotel_id), so a high-volume property's
+            // currently in-house long-stay guest can't fall outside an arbitrary newest-N
+            // window and be dropped from the in-use map — which used to free an occupied
+            // room for reassignment (audit #11). The checked_in set is tiny (bounded by the
+            // property's room count), so no LIMIT is needed; a generous safety cap remains.
             $rows = $db->select('bookings', ['invoice_id', 'booking_data'],
                 ['module_type' => ['stays', 'hotels'],
-                 'booking_data[~]' => '%"hotel_id":' . (int) $stayId . '%', // wrap % ourselves: _ in hotel_id defeats Medoo auto-wrap (Medoo.php:1163)
-                 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 500]) ?: [];
+                 'booking_data[~]' => ['AND' => ['%"hotel_id":' . (int) $stayId . '%', '%"pms_stay_state":"checked_in"%']], // AND (not Medoo's default OR) of two LIKEs; % wrapped ourselves (underscore/colon defeat Medoo auto-wrap)
+                 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 5000]) ?: [];
             foreach ($rows as $r) {
                 $bd = json_decode((string) ($r['booking_data'] ?? ''), true);
                 if (!is_array($bd)) { continue; }
                 if ((int) ($bd['hotel_id'] ?? 0) !== $stayId) { continue; } // verify, not just LIKE
-                if (($bd['pms_stay_state'] ?? '') !== 'checked_in') { continue; }
+                if (($bd['pms_stay_state'] ?? '') !== 'checked_in') { continue; } // verify, not just LIKE
                 $prid = (int) ($bd['pms_physical_room_id'] ?? 0);
                 if ($prid > 0) { $out[$prid] = (string) $r['invoice_id']; }
             }
