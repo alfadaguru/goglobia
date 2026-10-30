@@ -488,6 +488,32 @@ $router->post('/api/stays/booking/submit', function () use ($db) {
                     }
                     $actualPrice = (float) $netRes['net'];
                     $bookingData['actual_amount'] = $actualPrice;
+
+                    // MODULE 06: enforce booking RESTRICTIONS (min/max stay, CTA/CTD,
+                    // advance window) server-side — the web submit does this but the mobile
+                    // API never did (audit #12), so app clients could book dates the owner
+                    // explicitly closed. Check EVERY selected room (audit #13 parity), not
+                    // just the first. Load the self-contained rates lib idempotently.
+                    if (!function_exists('rate_restrictions_check')) {
+                        $ratesLib = dirname(__DIR__, 3) . '/lib/supplier_rates.php';
+                        if (is_file($ratesLib)) { require_once $ratesLib; }
+                    }
+                    if (function_exists('rate_restrictions_check')) {
+                        $losN = max(1, (int) ((strtotime($coForNet) - strtotime($ciForNet)) / 86400));
+                        $leadN = max(0, (int) floor((strtotime($ciForNet) - strtotime(date('Y-m-d'))) / 86400));
+                        foreach ($selForNet as $sel) {
+                            $rc = rate_restrictions_check($db, $hotelIdForNet, [
+                                'checkin' => $ciForNet, 'checkout' => $coForNet, 'los' => $losN, 'lead_days' => $leadN,
+                                'room_id' => (int) ($sel['room_id'] ?? 0),
+                                'option_id' => (int) ($sel['option']['option_id'] ?? ($sel['option_id'] ?? 0)),
+                            ]);
+                            if (empty($rc['ok'])) {
+                                http_response_code(409);
+                                echo json_encode(['success' => false, 'message' => $rc['message'] ?? 'These dates cannot be booked under the property\'s rules.']);
+                                exit;
+                            }
+                        }
+                    }
                 } else {
                     http_response_code(409);
                     echo json_encode(['success' => false, 'message' => 'Could not verify room pricing. Please search again.']);

@@ -551,14 +551,22 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
                     if (function_exists('rate_restrictions_check')) {
                         $losNights = max(1, (int) ((strtotime($coForNet) - strtotime($ciForNet)) / 86400));
                         $leadDays = max(0, (int) floor((strtotime($ciForNet) - strtotime(date('Y-m-d'))) / 86400));
-                        $firstSel = is_array($selForNet) ? ($selForNet[0] ?? []) : [];
-                        $rc = rate_restrictions_check($db, $hotelIdForNet, [
-                            'checkin' => $ciForNet, 'checkout' => $coForNet, 'los' => $losNights, 'lead_days' => $leadDays,
-                            'room_id' => (int) ($firstSel['room_id'] ?? 0),
-                            'option_id' => (int) ($firstSel['option']['option_id'] ?? ($firstSel['option_id'] ?? 0)),
-                        ]);
-                        if (empty($rc['ok'])) {
-                            throw new Exception($rc['message'] ?? 'These dates cannot be booked under the property\'s rules.');
+                        // Check EVERY selected room, not just the first (audit #13): a
+                        // room/option-scoped restriction (CTA, min/max stay, advance window)
+                        // on any non-first room would otherwise be silently skipped while
+                        // recompute priced all of them. Property-wide rules are re-checked
+                        // per room harmlessly (scope-agnostic → same verdict).
+                        $selList = is_array($selForNet) ? $selForNet : [];
+                        if (empty($selList)) { $selList = [[]]; } // still run property-wide rules once
+                        foreach ($selList as $sel) {
+                            $rc = rate_restrictions_check($db, $hotelIdForNet, [
+                                'checkin' => $ciForNet, 'checkout' => $coForNet, 'los' => $losNights, 'lead_days' => $leadDays,
+                                'room_id' => (int) ($sel['room_id'] ?? 0),
+                                'option_id' => (int) ($sel['option']['option_id'] ?? ($sel['option_id'] ?? 0)),
+                            ]);
+                            if (empty($rc['ok'])) {
+                                throw new Exception($rc['message'] ?? 'These dates cannot be booked under the property\'s rules.');
+                            }
                         }
                     }
                 } else {
