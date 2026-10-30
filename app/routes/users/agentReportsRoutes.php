@@ -43,7 +43,15 @@ if (!function_exists('_agent_report_range')) {
         fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM
         $san = function ($v) {
             $v = (string) $v;
-            if ($v !== '' && in_array($v[0], ['=', '+', '-', '@'], true)) { $v = "'" . $v; }
+            if ($v === '') { return $v; }
+            // A genuine number (incl. negative like -10.00 or 1,234.50) must stay
+            // numeric so spreadsheet columns still sum — don't prefix those. Only
+            // guard NON-numeric cells that begin with a formula-trigger char,
+            // including tab/CR which bypass the naive first-char check (audit).
+            $isNumber = preg_match('/^-?[\d,]*\.?\d+$/', $v) === 1;
+            if (!$isNumber && in_array($v[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
+                $v = "'" . $v;
+            }
             return $v;
         };
         fputcsv($out, array_map($san, $header));

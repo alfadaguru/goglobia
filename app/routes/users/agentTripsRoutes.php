@@ -224,6 +224,12 @@ $router->post('/agent/trips/delete', function () use ($SECURE, $db) {
 $router->get('/trip/(TRP[A-Z0-9]+)', function ($ref) use ($SECURE, $db) {
     $token = (string)($_GET['token'] ?? '');
     $trip = $token !== '' ? $db->get('agent_trip_plans', '*', ['ref' => $ref, 'client_token' => $token]) : null;
+    // Enforce expiry: a proposal link is not valid forever (audit). If expires_at
+    // is set and in the past, treat the link as expired (render nothing/expired).
+    if ($trip && !empty($trip['expires_at'])) {
+        $exp = strtotime((string)$trip['expires_at']);
+        if ($exp !== false && $exp < time()) { $trip = null; }
+    }
     // Build the agency brand for the public page (logo/colours/contact).
     $brand = null;
     if ($trip && function_exists('agent_booking_brand')) {
