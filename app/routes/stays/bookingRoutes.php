@@ -422,6 +422,10 @@ $router->post('/api/stay/booking/request-cancellation', function () use ($SECURE
 $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
     header('Content-Type: application/json');
 
+    // Hoisted so the catch can release holds if anything after placement throws (audit #7,
+    // sibling of #1): otherwise a failed bookings INSERT leaves orphaned 'held' rows that
+    // phantom-block the room-nights until TTL.
+    $placedHoldIds = [];
     try {
         $input = json_decode(file_get_contents('php://input'), true);
 
@@ -797,7 +801,6 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
                 }
             }
             if ($holdHotelId > 0 && $holdCheckin !== '' && $holdCheckout !== '' && !empty($holdTriples)) {
-                $placedHoldIds = [];
                 foreach ($holdTriples as $t) {
                     $hold = stays_hold_create($db, $holdHotelId, $t['room_id'], $t['option_id'], $holdCheckin, $holdCheckout, $t['qty'], $invoiceId);
                     if (empty($hold['ok'])) {
@@ -1040,6 +1043,16 @@ $router->post('/api/stay/booking/submit', function () use ($SECURE, $db) {
         }
 
     } catch (Exception $e) {
+        // RELEASE ANY INVENTORY HOLDS placed for this booking (audit #7, sibling of #1).
+        // If the bookings INSERT (or anything after placement) threw, these 'held' rows
+        // would otherwise phantom-block the room-nights across every channel until the
+        // ~60-min TTL. Release by id (frees only 'held', never a consumed/paid seat); the
+        // booking failed so no payment was taken. Idempotent, best-effort.
+        if (!empty($placedHoldIds) && function_exists('stays_hold_release')) {
+            foreach ($placedHoldIds as $hid) {
+                try { stays_hold_release($db, (int) $hid); } catch (\Throwable $ignore) {}
+            }
+        }
         // ============================================================================
         // WEBHOOK: Booking Failed
         // ============================================================================
