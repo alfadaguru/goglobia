@@ -431,9 +431,11 @@ if (!function_exists('contacts_merge')) {
      * folded in and deleted. Dedup DETECTION already ships (contacts_duplicates); this is
      * the operator-chosen merge ACTION.
      *
-     * The only things keyed to a contact id are the two wallet tables (verified by a full
-     * repo sweep): stays_contact_wallet (balance) + stays_contact_wallet_ledger (history).
-     * So a safe merge must, atomically:
+     * Tables keyed to a contact id: the two wallet tables (stays_contact_wallet balance +
+     * stays_contact_wallet_ledger history) AND the FK references bookings.customer_id and
+     * stays_guests.contact_id (audit N6 — an earlier version wrongly claimed only the wallet
+     * tables referenced a contact and left these dangling on delete). So a safe merge must,
+     * atomically:
      *   1) MOVE the loser's wallet balance into the survivor (per currency) — money is
      *      never destroyed. Done via cwallet_apply (idempotent, row-locked, non-negative)
      *      so the survivor's wallet gets a real credit and the move is itself ledgered.
@@ -442,6 +444,9 @@ if (!function_exists('contacts_merge')) {
      *   3) BACKFILL the survivor's EMPTY identity fields from the loser (email, phone,
      *      corp_account_id, guest_email_key, tax_id, country) — never overwrite a value
      *      the survivor already has.
+     *   3b) RE-POINT bookings.customer_id and stays_guests.contact_id from loser to
+     *      survivor, so the moved deposit stays drawable for those bookings and guest
+     *      links survive.
      *   4) DELETE the loser's (now-zero) wallet row + the loser contact.
      * All in ONE $db->action() so a failure rolls the whole thing back. Both contacts
      * must belong to $orgId and be distinct. Returns ['ok'=>bool,'message'=>,'moved'=>].
@@ -521,6 +526,19 @@ if (!function_exists('contacts_merge')) {
                     $fill['updated_at'] = date('Y-m-d H:i:s');
                     $db->update('stays_contacts', $fill, ['id' => $survivorId, 'org_id' => $orgId]);
                 }
+
+                // Step 3b: RE-POINT the loser's foreign keys to the survivor before deleting
+                // it (audit N6). The merge moved the wallet BALANCE to the survivor, but the
+                // loser's bookings (bookings.customer_id) and stored guests
+                // (stays_guests.contact_id) still referenced the loser — after the delete
+                // those became dangling pointers to a non-existent contact, so the moved
+                // deposit was undrawable for the very bookings it belonged to (the wallet
+                // tender resolves cid = bookings.customer_id) and the guest's linked customer
+                // vanished on the Guests page. Mirrors the schema-dedupe re-point at
+                // functions.php (customer_id move before loser delete).
+                $db->update('bookings', ['customer_id' => $survivorId], ['customer_id' => $loserId]);
+                try { $db->update('stays_guests', ['contact_id' => $survivorId], ['org_id' => $orgId, 'contact_id' => $loserId]); }
+                catch (\Throwable $e) { error_log('contacts_merge guest re-point: ' . $e->getMessage()); }
 
                 // Step 4: delete the loser's wallet rows — but ONLY zero-balance ones (audit
                 // #16). If a top-up credited the loser after the final move-sweep above, that
