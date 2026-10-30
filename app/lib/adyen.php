@@ -230,6 +230,43 @@ function adyen_test_credentials(array $cfg, string $currency = 'USD'): array
 }
 
 /**
+/**
+ * Shared refund-or-flag handler for an Adyen-paid booking whose supplier issue
+ * FAILED (customer-journey audit #5/#6). Mirrors the synchronous path's
+ * _auto_refund_on_issue_failure + booking.issue_failed notification so an
+ * Adyen-captured booking that cannot be fulfilled reaches a customer-visible
+ * terminal state (refunded/cancelled, or flagged for manual admin refund) rather
+ * than being left silently 'paid'+'pending' with money held and no signal.
+ * Best-effort and defensively guarded — never throws into the webhook.
+ */
+function adyen_handle_issue_failure($db, string $invoiceId, array $tokenData, array $booking, string $module, string $error): void
+{
+    try {
+        if (!function_exists('_auto_refund_on_issue_failure')) {
+            $pg = __DIR__ . '/payment-gateway.php';
+            if (is_file($pg)) { require_once $pg; }
+        }
+        if (function_exists('_auto_refund_on_issue_failure')) {
+            _auto_refund_on_issue_failure($db, $tokenData, $booking, $error);
+        }
+        if (function_exists('triggerNotification')) {
+            triggerNotification('booking.issue_failed', [
+                'invoice_id'     => $invoiceId,
+                'error'          => $error,
+                'module'         => $module,
+                'booking_id'     => $booking['id'] ?? null,
+                'user_id'        => $booking['user_id'] ?? null,
+                'customer_email' => $booking['email'] ?? '',
+                'amount'         => $tokenData['amount'] ?? 0,
+                'currency'       => $tokenData['currency'] ?? 'USD',
+            ]);
+        }
+    } catch (\Throwable $e) {
+        error_log('adyen_handle_issue_failure ' . $invoiceId . ': ' . $e->getMessage());
+    }
+}
+
+/**
  * Session-independent, idempotent finalize used by the Adyen WEBHOOK (which has
  * no PHP session and therefore cannot use the token-based handle_payment_callback).
  *
@@ -420,6 +457,47 @@ function adyen_finalize_payment($db, string $invoiceId, ?string $pspReference, a
         && !in_array(strtolower($moduleType), ['tours', 'tour'], true);
 
     if ($issuable) {
+        // CONCURRENCY CLAIM (customer-journey audit #12): Adyen retries AUTHORISATION
+        // notifications; two concurrent deliveries both pass the payment_status!='paid'
+        // check at the top and would both POST to the supplier issue endpoint, placing
+        // TWO real supplier orders at a supplier whose own issue.php lacks an atomic
+        // claim (e.g. ratehawk). Serialize with the same issue_loopback_at claim the
+        // synchronous handle_payment_callback uses (payment-gateway.php:694-737). Fail
+        // OPEN on DB variance so a claim-infra error never blocks a legitimate issue.
+        $__adyClaimOk = true;
+        try { $db->query("ALTER TABLE `bookings` ADD COLUMN `issue_loopback_at` datetime DEFAULT NULL"); } catch (\Throwable $e) { /* exists */ }
+        try {
+            $__adyClaim = $db->query(
+                "UPDATE bookings SET issue_loopback_at = NOW()
+                 WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')
+                   AND booking_status NOT IN ('confirmed','cancelled')
+                   AND (issue_loopback_at IS NULL OR issue_loopback_at < (NOW() - INTERVAL 10 MINUTE))",
+                [':inv' => $invoiceId]
+            );
+            $__adyClaimOk = ($__adyClaim && $__adyClaim->rowCount() >= 1);
+        } catch (\Throwable $e) {
+            error_log('ADYEN issue loopback claim: ' . $e->getMessage());
+            $__adyClaimOk = true;
+        }
+        if ($__adyClaimOk) {
+            // Release the claim on any failure/exit path (never on success — a PNR is set),
+            // so a later retry is not blocked for 10 min.
+            register_shutdown_function(function () use ($db, $invoiceId) {
+                try {
+                    $b = $db->get('bookings', ['pnr'], ['invoice_id' => $invoiceId]);
+                    if ($b && empty($b['pnr'])) {
+                        $db->query("UPDATE bookings SET issue_loopback_at = NULL WHERE invoice_id = :inv AND (pnr IS NULL OR pnr = '')", [':inv' => $invoiceId]);
+                    }
+                } catch (\Throwable $e) { error_log('ADYEN issue loopback release: ' . $e->getMessage()); }
+            });
+        }
+        if (!$__adyClaimOk) {
+            // A concurrent AUTHORISATION delivery already claimed this issue and is in
+            // flight — do NOT fire a second supplier order; the other thread owns the
+            // outcome.
+            error_log('ADYEN ISSUE CLAIM BUSY | invoice=' . $invoiceId . ' — concurrent issue in flight, skipping duplicate loopback');
+            return ['success' => true, 'message' => 'Payment finalized; booking is being issued.', 'already' => false];
+        }
         try {
             $apiUrl = root . 'modules/' . $moduleType . '/' . $module . '/issue';
             $ch = curl_init($apiUrl);
@@ -474,15 +552,31 @@ function adyen_finalize_payment($db, string $invoiceId, ?string $pspReference, a
                 $err = is_array($parsed)
                     ? ($parsed['response_error'] ?? $parsed['error'] ?? $parsed['message'] ?? $resp)
                     : ('HTTP ' . $code);
+                $errStr = is_string($err) ? $err : json_encode($err);
                 $db->update('bookings', [
-                    'error_response'         => is_string($err) ? $err : json_encode($err),
+                    'error_response'         => $errStr,
                     'booking_status'         => 'pending',
-                    'booking_payment_issue'  => is_string($err) ? $err : json_encode($err),
+                    'booking_payment_issue'  => $errStr,
                 ], ['invoice_id' => $invoiceId]);
-                error_log("ADYEN WEBHOOK ISSUE FAILED | Invoice: {$invoiceId} | {$apiUrl} | " . (is_string($err) ? $err : json_encode($err)));
+                error_log("ADYEN WEBHOOK ISSUE FAILED | Invoice: {$invoiceId} | {$apiUrl} | " . $errStr);
+                // PARITY (customer-journey audit #5/#6): the money is captured but the
+                // supplier issue FAILED. The synchronous handle_payment_callback path
+                // refunds-or-flags and surfaces a customer-visible terminal state here;
+                // the Adyen webhook previously left the booking silently 'paid'+'pending'
+                // with no refund and no signal, and the top-of-function paid-guard then
+                // blocked every retry from self-healing. Run the same refund-or-flag now.
+                adyen_handle_issue_failure($db, $invoiceId, $tokenData, $booking, $module, $errStr);
             }
         } catch (\Throwable $e) {
             error_log("ADYEN WEBHOOK ISSUE EXCEPTION | Invoice: {$invoiceId} | " . $e->getMessage());
+            $errStr = $e->getMessage();
+            $db->update('bookings', [
+                'error_response'         => $errStr,
+                'booking_status'         => 'pending',
+                'booking_payment_issue'  => $errStr,
+            ], ['invoice_id' => $invoiceId]);
+            // Same refund-or-flag parity as the API-failed branch above (#5/#6).
+            adyen_handle_issue_failure($db, $invoiceId, $tokenData, $booking, $module, $errStr);
         }
     }
 
