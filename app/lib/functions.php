@@ -687,6 +687,41 @@ if (!function_exists('supplier_role_allows')) {
     }
 }
 
+if (!function_exists('supplier_can_orgwide')) {
+    /**
+     * Gate for ORG-WIDE actions that span every property (the customer directory, the
+     * vendor ledger, loyalty config) — resources NOT tied to a single stay, so the normal
+     * per-stay scope check in supplier_can() never fires for them (audit #10).
+     *
+     * Rule: owner and 'all'-scope roles pass (subject to the permission matrix, checked via
+     * supplier_can with no stayId). A 'selected'-scope role is DENIED — a staffer restricted
+     * to specific properties must not read/write org-wide data that spans properties they
+     * cannot see (e.g. another property's customers' wallet balances via contacts_merge).
+     * Fail-closed on anything unexpected.
+     */
+    function supplier_can_orgwide($db, string $module, string $action): bool
+    {
+        $ctx = supplier_acting_context($db);
+        if ($ctx === null) { return false; }
+        if (!empty($ctx['is_admin']) || !empty($ctx['is_owner'])) {
+            return supplier_can($db, $module, $action); // owner/admin: permission matrix only
+        }
+        // Staff: resolve the acting role's scope_type; 'selected' cannot do org-wide.
+        $roleId = isset($ctx['role_id']) ? (int) $ctx['role_id'] : 0;
+        if ($roleId <= 0) { return false; }
+        try {
+            $role = $db->get('supplier_roles', ['owner_user_id', 'scope_type'], ['id' => $roleId]);
+        } catch (\Throwable $e) { return false; }
+        if (!$role) { return false; }
+        if ((string) ($role['owner_user_id'] ?? '') !== (string) ($ctx['owner'] ?? "\0")) { return false; }
+        if (($role['scope_type'] ?? 'all') === 'selected') {
+            return false; // property-restricted staff: no org-wide reach
+        }
+        // 'all'-scope staff: fall through to the normal permission-matrix check.
+        return supplier_can($db, $module, $action);
+    }
+}
+
 if (!function_exists('supplier_can')) {
     /**
      * THE gate. Returns true iff the current session may perform $action on $module,

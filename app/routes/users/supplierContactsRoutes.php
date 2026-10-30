@@ -128,7 +128,9 @@ $router->post('/supplier/customers/merge', function () use ($SECURE, $db) {
     CSRF::guard();
     $ctx = _contacts_ctx($db);
     if ($ctx === null) { _supplier_stays_deny('Customers is not available for this account.'); }
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    // Org-wide write (merges wallet balances across the WHOLE customer book) — a
+    // property-restricted 'selected'-scope staffer must not reach it (audit #10).
+    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = (int) $ctx['org'];
     $survivor = (int) ($_POST['survivor_id'] ?? 0);
     // The loser set = the OTHER members of this duplicate group (sent as a JSON id list),
