@@ -261,6 +261,25 @@ if (!function_exists('bm_notify_paid')) {
             $b = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
             if (!$b) return;
 
+            // FULFILMENT GUARD (customer-journey audit #15). This sends the customer a
+            // no-price TICKET (a travel document implying the booking is fulfilled).
+            // For a LIVE-supplier booking whose ticketing HARD-FAILED (e.g. rail: the
+            // supplier poll returned a failure so booking_status was left 'pending'
+            // with an issue error), emailing a "ticket" misrepresents fulfilment. Do
+            // NOT notify while the booking is in that failed/unfulfilled state —
+            // CRUCIALLY, do this BEFORE the idempotency claim below so a later
+            // successful (re)issue can still notify. Manual/offline BM bookings are
+            // legitimately 'confirmed' (no supplier issue) and pass; services that
+            // confirm-on-payment pass; only a paid booking still 'pending' WITH an
+            // issue error is held back.
+            $__bStatus = strtolower((string) ($b['booking_status'] ?? ''));
+            $__issueErr = trim((string) ($b['booking_payment_issue'] ?? '')) !== ''
+                || trim((string) ($b['error_response'] ?? '')) !== '';
+            if ($__bStatus === 'pending' && $__issueErr) {
+                error_log('bm_notify_paid: SKIP ticket for paid-but-unissued booking ' . $invoiceId . ' (status=pending, issue error present) — will notify once issued.');
+                return;
+            }
+
             // IDEMPOTENCY GUARD. bm_notify_paid is now called from several paths
             // (BM pay, agent settle, admin mark_paid, the payment-callback fallback,
             // the ferries webhook). Without a guard, two of them firing for the same
