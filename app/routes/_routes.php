@@ -277,7 +277,6 @@ require_once 'app/routes/admin/locationsRoutes.php';
 require_once 'app/routes/admin/toursRoutes.php';
 require_once 'app/routes/admin/umrahRoutes.php';
 require_once 'app/routes/admin/umrahV2Routes.php';
-require_once 'app/routes/admin/seedDecCampaignRoutes.php'; // one-shot Dec campaign seeder (/admin/seed-dec-campaign) — reuses umrahV2CreateDeparture; loaded AFTER it
 require_once 'app/routes/admin/carsRoutes.php';
 require_once 'app/routes/admin/busRoutes.php';
 require_once 'app/routes/admin/visaRoutes.php';
@@ -459,7 +458,8 @@ require_once 'app/routes/crons/campaignsDispatchRoutes.php'; // scheduled email 
 require_once 'app/routes/crons/airaloSyncRoutes.php'; // Airalo eSIM country catalogue sync (/cron/airalo-sync)
 require_once 'app/routes/crons/bmStrandedIssueRoutes.php'; // BM/agent paid-but-unissued auto-recovery (/cron/bm-stranded-issue)
 require_once 'app/routes/crons/giaPaymentsRoutes.php'; // GIA per-booking payment reminders + expiry sweep
+require_once 'app/routes/crons/giaNurtureRoutes.php'; // GIA quiet-lead nurture (ad campaigns) — /gia_nurture_sweep
 require_once 'app/routes/crons/flightRemindersRoutes.php'; // flight travel reminders (3 pre + 1 post) email+WhatsApp
-require_once 'app/routes/crons/serviceCommsRoutes.php'; // pre/post service comms for stays/umrah/tours/cars (2 pre + 1 post) email+WhatsApp
+require_once 'app/routes/crons/serviceCommsRoutes.php'; // pre/post service comms: stays/umrah/tours/cars/ferries/rail/bus (2 pre + 1 post) + visa/esim (post-only) email+WhatsApp
 require_once 'app/routes/crons/supportShiftNudgeRoutes.php'; // GIA WhatsApps staff not clocked in at shift start, every 15m, capped at 3
 require_once 'app/routes/crons/supplierTicksRoutes.php'; // supplier PMS: /crons/notify-tick (alert rules) + /crons/workflow-tick (automations + recurring tasks)
