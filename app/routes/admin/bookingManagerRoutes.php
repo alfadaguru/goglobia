@@ -161,6 +161,17 @@ $bmRenderManager = function ($svc) use ($SECURE, $db) {
         })(),
     ];
 
+    // eSIM: give the LIVE panel the same searchable country list the customer
+    // storefront uses (app/views/modules/esim/esim-search.php) instead of a bare
+    // free-text box — so "search countries" actually has countries to search.
+    if ($svc === 'esim') {
+        $bmData['esim_countries'] = $db->select(
+            'airalo_countries',
+            ['iso', 'nicename'],
+            ['status' => 1, 'ORDER' => ['nicename' => 'ASC']]
+        ) ?: [];
+    }
+
     $title = ($catalogue[$svc]['label'] ?? ucfirst($svc)) . ' Booking Manager';
     $description = '';
     $header = true; $footer = true;

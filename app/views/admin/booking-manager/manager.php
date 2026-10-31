@@ -99,7 +99,25 @@ $svcIcons = [
           <label class="form-control"><span class="form-label">Driver age</span><input type="number" min="18" max="99" class="input" x-model.number="live.car_driver_age"></label>
           <label class="form-control"><span class="form-label">Driver country (ISO2)</span><input class="input" x-model="live.car_driver_country" placeholder="NG" maxlength="2"></label>
           <?php elseif ($isEsim): ?>
-          <label class="form-control sm:col-span-2"><span class="form-label">Country / region (ISO2 or name)</span><input class="input" x-model="live.esim_country" placeholder="e.g. US, GB, or leave blank for global"></label>
+          <?php /* Live eSIM: a real searchable country picker backed by the same
+                   airalo_countries list the customer storefront uses — the old bare
+                   free-text box gave nothing to search. Blank = global list. The
+                   type filter mirrors Airalo filter[type] (all/global/local). */ ?>
+          <label class="form-control"><span class="form-label">Country / region</span>
+            <input class="input" list="bmEsimCountries" x-model="live.esim_country"
+                   placeholder="Type to search… (blank = global)" autocomplete="off">
+            <datalist id="bmEsimCountries">
+              <?php foreach (($bm['esim_countries'] ?? []) as $__c): ?>
+                <option value="<?= htmlspecialchars((string)($__c['iso'] ?? ''), ENT_QUOTES) ?>"><?= htmlspecialchars((string)($__c['nicename'] ?? ''), ENT_QUOTES) ?></option>
+              <?php endforeach; ?>
+            </datalist>
+          </label>
+          <label class="form-control"><span class="form-label">Package type</span>
+            <select class="select input" x-model="live.esim_type">
+              <option value="global">Global / all</option>
+              <option value="local">Local only</option>
+            </select>
+          </label>
           <?php elseif (!$isHotel): ?>
           <label class="form-control"><span class="form-label">Trip type</span>
             <select class="select input" x-model="live.type">
@@ -503,6 +521,10 @@ $svcIcons = [
           </label>
         </div>
 
+        <?php /* eSIM has no travellers/passengers — a SIM is not ticketed to a
+                person — so the flight/hotel-style passenger+passport grid is hidden
+                for eSIM. Only the Customer contact fields above apply. */ ?>
+        <?php if (!$isEsim): ?>
         <div class="flex items-center justify-between mt-4 mb-2">
           <h3 class="text-sm font-semibold text-slate-700">Passengers / guests</h3>
           <div class="flex gap-2">
@@ -537,6 +559,7 @@ $svcIcons = [
             </div>
           </template>
         </div>
+        <?php endif; /* !$isEsim passengers block */ ?>
       </div>
 
       <!-- ============ PRICE ============ -->
@@ -641,7 +664,7 @@ function bookingMgr() {
     mode: 'manual',
     live: { type:'oneway', origin:'', destination:'', destination_country:'', departure_date:'', return_date:'', adults:1, children:0, class:'economy', rooms:1, checkin:'', checkout:'', nationality:'', currency:'',
             car_pickup_location:'', car_dropoff_location:'', car_pickup_date:'', car_pickup_time:'10:00', car_dropoff_date:'', car_dropoff_time:'10:00', car_driver_age:30, car_driver_country:'',
-            esim_country:'' },
+            esim_country:'', esim_type:'global' },
     // Autocomplete state. Flights: origin/destination hold the resolved IATA code.
     // Hotels: dest.q is the visible city text; live.destination holds the chosen city.
     ac: { origin:{q:'',items:[],open:false}, destination:{q:'',items:[],open:false}, dest:{q:'',items:[],open:false} },
@@ -795,7 +818,7 @@ function bookingMgr() {
       let base;
       if(this.service==='esim'){
         // eSIM: Airalo packages by country (blank = global list).
-        base = { service:this.service, country:(this.live.esim_country||'').trim(), type:'global', limit:100 };
+        base = { service:this.service, country:(this.live.esim_country||'').trim(), type:(this.live.esim_type||'global'), limit:100 };
       } else if(this.service==='tours'){
         // Tours: destination city + activity date + travellers (matches the tours
         // supplier search contract: destination/start_date/adults/children).
