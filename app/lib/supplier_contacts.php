@@ -56,9 +56,14 @@ if (!function_exists('contacts_save')) {
 
         $phone = trim((string) ($d['phone'] ?? ''));
         // MANDATORY customer identity: name AND phone, so every customer is searchable by
-        // name or phone (email optional). Enforced centrally here so quick-create, save, and
-        // any other caller all require it. (≥7 digits = the search key's minimum.)
-        if (!function_exists('supplier_valid_phone') || !supplier_valid_phone($phone)) {
+        // name or phone (email optional). Enforced centrally so quick-create, save, and any
+        // operator path all require it. (≥7 digits = the search key's minimum.) Relaxed ONLY
+        // when the caller opts out ($d['require_phone'] === false) — used by the Customer-Book
+        // BACKFILL auto-materialise (contacts_resolve_for_booking) for an existing booking
+        // that genuinely has no phone, so it isn't re-scanned forever (audit M11). Operator
+        // entry never passes the flag, so it stays strict.
+        $requirePhone = !(array_key_exists('require_phone', $d) && $d['require_phone'] === false);
+        if ($requirePhone && (!function_exists('supplier_valid_phone') || !supplier_valid_phone($phone))) {
             return ['ok' => false, 'id' => 0, 'message' => 'A valid phone number is required (at least 7 digits).'];
         }
         $row = [
@@ -197,6 +202,11 @@ if (!function_exists('contacts_resolve_for_booking')) {
                 'phone'           => $phone ?: null,
                 'guest_email_key' => $email !== '' && function_exists('guest_email_key') ? guest_email_key($email) : null,
                 'notes'           => 'Auto-created from a front-desk booking.',
+                // Backfill auto-materialise: the source booking may genuinely lack a phone
+                // (old web/API/GIA). Don't reject it — otherwise the booking stays unlinked
+                // and is re-scanned on every Customer-Book open (audit M11). Operator-entered
+                // customers (quick-create/save) never set this and stay phone-mandatory.
+                'require_phone'   => false,
             ]);
             return !empty($res['ok']) ? (int) $res['id'] : 0;
         } catch (\Throwable $e) { error_log('contacts_resolve_for_booking: ' . $e->getMessage()); return 0; }
