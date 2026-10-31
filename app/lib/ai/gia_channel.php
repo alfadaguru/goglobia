@@ -547,6 +547,31 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
                     }
                 } catch (\Throwable $e) { error_log('[gia] proactive greeting: ' . $e->getMessage()); }
             }
+            // WELCOME BACK AFTER A BREAK (fresh session via the 1h idle reset): this is
+            // the FIRST turn of a brand-new conversation that replaced an idle one. The
+            // old transcript (e.g. a mid-flight-search) is NOT in this conv's history, so
+            // GIA won't replay a stale fare list. Give it a short, GROUNDED resume hint so
+            // it can open with a warm one-liner offering to continue the prior topic OR
+            // start fresh — then wait. The hint comes only from the previous conversation
+            // (gia_conv_get_or_create_channel.resume_hint), so GIA cannot invent a trip.
+            if ($history === [] && !empty($conv['reset_from_gap'])) {
+                $hint = is_array($conv['resume_hint'] ?? null) ? $conv['resume_hint'] : [];
+                $topic = trim((string) ($hint['prev_summary'] ?? '')) ?: trim((string) ($hint['prev_context'] ?? ''));
+                if ($topic !== '') {
+                    $agent->addSystemNote(
+                        "RETURNING AFTER A BREAK: this traveller was last in touch a while ago and their "
+                        . "previous session was about: " . $topic . ". Open with a warm ONE-LINE greeting that "
+                        . "offers, in a single sentence, to continue that OR start something new — then STOP and "
+                        . "wait for their answer. Do NOT re-run any search or re-list options unprompted, and do "
+                        . "NOT dump the old results."
+                    );
+                } else {
+                    $agent->addSystemNote(
+                        "RETURNING AFTER A BREAK: greet this traveller warmly in one line and ask how you can "
+                        . "help today. Do NOT replay any earlier search or options."
+                    );
+                }
+            }
             // Identity guidance. Three cases on a channel:
             //  1) KNOWN via phone match (WhatsApp number = exactly one account, not
             //     yet email-verified): GIA CAN already read this person's account —

@@ -216,6 +216,42 @@ if (!function_exists('gia_conv_get_or_create_channel')) {
                 'ORDER'           => ['last_at' => 'DESC'],
                 'LIMIT'           => 1,
             ]);
+
+            // SESSION RESET (channel only): a WhatsApp/Telegram chat has no "New chat"
+            // button, so without this it resumes the SAME conversation forever — a
+            // greeting days later lands mid-booking and the model replays the stale
+            // search. If the last activity was > IDLE_GAP ago, END that conversation
+            // (closed=1 — the same control the web New-chat uses) and start a FRESH one,
+            // carrying a small GROUNDED resume hint so the caller can open with a warm
+            // "welcome back — continue X or start fresh?" (never an invented trip).
+            $resetFromGap = false;
+            $resumeHint = [];
+            if (is_array($row) && !empty($row['id'])) {
+                $IDLE_GAP = 3600; // 1 hour (owner decision)
+                $lastAt = !empty($row['last_at']) ? strtotime((string) $row['last_at'])
+                        : (!empty($row['started_at']) ? strtotime((string) $row['started_at']) : 0);
+                $gap = $lastAt > 0 ? (time() - $lastAt) : 0;
+                if ($lastAt > 0 && $gap > $IDLE_GAP) {
+                    // Build the resume hint from the PREVIOUS conv before closing it.
+                    $prevId = (int) $row['id'];
+                    $prevContext = trim((string) ($row['context'] ?? ''));
+                    $prevSummary = '';
+                    if (function_exists('gia_lead_summary')) {
+                        try { $prevSummary = gia_lead_summary($db, $prevId); } catch (\Throwable $e) { $prevSummary = ''; }
+                    }
+                    try { $db->update('gia_conversations', ['closed' => 1], ['id' => $prevId]); }
+                    catch (\Throwable $e) { error_log('[gia] idle-reset close: ' . $e->getMessage()); }
+                    $resetFromGap = true;
+                    $resumeHint = [
+                        'prev_conv_id' => $prevId,
+                        'prev_context' => $prevContext,
+                        'prev_summary' => $prevSummary,
+                        'prev_last'    => trim((string) ($row['last_message'] ?? '')),
+                    ];
+                    $row = null; // fall through to create a fresh conversation
+                }
+            }
+
             if (is_array($row) && !empty($row['id'])) {
                 // Link to a real account once identity is established (Phase 2).
                 if ($userId !== '' && (string) ($row['user_id'] ?? '') === '') {
@@ -241,6 +277,10 @@ if (!function_exists('gia_conv_get_or_create_channel')) {
             return [
                 'id' => $id, 'conv_key' => $convKey, 'user_id' => $userId,
                 'channel' => $channel, 'channel_user_id' => $channelUserId,
+                // Signals for the channel handler's welcome-back callback (fresh session
+                // after an idle gap). Absent/false on a normal within-window resume.
+                'reset_from_gap' => $resetFromGap,
+                'resume_hint'    => $resumeHint,
             ];
         } catch (\Throwable $e) {
             error_log('[gia] conv_get_or_create_channel: ' . $e->getMessage());
