@@ -770,9 +770,13 @@ if (!function_exists('supplier_payout_withdrawn_today')) {
         $today = date('Y-m-d');
         $sum = 0.0;
         try {
+            // Count the SAME non-terminal + paid states the authoritative in-transaction cap
+            // counts (supplier_payout_request), INCLUDING 'awaiting_otp' (audit M13). Omitting
+            // it here made the advisory precheck under-count today's usage, so the UI could
+            // promise headroom that the locked check then rejected.
             $rows = $db->select('supplier_payouts', ['amount', 'created_at', 'state'],
                 ['owner_user_id' => $owner, 'currency' => $currency,
-                 'state' => ['requested', 'approved', 'processing', 'paid']]) ?: [];
+                 'state' => ['requested', 'approved', 'processing', 'awaiting_otp', 'paid']]) ?: [];
             foreach ($rows as $r) {
                 if (substr((string) ($r['created_at'] ?? ''), 0, 10) === $today) {
                     $sum = round($sum + (float) $r['amount'], 2);
