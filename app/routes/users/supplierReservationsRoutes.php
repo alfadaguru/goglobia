@@ -648,6 +648,44 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
             // MODULE 07: one-click checkout (finalizes folio → GL → earning).
             $res = function_exists('fd_express_checkout') ? fd_express_checkout($db, $invoiceId) : ['ok' => false, 'message' => 'Unavailable.'];
             $_SESSION['message'] = ['type' => !empty($res['ok']) ? 'success' : 'error', 'text' => $res['message'] ?? 'Could not check out.'];
+        } elseif ($action === 'mark_paid') {
+            // UX#2: mark an unpaid reservation as PAID after booking (the only prior way was
+            // the one-time tick on the walk-in form). Records HOW it was paid (tender) and
+            // flips payment_status; idempotent (no-op if already paid) and refuses a
+            // cancelled booking. Earnings accrual is self-healing on the next inbox read.
+            if (strtolower((string) ($booking['booking_status'] ?? '')) === 'cancelled') {
+                $_SESSION['message'] = ['type' => 'error', 'text' => 'A cancelled reservation can’t be marked paid.'];
+            } elseif (strtolower((string) ($booking['payment_status'] ?? '')) === 'paid') {
+                $_SESSION['message'] = ['type' => 'success', 'text' => 'Already marked paid.'];
+            } else {
+                $tender = (string) ($_POST['tender'] ?? 'cash');
+                $tenderLabel = (function_exists('desk_tender_label')) ? desk_tender_label($tender) : ucfirst($tender);
+                $db->update('bookings', [
+                    'payment_status' => 'paid',
+                    'payment_gateway' => $tenderLabel !== '' ? $tenderLabel : 'Desk',
+                    'paid_at'        => $now,
+                    'updated_at'     => $now,
+                ], ['invoice_id' => $invoiceId]);
+                // Mirror the money into the folio as a payment line (idempotent ref) + feed
+                // the cash drawer when the tender is cash, reusing the proven folio engine,
+                // so the guest bill and the cashier shift reflect the payment. Best-effort.
+                if (function_exists('folio_get_or_create') && function_exists('folio_add_item')) {
+                    try {
+                        $fid = folio_get_or_create($db, $invoiceId);
+                        $amt = round((float) ($booking['price_markup'] ?? 0), 2);
+                        if ($fid > 0 && $amt > 0) {
+                            $pref = 'markpaid:' . $invoiceId . ':' . number_format($amt, 2, '.', '');
+                            $st2 = 'fail';
+                            $posted = folio_add_item($db, $fid, 'payment', $amt, 'Payment — ' . $tenderLabel, (string) ($_SESSION['user_id'] ?? ''), 1, $pref, $st2);
+                            if ($posted && $st2 === 'ok' && $tender === 'cash' && function_exists('desk_cash_to_shift')) {
+                                $dbOrg = function_exists('supplier_property_org') ? (int) supplier_property_org($db, $hid) : 0;
+                                desk_cash_to_shift($db, $dbOrg, (string) ($_SESSION['user_id'] ?? ''), $amt, $invoiceId);
+                            }
+                        }
+                    } catch (\Throwable $e) { error_log('mark_paid folio: ' . $e->getMessage()); }
+                }
+                $_SESSION['message'] = ['type' => 'success', 'text' => 'Marked as paid (' . htmlspecialchars($tenderLabel) . ').'];
+            }
         } elseif ($action === 'early_late') {
             // MODULE 07: flag early check-in / late checkout (fee posted via folio_add).
             $which = (string) ($_POST['which'] ?? 'early_checkin');

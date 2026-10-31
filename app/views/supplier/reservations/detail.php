@@ -63,9 +63,32 @@ $rooms = is_array($bd['rooms_data'] ?? null) ? $bd['rooms_data'] : [];
         <div class="flex justify-between"><dt class="text-gray-500">Check-in</dt><dd class="text-gray-900"><?= $ci !== '' ? htmlspecialchars($ci) : '—' ?></dd></div>
         <div class="flex justify-between"><dt class="text-gray-500">Check-out</dt><dd class="text-gray-900"><?= $co !== '' ? htmlspecialchars($co) : '—' ?></dd></div>
         <div class="flex justify-between"><dt class="text-gray-500">Total</dt><dd class="text-gray-900 font-medium tabular-nums"><?= htmlspecialchars((string) ($booking['currency_markup'] ?? '')) ?> <?= number_format((float) ($booking['price_markup'] ?? 0), 2) ?></dd></div>
-        <div class="flex justify-between"><dt class="text-gray-500">Payment</dt><dd class="text-gray-900"><?= htmlspecialchars(ucfirst((string) ($booking['payment_status'] ?? '—'))) ?></dd></div>
+        <?php $__payStatus = strtolower((string) ($booking['payment_status'] ?? '')); ?>
+        <div class="flex justify-between"><dt class="text-gray-500">Payment</dt>
+          <dd class="<?= $__payStatus === 'paid' ? 'text-emerald-700 font-medium' : 'text-amber-600 font-medium' ?>"><?= htmlspecialchars(ucfirst($__payStatus ?: '—')) ?></dd></div>
         <div class="flex justify-between"><dt class="text-gray-500">Booked</dt><dd class="text-gray-900 text-xs"><?= htmlspecialchars(substr((string) ($booking['created_at'] ?? ''), 0, 16)) ?></dd></div>
       </dl>
+
+      <?php // UX#2: record payment / mark paid AFTER booking — the only way before was the
+            // one-time tick on the walk-in form. Shown while the booking is UNPAID and the
+            // staffer can edit. Records HOW it was paid (tender) and flips payment_status. ?>
+      <?php if ($canEdit && !$isCancelled && $__payStatus !== 'paid'): ?>
+      <form action="<?= $base ?>/<?= rawurlencode($inv) ?>/action" method="POST" class="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-end gap-2"
+            onsubmit="return confirm('Mark this reservation as paid?');">
+        <?= CSRF::tokenField() ?>
+        <input type="hidden" name="action" value="mark_paid">
+        <div class="form-control">
+          <label class="block text-xs text-gray-600 mb-1">Record payment as</label>
+          <select name="tender" class="input text-sm">
+            <?php foreach ((function_exists('desk_tender_types') ? desk_tender_types() : ['cash' => 'Cash']) as $tv => $tl): ?>
+              <?php if ($tv === 'company_account') { continue; } // billing is a separate direct-bill action ?>
+              <option value="<?= htmlspecialchars((string) $tv) ?>"><?= htmlspecialchars((string) $tl) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <button type="submit" class="btn emerald text-sm"><span class="flex items-center gap-1"><span class="material-symbols-outlined text-sm">payments</span> Mark as paid</span></button>
+      </form>
+      <?php endif; ?>
     </div>
   </div>
 
