@@ -27,10 +27,11 @@ $router->post('esim/airalo/search', function() use ($db) {
         // Get search parameters
         $input = !empty($_POST) ? $_POST : (json_decode(file_get_contents('php://input'), true) ?: []);
         
-        // Airalo's filter[country] expects a LOWERCASE ISO2 (the customer path
-        // strtolower()s it too). The admin Booking Manager picker sends uppercase
-        // (e.g. "US"), which Airalo ignored → empty result → "No live offers".
-        $country = strtolower(trim((string) ($input['country'] ?? '')));
+        // Airalo's filter[country] requires an UPPERCASE ISO2 (verified live:
+        // sending lowercase 422s with "Please provide an uppercase country code.
+        // Examples: DE, CYP, GBR-SCT"). Normalise to uppercase so any caller
+        // (admin Booking Manager picker, API) is safe.
+        $country = strtoupper(trim((string) ($input['country'] ?? '')));
         $type = trim((string) ($input['type'] ?? 'global'));
         $limit = (int) ($input['limit'] ?? 100);
         $page = (int) ($input['page'] ?? 1);
