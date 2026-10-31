@@ -612,26 +612,49 @@ $offlinePushHandler = function () use ($SECURE, $db) {
             $refundFee = (float)($input['return_amount'] ?? 0.0);
             $booking = $db->get('bookings', '*', ['pnr' => $uniqueId, 'module_type' => 'rail']);
             if ($booking) {
-                // Supplier push confirming a refund — RETURN the customer's money
-                // (credit a wallet payment back through the spine, or issue a card
-                // refund) before marking 'refunded'. Was a status-flip only, so a
-                // wallet-paid rail customer never got their money back on this async
-                // path. Idempotent: skip if already refunded.
+                // SECURITY (money-flow audit C2): this offlinePush webhook is NOT
+                // signature-authenticated (the rail supplier sends no HMAC/secret),
+                // so a forged POST could otherwise trigger a real refund on a live
+                // paid booking. Only AUTO-REFUND when a cancellation was already
+                // legitimately initiated (booking_status='cancelled' via the
+                // CSRF+ownership-guarded orderCancel, or cancellation_request set) —
+                // i.e. this push is the supplier CONFIRMING an initiated cancel, not
+                // originating one. A cold push on a still-'confirmed' booking is
+                // recorded but moves NO money. The amount is ignored for the refund
+                // (refund_gateway_payment uses the booking's own paid amount, never
+                // the client return_amount), and refund_gateway_payment now carries
+                // its own atomic per-invoice claim so a replay/race cannot double-refund.
+                $__railCancelInitiated = in_array(strtolower((string) ($booking['booking_status'] ?? '')), ['cancelled'], true)
+                    || (int) ($booking['cancellation_request'] ?? 0) === 1
+                    || (int) ($booking['cancellation_status'] ?? 0) === 1;
                 $railGwRefund = ['status' => 'skipped'];
-                if (($booking['payment_status'] ?? '') !== 'refunded') {
+                if (!$__railCancelInitiated) {
+                    error_log('RAIL offlinePush: refund push for a booking with no initiated cancellation (pnr=' . $uniqueId . ') — recording only, NOT auto-refunding (possible forged/premature push).');
+                    $railGwRefund = ['status' => 'not_initiated', 'message' => 'No cancellation initiated for this booking; refund not auto-processed.'];
+                } elseif (($booking['payment_status'] ?? '') !== 'refunded') {
                     require_once dirname(__DIR__, 2) . '/lib/payment-gateway.php';
                     $railGwRefund = function_exists('refund_gateway_payment')
                         ? refund_gateway_payment($db, $booking, null, 'Rail ticket refund')
                         : ['status' => 'unsupported', 'message' => 'Refund function unavailable', 'gateway' => ''];
                 }
                 $refunded = ($railGwRefund['status'] === 'refunded') || ($booking['payment_status'] ?? '') === 'refunded';
-                $db->update('bookings', [
-                    'payment_status'        => $refunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
-                    'booking_status'        => 'cancelled',
-                    'cancellation_status'   => 1,
-                    'cancellation_response' => json_encode(['refund_amount' => $refundFee, 'gateway_refund' => $railGwRefund]),
-                    'updated_at'            => date('Y-m-d H:i:s'),
-                ], ['id' => $booking['id']]);
+                if ($__railCancelInitiated) {
+                    // Legit cancel in progress → confirm the terminal state.
+                    $db->update('bookings', [
+                        'payment_status'        => $refunded ? 'refunded' : ($booking['payment_status'] ?? 'paid'),
+                        'booking_status'        => 'cancelled',
+                        'cancellation_status'   => 1,
+                        'cancellation_response' => json_encode(['refund_amount' => $refundFee, 'gateway_refund' => $railGwRefund]),
+                        'updated_at'            => date('Y-m-d H:i:s'),
+                    ], ['id' => $booking['id']]);
+                } else {
+                    // No cancel initiated → record the push only; do NOT flip a live
+                    // confirmed booking to cancelled off an unauthenticated webhook.
+                    $db->update('bookings', [
+                        'cancellation_response' => json_encode(['refund_amount' => $refundFee, 'gateway_refund' => $railGwRefund, 'note' => 'offlinePush received without an initiated cancellation — recorded, not actioned']),
+                        'updated_at'            => date('Y-m-d H:i:s'),
+                    ], ['id' => $booking['id']]);
+                }
 
                 echo json_encode(['success' => true, 'message' => 'Webhook received, booking updated successfully.']);
                 return;

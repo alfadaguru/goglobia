@@ -2502,7 +2502,58 @@ if (!function_exists('refund_gateway_payment')) {
             return ['status' => 'failed', 'message' => 'Refund amount is zero', 'gateway' => $gatewayName];
         }
 
+        // ──────────────────────────────────────────────────────────────────────
+        // CARD-REFUND IDEMPOTENCY CLAIM (money-flow audit C2).
+        // The wallet/credits branch is idempotent (GWREFUND-{inv} key), but the
+        // CARD branches (paystack/stripe/flutterwave/…) POST to the gateway with no
+        // idempotency, and several callers (esp. the rail refund handlers) guard
+        // only with a non-atomic payment_status!='refunded' read — a TOCTOU that
+        // lets two concurrent requests both fire a real card refund (double money
+        // back to the customer). Serialise here with an atomic per-invoice claim on
+        // a nullable `refund_claimed_at` column: only the FIRST caller flips
+        // NULL→NOW and proceeds to the external API; a concurrent caller gets a
+        // benign 'already'. Released on a FAILED/unsupported outcome so a genuine
+        // retry is not blocked. A booking already in a refunded terminal state is a
+        // no-op. Only engaged for real external-gateway refunds (the wallet branch
+        // keeps its own idempotency and does not need the external claim).
+        $__invRef = trim((string) ($booking['invoice_id'] ?? ''));
+        $__isExternalCard = !in_array($gatewayName, ['wallet', 'wallet balance', 'internal_wallet', 'credits'], true);
+        $__refundClaimed = false;
+        if ($__isExternalCard && $__invRef !== '') {
+            // Terminal-state short-circuit: never re-refund an already-refunded booking.
+            $__cur = $db->get('bookings', ['payment_status', 'booking_status'], ['invoice_id' => $__invRef]);
+            if ($__cur && strtolower((string) ($__cur['payment_status'] ?? '')) === 'refunded') {
+                return ['status' => 'refunded', 'already' => true, 'message' => 'Already refunded', 'gateway' => $gatewayName, 'amount' => $refundAmt];
+            }
+            try { $db->query("ALTER TABLE `bookings` ADD COLUMN `refund_claimed_at` datetime DEFAULT NULL"); } catch (\Throwable $e) { /* exists */ }
+            try {
+                $__claim = $db->query(
+                    "UPDATE bookings SET refund_claimed_at = NOW()
+                     WHERE invoice_id = :inv
+                       AND payment_status <> 'refunded'
+                       AND (refund_claimed_at IS NULL OR refund_claimed_at < (NOW() - INTERVAL 10 MINUTE))",
+                    [':inv' => $__invRef]
+                );
+                if (!$__claim || $__claim->rowCount() < 1) {
+                    error_log('refund_gateway_payment: refund claim BUSY for invoice ' . $__invRef . ' — skipping duplicate card refund');
+                    return ['status' => 'in_progress', 'already' => true, 'message' => 'A refund for this booking is already in progress.', 'gateway' => $gatewayName];
+                }
+                $__refundClaimed = true;
+            } catch (\Throwable $e) {
+                // DB variance → fail OPEN (proceed) so a claim-infra error never blocks a legit refund.
+                error_log('refund_gateway_payment claim: ' . $e->getMessage());
+            }
+        }
+        // Release the claim on a non-success outcome so a genuine retry is not blocked.
+        $__releaseRefundClaim = function () use ($db, $__invRef, &$__refundClaimed) {
+            if ($__refundClaimed && $__invRef !== '') {
+                try { $db->query("UPDATE bookings SET refund_claimed_at = NULL WHERE invoice_id = :inv AND payment_status <> 'refunded'", [':inv' => $__invRef]); }
+                catch (\Throwable $e) { /* best effort */ }
+            }
+        };
+
         try {
+            $__refundResult = (function () use ($gatewayName, $txnRef, $gateway, $refundAmt, $currency, $reason, $booking, $db) {
             switch ($gatewayName) {
 
                 // ---- PAYSTACK: POST https://api.paystack.co/refund ----
@@ -2631,8 +2682,18 @@ if (!function_exists('refund_gateway_payment')) {
                 default:
                     return ['status' => 'unsupported', 'message' => "Automated refund is not implemented for gateway '{$gatewayName}'. Process it manually in the gateway dashboard.", 'gateway' => $gatewayName];
             }
+            })();
+
+            // Release the claim unless the refund actually succeeded — a 'refunded'
+            // result holds the claim (terminal); any failed/unsupported outcome frees
+            // it so a legitimate retry can re-attempt.
+            if (strtolower((string) ($__refundResult['status'] ?? '')) !== 'refunded') {
+                $__releaseRefundClaim();
+            }
+            return $__refundResult;
         } catch (\Throwable $e) {
             error_log('refund_gateway_payment error (' . $gatewayName . '): ' . $e->getMessage());
+            $__releaseRefundClaim();
             return ['status' => 'failed', 'message' => $e->getMessage(), 'gateway' => $gatewayName];
         }
     }
