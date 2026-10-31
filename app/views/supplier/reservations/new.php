@@ -116,6 +116,21 @@
       </div>
     </div>
 
+    <?php // UX#1/#5: assign an actual ROOM NUMBER right here in the walk-in form — no need
+          // to go through Room status first. Lists the available physical rooms of the
+          // chosen type; the picked one is assigned so the booking shows on the board.
+          // Hidden when the room came pre-selected from the board (physical_room_id already
+          // set above). Optional — leave "Unassigned" to assign later. ?>
+    <?php if (!$presetRoom): ?>
+    <div class="form-control">
+      <label class="block text-sm font-medium text-gray-700 mb-1">Assign room number <span class="text-gray-400">(optional)</span></label>
+      <select name="physical_room_id" id="physRoomSelect" class="input">
+        <option value="">Unassigned — pick a room type first…</option>
+      </select>
+      <p class="text-xs text-gray-400 mt-1">Pick the physical room so it shows as occupied on the front-desk board. You can also assign/move it later.</p>
+    </div>
+    <?php endif; ?>
+
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
       <div class="form-control">
         <label class="block text-sm font-medium text-gray-700 mb-1">Check-in *</label>
@@ -241,15 +256,35 @@
 // option_id — the value the server prices + holds against).
 (function () {
   var byRoom = <?= json_encode(array_column($picker, 'options', 'room_id')) ?>;
+  // UX#1/#5: available physical rooms per room type [ room_id => [{id,label},...] ].
+  var physByRoom = <?= json_encode(isset($physRoomsByType) && is_array($physRoomsByType) ? $physRoomsByType : (object) []) ?>;
   var roomSel = document.getElementById('roomSelect');
   var optSel = document.getElementById('optionSelect');
+  var physSel = document.getElementById('physRoomSelect'); // absent when a room was preset
   if (!roomSel || !optSel) { return; }
+  function fillPhys() {
+    if (!physSel) { return; }
+    var rid = roomSel.value;
+    var rooms = physByRoom[rid] || [];
+    physSel.innerHTML = '';
+    var first = document.createElement('option');
+    first.value = '';
+    first.textContent = rooms.length ? 'Unassigned (assign a room number)' : 'No free room of this type — leave unassigned';
+    physSel.appendChild(first);
+    rooms.forEach(function (pr) {
+      var o = document.createElement('option');
+      o.value = pr.id;
+      o.textContent = pr.label;
+      physSel.appendChild(o);
+    });
+  }
   function fill() {
     var rid = roomSel.value;
     optSel.innerHTML = '';
     var opts = byRoom[rid] || [];
     if (!opts.length) {
       var o = document.createElement('option'); o.value = ''; o.textContent = 'Select a room first…'; optSel.appendChild(o);
+      fillPhys();
       return;
     }
     // When a room type has MULTIPLE rates, auto-select the CHEAPEST (best available rate)
@@ -265,6 +300,7 @@
       if (!isNaN(p) && p < cheapestPrice) { cheapestPrice = p; cheapestVal = op.option_id; }
     });
     if (cheapestVal !== null) { optSel.value = cheapestVal; }
+    fillPhys();
   }
   roomSel.addEventListener('change', fill);
   fill();

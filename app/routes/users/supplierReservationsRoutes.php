@@ -1040,6 +1040,34 @@ if (!function_exists('_supplier_resv_room_picker')) {
     }
 }
 
+if (!function_exists('_supplier_resv_physrooms_by_type')) {
+    /** Available physical rooms of this property, grouped by the bookable room (room_id)
+     *  they map to — so the walk-in form can offer an "Assign room #" dropdown for the
+     *  chosen room type (audit UX#1/#5). Only ACTIVE + assignable-status rooms, and NOT
+     *  already occupied by an in-house guest. Shape: [ room_id => [ {id,label}, ... ] ]. */
+    function _supplier_resv_physrooms_by_type($db, int $stayId): array
+    {
+        $out = [];
+        try {
+            $assignable = function_exists('hk_assignable_statuses') ? hk_assignable_statuses() : ['clean', 'inspected', 'vacant'];
+            $inUse = function_exists('hk_rooms_in_use') ? hk_rooms_in_use($db, $stayId) : [];
+            $rows = $db->select('stays_physical_rooms', ['id', 'room_number', 'floor', 'room_id', 'hk_status'],
+                ['stay_id' => $stayId, 'active' => 1, 'ORDER' => ['room_number' => 'ASC']]) ?: [];
+            foreach ($rows as $r) {
+                $rid = (int) ($r['room_id'] ?? 0);
+                $prid = (int) $r['id'];
+                if ($rid <= 0) { continue; }
+                if (!in_array((string) ($r['hk_status'] ?? ''), $assignable, true)) { continue; } // not assignable now
+                if (isset($inUse[$prid])) { continue; } // occupied by an in-house guest
+                $label = 'Room ' . (string) ($r['room_number'] ?? $prid)
+                    . (!empty($r['floor']) ? ' · Floor ' . (string) $r['floor'] : '');
+                $out[$rid][] = ['id' => $prid, 'label' => $label];
+            }
+        } catch (\Throwable $e) { error_log('_supplier_resv_physrooms_by_type: ' . $e->getMessage()); }
+        return $out;
+    }
+}
+
 // NEW RESERVATION FORM — GET /supplier/stays/{id}/reservations/new
 $router->get('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);
@@ -1053,6 +1081,7 @@ $router->get('/supplier/stays/([0-9]+)/reservations/new', function ($id) use ($S
     if (!$stay) { _supplier_stays_deny('Property not found.'); }
 
     $roomPicker = _supplier_resv_room_picker($db, $stayId);
+    $physRoomsByType = _supplier_resv_physrooms_by_type($db, $stayId); // UX#1/#5: assignable rooms per type
     $sources = function_exists('resv_booking_sources') ? resv_booking_sources() : [];
     // "Click a vacant room on the front desk to reserve it" passes ?physical_room_id —
     // carry it to the form (shown + posted) so the created booking is assigned to THAT
