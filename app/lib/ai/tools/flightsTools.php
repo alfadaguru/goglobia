@@ -239,9 +239,11 @@ if (!class_exists('App\\lib\\ai\\flightsSelectTool')) {
                 }
                 $amt = (float) ($sel['price'] ?? 0);
                 if ($db !== null && function_exists('discount_resolve_for_booking') && $amt > 0) {
+                    // NOTE: the discount engine matches a 'service' scope on ctx['module']
+                    // and a 'provider' scope on ctx['provider'] (see discount_rule_matches).
+                    // So pass 'module' => 'flights' — a 'service=flights' promo keys off it.
                     $dres = discount_resolve_for_booking($db, [
-                        'service'      => 'flights',
-                        'module_type'  => 'flights',
+                        'module'       => 'flights',
                         'provider'     => $supplier,
                         'order_amount' => $amt,
                         'currency'     => (string) $sel['currency'],
