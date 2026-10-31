@@ -27,3 +27,33 @@ $router->get('/insurance', function () use ($SECURE, $db) {
     require_once views . "modules/insurance/home.php";
     require_once views . "includes/footer.php";
 });
+
+// ---------------------------------------------------------------------------
+// GET /insurance/plans — PAID travel-insurance storefront (SCAFFOLDING).
+// Separate from /insurance (the free AirHelp compensation claim). This is the
+// buy-a-policy entry that mirrors the eSIM storefront shape. It is gated on a
+// PAID insurance supplier being live (classed 'real' in payment_supplier_bookability
+// AND an active module row). While the supplier is stubbed (travelsure), there
+// are no live quotes, so this shows an honest "coming soon" rather than a fake
+// search form. When the provider is wired, swap in the real search/quote view.
+// ---------------------------------------------------------------------------
+$router->get('/insurance/plans', function () use ($SECURE, $db) {
+    // Is a PAID insurance supplier live? Source of truth = modules.booking_class
+    // (seeded by ensureModulesBookingClass). A paid supplier is live only when its
+    // module row is active AND classed 'real' — travelsure is 'stub' while the
+    // supplier is unwired, so this stays false (storefront shows "coming soon").
+    if (function_exists('ensureModulesBookingClass')) { ensureModulesBookingClass($db); }
+    $paidLive = false;
+    $paidModule = $db->get('modules', '*', ['type' => 'insurance', 'name[!]' => 'airhelp', 'status' => 1, 'active' => 1]);
+    if ($paidModule) {
+        $paidLive = (strtolower((string) ($paidModule['booking_class'] ?? '')) === 'real');
+    }
+
+    $title = ($GLOBALS['app']['home_title'] ?? 'Travel Insurance') . ' — Travel Insurance';
+    $description = 'Protect your trip with travel insurance — medical, cancellation and baggage cover.';
+    $__insurancePaidLive = $paidLive; // consumed by the view
+
+    require_once views . "includes/header.php";
+    require_once views . "modules/insurance/plans.php";
+    require_once views . "includes/footer.php";
+});

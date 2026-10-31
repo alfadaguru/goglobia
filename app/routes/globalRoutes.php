@@ -485,6 +485,7 @@ $router->get('/payment/([a-f0-9]{32})', function ($hash) use ($SECURE, $db) {
         'esim'    => 'invoice/esim/',
         'bus'     => 'invoice/bus/',
         'rail'    => 'invoice/rail/',
+        'insurance' => 'invoice/insurance/',
         default   => 'invoice/',
     };
     $callbackBase = root . $_iPrefix . $booking['invoice_id'] . '?token=' . urlencode($token) . '&payment_status=';
@@ -552,6 +553,7 @@ $router->get('/payment/gateway/([a-f0-9]{32})', function ($hash) use ($SECURE, $
         'esim'    => 'invoice/esim/',
         'bus'     => 'invoice/bus/',
         'rail'    => 'invoice/rail/',
+        'insurance' => 'invoice/insurance/',
         default   => 'invoice/',
     };
     $callbackBase = root . $_iPrefix2 . $booking['invoice_id'] . '?token=' . urlencode($token) . '&payment_status=';
