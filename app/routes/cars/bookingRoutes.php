@@ -413,35 +413,15 @@ $router->post('/cars/booking/submit', function () use ($SECURE, $db) {
             if ($autoDiscount > 0 && $discountRow && function_exists('discount_record_use')) {
                 discount_record_use($db, $discountRow);
             }
-            // Send Notification (Email/SMS) using NOTIFY library
-            if (class_exists('NOTIFY')) {
-                $customerData = [
-                    'email' => $primaryContact['email'] ?? '',
-                    'phone' => $primaryContact['phone'] ?? '',
-                    'first_name' => $primaryContact['first_name'] ?? '',
-                    'last_name' => $primaryContact['last_name'] ?? '',
-                    'country_code' => $formData['country_code'] ?? ''
-                ];
-
-                $notifyData = [
-                    'invoice_id' => $invoiceId,
-                    'amount' => $finalTotal,
-                    'currency' => $currency,
-                    'payment_status' => 'unpaid',
-                    'car_name' => $carData['name'] ?? 'Car Booking',
-                    'location' => $draftData['search_params']['pickup_location'] ?? '',
-                    'pickup_date' => $draftData['search_params']['pickup_date'] ?? '',
-                    'return_date' => $draftData['search_params']['return_date'] ?? '',
-                    'module_type' => 'Cars'
-                ];
-
-                // Attach the no-price TICKET (travel document) to the confirmation.
-                // Priced invoice stays payer-only (receipt + on-demand download).
-                $ticketPdf = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($invoiceId, 'ticket') : null;
-                // Pass the ticket as BOTH owner (4th) + customer (5th) so the
-                // customer's WhatsApp copy carries the ticket PDF + price-free body.
-                NOTIFY::booking('cars', $customerData, $notifyData, $ticketPdf, $ticketPdf);
-            }
+            // CHECKOUT-HANG FIX (same root cause as eSIM): do NOT generate the PDF
+            // (mPDF) or send NOTIFY::booking (synchronous SMTP/WhatsApp/SMS) HERE —
+            // this runs under mod_php (no fastcgi_finish_request), so a slow/
+            // unreachable mail host blocks the response and the checkout loader
+            // spins forever, never reaching the invoice page to pay. It is also
+            // redundant: the booking is UNPAID at submit (a "confirmed" email before
+            // payment is wrong), and the customer IS notified AFTER payment —
+            // app/webhooks/cars/payment.php calls NOTIFY::payment('cars',...) on the
+            // paid callback. Respond fast instead.
 
             // Let the (possibly guest) session that created this invoice view it —
             // otherwise enforceInvoiceAccess() bounces them to /login on their own

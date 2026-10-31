@@ -378,34 +378,13 @@ $router->post('/api/visa/booking/submit', function () use ($SECURE, $db) {
         unset($_SESSION['booking_data']);
         unset($_SESSION['booking_hash']);
 
-        // GENERATE PDF VOUCHER — no-price TICKET for the booking confirmation.
-        // The priced invoice is payer-only (payment receipt + on-demand download).
-        $pdfPath = null;
-        try {
-            $pdfPath = GENERATE_BOOKING_PDF($invoiceId, 'ticket');
-        } catch (Exception $e) {
-            error_log('Visa PDF Generation failed: ' . $e->getMessage());
-        }
-
-        // SEND CONFIRMATION NOTIFICATIONS (Email, WhatsApp, SMS)
-        try {
-            NOTIFY::booking('visa', [
-                'first_name' => $primaryGuest['first_name'],
-                'last_name' => $primaryGuest['last_name'],
-                'email' => $primaryGuest['email'],
-                'phone' => $primaryGuest['phone'] ?? '',
-                'country_code' => $primaryGuest['country_code'] ?? ''
-            ], array_merge($completeBookingData, [
-                'invoice_id' => $invoiceId,
-                'booking_status' => 'pending',
-                'payment_status' => 'unpaid',
-                'amount' => $finalPriceMarkup,
-                'currency' => $defaultCurrency
-            ]), $pdfPath, $pdfPath);
-        } catch (Exception $e) {
-            // Log error but don't fail booking
-            error_log('Visa inquiry notifications failed: ' . $e->getMessage());
-        }
+        // CHECKOUT-HANG FIX (same root cause as eSIM): do NOT generate the PDF
+        // (mPDF) or send NOTIFY::booking (synchronous SMTP/WhatsApp/SMS) HERE. Under
+        // mod_php (no fastcgi_finish_request) a slow/unreachable mail host blocks
+        // the response, so the checkout loader spins and never reaches the invoice
+        // page to pay. Redundant too: the booking is UNPAID at submit, and the
+        // customer is notified AFTER payment by bm_notify_paid (payment-callback
+        // fallback for webhookless services incl. visa). Respond fast instead.
 
         // Let the (possibly guest) session that created this invoice view it —
         // otherwise enforceInvoiceAccess() bounces them to /login on their own
