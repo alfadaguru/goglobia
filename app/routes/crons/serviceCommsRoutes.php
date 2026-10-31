@@ -1,8 +1,10 @@
 <?php
 // app/routes/crons/serviceCommsRoutes.php
 // GENERIC pre/post service-communication worker (all services EXCEPT flights,
-// which keep their richer flight-reminders pipeline). Walks PAID, non-cancelled
-// stays/umrah/tours/cars bookings with a known service date and sends,
+// which keep their richer flight-reminders pipeline). Covers stays, umrah, tours,
+// cars, ferries, rail and bus (travel-date anchored: pre + post) and visa + esim
+// (purchase-anchored: POST-only — no future service date to remind about). Walks
+// PAID, non-cancelled bookings with a usable anchor date and sends,
 // idempotently, on BOTH email + WhatsApp:
 //   - up to 2 PRE-service reminders (~48h, ~12h before the service date), and
 //   - one POST-service thank-you (~6-48h after completion) with a review ask, a

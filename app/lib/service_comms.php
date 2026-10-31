@@ -55,7 +55,8 @@ if (!function_exists('service_comms_classify')) {
      * their own richer pipeline (flight_reminders.php). GIA stays/flights are both
      * module_type='ai_trip', distinguished by booking_data.gia_service.
      *
-     * @return string one of 'stays'|'umrah'|'tours'|'cars'|'' (skip)
+     * @return string one of 'stays'|'umrah'|'tours'|'cars'|'ferries'|'rail'|'bus'
+     *                |'visa'|'esim'|'' (skip)
      */
     function service_comms_classify(array $booking): string
     {
@@ -71,13 +72,35 @@ if (!function_exists('service_comms_classify')) {
             if ($giaService === 'umrah') { return 'umrah'; }
             if ($giaService === 'tours' || $giaService === 'tour') { return 'tours'; }
             if ($giaService === 'cars' || $giaService === 'car')  { return 'cars'; }
+            if ($giaService === 'ferries' || $giaService === 'ferry') { return 'ferries'; }
+            if ($giaService === 'rail' || $giaService === 'train') { return 'rail'; }
+            if ($giaService === 'bus')  { return 'bus'; }
+            if ($giaService === 'visa') { return 'visa'; }
+            if ($giaService === 'esim') { return 'esim'; }
             return '';
         }
         if (in_array($mt, ['stays', 'hotels', 'hotel'], true)) { return 'stays'; }
         if ($mt === 'umrah') { return 'umrah'; }
         if (in_array($mt, ['tours', 'tour'], true)) { return 'tours'; }
         if (in_array($mt, ['cars', 'car'], true))  { return 'cars'; }
+        if (in_array($mt, ['ferries', 'ferry'], true)) { return 'ferries'; }
+        if (in_array($mt, ['rail', 'train'], true)) { return 'rail'; }
+        if ($mt === 'bus')  { return 'bus'; }
+        if ($mt === 'visa') { return 'visa'; }
+        if ($mt === 'esim') { return 'esim'; }
         return '';
+    }
+}
+
+if (!function_exists('service_comms_is_post_only')) {
+    /**
+     * Services with NO future "service date" to remind about (visa = processing, esim =
+     * digital delivery). They get a POST-service touch ONLY, anchored on the purchase/
+     * issuance moment — never a pre-service reminder (there is nothing to count down to).
+     */
+    function service_comms_is_post_only(string $service): bool
+    {
+        return in_array($service, ['visa', 'esim'], true);
     }
 }
 
@@ -138,6 +161,51 @@ if (!function_exists('service_comms_completion_ts')) {
             $ts = $norm((string) ($bd['return_date'] ?? ''));
             return $ts ? strtotime('+20 hours', $ts) : 0;
         }
+        if ($service === 'bus') {
+            // bus bookingRoutes stores booking_data.date normalized to Y-m-d (the
+            // journey date). End-of-day so the post touch is after the trip.
+            $ts = $norm((string) ($bd['date'] ?? ''));
+            return $ts ? strtotime('+20 hours', $ts) : 0;
+        }
+        if ($service === 'ferries') {
+            // ferries: booking_data.date (sailing date) or selected_sailing.departure_datetime
+            // (a full datetime). Prefer the explicit datetime when present.
+            $dt = (string) ($bd['selected_sailing']['departure_datetime'] ?? '');
+            if ($dt !== '' && strpos($dt, ':') !== false) {
+                $ts = $norm($dt);
+                return $ts ? strtotime('+6 hours', $ts) : 0; // after the sailing
+            }
+            $ts = $norm((string) ($bd['date'] ?? ''));
+            return $ts ? strtotime('+20 hours', $ts) : 0;
+        }
+        if ($service === 'rail') {
+            // rail stores booking_data = the raw order $input (journey[]). The travel
+            // date is not in one canonical field, so try the plausible nested keys;
+            // if none resolve we return 0 and the sweep SKIPS (never a guessed date).
+            $cand = (string) (
+                $bd['journey'][0]['departure_date']
+                ?? $bd['journey'][0]['travel_date']
+                ?? $bd['journey'][0]['date']
+                ?? $bd['departure_date']
+                ?? $bd['travel_date']
+                ?? $bd['date']
+                ?? ''
+            );
+            $ts = $norm($cand);
+            return $ts ? strtotime('+6 hours', $ts) : 0;
+        }
+        if (service_comms_is_post_only($service)) {
+            // visa/esim have NO future service date. Anchor the post-service touch on
+            // the PURCHASE moment (paid_at, else created_at) so a single warm follow-up
+            // fires shortly after the order. The sweep's pre windows never match a past
+            // anchor, so only the post touch can fire — which is exactly intended.
+            $anchor = (string) ($booking['paid_at'] ?? ($booking['created_at'] ?? ''));
+            $ts = $norm($anchor);
+            // The post window is 6h..48h after this anchor, so the follow-up lands a few
+            // hours to a day after purchase — well clear of the booking/issue confirmation
+            // the customer just received, and old orders (>48h) are naturally skipped.
+            return $ts ?: 0;
+        }
         return 0;
     }
 }
@@ -151,6 +219,11 @@ if (!function_exists('service_comms_label')) {
             case 'umrah': return ['noun' => 'Umrah journey', 'emoji' => '🕋', 'verb_future' => 'departure'];
             case 'tours': return ['noun' => 'tour', 'emoji' => '🌍', 'verb_future' => 'tour'];
             case 'cars':  return ['noun' => 'car rental', 'emoji' => '🚗', 'verb_future' => 'pick-up'];
+            case 'ferries': return ['noun' => 'ferry trip', 'emoji' => '⛴️', 'verb_future' => 'departure'];
+            case 'rail':  return ['noun' => 'train journey', 'emoji' => '🚆', 'verb_future' => 'departure'];
+            case 'bus':   return ['noun' => 'bus trip', 'emoji' => '🚌', 'verb_future' => 'departure'];
+            case 'visa':  return ['noun' => 'visa application', 'emoji' => '🛂', 'verb_future' => 'processing'];
+            case 'esim':  return ['noun' => 'eSIM', 'emoji' => '📶', 'verb_future' => 'activation'];
             default:      return ['noun' => 'booking', 'emoji' => '✨', 'verb_future' => 'trip'];
         }
     }
@@ -174,6 +247,8 @@ if (!function_exists('service_comms_pre_lines')) {
             $lines[] = 'Please bring your driver\'s licence and the lead traveller\'s ID for a quick pick-up.';
         } elseif ($service === 'tours') {
             $lines[] = 'Please arrive a little early at the meeting point and wear something comfortable.';
+        } elseif ($service === 'ferries' || $service === 'bus' || $service === 'rail') {
+            $lines[] = 'Please arrive at the terminal in good time with your booking reference and a valid ID — boarding usually closes before departure.';
         }
         $lines[] = 'If you need anything at all before then, just reply here — I\'m happy to help.';
         $lines[] = 'Thank you for choosing *' . $brand . '*.';
@@ -200,10 +275,21 @@ if (!function_exists('service_comms_post_lines')) {
             $lines[] = 'Welcome back! 🕋 We pray your Umrah was accepted and your journey home was safe.';
         } elseif ($service === 'stays') {
             $lines[] = 'Welcome back! 🏨 We hope your stay was comfortable and everything was just right.';
+        } elseif ($service === 'visa') {
+            // visa is post-PURCHASE (no trip): reassure, don't "welcome back".
+            $lines[] = 'Thank you for choosing us for your visa application 🛂 — we\'ve got it and our team is taking good care of it.';
+        } elseif ($service === 'esim') {
+            $lines[] = 'Thank you for your eSIM purchase 📶 — we hope setup was smooth and you\'re connected wherever you are.';
         } else {
             $lines[] = 'Welcome back! ' . $lbl['emoji'] . ' We hope your ' . $lbl['noun'] . ' was wonderful.';
         }
-        $lines[] = 'Thank you for travelling with *' . $brand . '* — it was a real pleasure to serve you.';
+        if ($service === 'visa') {
+            $lines[] = 'We\'ll keep you posted on your application and send your visa document here as soon as it\'s ready. If you have any questions meanwhile, just reply — we\'re happy to help.';
+        } elseif ($service === 'esim') {
+            $lines[] = 'If you need a hand activating or topping up your eSIM, just reply here and we\'ll sort it out.';
+        } else {
+            $lines[] = 'Thank you for travelling with *' . $brand . '* — it was a real pleasure to serve you.';
+        }
         // Review ask.
         $lines[] = 'Could you spare a moment to rate your experience? Just reply here with a score out of 5 and any thoughts — it genuinely helps us serve you better.';
 
@@ -364,8 +450,8 @@ if (!function_exists('service_comms_sweep')) {
         // Scan a bounded window (last 120 days of bookings) so the sweep stays cheap.
         try {
             $rows = $db->select('bookings',
-                ['invoice_id', 'first_name', 'last_name', 'email', 'phone', 'phone_country_code',
-                 'module_type', 'booking_status', 'payment_status', 'booking_data', 'created_at'],
+                ['invoice_id', 'user_id', 'first_name', 'last_name', 'email', 'phone', 'phone_country_code',
+                 'module_type', 'booking_status', 'payment_status', 'booking_data', 'paid_at', 'created_at'],
                 [
                     'payment_status' => 'paid',
                     'booking_status[!]' => 'cancelled',
@@ -409,9 +495,12 @@ if (!function_exists('service_comms_sweep')) {
             // in service_comms_completion_ts; for pre-reminders we anchor on completeTs
             // (close enough — the shim is <=20h and the pre windows are 36h+ wide).
             $before = $completeTs - $now; // seconds until completion (negative after)
+            // visa/esim have no future service date — the anchor is the purchase moment,
+            // so they NEVER get a pre-service reminder, only the post touch below.
+            $postOnly = service_comms_is_post_only($service);
 
             // ---- PRE 1 : ~48h out (window 60h..36h before) ----
-            if (empty($track['pre1_sent_at']) && $before <= 60 * 3600 && $before >= 36 * 3600) {
+            if (!$postOnly && empty($track['pre1_sent_at']) && $before <= 60 * 3600 && $before >= 36 * 3600) {
                 if (service_comms_send($db, $b, $service, 'pre')) {
                     $db->update('service_comms', ['pre1_sent_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')], ['id' => (int) $track['id']]);
                     $sentPre++;
@@ -419,7 +508,7 @@ if (!function_exists('service_comms_sweep')) {
                 continue;
             }
             // ---- PRE 2 : ~12h out (window 18h..3h before) ----
-            if (empty($track['pre2_sent_at']) && $before <= 18 * 3600 && $before >= 3 * 3600) {
+            if (!$postOnly && empty($track['pre2_sent_at']) && $before <= 18 * 3600 && $before >= 3 * 3600) {
                 if (service_comms_send($db, $b, $service, 'pre')) {
                     $db->update('service_comms', ['pre2_sent_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')], ['id' => (int) $track['id']]);
                     $sentPre++;
