@@ -110,7 +110,7 @@ if (!function_exists('support_fmt_duration')) {
         <span class="material-symbols-outlined !text-[20px] text-blue-600">calendar_month</span>
         Daily attendance
       </h2>
-      <form method="get" action="<?= htmlspecialchars($attBase . '/attendance') ?>" class="flex items-center gap-2">
+      <form method="get" action="<?= htmlspecialchars($attBase . '/attendance') ?>" class="flex items-center gap-2 flex-wrap">
         <input type="date" name="from" value="<?= htmlspecialchars($from) ?>"
                class="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
         <span class="text-gray-400 text-sm">→</span>

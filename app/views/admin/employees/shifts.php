@@ -43,7 +43,7 @@ $fmtTime = function ($t): string {
   </div>
 
   <!-- DATE NAVIGATOR -->
-  <form method="GET" action="<?= root.admin ?>/employees/shifts" class="flex items-center gap-2 mb-5">
+  <form method="GET" action="<?= root.admin ?>/employees/shifts" class="flex items-center gap-2 mb-5 flex-wrap">
     <a href="<?= root.admin ?>/employees/shifts?date=<?= urlencode($prevDay) ?>"
        class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50" title="Previous day">
       <span class="material-symbols-outlined !text-[18px]">chevron_left</span>

@@ -117,21 +117,28 @@ $v = function ($k, $d = '') use ($r) { return htmlspecialchars((string) ($r[$k] 
           The <strong>Admin</strong> role always has <strong>full access</strong> to every area and cannot be narrowed.
         </div>
       <?php else: ?>
+        <p class="text-xs text-gray-500 mb-3">Tick the actions this role may perform in each area. Use the <strong>area toggle</strong> on the left to grant or clear a whole area at once.</p>
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <tbody>
-              <?php foreach ($catalogue as $area => $actions): ?>
-                <tr class="border-b border-gray-50">
-                  <td class="py-2 pr-4 align-top font-medium text-gray-800 whitespace-nowrap">
-                    <?= htmlspecialchars($label($area, $areaLabels)) ?>
-                    <span class="block text-[11px] text-gray-400"><code><?= htmlspecialchars($area) ?></code></span>
+              <?php foreach ($catalogue as $area => $actions): $aid = 'cap_' . preg_replace('/[^a-z0-9_]/i', '', $area); ?>
+                <tr class="cap-row border-b border-gray-100 align-top">
+                  <td class="py-3 pr-4 align-top font-medium text-gray-800 whitespace-nowrap">
+                    <label class="inline-flex items-start gap-2 cursor-pointer">
+                      <input type="checkbox" class="cap-area-all mt-1" data-area="<?= htmlspecialchars($aid, ENT_QUOTES) ?>"
+                             onchange="document.querySelectorAll('.<?= htmlspecialchars($aid, ENT_QUOTES) ?>').forEach(c=>c.checked=this.checked)">
+                      <span>
+                        <?= htmlspecialchars($label($area, $areaLabels)) ?>
+                        <span class="block text-[11px] text-gray-400 font-normal"><code><?= htmlspecialchars($area) ?></code></span>
+                      </span>
+                    </label>
                   </td>
-                  <td class="py-2">
-                    <div class="flex flex-wrap gap-x-5 gap-y-1">
+                  <td class="py-3">
+                    <div class="flex flex-wrap gap-x-4 gap-y-2">
                       <?php foreach ($actions as $action): ?>
                         <?php $checked = isset($current[$area][$action]); ?>
-                        <label class="inline-flex items-center gap-1.5 cursor-pointer">
-                          <input type="checkbox" class="cap-cb" name="permissions[<?= htmlspecialchars($area, ENT_QUOTES) ?>][<?= htmlspecialchars($action, ENT_QUOTES) ?>]" value="1" <?= $checked ? 'checked' : '' ?>>
+                        <label class="inline-flex items-center gap-1.5 cursor-pointer px-2 py-1 rounded-md hover:bg-blue-50 transition">
+                          <input type="checkbox" class="cap-cb <?= htmlspecialchars($aid, ENT_QUOTES) ?>" name="permissions[<?= htmlspecialchars($area, ENT_QUOTES) ?>][<?= htmlspecialchars($action, ENT_QUOTES) ?>]" value="1" <?= $checked ? 'checked' : '' ?>>
                           <span class="text-gray-700"><?= htmlspecialchars($label($action, $actionLabels)) ?></span>
                         </label>
                       <?php endforeach; ?>
@@ -158,4 +165,41 @@ $v = function ($k, $d = '') use ($r) { return htmlspecialchars((string) ($r[$k] 
     </div>
     <?php endif; ?>
   </form>
+
+  <?php if (!$isAdmin): ?>
+  <!-- Zebra striping via raw CSS (the odd:bg-* Tailwind variant isn't in the build). -->
+  <style> .cap-row:nth-child(even) { background: #f9fafb; } </style>
+  <script>
+  (function () {
+    // Keep each area's "select whole area" checkbox in sync: it shows checked only
+    // when ALL of that area's action checkboxes are ticked (indeterminate otherwise).
+    function syncArea(aid) {
+      var head = document.querySelector('.cap-area-all[data-area="' + aid + '"]');
+      if (!head) return;
+      var boxes = document.querySelectorAll('.' + aid);
+      if (!boxes.length) return;
+      var on = 0;
+      boxes.forEach(function (b) { if (b.checked) on++; });
+      head.checked = (on === boxes.length);
+      head.indeterminate = (on > 0 && on < boxes.length);
+    }
+    document.querySelectorAll('.cap-area-all').forEach(function (head) {
+      var aid = head.getAttribute('data-area');
+      syncArea(aid); // initial state (edit mode)
+      document.querySelectorAll('.' + aid).forEach(function (b) {
+        b.addEventListener('change', function () { syncArea(aid); });
+      });
+    });
+    // Also re-sync every area after the global Select all / Clear all buttons run.
+    document.querySelectorAll('button').forEach(function (btn) {
+      var t = (btn.textContent || '').trim().toLowerCase();
+      if (t === 'select all' || t === 'clear all') {
+        btn.addEventListener('click', function () {
+          document.querySelectorAll('.cap-area-all').forEach(function (h) { syncArea(h.getAttribute('data-area')); });
+        });
+      }
+    });
+  })();
+  </script>
+  <?php endif; ?>
 </div>
