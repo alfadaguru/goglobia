@@ -988,26 +988,44 @@ if (!function_exists('supplier_payout_finalize_transfer')) {
             if (in_array($state, ['failed', 'rejected', 'cancelled'], true)) {
                 return ['ok' => true, 'state' => $state, 'changed' => false, 'message' => 'Already terminal.'];
             }
+            // A 'failed' outcome must NOT reverse an already-PAID payout (audit M8). Paystack
+            // does not emit transfer.failed after a success; a 'failed' arriving on a 'paid'
+            // payout is a duplicate/out-of-order/replayed event. Reversing it would flip the
+            // settled earnings 'paid'->'available' and make the already-disbursed money
+            // re-withdrawable (double-pay). Only a genuine transfer.REVERSED legitimately
+            // un-settles a paid payout; a 'failed' on a paid payout is ignored (no-op).
+            if ($outcome === 'failed' && $state === 'paid') {
+                error_log('finalize: ignoring transfer.failed on an already-paid payout #' . $payoutId . ' (M8 guard)');
+                return ['ok' => true, 'state' => 'paid', 'changed' => false, 'message' => 'Already paid; failed event ignored.'];
+            }
             $reason = $outcome === 'reversed' ? 'transfer reversed' : 'transfer failed';
             if ($note !== '') { $reason .= ': ' . $note; }
             // Atomic: if it had been (optimistically or really) debited to 'paid', return
             // those earnings 'paid'->'available' so the money is not lost, AND mark the
             // payout failed — in one transaction. decided_by records the webhook as the
-            // actor for the audit trail. Then release the reservation.
+            // actor for the audit trail. The payout UPDATE is STATE-GUARDED (only flips a
+            // non-terminal/paid row, and only from the state we read) so a racing/stale event
+            // can't transition an already-terminal payout. Then release the reservation.
+            $didChange = false;
             try {
-                $db->action(function ($db) use ($payoutId, $state, $tc, $reason) {
+                $db->action(function ($db) use ($payoutId, $state, $tc, $reason, &$didChange) {
                     if ($state === 'paid') {
                         $db->update('supplier_earnings',
                             ['state' => 'available', 'updated_at' => date('Y-m-d H:i:s')],
                             ['payout_id' => $payoutId, 'state' => 'paid']);
                     }
-                    $db->update('supplier_payouts',
+                    $upd = $db->update('supplier_payouts',
                         ['state' => 'failed', 'transfer_code' => $tc ?: null,
                          'failure_reason' => substr($reason, 0, 255),
                          'decided_by' => 'paystack_webhook', 'updated_at' => date('Y-m-d H:i:s')],
-                        ['id' => $payoutId]);
+                        ['id' => $payoutId, 'state' => $state]); // guard: only from the state we read
+                    $didChange = $upd && $upd->rowCount() > 0;
                 });
             } catch (\Throwable $e) { error_log('finalize fail/reverse: ' . $e->getMessage()); }
+            if (!$didChange) {
+                // Another finalizer moved the payout first — don't release/notify on a stale race.
+                return ['ok' => true, 'state' => $state, 'changed' => false, 'message' => 'Payout already resolved by another process.'];
+            }
             supplier_payout_release_reservation($db, $payoutId);
             // Notify so a failed/reversed payout is never silent (supplier + admin ops).
             if (function_exists('emit_event')) {
