@@ -8458,6 +8458,17 @@ if (!function_exists('agent_api_settle_booking')) {
             'paid_at'         => date('Y-m-d H:i:s'),
             'transaction_id'  => 'WALLET-' . $invoiceId,
         ], ['id' => $bookingId]);
+
+        // CONSUME the inventory hold on a paid STAYS booking (audit M2). Every other stays
+        // payment-success path (payment-gateway.php, adyen.php, gia_booking_payment.php) calls
+        // stays_on_paid() to flip the hold 'held'->'consumed' (permanent, no TTL expiry); this
+        // inline agent-settle path did not, so the paid agent booking's hold expired at the
+        // ~60-min TTL and the room-night became re-sellable — an oversell of a PAID reservation.
+        // stays_on_paid is own-inventory-only + idempotent; a no-op for integration suppliers.
+        if (in_array(strtolower($service), ['stays', 'hotels'], true) && function_exists('stays_on_paid')) {
+            try { stays_on_paid($db, $invoiceId); }
+            catch (\Throwable $e) { error_log('agent_api_settle stays_on_paid: ' . $e->getMessage()); }
+        }
     }
 }
 
