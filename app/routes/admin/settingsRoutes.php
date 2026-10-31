@@ -1017,6 +1017,110 @@ $router->post('/admin/test-push', function() use ($db) {
     exit;
 });
 
+// ======================================= TEST PRE/POST SERVICE COMMS
+// Sends a REAL pre- or post-service comms message (email + WhatsApp) for a chosen
+// service, so an admin can verify delivery end-to-end WITHOUT waiting for a booking to
+// fall inside a cron send-window. It builds a synthetic booking shaped exactly like the
+// sweep passes and calls the SAME send functions the cron uses (service_comms_send /
+// flight_reminders_send) — so provider config, templates and the intl-phone normalizer
+// are all exercised. It does NOT write any tracking row, so it can be run repeatedly.
+$router->post(admin.'/settings/comms/test', function() use ($db) {
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json');
+
+    ADMIN_AUTH();
+    admin_require($db, 'settings', 'edit');
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    if (!CSRF::validateToken($input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
+        echo json_encode(['success' => false, 'message' => 'Invalid request. Please refresh and try again.']);
+        exit;
+    }
+
+    $service = strtolower(trim((string) ($input['service'] ?? '')));
+    $kind    = strtolower(trim((string) ($input['kind'] ?? 'post'))) === 'pre' ? 'pre' : 'post';
+    $email   = trim((string) ($input['email'] ?? ''));
+    $phone   = trim((string) ($input['phone'] ?? ''));
+    $cc      = trim((string) ($input['phone_country_code'] ?? ''));
+    $name    = trim((string) ($input['first_name'] ?? 'Test'));
+
+    $allowed = ['flights','stays','umrah','tours','cars','ferries','rail','bus','visa','esim'];
+    if (!in_array($service, $allowed, true)) {
+        echo json_encode(['success' => false, 'message' => 'Pick a service to test.']);
+        exit;
+    }
+    if ($email === '' && $phone === '') {
+        echo json_encode(['success' => false, 'message' => 'Enter a test email and/or WhatsApp number.']);
+        exit;
+    }
+    // visa/esim have no pre message (post-only) — force post so the test matches reality.
+    if (in_array($service, ['visa','esim'], true)) { $kind = 'post'; }
+
+    // Synthetic booking with the fields the send paths read. A near-future/near-past
+    // date keeps any in-template date rendering sensible; nothing is persisted.
+    $future = date('Y-m-d', time() + 2 * 86400);
+    $yest   = date('Y-m-d', time() - 86400);
+    $bd = ['gia_service' => $service, 'supplier' => 'TEST'];
+    // give each service a plausible service-date field so templates read naturally
+    $bd['checkout'] = $future; $bd['start_date'] = $future; $bd['date'] = $future;
+    $bd['return_date'] = $future; $bd['search_params'] = ['return_date' => $future];
+    $bd['journey'] = [['departure_date' => $future]];
+    // flights shape for flight_reminders (first segment date/time)
+    $bd['routes'] = [['segments' => [[ 'departure_date' => $future, 'departure_time' => '09:30',
+        'flight_no' => 'TST123', 'from' => 'LOS', 'to' => 'ABV' ]]]];
+
+    $booking = [
+        'invoice_id'         => 'TEST-COMMS-' . substr(md5((string) ($_SESSION['user_id'] ?? 'x') . $service . $kind), 0, 8),
+        'user_id'            => (string) ($_SESSION['user_id'] ?? ''),
+        'first_name'         => $name,
+        'last_name'          => '',
+        'email'              => $email,
+        'phone'              => $phone,
+        'phone_country_code' => $cc,
+        'module_type'        => $service === 'flights' ? 'flights' : $service,
+        'booking_status'     => 'confirmed',
+        'payment_status'     => 'paid',
+        'paid_at'            => date('Y-m-d H:i:s'),
+        'created_at'         => date('Y-m-d H:i:s'),
+        'booking_data'       => json_encode($bd),
+        'price_markup'       => 100,
+        'currency_markup'    => (string) ($GLOBALS['app']['currency'] ?? 'NGN'),
+    ];
+
+    try {
+        if ($service === 'flights') {
+            require_once dirname(__DIR__, 2) . '/lib/flight_reminders.php';
+            if (!function_exists('flight_reminders_send')) {
+                echo json_encode(['success' => false, 'message' => 'Flight comms engine unavailable.']);
+                exit;
+            }
+            flight_reminders_send($db, $booking, $kind);
+        } else {
+            require_once dirname(__DIR__, 2) . '/lib/service_comms.php';
+            if (!function_exists('service_comms_send')) {
+                echo json_encode(['success' => false, 'message' => 'Service comms engine unavailable.']);
+                exit;
+            }
+            service_comms_send($db, $booking, $service, $kind);
+        }
+    } catch (\Throwable $e) {
+        error_log('[admin test-comms] ' . $e->getMessage());
+        echo json_encode(['success' => false, 'message' => 'Send failed: ' . $e->getMessage()]);
+        exit;
+    }
+
+    // The send functions are best-effort (they log per-channel failures internally).
+    // Report which channels were attempted so the admin knows where to look.
+    $channels = [];
+    if ($email !== '') { $channels[] = 'email (' . $email . ')'; }
+    if ($phone !== '') { $channels[] = 'WhatsApp (' . $phone . ')'; }
+    echo json_encode([
+        'success' => true,
+        'message' => 'Test ' . $kind . '-service ' . $service . ' message dispatched to ' . implode(' + ', $channels)
+                   . '. If it does not arrive, check the provider config + server error log (the send path is best-effort and logs per-channel failures).',
+    ]);
+    exit;
+});
+
 // ======================================= AI TEST
 $router->post(admin.'/settings/ai/test', function() use ($db) {
     ADMIN_AUTH();

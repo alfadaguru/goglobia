@@ -1649,6 +1649,93 @@ $messageSuccess = false;
                         <span class="font-medium"><?=T::save_settings?></span>
                     </button>
                 </div>
+
+                <!-- ================= TEST PRE/POST SERVICE COMMS =================
+                     Sends a REAL pre/post message for a chosen service to a test
+                     email + WhatsApp, using the SAME engine the cron uses — so you can
+                     verify delivery without waiting for a booking to hit a send window.
+                     NOTE: these messages only auto-send in production when the cron
+                     /cron/service-comms + /cron/flight-reminders are scheduled (see
+                     docs/CRON.md). This button bypasses the schedule for testing only. -->
+                <div class="mt-8 border-t pt-6">
+                    <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">Test pre / post service messages</h3>
+                    <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">Send a sample reminder/thank-you for one service to confirm WhatsApp + email delivery. Nothing is saved; safe to repeat. (Live auto-sends require the cron jobs in docs/CRON.md.)</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        <div>
+                            <label class="form-label text-xs">Service</label>
+                            <select id="tcommsService" class="select input w-full">
+                                <option value="flights">Flights</option>
+                                <option value="stays">Stays / Hotels</option>
+                                <option value="umrah">Umrah</option>
+                                <option value="tours">Tours</option>
+                                <option value="cars">Cars</option>
+                                <option value="ferries">Ferries</option>
+                                <option value="rail">Rail</option>
+                                <option value="bus">Bus</option>
+                                <option value="visa">Visa (post-only)</option>
+                                <option value="esim">eSIM (post-only)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="form-label text-xs">Message type</label>
+                            <select id="tcommsKind" class="select input w-full">
+                                <option value="post">Post-service (thank-you)</option>
+                                <option value="pre">Pre-service (reminder)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="form-label text-xs">Test email</label>
+                            <input type="email" id="tcommsEmail" class="input w-full" placeholder="you@example.com">
+                        </div>
+                        <div>
+                            <label class="form-label text-xs">Test WhatsApp (intl, e.g. 234803…)</label>
+                            <input type="text" id="tcommsPhone" class="input w-full" placeholder="2348030000000">
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center gap-3">
+                        <button type="button" id="tcommsBtn" onclick="sendTestComms()"
+                            class="btn white flex items-center gap-2">
+                            <span class="material-symbols-outlined text-sm">send</span>
+                            <span>Send test message</span>
+                        </button>
+                        <div id="tcommsResult" class="text-sm"></div>
+                    </div>
+                </div>
+                <script>
+                function sendTestComms() {
+                    var btn = document.getElementById('tcommsBtn');
+                    var out = document.getElementById('tcommsResult');
+                    var meta = document.querySelector('meta[name="csrf-token"]');
+                    var payload = {
+                        csrf_token: meta ? meta.getAttribute('content') : '',
+                        service: document.getElementById('tcommsService').value,
+                        kind: document.getElementById('tcommsKind').value,
+                        email: document.getElementById('tcommsEmail').value.trim(),
+                        phone: document.getElementById('tcommsPhone').value.trim(),
+                        first_name: 'Test'
+                    };
+                    if (!payload.email && !payload.phone) {
+                        out.innerHTML = '<span class="text-red-600">Enter a test email and/or WhatsApp number.</span>';
+                        return;
+                    }
+                    btn.disabled = true;
+                    out.innerHTML = '<span class="text-gray-500">Sending…</span>';
+                    fetch('<?= root ?>admin/settings/comms/test', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': payload.csrf_token },
+                        body: JSON.stringify(payload)
+                    })
+                    .then(function (r) { return r.text(); })
+                    .then(function (t) {
+                        var d; try { d = JSON.parse(t); } catch (e) { d = { success: false, message: 'Unexpected server response.' }; }
+                        out.innerHTML = d.success
+                            ? '<span class="text-green-600">' + d.message + '</span>'
+                            : '<span class="text-red-600">' + (d.message || 'Failed') + '</span>';
+                    })
+                    .catch(function () { out.innerHTML = '<span class="text-red-600">Request failed.</span>'; })
+                    .finally(function () { btn.disabled = false; });
+                }
+                </script>
             </div>
 
             <!-- Social Tab -->
