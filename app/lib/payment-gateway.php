@@ -2473,7 +2473,34 @@ if (!function_exists('refund_gateway_payment')) {
         $txnRef      = trim((string) ($booking['transaction_id'] ?? ''));
         $paidAmount  = (float) ($booking['price_markup'] ?? 0);
         $currency    = strtoupper(trim((string) ($booking['currency_markup'] ?? 'USD')));
-        $refundAmt   = ($amount !== null) ? (float) $amount : $paidAmount;
+
+        // PART-PAYMENT CLAMP (money-flow audit H2): when the caller does not pass an
+        // explicit amount, the default-to-full-price_markup is WRONG for a booking
+        // on an installment / PaySmallSmall / umrah plan — price_markup is the FULL
+        // total but the customer may have paid only the first slice(s). Refunding
+        // the full total overpays the customer (platform loss). Clamp the default to
+        // the amount ACTUALLY paid: SUM of paid generic installment slices, or the
+        // umrah ledger's amount_paid. Never clamp UP (an explicit $amount or a
+        // fully-paid booking is unaffected).
+        $__refundInvoice = trim((string) ($booking['invoice_id'] ?? ''));
+        $__paidSoFar = null;
+        if ($amount === null && $__refundInvoice !== '') {
+            try {
+                if (function_exists('installments_active_for') && installments_active_for($db, $__refundInvoice)) {
+                    // Generic PaySmallSmall ledger: sum the paid slices.
+                    $__paidSoFar = (float) $db->sum('booking_installments', 'amount', ['invoice_id' => $__refundInvoice, 'status' => 'paid']);
+                }
+            } catch (\Throwable $e) { /* table variance → leave null, fall back to full */ }
+            if ($__paidSoFar === null && strtolower((string) ($booking['module_type'] ?? '')) === 'umrah') {
+                try {
+                    $__ub = $db->get('umrah_bookings', ['amount_paid'], ['invoice_id' => $__refundInvoice]);
+                    if ($__ub && $__ub['amount_paid'] !== null) { $__paidSoFar = (float) $__ub['amount_paid']; }
+                } catch (\Throwable $e) { /* leave null */ }
+            }
+        }
+        $refundAmt   = ($amount !== null)
+            ? (float) $amount
+            : (($__paidSoFar !== null && $__paidSoFar >= 0 && $__paidSoFar < $paidAmount) ? $__paidSoFar : $paidAmount);
 
         // bookings.payment_gateway stores the gateway's numeric FK id on most
         // booking paths (selected_payment = gateway id), but some callers pass a
