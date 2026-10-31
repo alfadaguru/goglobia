@@ -547,7 +547,10 @@ $router->post('/supplier/reservations/([A-Za-z0-9_-]+)/action', function ($invoi
     $owner = _supplier_stays_owner($db);
     if ($owner === null) { header('Location: ' . root . 'login'); exit; }
 
-    $booking = $db->get('bookings', ['invoice_id', 'booking_status', 'booking_data', 'module_type'],
+    // payment_status + price_markup + currency_markup are needed by the mark_paid action
+    // (audit M3/M5): without them $amt was 0 (folio payment line + drawer feed were dead
+    // code) and the already-paid guard read null (never fired → repeat overwrote settlement).
+    $booking = $db->get('bookings', ['invoice_id', 'booking_status', 'payment_status', 'booking_data', 'module_type', 'price_markup', 'currency_markup'],
         ['invoice_id' => $invoiceId]);
     $back = root . 'supplier/reservations/' . rawurlencode($invoiceId);
     if (!$booking) { _supplier_stays_deny('Reservation not found.'); }
