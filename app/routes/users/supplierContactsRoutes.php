@@ -300,7 +300,11 @@ $router->post('/supplier/customers/([0-9]+)/note', function ($id) use ($SECURE, 
     CSRF::guard();
     $ctx = _contacts_ctx($db);
     if ($ctx === null) { _supplier_stays_deny('Customers is not available for this account.'); }
-    if (!supplier_can($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
+    // Org-wide customer EDIT (contacts_save writes the full row: status/tax_exempt/notes) —
+    // a 'selected'-scope staffer must not edit a customer tied to properties they can't see
+    // (audit M6: this sibling path bypassed the supplier_can_orgwide gate N8 added to /save
+    // and /wallet).
+    if (!supplier_can_orgwide($db, 'reservations', 'edit')) { _supplier_stays_deny('Not authorised.'); }
     $orgId = (int) $ctx['org'];
     $existing = contacts_get($db, $orgId, (int) $id);
     if (!$existing) {
