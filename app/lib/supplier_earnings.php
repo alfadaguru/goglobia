@@ -242,7 +242,37 @@ if (!function_exists('supplier_earning_void_for_booking')) {
             $stmt = $db->update('supplier_earnings',
                 ['state' => 'void', 'updated_at' => date('Y-m-d H:i:s')],
                 ['invoice_id' => $invoiceId, 'state' => ['pending', 'available'], 'payout_id' => null]);
-            return $stmt ? $stmt->rowCount() > 0 : false;
+            $voided = $stmt ? $stmt->rowCount() > 0 : false;
+
+            // CLAWBACK FALLBACK (money-flow audit H3): if nothing was voided because
+            // the earning is already SETTLED ('paid') or RESERVED for a payout
+            // (payout_id set), the platform has refunded the customer but the
+            // supplier still holds (or is about to receive) the money — an
+            // uncovered loss. Automatically record a chargeback so the amount is
+            // clawed back against the supplier's future settlements. Previously
+            // supplier_chargeback_apply was only reachable from a manual admin route,
+            // so a refund that an operator didn't separately chargeback leaked.
+            // Idempotent (supplier_chargeback_apply no-ops on an already-applied
+            // chargeback) and best-effort (never breaks the cancel/refund flow).
+            if (!$voided) {
+                $stuck = $db->get('supplier_earnings', ['id', 'state', 'payout_id'], ['invoice_id' => $invoiceId]);
+                $needsChargeback = is_array($stuck) && (
+                    strtolower((string) ($stuck['state'] ?? '')) === 'paid'
+                    || ($stuck['payout_id'] ?? null) !== null
+                );
+                if ($needsChargeback && function_exists('supplier_chargeback_apply')) {
+                    try {
+                        $cb = supplier_chargeback_apply($db, $invoiceId, 'Auto-chargeback: booking refunded/cancelled after the supplier earning was settled/reserved', 'system:auto-refund');
+                        if (!empty($cb['ok'])) {
+                            error_log('supplier_earning_void_for_booking: auto-chargeback applied for ' . $invoiceId . ' (mode=' . ($cb['mode'] ?? '?') . ')');
+                            return true;
+                        }
+                    } catch (\Throwable $e) {
+                        error_log('supplier_earning_void_for_booking auto-chargeback: ' . $e->getMessage());
+                    }
+                }
+            }
+            return $voided;
         } catch (\Throwable $e) {
             error_log('supplier_earning_void_for_booking: ' . $e->getMessage());
             return false;
