@@ -243,12 +243,40 @@ if (!function_exists('bm_settle_booking_payment')) {
                     'pnr' => $after['pnr'] ?? '', 'message' => 'Paid and issued at the supplier.'];
         }
 
-        // Issue failed AFTER payment. The module's issue.php records the error; the
-        // booking is paid-but-not-issued and must be surfaced for ops (the module's
-        // own _auto_refund_on_issue_failure, where present, handles the refund). We
-        // do NOT flip to confirmed.
-        return ['ok' => false, 'issued' => false, 'status' => $booking['booking_status'] ?? 'pending',
-                'message' => 'Payment recorded but the supplier could not issue: ' . (string) ($res['message'] ?? 'unknown') . ' — flagged for review.',
+        // Issue failed AFTER payment → paid-but-not-issued. Whether to auto-refund
+        // now depends on the CALLER's intent, because bm_settle is used both for the
+        // automatic RETRY path (the stranded cron / a transient glitch — must NOT
+        // refund, or a later retry could never complete the ticket) and for a human
+        // GIVING UP on a booking. The caller passes meta['refund_on_fail']=true when
+        // a permanent failure should be refunded (e.g. a senior's explicit "refund"
+        // decision). The cron does NOT set it, so transient failures keep retrying.
+        // When set, _auto_refund_on_issue_failure is idempotent + GATEWAY-ONLY (skips
+        // internal wallet/credits, installments, umrah) — a wallet-paid agent booking
+        // is untouched here and still recovered by _agent_issue_with_recovery.
+        $__refunded = false;
+        if (!empty($meta['refund_on_fail']) && (string) ($method ?? '') !== 'offline') {
+            try {
+                if (!function_exists('_auto_refund_on_issue_failure')) {
+                    $pg = dirname(__DIR__) . '/lib/payment-gateway.php';
+                    if (is_file($pg)) { require_once $pg; }
+                }
+                if (function_exists('_auto_refund_on_issue_failure')) {
+                    _auto_refund_on_issue_failure(
+                        $db,
+                        ['invoice_id' => $invoiceId],
+                        $db->get('bookings', '*', ['invoice_id' => $invoiceId]) ?: $booking,
+                        (string) ($res['message'] ?? 'supplier issue failed')
+                    );
+                    $__chk = $db->get('bookings', ['payment_status'], ['invoice_id' => $invoiceId]);
+                    $__refunded = $__chk && strtolower((string) ($__chk['payment_status'] ?? '')) === 'refunded';
+                }
+            } catch (\Throwable $e) { error_log('bm_settle auto-refund ' . $invoiceId . ': ' . $e->getMessage()); }
+        }
+        return ['ok' => false, 'issued' => false, 'refunded' => $__refunded,
+                'status' => $booking['booking_status'] ?? 'pending',
+                'message' => $__refunded
+                    ? ('Payment recorded but the supplier could not issue — automatically refunded. (' . (string) ($res['message'] ?? 'unknown') . ')')
+                    : ('Payment recorded but the supplier could not issue: ' . (string) ($res['message'] ?? 'unknown') . ' — flagged for review.'),
                 'issue_response' => $res];
     }
 }

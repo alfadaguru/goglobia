@@ -88,11 +88,16 @@ $router->get('/invoice/esim/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE,
     if (strtolower((string) ($booking['payment_status'] ?? '')) === 'paid' && !$hasProvision) {
         try {
             $issueUrl = root . 'modules/esim/airalo/issue';
+            // Include the signed internal token — the supplier-action guard 403s a
+            // loopback with no admin session AND no token, so without this the
+            // recovery call ALWAYS failed and a paid-but-unissued customer could
+            // never self-heal their eSIM. Mirrors the gateway loopback.
+            $__recoverToken = function_exists('supplier_internal_token') ? supplier_internal_token((string)$invoiceId) : '';
             $ch = curl_init($issueUrl);
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => http_build_query(['invoice_id' => $invoiceId]),
+                CURLOPT_POSTFIELDS => http_build_query(['invoice_id' => $invoiceId, '_internal_token' => $__recoverToken]),
                 CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
                 CURLOPT_TIMEOUT => 60,
                 CURLOPT_SSL_VERIFYPEER => false,

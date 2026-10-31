@@ -771,11 +771,25 @@ $router->post(admin . '/booking-manager/retry-issue', function () use ($SECURE, 
     }
     // method is cosmetic here — bm_settle takes the issue-only recovery path for a
     // paid live booking with no PNR, and never re-charges / re-audits.
+    // refund_if_fail=1 = the senior's explicit "give up and refund if it fails
+    // again" decision (e.g. a package permanently withdrawn). Without it, a failed
+    // retry stays paid+pending for another retry (and the stranded cron keeps
+    // trying) — the refund is a deliberate human choice, never automatic on a
+    // transient glitch. Gateway-paid only; a stuck wallet booking is refunded via
+    // its own agent path.
+    $refundIfFail = in_array((string) ($_POST['refund_if_fail'] ?? ''), ['1', 'true', 'yes', 'on'], true);
     $res = bm_settle_booking_payment($db, $invoiceId, 'manual_verified', [
-        'amount'   => (float) $booking['price_markup'],
-        'currency' => $booking['currency_markup'] ?? 'NGN',
+        'amount'         => (float) $booking['price_markup'],
+        'currency'       => $booking['currency_markup'] ?? 'NGN',
+        'refund_on_fail' => $refundIfFail,
     ]);
-    bmAdminJson(['status' => !empty($res['ok']), 'settle' => $res, 'message' => $res['message'] ?? '']);
+    bmAdminJson([
+        'status'   => !empty($res['ok']) || !empty($res['refunded']),
+        'issued'   => !empty($res['issued']),
+        'refunded' => !empty($res['refunded']),
+        'settle'   => $res,
+        'message'  => $res['message'] ?? '',
+    ]);
 });
 
 // ---------------------------------------------------------------------------
