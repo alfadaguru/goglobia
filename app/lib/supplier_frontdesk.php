@@ -237,13 +237,16 @@ if (!function_exists('fd_room_board')) {
             }
         } catch (\Throwable $e) { error_log('fd_room_board types: ' . $e->getMessage()); }
 
-        // Which rooms are currently occupied (checked-in) + by whom.
-        $inUse = function_exists('hk_rooms_in_use') ? hk_rooms_in_use($db, $stayId) : [];
+        // Which rooms are OCCUPIED (checked-in) and which are RESERVED (assigned to a live
+        // not-yet-arrived booking — audit M1: those must NOT read as vacant, or the desk
+        // re-books the same room and creates an orphan). Resolve guest names for both.
+        $inUse    = function_exists('hk_rooms_in_use') ? hk_rooms_in_use($db, $stayId) : [];
+        $reserved = function_exists('hk_rooms_reserved') ? hk_rooms_reserved($db, $stayId) : [];
         $names = [];
-        if (!empty($inUse)) {
+        $allInvs = array_values(array_unique(array_merge(array_values($inUse), array_values($reserved))));
+        if (!empty($allInvs)) {
             try {
-                $invs = array_values($inUse);
-                foreach ($db->select('bookings', ['invoice_id', 'first_name', 'last_name'], ['invoice_id' => $invs]) ?: [] as $b) {
+                foreach ($db->select('bookings', ['invoice_id', 'first_name', 'last_name'], ['invoice_id' => $allInvs]) ?: [] as $b) {
                     $names[(string) $b['invoice_id']] = trim((string) ($b['first_name'] ?? '') . ' ' . (string) ($b['last_name'] ?? ''));
                 }
             } catch (\Throwable $e) {}
@@ -252,6 +255,7 @@ if (!function_exists('fd_room_board')) {
         foreach ($rooms as $r) {
             $prid = (int) $r['id'];
             $inv  = $inUse[$prid] ?? '';
+            $resInv = (!isset($inUse[$prid]) && isset($reserved[$prid])) ? $reserved[$prid] : '';
             $fid  = (int) ($r['floor_id'] ?? 0);
             $floorLabel = $fid > 0 && isset($floorNameById[$fid]) ? $floorNameById[$fid] : trim((string) ($r['floor'] ?? ''));
             $out[] = [
@@ -264,6 +268,8 @@ if (!function_exists('fd_room_board')) {
                 'notes'            => (string) ($r['notes'] ?? ''),
                 'occupant_invoice' => (string) $inv,
                 'occupant_name'    => $inv !== '' ? (string) ($names[$inv] ?? '') : '',
+                'reserved_invoice' => (string) $resInv, // assigned but not yet checked in (audit M1)
+                'reserved_name'    => $resInv !== '' ? (string) ($names[$resInv] ?? '') : '',
             ];
         }
         return $out;

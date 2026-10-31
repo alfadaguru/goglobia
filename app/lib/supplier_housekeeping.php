@@ -159,6 +159,48 @@ if (!function_exists('hk_rooms_in_use')) {
     }
 }
 
+if (!function_exists('hk_rooms_reserved')) {
+    /**
+     * Map [physical_room_id => invoice_id] of rooms assigned to a LIVE but NOT-yet-checked-in
+     * reservation whose stay has not ended — i.e. a 'confirmed' walk-in/booking that picked a
+     * room but hasn't arrived (audit M1). The front-desk board must show these as RESERVED
+     * (not vacant) so the desk doesn't try to re-book the same physical room and create an
+     * orphan. Excludes cancelled/no-show/checked-out and anything already checked_in (those
+     * are hk_rooms_in_use). Only future-or-current stays (checkout >= today) so a stale old
+     * assignment on a departed/expired booking doesn't pin a room forever.
+     */
+    function hk_rooms_reserved($db, int $stayId): array
+    {
+        $out = [];
+        $today = date('Y-m-d');
+        try {
+            // Own-inventory bookings for this property that carry a physical-room assignment.
+            $rows = $db->select('bookings', ['invoice_id', 'booking_status', 'booking_data'],
+                ['module_type' => ['stays', 'hotels'],
+                 'booking_data[~]' => ['AND' => ['%"hotel_id":' . (int) $stayId . '%', '%"pms_physical_room_id":%']], // % wrapped ourselves
+                 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 5000]) ?: [];
+            foreach ($rows as $r) {
+                $bd = json_decode((string) ($r['booking_data'] ?? ''), true);
+                if (!is_array($bd)) { continue; }
+                if ((int) ($bd['hotel_id'] ?? 0) !== $stayId) { continue; } // verify, not just LIKE
+                $prid = (int) ($bd['pms_physical_room_id'] ?? 0);
+                if ($prid <= 0) { continue; }
+                if (strtolower((string) ($r['booking_status'] ?? '')) === 'cancelled') { continue; }
+                if (!empty($bd['supplier_no_show'])) { continue; }
+                $state = (string) ($bd['pms_stay_state'] ?? '');
+                if ($state === 'checked_in' || $state === 'checked_out') { continue; } // in_use / departed
+                $co = (string) ($bd['checkout'] ?? '');
+                if ($co !== '' && $co < $today) { continue; } // stay already ended, stale assignment
+                // First live reservation wins per room (newest id first due to ORDER DESC).
+                if (!isset($out[$prid])) { $out[$prid] = (string) $r['invoice_id']; }
+            }
+        } catch (\Throwable $e) {
+            error_log('hk_rooms_reserved: ' . $e->getMessage());
+        }
+        return $out;
+    }
+}
+
 if (!function_exists('hk_rooms_blocking')) {
     /**
      * Map [physical_room_id => invoice_id] of rooms that are assigned to a reservation

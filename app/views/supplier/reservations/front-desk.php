@@ -141,7 +141,16 @@
             $st = (string) ($rm['hk_status'] ?? 'clean');
             $cls = $tileCls[$st] ?? 'bg-gray-50 border-gray-200 text-gray-700';
             $occ = (string) ($rm['occupant_name'] ?? '');
+            // A reserved-but-not-arrived room gets a distinct violet tint so it never reads
+            // as a free/vacant green tile (audit M1). Occupied (checked-in) keeps its HK colour.
+            if ((string) ($rm['occupant_invoice'] ?? '') === '' && (string) ($rm['reserved_invoice'] ?? '') !== '') {
+                $cls = 'bg-violet-50 border-violet-200 text-violet-800';
+            }
             $occInv = (string) ($rm['occupant_invoice'] ?? '');
+            // A room assigned to a live, not-yet-checked-in booking (audit M1): show it as
+            // RESERVED (not vacant) so the desk doesn't re-book it into an orphan.
+            $resvInv  = (string) ($rm['reserved_invoice'] ?? '');
+            $resvName = (string) ($rm['reserved_name'] ?? '');
             $rtype = (string) ($rm['room_type'] ?? '');
             $rname = (string) ($rm['room_name'] ?? ''); // the room's OWN name (audit UX#4)
             // How a front desk identifies a room: its NUMBER + its own NAME ("12 · Standard
@@ -157,13 +166,18 @@
           ?>
             <?php
               // Where clicking the tile goes:
-              //  - OCCUPIED room → open the in-house guest's reservation.
-              //  - VACANT + out-of-order → not bookable; stays a plain tile.
+              //  - OCCUPIED (checked-in) → open the in-house guest's reservation.
+              //  - RESERVED (assigned, not yet checked in) → open THAT reservation; NOT a
+              //    "reserve this room" link (audit M1 — that produced orphan double-bookings).
+              //  - VACANT + out-of-order → not bookable; plain tile.
               //  - VACANT + sellable + canEdit → start a walk-in pre-set to THIS room.
               $isOOO = ($st === 'out_of_order');
               if ($occInv !== '') {
                   $tileHref = $actionBase . rawurlencode($occInv);      // the reservation
                   $tileTitle = 'Open ' . ($occ !== '' ? $occ : 'guest') . '’s reservation — ' . $roomLabel;
+              } elseif ($resvInv !== '') {
+                  $tileHref = $actionBase . rawurlencode($resvInv);      // the reserved booking
+                  $tileTitle = 'Reserved for ' . ($resvName !== '' ? $resvName : 'a guest') . ' (arriving) — open reservation · ' . $roomLabel;
               } elseif ($canEditRooms && !$isOOO && $stayFilter > 0) {
                   $tileHref = root . 'supplier/stays/' . $stayFilter . '/reservations/new?physical_room_id=' . (int) $rm['id'];
                   $tileTitle = 'Reserve ' . $roomLabel;
@@ -184,8 +198,13 @@
                    class="block border rounded-lg px-2 py-2 text-center transition hover:ring-2 hover:ring-offset-1 hover:ring-violet-300 cursor-pointer <?= $cls ?>">
                   <div class="text-sm font-bold tabular-nums leading-tight"><?= htmlspecialchars((string) ($rm['room_number'] ?? '—')) ?></div>
                   <?php if ($rdesc !== ''): ?><div class="text-[9px] leading-tight truncate" title="<?= htmlspecialchars($rdesc . ($rtype !== '' && $rname !== '' ? ' · ' . $rtype : '')) ?>"><?= htmlspecialchars($rdesc) ?></div><?php endif; ?>
-                  <div class="text-[10px] leading-tight truncate"><?= $occ !== '' ? htmlspecialchars($occ) : '<span class="opacity-60">reserve →</span>' ?></div>
+                  <div class="text-[10px] leading-tight truncate"><?php
+                    if ($occ !== '') { echo htmlspecialchars($occ); }
+                    elseif ($resvInv !== '') { echo '<span class="opacity-80">' . htmlspecialchars($resvName !== '' ? $resvName : 'reserved') . '</span>'; }
+                    else { echo '<span class="opacity-60">reserve →</span>'; }
+                  ?></div>
                   <?php if ($occInv !== ''): ?><span class="material-symbols-outlined text-[13px] absolute top-1 right-1 opacity-70">person</span>
+                  <?php elseif ($resvInv !== ''): ?><span class="material-symbols-outlined text-[13px] absolute top-1 right-1 opacity-70" title="Reserved — arriving">event_upcoming</span>
                   <?php else: ?><span class="material-symbols-outlined text-[13px] absolute top-1 right-1 opacity-50">add</span><?php endif; ?>
                 </a>
               <?php else: ?>
