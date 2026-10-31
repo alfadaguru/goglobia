@@ -3,6 +3,8 @@
 **All 10 services × 5 competitors. Ease / seamlessness / completeness of booking.**
 
 Date: 2026-10-31 · Author: platform audit
+**Updated 2026-10-31** with **§4A — a deep source-level audit of the order/checkout
+process** (how money moves, per service) and a refined P1/P1.5 backlog.
 Our flow: mapped from source (file:line cited). Competitors: researched live (sources at end).
 Scope locked by owner: all 10 services, all 5 competitors; where a competitor
 does **not** offer a service, it is flagged as **our whitespace / differentiator** and
@@ -49,12 +51,17 @@ competitor columns are coverage, not our score.
    (service→module→global) for ANY service** (`app/lib/paysmallsmall.php:18`,
    `:57`; `app/lib/installments.php:19`). Today it is proven on **umrah** only.
    **The gap is enabling + prominently surfacing it on flights/stays — not
-   building it.** Highest ROI item in the backlog.
+   building it.** Highest ROI item in the backlog. **See §4A for the full
+   source-level checkout audit proving this** (and that bank-transfer-for-this-booking
+   and Book-on-Hold are likewise built-but-unsurfaced, not missing).
 
-3. **"Reserve / Book-on-hold without paying" is a real missing lever.** Wakanow
-   lets you reserve a flight paying ₦0; TravelBeta holds 5 min–1 hr. We only
-   have **unpaid-booking-expiry that silently bounces to home with no reminder
-   email** (`app/routes/flights/invoiceRoutes.php:94-126`). Same mechanism,
+3. **"Reserve / Book-on-hold without paying" is built but unsurfaced.** Wakanow
+   lets you reserve a flight paying ₦0 (24–72h hold); TravelBeta holds 5 min–1 hr.
+   We have a **full Pay-Later engine** (`app/lib/paylater.php`: `payment_due_at`,
+   reminder offsets, auto-cancel/flag, cron `crons/payLaterRoutes.php`) — but it is
+   **not wired as a selectable checkout option** (§4A.4); customers only hit
+   **unpaid-expiry that silently bounces to home with no reminder**
+   (`app/routes/flights/invoiceRoutes.php:94-126`). Same mechanism,
    opposite UX: ours punishes the un-paid guest; theirs nurtures them.
 
 4. **Self-service "Manage my booking" is our weakest post-booking surface.**
@@ -202,41 +209,209 @@ ferries=3, bus=3 need polish per §2).
 
 ---
 
+## 4A. DEEP DIVE — the order/checkout process (Stage 5 + 6, from source)
+
+> Added 2026-10-31. A line-by-line audit of our actual checkout/payment engine
+> (`app/lib/payment-gateway.php`, `installments.php`, `paysmallsmall.php`,
+> `paylater.php`, the per-service `invoiceRoutes.php`, and every gateway view)
+> against how the five competitors actually take money. This is the "how money
+> moves and a booking becomes real" layer under §4 Stage 5–6.
+
+### 4A.1 Our checkout engine — the exact sequence (file:line)
+
+One shared engine drives every service. The 13-step money path:
+
+```
+1  Customer clicks Pay on /invoice/{service}/{id}
+2  process_payment() mints a session token, 30-min expiry          payment-gateway.php:70,1526-1557
+     - amount = payment_amount_due()  (installment/deposit-aware)   payment-gateway.php:212
+3  Gateway VIEW rendered (hosted redirect or inline)               payment-gateway.php:150-227
+     - "Already Paid" guard re-reads payment_status first          paystack.php:43-64
+4  Customer pays at provider
+5  Provider redirects → /invoice/{service}/{id}?payment_status=success&token=…
+6  handle_payment_callback():                                      payment-gateway.php:250-326
+     - verify_payment_token()  (session + 30-min)                  payment-gateway.php:1595-1610
+     - verify_gateway_payment() RE-VERIFIES with provider API      payment-gateway.php:270-293
+       (browser success claim is NEVER trusted; overrides it)
+7  On verified success:
+     - dev_mode mismatch? → skip auto-issue, keep money            payment-gateway.php:479-616
+     - auto-issue: atomic loopback claim → POST modules/{t}/{m}/issue  :630-1055
+     - settle installments (umrah_settle / installments_settle)    :1110-1215
+     - consume stays hold, accrue supplier earning                 :1249-1274
+8  payment_status := paid | partially_paid                         :1102-1199
+9  fire module payment webhook  OR  bm_notify_paid() fallback      :1296-1338
+10 bm_notify_paid(): invoice PDF + ticket PDF + email/WhatsApp     booking_manager.php:284-358
+11 clear token  → 12 redirect clean URL  → 13 customer sees PNR + ticket download
+```
+
+**The engine is genuinely strong** (these are competitive *advantages*, not gaps):
+- **Every success is re-verified server-side with the provider API** — Paystack
+  `/transaction/verify`, Stripe `/checkout/sessions`, Flutterwave, PayPal, Cashfree,
+  Adyen — with amount + currency + invoice-reference binding
+  (`payment-gateway.php:1906,2062,2238,2180,1984,2127`). A crafted `?status=success`
+  URL cannot self-confirm a booking.
+- **Deep double-charge / double-issue immunity**: 30-min token, already-paid guard,
+  transaction dedup (`:2654`), atomic issue-loopback claim (`:693-721`),
+  per-installment settlement dedup, wallet-spend idempotency key. Browser-refresh
+  and webhook-re-fire both no-op.
+- **Auto-refund on issue failure** (`:2406-2466`) — charged but supplier issue
+  fails → refund initiated, amount clamped to what was actually paid.
+- **Invoice always created BEFORE payment** (status `pending`/`unpaid`) for all 10
+  services, so a dropped payment leaves a recoverable booking, not a void.
+
+### 4A.2 Per-service checkout variance (what actually differs at the money step)
+
+| Service | Invoice pre-pay | Pre-pay revalidation | Auto-issue on pay | Settlement nuance | Checkout friction (file:line) |
+|---|---|---|---|---|---|
+| Flights | ✅ | ✅ live suppliers | ✅ loopback issue | full pay | reconcile-after-pay can hold booking for review (`functions.php:15613`) |
+| Stays | ✅ | CheckRate | ✅ `stays_on_paid` consumes hold | full pay | **unpaid hold (20 min) not re-holdable → re-search** (`:1249`) |
+| Tours | ✅ | ❌ | only if supplier issue.php exists | confirm-on-pay | **affiliate = redirect off-site to pay** (`payment-gateway.php:65`) |
+| Umrah | ✅ | server authority | ✅ hold→book | **deposit/installment settle + price-lock** (`umrah/services.php:1126`) | passport gate before pay |
+| Cars | ✅ | ✅ | ✅ | full pay | **Mozio = own Stripe redirect → poll** |
+| Visa | ✅ | ❌ | ❌ **manual** | full pay | no auto-issue; opaque after pay |
+| eSIM | ✅ | authoritative price | ✅ Airalo + QR | full pay | paid-unissued → loopback recovery (`esim/invoiceRoutes.php:88`) |
+| Ferries | ✅ | ❌ | ✅ Kikoto | full pay | expiry rejects unpaid (`:78`) |
+| Rail | ✅ | ✅ per leg | ✅ issue-after-pay | full pay | revalidate 409 → re-search |
+| Bus | ✅ | ✅ routes+calendar | ✅ PNR + seat decrement | full pay | **seats decremented only at pay, not held at submit** |
+
+**Cross-cutting checkout friction (confirmed in source):**
+1. **Dev-mode mismatch silent no-issue** (`:479-616`) — if a module is TEST but its
+   gateway is LIVE (or vice-versa), money is taken, `paid` is set, but the ticket is
+   **not** issued; customer sees "successful" with no ticket until an admin acts.
+2. **Reconcile-after-pay** (`functions.php:15613`) — hotels/tours that re-price at
+   issue can **block issue after the customer already paid** (>2% drift) → booking
+   parked `pending` for manual review. Jarring.
+3. **Stays unpaid-hold loss** — the 20-min availability hold is only made permanent
+   at payment; an abandoned checkout loses the room, forcing a re-search.
+4. **Bus seat race** — seats aren't atomically reserved between submit and pay.
+
+### 4A.3 Installments / deposit — what we have vs what they show
+
+**Our machinery (built, proven on umrah):**
+- **Generic PaySmallSmall** (`installments.php:27-221`): `installments_create_schedule()`
+  builds a `booking_installments` plan — `first_percent` due now, equal parts every
+  `interval_days`; losslessly splits partial payments; `installments_reminder_sweep()`
+  cron emails reminders; status → `unpaid|partially_paid|paid`, confirm only when
+  balance < 0.01. **Works for any service per scope** (`pay_small_small_rules`).
+- **PaySmallSmall gateway view** (`paysmallsmall.php`) is a **plan selector, not a
+  processor** — it sets the schedule then sends the customer to pay the first part
+  with a real method on the invoice page. Clean design.
+- **Umrah engine** (`umrah/services.php:1126`): deposit→balance ledger with
+  price-lock + hold-consume on deposit cleared.
+
+**The competitors' installment offers (live):**
+| Competitor | Product | Down | Tenor | Fulfillment rule |
+|---|---|---|---|---|
+| Wakanow | Pay Small Small (PSS) | **25%** | 1 day → 6 months; service charge by tenor | ticket released only when **fully paid before departure** |
+| TravelBeta | TIP | **10%** | flexible | full payment before ticket |
+| TravelWings | Tabby / bank EMI | 0% (Tabby 4×) / 3-6-12mo bank | 0% interest | advance payment confirms, e-ticket after |
+| Travelstart | (card/transfer focus) | — | — | pay-in-full primary in NG |
+| dnata | deposit + balance-due-date; ENBD 0% 3/6-mo | **low deposit** | balance by due date | low-deposit on bookings 15+ days out |
+
+**The gap is exactly: enablement + surfacing, not capability.** Our engine already
+does the hard part (schedule, partial-settle, reminders, confirm-on-full). What's
+missing: (a) `pay_small_small_rules` rows seeded for flights/stays scopes; (b) a
+**"Pay Small Small from ₦X" badge on the results card** + a **plan selector at
+checkout** — today a customer never *sees* the option outside umrah. This is the
+single highest-ROI checkout change and matches the entire competitor set head-on.
+
+### 4A.4 Bank transfer / "Book on Hold" — the two real *missing surfaces*
+
+Both engines exist but are **not wired as a customer checkout choice** — verified:
+
+- **DVA (dedicated virtual account)** is real but scoped to **(a) wallet top-up** and
+  **(b) GIA's own per-booking chat payments** (`paymentPaystackRoutes.php:105-205`,
+  `channel='dedicated_nuban'`). On the **normal web invoice page there is NO
+  "pay this booking by bank transfer → here's your account + reference" option.** A
+  customer must top up the wallet first, then pay from wallet — an extra hop
+  Wakanow/Travelstart/TravelBeta don't impose (they show a bank + reference inline).
+- **Pay-Later** (`paylater.php`: `payment_due_at`, reminder offsets, auto-cancel-or-flag
+  policy, cron `crons/payLaterRoutes.php`) is **engine + cron only — not selectable at
+  checkout in any `bookingRoutes.php`.** So "Book on hold, pay within 72h" exists as
+  machinery but the customer can't pick it. Competitor benchmark: **Wakanow Book-on-Hold
+  holds 24–72h (fare-dependent, <9h for discounted fares) with auto-cancel** — exactly
+  our `paylater.php` behaviour, just unsurfaced.
+
+**So three "surface what's built" checkout items, not three builds:**
+1. PaySmallSmall selector on flights/stays (§4A.3).
+2. **Inline bank-transfer-for-this-booking** (DVA mapped to the invoice, like GIA's path,
+   but on the web invoice page with account + reference shown).
+3. **Pay-Later / Book-on-Hold as a selectable checkout gateway** that calls
+   `pay_later_apply_to_booking()` and shows the countdown + reminder.
+
+### 4A.5 Confirmation & recovery — where we're actually *ahead*
+
+- **3-document delivery** on payment (`booking_manager.php:331-354`): priced invoice
+  PDF + no-price ticket PDF + branded email/WhatsApp, idempotent via `notified_paid_at`.
+  More disciplined than the typical competitor single-email e-ticket.
+- **Failed/cancelled payment keeps the booking** (`:1385-1452`): token cleared, booking
+  stays `unpaid`, customer retries with a fresh token — no lost booking.
+- **Pending (async) gateways** are handled safely — marked `pending`, never falsely
+  `paid`, finalized by webhook.
+
+The post-pay *weakness* is not the money path — it's the **self-service after it**
+(§4 Stage 6): cancellation is request→admin on 9/10 services, and there's no no-login
+retrieve-by-reference. dnata/Wakanow/TravelWings all let the customer pay-balance,
+print vouchers and change/cancel self-serve from a Manage-Booking surface.
+
+---
+
 ## 5. Prioritized build backlog
 
 Ranked by **(customer-conversion impact) × (1 / build cost)**. P1 = do first.
 
 ### P1 — surface what we already built (config/UX, low cost, high lift)
+> See §4A for the source-level proof that each of these is an *enablement/surfacing*
+> job, not a new engine. This is the decisive, cheapest, highest-converting tier.
 1. **Enable + surface PaySmallSmall on flights & stays** (and tours where
-   supplier allows). Engine done (`paysmallsmall.php`, `installments.php`); work =
-   seed `pay_small_small_rules` scopes + render plan selector at checkout +
-   results-card "Pay Small Small from ₦X" badge. **Matches Wakanow/TravelBeta/
-   TravelWings head-on.** *Low build, highest lift.*
-2. **Make bank-transfer (DVA) a visible, labelled checkout option** with a bank/
-   reference panel like Wakanow. Already wired; just surface + copy. *Low.*
-3. **"Book on hold" from unpaid-expiry** — keep the booking, send a reminder
-   email + countdown instead of bouncing to home
-   (`flights/invoiceRoutes.php:94`). *Low–medium.*
+   supplier allows). Engine done (`installments.php:27-221`, `paysmallsmall.php`);
+   work = seed `pay_small_small_rules` scopes + render plan selector at checkout +
+   results-card "Pay Small Small from ₦X" badge. **Matches Wakanow (25%)/TravelBeta
+   (10%)/TravelWings head-on.** *Low build, highest lift.*
+2. **Inline bank-transfer FOR THIS BOOKING.** DVA exists but only for wallet-topup
+   + GIA chat (`paymentPaystackRoutes.php:105-205`). Add a web-invoice gateway that
+   maps a `dedicated_nuban` to the invoice and shows account + reference inline (the
+   GIA path already proves the plumbing). Removes the "top-up-wallet-first" hop
+   Wakanow/Travelstart/TravelBeta don't impose. *Low–medium.*
+3. **"Book on Hold / Pay-Later" as a selectable checkout gateway.** Engine + cron
+   are built (`paylater.php`, `crons/payLaterRoutes.php`) but **not wired at
+   checkout** (§4A.4). Wire a gateway that calls `pay_later_apply_to_booking()`,
+   shows a 24–72h countdown + reminder (matches Wakanow Book-on-Hold). Replaces the
+   silent unpaid-expiry bounce (`flights/invoiceRoutes.php:94`). *Low–medium.*
+
+### P1.5 — checkout-quality / money-safety (small, prevents "paid but no ticket")
+4. **Kill the dev-mode-mismatch silent no-issue** (§4A.2 #1,
+   `payment-gateway.php:479-616`) — when module TEST ≠ gateway LIVE, money is taken
+   but no ticket issues and the customer sees "successful". Add a pre-pay guard that
+   blocks checkout (or warns admin) on mismatch so money is never taken without a
+   fulfillment path. *Low.*
+5. **Soften reconcile-after-pay** (§4A.2 #2, `functions.php:15613`) — when a supplier
+   re-prices >2% after payment the booking is parked for review silently; surface an
+   honest "confirming your price" status + auto-notify instead of a dead invoice. *Low.*
+6. **Hold the stays room through unpaid checkout** — extend the 20-min availability
+   hold or offer a re-hold so an abandoned stays checkout doesn't lose the room
+   (§4A.2 #3). *Medium.*
 
 ### P2 — close the post-booking self-service gap (medium cost, high trust)
-4. **No-login "Manage my booking"** — retrieve by reference + surname → invoice,
-   resend, download, request-change. Reuse `enforceInvoiceAccess()` with a
-   ref+surname token path. *Medium.*
-5. **Extend rail's self-service cancel/reschedule/refund** to flights & stays
+7. **No-login "Manage my booking"** — retrieve by reference + surname → invoice,
+   resend, download, request-change, **pay outstanding balance/installment**. Reuse
+   `enforceInvoiceAccess()` with a ref+surname token path. (dnata/Wakanow/TravelWings
+   all have this.) *Medium.*
+8. **Extend rail's self-service cancel/reschedule/refund** to flights & stays
    where supplier terms permit (rail already proves the pattern,
    `rail/bookingRoutes.php:351/479/509`). *Medium–high (per-supplier terms).*
-6. **Saved-traveller profiles** — pre-fill pax forms for logged-in customers
+9. **Saved-traveller profiles** — pre-fill pax forms for logged-in customers
    (saved cards already exist). *Medium.*
 
 ### P3 — coverage & polish (uses our whitespace advantage)
-7. **Supplier-hiding sweep** across flights/stays/tours results+detail (owner
-   mandate, `booking-ux-flow-gap.md §0`). *Medium.*
-8. **Holiday-packages builder** — bundle flight+hotel(+transfer) at one price to
-   match every competitor's hero product. *High (new flow) — but big coverage win.*
-9. **Visa status transparency** — show application stage + ETA post-payment
-   (today it's an opaque manual intake). *Medium.*
-10. **Bundle insurance at checkout** (activate the dormant folder). *Medium.*
-11. **Polish the whitespace flows** — ferries port UX, bus atomic seat-hold,
+10. **Supplier-hiding sweep** across flights/stays/tours results+detail (owner
+    mandate, `booking-ux-flow-gap.md §0`). *Medium.*
+11. **Holiday-packages builder** — bundle flight+hotel(+transfer) at one price to
+    match every competitor's hero product. *High (new flow) — but big coverage win.*
+12. **Visa status transparency** — show application stage + ETA post-payment
+    (today it's an opaque manual intake). *Medium.*
+13. **Bundle insurance at checkout** (activate the dormant folder). *Medium.*
+14. **Polish the whitespace flows** — ferries port UX, bus atomic seat-hold,
     tours affiliate-redirect smoothing — so our unique services actually convert.
     *Medium.*
 
@@ -279,15 +454,29 @@ Bus `app/routes/bus/{home,listing,booking,invoice}Routes.php` ·
 Payment `app/lib/payment-gateway.php`, `app/lib/installments.php`,
 `app/lib/paysmallsmall.php` · Account `app/routes/users/{userDashboard,bookings}Routes.php`
 
+**§4A deep-checkout evidence (added 2026-10-31):**
+`app/lib/payment-gateway.php` (process_payment:70, callback:250, gateway verify:1878-2270,
+auto-issue:630-1055, settle:1102-1215, auto-refund:2406-2466, token:1526-1610) ·
+`app/lib/installments.php` (schedule+settle:27-282) ·
+`app/lib/umrah/services.php` (umrah settle:1126-1336) ·
+`app/lib/paylater.php` (due/sweep:60-208) · `app/routes/crons/payLaterRoutes.php` ·
+`app/lib/functions.php` (reconcilePostPaymentPrice:15613-15684, GENERATE_BOOKING_PDF:4032-4407) ·
+`app/lib/booking_manager.php` (bm_notify_paid:284-358) ·
+`app/routes/paymentPaystackRoutes.php` (DVA/`dedicated_nuban`:105-205) ·
+`app/views/payment-gateways/*.php` (14 gateway views; `paysmallsmall.php` = plan selector)
+
 ## 9. Competitor sources
 
 - Wakanow services/pay: wakanow.com/en-ng · blog.wakanow.com/how-to-pay-for-flights ·
   blog.wakanow.com/wakanow-introduces-pay-small-small · blog.wakanow.com/how-to-reserve-a-flight-without-paying ·
+  support.wakanow.com/…/pay-small-small-pss · support.wakanow.com/…/how-long-will-a-flight-booking-remain-active ·
   wakanow.com/manage-booking · support.wakanow.com (cancellation/changes)
 - Travelstart: travelstart.com.ng/blog/what-you-need-to-book-your-flights ·
+  travelstart.com/lp/how-to-pay-for-flights (Paystack card/transfer, bank, Quickteller, cash/office) ·
   sagetravels.com step-by-step · en.wikipedia.org/wiki/Travelstart
-- TravelBeta: startuplist.africa/startups/travelbeta · blog.travelbeta.com/travelbeta-installment-plan ·
+- TravelBeta: startuplist.africa/startups/travelbeta · blog.travelbeta.com/travelbeta-installment-plan (TIP 10%) ·
   travelbeta.com/terms
 - TravelWings: travelwings.com/ae/en (services, umrah, holidays, TNPL) ·
-  travelwings.com/ae/en/blog/payment-options · FAQ (manage/saved travellers)
-- dnata: dnatatravel.com · dnatatravel.com/help-centre · dnata.com/en/our-services/travel
+  travelwings.com/ae/en/blog/payment-options (Tabby 4×0%, ENBD/ADCB 0% EMI, Sav) · FAQ (manage/saved travellers)
+- dnata: dnatatravel.com · dnatatravel.com/help-centre · dnatatravel.com/faq (deposit + balance-due-date,
+  ENBD 0% 3/6-mo, Manage-Your-Booking) · dnata.com/en/our-services/travel
