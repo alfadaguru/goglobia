@@ -960,20 +960,33 @@ if (!function_exists('supplier_payout_finalize_transfer')) {
             // payout unfinalised (or vice-versa). State-guarded on both sides.
             // (audit #15) Track commit via a reference so we never report 'paid' on a
             // rolled-back transaction — leave it unchanged for the caller/webhook to retry.
+            // $committed must reflect that THIS call actually flipped the payout to paid —
+            // gate it on the payout UPDATE's rowCount, not merely on "the transaction didn't
+            // throw" (audit M12). Two finalizers racing (webhook + admin Resolve) both read
+            // 'processing'; the first commits, the second's state-guarded UPDATE matches 0
+            // rows — but previously $committed stayed true, so the loser emitted a DUPLICATE
+            // payout.paid and reported changed=true. Now only the winner (rowCount>0) does.
             $committed = false;
             try {
                 $db->action(function ($db) use ($payoutId, $tc, $state, &$committed) {
                     $db->update('supplier_earnings',
                         ['state' => 'paid', 'updated_at' => date('Y-m-d H:i:s')],
                         ['payout_id' => $payoutId, 'state' => 'available']);
-                    $db->update('supplier_payouts',
+                    $upd = $db->update('supplier_payouts',
                         ['state' => 'paid', 'transfer_code' => $tc ?: null, 'paid_at' => date('Y-m-d H:i:s'), 'updated_at' => date('Y-m-d H:i:s')],
                         ['id' => $payoutId, 'state' => $state]); // guard: only from the state we read
-                    $committed = true;
+                    $committed = $upd && $upd->rowCount() > 0; // did WE flip it?
                     return true;
                 });
             } catch (\Throwable $e) { error_log('finalize debit: ' . $e->getMessage()); $committed = false; }
             if (!$committed) {
+                // Either the settlement didn't commit, or another finalizer won the race and
+                // already marked it paid. Re-read: if it IS paid now, report an idempotent
+                // no-change success (no duplicate event); otherwise leave it for retry.
+                $now = $db->get('supplier_payouts', ['state'], ['id' => $payoutId]);
+                if ($now && (string) $now['state'] === 'paid') {
+                    return ['ok' => true, 'state' => 'paid', 'changed' => false, 'message' => 'Already finalised by another process.'];
+                }
                 return ['ok' => false, 'state' => $state, 'changed' => false,
                     'message' => 'Settlement did not commit; left unchanged for retry.'];
             }
