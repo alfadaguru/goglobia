@@ -466,9 +466,27 @@ $router->post(admin.'/users/process-manage-funds', function () use ($SECURE,$db)
         $payment_gateway_id = intval($_POST['payment_gateway_id'] ?? 0);
         $notes = trim($_POST['notes'] ?? '');
         $reference = trim($_POST['reference'] ?? '');
-        $converted_amount = floatval($_POST['converted_amount'] ?? 0);
-        $exchange_rate = floatval($_POST['exchange_rate'] ?? 1);
-        $final_amount = floatval($_POST['final_amount'] ?? 0);
+        // MONEY-INTEGRITY FIX (money-flow audit H1): the credited figure must be
+        // derived SERVER-SIDE, never trusted from the client. The old code read
+        // $_POST['final_amount'] verbatim and credited it, so a tampered/scripted
+        // POST (amount=1, final_amount=1000000) minted 1,000,000 while logging 1.
+        // Recompute the wallet-currency (USD) amount from the trusted $amount and
+        // the DB currency rate via the canonical converter; the client
+        // final_amount/converted_amount/exchange_rate are now ignored for money.
+        if (!function_exists('CURRENCY_CONVERT')) {
+            require_once __DIR__ . '/../../lib/functions.php';
+        }
+        $__walletCurrency = 'USD';
+        if (strtoupper($currency) === $__walletCurrency) {
+            $final_amount = $amount;
+        } else {
+            $__cv = CURRENCY_CONVERT((float) $amount, $db, (string) $currency, $__walletCurrency);
+            $final_amount = is_array($__cv) ? (float) ($__cv['price'] ?? 0) : (float) $__cv;
+        }
+        $final_amount = round((float) $final_amount, 2);
+        // Derived audit figures (display/record only).
+        $converted_amount = $final_amount;
+        $exchange_rate = ($final_amount > 0 && $amount > 0) ? round($amount / $final_amount, 6) : 1;
 
         // Validation
         if (empty($user_id)) {
