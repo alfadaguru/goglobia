@@ -75,10 +75,19 @@ $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
         }
     }
 
-    // ADDITIONAL VALIDATION FOR DEBIT/PURCHASE TRANSACTIONS
+    // ADDITIONAL VALIDATION FOR DEBIT/PURCHASE TRANSACTIONS (money-flow audit C1).
+    // Validate against the AUTHORITATIVE wallet balance — the lever the spine
+    // actually debits below — NOT users.credit_limits (the credit LINE, which this
+    // screen no longer touches). Mirrors the sibling /finance/credits check.
     if (in_array($transaction_type, ['debit', 'purchase']) && $user) {
-        if ($amount > $user['credit_limits']) {
-            $errors[] = T::insufficient_balance . " " . T::available . ": {$user['credit_limits']}, " . T::requested . ": {$amount}";
+        if (!function_exists('wallet_balance')) {
+            require_once dirname(__DIR__, 2) . '/lib/wallet.php';
+        }
+        $__walletBal = function_exists('wallet_balance')
+            ? (float) wallet_balance($db, (string) $user_id, (string) $currency)
+            : 0.0;
+        if ($amount > $__walletBal) {
+            $errors[] = T::insufficient_balance . " " . T::available . ": {$__walletBal}, " . T::requested . ": {$amount}";
         }
     }
 
@@ -154,28 +163,17 @@ $router->post(admin.'/finance/transactions', function () use ($SECURE,$db) {
         $result = $db->insert('transactions', $transaction_data);
 
         if ($result) {
-            // UPDATE USER'S CREDIT_LIMITS BASED ON TRANSACTION TYPE
-            $new_credit_limits = $user['credit_limits'];
-
-            switch ($transaction_type) {
-                case 'credit':
-                case 'refund':
-                    $new_credit_limits += $amount;
-                    break;
-                case 'debit':
-                case 'purchase':
-                    $new_credit_limits -= $amount;
-                    if ($new_credit_limits < 0) {
-                        $new_credit_limits = 0;
-                    }
-                    break;
-            }
-
-            $db->update('users',
-                ['credit_limits' => $new_credit_limits],
-                ['user_id' => $user_id]
-            );
-
+            // MONEY-INTEGRITY FIX (money-flow audit C1): do NOT mutate
+            // users.credit_limits here. The spendable money move happens ONLY on
+            // the wallet SPINE below (wallet_refund/wallet_spend) — the single
+            // source of truth. credit_limits is the agent's credit LINE (overdraft
+            // headroom, read by wallet_apply as spendable = balance + headroom), a
+            // DIFFERENT lever managed on its own control. The old code moved BOTH
+            // from one action, so a "credit 1000" gave +1000 wallet balance AND
+            // +1000 overdraft room (double spend power); a debit shrank both. The
+            // sibling /finance/credits screen already removed this exact
+            // double-benefit (creditsRoutes.php) — this screen now matches it.
+            // The transactions audit row above is kept for the paper trail.
             $db->pdo->commit();
 
             // SPINE MIRROR (audit money-integrity): record this admin adjustment in
