@@ -512,6 +512,48 @@ if (!function_exists('loyalty_earn_for_payment')) {
         ]);
     }
 }
+if (!function_exists('loyalty_reverse_for_payment')) {
+    /**
+     * Reverse (claw back) the customer loyalty points earned for a booking when it
+     * is refunded/cancelled (money-flow audit M4). Mirrors loyalty_earn_for_payment:
+     * finds the LOYALTY-EARN-{invoice} ledger row, debits exactly that many points
+     * back. Idempotent on LOYALTY-REVERSE-{invoice}. No-op when loyalty is off, no
+     * earn row exists, or it was already reversed. Does NOT force the balance
+     * negative beyond what loyalty_apply allows — a 'redeem' over the current
+     * balance is clamped by loyalty_apply's own insufficiency guard, but since this
+     * uses 'adjust'-style reversal we debit what was earned and let the ledger carry
+     * the true (possibly spent-down) position.
+     */
+    function loyalty_reverse_for_payment($db, string $invoiceId): array
+    {
+        $invoiceId = trim($invoiceId);
+        if ($invoiceId === '') { return ['ok' => false, 'skipped' => true]; }
+        try {
+            $earn = $db->get('loyalty_ledger', ['user_id', 'points'], ['idempotency_key' => 'LOYALTY-EARN-' . $invoiceId]);
+        } catch (\Throwable $e) { return ['ok' => false, 'skipped' => true]; }
+        if (!$earn || (int) ($earn['points'] ?? 0) <= 0) { return ['ok' => false, 'skipped' => true]; }
+        $userId = (string) ($earn['user_id'] ?? '');
+        $pts = (int) $earn['points'];
+        if ($userId === '') { return ['ok' => false, 'skipped' => true]; }
+        // 'redeem' decrements points; if the customer already spent some, loyalty_apply
+        // blocks an over-redeem — in that case fall back to debiting what remains so we
+        // claw back as much as possible without a negative balance.
+        $res = loyalty_apply($db, $userId, $pts, 'redeem', [
+            'reason' => 'reversal', 'ref_type' => 'invoice', 'ref_id' => $invoiceId,
+            'idempotency_key' => 'LOYALTY-REVERSE-' . $invoiceId, 'note' => 'Reversed — booking ' . $invoiceId . ' refunded',
+        ]);
+        if (empty($res['ok'])) {
+            $bal = loyalty_balance($db, $userId);
+            if ($bal > 0) {
+                $res = loyalty_apply($db, $userId, min($bal, $pts), 'redeem', [
+                    'reason' => 'reversal', 'ref_type' => 'invoice', 'ref_id' => $invoiceId,
+                    'idempotency_key' => 'LOYALTY-REVERSE-' . $invoiceId, 'note' => 'Partial reversal (points already spent) — booking ' . $invoiceId,
+                ]);
+            }
+        }
+        return $res;
+    }
+}
 if (!function_exists('loyalty_convert_to_wallet')) {
     /**
      * Redeem points into wallet money: debit points, credit the wallet by

@@ -2717,6 +2717,24 @@ if (!function_exists('refund_gateway_payment')) {
             if (strtolower((string) ($__refundResult['status'] ?? '')) !== 'refunded') {
                 $__releaseRefundClaim();
             }
+
+            // ACCRUAL REVERSAL ON REFUND (money-flow audit M4 + M5). On a successful
+            // refund, claw back the value given to the customer/referrer for this
+            // booking — previously these only fired from the issue-failure
+            // auto-refund hook, so a manual/admin/supplier refund left them intact
+            // (customer kept cash-convertible loyalty points; a released referral
+            // reward stayed in the referrer's wallet). Both helpers are idempotent
+            // and best-effort — a reversal error never fails the refund.
+            if (strtolower((string) ($__refundResult['status'] ?? '')) === 'refunded' && $__invRef !== '') {
+                if (function_exists('loyalty_reverse_for_payment')) {
+                    try { loyalty_reverse_for_payment($db, $__invRef); }
+                    catch (\Throwable $e) { error_log('refund loyalty reversal ' . $__invRef . ': ' . $e->getMessage()); }
+                }
+                if (function_exists('referral_reverse_reward')) {
+                    try { referral_reverse_reward($db, $__invRef); }
+                    catch (\Throwable $e) { error_log('refund referral clawback ' . $__invRef . ': ' . $e->getMessage()); }
+                }
+            }
             return $__refundResult;
         } catch (\Throwable $e) {
             error_log('refund_gateway_payment error (' . $gatewayName . '): ' . $e->getMessage());
