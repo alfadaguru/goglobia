@@ -560,6 +560,20 @@ if (!function_exists('gia_bp_confirm')) {
                     } catch (\Throwable $e) {
                         error_log('[gia_bp] stays settle ' . $invoiceId . ': ' . $e->getMessage());
                     }
+                } elseif ($mt === 'ai_trip' && $giaService === 'esim') {
+                    // ESIM: the Airalo order can only be PLACED after payment. Trigger
+                    // the SAME proven provisioning path the web esim callback uses
+                    // (modules/esim/airalo/issue), signed with the internal token. The
+                    // booking is 'confirmed' only when the eSIM(s) provision. On issue
+                    // FAILURE, gia_bp_issue_esim runs the SAME guarded auto-refund GIA
+                    // flights use — a paid-but-unprovisioned eSIM is refunded, never
+                    // stranded, and no QR/voucher is sent. Result reconciles the ledger.
+                    try {
+                        $issueRes = gia_bp_issue_esim($db, $invoiceId);
+                        if (empty($issueRes['ok'])) { $issueRefunded = true; }
+                    } catch (\Throwable $e) {
+                        error_log('[gia_bp] esim issue trigger ' . $invoiceId . ': ' . $e->getMessage());
+                    }
                 } elseif ($mt === 'ai_trip') {
                     // FLIGHTS / ai_trip: a ticket can only ISSUE after payment. Trigger
                     // the SAME proven issue path the web gateway callback uses
@@ -730,6 +744,78 @@ if (!function_exists('gia_bp_issue_ai_trip')) {
     }
 }
 
+if (!function_exists('gia_bp_issue_esim')) {
+    /**
+     * Trigger the PROVEN Airalo eSIM provisioning path for a just-paid GIA eSIM
+     * booking: a server-side loopback POST to modules/esim/airalo/issue, signed with
+     * supplier_internal_token so the module's action-guard accepts it. The issuer
+     * places the Airalo order (quantity 1–50 from booking_data.airalo_order), writes
+     * booking_data.airalo_provision + airalo_sims[], sets booking_status='completed'
+     * and returns {status: true}. This is the SAME endpoint the WEB esim callback +
+     * the invoice recovery loopback use (app/routes/esim/invoiceRoutes.php:88) — GIA
+     * just wasn't wired to it before.
+     *
+     * Like gia_bp_issue_ai_trip, modules/esim/airalo/issue.php does NOT auto-refund
+     * on failure (it reports the error + holds the booking 'pending' / 'price_review').
+     * So on issue FAILURE this runs the SAME guarded auto-refund the web path uses
+     * (_auto_refund_on_issue_failure) — a paid-but-unprovisioned eSIM is refunded,
+     * never stranded, and (together with the confirm gate) no QR/voucher is sent.
+     *
+     * @return array{ok:bool, status:string, message?:string}  ok=false => issue failed (refund attempted)
+     */
+    function gia_bp_issue_esim($db, string $invoiceId): array
+    {
+        if (!function_exists('aiTripHttpPost')) {
+            $helper = dirname(__DIR__) . '/../routes/ai/tripRevalidateHelper.php';
+            if (is_file($helper)) { require_once $helper; }
+        }
+        if (!function_exists('aiTripHttpPost')) {
+            error_log('[gia_bp] issue esim: HTTP helper unavailable for ' . $invoiceId);
+            return ['ok' => false, 'status' => 'pending', 'message' => 'Issue helper unavailable.'];
+        }
+        $base = defined('root') ? rtrim((string) root, '/') : '';
+        $url  = $base . '/modules/esim/airalo/issue';
+        $token = function_exists('supplier_internal_token') ? supplier_internal_token($invoiceId) : '';
+        try {
+            // Form-encoded (asJson=false): the issuer reads $_POST. 60s: provisioning
+            // calls the Airalo API per SIM.
+            $resp = aiTripHttpPost($url, [
+                'invoice_id'      => $invoiceId,
+                '_internal_token' => $token,
+            ], false, 60);
+        } catch (\Throwable $e) {
+            error_log('[gia_bp] issue esim POST ' . $invoiceId . ': ' . $e->getMessage());
+            return ['ok' => false, 'status' => 'pending', 'message' => 'Issue request failed; will be retried/settled by ops.'];
+        }
+        $json = is_array($resp['json'] ?? null) ? $resp['json'] : [];
+        $issued = !empty($json['status']);
+        $issueMsg = (string) ($json['message'] ?? ($json['response_error'] ?? 'unknown'));
+        error_log('[gia_bp] issue esim ' . $invoiceId . ' -> ' . ($issued ? 'issued' : 'not-issued: ' . $issueMsg));
+
+        if ($issued) {
+            // issue.php already wrote airalo_provision/airalo_sims + set the booking
+            // status. Mark confirmed so the confirmation + voucher gate passes.
+            try { $db->update('bookings', ['booking_status' => 'confirmed'], ['invoice_id' => $invoiceId]); }
+            catch (\Throwable $e) { /* non-fatal */ }
+            return ['ok' => true, 'status' => 'confirmed', 'message' => $issueMsg];
+        }
+
+        // ISSUE FAILURE — paid but no eSIM. Run the SAME guarded auto-refund the web
+        // path uses so the payer's money is returned and no false voucher is sent.
+        try {
+            require_once dirname(__DIR__) . '/payment-gateway.php';
+            if (function_exists('_auto_refund_on_issue_failure')) {
+                $bk = $db->get('bookings', '*', ['invoice_id' => $invoiceId]) ?: ['invoice_id' => $invoiceId];
+                _auto_refund_on_issue_failure($db, ['invoice_id' => $invoiceId], $bk, $issueMsg);
+            }
+        } catch (\Throwable $e) {
+            error_log('[gia_bp] esim issue-fail auto-refund ' . $invoiceId . ': ' . $e->getMessage());
+        }
+
+        return ['ok' => false, 'status' => 'pending', 'message' => $issueMsg];
+    }
+}
+
 if (!function_exists('gia_bp_notify')) {
     /** Send a chat reminder to the payer on their channel (best-effort, no throw). */
     function gia_bp_notify($db, array $bp, string $text): void
@@ -846,17 +932,25 @@ if (!function_exists('gia_bp_send_confirmation')) {
             $bd = json_decode((string) ($b['booking_data'] ?? ''), true) ?: [];
             $giaSvc = strtolower((string) ($bd['gia_service'] ?? ''));
 
-            // A FLIGHT (ai_trip, not stays) has NO ticket until a PNR issues — its
-            // booking_status is 'confirmed' ONLY when modules/ai_trip issue.php
-            // succeeded. If it's still 'pending' (issue failed — whether the auto-
-            // refund then succeeded [cancelled, blocked above] OR the refund API
+            // An eSIM (ai_trip + gia_service='esim') behaves like a flight for the
+            // confirm gate: there is NOTHING to deliver until the Airalo order is
+            // PLACED. gia_bp_issue_esim sets booking_status='confirmed' only when the
+            // SIM(s) provision; on issue failure it auto-refunds (blocked above) or
+            // leaves 'pending'. Either way, never send a QR/voucher for an eSIM that
+            // wasn't provisioned.
+            $isEsim = ($mt === 'ai_trip' && $giaSvc === 'esim') || $mt === 'esim';
+
+            // A FLIGHT (ai_trip, not stays, not esim) has NO ticket until a PNR
+            // issues — its booking_status is 'confirmed' ONLY when modules/ai_trip
+            // issue.php succeeded. If it's still 'pending' (issue failed — whether the
+            // auto-refund then succeeded [cancelled, blocked above] OR the refund API
             // itself failed and the row was left 'pending' for a manual admin
             // refund), there is NO valid ticket to send. Never email a ticket or
             // tell the customer "confirmed" for a flight that didn't actually
             // ticket. Stays/umrah confirm on payment and are unaffected.
-            $isFlight = ($mt === 'ai_trip' && $giaSvc !== 'stays') || $mt === 'flights';
-            if ($isFlight && $bookStatus !== 'confirmed') {
-                error_log('[gia_bp] send_confirmation: flight ' . $invoiceId . ' not confirmed (status=' . $bookStatus . ') — suppressing ticket.');
+            $isFlight = ($mt === 'ai_trip' && $giaSvc !== 'stays' && $giaSvc !== 'esim') || $mt === 'flights';
+            if (($isFlight || $isEsim) && $bookStatus !== 'confirmed') {
+                error_log('[gia_bp] send_confirmation: ' . ($isEsim ? 'esim' : 'flight') . ' ' . $invoiceId . ' not confirmed (status=' . $bookStatus . ') — suppressing document.');
                 return;
             }
 
@@ -905,26 +999,43 @@ if (!function_exists('gia_bp_send_confirmation')) {
 
                 // Try to deliver the ticket PDF in-chat first (so the text can say
                 // "sent here" instead of "check email" when it worked).
+                // eSIM delivers an activation VOUCHER (QR + install steps), not a
+                // travel ticket — name the document accordingly in-chat.
+                $docNoun = $isEsim ? 'eSIM voucher' : 'ticket';
+                $docFile = ($isEsim ? 'esim_voucher_' : 'ticket_') . $invoiceId . '.pdf';
+
                 $docSent = false;
                 if (!empty($ticketPdf) && is_file((string) $ticketPdf) && function_exists('gia_bp_send_document')) {
+                    // ticket_whatsapp_caption already uses the 📶 "stay connected"
+                    // caption for svc='esim'.
                     $docCaption = function_exists('ticket_whatsapp_caption')
                         ? ticket_whatsapp_caption($b, $invoiceId, (string) ($svc ?? ''))
-                        : ('🎫 Your ticket — booking ' . $invoiceId);
+                        : (($isEsim ? '📶 Your eSIM' : '🎫 Your ticket') . ' — booking ' . $invoiceId);
                     $docSent = gia_bp_send_document(
                         $db, $bp, (string) $ticketPdf,
-                        'ticket_' . $invoiceId . '.pdf',
+                        $docFile,
                         $docCaption
                     );
                 }
 
                 $lines = ['✅ Your booking is confirmed — reference ' . $invoiceId . '.'];
                 if ($pnr !== '') { $lines[] = 'Booking ref (PNR): ' . $pnr . '.'; }
-                if ($docSent) {
-                    $lines[] = '🎫 Your ticket is attached above' . ($email !== '' ? ' and also emailed to ' . $email : '') . '. Please keep it for your travel.';
+                if ($isEsim) {
+                    // WhatsApp ALWAYS gets the voucher; email ALSO when one is on file.
+                    // No email on the chat => WhatsApp-only, and we do NOT ask for one.
+                    if ($docSent) {
+                        $lines[] = '📶 Your eSIM voucher (QR + activation steps) is attached above' . ($email !== '' ? ' and also emailed to ' . $email : '') . '. Install it over Wi-Fi before you travel.';
+                    } elseif ($email !== '') {
+                        $lines[] = '📶 Your eSIM voucher (QR + activation steps) has been sent to ' . $email . '. Install it over Wi-Fi before you travel.';
+                    } else {
+                        $lines[] = '📶 Your eSIM is ready — ask me any time and I\'ll resend the QR + activation steps.';
+                    }
+                } elseif ($docSent) {
+                    $lines[] = '🎫 Your ' . $docNoun . ' is attached above' . ($email !== '' ? ' and also emailed to ' . $email : '') . '. Please keep it for your travel.';
                 } elseif ($email !== '') {
-                    $lines[] = 'Your ticket has been sent to ' . $email . '. Please keep it for your travel.';
+                    $lines[] = 'Your ' . $docNoun . ' has been sent to ' . $email . '. Please keep it for your travel.';
                 } else {
-                    $lines[] = 'Your ticket is ready — ask me any time and I\'ll resend it.';
+                    $lines[] = 'Your ' . $docNoun . ' is ready — ask me any time and I\'ll resend it.';
                 }
                 gia_bp_notify($db, $bp, implode("\n", $lines));
             }

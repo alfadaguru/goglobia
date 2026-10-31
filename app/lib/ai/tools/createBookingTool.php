@@ -211,6 +211,83 @@ class createBookingTool implements giaToolInterface
             }
         }
 
+        // ESIM: lift the chosen Airalo package + country + order quantity to
+        // booking_data top-level, where modules/esim/airalo/issue reads them (same
+        // keys the web esim checkout writes — homeRoutes.php). Tag gia_service='esim'
+        // so gia_bp_confirm issues via Airalo and gia_bp_send_confirmation + the PDF
+        // resolver pick the eSIM voucher. The item's `price` is the authoritative
+        // PER-SIM sell price the reprice/revalidate already derived server-side; we
+        // charge qty × that unit price (never a client-supplied total) so N SIMs are
+        // billed for N.
+        if (count($items) === 1 && is_array($items[0])
+            && (string) ($items[0]['module'] ?? $items[0]['kind'] ?? '') === 'esim') {
+            $ei = is_array($items[0]['item'] ?? null) ? $items[0]['item'] : [];
+            $ep = is_array($items[0]['params'] ?? null) ? $items[0]['params'] : [];
+            $pid = (string) ($ei['package_id'] ?? $ei['id'] ?? '');
+            $countryIso = strtoupper(trim((string) (
+                $ep['country'] ?? $ei['country_iso'] ?? $ei['country'] ?? ''
+            )));
+            $moduleId = (int) ($ei['module_id'] ?? $ep['module_id'] ?? 0);
+            // Quantity: honor an explicit count carried on the item/draft; default 1.
+            // Clamp 1–50 to match modules/esim/airalo/issue.php (the issuer rejects out
+            // of range). eSIM quantity is a SIM count, NOT pax.
+            $qtyRaw = $ei['quantity']
+                ?? ($ei['airalo_order']['quantity'] ?? null)
+                ?? ($ep['quantity'] ?? ($d['esim_quantity'] ?? ($d['quantity'] ?? 1)));
+            $qty = (int) $qtyRaw; if ($qty < 1) { $qty = 1; } if ($qty > 50) { $qty = 50; }
+
+            // Authoritative per-SIM price from the repriced item (server-derived), in
+            // the draft currency. If the draft total already reflects 1 unit, N units
+            // = qty × unit. Reject if we cannot price a unit (never charge a bad total).
+            $unitPrice = round((float) ($items[0]['price'] ?? 0), 2);
+            if ($unitPrice <= 0) {
+                // Fall back to the summed draft base (single-item draft => that IS one unit).
+                $unitPrice = round($payableBase, 2);
+            }
+            if ($unitPrice <= 0 || $pid === '' || $moduleId <= 0 || !preg_match('/^[A-Z]{2}$/', $countryIso)) {
+                return ['ok' => false, 'error_code' => 'AI_ESIM_INCOMPLETE', 'message' => 'This eSIM package is no longer available — let me pull up options again.'];
+            }
+
+            // Override the payable total to qty × unit (net == payable; no tax layer on
+            // the Airalo sell price here, matching the web esim net/markup handling).
+            $payableBase = round($unitPrice * $qty, 2);
+            $netBase = $payableBase;
+            $taxBase = 0.0;
+            $commission = 0.0;
+            $bookingData['base_price']       = $netBase;
+            $bookingData['tax_amount']       = 0;
+            $bookingData['payable_total']    = $payableBase;
+            $bookingData['final_total']      = $payableBase;
+            $bookingData['final_total_base'] = $payableBase;
+            $bookingData['display_total']    = $payableBase;
+
+            // The exact keys modules/esim/airalo/issue + the esim voucher read.
+            $bookingData['gia_service']      = 'esim';
+            $bookingData['module_id']        = $moduleId;
+            $bookingData['country']          = $countryIso;
+            $bookingData['country_iso']      = $countryIso;
+            $bookingData['country_name']     = (string) ($ei['country'] ?? $ep['country_name'] ?? $countryIso);
+            $bookingData['package_name']     = (string) ($ei['title'] ?? $ei['name'] ?? ($items[0]['title'] ?? 'eSIM Data Plan'));
+            $bookingData['data_amount']      = (string) ($ei['data_limit'] ?? '');
+            $bookingData['validity']         = (string) ($ei['duration'] ?? '');
+            $bookingData['esim_package_id']  = $pid;
+            $bookingData['selected_package'] = [
+                'id'         => $pid,
+                'package_id' => $pid,
+                'name'       => $bookingData['package_name'],
+                'title'      => $bookingData['package_name'],
+                'country'    => $countryIso,
+                'data'       => $bookingData['data_amount'],
+                'validity'   => $bookingData['validity'],
+                'price'      => $unitPrice,
+            ];
+            $bookingData['airalo_order'] = [
+                'package_id' => $pid,
+                'quantity'   => $qty,
+                'type'       => 'sim',
+            ];
+        }
+
         try {
             $ok = $db->insert('bookings', [
                 'invoice_id'           => $invoiceId,

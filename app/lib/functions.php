@@ -4261,6 +4261,18 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
         // Determine module type and select appropriate template
         $moduleType = strtolower($booking['module_type'] ?? 'stays');
 
+        // GIA eSIM bookings ride module_type='ai_trip' with booking_data.gia_service
+        // ='esim' (same tagging the GIA settle/confirm path uses). Treat them as esim
+        // here so BOTH the booking_pdf (generic voucher) and the ticket
+        // (emails/esim/ticket.php) resolve correctly — otherwise ai_trip falls through
+        // to the stays template and the customer gets a hotel-shaped document with no
+        // QR. Narrow: only ai_trip rows explicitly tagged esim are remapped; real
+        // esim/web bookings (module_type='esim') already match below unchanged.
+        if ($moduleType === 'ai_trip'
+            && strtolower((string) ($bookingData['gia_service'] ?? '')) === 'esim') {
+            $moduleType = 'esim';
+        }
+
         if ($moduleType === 'flights') {
             $templatePath = __DIR__ . '/../views/notifications/emails/flights/booking_pdf.php';
         } elseif ($moduleType === 'tours') {

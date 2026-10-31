@@ -17,31 +17,40 @@ $invoiceId = (string) ($booking['invoice_id'] ?? '');
 // --- eSIM provisioning data (same keys the invoice page reads) --------------
 $prov = (array) ($bookingData['airalo_provision'] ?? ($bookingData['provision'] ?? []));
 $sims = $prov['sims'] ?? ($bookingData['airalo_sims'] ?? []);
-$firstSim = (is_array($sims) && !empty($sims)) ? (array) reset($sims) : (array) ($prov['first_sim'] ?? []);
 
-$iccid    = trim((string) ($prov['iccid'] ?? ($firstSim['iccid'] ?? '')));
-$smdp     = trim((string) ($prov['smdp_address'] ?? ($firstSim['smdp_address'] ?? ($firstSim['lpa'] ?? ''))));
-$matching = trim((string) ($prov['matching_id'] ?? ($firstSim['matching_id'] ?? '')));
-$hostedQr = trim((string) ($prov['qrcode_url'] ?? ($firstSim['qrcode_url'] ?? ($firstSim['qr_code_url'] ?? ''))));
-
-// manual_installation may carry an explicit activation code / lpa.
-$manualRaw = $prov['manual_installation'] ?? ($firstSim['manual_installation'] ?? '');
-$manual = is_array($manualRaw) ? $manualRaw : [];
-$activationCode = trim((string) ($manual['code'] ?? ($manual['activation_code'] ?? ($manual['lpa'] ?? ''))));
-if ($smdp === '' && isset($manual['smdp_address'])) { $smdp = trim((string) $manual['smdp_address']); }
-
-// The canonical eSIM activation string (what a QR must encode): LPA:1$<smdp>$<matching>.
-// Prefer an explicit activation code/lpa if Airalo gave one; else build from parts.
-$lpa = '';
-if ($activationCode !== '' && stripos($activationCode, 'LPA:') === 0) {
-    $lpa = $activationCode;
-} elseif ($smdp !== '' && $matching !== '') {
-    $lpa = 'LPA:1$' . $smdp . '$' . $matching;
-} elseif ($activationCode !== '') {
-    $lpa = 'LPA:1$' . $smdp . '$' . $activationCode;
+// MULTI-SIM: build the list of SIMs to render (one QR block each). When the order
+// returned N sims (airalo_sims), show all N; otherwise fall back to the single
+// resolved provision (back-compat — the 1-SIM web/BM case is unchanged).
+$simRows = (is_array($sims) && !empty($sims)) ? array_values($sims) : [];
+if ($simRows === []) {
+    // Single-SIM fallback: synthesize one row from the top-level provision / first_sim.
+    $only = (array) ($prov['first_sim'] ?? $prov);
+    if ($only !== []) { $simRows = [$only]; }
 }
 
-$ready = ($lpa !== '' || $hostedQr !== '' || $iccid !== '');
+// Resolve one SIM's installable fields into [iccid, smdp, matching, hostedQr, lpa].
+$resolveSim = function (array $s) use ($prov) {
+    $iccid    = trim((string) ($s['iccid'] ?? ($prov['iccid'] ?? '')));
+    $smdp     = trim((string) ($s['smdp_address'] ?? ($s['lpa'] ?? ($prov['smdp_address'] ?? ''))));
+    $matching = trim((string) ($s['matching_id'] ?? ($prov['matching_id'] ?? '')));
+    $hostedQr = trim((string) ($s['qrcode_url'] ?? ($s['qr_code_url'] ?? ($prov['qrcode_url'] ?? ''))));
+    $manualRaw = $s['manual_installation'] ?? ($prov['manual_installation'] ?? '');
+    $manual = is_array($manualRaw) ? $manualRaw : [];
+    $activationCode = trim((string) ($manual['code'] ?? ($manual['activation_code'] ?? ($manual['lpa'] ?? ''))));
+    if ($smdp === '' && isset($manual['smdp_address'])) { $smdp = trim((string) $manual['smdp_address']); }
+    // Canonical activation string the QR must encode: LPA:1$<smdp>$<matching>.
+    $lpa = '';
+    if ($activationCode !== '' && stripos($activationCode, 'LPA:') === 0) { $lpa = $activationCode; }
+    elseif ($smdp !== '' && $matching !== '') { $lpa = 'LPA:1$' . $smdp . '$' . $matching; }
+    elseif ($activationCode !== '') { $lpa = 'LPA:1$' . $smdp . '$' . $activationCode; }
+    return ['iccid' => $iccid, 'smdp' => $smdp, 'matching' => $matching, 'hostedQr' => $hostedQr, 'lpa' => $lpa, 'activationCode' => $activationCode];
+};
+
+$resolved = array_map($resolveSim, $simRows);
+$simCount = count($resolved);
+// "Ready" when ANY SIM has an installable value.
+$ready = false;
+foreach ($resolved as $r) { if ($r['lpa'] !== '' || $r['hostedQr'] !== '' || $r['iccid'] !== '') { $ready = true; break; } }
 
 // Package facts (from booking_data; branded, no supplier).
 $pkgName  = (string) ($bookingData['package_name'] ?? ($bookingData['selected_package']['name'] ?? 'eSIM Data Plan'));
@@ -51,15 +60,17 @@ $dataAmount = (string) ($bookingData['data_amount'] ?? ($bookingData['selected_p
 $validity   = (string) ($bookingData['validity'] ?? ($bookingData['selected_package']['validity'] ?? ''));
 $holder = trim((string) ($booking['first_name'] ?? '') . ' ' . (string) ($booking['last_name'] ?? ''));
 
-// QR block: generate from the LPA (offline, supplier-free) when mpdf/qrcode is
-// present; else use the hosted image; else a text note.
-if ($lpa !== '' && class_exists('Mpdf\\QrCode\\QrCode')) {
-    $qrImg = '<barcode code="' . $e($lpa) . '" type="QR" error="M" disableborder="1" />';
-} elseif ($hostedQr !== '') {
-    $qrImg = '<img src="' . $e($hostedQr) . '" style="width:150pt;height:150pt;" alt="Activation QR">';
-} else {
-    $qrImg = '<div style="font-size:8.5pt;color:#64748b;border:0.8pt solid #e2e8f0;padding:8pt;">Your activation QR is being prepared. It will appear on your booking page shortly.</div>';
-}
+// Build one QR image per SIM from its LPA (offline, supplier-free) when mpdf/qrcode
+// is present; else the hosted image; else a text note.
+$qrFor = function (array $r) use ($e) {
+    if ($r['lpa'] !== '' && class_exists('Mpdf\\QrCode\\QrCode')) {
+        return '<barcode code="' . $e($r['lpa']) . '" type="QR" error="M" disableborder="1" />';
+    }
+    if ($r['hostedQr'] !== '') {
+        return '<img src="' . $e($r['hostedQr']) . '" style="width:150pt;height:150pt;" alt="Activation QR">';
+    }
+    return '<div style="font-size:8.5pt;color:#64748b;border:0.8pt solid #e2e8f0;padding:8pt;">Your activation QR is being prepared. It will appear on your booking page shortly.</div>';
+};
 
 // ---- Body -------------------------------------------------------------------
 ob_start();
@@ -79,19 +90,24 @@ ob_start();
 </div>
 
 <?php if ($ready): ?>
-<div class="sec-h">Scan to install</div>
-<table class="infotable"><tr>
-    <td style="width:40%; text-align:center; vertical-align:middle; padding:8pt;">
-        <?= $qrImg ?>
-        <div class="vs" style="margin-top:5pt;">Scan with the phone's Camera<br>or from eSIM setup</div>
-    </td>
-    <td style="width:60%; vertical-align:top; padding:8pt;">
-        <div class="k">Activation details (for manual setup)</div>
-        <?php if ($smdp !== ''): ?><div style="margin-top:4pt;"><span class="vs">SM-DP+ Address</span><br><b style="font-size:8.5pt; word-break:break-all;"><?= $e($smdp) ?></b></div><?php endif; ?>
-        <?php if ($matching !== '' || $activationCode !== ''): ?><div style="margin-top:4pt;"><span class="vs">Activation Code</span><br><b style="font-size:8.5pt; word-break:break-all;"><?= $e($matching !== '' ? $matching : $activationCode) ?></b></div><?php endif; ?>
-        <?php if ($iccid !== ''): ?><div style="margin-top:4pt;"><span class="vs">ICCID</span><br><b style="font-size:8.5pt; word-break:break-all;"><?= $e($iccid) ?></b></div><?php endif; ?>
-    </td>
-</tr></table>
+<div class="sec-h">Scan to install<?php if ($simCount > 1): ?> — <?= (int) $simCount ?> eSIMs<?php endif; ?></div>
+<?php if ($simCount > 1): ?><div class="vs" style="margin-bottom:6pt;">You purchased <?= (int) $simCount ?> eSIMs. Each one below is separate — install each on its own device (or keep spares). Each QR can be used once.</div><?php endif; ?>
+<?php foreach ($resolved as $i => $r): ?>
+    <?php if ($r['lpa'] === '' && $r['hostedQr'] === '' && $r['iccid'] === '') { continue; } ?>
+    <?php if ($simCount > 1): ?><div class="k" style="margin-top:<?= $i === 0 ? '0' : '10pt' ?>;">eSIM <?= (int) ($i + 1) ?> of <?= (int) $simCount ?></div><?php endif; ?>
+    <table class="infotable"><tr>
+        <td style="width:40%; text-align:center; vertical-align:middle; padding:8pt;">
+            <?= $qrFor($r) ?>
+            <div class="vs" style="margin-top:5pt;">Scan with the phone's Camera<br>or from eSIM setup</div>
+        </td>
+        <td style="width:60%; vertical-align:top; padding:8pt;">
+            <div class="k">Activation details (for manual setup)</div>
+            <?php if ($r['smdp'] !== ''): ?><div style="margin-top:4pt;"><span class="vs">SM-DP+ Address</span><br><b style="font-size:8.5pt; word-break:break-all;"><?= $e($r['smdp']) ?></b></div><?php endif; ?>
+            <?php if ($r['matching'] !== '' || $r['activationCode'] !== ''): ?><div style="margin-top:4pt;"><span class="vs">Activation Code</span><br><b style="font-size:8.5pt; word-break:break-all;"><?= $e($r['matching'] !== '' ? $r['matching'] : $r['activationCode']) ?></b></div><?php endif; ?>
+            <?php if ($r['iccid'] !== ''): ?><div style="margin-top:4pt;"><span class="vs">ICCID</span><br><b style="font-size:8.5pt; word-break:break-all;"><?= $e($r['iccid']) ?></b></div><?php endif; ?>
+        </td>
+    </tr></table>
+<?php endforeach; ?>
 <?php endif; ?>
 
 <div class="sec-h">How to install — iPhone (iOS)</div>
