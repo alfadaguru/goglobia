@@ -102,6 +102,14 @@ $router->post(admin.'/support/campaigns/save', function () use ($SECURE, $db) {
         'utm_campaign'  => trim((string) ($_POST['utm_campaign'] ?? '')) ?: null,
         'utm_medium'    => trim((string) ($_POST['utm_medium'] ?? '')) ?: null,
         'match_key'     => trim((string) ($_POST['match_key'] ?? '')) ?: null,
+        // The word an ad tells people to send on a click-to-WhatsApp / messaging ad
+        // (e.g. "UMRAHDEC"). Normalised: strip spaces/punctuation, uppercase, so the
+        // channel matcher (ad_campaign_resolve_channel) can do a clean whole-word hit.
+        'match_keyword' => (function ($v) {
+            $v = strtoupper(trim((string) $v));
+            $v = preg_replace('/[^A-Z0-9]/', '', $v);
+            return $v !== '' ? substr($v, 0, 60) : null;
+        })($_POST['match_keyword'] ?? ''),
         'active'        => !empty($_POST['active']) ? 1 : 0,
         'starts_at'     => $norm($_POST['starts_at'] ?? ''),
         'ends_at'       => $norm($_POST['ends_at'] ?? ''),

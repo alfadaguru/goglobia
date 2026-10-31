@@ -99,6 +99,11 @@ $curProduct  = strtolower((string) ($c['offer_product'] ?? ''));
           <input type="text" name="match_key" value="<?= $v('match_key') ?>"
                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-3" placeholder="e.g. umrah-dec-kano">
 
+          <label class="block text-xs font-semibold text-gray-600 mb-1">WhatsApp keyword <span class="text-gray-400 font-normal">(for click-to-WhatsApp / messaging ads)</span></label>
+          <input type="text" name="match_keyword" value="<?= $v('match_keyword') ?>"
+                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-1" placeholder="e.g. UMRAHDEC">
+          <p class="text-xs text-gray-500 mb-3">If your ad opens WhatsApp/Telegram chat, tell people to send this word (e.g. &ldquo;Send UMRAHDEC to get the December offer&rdquo;). GIA matches it in their first message and attributes the lead to this campaign. Letters/numbers only; spaces removed.</p>
+
           <label class="block text-xs font-semibold text-gray-600 mb-1">utm_source</label>
           <input type="text" name="utm_source" value="<?= $v('utm_source') ?>"
                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-3" placeholder="e.g. facebook">

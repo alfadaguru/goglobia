@@ -162,6 +162,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         require_once $aiDir . 'tools/initiatePaymentTool.php';
         require_once $aiDir . 'tools/getOrderStatusTool.php';
         require_once $aiDir . 'tools/requestHumanTool.php';
+        require_once $aiDir . 'tools/setLeadIntentTool.php'; // internal lead-seriousness tag
         require_once $aiDir . 'tools/verifyIdentityTool.php';
         require_once $aiDir . 'tools/userAccountTool.php';   // full account awareness (all bookings/wallet/loyalty)
         require_once $aiDir . 'tools/myTravellersTool.php';  // saved travellers for reuse (never re-type)
@@ -390,6 +391,7 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
             // (rather than only instructing the model) means the model CANNOT waste a
             // turn calling a payment tool or surface a confusing "not permitted" error.
             $agent->registerTool(new requestHumanTool());
+            $agent->registerTool(new setLeadIntentTool()); // internal lead-intent tag (ads/nurture)
 
             // WHO COUNTS AS "KNOWN" ON THIS CHAT for account data:
             //   - verified  : confirmed via the email code (strongest), OR
@@ -487,6 +489,33 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
                         . "ask what to call them so you can personalise the chat."
                     );
                 }
+
+                // AD-CAMPAIGN ATTRIBUTION (channel parity with the web widget).
+                // A lead from a click-to-WhatsApp ad carries no cookie/UTM, so attribute
+                // via (a) the Meta referral payload passed through $opts['referral'] and/or
+                // (b) a per-campaign keyword in this first message. On a hit, stamp the
+                // conversation once (first-touch) and hand GIA the SAME campaign-aware note
+                // the web path uses so it acknowledges the offer + prioritises the product.
+                // Fully guarded + wrapped: a campaigns hiccup must never break the chat.
+                try {
+                    if (!function_exists('ad_campaign_resolve_channel')) {
+                        $__campLib = dirname(__DIR__) . '/support/campaigns.php';
+                        if (is_file($__campLib)) { require_once $__campLib; }
+                    }
+                    if ($convId > 0 && function_exists('ad_campaign_resolve_channel')) {
+                        $__ref = (isset($opts['referral']) && is_array($opts['referral'])) ? $opts['referral'] : [];
+                        $__camp = ad_campaign_resolve_channel($db, $__ref, $text);
+                        if (is_array($__camp) && !empty($__camp['id'])) {
+                            if (function_exists('ad_campaign_stamp_conversation')) {
+                                ad_campaign_stamp_conversation($db, $convId, (int) $__camp['id']);
+                            }
+                            if (function_exists('ad_campaign_system_note')) {
+                                $__note = ad_campaign_system_note($__camp);
+                                if ($__note !== '') { $agent->addSystemNote($__note); }
+                            }
+                        }
+                    }
+                } catch (\Throwable $e) { error_log('[gia] channel campaign attribution: ' . $e->getMessage()); }
             }
             // Greet by name whenever we resolved a person (verified OR passive
             // phone match) — personalization is read-only, so a match is enough here.

@@ -476,6 +476,70 @@ if (!function_exists('gia_lead_capture')) {
     }
 }
 
+if (!function_exists('gia_lead_set_intent')) {
+    /**
+     * Tag how SERIOUS a lead is (serious | browsing | not_ready) for ops follow-up and
+     * the nurture sweep. GIA calls this (via the set_lead_intent tool) when it forms a
+     * clear read, OR the funnel can set 'serious' automatically on a held booking. The
+     * lead is resolved from the conversation's lead_id; if the conversation has no lead
+     * yet (common for a fresh ad click before any email/phone is given), we create a
+     * minimal lead row anchored to the conversation so the tag isn't lost. Idempotent
+     * self-healing columns; fail-soft (never breaks the chat).
+     *
+     * @param object $db
+     * @param int    $convId
+     * @param string $intent one of serious|browsing|not_ready (anything else -> no-op)
+     */
+    function gia_lead_set_intent($db, int $convId, string $intent): bool
+    {
+        $intent = strtolower(trim($intent));
+        if ($convId <= 0 || !in_array($intent, ['serious', 'browsing', 'not_ready'], true)) {
+            return false;
+        }
+        if (!function_exists('ensureGiaAnalyticsSchema')) { return false; }
+        ensureGiaAnalyticsSchema($db);
+        try {
+            // Self-heal the intent columns (older installs created gia_leads without them).
+            static $healed = false;
+            if (!$healed) {
+                $healed = true;
+                foreach ([
+                    'intent'    => "ADD COLUMN `intent` ENUM('serious','browsing','not_ready') DEFAULT NULL",
+                    'intent_at' => "ADD COLUMN `intent_at` DATETIME DEFAULT NULL",
+                ] as $col => $ddl) {
+                    try {
+                        $exists = $db->query("SHOW COLUMNS FROM `gia_leads` LIKE '" . $col . "'")->fetch();
+                        if (!$exists) { $db->query("ALTER TABLE `gia_leads` " . $ddl); }
+                    } catch (\Throwable $e) { /* swallow — maybe no ALTER rights */ }
+                }
+            }
+
+            // Resolve the lead for this conversation; create a minimal one if absent.
+            $conv = $db->get('gia_conversations', ['lead_id'], ['id' => $convId]);
+            $leadId = (int) ($conv['lead_id'] ?? 0);
+            if ($leadId <= 0) {
+                $db->insert('gia_leads', [
+                    'status'     => 'lead',
+                    'source'     => 'gia',
+                    'intent'     => $intent,
+                    'intent_at'  => date('Y-m-d H:i:s'),
+                ]);
+                $leadId = (int) $db->id();
+                if ($leadId > 0) { $db->update('gia_conversations', ['lead_id' => $leadId], ['id' => $convId]); }
+            } else {
+                $db->update('gia_leads', ['intent' => $intent, 'intent_at' => date('Y-m-d H:i:s')], ['id' => $leadId]);
+            }
+            if (function_exists('gia_log_event')) {
+                gia_log_event($db, $convId, 'lead_intent', ['meta' => $intent]);
+            }
+            return true;
+        } catch (\Throwable $e) {
+            error_log('[gia] lead_set_intent: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
 if (!function_exists('gia_user_profile')) {
     /**
      * Resolve a logged-in / matched user into the SAFE personalization facts GIA

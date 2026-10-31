@@ -392,7 +392,12 @@ if (!function_exists('gia_ch_dispatch')) {
             if (trim($text) === '') { return; }
             // Pass the WhatsApp profile/push name (self-asserted) so the spine can
             // greet a nameless sender and seed a blank/placeholder account name.
-            $res = \App\lib\ai\gia_channel_handle($db, $channel, $sender, $text, $msgId, ['display_name' => (string) ($p['name'] ?? '')]);
+            $res = \App\lib\ai\gia_channel_handle($db, $channel, $sender, $text, $msgId, [
+                'display_name' => (string) ($p['name'] ?? ''),
+                // Click-to-WhatsApp ad referral (Meta) so the spine can attribute the
+                // lead to a campaign on the first turn. Empty for non-ad / Green API.
+                'referral'     => (isset($p['referral']) && is_array($p['referral'])) ? $p['referral'] : [],
+            ]);
             if (empty($res['skip']) && (!empty($res['reply']) || !empty($res['rich']))) {
                 $send((string) ($res['reply'] ?? ''), is_array($res['rich'] ?? null) ? $res['rich'] : []);
             }
@@ -456,11 +461,17 @@ if (!function_exists('gia_ch_parse_greenapi')) {
         $md = $d['messageData'] ?? [];
         $type = (string) ($md['typeMessage'] ?? '');
 
+        // Green API does NOT expose a stable click-to-WhatsApp ad referral field, so
+        // channel attribution on Green API relies on the per-campaign KEYWORD match in
+        // the first message (ad_campaign_resolve_channel). We still pass an (empty)
+        // referral for a uniform parse shape; if Green API ever surfaces ad context it
+        // can be populated here without changing the caller.
+        $referral = [];
         if ($type === 'textMessage') {
-            return ['sender' => $sender, 'id' => $id, 'kind' => 'text', 'text' => (string) ($md['textMessageData']['textMessage'] ?? ''), 'name' => $senderName];
+            return ['sender' => $sender, 'id' => $id, 'kind' => 'text', 'text' => (string) ($md['textMessageData']['textMessage'] ?? ''), 'name' => $senderName, 'referral' => $referral];
         }
         if ($type === 'extendedTextMessage') {
-            return ['sender' => $sender, 'id' => $id, 'kind' => 'text', 'text' => (string) ($md['extendedTextMessageData']['text'] ?? ''), 'name' => $senderName];
+            return ['sender' => $sender, 'id' => $id, 'kind' => 'text', 'text' => (string) ($md['extendedTextMessageData']['text'] ?? ''), 'name' => $senderName, 'referral' => $referral];
         }
         // Interactive reply-button TAP (from sendInteractiveButtonsReply). Verified
         // shape: typeMessage=templateButtonsReplyMessage, with
@@ -511,14 +522,25 @@ if (!function_exists('gia_ch_parse_meta_whatsapp')) {
                     $id   = (string) ($m['id'] ?? '');
                     if ($from === '') { continue; }
 
+                    // Click-to-WhatsApp ad referral (Meta attaches this to the FIRST
+                    // message when the chat was opened from an ad). Captured so GIA can
+                    // attribute the lead to a campaign on the channel path.
+                    $referral = [];
+                    if (!empty($m['referral']) && is_array($m['referral'])) {
+                        $r = $m['referral'];
+                        foreach (['source_url','source_id','source_type','headline','body','ctwa_clid'] as $rk) {
+                            if (!empty($r[$rk]) && is_string($r[$rk])) { $referral[$rk] = mb_substr(trim($r[$rk]), 0, 255); }
+                        }
+                    }
+
                     if ($type === 'text') {
                         $t = (string) ($m['text']['body'] ?? '');
-                        if ($t !== '') { return ['sender' => $from, 'id' => $id, 'kind' => 'text', 'text' => $t, 'name' => $profileName]; }
+                        if ($t !== '') { return ['sender' => $from, 'id' => $id, 'kind' => 'text', 'text' => $t, 'name' => $profileName, 'referral' => $referral]; }
                         continue;
                     }
                     if ($type === 'interactive') {
                         $t = (string) ($m['interactive']['button_reply']['id'] ?? ($m['interactive']['list_reply']['id'] ?? ''));
-                        if ($t !== '') { return ['sender' => $from, 'id' => $id, 'kind' => 'text', 'text' => $t, 'name' => $profileName]; }
+                        if ($t !== '') { return ['sender' => $from, 'id' => $id, 'kind' => 'text', 'text' => $t, 'name' => $profileName, 'referral' => $referral]; }
                         continue;
                     }
                     if ($type === 'location') {

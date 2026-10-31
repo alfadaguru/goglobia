@@ -406,6 +406,16 @@ if (!function_exists('App\\lib\\ai\\gia_umrah_tiers')) {
                     'price'             => $pax > 0 ? \round($unit * $pax, 2) : \round($unit, 2),
                     'currency'          => (string) ($priced['currency'] ?? 'NGN'),
                     'regular'           => $priced['promo']['regular'] ?? null,
+                    // PROMO SURFACING (real figures only): when the pricing engine
+                    // resolved an active promo (regular > the charged unit), expose a
+                    // pax-consistent "was" price + the precomputed saving so GIA can say
+                    // "Regular NGNX, your price NGNY (save Z%)". When there is NO promo
+                    // these are null and GIA must not mention any discount.
+                    'regular_price'     => (isset($priced['promo']['regular'], $priced['promo']['promo'])
+                                            && (float) $priced['promo']['regular'] > (float) $priced['promo']['promo'])
+                                            ? ($pax > 0 ? \round((float) $priced['promo']['regular'] * $pax, 2) : \round((float) $priced['promo']['regular'], 2))
+                                            : null,
+                    'save_pct'          => $priced['promo']['savings_pct'] ?? null,
                     'availability'      => ($remaining <= 0) ? 'sold_out'
                                             : (($remaining <= 10) ? 'limited' : 'available'),
                     'inclusions'        => \is_array($incl) ? $incl : [],

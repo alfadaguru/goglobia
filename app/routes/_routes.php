@@ -458,6 +458,7 @@ require_once 'app/routes/crons/campaignsDispatchRoutes.php'; // scheduled email 
 require_once 'app/routes/crons/airaloSyncRoutes.php'; // Airalo eSIM country catalogue sync (/cron/airalo-sync)
 require_once 'app/routes/crons/bmStrandedIssueRoutes.php'; // BM/agent paid-but-unissued auto-recovery (/cron/bm-stranded-issue)
 require_once 'app/routes/crons/giaPaymentsRoutes.php'; // GIA per-booking payment reminders + expiry sweep
+require_once 'app/routes/crons/giaNurtureRoutes.php'; // GIA quiet-lead nurture (ad campaigns) — /gia_nurture_sweep
 require_once 'app/routes/crons/flightRemindersRoutes.php'; // flight travel reminders (3 pre + 1 post) email+WhatsApp
 require_once 'app/routes/crons/serviceCommsRoutes.php'; // pre/post service comms: stays/umrah/tours/cars/ferries/rail/bus (2 pre + 1 post) + visa/esim (post-only) email+WhatsApp
 require_once 'app/routes/crons/supportShiftNudgeRoutes.php'; // GIA WhatsApps staff not clocked in at shift start, every 15m, capped at 3

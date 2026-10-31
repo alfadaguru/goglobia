@@ -70,6 +70,21 @@ if (!function_exists('ensureAdCampaignSchema')) {
                 KEY `idx_match` (`match_key`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+            // --- match_keyword: the word an ad tells people to send on a
+            // click-to-WhatsApp / messaging ad (e.g. "UMRAHDEC"). Lets the channel
+            // path attribute a lead with no cookie/UTM. Idempotent ADD (older installs
+            // created the table above without it). ------------------------------------
+            try {
+                $exists = $db->query("SHOW COLUMNS FROM `gia_ad_campaigns` LIKE 'match_keyword'")->fetch();
+                if (!$exists) {
+                    $db->query("ALTER TABLE `gia_ad_campaigns` ADD COLUMN `match_keyword` VARCHAR(60) DEFAULT NULL AFTER `match_key`");
+                    try { $db->query("ALTER TABLE `gia_ad_campaigns` ADD KEY `idx_keyword` (`match_keyword`)"); }
+                    catch (\Throwable $e) { /* index may exist; swallow */ }
+                }
+            } catch (\Throwable $e) {
+                error_log('ensureAdCampaignSchema(match_keyword): ' . $e->getMessage());
+            }
+
             // --- gia_conversations.campaign_id: first-touch attribution anchor -----
             // Idempotent ADD (CREATE TABLE IF NOT EXISTS above left existing
             // installs untouched). The chat route stamps this once per conv.
@@ -211,6 +226,86 @@ if (!function_exists('ad_campaign_resolve')) {
             $row = $pick(['platform' => $platform]);
             if ($row) {
                 return $row;
+            }
+        }
+
+        return null;
+    }
+}
+
+if (!function_exists('ad_campaign_resolve_channel')) {
+    /**
+     * Resolve a campaign for a MESSAGING-channel lead (WhatsApp/Telegram/Messenger),
+     * which carries NO cookie/UTM. Match priority (first hit wins):
+     *   1) a campaign's match_keyword appears as a whole word in the first inbound
+     *      message (case-insensitive) — the ad tells people to send e.g. "UMRAHDEC";
+     *   2) click-to-WhatsApp referral: source_id / ctwa_clid / headline matched against
+     *      match_key or name;
+     *   3) referral source_url parsed for utm params -> handed to ad_campaign_resolve().
+     * All candidates still pass the active + time-window filter (via the shared pick
+     * inside ad_campaign_resolve / direct queries here). Fail-soft -> null.
+     *
+     * @param object      $db
+     * @param array       $referral  normalized CTWA referral (source_url/source_id/
+     *                               ctwa_clid/headline) or [] if none
+     * @param string      $firstText the first inbound message text (for keyword match)
+     */
+    function ad_campaign_resolve_channel($db, array $referral, string $firstText): ?array
+    {
+        ensureAdCampaignSchema($db);
+
+        $window = [
+            'active' => 1,
+            'OR #window_start' => ['starts_at' => null, 'starts_at[<=]' => date('Y-m-d H:i:s')],
+            'OR #window_end'   => ['ends_at' => null, 'ends_at[>=]' => date('Y-m-d H:i:s')],
+        ];
+
+        // 1) Keyword in the first message. Only consider campaigns that HAVE a keyword,
+        //    then test each as a whole-word, case-insensitive hit in the text (so a
+        //    campaign "DEC" never matches the word "december" accidentally).
+        $txt = ' ' . strtolower(preg_replace('/[^a-z0-9 ]+/i', ' ', $firstText)) . ' ';
+        if (trim($txt) !== '') {
+            try {
+                $kw = $db->select('gia_ad_campaigns', '*', array_merge(
+                    ['match_keyword[!]' => null],
+                    $window,
+                    ['ORDER' => ['id' => 'DESC']]
+                )) ?: [];
+                foreach ($kw as $c) {
+                    $k = strtolower(trim((string) ($c['match_keyword'] ?? '')));
+                    if ($k !== '' && strpos($txt, ' ' . $k . ' ') !== false) {
+                        return $c;
+                    }
+                }
+            } catch (\Throwable $e) { error_log('ad_campaign_resolve_channel(kw): ' . $e->getMessage()); }
+        }
+
+        // 2) CTWA referral source_id / ctwa_clid / headline -> match_key or name.
+        $refId    = trim((string) ($referral['source_id'] ?? ($referral['ctwa_clid'] ?? '')));
+        $headline = trim((string) ($referral['headline'] ?? ''));
+        $pick = static function (array $extra) use ($db, $window): ?array {
+            try {
+                $row = $db->get('gia_ad_campaigns', '*', array_merge($extra, $window, ['ORDER' => ['id' => 'DESC']]));
+                return is_array($row) ? $row : null;
+            } catch (\Throwable $e) { error_log('ad_campaign_resolve_channel(pick): ' . $e->getMessage()); return null; }
+        };
+        if ($refId !== '')    { $row = $pick(['match_key' => $refId]);    if ($row) { return $row; } }
+        if ($headline !== '') { $row = $pick(['name' => $headline]);      if ($row) { return $row; } }
+
+        // 3) referral source_url -> parse utm params -> existing resolver.
+        $srcUrl = trim((string) ($referral['source_url'] ?? ''));
+        if ($srcUrl !== '') {
+            $qs = (string) (parse_url($srcUrl, PHP_URL_QUERY) ?: '');
+            if ($qs !== '') {
+                parse_str($qs, $q);
+                $params = [];
+                foreach (['utm_source', 'utm_campaign', 'utm_medium', 'fbclid', 'gclid', 'ttclid'] as $k) {
+                    if (!empty($q[$k]) && is_string($q[$k])) { $params[$k] = mb_substr(trim($q[$k]), 0, 191); }
+                }
+                if ($params) {
+                    $row = ad_campaign_resolve($db, $params);
+                    if ($row) { return $row; }
+                }
             }
         }
 

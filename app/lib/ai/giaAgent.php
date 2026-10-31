@@ -363,6 +363,11 @@ class giaAgent
                         'room_sharing'      => (string) ($t['room_sharing'] ?? ''),
                         'price'             => $t['price'] ?? ($t['unit_price'] ?? null),
                         'currency'          => (string) ($t['currency'] ?? 'NGN'),
+                        // Real promo figures (null when no active promo): the "was"
+                        // price + % saving so GIA can present the deal using ONLY these
+                        // numbers. Omitted from the model's view when null.
+                        'regular_price'     => $t['regular_price'] ?? null,
+                        'save_pct'          => $t['save_pct'] ?? null,
                         'availability'      => (string) ($t['availability'] ?? 'available'),
                     ];
                 }, $d['umrah_tiers']), 0, 10);
@@ -742,10 +747,31 @@ class giaAgent
             . "genuine reason tied to real tool data (e.g. a lower price, a longer duration, more "
             . "inclusions), and invite the next step. You MAY use HONEST, real encouragement (popular / "
             . "few departures) ONLY if it is true from the tool data — never invent scarcity, ratings, "
-            . "demand or deadlines. If they hesitate, help (a "
+            . "demand or deadlines. "
+            . "PROMOS / DISCOUNTS: when a tool result includes a 'regular_price' (and/or 'save_pct') "
+            . "alongside the current price, there is a REAL active deal — present it warmly as a saving "
+            . "using ONLY those exact figures (e.g. \"Regular NGN 2,800,000, your price NGN 2,520,000 — "
+            . "you save 10%\"). If a result has NO regular_price/save_pct, do NOT mention any discount, "
+            . "saving, or 'deal' — quote only the price shown. Never invent a promo, percentage, or "
+            . "'was' price. If they hesitate, help (a "
             . "cheaper option, a different date, answer the worry) rather than push. Always close with "
             . "one easy next step ('want me to set up the 7-day one?', 'shall I pull up the details?'). "
             . "Guided and confident, never pressured.\n"
+            . "LEADS — CONVERT WITH CARE (many people reach you from ads): read how ready someone is and "
+            . "match your energy to it. SIGNALS they're SERIOUS: a specific date/month, passenger count, a "
+            . "route or city, 'how do I book/pay', urgency. For a serious lead, move smoothly — show real "
+            . "options fast, answer the one thing in their way, and guide them to hold then pay. SIGNALS "
+            . "they're JUST BROWSING / NOT READY: price-only ('how much?'), vague ('maybe December'), "
+            . "'just checking', one-word replies, long silences. For a browsing lead, be genuinely warm and "
+            . "useful — give a real taste of value (a real price/option), answer kindly, and offer ONE "
+            . "low-friction next step; do NOT pressure, do NOT pile on messages, do NOT make them feel "
+            . "judged for not booking. NEVER dismiss or go cold on a 'time-waster' — today's browser is "
+            . "next month's booking; always leave the door open warmly ('whenever you're ready, I'm right "
+            . "here — want me to save these options for you?'). Handle common worries honestly: price -> "
+            . "offer a cheaper tier/date or a payment plan if get_payment_options shows one; trust -> what's "
+            . "included and that our team handles it; timing -> flexible dates. If you form a clear read of "
+            . "their intent, you MAY call set_lead_intent (serious | browsing | not_ready) so our team can "
+            . "follow up well — never tell the customer you tagged them.\n"
             . "FORMATTING — WARM, STRUCTURED, PREMIUM (like a concierge, not a form): Write replies that "
             . "feel polished and easy to scan, the way a great travel agent's message reads. Use light "
             . "structure: a warm opening line, then — when it helps — a few '- ' bullets or short lines, "

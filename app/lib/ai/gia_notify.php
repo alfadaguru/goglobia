@@ -207,6 +207,86 @@ if (!function_exists('App\\lib\\ai\\gia_nurture_lead')) {
     }
 }
 
+if (!function_exists('App\\lib\\ai\\gia_nurture_sweep')) {
+    /**
+     * Cron worker: re-engage QUIET, un-converted leads from ad campaigns with ONE warm
+     * WhatsApp/email follow-up (via gia_nurture_lead, which is itself idempotent per lead
+     * and best-effort). Scope — a conversation qualifies when:
+     *   - it is attributed to a campaign (campaign_id set) that is STILL active/in-window,
+     *   - it has NOT converted (booking_count = 0),
+     *   - it has a resolved lead (lead_id) that has a phone and/or email,
+     *   - it went quiet: last_at is older than $quietHours but within $lookbackHours
+     *     (so we chase recent drop-offs, never an ancient backlog),
+     *   - the lead is intent != 'serious' is NOT required — we skip ones already nurtured
+     *     (gia_nurture_lead dedups on the lead 'note'), and never nurture a 'not_ready'
+     *     lead who explicitly opted out (treated as nurtured).
+     * Idempotent + bounded. Returns counts. Flights-style best-effort (never throws).
+     *
+     * @param object $db
+     * @param int    $quietHours    min hours of silence before a nudge (default 6)
+     * @param int    $lookbackHours only consider convs active within this window (default 72)
+     */
+    function gia_nurture_sweep($db, int $quietHours = 6, int $lookbackHours = 72): array
+    {
+        $sent = 0; $scanned = 0; $skipped = 0;
+        if (!function_exists('ensureGiaAnalyticsSchema')) { return ['ok' => false]; }
+        try {
+            ensureGiaAnalyticsSchema($db);
+            if (function_exists('ensureAdCampaignSchema')) { ensureAdCampaignSchema($db); }
+
+            $now = time();
+            $quietBefore = date('Y-m-d H:i:s', $now - $quietHours * 3600);
+            $lookback    = date('Y-m-d H:i:s', $now - $lookbackHours * 3600);
+
+            // Candidate conversations: campaign-attributed, unconverted, quiet, recent,
+            // with a lead. Bounded scan.
+            $rows = $db->select('gia_conversations',
+                ['id', 'lead_id', 'campaign_id', 'booking_count', 'last_at', 'started_at', 'staff_active', 'closed'],
+                [
+                    'campaign_id[!]' => null,
+                    'booking_count'  => 0,
+                    'lead_id[!]'     => null,
+                    'staff_active'   => 0,
+                    'last_at[<=]'    => $quietBefore,
+                    'last_at[>=]'    => $lookback,
+                    'ORDER'          => ['last_at' => 'DESC'],
+                    'LIMIT'          => 300,
+                ]) ?: [];
+
+            foreach ($rows as $c) {
+                $scanned++;
+                $campaignId = (int) ($c['campaign_id'] ?? 0);
+                $leadId     = (int) ($c['lead_id'] ?? 0);
+                $convId     = (int) ($c['id'] ?? 0);
+                if ($campaignId <= 0 || $leadId <= 0) { $skipped++; continue; }
+
+                // Campaign must still be active + in its time window (don't chase leads
+                // for an offer that already ended).
+                $camp = $db->get('gia_ad_campaigns', ['id', 'active', 'starts_at', 'ends_at'], ['id' => $campaignId]);
+                if (!$camp || (int) ($camp['active'] ?? 0) !== 1) { $skipped++; continue; }
+                $nowStr = date('Y-m-d H:i:s');
+                if (!empty($camp['starts_at']) && $camp['starts_at'] > $nowStr) { $skipped++; continue; }
+                if (!empty($camp['ends_at'])   && $camp['ends_at']   < $nowStr) { $skipped++; continue; }
+
+                // Skip leads that explicitly said not now (respect their wish).
+                try {
+                    $lead = $db->get('gia_leads', ['intent'], ['id' => $leadId]);
+                    if ($lead && (string) ($lead['intent'] ?? '') === 'not_ready') { $skipped++; continue; }
+                } catch (\Throwable $e) { /* intent col may be absent on old installs — proceed */ }
+
+                // gia_nurture_lead is idempotent (dedups on the lead 'note') + best-effort.
+                if (gia_nurture_lead($db, $leadId, $convId)) { $sent++; }
+                else { $skipped++; }
+            }
+
+            return ['ok' => true, 'scanned' => $scanned, 'sent' => $sent, 'skipped' => $skipped];
+        } catch (\Throwable $e) {
+            error_log('[gia] nurture_sweep: ' . $e->getMessage());
+            return ['ok' => false];
+        }
+    }
+}
+
 if (!function_exists('App\\lib\\ai\\gia_lead_summary')) {
     /**
      * A short HTML summary of what the traveller searched/selected in this

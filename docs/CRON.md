@@ -31,6 +31,7 @@ email you every run.)
 */10 * * * *    curl -s "https://goglobia.com/cron/flight-reminders"     > /dev/null 2>&1
 */20 * * * *    curl -s "https://goglobia.com/cron/service-comms"        > /dev/null 2>&1
 */15 * * * *    curl -s "https://goglobia.com/support_shift_nudge"       > /dev/null 2>&1
+0 * * * *       curl -s "https://goglobia.com/gia_nurture_sweep"         > /dev/null 2>&1
 
 # ── Money / booking lifecycle ────────────────────────────────────────
 */5 * * * *     curl -s "https://goglobia.com/cron/campaigns/dispatch"   > /dev/null 2>&1
@@ -62,6 +63,7 @@ email you every run.)
 | */10 | `/cron/flight-reminders` | Flight travel reminders: 3 pre-flight (≈24h/4h/1h before) + 1 post-flight thank-you/review/rebook, email + WhatsApp. | `crons/flightRemindersRoutes.php` → `flight_reminders_sweep()` |
 | */20 | `/cron/service-comms` | Pre/post comms for **stays, umrah, tours, cars, ferries, rail, bus** (2 pre + 1 post, travel-date anchored) and **visa, esim** (post-only, purchase anchored). Email + WhatsApp. | `crons/serviceCommsRoutes.php` → `service_comms_sweep()` |
 | */15 | `/support_shift_nudge` | GIA WhatsApps support staff who haven't clocked in at shift start (then every 15 min, capped at 3). | `crons/supportShiftNudgeRoutes.php` |
+| hourly | `/gia_nurture_sweep` | Re-engages quiet, un-converted leads from ACTIVE ad campaigns with ONE warm WhatsApp/email follow-up (idempotent; respects not_ready + ended campaigns). | `crons/giaNurtureRoutes.php` → `gia_nurture_sweep()` |
 | */5 | `/cron/campaigns/dispatch` | Sends due scheduled email campaigns (and resumes multi-tick sends). | `crons/campaignsDispatchRoutes.php` |
 | */5 | `/pay_later_sweep` | Pay-Later: per-scope reminder emails + deadline (auto-cancel/flag) handling. | `crons/payLaterRoutes.php` |
 | */10 | `/cron/bm-stranded-issue` | Auto-recovers BM/agent bookings that were paid but never issued at the supplier. | `crons/bmStrandedIssueRoutes.php` |
