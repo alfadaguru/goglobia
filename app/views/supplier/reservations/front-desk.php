@@ -47,7 +47,12 @@
       echo '<span class="block text-xs text-gray-400 truncate">' . $sub . '</span>';
       echo '</span>';
       // Inline quick action (only when the staffer can edit and a verb is given).
-      if ($canEdit && $quick !== '' && $inv !== '') {
+      // Belt-and-braces (audit UX#3): never show "Check in" on a row already checked in,
+      // nor "Check out" on one already checked out — even if a bucket mis-lists it.
+      $__state = (string) ($r['_stay_state'] ?? '');
+      $__suppress = ($quick === 'express_checkin' && $__state === 'checked_in')
+                 || ($quick === 'express_checkout' && $__state === 'checked_out');
+      if ($canEdit && $quick !== '' && $inv !== '' && !$__suppress) {
         $label = $quick === 'express_checkin' ? 'Check in' : 'Check out';
         echo '<form method="POST" action="' . $actionBase . rawurlencode($inv) . '/action" class="shrink-0" '
            . 'onsubmit="return confirm(\'' . ($quick === 'express_checkin' ? 'Check this guest in now?' : 'Check this guest out and settle the folio?') . '\');">';
@@ -138,8 +143,12 @@
             $occ = (string) ($rm['occupant_name'] ?? '');
             $occInv = (string) ($rm['occupant_invoice'] ?? '');
             $rtype = (string) ($rm['room_type'] ?? '');
-            // How a front desk names a room: "Deluxe Room · 101" (type + number).
-            $roomLabel = ($rtype !== '' ? $rtype . ' · ' : '') . (string) ($rm['room_number'] ?? '');
+            $rname = (string) ($rm['room_name'] ?? ''); // the room's OWN name (audit UX#4)
+            // How a front desk identifies a room: its NUMBER + its own NAME ("12 · Standard
+            // King"), with the TYPE as context. The name is what distinguishes rooms that
+            // share a type, so it must be visible — not just the type.
+            $rdesc = $rname !== '' ? $rname : $rtype; // primary descriptor = name, fallback type
+            $roomLabel = (string) ($rm['room_number'] ?? '') . ($rdesc !== '' ? ' · ' . $rdesc : '');
             $tip = $roomLabel
                  . ($rm['floor'] !== '' ? ' · Floor ' . $rm['floor'] : '')
                  . ' · ' . ($statusLabel[$st] ?? $st)
@@ -174,7 +183,7 @@
                 <a href="<?= htmlspecialchars($tileHref) ?>" title="<?= htmlspecialchars($tileTitle) ?>"
                    class="block border rounded-lg px-2 py-2 text-center transition hover:ring-2 hover:ring-offset-1 hover:ring-violet-300 cursor-pointer <?= $cls ?>">
                   <div class="text-sm font-bold tabular-nums leading-tight"><?= htmlspecialchars((string) ($rm['room_number'] ?? '—')) ?></div>
-                  <?php if ($rtype !== ''): ?><div class="text-[9px] uppercase tracking-wide opacity-70 leading-tight truncate"><?= htmlspecialchars($rtype) ?></div><?php endif; ?>
+                  <?php if ($rdesc !== ''): ?><div class="text-[9px] leading-tight truncate" title="<?= htmlspecialchars($rdesc . ($rtype !== '' && $rname !== '' ? ' · ' . $rtype : '')) ?>"><?= htmlspecialchars($rdesc) ?></div><?php endif; ?>
                   <div class="text-[10px] leading-tight truncate"><?= $occ !== '' ? htmlspecialchars($occ) : '<span class="opacity-60">reserve →</span>' ?></div>
                   <?php if ($occInv !== ''): ?><span class="material-symbols-outlined text-[13px] absolute top-1 right-1 opacity-70">person</span>
                   <?php else: ?><span class="material-symbols-outlined text-[13px] absolute top-1 right-1 opacity-50">add</span><?php endif; ?>
@@ -182,13 +191,14 @@
               <?php else: ?>
                 <div class="border rounded-lg px-2 py-2 text-center cursor-default <?= $cls ?>" tabindex="0">
                   <div class="text-sm font-bold tabular-nums leading-tight"><?= htmlspecialchars((string) ($rm['room_number'] ?? '—')) ?></div>
-                  <?php if ($rtype !== ''): ?><div class="text-[9px] uppercase tracking-wide opacity-70 leading-tight truncate"><?= htmlspecialchars($rtype) ?></div><?php endif; ?>
+                  <?php if ($rdesc !== ''): ?><div class="text-[9px] leading-tight truncate" title="<?= htmlspecialchars($rdesc . ($rtype !== '' && $rname !== '' ? ' · ' . $rtype : '')) ?>"><?= htmlspecialchars($rdesc) ?></div><?php endif; ?>
                   <div class="text-[10px] leading-tight truncate"><?= $occ !== '' ? htmlspecialchars($occ) : '<span class="opacity-60">' . ($isOOO ? 'out of order' : 'vacant') . '</span>' ?></div>
                 </div>
               <?php endif; ?>
               <!-- hover / focus details -->
               <div class="pointer-events-none group-hover:block group-focus-within:block hidden absolute z-30 left-1/2 -translate-x-1/2 mt-1 w-56 rounded-lg bg-gray-900 text-white text-xs shadow-xl p-3 space-y-1">
-                <div class="font-semibold"><?= $rtype !== '' ? htmlspecialchars($rtype) . ' · ' : '' ?><?= htmlspecialchars((string) ($rm['room_number'] ?? '')) ?><?= $rm['floor'] !== '' ? ' · Floor ' . htmlspecialchars((string) $rm['floor']) : '' ?></div>
+                <div class="font-semibold">Room <?= htmlspecialchars((string) ($rm['room_number'] ?? '')) ?><?= $rname !== '' ? ' · ' . htmlspecialchars($rname) : '' ?><?= $rm['floor'] !== '' ? ' · Floor ' . htmlspecialchars((string) $rm['floor']) : '' ?></div>
+                <?php if ($rtype !== ''): ?><div class="opacity-70 text-[11px]"><?= htmlspecialchars($rtype) ?></div><?php endif; ?>
                 <div>Status: <span class="font-medium"><?= htmlspecialchars($statusLabel[$st] ?? $st) ?></span></div>
                 <div>Guest: <?= $occ !== '' ? htmlspecialchars($occ) : '<span class="opacity-70">vacant</span>' ?></div>
                 <?php if ($rm['notes'] !== ''): ?><div class="opacity-80">Note: <?= htmlspecialchars((string) $rm['notes']) ?></div><?php endif; ?>

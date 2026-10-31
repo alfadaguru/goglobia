@@ -792,11 +792,26 @@ if (!function_exists('resv_dashboard_buckets')) {
             if (strtolower((string) ($r['booking_status'] ?? '')) === 'cancelled') { continue; }
             $ci = (string) ($r['_checkin'] ?? ''); $co = (string) ($r['_checkout'] ?? '');
             if ($ci === '' || $co === '') { continue; }
-            if ($ci === $date) { $out['arrivals'][] = $r; }
-            if ($co === $date) { $out['departures'][] = $r; }
-            if ($ci <= $date && $date < $co) {
-                $out['in_house'][] = $r;
-                if ($ci < $date) { $out['stayover'][] = $r; } // in-house but not arriving today
+            $state = (string) ($r['_stay_state'] ?? '');
+            $checkedIn  = ($state === 'checked_in');
+            $checkedOut = ($state === 'checked_out');
+            // ARRIVALS = guests due to arrive today who have NOT yet been checked in (audit
+            // UX#3). Once checked in, a booking is no longer a pending arrival — it leaves
+            // this list (and the inline Check-in button with it) and lives in In-house.
+            // A checked-out booking is likewise not an arrival.
+            if ($ci === $date && !$checkedIn && !$checkedOut) { $out['arrivals'][] = $r; }
+            // DEPARTURES = due to check out today and not already checked out.
+            if ($co === $date && !$checkedOut) { $out['departures'][] = $r; }
+            // IN-HOUSE = physically in the hotel tonight: the stay window covers today, the
+            // guest is NOT checked out, and either they are checked in OR their stay started
+            // before today (an ongoing stay — incl. legacy rows with no pms_stay_state). A
+            // same-day arrival that has NOT been checked in yet is NOT in-house — it sits in
+            // Arrivals until the desk checks it in (which then moves it here, audit UX#3).
+            if ($ci <= $date && $date < $co && !$checkedOut) {
+                if ($checkedIn || $ci < $date) {
+                    $out['in_house'][] = $r;
+                    if ($ci < $date) { $out['stayover'][] = $r; } // in-house and not arriving today
+                }
             }
         }
         $out['arrivals_n'] = count($out['arrivals']);

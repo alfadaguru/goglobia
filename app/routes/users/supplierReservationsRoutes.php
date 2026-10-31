@@ -169,6 +169,8 @@ if (!function_exists('supplier_fetch_reservations')) {
             $r['_checkin']  = (string) ($bd['checkin'] ?? '');
             $r['_checkout'] = (string) ($bd['checkout'] ?? '');
             $r['_no_show']  = !empty($bd['supplier_no_show']);
+            $r['_stay_state'] = (string) ($bd['pms_stay_state'] ?? ''); // '', 'confirmed', 'checked_in', 'checked_out' (audit UX#3)
+            $r['_physical_room_id'] = (int) ($bd['pms_physical_room_id'] ?? 0);
             // Earnings accrual (inc S18): materialize the supplier's earning for a
             // PAID booking. Idempotent (UNIQUE invoice_id + locked pre-check), so
             // calling it here on every inbox view is safe and self-healing. Non-fatal.

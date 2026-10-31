@@ -218,7 +218,11 @@ if (!function_exists('fd_room_board')) {
         // Resolve each physical room's TYPE NAME (Deluxe / King / …) so the board can show
         // it alongside the number — the way front desks identify rooms ("Deluxe 101").
         // Path: stays_physical_rooms.room_id -> stays_rooms.room_type_id -> stays_settings.name.
+        // Also resolve each physical room's OWN descriptive NAME (e.g. "Standard King",
+        // "Deluxe Queen") — several rooms share one type, so the NAME is how the operator
+        // tells them apart. Shown on the board so you know WHICH room, not just its category.
         $typeByRoomId = [];
+        $nameByRoomId = [];
         try {
             $rtNames = [];
             foreach ($db->select('stays_settings', ['id', 'name'], ['setting_type' => 'room_type']) ?: [] as $rt) {
@@ -226,8 +230,9 @@ if (!function_exists('fd_room_board')) {
             }
             $ridSet = array_values(array_unique(array_filter(array_map(fn($r) => (int) ($r['room_id'] ?? 0), $rooms))));
             if (!empty($ridSet)) {
-                foreach ($db->select('stays_rooms', ['id', 'room_type_id'], ['id' => $ridSet]) ?: [] as $sr) {
+                foreach ($db->select('stays_rooms', ['id', 'room_type_id', 'room_name'], ['id' => $ridSet]) ?: [] as $sr) {
                     $typeByRoomId[(int) $sr['id']] = $rtNames[(int) $sr['room_type_id']] ?? '';
+                    $nameByRoomId[(int) $sr['id']] = trim((string) ($sr['room_name'] ?? ''));
                 }
             }
         } catch (\Throwable $e) { error_log('fd_room_board types: ' . $e->getMessage()); }
@@ -253,6 +258,7 @@ if (!function_exists('fd_room_board')) {
                 'id'               => $prid,
                 'room_number'      => (string) ($r['room_number'] ?? ''),
                 'room_type'        => $typeByRoomId[(int) ($r['room_id'] ?? 0)] ?? '',
+                'room_name'        => $nameByRoomId[(int) ($r['room_id'] ?? 0)] ?? '', // the room's OWN name (audit UX#4)
                 'floor'            => $floorLabel,
                 'hk_status'        => (string) ($r['hk_status'] ?? 'clean'),
                 'notes'            => (string) ($r['notes'] ?? ''),
