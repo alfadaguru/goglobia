@@ -54,6 +54,13 @@ $router->post('/esim/booking/submit', function () use ($SECURE, $db) {
         if (empty($primaryGuest['first_name']) || empty($primaryGuest['last_name']) || empty($primaryGuest['email']) || empty($primaryGuest['phone'])) {
             throw new Exception('Guest details are required');
         }
+        // A VALID email is required: it is the Paystack payer email — a malformed
+        // one makes /transaction/initialize 400 and the gateway never launches.
+        // (empty() above passes a non-blank-but-invalid string, so validate here.)
+        $primaryGuest['email'] = trim((string) $primaryGuest['email']);
+        if (!filter_var($primaryGuest['email'], FILTER_VALIDATE_EMAIL)) {
+            throw new Exception('Please enter a valid email address.');
+        }
 
         // Airalo order preparation requires package_id, quantity, and type.
         // For topups, we also capture the target SIM identifier for reservation prep.
@@ -375,31 +382,6 @@ $router->post('/esim/booking/submit', function () use ($SECURE, $db) {
             }
         }
 
-        if (class_exists('NOTIFY')) {
-            $customerData = [
-                'email' => (string) ($primaryGuest['email'] ?? ''),
-                'phone' => (string) ($primaryGuest['phone'] ?? ''),
-                'first_name' => (string) ($primaryGuest['first_name'] ?? ''),
-                'last_name' => (string) ($primaryGuest['last_name'] ?? ''),
-                'country_code' => (string) ($primaryGuest['country_code'] ?? ''),
-            ];
-
-            $notifyData = [
-                'invoice_id' => $invoiceId,
-                'amount' => round($totalPrice, 2),
-                'currency' => $currency,
-                'payment_status' => 'unpaid',
-                'package_name' => (string) ($selectedPackage['title'] ?? 'eSIM Package'),
-                'country' => (string) ($countryRow['nicename'] ?? $countryIso),
-                'module_type' => 'eSIM',
-            ];
-
-            // Attach the no-price TICKET (travel document) to the confirmation.
-            // Priced invoice stays payer-only (receipt + on-demand download).
-            $ticketPdf = function_exists('GENERATE_BOOKING_PDF') ? GENERATE_BOOKING_PDF($invoiceId, 'ticket') : null;
-            NOTIFY::booking('esim', $customerData, $notifyData, $ticketPdf, $ticketPdf);
-        }
-
         // Let the (possibly guest) session that created this invoice view it —
         // otherwise enforceInvoiceAccess() bounces them to /login on their own
         // fresh invoice (see grantInvoiceSessionOwnership()).
@@ -407,11 +389,26 @@ $router->post('/esim/booking/submit', function () use ($SECURE, $db) {
             grantInvoiceSessionOwnership($invoiceId);
         }
 
+        // BUGFIX — eSIM checkout "loader spins forever, gateway never launches":
+        // DO NOT send a confirmation email / generate the PDF here. This runs under
+        // mod_php (no fastcgi_finish_request), so any work before the response
+        // blocks the browser's fetch(). The old handler ran GENERATE_BOOKING_PDF
+        // (mPDF) + NOTIFY::booking (synchronous SMTP/WhatsApp/SMS) INLINE — a slow
+        // or unreachable mail host froze the socket for its full timeout, so the
+        // loader never resolved and the customer never reached the invoice page to
+        // pay. eSIM was the only service doing this at submit time.
+        //
+        // It is also redundant: the booking is UNPAID here (a "confirmed" email
+        // before payment is wrong), and the customer is already notified AFTER
+        // payment — bm_notify_paid fires from the payment callback fallback for
+        // webhookless services incl. esim (payment-gateway.php:1335), delivering the
+        // real eSIM voucher/QR. So we respond fast and let the invoice page launch
+        // the gateway.
         echo json_encode([
             'success' => true,
             'invoice_id' => $invoiceId,
             'redirect_url' => root . 'invoice/esim/' . $invoiceId,
-            'message' => 'Booking confirmed. Proceed to payment.',
+            'message' => 'Booking created. Proceed to payment.',
         ]);
         exit;
     } catch (Exception $e) {

@@ -90,7 +90,19 @@ if (!empty($config['currency'])) {
     $currency = strtoupper($config['currency']);
 }
 
-$email = $booking['email'] ?? 'customer@example.com';
+// A VALID email is REQUIRED by Paystack's /transaction/initialize — an empty or
+// malformed address returns 400 "email must be a valid email" and the gateway
+// never launches (observed as "gateway could not launch" on checkout). The old
+// `?? 'customer@example.com'` only caught a NULL, not the empty string the payload
+// path produces, so a booking with a blank email failed. Use a real fallback that
+// triggers on empty/invalid too, so the gateway always launches.
+$email = trim((string) ($booking['email'] ?? ''));
+if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    $__fallbackDomain = preg_replace('/^https?:\/\//', '', rtrim((string) root, '/'));
+    $__fallbackDomain = preg_replace('/[^a-z0-9.\-]/i', '', $__fallbackDomain) ?: 'example.com';
+    if (strpos($__fallbackDomain, '.') === false) { $__fallbackDomain .= '.com'; }
+    $email = 'noreply+' . preg_replace('/[^a-z0-9]/i', '', (string) ($booking['invoice_id'] ?? 'guest')) . '@' . $__fallbackDomain;
+}
 $reference = 'PSK-' . $booking['invoice_id'] . '-' . time();
 
 // Build callback URL - includes payment_status=success to trigger invoice route handler.

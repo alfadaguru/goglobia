@@ -353,16 +353,41 @@ if (!function_exists('airalo_authoritative_price')) {
         };
 
         // Try local packages first, then global (a package id may be either type).
+        //
+        // PERF / HANG FIX (eSIM checkout "loader spins forever"): this ran up to 3
+        // LIVE /v2/packages fetches each with a 60s timeout on EVERY checkout, so a
+        // slow/unreachable Airalo (or a package not in the first sweep) blocked the
+        // browser for up to ~3 minutes and the gateway never launched. Fixes:
+        //  (1) a short-TTL FILE CACHE of each /v2/packages response (10 min) so
+        //      repeated checkouts/cart views don't each pay the round-trip;
+        //  (2) a tight per-call timeout (12s) so a stalled Airalo can't hang the UI.
+        // Price-trust is preserved: the authoritative sell is still re-derived from
+        // Airalo's catalog price + the DB commission rule, just from a 10-min-fresh
+        // snapshot instead of a live call on every click.
+        $pkgCacheDir = function_exists('_airalo_cache_dir') ? _airalo_cache_dir() : sys_get_temp_dir();
+        $fetchPackages = static function (array $query) use ($db, $environment, $pkgCacheDir) {
+            $ck = $pkgCacheDir . DIRECTORY_SEPARATOR . 'pkgs_' . hash('sha256', $environment . '|' . json_encode($query)) . '.json';
+            if (is_file($ck) && (time() - (int) @filemtime($ck)) < 600) {
+                $cached = json_decode((string) @file_get_contents($ck), true);
+                if (is_array($cached) && !empty($cached['data'])) { return $cached; }
+            }
+            $res = _airalo_request_with_token($db, 'GET', '/v2/packages', [
+                'env' => $environment, 'query' => $query, 'timeout' => 12, 'connect_timeout' => 6,
+            ]);
+            if (!empty($res['ok']) && !empty($res['data']['data'])) {
+                @file_put_contents($ck, json_encode($res['data']));
+                return $res['data'];
+            }
+            return null;
+        };
         $match = null;
         foreach ([['filter[type]' => 'local'], ['filter[type]' => 'global'], []] as $extra) {
             $query = array_merge(['limit' => 200, 'page' => 1, 'filter[country]' => $country], $extra);
             // global packages aren't country-filtered the same way — drop the country filter for the global sweep
             if (($extra['filter[type]'] ?? '') === 'global') { unset($query['filter[country]']); }
-            $res = _airalo_request_with_token($db, 'GET', '/v2/packages', [
-                'env' => $environment, 'query' => $query, 'timeout' => 60,
-            ]);
-            if (empty($res['ok']) || empty($res['data']['data'])) { continue; }
-            foreach ($flatten($res['data']) as $pkg) {
+            $data = $fetchPackages($query);
+            if (!$data) { continue; }
+            foreach ($flatten($data) as $pkg) {
                 if ((string) ($pkg['id'] ?? '') === $packageId) { $match = $pkg; break 2; }
             }
         }
