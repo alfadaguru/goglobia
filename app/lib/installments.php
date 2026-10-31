@@ -154,6 +154,15 @@ if (!function_exists('installments_settle_payment')) {
         $result = ['ok' => false, 'status' => 'error'];
         try {
             $db->action(function ($db) use ($invoiceId, $amount, $txnId, $now, &$result) {
+                // CONCURRENCY LOCK (money-flow audit M2): serialise concurrent
+                // distinct-txn settlements for the same booking. Without a lock, two
+                // payments (e.g. an async gateway webhook racing the sync callback)
+                // both read the same pending-slice snapshot, both allocate to the
+                // same seq, and one payment is collected but never credited (ledger
+                // drift). Lock the booking row FIRST so the second settlement blocks
+                // until the first commits, then re-reads the updated schedule. Mirrors
+                // the FOR UPDATE already used by installments_create_schedule.
+                $db->query('SELECT id FROM bookings WHERE invoice_id = :inv FOR UPDATE', [':inv' => $invoiceId]);
                 $pending = $db->select('booking_installments', '*', [
                     'invoice_id' => $invoiceId, 'status' => ['pending', 'overdue'], 'ORDER' => ['seq' => 'ASC'],
                 ]) ?: [];

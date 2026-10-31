@@ -1159,6 +1159,13 @@ if (!function_exists('umrah_settle_payment')) {
         $result = ['ok' => false, 'status' => 'error'];
         try {
             $db->action(function ($db) use ($ub, $ubId, $amount, $txnId, $now, $invoiceId, &$result) {
+                // CONCURRENCY LOCK (money-flow audit M2): serialise concurrent
+                // distinct-txn settlements for this booking so two payments can't
+                // both allocate to the same pending installment (one collected,
+                // never credited). Lock the umrah_bookings row FIRST; the second
+                // settlement blocks until the first commits, then re-reads the
+                // updated schedule. Same idiom as the generic installments engine.
+                $db->query('SELECT id FROM umrah_bookings WHERE id = :id FOR UPDATE', [':id' => (int) $ubId]);
                 // Allocate the payment across pending installments (in seq order).
                 $pending = $db->select('umrah_installments', '*', [
                     'umrah_booking_id' => $ubId,
