@@ -696,6 +696,21 @@ if (!function_exists('_resv_reprice_and_rehold')) {
                     $prMappedRoom = (int) ($db->get('stays_physical_rooms', 'room_id', ['id' => $prevPrid]) ?: 0);
                     if ($prMappedRoom !== (int) $newRoomId) {
                         unset($bd['pms_physical_room_id']);
+                    } else {
+                        // Same room type, but the DATES may have moved (dates-only modify,
+                        // audit M10). Re-validate the retained physical room against the NEW
+                        // window: if it now has an active OOO block, or is held by ANOTHER
+                        // overlapping reservation, drop the assignment (the desk re-assigns)
+                        // rather than leaving the guest shown in an OOO / double-booked room.
+                        $conflict = false;
+                        if (function_exists('hk_room_has_ooo_overlap') && hk_room_has_ooo_overlap($db, $prevPrid, $newCheckin, $newCheckout)) {
+                            $conflict = true;
+                        }
+                        if (!$conflict && function_exists('hk_rooms_blocking')) {
+                            $blk = hk_rooms_blocking($db, $stayId, $newCheckin, $newCheckout, $invoiceId); // excludes THIS booking
+                            if (isset($blk[$prevPrid])) { $conflict = true; }
+                        }
+                        if ($conflict) { unset($bd['pms_physical_room_id']); }
                     }
                 }
                 $bd['selected_rooms'] = [[
