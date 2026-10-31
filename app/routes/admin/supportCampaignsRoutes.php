@@ -110,6 +110,15 @@ $router->post(admin.'/support/campaigns/save', function () use ($SECURE, $db) {
             $v = preg_replace('/[^A-Z0-9]/', '', $v);
             return $v !== '' ? substr($v, 0, 60) : null;
         })($_POST['match_keyword'] ?? ''),
+        // Optional per-route target for a FLIGHTS campaign: canonical directional
+        // ORIG-DEST IATA, e.g. "LOS-ABV". Normalised; blank = all flights.
+        'scope_route'   => (function ($v) {
+            $v = strtoupper(trim((string) $v));
+            if (preg_match('/^([A-Z]{3})\s*[-\x{2192}>\/ ]+\s*([A-Z]{3})$/u', $v, $m)) {
+                return $m[1] . '-' . $m[2];
+            }
+            return null;
+        })($_POST['scope_route'] ?? ''),
         'active'        => !empty($_POST['active']) ? 1 : 0,
         'starts_at'     => $norm($_POST['starts_at'] ?? ''),
         'ends_at'       => $norm($_POST['ends_at'] ?? ''),

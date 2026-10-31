@@ -74,6 +74,12 @@ $router->get(admin.'/support/conversion', function () use ($SECURE, $db) {
         }
     }
 
+    // Per-route flight funnel (auto — every flight lead stamps its route). Shown as a
+    // second table so the owner sees which Nigerian routes actually convert.
+    $routeReport = function_exists('ad_campaign_route_conversion_report')
+        ? ad_campaign_route_conversion_report($db, $from, $to)
+        : [];
+
     $title = 'Conversion Analytics'; $description = ''; $header = true; $footer = true;
     require_once views."includes/header.php";
     require_once "app/views/admin/support/conversion.php";

@@ -652,6 +652,45 @@ if (!function_exists('App\\lib\\ai\\gia_channel_handle')) {
         // reply ("2") resolves to the exact choice instead of re-searching.
         gia_channel_store_choices($db, $convId, $rich);
 
+        // --- PER-ROUTE FLIGHT ATTRIBUTION (2nd stage) ---------------------------------
+        // The route isn't known at first-turn (ad click / "Hey"); it becomes known when
+        // a flights_search runs. Capture the canonical ORIG-DEST from this turn's search,
+        // stamp it on the conversation (first-search wins) for the per-route conversion
+        // breakdown, and — if this conversation isn't yet attributed to a campaign — try
+        // a route-scoped flights campaign. Fully guarded + fail-soft (never breaks chat).
+        if ($convId > 0 && is_array($result['tool_runs'] ?? null)) {
+            try {
+                if (!function_exists('ad_campaign_route_from_flight_result')) {
+                    $cl = dirname(__DIR__) . '/support/campaigns.php';
+                    if (is_file($cl)) { require_once $cl; }
+                }
+                foreach ($result['tool_runs'] as $tr) {
+                    if ((string) ($tr['name'] ?? '') !== 'flights_search') { continue; }
+                    $in  = is_array($tr['input'] ?? null) ? $tr['input'] : [];
+                    $out = is_array($tr['output']['data'] ?? null) ? $tr['output']['data']
+                         : (is_array($tr['output'] ?? null) ? $tr['output'] : []);
+                    $route = function_exists('ad_campaign_route_from_flight_result')
+                        ? ad_campaign_route_from_flight_result($in, $out) : '';
+                    if ($route === '') { continue; }
+                    if (function_exists('gia_conv_set_route')) { gia_conv_set_route($db, $convId, $route); }
+                    // 2nd-stage attribution: only when not already attributed (first-touch
+                    // keyword/referral from turn 1 wins; a generic flights campaign is left
+                    // as-is — a route-scoped row is a refinement, not an override).
+                    try {
+                        $cur = $db->get('gia_conversations', ['campaign_id'], ['id' => $convId]);
+                        $already = (int) ($cur['campaign_id'] ?? 0);
+                        if ($already <= 0 && function_exists('ad_campaign_resolve_route')) {
+                            $rc = ad_campaign_resolve_route($db, $route);
+                            if (is_array($rc) && !empty($rc['id']) && function_exists('ad_campaign_stamp_conversation')) {
+                                ad_campaign_stamp_conversation($db, $convId, (int) $rc['id']);
+                            }
+                        }
+                    } catch (\Throwable $e) { error_log('[gia] route attribution: ' . $e->getMessage()); }
+                    break; // first flights_search this turn is enough
+                }
+            } catch (\Throwable $e) { error_log('[gia] route stamp: ' . $e->getMessage()); }
+        }
+
         // --- Persist the turn (cross-device resume + admin reporting). ---
         if ($convId > 0 && function_exists('gia_log_turn')) {
             gia_log_turn($db, $convId, $text, $reply, is_array($result['usage'] ?? null) ? $result['usage'] : []);

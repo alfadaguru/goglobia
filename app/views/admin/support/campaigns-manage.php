@@ -104,6 +104,11 @@ $curProduct  = strtolower((string) ($c['offer_product'] ?? ''));
                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-1" placeholder="e.g. UMRAHDEC">
           <p class="text-xs text-gray-500 mb-3">If your ad opens WhatsApp/Telegram chat, tell people to send this word (e.g. &ldquo;Send UMRAHDEC to get the December offer&rdquo;). GIA matches it in their first message and attributes the lead to this campaign. Letters/numbers only; spaces removed.</p>
 
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Flight route <span class="text-gray-400 font-normal">(flights campaigns only, optional)</span></label>
+          <input type="text" name="scope_route" value="<?= $v('scope_route') ?>"
+                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-1" placeholder="e.g. LOS-ABV">
+          <p class="text-xs text-gray-500 mb-3">For a route-specific flight ad, set the directional route as two 3-letter airport codes, origin first (e.g. <code>LOS-ABV</code> = Lagos&rarr;Abuja). Outbound and return are separate (<code>ABV-LOS</code> is its own). Leave blank for an all-flights campaign &mdash; per-route conversion numbers are tracked automatically regardless.</p>
+
           <label class="block text-xs font-semibold text-gray-600 mb-1">utm_source</label>
           <input type="text" name="utm_source" value="<?= $v('utm_source') ?>"
                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-3" placeholder="e.g. facebook">

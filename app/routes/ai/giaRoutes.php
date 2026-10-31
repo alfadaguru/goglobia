@@ -432,6 +432,37 @@ $router->post('/api/gia/chat', function () use ($db) {
         );
     }
 
+    // --- PER-ROUTE FLIGHT ATTRIBUTION (web parity with the channel path) ----------
+    // Capture the searched ORIG-DEST from a flights_search this turn, stamp it on the
+    // conversation (first-search wins), and if unattributed try a route-scoped flights
+    // campaign. Guarded + fail-soft. (campaigns.php already loaded above for web attribution.)
+    if ($convId > 0 && is_array($result['tool_runs'] ?? null)) {
+        try {
+            if (!function_exists('ad_campaign_route_from_flight_result') && is_file(root . 'app/lib/support/campaigns.php')) {
+                require_once root . 'app/lib/support/campaigns.php';
+            }
+          if (function_exists('ad_campaign_route_from_flight_result')) {
+            foreach ($result['tool_runs'] as $tr) {
+                if ((string) ($tr['name'] ?? '') !== 'flights_search') { continue; }
+                $in  = is_array($tr['input'] ?? null) ? $tr['input'] : [];
+                $out = is_array($tr['output']['data'] ?? null) ? $tr['output']['data']
+                     : (is_array($tr['output'] ?? null) ? $tr['output'] : []);
+                $route = ad_campaign_route_from_flight_result($in, $out);
+                if ($route === '') { continue; }
+                if (function_exists('gia_conv_set_route')) { gia_conv_set_route($db, $convId, $route); }
+                $cur = $db->get('gia_conversations', ['campaign_id'], ['id' => $convId]);
+                if ((int) ($cur['campaign_id'] ?? 0) <= 0 && function_exists('ad_campaign_resolve_route')) {
+                    $rc = ad_campaign_resolve_route($db, $route);
+                    if (is_array($rc) && !empty($rc['id']) && function_exists('ad_campaign_stamp_conversation')) {
+                        ad_campaign_stamp_conversation($db, $convId, (int) $rc['id']);
+                    }
+                }
+                break;
+            }
+          }
+        } catch (\Throwable $e) { error_log('[gia] web route attribution: ' . $e->getMessage()); }
+    }
+
     // --- Surface tool outputs the UI needs (search intents + checkout/approval). ---
     $searches = [];
     $checkout = null;   // {checkout_ref, amount, currency, expires_at} from create_checkout

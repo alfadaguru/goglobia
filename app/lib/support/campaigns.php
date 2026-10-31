@@ -85,6 +85,36 @@ if (!function_exists('ensureAdCampaignSchema')) {
                 error_log('ensureAdCampaignSchema(match_keyword): ' . $e->getMessage());
             }
 
+            // --- scope_route: optional per-route targeting for a FLIGHTS campaign ---
+            // Canonical directional ORIG-DEST IATA (e.g. 'LOS-ABV'). Blank = all flights
+            // (today's behaviour). Lets an owner run a route-specific ad and get its own
+            // attribution; per-route conversion stats work even WITHOUT a scope_route row
+            // (every flight lead stamps gia_conversations.route below). -------------------
+            try {
+                $exists = $db->query("SHOW COLUMNS FROM `gia_ad_campaigns` LIKE 'scope_route'")->fetch();
+                if (!$exists) {
+                    $db->query("ALTER TABLE `gia_ad_campaigns` ADD COLUMN `scope_route` VARCHAR(20) DEFAULT NULL AFTER `offer_product`");
+                    try { $db->query("ALTER TABLE `gia_ad_campaigns` ADD KEY `idx_route` (`scope_route`)"); }
+                    catch (\Throwable $e) { /* index may exist; swallow */ }
+                }
+            } catch (\Throwable $e) {
+                error_log('ensureAdCampaignSchema(scope_route): ' . $e->getMessage());
+            }
+
+            // --- gia_conversations.route: the route the lead actually searched ----------
+            // Stamped at flights_search time (first-search wins). Powers the per-route
+            // conversion breakdown with zero setup, independent of scope_route campaigns.
+            try {
+                $exists = $db->query("SHOW COLUMNS FROM `gia_conversations` LIKE 'route'")->fetch();
+                if (!$exists) {
+                    $db->query("ALTER TABLE `gia_conversations` ADD COLUMN `route` VARCHAR(20) DEFAULT NULL");
+                    try { $db->query("ALTER TABLE `gia_conversations` ADD KEY `idx_route` (`route`)"); }
+                    catch (\Throwable $e) { /* index may exist; swallow */ }
+                }
+            } catch (\Throwable $e) {
+                error_log('ensureAdCampaignSchema(conv.route): ' . $e->getMessage());
+            }
+
             // --- gia_conversations.campaign_id: first-touch attribution anchor -----
             // Idempotent ADD (CREATE TABLE IF NOT EXISTS above left existing
             // installs untouched). The chat route stamps this once per conv.
@@ -310,6 +340,79 @@ if (!function_exists('ad_campaign_resolve_channel')) {
         }
 
         return null;
+    }
+}
+
+if (!function_exists('ad_campaign_route_from_flight_result')) {
+    /**
+     * Derive the canonical DIRECTIONAL route key 'ORIG-DEST' (uppercase IATA, e.g.
+     * 'KAN-ABV') from a flights_search tool run, or '' if it can't be determined.
+     * Prefers the RESOLVED airport codes on the first offer's outbound segment (what
+     * actually flies); falls back to the tool INPUT origin/destination when they are
+     * already 3-letter codes. Multi-city (segments[] input) returns '' — no single
+     * corridor to attribute. Pure; no DB. $input = the tool call input, $output = its
+     * result (offers[]).
+     */
+    function ad_campaign_route_from_flight_result(array $input, array $output): string
+    {
+        // Multi-city: the model sent a 'segments' array instead of origin/destination.
+        if (!empty($input['segments']) && is_array($input['segments'])) {
+            return '';
+        }
+        $code = static function ($v): string {
+            $v = strtoupper(trim((string) $v));
+            return preg_match('/^[A-Z]{3}$/', $v) ? $v : '';
+        };
+
+        // 1) Resolved codes from the first offer's outbound segment (most accurate).
+        $offers = (isset($output['offers']) && is_array($output['offers'])) ? $output['offers']
+                : ((isset($output['flights']) && is_array($output['flights'])) ? $output['flights'] : []);
+        foreach ($offers as $o) {
+            if (!is_array($o)) { continue; }
+            // Try common shapes: flat departure_code/arrival_code, or nested first segment.
+            $seg = $o;
+            if (isset($o['segments'][0]) && is_array($o['segments'][0])) { $seg = $o['segments'][0]; }
+            elseif (isset($o['routes'][0]['segments'][0]) && is_array($o['routes'][0]['segments'][0])) { $seg = $o['routes'][0]['segments'][0]; }
+            $dep = $code($seg['departure_code'] ?? ($seg['departure_airport'] ?? ($seg['origin'] ?? ($seg['from'] ?? ''))));
+            $arr = $code($seg['arrival_code'] ?? ($seg['arrival_airport'] ?? ($seg['destination'] ?? ($seg['to'] ?? ''))));
+            if ($dep !== '' && $arr !== '') { return $dep . '-' . $arr; }
+            break; // only inspect the first offer
+        }
+
+        // 2) Fall back to the tool input when it's already IATA codes.
+        $o = $code($input['origin'] ?? '');
+        $d = $code($input['destination'] ?? '');
+        if ($o !== '' && $d !== '') { return $o . '-' . $d; }
+
+        return '';
+    }
+}
+
+if (!function_exists('ad_campaign_resolve_route')) {
+    /**
+     * Resolve the best ACTIVE flights campaign whose scope_route EXACTLY matches the
+     * searched route (DIRECTIONAL — 'LOS-ABV' does NOT match 'ABV-LOS', owner decision).
+     * Used as a SECOND-STAGE attribution at flights_search time (the route isn't known
+     * at first-turn). Returns the campaign row or null. Respects the active/time-window.
+     */
+    function ad_campaign_resolve_route($db, string $route): ?array
+    {
+        $route = strtoupper(trim($route));
+        if (!preg_match('/^[A-Z]{3}-[A-Z]{3}$/', $route)) { return null; }
+        ensureAdCampaignSchema($db);
+        try {
+            $row = $db->get('gia_ad_campaigns', '*', [
+                'scope_route' => $route,
+                'active' => 1,
+                'OR #window_start' => ['starts_at' => null, 'starts_at[<=]' => date('Y-m-d H:i:s')],
+                'OR #window_end'   => ['ends_at' => null, 'ends_at[>=]' => date('Y-m-d H:i:s')],
+                'ORDER' => ['id' => 'DESC'],
+            ]);
+            return is_array($row) ? $row : null;
+        } catch (\Throwable $e) {
+            error_log('ad_campaign_resolve_route: ' . $e->getMessage());
+            return null;
+        }
     }
 }
 
@@ -542,6 +645,80 @@ if (!function_exists('ad_campaign_conversion_report')) {
         // Sort by conversations DESC (stable-ish: ties keep insertion order enough).
         usort($report, static fn($a, $b) => $b['conversations'] <=> $a['conversations']);
 
+        return $report;
+    }
+}
+
+if (!function_exists('ad_campaign_route_conversion_report')) {
+    /**
+     * PER-ROUTE flight funnel over the window — chats -> held -> paid -> revenue grouped
+     * by gia_conversations.route (e.g. 'LOS-ABV', 'KAN-ABV'). Works with ZERO setup
+     * (every flight lead stamps its route), independent of whether a route-scoped
+     * campaign exists. Mirrors ad_campaign_conversion_report's counting (booking_count>0
+     * = held; paid = ai_trip bookings linked by conv_key JSON). One row per route,
+     * sorted by conversations DESC. Fail-soft -> []. Directional (LOS-ABV vs ABV-LOS
+     * are separate rows), per owner decision.
+     */
+    function ad_campaign_route_conversion_report($db, string $from, string $to): array
+    {
+        ensureAdCampaignSchema($db);
+        try {
+            $convs = $db->select('gia_conversations',
+                ['route', 'conv_key', 'booking_count', 'revenue', 'revenue_currency'],
+                ['route[!]' => null, 'started_at[<>]' => [$from, $to], 'LIMIT' => 100000]);
+        } catch (\Throwable $e) {
+            error_log('ad_campaign_route_conversion_report(convs): ' . $e->getMessage());
+            return [];
+        }
+        if (!is_array($convs)) { return []; }
+
+        $buckets = []; // route => [conversations, held, revenue, keys[], cur[]]
+        foreach ($convs as $c) {
+            $route = strtoupper(trim((string) ($c['route'] ?? '')));
+            if ($route === '') { continue; }
+            if (!isset($buckets[$route])) {
+                $buckets[$route] = ['conversations' => 0, 'held' => 0, 'revenue' => 0.0, 'keys' => [], 'cur' => []];
+            }
+            $buckets[$route]['conversations']++;
+            if ((int) ($c['booking_count'] ?? 0) > 0) { $buckets[$route]['held']++; }
+            $buckets[$route]['revenue'] += (float) ($c['revenue'] ?? 0);
+            $key = (string) ($c['conv_key'] ?? '');
+            if ($key !== '') { $buckets[$route]['keys'][] = $key; }
+            $cur = trim((string) ($c['revenue_currency'] ?? ''));
+            if ($cur !== '') { $buckets[$route]['cur'][$cur] = ($buckets[$route]['cur'][$cur] ?? 0) + 1; }
+        }
+
+        $paidForKeys = static function (array $keys) use ($db): int {
+            $keys = array_values(array_unique(array_filter($keys, static fn($k) => $k !== '')));
+            $paid = 0;
+            foreach ($keys as $k) {
+                try {
+                    $paid += (int) $db->count('bookings', [
+                        'module_type'     => ['ai_trip', 'umrah'],
+                        'payment_status'  => 'paid',
+                        'booking_data[~]' => '%"gia_conv_key":"' . $k . '"%',
+                    ]);
+                } catch (\Throwable $e) { error_log('ad_campaign_route_conversion_report(paid): ' . $e->getMessage()); }
+            }
+            return $paid;
+        };
+
+        $report = [];
+        foreach ($buckets as $route => $b) {
+            $convCount = (int) $b['conversations'];
+            $cur = '';
+            if (!empty($b['cur'])) { arsort($b['cur']); $cur = (string) array_key_first($b['cur']); }
+            $report[] = [
+                'route'            => $route,
+                'conversations'    => $convCount,
+                'held_bookings'    => (int) $b['held'],
+                'paid_bookings'    => $paidForKeys($b['keys']),
+                'revenue'          => round((float) $b['revenue'], 2),
+                'revenue_currency' => $cur,
+                'conversion_rate'  => $convCount > 0 ? round($b['held'] / $convCount, 4) : 0.0,
+            ];
+        }
+        usort($report, static fn($a, $b) => $b['conversations'] <=> $a['conversations']);
         return $report;
     }
 }

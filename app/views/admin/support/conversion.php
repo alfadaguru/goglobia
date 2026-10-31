@@ -181,6 +181,49 @@ $mixedCurrency = count($totals['currencies']) > 1;
     </div>
   </div>
 
+  <!-- PER-ROUTE FLIGHT FUNNEL (auto): which Nigerian routes convert. Directional. -->
+  <div class="mt-6 rounded-xl border border-gray-100 bg-white shadow-sm">
+    <div class="px-4 py-3 border-b border-gray-100">
+      <h2 class="text-sm font-semibold text-gray-900">Flights — by route</h2>
+      <p class="text-xs text-gray-500">Every flight chat is tracked by its searched route (origin&rarr;destination). Directional: LOS-ABV and ABV-LOS are separate. No campaign needed.</p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-gray-500">
+          <tr class="text-left">
+            <th class="px-4 py-2 font-medium">Route</th>
+            <th class="px-4 py-2 font-medium text-right">Conversations</th>
+            <th class="px-4 py-2 font-medium text-right">Held</th>
+            <th class="px-4 py-2 font-medium text-right">Paid</th>
+            <th class="px-4 py-2 font-medium text-right">Held rate</th>
+            <th class="px-4 py-2 font-medium text-right">Revenue</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          <?php if (empty($routeReport)): ?>
+            <tr><td class="px-4 py-6 text-center text-gray-400" colspan="6">No flight searches in this window.</td></tr>
+          <?php else: ?>
+            <?php foreach ($routeReport as $r):
+              $rCur = trim((string) ($r['revenue_currency'] ?? '')); ?>
+            <tr>
+              <td class="px-4 py-2.5 font-medium text-gray-900"><?= htmlspecialchars((string) $r['route']) ?></td>
+              <td class="px-4 py-2.5 text-right"><?= number_format((int) $r['conversations']) ?></td>
+              <td class="px-4 py-2.5 text-right text-amber-700"><?= number_format((int) $r['held_bookings']) ?></td>
+              <td class="px-4 py-2.5 text-right text-emerald-700"><?= number_format((int) $r['paid_bookings']) ?></td>
+              <td class="px-4 py-2.5 text-right text-blue-700"><?= htmlspecialchars(support_fmt_rate((float) $r['conversion_rate'])) ?></td>
+              <td class="px-4 py-2.5 text-right">
+                <?= ((float) ($r['revenue'] ?? 0) != 0.0)
+                      ? htmlspecialchars(support_fmt_money((float) $r['revenue'], $rCur))
+                      : '<span class="text-gray-300">&mdash;</span>' ?>
+              </td>
+            </tr>
+            <?php endforeach; ?>
+          <?php endif; ?>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- NOTES: be honest about the proxies so the figures are read correctly. -->
   <div class="mt-3 text-[11px] leading-relaxed text-gray-400 space-y-0.5">
     <div><span class="font-semibold text-gray-500">Held</span> = conversations that produced at least one held (unpaid) booking. <span class="font-semibold text-gray-500">Held rate</span> = held ÷ conversations.</div>

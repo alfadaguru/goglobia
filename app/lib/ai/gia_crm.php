@@ -289,6 +289,31 @@ if (!function_exists('gia_conv_get_or_create_channel')) {
     }
 }
 
+if (!function_exists('gia_conv_set_route')) {
+    /**
+     * Stamp the flight route the lead searched onto their conversation (for per-route
+     * campaign conversion stats). First-search-wins: only sets when currently empty, so
+     * a later different search doesn't overwrite the attributed corridor (mirrors the
+     * first-touch campaign attribution). Route is a canonical DIRECTIONAL 'ORIG-DEST'
+     * IATA key. Fail-soft; never breaks the chat.
+     */
+    function gia_conv_set_route($db, int $convId, string $route): void
+    {
+        $route = strtoupper(trim($route));
+        if ($convId <= 0 || !preg_match('/^[A-Z]{3}-[A-Z]{3}$/', $route)) { return; }
+        try {
+            // Only set when empty (first-search wins). The `route` column is added by
+            // ensureAdCampaignSchema; guard for installs that haven't healed it yet.
+            $db->update('gia_conversations', ['route' => $route], [
+                'id' => $convId,
+                'OR' => ['route' => null, 'route[=]' => ''],
+            ]);
+        } catch (\Throwable $e) {
+            error_log('[gia] conv_set_route: ' . $e->getMessage());
+        }
+    }
+}
+
 if (!function_exists('gia_conv_history')) {
     /**
      * Rehydrate the canonical message history for a conversation so a new tab /
