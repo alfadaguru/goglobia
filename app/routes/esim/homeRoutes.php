@@ -100,8 +100,19 @@ $router->post('/esim/booking/submit', function () use ($SECURE, $db) {
         // Airalo's live catalog by package id + country, applying the DB
         // commission rule server-side. Reject the booking if it can't be priced.
         $packageId = (string) ($selectedPackage['id'] ?? $selectedPackage['package_id'] ?? '');
+        // Resolve the acting AGENCY OWNER (if an agent OR agency STAFF is booking),
+        // so staff — whose session role is 'customer' — still get the agency's B2B
+        // tier price, not B2C. Null for a plain customer. (Passed explicitly because
+        // airalo_authoritative_price can't tell staff from customers by session.)
+        $__esimAgentOwner = null;
+        if (function_exists('agent_acting_context')) {
+            $__ctx = agent_acting_context($db);
+            if (is_array($__ctx) && empty($__ctx['is_admin']) && !empty($__ctx['owner'])) {
+                $__esimAgentOwner = (string) $__ctx['owner'];
+            }
+        }
         $authPrice = function_exists('airalo_authoritative_price')
-            ? airalo_authoritative_price($db, $module, $countryIso, $packageId)
+            ? airalo_authoritative_price($db, $module, $countryIso, $packageId, $__esimAgentOwner)
             : null;
         if (!$authPrice || ($authPrice['price'] ?? 0) <= 0) {
             throw new Exception('This eSIM package is no longer available. Please reselect.');
@@ -240,13 +251,13 @@ $router->post('/esim/booking/submit', function () use ($SECURE, $db) {
         }
 
         $userId = (string)($_SESSION['user_id'] ?? '');
-        $isAgent = false;
-        if ($userId !== '') {
+        // An agency booking (owner OR staff) earns commission. Use the acting
+        // context so STAFF (session role 'customer') are recognised too — the raw
+        // role check missed them, mis-recording agent_earning=0 for staff bookings.
+        $isAgent = $__esimAgentOwner !== null && $__esimAgentOwner !== '';
+        if (!$isAgent && $userId !== '') {
             $userData = $db->get('users', ['role'], ['user_id' => $userId]);
             $isAgent = is_array($userData) && strtolower((string)($userData['role'] ?? '')) === 'agent';
-            if (!$isAgent) {
-                $isAgent = strtolower((string)($_SESSION['user_role'] ?? '')) === 'agent';
-            }
         }
         $agentEarning = $isAgent ? $commission : 0;
 

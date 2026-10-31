@@ -113,7 +113,15 @@ $router->post('esim/airalo/issue', function () use ($db) {
             }
             $esimModule = $db->get('modules', '*', ['name' => 'airalo', 'type' => 'esim']);
             if ($esimCountry !== '' && is_array($esimModule)) {
-                $live = airalo_authoritative_price($db, $esimModule, $esimCountry, $packageId);
+                // Re-derive the sell with the SAME agent context the booking was
+                // priced with. This runs server-to-server (no session), so pass the
+                // owning agency explicitly: bookings.agency_id is the agency owner's
+                // user_id (stamped at agent settle). Without this, an agent booking
+                // would re-price at B2C here and the ±2% reconcile would HOLD + auto-
+                // refund every tier-discounted agent eSIM. For a customer booking
+                // agency_id is empty → null → plain B2C (unchanged).
+                $__agentOwner = trim((string) ($booking['agency_id'] ?? ''));
+                $live = airalo_authoritative_price($db, $esimModule, $esimCountry, $packageId, $__agentOwner !== '' ? $__agentOwner : null);
                 $liveSell = is_array($live) ? (float) ($live['price'] ?? 0) : 0.0;
                 $liveCur  = is_array($live) ? strtoupper((string) ($live['currency'] ?? '')) : '';
                 if ($liveSell > 0 && $liveCur !== '') {

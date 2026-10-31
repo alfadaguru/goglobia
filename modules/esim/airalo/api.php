@@ -297,11 +297,25 @@ if (!function_exists('airalo_authoritative_price')) {
      *                    null when the package can't be found / priced (caller must
      *                    then REJECT the booking — never fall back to client price).
      */
-    function airalo_authoritative_price($db, array $module, string $country, string $packageId): ?array
+    function airalo_authoritative_price($db, array $module, string $country, string $packageId, ?string $agentOwnerId = null): ?array
     {
         $packageId = trim($packageId);
         $country = strtoupper(trim($country));
         if ($packageId === '' || $country === '') { return null; }
+
+        // Resolve the AGENT the tier discount applies to. Prefer an EXPLICIT owner
+        // id from the caller (required for: (a) the server-to-server issue loopback,
+        // which has NO session so the session role is unset; (b) agency STAFF, whose
+        // session role is 'customer' not 'agent' — reading the session would deny
+        // them the agency's B2B price and, worse, make the issue-time reconcile
+        // re-price at B2C and auto-refund every tiered agent booking). Only fall
+        // back to the session when no explicit owner was passed (plain customer).
+        $agentId = '';
+        if ($agentOwnerId !== null && trim($agentOwnerId) !== '') {
+            $agentId = trim($agentOwnerId);
+        } elseif (strtolower((string) ($_SESSION['user_role'] ?? '')) === 'agent' && !empty($_SESSION['user_id'])) {
+            $agentId = (string) $_SESSION['user_id'];
+        }
 
         // Per-request memo: the cart re-prices on every view and a page may price
         // the same package more than once. Cache within the request so we make at
@@ -309,8 +323,7 @@ if (!function_exists('airalo_authoritative_price')) {
         static $memo = [];
         // Agent-aware memo key: an agent's tier discount can change the commission,
         // so a customer and an agent in the same request must not share a cached price.
-        $memoAgent = (strtolower((string) ($_SESSION['user_role'] ?? '')) === 'agent')
-            ? ('a:' . (string) ($_SESSION['user_id'] ?? '')) : 'c';
+        $memoAgent = $agentId !== '' ? ('a:' . $agentId) : 'c';
         $memoKey = $country . '|' . $packageId . '|' . $memoAgent;
         if (array_key_exists($memoKey, $memo)) { return $memo[$memoKey]; }
 
@@ -376,13 +389,15 @@ if (!function_exists('airalo_authoritative_price')) {
         // agents otherwise paid the same as customers. Give them the SAME benefit as
         // every other service: subtract the agent's tier discount from a PERCENTAGE
         // commission (mirrors MARKUP() in modules/helpers.php). Fixed commissions are
-        // left as-is (same rule as MARKUP). Detected from the acting session role.
+        // left as-is (same rule as MARKUP). $agentId is the acting AGENCY OWNER
+        // (resolved above: explicit caller arg, or the session for a plain agent) —
+        // the tier belongs to the owner, so staff and the sessionless issue loopback
+        // get the correct B2B price when the caller passes the owner id.
         if ($commType === 'percentage'
-            && strtolower((string) ($_SESSION['user_role'] ?? '')) === 'agent'
-            && !empty($_SESSION['user_id'])
+            && $agentId !== ''
             && function_exists('agent_tier_discount_percent')
         ) {
-            $tierDiscount = (float) agent_tier_discount_percent($db, (string) $_SESSION['user_id']);
+            $tierDiscount = (float) agent_tier_discount_percent($db, $agentId);
             if ($tierDiscount > 0) {
                 $value = max(0.0, $value - $tierDiscount);
             }
