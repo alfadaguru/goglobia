@@ -10,7 +10,10 @@
                     // GET USER ROLE AND PERMISSIONS
                     $user_id = $_SESSION['user_id'];
                     $user_role = $db->get('users', 'role', ['user_id' => $user_id]);
-                    $is_staff = ($user_role === 'admin' || $user_role === 'support');
+                    // admin OR an employee with support_tickets.view (not the dead
+                    // role==='support' check — employees are role='employee' now).
+                    $is_staff = ($user_role === 'admin')
+                        || (function_exists('admin_can') && admin_can($db, 'support_tickets', 'view'));
                     echo $is_staff ? T::view . ' ' . T::and . ' ' . T::manage . ' ' . T::all . ' ' . T::support . ' ' . T::tickets : T::view . ' ' . T::and . ' ' . T::manage . ' ' . T::your . ' ' . T::support . ' ' . T::tickets;
                     ?>
                 </p>
@@ -59,9 +62,14 @@
         <?php unset($_SESSION['ticket_success']); endif; ?>
 
         <?php
-        // GET USER ROLE AND PERMISSIONS
+        // GET USER ROLE AND PERMISSIONS. Staff = admin OR an employee whose role
+        // grants support_tickets.view. The old role==='admin'||'support' check
+        // missed every employee support agent (role='employee' post-consolidation),
+        // so they wrongly saw the customer (own-tickets-only) stats on this
+        // admin-only page. This page is reached only via the gated admin route.
         $user = $db->get('users', '*', ['user_id' => $user_id]);
-        $is_admin_or_support = ($user['role'] === 'admin' || $user['role'] === 'support');
+        $is_admin_or_support = (($user['role'] ?? '') === 'admin')
+            || (function_exists('admin_can') && admin_can($db, 'support_tickets', 'view'));
 
         // GET COUNTS FOR ALL TICKET STATUSES
         if ($is_admin_or_support) {
@@ -85,7 +93,7 @@
 
         <!-- Quick Stats -->
         <?php
-        $grid_cols = $is_admin_or_support ? 'md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5' : 'md:grid-cols-2 lg:grid-cols-4';
+        $grid_cols = $is_admin_or_support ? 'sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5' : 'sm:grid-cols-2 lg:grid-cols-4';
         ?>
         <div class="grid grid-cols-1 <?= $grid_cols ?> gap-4 mb-5">
 

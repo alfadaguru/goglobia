@@ -44,7 +44,7 @@ $areas = [
     };
   ?>
     <!-- Live counters -->
-    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
       <?= $counter('Agents online', $d['agents_online'], 'wifi_tethering', '#16a34a') ?>
       <?= $counter('Chats need a human', $d['needs_human'], 'support_agent', '#dc2626') ?>
       <?= $counter('Held today', $d['today_held'], 'shopping_cart', '#2563eb') ?>

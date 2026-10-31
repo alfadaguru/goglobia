@@ -68,7 +68,7 @@ $mixedCurrency = count($totals['currencies']) > 1;
   </div>
 
   <!-- SUMMARY CARDS -->
-  <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+  <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
     <?php
     $cards = [
         ['label' => 'Conversations', 'icon' => 'forum',            'val' => number_format((int) $totals['conversations']), 'accent' => 'text-gray-900'],
@@ -96,7 +96,7 @@ $mixedCurrency = count($totals['currencies']) > 1;
         <span class="material-symbols-outlined !text-[20px] text-blue-600">campaign</span>
         By campaign
       </h2>
-      <form method="get" action="<?= htmlspecialchars($base . '/conversion') ?>" class="flex items-center gap-2">
+      <form method="get" action="<?= htmlspecialchars($base . '/conversion') ?>" class="flex items-center gap-2 flex-wrap">
         <input type="date" name="from" value="<?= htmlspecialchars($fromDate) ?>"
                class="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
         <span class="text-gray-400 text-sm">&rarr;</span>
