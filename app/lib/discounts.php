@@ -393,21 +393,38 @@ if (!function_exists('apply_booking_discounts')) {
 
         // 3. Money model.
         if ($isSupplierProduct) {
-            // Platform-funded: customer pays base - (auto+promo); supplier net is
-            // untouched; NO floor (platform deliberately absorbs). Guard only against
-            // a negative charge.
-            $totalDisc = min($autoDisc + $promoDisc, $base);
-            $total     = round($base - $totalDisc, 2);
-            // Platform funds whatever the discount exceeds our margin (base - net).
+            // Platform-funded: the customer pays base - (auto+promo); the supplier's
+            // net is paid in full regardless, so any discount beyond our margin
+            // (base - net) is money the PLATFORM absorbs. By design this can dip
+            // below the supplier net (a deliberate loss-leader).
+            //
+            // MONEY-FLOW AUDIT M6: that absorption was UNBOUNDED — an aggressive
+            // stacked auto+promo could drive the charge far below the supplier net
+            // with no cap, a guaranteed per-booking loss. We now honour the auto
+            // rule's own margin_floor_pct here too (it was only enforced on the
+            // non-supplier branch): when a rule sets margin_floor_pct > 0 the charge
+            // is clamped to supplierNet*(1+floorPct/100), capping the platform's
+            // loss. Default floorPct=0 preserves the existing deliberate-absorption
+            // behaviour exactly (no regression) — the floor is opt-in per rule.
+            if ($floorPct > 0 && $supplierNet > 0) {
+                $res = discount_apply_with_promo($base, $supplierNet, $autoDisc, $promoDisc, $floorPct);
+                $total = $res['total']; $autoDisc = $res['auto']; $promoDisc = $res['promo'];
+                $totalDisc = round($autoDisc + $promoDisc, 2);
+                $clamped = $res['clamped'];
+            } else {
+                $totalDisc = min($autoDisc + $promoDisc, $base);
+                $total     = round($base - $totalDisc, 2);
+                $clamped = false;
+                // Re-split (auto/promo) proportionally only if we capped at base.
+                if ($totalDisc < $autoDisc + $promoDisc && ($autoDisc + $promoDisc) > 0) {
+                    $scale = $totalDisc / ($autoDisc + $promoDisc);
+                    $autoDisc = round($autoDisc * $scale, 2);
+                    $promoDisc = round($promoDisc * $scale, 2);
+                }
+            }
+            // Platform funds whatever the (clamped) discount exceeds our margin.
             $ourMargin = max(0.0, $base - $supplierNet);
             $platformFunded = round(max(0.0, $totalDisc - $ourMargin), 2);
-            $clamped = false;
-            // Re-split (auto/promo) proportionally only if we capped at base.
-            if ($totalDisc < $autoDisc + $promoDisc && ($autoDisc + $promoDisc) > 0) {
-                $scale = $totalDisc / ($autoDisc + $promoDisc);
-                $autoDisc = round($autoDisc * $scale, 2);
-                $promoDisc = round($promoDisc * $scale, 2);
-            }
         } else {
             // API / own-service: clamp so charged >= supplier net (closes promo leak).
             $res = discount_apply_with_promo($base, $supplierNet, $autoDisc, $promoDisc, $floorPct);
