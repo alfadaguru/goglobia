@@ -178,28 +178,38 @@ try {
     // UI reported success, so the tail was uncollectable. Scope the key to the specific
     // installment being paid (+ a coarse time bucket so a browser refresh of THIS charge
     // reuses the same key and can't silently pay ahead) — mirrors wallet_balance.php.
+    // MONEY-FLOW AUDIT M1: key on the PER-ATTEMPT payment token (stable across a
+    // refresh of the same /payment/{hash}, new per deliberate /payment/process
+    // attempt), not the live next-pending seq — the old seq+bucket key re-charged
+    // the NEXT installment (agent credit line) on a browser refresh. Mirrors
+    // wallet_balance.php. Falls back to the old seq discriminator only if no token.
     $idemKey = 'CRDPAY-' . $booking['invoice_id'];
-    try {
-        $nextSeq = null;
-        $ubForKey = $db->get('umrah_bookings', ['id'], ['invoice_id' => $booking['invoice_id']]);
-        if ($ubForKey) {
-            $nextInst = $db->get('umrah_installments', ['seq'], [
-                'umrah_booking_id' => (int) $ubForKey['id'],
-                'status'           => ['pending', 'overdue'],
-                'ORDER'            => ['seq' => 'ASC'],
-            ]);
-            if ($nextInst && isset($nextInst['seq'])) { $nextSeq = (int) $nextInst['seq']; }
-        } elseif (function_exists('installments_active_for') && installments_active_for($db, $booking['invoice_id'])) {
-            $genNext = $db->get('booking_installments', ['seq'], [
-                'invoice_id' => $booking['invoice_id'],
-                'status'     => ['pending', 'overdue'],
-                'ORDER'      => ['seq' => 'ASC'],
-            ]);
-            if ($genNext && isset($genNext['seq'])) { $nextSeq = (int) $genNext['seq']; }
+    $__payTokenForKey = (string) ($paymentData['token'] ?? $token ?? '');
+    if ($__payTokenForKey !== '') {
+        $idemKey .= '-tok' . substr(sha1($__payTokenForKey), 0, 20);
+    } else {
+        try {
+            $nextSeq = null;
+            $ubForKey = $db->get('umrah_bookings', ['id'], ['invoice_id' => $booking['invoice_id']]);
+            if ($ubForKey) {
+                $nextInst = $db->get('umrah_installments', ['seq'], [
+                    'umrah_booking_id' => (int) $ubForKey['id'],
+                    'status'           => ['pending', 'overdue'],
+                    'ORDER'            => ['seq' => 'ASC'],
+                ]);
+                if ($nextInst && isset($nextInst['seq'])) { $nextSeq = (int) $nextInst['seq']; }
+            } elseif (function_exists('installments_active_for') && installments_active_for($db, $booking['invoice_id'])) {
+                $genNext = $db->get('booking_installments', ['seq'], [
+                    'invoice_id' => $booking['invoice_id'],
+                    'status'     => ['pending', 'overdue'],
+                    'ORDER'      => ['seq' => 'ASC'],
+                ]);
+                if ($genNext && isset($genNext['seq'])) { $nextSeq = (int) $genNext['seq']; }
+            }
+            if ($nextSeq !== null) { $idemKey .= '-s' . $nextSeq . '-t' . (int) floor(time() / 120); }
+        } catch (\Throwable $e) {
+            error_log('credits idem-key installment lookup: ' . $e->getMessage());
         }
-        if ($nextSeq !== null) { $idemKey .= '-s' . $nextSeq . '-t' . (int) floor(time() / 120); }
-    } catch (\Throwable $e) {
-        error_log('credits idem-key installment lookup: ' . $e->getMessage());
     }
 
     $spend = wallet_spend($db, $userId, $paymentAmount, $paymentCurrency, [

@@ -178,33 +178,47 @@ try {
     // ~2-min time bucket: a rapid refresh reuses the identical key (wallet_spend
     // returns the existing txn, no second debit), while a genuine later installment
     // payment naturally falls in a new bucket and gets its own distinct charge.
+    // MONEY-FLOW AUDIT M1: key the idempotency on the PER-ATTEMPT payment TOKEN,
+    // not on the live next-pending seq. The old seq+time-bucket key re-charged the
+    // NEXT installment on a browser back/refresh: once a slice settled, the pending
+    // seq advanced (s1->s2) so a refresh produced a brand-new key and wallet_spend
+    // debited the following installment (repeatable to drain the plan). The payment
+    // token is minted once per /payment/process attempt (globalRoutes.php:430) and
+    // is STABLE across a refresh of the same /payment/{hash}, but a genuinely new
+    // installment payment goes through /payment/process again and gets a NEW token.
+    // So token-keying makes a refresh a no-op (same key → wallet_spend returns the
+    // existing txn, no second debit) while still letting each deliberate slice
+    // payment charge once. Falls back to the old seq discriminator only if no token
+    // is present (defensive; the refreshable GET path always carries one).
     $idemKey = 'WLTPAY-' . $booking['invoice_id'];
-    try {
-        $nextSeq = null;
-        $ubForKey = $db->get('umrah_bookings', ['id'], ['invoice_id' => $booking['invoice_id']]);
-        if ($ubForKey) {
-            $nextInst = $db->get('umrah_installments', ['seq'], [
-                'umrah_booking_id' => (int) $ubForKey['id'],
-                'status'           => ['pending', 'overdue'],
-                'ORDER'            => ['seq' => 'ASC'],
-            ]);
-            if ($nextInst && isset($nextInst['seq'])) { $nextSeq = (int) $nextInst['seq']; }
-        } elseif (function_exists('installments_active_for') && installments_active_for($db, $booking['invoice_id'])) {
-            // Generic (non-umrah) PaySmallSmall schedule — same discriminator.
-            $genNext = $db->get('booking_installments', ['seq'], [
-                'invoice_id' => $booking['invoice_id'],
-                'status'     => ['pending', 'overdue'],
-                'ORDER'      => ['seq' => 'ASC'],
-            ]);
-            if ($genNext && isset($genNext['seq'])) { $nextSeq = (int) $genNext['seq']; }
+    $__payTokenForKey = (string) ($paymentData['token'] ?? $token ?? '');
+    if ($__payTokenForKey !== '') {
+        $idemKey .= '-tok' . substr(sha1($__payTokenForKey), 0, 20);
+    } else {
+        try {
+            $nextSeq = null;
+            $ubForKey = $db->get('umrah_bookings', ['id'], ['invoice_id' => $booking['invoice_id']]);
+            if ($ubForKey) {
+                $nextInst = $db->get('umrah_installments', ['seq'], [
+                    'umrah_booking_id' => (int) $ubForKey['id'],
+                    'status'           => ['pending', 'overdue'],
+                    'ORDER'            => ['seq' => 'ASC'],
+                ]);
+                if ($nextInst && isset($nextInst['seq'])) { $nextSeq = (int) $nextInst['seq']; }
+            } elseif (function_exists('installments_active_for') && installments_active_for($db, $booking['invoice_id'])) {
+                $genNext = $db->get('booking_installments', ['seq'], [
+                    'invoice_id' => $booking['invoice_id'],
+                    'status'     => ['pending', 'overdue'],
+                    'ORDER'      => ['seq' => 'ASC'],
+                ]);
+                if ($genNext && isset($genNext['seq'])) { $nextSeq = (int) $genNext['seq']; }
+            }
+            if ($nextSeq !== null) {
+                $idemKey .= '-s' . $nextSeq . '-t' . (int) floor(time() / 120);
+            }
+        } catch (\Throwable $e) {
+            error_log('wallet_balance idem-key installment lookup: ' . $e->getMessage());
         }
-        if ($nextSeq !== null) {
-            // seq makes distinct installments distinct; the time bucket collapses a
-            // refresh of THIS charge so it can't advance to the next installment.
-            $idemKey .= '-s' . $nextSeq . '-t' . (int) floor(time() / 120);
-        }
-    } catch (\Throwable $e) {
-        error_log('wallet_balance idem-key installment lookup: ' . $e->getMessage());
     }
 
     $spend = wallet_spend($db, $userId, $paymentAmount, $paymentCurrency, [
