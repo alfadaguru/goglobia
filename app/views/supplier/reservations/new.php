@@ -57,7 +57,7 @@
   </div>
   <p id="groupHint" class="hidden text-sm text-gray-500">A group holds a block of rooms against one account with a rooming list and a master folio. You'll be taken to the group desk.</p>
 
-  <form action="<?= root ?>supplier/stays/<?= $sid ?>/reservations/new" method="POST" class="card p-6 space-y-5">
+  <form id="walkinForm" action="<?= root ?>supplier/stays/<?= $sid ?>/reservations/new" method="POST" class="card p-6 space-y-5">
     <?= CSRF::tokenField() ?>
     <?php if ($presetRoom): ?><input type="hidden" name="physical_room_id" value="<?= (int) $presetRoom['id'] ?>"><?php endif; ?>
 
@@ -305,6 +305,25 @@
   }
   roomSel.addEventListener('change', fill);
   fill();
+})();
+
+// UX M9: validate the guest phone client-side (>=7 digits, same as the server) BEFORE
+// submit, so a short phone doesn't pass the native 'required' check, round-trip to the
+// server, and bounce back to a wiped form. Mirrors the create-customer popup's check.
+(function () {
+  var form = document.getElementById('walkinForm');
+  var phone = document.getElementById('gPhone');
+  if (!form || !phone) { return; }
+  form.addEventListener('submit', function (ev) {
+    var digits = (phone.value || '').replace(/\D+/g, '');
+    if (digits.length < 7) {
+      ev.preventDefault();
+      phone.setCustomValidity('Enter a valid phone number (at least 7 digits).');
+      phone.reportValidity();
+      phone.focus();
+    }
+  });
+  phone.addEventListener('input', function () { phone.setCustomValidity(''); });
 })();
 
 // C3: customer search + pick + inline create.
