@@ -98,6 +98,12 @@ if (!function_exists('bm_service_catalogue')) {
             'esim'    => ['type' => 'esim',    'label' => 'eSIM',    'live' => true],
             'visa'    => ['type' => 'visa',    'label' => 'Visa',    'live' => false],
             'bus'     => ['type' => 'bus',     'label' => 'Bus',     'live' => false],
+            // Insurance: MANUAL-only for now (a paid travel-insurance policy booked
+            // off-system / pending the supplier-API integration — same manual shape
+            // as visa/bus). Flip 'live'=>true once modules/insurance/<supplier> is
+            // wired with a real quote+issue endpoint. The FREE AirHelp flight-
+            // compensation claim is a separate customer tool, not a BM paid booking.
+            'insurance' => ['type' => 'insurance', 'label' => 'Insurance', 'live' => false],
         ];
     }
 }
@@ -566,6 +572,15 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
                 bmAdminJson(['status' => false, 'message' => 'A manual eSIM needs a real credential — paste the ICCID or the activation reference of an eSIM you already provisioned (e.g. on the Airalo dashboard). To issue a brand-new eSIM automatically, use Live mode instead.'], 422);
             }
         }
+        // INSURANCE GUARD: a manual policy records insurance issued off-system, so
+        // require a policy number — without one the voucher references no real
+        // policy. (Mirrors the eSIM credential guard.)
+        if ($serviceType === 'insurance') {
+            $mPolicy = trim((string) ($_POST['policy_number'] ?? ($_POST['reference'] ?? '')));
+            if ($mPolicy === '') {
+                bmAdminJson(['status' => false, 'message' => 'A manual insurance policy needs a policy number so the customer voucher references a real policy.'], 422);
+            }
+        }
         $moduleName  = 'manual';
         $bookingChannel = 'admin_manual';
         $bookingData = bmBuildManualBookingData($serviceType, $_POST, $currency, $travellers);
@@ -1003,6 +1018,24 @@ if (!function_exists('bmBuildManualBookingData')) {
                         ? [['iccid' => trim((string) ($post['iccid'] ?? ''))]]
                         : [],
                 ],
+            ];
+        }
+        if ($serviceType === 'insurance') {
+            // Manual travel-insurance POLICY (paid). The staff record a policy
+            // booked off-system / via a provider, as a branded voucher. Keys mirror
+            // the insurance ticket/invoice template. A policy_number is the
+            // insurance analogue of a PNR (staff paste it if issued). NOT the free
+            // AirHelp compensation claim — that is a separate zero-price customer tool.
+            return [
+                'admin_created'   => true,
+                'plan_name'       => trim((string) ($post['plan_name'] ?? '')),
+                'provider'        => trim((string) ($post['provider'] ?? '')),
+                'coverage'        => trim((string) ($post['coverage'] ?? '')),
+                'coverage_area'   => trim((string) ($post['coverage_area'] ?? '')),
+                'trip_start'      => trim((string) ($post['trip_start'] ?? '')),
+                'trip_end'        => trim((string) ($post['trip_end'] ?? '')),
+                'travellers_count'=> max(1, (int) ($post['travellers_count'] ?? ($post['travellers'] ?? 1))),
+                'policy_number'   => trim((string) ($post['policy_number'] ?? ($post['reference'] ?? ''))),
             ];
         }
 
