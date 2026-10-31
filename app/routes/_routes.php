@@ -295,6 +295,7 @@ require_once 'app/routes/admin/supportShiftsRoutes.php';// Customer Support — 
 require_once 'app/routes/admin/supportDeskRoutes.php';  // Customer Support — Live Chat Desk (multi-channel takeover)
 require_once 'app/routes/admin/supportAttendanceRoutes.php'; // Customer Support — attendance (clock/heartbeat/presence board)
 require_once 'app/routes/admin/supportCampaignsRoutes.php'; // Customer Support — Phase 4 GIA ad-campaign registry CRUD
+require_once 'app/routes/admin/supportSeedDecemberRoutes.php'; // one-click "Seed December campaigns" button (campaigns only)
 require_once 'app/routes/admin/supportConversionRoutes.php'; // Customer Support — Phase 4 ad-campaign conversion analytics (read-only report)
 require_once 'app/routes/admin/supportTargetsRoutes.php'; // Customer Support — Phase 5 agent/GIA/team targets CRUD
 require_once 'app/routes/admin/supportUsersRoutes.php'; // Customer Support — sub-module 5 Users Directory (+ profile cross-links)

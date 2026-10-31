@@ -33,11 +33,46 @@ $platformBadge = function (string $p): string {
       <h1 class="text-xl font-bold text-gray-900">Ad Campaigns</h1>
       <p class="text-sm text-gray-500 mt-0.5">Register Meta / TikTok / Google offers so GIA greets ad visitors campaign-aware and tracks ad &rarr; chat &rarr; held &rarr; paid conversion.</p>
     </div>
-    <a href="<?= root.admin ?>/support/campaigns/create"
-       class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition">
-      <span class="material-symbols-outlined !text-[18px]">add</span> New campaign
-    </a>
+    <div class="flex items-center gap-2">
+      <button type="button" id="seedDecBtn" onclick="seedDecemberCampaigns()"
+         class="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
+        <span class="material-symbols-outlined !text-[18px]">bolt</span> Seed December campaigns
+      </button>
+      <a href="<?= root.admin ?>/support/campaigns/create"
+         class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition">
+        <span class="material-symbols-outlined !text-[18px]">add</span> New campaign
+      </a>
+    </div>
   </div>
+  <div id="seedDecResult" class="mb-4 text-sm"></div>
+  <script>
+  function seedDecemberCampaigns() {
+    if (!confirm('Create the December ad campaigns (2 Umrah: 16th & 25th, and 8 domestic-flight routes) so GIA is aware of them? This registers CAMPAIGNS ONLY — it does NOT set Umrah prices or publish departures (do that in Admin → Umrah). Safe to run more than once.')) { return; }
+    var btn = document.getElementById('seedDecBtn');
+    var out = document.getElementById('seedDecResult');
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    var token = meta ? meta.getAttribute('content') : '';
+    btn.disabled = true;
+    out.innerHTML = '<span class="text-gray-500">Creating campaigns…</span>';
+    var body = new URLSearchParams(); body.append('csrf_token', token);
+    fetch('<?= root.admin ?>/support/campaigns/seed-december', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-TOKEN': token },
+      body: body.toString()
+    })
+    .then(function (r) { return r.text(); })
+    .then(function (t) {
+      var d; try { d = JSON.parse(t); } catch (e) { d = { ok: false, message: 'Unexpected server response.' }; }
+      if (d.ok) {
+        out.innerHTML = '<span class="text-green-600">' + (d.message || 'Done.') + '</span> <a href="" class="underline text-blue-600">Reload to see them</a>';
+      } else {
+        out.innerHTML = '<span class="text-red-600">' + (d.message || 'Failed') + '</span>';
+      }
+    })
+    .catch(function () { out.innerHTML = '<span class="text-red-600">Request failed.</span>'; })
+    .finally(function () { btn.disabled = false; });
+  }
+  </script>
 
   <?php if (empty($campaigns)): ?>
     <div class="text-center py-16 border border-dashed border-gray-200 rounded-xl bg-gray-50">
