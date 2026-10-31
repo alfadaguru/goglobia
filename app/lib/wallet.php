@@ -607,7 +607,21 @@ if (!function_exists('loyalty_convert_to_wallet')) {
                     'idempotency_key' => 'LOYTXN-' . $idemKey,
                     'description' => 'Loyalty points converted (' . $points . ' pts)',
                 ]);
-                if ($convTxn && !empty($convTxn['id'])) { $convTxnId = (int) $convTxn['id']; }
+                if ($convTxn && !empty($convTxn['id'])) {
+                    // MONEY-FLOW AUDIT M7: txn_create returns the EXISTING row on a
+                    // duplicate key. If a PRIOR attempt with this key already FAILED,
+                    // its rollback restored the points and wrote no wallet_ledger row
+                    // — so the deduped redeem above did NOT re-deduct and proceeding
+                    // to credit here would give wallet cash WITHOUT taking points
+                    // (money from nothing). Refuse to reuse a terminal txn: tell the
+                    // caller to start a fresh conversion (which gets a new idemKey).
+                    $__txStatus = strtolower((string) ($convTxn['status'] ?? ''));
+                    if (in_array($__txStatus, ['failed', 'cancelled', 'reversed'], true)) {
+                        error_log('loyalty_convert: reused terminal txn (' . $__txStatus . ') for key LOYTXN-' . $idemKey . ' — refusing to credit on restored points.');
+                        return ['ok' => false, 'message' => 'A previous conversion attempt failed and your points were restored. Please try converting again.'];
+                    }
+                    $convTxnId = (int) $convTxn['id'];
+                }
             } catch (\Throwable $e) { error_log('loyalty_convert txn_create: ' . $e->getMessage()); }
         }
 
@@ -622,7 +636,13 @@ if (!function_exists('loyalty_convert_to_wallet')) {
                 try { txn_advance($db, $convTxnId, 'failed', (string) ($cr['message'] ?? 'wallet credit failed')); } catch (\Throwable $e) {}
             }
             // Roll the points back so we never take points without giving money.
-            loyalty_apply($db, $userId, $points, 'earn', ['reason' => 'convert_rollback', 'note' => 'Rollback failed wallet credit']);
+            // KEYED (money-flow audit M7): a keyed rollback can't double-restore if
+            // this path runs twice (the old unkeyed earn re-added points on a second
+            // failed retry — a free-points leak).
+            loyalty_apply($db, $userId, $points, 'earn', [
+                'reason' => 'convert_rollback', 'note' => 'Rollback failed wallet credit',
+                'idempotency_key' => 'LOYROLL-' . $idemKey,
+            ]);
             return ['ok' => false, 'message' => 'Wallet credit failed; points restored'];
         }
         if ($convTxnId !== null && function_exists('txn_advance')) {
