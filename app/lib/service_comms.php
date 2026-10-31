@@ -280,12 +280,65 @@ if (!function_exists('service_comms_send')) {
         $phone = trim((string) ($booking['phone'] ?? ''));
         if ($phone !== '' && function_exists('SENDWHATSAPP')) {
             try {
-                $cc  = trim((string) ($booking['phone_country_code'] ?? ''));
-                $full = $cc !== '' ? (preg_replace('/[^\d]/', '', $cc) . preg_replace('/[^\d]/', '', $phone)) : $phone;
-                SENDWHATSAPP($full, $name, implode("\n", $lines));
+                $full = service_comms_intl_phone($db, $booking);
+                if ($full !== '') { SENDWHATSAPP($full, $name, implode("\n", $lines)); }
+                else { error_log('[service_comms] whatsapp skip ' . $invoiceId . ': no usable phone'); }
             } catch (\Throwable $e) { error_log('[service_comms] whatsapp ' . $invoiceId . ': ' . $e->getMessage()); }
         }
         return true;
+    }
+}
+
+if (!function_exists('service_comms_intl_phone')) {
+    /**
+     * Best-effort E.164-style number for WhatsApp, using the SAME proven idiom as
+     * NOTIFY (getPhoneCode + formatPhoneNumber). Fixes the real break where GIA
+     * stays/flights + cars bookings store `phone` but NO `phone_country_code`, so a
+     * LOCAL-format number (e.g. 08012345678) was sent bare and never delivered.
+     * Resolution order for the dial code:
+     *   1) booking.phone_country_code (web bookings set this),
+     *   2) the account's users.phone_country_code (logged-in customer),
+     *   3) the app's default-country dial code (settings.country),
+     * then formatPhoneNumber() strips the leading 0 and prepends the code only when
+     * not already present (so a full international number is left intact). Returns ''
+     * when nothing usable (caller skips rather than send a bad number).
+     */
+    function service_comms_intl_phone($db, array $booking): string
+    {
+        $phone = trim((string) ($booking['phone'] ?? ''));
+        if ($phone === '') { return ''; }
+        $digits = preg_replace('/\D+/', '', $phone);
+        if ($digits === '') { return ''; }
+
+        // 1) explicit booking country code
+        $ccRaw = trim((string) ($booking['phone_country_code'] ?? ''));
+        // 2) fall back to the account's stored country code
+        if ($ccRaw === '' && !empty($booking['user_id'])) {
+            try {
+                $u = $db->get('users', ['phone_country_code', 'country'], ['user_id' => (string) $booking['user_id']]);
+                $ccRaw = trim((string) ($u['phone_country_code'] ?? ''));
+                if ($ccRaw === '' && !empty($u['country'])) { $ccRaw = (string) $u['country']; }
+            } catch (\Throwable $e) { /* ignore */ }
+        }
+        // 3) fall back to the app's default-country dial code
+        if ($ccRaw === '') {
+            try {
+                $s = $db->get('settings', ['country'], ['id' => 1]);
+                if (!empty($s['country'])) { $ccRaw = (string) $s['country']; }
+            } catch (\Throwable $e) { /* ignore */ }
+        }
+
+        $numericCc = function_exists('getPhoneCode') ? getPhoneCode($ccRaw, $db) : preg_replace('/\D+/', '', $ccRaw);
+
+        // No dial code resolvable: if the number already looks international (no leading
+        // 0 and long enough to include a country code), send the digits as-is; else we
+        // can't safely internationalize it — return '' so the caller skips.
+        if ($numericCc === '') {
+            if (strlen($digits) >= 11 && $digits[0] !== '0') { return $digits; }
+            return '';
+        }
+        return function_exists('formatPhoneNumber') ? formatPhoneNumber($phone, $numericCc)
+             : (ltrim($digits, '0') === $digits ? $digits : $numericCc . ltrim($digits, '0'));
     }
 }
 

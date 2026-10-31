@@ -7,7 +7,12 @@
 //   - one POST-flight thank-you (~2h after departure) that invites the next
 //     booking (flights/hotels/visa/umrah/tours) and asks for a rating/review.
 // Each milestone fires once (tracked in `flight_reminders`). Best-effort.
-// Schedule every ~5-15 min: GET /cron/flight-reminders
+//
+// CRON SETUP (REQUIRED — this endpoint does NOT self-run; it must be pinged by the
+// server scheduler, same as every other /cron/* route). Add to the server crontab,
+// e.g. every 10 minutes:
+//   */10 * * * * curl -s "https://YOURDOMAIN/cron/flight-reminders" > /dev/null 2>&1
+// Without this line NO flight reminders send — the sweep never executes.
 @$SECURE or die('Access Denied!');
 
 $router->get('/cron/flight-reminders', function () use ($SECURE, $db) {

@@ -8,7 +8,12 @@
 //   - one POST-service thank-you (~6-48h after completion) with a review ask, a
 //     rebook/next-trip nudge, and (when those programs are ON) loyalty + referral.
 // Each milestone fires once (tracked in `service_comms`). Best-effort.
-// Schedule every ~15-30 min: GET /cron/service-comms
+//
+// CRON SETUP (REQUIRED — this endpoint does NOT self-run; like every /cron/* route it
+// must be pinged by the server scheduler, same as /gia_payments_sweep and
+// /cron/campaigns/dispatch). Add to the server crontab, e.g. every 20 minutes:
+//   */20 * * * * curl -s "https://YOURDOMAIN/cron/service-comms" > /dev/null 2>&1
+// Without this line NOTHING sends — the sweep never executes.
 @$SECURE or die('Access Denied!');
 
 $router->get('/cron/service-comms', function () use ($SECURE, $db) {

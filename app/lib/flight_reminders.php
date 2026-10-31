@@ -288,12 +288,23 @@ if (!function_exists('flight_reminders_send')) {
         }
 
         // ---- WHATSAPP (the same lines as a WhatsApp-native message) ----
+        // Normalize to international format via the shared helper (fixes GIA/local-format
+        // numbers stored without a country code — a bare local number never delivers).
         $phone = trim((string) ($booking['phone'] ?? ''));
         if ($phone !== '' && function_exists('SENDWHATSAPP')) {
             try {
-                $cc  = trim((string) ($booking['phone_country_code'] ?? ''));
-                $full = $cc !== '' ? (preg_replace('/[^\d]/', '', $cc) . preg_replace('/[^\d]/', '', $phone)) : $phone;
-                SENDWHATSAPP($full, $name, implode("\n", $lines));
+                if (!function_exists('service_comms_intl_phone')) {
+                    $scLib = __DIR__ . '/service_comms.php';
+                    if (is_file($scLib)) { require_once $scLib; }
+                }
+                $full = function_exists('service_comms_intl_phone')
+                    ? service_comms_intl_phone($db, $booking)
+                    : (function () use ($booking, $phone) {
+                        $cc = trim((string) ($booking['phone_country_code'] ?? ''));
+                        return $cc !== '' ? (preg_replace('/[^\d]/', '', $cc) . preg_replace('/[^\d]/', '', $phone)) : $phone;
+                    })();
+                if ($full !== '') { SENDWHATSAPP($full, $name, implode("\n", $lines)); }
+                else { error_log('[flight_reminders] whatsapp skip ' . $invoiceId . ': no usable phone'); }
             } catch (\Throwable $e) { error_log('[flight_reminders] whatsapp ' . $invoiceId . ': ' . $e->getMessage()); }
         }
         return true;
