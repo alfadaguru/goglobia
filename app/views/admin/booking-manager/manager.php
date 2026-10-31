@@ -869,7 +869,14 @@ function bookingMgr() {
     },
     normalize(data, supplier){
       // Accept both wrapped {results:[...]} (hotels) and bare flight arrays.
-      let list = Array.isArray(data) ? data : (data.results || data.offers || []);
+      // Accept every shape the modules use: bare array (flights), {results:[]}
+      // (hotels/tours/cars), {offers:[]}, AND {data:[]} (esim/airalo search.php
+      // returns the flattened package list under `data`). The old chain omitted
+      // `data`, so a SUCCESSFUL eSIM search rendered 0 rows → "No live offers".
+      let list = Array.isArray(data) ? data
+               : (Array.isArray(data.results) ? data.results
+               : (Array.isArray(data.offers)  ? data.offers
+               : (Array.isArray(data.data)    ? data.data : [])));
       if(!Array.isArray(list)) list=[];
       return list.map(it=>{
         if(this.service==='esim'){
