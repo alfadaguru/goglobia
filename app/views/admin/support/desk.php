@@ -12,6 +12,14 @@ $deskBase = root . admin . '/support/desk';
 ?>
 
 <div class="container my-4">
+  <style>
+    /* Desktop (two-pane side-by-side): both panes share ONE viewport-bound height
+       so they align and the page body does not grow — each pane scrolls inside.
+       Raw CSS (not an arbitrary Tailwind class) so it works without a CSS rebuild. */
+    @media (min-width: 1024px) {
+      #deskGrid .desk-pane { height: calc(100vh - 11rem) !important; }
+    }
+  </style>
   <div class="mb-4 flex items-center justify-between gap-3 flex-wrap">
     <div>
       <h1 class="text-xl font-bold text-gray-900 flex items-center gap-2">
@@ -25,10 +33,18 @@ $deskBase = root . admin . '/support/desk';
     </a>
   </div>
 
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4" style="min-height:70vh">
+  <!-- A BOUNDED two-pane desk: the whole panel is sized to the viewport so it
+       behaves like an inbox — each pane scrolls INTERNALLY and the PAGE itself
+       does not grow/double-scroll. On mobile the panes stack with sensible
+       per-pane heights. (Was min-height:70vh, which let the panes grow unbounded
+       and produced an uncontrollable double scroll.) Heights use inline style so
+       they work regardless of the Tailwind build state. The lg: viewport-bound
+       height is applied via a data attribute + tiny script below (one media query)
+       so no arbitrary Tailwind class is required. -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4" id="deskGrid">
 
     <!-- QUEUE -->
-    <div class="lg:col-span-1 border border-gray-100 rounded-xl bg-white flex flex-col overflow-hidden">
+    <div class="lg:col-span-1 border border-gray-100 rounded-xl bg-white flex flex-col overflow-hidden desk-pane" style="height:55vh">
       <div class="p-3 border-b border-gray-100">
         <select id="deskFilter" class="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
           <option value="all">All conversations</option>
@@ -47,7 +63,7 @@ $deskBase = root . admin . '/support/desk';
     </div>
 
     <!-- CONVERSATION -->
-    <div class="lg:col-span-2 border border-gray-100 rounded-xl bg-white flex flex-col overflow-hidden">
+    <div class="lg:col-span-2 border border-gray-100 rounded-xl bg-white flex flex-col overflow-hidden desk-pane" style="height:70vh">
       <div id="deskHeader" class="p-3 border-b border-gray-100 flex items-center justify-between gap-2 hidden">
         <div class="min-w-0">
           <div id="deskConvTitle" class="text-sm font-semibold text-gray-900 truncate">Conversation</div>
