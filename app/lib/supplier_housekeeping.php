@@ -229,10 +229,19 @@ if (!function_exists('hk_rooms_blocking')) {
         $aStart = $haveWindow ? strtotime($checkin) : 0;
         $aEnd   = $haveWindow ? strtotime($checkout) : 0;
         try {
+            // Narrow the candidate set IN SQL to bookings that (a) belong to this property AND
+            // (b) actually carry a physical-room assignment, and exclude cancelled rows up
+            // front (audit M7). Without this, the old query scanned the property's entire
+            // booking history (ORDER id DESC LIMIT 2000) with dead/unassigned rows eating the
+            // window, so a months-old live FUTURE assignment could fall outside 2000 and the
+            // guard would miss it — reopening the #4 physical-room double-book. The
+            // "has an assignment" set is tiny (bounded by room count × overlapping stays), so
+            // the generous 5000 cap can no longer truncate a live holder.
             $rows = $db->select('bookings', ['invoice_id', 'booking_status', 'booking_data'],
                 ['module_type' => ['stays', 'hotels'],
-                 'booking_data[~]' => '%"hotel_id":' . (int) $stayId . '%', // wrap % ourselves (underscore defeats Medoo auto-wrap)
-                 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 2000]) ?: [];
+                 'booking_data[~]' => ['AND' => ['%"hotel_id":' . (int) $stayId . '%', '%"pms_physical_room_id":%']], // AND of two LIKEs; % wrapped ourselves
+                 'booking_status[!]' => 'cancelled',
+                 'ORDER' => ['id' => 'DESC'], 'LIMIT' => 5000]) ?: [];
             foreach ($rows as $r) {
                 $inv = (string) $r['invoice_id'];
                 if ($exceptInvoice !== '' && $inv === $exceptInvoice) { continue; } // ignore our own assignment
