@@ -31,6 +31,17 @@ if (!function_exists('guests_phone_key')) {
     }
 }
 
+if (!function_exists('supplier_valid_phone')) {
+    /** A phone is valid for a customer/guest when it has at least 7 digits (local or
+     *  international forms both qualify) — matches the search key's minimum so every stored
+     *  number is findable. Full name + phone are MANDATORY for both customers and guests
+     *  (email optional) so either can be searched by name or phone. Returns bool. */
+    function supplier_valid_phone(?string $phone): bool
+    {
+        return strlen(preg_replace('/\D+/', '', (string) $phone)) >= 7;
+    }
+}
+
 if (!function_exists('guests_resolve_for_booking')) {
     /**
      * Resolve (or CREATE) the first-class GUEST record (the stayer) for a booking, and
@@ -218,7 +229,12 @@ if (!function_exists('guests_stored_list')) {
         if ($q !== '') {
             $digits = preg_replace('/\D+/', '', $q);
             if (strlen($digits) >= 4 && strlen($digits) >= (strlen($q) - 2)) {
-                $where['phone_key[~]'] = $digits; // phone search
+                // phone_key stores the LAST 9 digits (guests_phone_key), so a longer query
+                // (full local/intl number) must be matched by its last-9 too — otherwise a
+                // 10+ digit needle never matches the 9-digit stored key (bug: phone search
+                // returned nothing for "+234 806 777 8888"). Use last-9 of the query digits.
+                $needle = strlen($digits) > 9 ? substr($digits, -9) : $digits;
+                $where['phone_key[~]'] = $needle; // phone search
             } else {
                 $where['OR'] = ['display_name[~]' => $q, 'email[~]' => $q];
             }

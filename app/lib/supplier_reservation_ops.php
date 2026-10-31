@@ -154,8 +154,16 @@ if (!function_exists('resv_create_walkin')) {
 
         $firstName = trim((string) ($in['first_name'] ?? ''));
         $lastName  = trim((string) ($in['last_name'] ?? ''));
+        $phoneIn   = trim((string) ($in['phone'] ?? ''));
+        // MANDATORY guest identity (server-side truth): a name AND a phone, so every guest
+        // is searchable by name or phone (email stays optional). Enforced in the engine so
+        // no booking path — form, API, or a hand-crafted POST — can create a nameless or
+        // phoneless guest.
         if ($firstName === '' && $lastName === '') {
             return ['ok' => false, 'message' => 'Guest name is required.'];
+        }
+        if (!function_exists('supplier_valid_phone') || !supplier_valid_phone($phoneIn)) {
+            return ['ok' => false, 'message' => 'A valid guest phone number is required (at least 7 digits).'];
         }
 
         // Property + its currency (own inventory, must be approved-or-admin? No — the

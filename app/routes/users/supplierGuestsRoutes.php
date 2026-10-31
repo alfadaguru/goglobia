@@ -102,6 +102,82 @@ $router->get('/supplier/guests/g/([0-9]+)', function ($id) use ($SECURE, $db) {
     require_once views . "includes/footer.php";
 });
 
+// GET /supplier/guests/search — JSON typeahead for the booking form (search a STORED guest
+// by name / phone / email). Mirrors /supplier/customers/search. MUST be registered BEFORE
+// the generic /supplier/guests/{token} GET route so 'search' isn't captured as a token.
+$router->get('/supplier/guests/search', function () use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    SUPPLIER_OR_STAFF_AUTH($db);
+    $c = _guests_ctx($db);
+    if ($c === null || !supplier_can($db, 'reservations', 'view')) { echo json_encode(['results' => []]); exit; }
+    $q = trim((string) ($_GET['q'] ?? ''));
+    if ($q === '' || (int) $c['org'] <= 0) { echo json_encode(['results' => []]); exit; }
+    $rows = function_exists('guests_stored_list') ? guests_stored_list($db, (int) $c['org'], ['q' => $q, 'limit' => 20]) : [];
+    $out = [];
+    foreach ($rows as $g) {
+        $out[] = [
+            'id'    => (int) ($g['id'] ?? 0),
+            'name'  => (string) ($g['display_name'] ?? ''),
+            'phone' => (string) ($g['phone'] ?? ''),
+            'email' => (string) ($g['email'] ?? ''),
+            'contact_id' => (int) ($g['contact_id'] ?? 0), // already linked to a customer?
+        ];
+    }
+    echo json_encode(['results' => $out]); exit;
+});
+
+// POST /supplier/guests/{id}/make-customer — one-click: promote a stored guest to a
+// Customer (payer). If a customer with the same phone already exists in the org, LINK to
+// it; otherwise create one from the guest's name/phone/email and link (guest.contact_id).
+// Name + phone are mandatory on the guest, so the created customer always satisfies the
+// customer name+phone rule. Returns JSON {ok, contact_id, name, already}.
+$router->post('/supplier/guests/([0-9]+)/make-customer', function ($id) use ($SECURE, $db) {
+    header('Content-Type: application/json');
+    SUPPLIER_OR_STAFF_AUTH($db);
+    CSRF::guard();
+    $c = _guests_ctx($db);
+    if ($c === null || !supplier_can($db, 'reservations', 'edit')) { echo json_encode(['ok' => false, 'message' => 'Not authorised.']); exit; }
+    $orgId = (int) $c['org'];
+    $gid = (int) $id;
+    $g = $orgId > 0 ? $db->get('stays_guests', ['id', 'display_name', 'phone', 'email', 'contact_id'], ['id' => $gid, 'org_id' => $orgId]) : null;
+    if (!$g) { echo json_encode(['ok' => false, 'message' => 'Guest not found.']); exit; }
+
+    // Already linked → return that customer (idempotent).
+    if ((int) ($g['contact_id'] ?? 0) > 0 && $db->has('stays_contacts', ['id' => (int) $g['contact_id'], 'org_id' => $orgId])) {
+        echo json_encode(['ok' => true, 'already' => true, 'contact_id' => (int) $g['contact_id'],
+            'name' => (string) ($db->get('stays_contacts', 'display_name', ['id' => (int) $g['contact_id']]) ?: $g['display_name'])]); exit;
+    }
+
+    $phone = trim((string) ($g['phone'] ?? ''));
+    $name  = trim((string) ($g['display_name'] ?? ''));
+    $email = trim((string) ($g['email'] ?? ''));
+    if ($name === '' || !function_exists('supplier_valid_phone') || !supplier_valid_phone($phone)) {
+        echo json_encode(['ok' => false, 'message' => 'This guest is missing a name or a valid phone.']); exit;
+    }
+
+    // LINK TO EXISTING customer with the same phone (owner-chosen), else create one.
+    $contactId = 0;
+    $already = false;
+    $pk = function_exists('contacts_phone_key') ? contacts_phone_key($phone) : '';
+    if ($pk !== '') {
+        $hit = $db->get('stays_contacts', ['id'], ['org_id' => $orgId, 'phone_key' => $pk]);
+        if ($hit) { $contactId = (int) $hit['id']; $already = true; }
+    }
+    if ($contactId <= 0 && function_exists('contacts_save')) {
+        $res = contacts_save($db, $orgId, ['type' => 'individual', 'display_name' => $name, 'phone' => $phone, 'email' => $email], 0);
+        if (empty($res['ok'])) { echo json_encode(['ok' => false, 'message' => $res['message'] ?? 'Could not create the customer.']); exit; }
+        $contactId = (int) $res['id'];
+    }
+    if ($contactId <= 0) { echo json_encode(['ok' => false, 'message' => 'Could not resolve a customer.']); exit; }
+
+    // Link the guest to the customer.
+    try { $db->update('stays_guests', ['contact_id' => $contactId], ['id' => $gid, 'org_id' => $orgId]); }
+    catch (\Throwable $e) { error_log('guest make-customer link: ' . $e->getMessage()); }
+
+    echo json_encode(['ok' => true, 'already' => $already, 'contact_id' => $contactId,
+        'name' => (string) ($db->get('stays_contacts', 'display_name', ['id' => $contactId]) ?: $name)]); exit;
+});
+
 // GET /supplier/guests/{token} — one guest's profile + history
 $router->get('/supplier/guests/([A-Za-z0-9_-]+)', function ($token) use ($SECURE, $db) {
     SUPPLIER_OR_STAFF_AUTH($db);

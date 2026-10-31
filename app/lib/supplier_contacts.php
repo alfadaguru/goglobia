@@ -55,6 +55,12 @@ if (!function_exists('contacts_save')) {
         if ($name === '') { return ['ok' => false, 'id' => 0, 'message' => 'A name is required.']; }
 
         $phone = trim((string) ($d['phone'] ?? ''));
+        // MANDATORY customer identity: name AND phone, so every customer is searchable by
+        // name or phone (email optional). Enforced centrally here so quick-create, save, and
+        // any other caller all require it. (≥7 digits = the search key's minimum.)
+        if (!function_exists('supplier_valid_phone') || !supplier_valid_phone($phone)) {
+            return ['ok' => false, 'id' => 0, 'message' => 'A valid phone number is required (at least 7 digits).'];
+        }
         $row = [
             'type'         => $type,
             'display_name' => substr($name, 0, 191),

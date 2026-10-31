@@ -167,12 +167,13 @@
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div class="form-control">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Email <span class="text-gray-400">(optional)</span></label>
         <input type="email" name="email" id="gEmail" class="input">
       </div>
       <div class="form-control">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-        <input type="text" name="phone" id="gPhone" class="input">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
+        <input type="tel" name="phone" id="gPhone" required inputmode="tel" class="input" placeholder="e.g. +234 801 234 5678">
+        <p class="text-xs text-gray-400 mt-1">Required — the guest is stored and searchable by name &amp; phone.</p>
       </div>
     </div>
 
@@ -231,12 +232,12 @@
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div class="form-control">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-            <input type="email" id="ncEmail" class="input">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
+            <input type="tel" id="ncPhone" inputmode="tel" class="input" placeholder="e.g. +234 801 234 5678">
           </div>
           <div class="form-control">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-            <input type="text" id="ncPhone" class="input">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Email <span class="text-gray-400">(optional)</span></label>
+            <input type="email" id="ncEmail" class="input">
           </div>
         </div>
       </div>
@@ -408,7 +409,10 @@
 
   saveBtn && saveBtn.addEventListener('click', function () {
     var name = document.getElementById('ncName').value.trim();
+    var phone = document.getElementById('ncPhone').value.trim();
     if (!name) { errBox.querySelector('p').textContent = 'A name is required.'; errBox.classList.remove('hidden'); return; }
+    // Phone is mandatory (customer searchable by name & phone); ≥7 digits like the server.
+    if ((phone.replace(/\D+/g, '')).length < 7) { errBox.querySelector('p').textContent = 'A valid phone number is required (at least 7 digits).'; errBox.classList.remove('hidden'); return; }
     saveBtn.disabled = true;
     var fd = new FormData();
     fd.append('type', document.getElementById('ncType').value);
