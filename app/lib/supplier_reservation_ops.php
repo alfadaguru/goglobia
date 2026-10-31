@@ -162,7 +162,13 @@ if (!function_exists('resv_create_walkin')) {
         if ($firstName === '' && $lastName === '') {
             return ['ok' => false, 'message' => 'Guest name is required.'];
         }
-        if (!function_exists('supplier_valid_phone') || !supplier_valid_phone($phoneIn)) {
+        // Phone is MANDATORY for a fresh operator-entered walk-in. It is relaxed only when
+        // the caller explicitly opts out ($in['require_phone'] === false) — used by
+        // resv_clone when REPEATING an older booking whose stored phone predates this rule
+        // (audit M4: a returning guest's stay must be repeatable; the desk corrects the
+        // phone after). Default stays strict so no new booking path can skip it.
+        $requirePhone = !(array_key_exists('require_phone', $in) && $in['require_phone'] === false);
+        if ($requirePhone && (!function_exists('supplier_valid_phone') || !supplier_valid_phone($phoneIn))) {
             return ['ok' => false, 'message' => 'A valid guest phone number is required (at least 7 digits).'];
         }
 
@@ -967,13 +973,20 @@ if (!function_exists('resv_clone')) {
         if ($hid <= 0 || $roomId <= 0 || $optionId <= 0) {
             return ['ok' => false, 'message' => 'Source reservation has no room selection to repeat.'];
         }
+        // Carry the source phone. If it predates the mandatory-phone rule (empty/too short),
+        // DON'T hard-fail the repeat (audit M4) — this is a returning guest whose record
+        // already exists; opt out of the phone requirement for the clone. A valid source
+        // phone is carried and still satisfies the rule.
+        $srcPhone = (string) ($b['phone'] ?? '');
+        $phoneOk = function_exists('supplier_valid_phone') && supplier_valid_phone($srcPhone);
         return resv_create_walkin($db, $hid, [
             'room_id' => $roomId, 'option_id' => $optionId, 'qty' => $qty,
             'checkin' => $newCheckin, 'checkout' => $newCheckout,
             'first_name' => (string) $b['first_name'], 'last_name' => (string) $b['last_name'],
-            'email' => (string) $b['email'], 'phone' => (string) $b['phone'],
+            'email' => (string) $b['email'], 'phone' => $srcPhone,
             'adults' => (int) $b['adults'], 'children' => (int) $b['childs'],
             'source' => 'repeat', 'mark_paid' => false,
+            'require_phone' => $phoneOk, // relax only when the source phone isn't valid
             // C2 (owner decision #3): a repeat booking INHERITS the same payer/customer.
             'customer_id' => (int) ($b['customer_id'] ?? 0),
         ]);
