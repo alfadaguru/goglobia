@@ -1182,15 +1182,45 @@ if (!function_exists('umrah_settle_payment')) {
                 foreach ($pending as $ins) {
                     if ($remaining < 0.01) { break; }
                     $due = (float) $ins['amount'];
-                    // Phase 1: settle an installment when the payment covers it
-                    // (>= its amount). Partial-of-an-installment is left pending.
                     if ($remaining + 0.01 >= $due) {
+                        // Covers this installment fully.
                         $db->update('umrah_installments', [
                             'status'         => 'paid',
                             'paid_at'        => $now,
                             'transaction_id' => $txnId,
                         ], ['id' => (int) $ins['id']]);
                         $remaining = round($remaining - $due, 2);
+                    } else {
+                        // PARTIAL (money-flow audit M3): the payment is smaller than
+                        // the next installment. The old code had NO else-branch, so
+                        // the leftover $remaining was silently DISCARDED — money
+                        // collected, nothing credited (amount_paid stayed 0, booking
+                        // never confirmed/price-locked). Reachable via the GIA DVA
+                        // path, which exempts umrah from its amount-mismatch guard
+                        // trusting this function to reject under-amounts. Split the
+                        // slice losslessly like the generic engine
+                        // (installments.php:168-193): shrink the pending part by the
+                        // paid amount and insert a matching 'paid' micro-row. Total
+                        // SUM(amount) is unchanged (balance stays correct) while
+                        // SUM(amount WHERE paid) rises by the partial, so the money is
+                        // credited and carried toward this installment.
+                        $partial = $remaining;
+                        $db->update('umrah_installments',
+                            ['amount' => round($due - $partial, 2)],
+                            ['id' => (int) $ins['id']]);
+                        $db->insert('umrah_installments', [
+                            'umrah_booking_id' => (int) $ubId,
+                            'seq'              => (int) $ins['seq'],
+                            'percent'          => 0,
+                            'amount'           => round($partial, 2),
+                            'due_at'           => $ins['due_at'] ?? null,
+                            'status'           => 'paid',
+                            'paid_at'          => $now,
+                            'transaction_id'   => $txnId,
+                            'created_at'       => $now,
+                        ]);
+                        $remaining = 0.0;
+                        break;
                     }
                 }
 
