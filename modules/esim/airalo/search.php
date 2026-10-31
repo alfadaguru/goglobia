@@ -46,18 +46,22 @@ $router->post('esim/airalo/search', function() use ($db) {
             $page = 1;
         }
 
-        // Build query parameters for Airalo
+        // Build query parameters for Airalo.
+        //
+        // IMPORTANT (verified live against production Airalo): sending
+        // `filter[country]` 422s on the production API for EVERY code — even
+        // Airalo's own examples (DE, CYP) — while the customer storefront works
+        // because it fetches by `filter[type]` with NO `filter[country]` and then
+        // filters the nested result client-side by operator coverage (see
+        // $fetchGlobalForCountry in app/routes/esim/homeRoutes.php). We mirror that
+        // proven path here: never send filter[country]; always send a valid
+        // filter[type]; filter by coverage in the flatten loop below.
+        $filterType = ($type === 'local') ? 'local' : 'global';
         $queryParams = [
-            'limit' => $limit,
-            'page' => $page,
+            'limit'        => max($limit, 200), // global list is large; widen so the client-side country filter has data
+            'page'         => $page,
+            'filter[type]' => $filterType,
         ];
-
-        if ($country !== '') {
-            $queryParams['filter[country]'] = $country;
-        }
-        if ($type !== '' && $type !== 'global') {
-            $queryParams['filter[type]'] = $type;
-        }
 
         // Fetch packages from Airalo
         $packagesRes = _airalo_request_with_token($db, 'GET', '/v2/packages', [
@@ -97,14 +101,33 @@ $router->post('esim/airalo/search', function() use ($db) {
                 $ccode = strtoupper((string) ($countryItem['country_code'] ?? $countryIso));
                 foreach ((array) ($countryItem['operators'] ?? []) as $operator) {
                     $opType = strtolower((string) ($operator['type'] ?? 'local'));
+
+                    // Client-side country filter (replaces the rejected filter[country]):
+                    // if a country was requested, only keep operators that actually
+                    // cover it. Blank country = global list, keep everything.
+                    if ($countryIso !== '') {
+                        $covers = false;
+                        foreach ((array) ($operator['countries'] ?? []) as $covC) {
+                            $cc = strtoupper((string) ($covC['code'] ?? $covC['country_code'] ?? ''));
+                            if ($cc !== '' && $cc === $countryIso) { $covers = true; break; }
+                        }
+                        // Some payloads put coverage on the country item itself, not the
+                        // operator — accept a match on the item's own code too.
+                        if (!$covers && $ccode === $countryIso) { $covers = true; }
+                        if (!$covers) { continue; }
+                    }
+
                     foreach ((array) ($operator['packages'] ?? []) as $pkg) {
                         $pid = (string) ($pkg['id'] ?? '');
                         if ($pid === '') { continue; }
 
-                        // Authoritative sell price (net + markup). Falls back to the raw
-                        // net only if no rule is found, never to a bogus value.
-                        $priced = ($ccode !== '' && function_exists('airalo_authoritative_price'))
-                            ? airalo_authoritative_price($db, $moduleRow, $ccode, $pid)
+                        // Authoritative sell price (net + markup). Key on the REQUESTED
+                        // country when one was given (a global pkg's own code is "Global"
+                        // / blank, which has no per-country markup rule); else the item's
+                        // code. Falls back to raw net if no rule is found, never a bogus value.
+                        $priceCountry = $countryIso !== '' ? $countryIso : $ccode;
+                        $priced = ($priceCountry !== '' && function_exists('airalo_authoritative_price'))
+                            ? airalo_authoritative_price($db, $moduleRow, $priceCountry, $pid)
                             : null;
                         $net = isset($pkg['net_price']) && is_numeric($pkg['net_price'])
                             ? (float) $pkg['net_price']
@@ -114,8 +137,8 @@ $router->post('esim/airalo/search', function() use ($db) {
                             'id'           => $pid,
                             'title'        => (string) ($pkg['title'] ?? ''),
                             'package_type' => $opType,                         // local | global
-                            'country'      => $ccode,
-                            'country_name' => $countryTitle,
+                            'country'      => ($countryIso !== '' ? $countryIso : $ccode),
+                            'country_name' => ($countryIso !== '' && ($ccode === '' || $ccode === 'GLOBAL')) ? $countryIso : $countryTitle,
                             'data'         => (string) ($pkg['data'] ?? (isset($pkg['amount']) ? ($pkg['amount'] . ' MB') : '')),
                             'is_unlimited' => !empty($pkg['is_unlimited']),
                             'validity_days'=> isset($pkg['day']) ? (int) $pkg['day'] : null,
