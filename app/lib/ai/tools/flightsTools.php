@@ -225,37 +225,10 @@ if (!class_exists('App\\lib\\ai\\flightsSelectTool')) {
             $supplier = (string) $sel['supplier'];
             $fields = gia_flights_pax_fields($supplier, true);
 
-            // PROMO SURFACING (real figures only): run the SAME discount engine that
-            // applies at checkout against this ONE locked fare. If it returns a real
-            // discount for a flights promo (e.g. an admin rule scoped to the route),
-            // expose the "was" price + % saving so GIA can present the deal honestly.
-            // What GIA quotes here == what actually applies at checkout. Null when no
-            // promo -> GIA must not mention a discount. Fail-soft.
-            $regularPrice = null; $savePct = null;
-            try {
-                if (!function_exists('discount_resolve_for_booking')) {
-                    $dl = dirname(__DIR__, 2) . '/lib/discounts.php';
-                    if (is_file($dl)) { require_once $dl; }
-                }
-                $amt = (float) ($sel['price'] ?? 0);
-                if ($db !== null && function_exists('discount_resolve_for_booking') && $amt > 0) {
-                    // NOTE: the discount engine matches a 'service' scope on ctx['module']
-                    // and a 'provider' scope on ctx['provider'] (see discount_rule_matches).
-                    // So pass 'module' => 'flights' — a 'service=flights' promo keys off it.
-                    $dres = discount_resolve_for_booking($db, [
-                        'module'       => 'flights',
-                        'provider'     => $supplier,
-                        'order_amount' => $amt,
-                        'currency'     => (string) $sel['currency'],
-                    ]);
-                    $disc = (float) ($dres['discount'] ?? 0);
-                    if ($disc > 0 && $disc < $amt) {
-                        $regularPrice = round($amt + $disc, 2); // the pre-discount "was"
-                        $savePct = round(($disc / $regularPrice) * 100, 2);
-                    }
-                }
-            } catch (\Throwable $e) { error_log('[gia] flights_select promo preview: ' . $e->getMessage()); }
-
+            // NOTE: flights intentionally do NOT surface a promo/discount line. Domestic
+            // flight ads run as Ad Campaigns (attribution only), NOT price promos — GIA
+            // shows the real live fare and never a "was/save" figure. (Umrah promos are
+            // separate: those come from the umrah tier's own regular/promo price.)
             return [
                 'ok' => true,
                 'data' => [
@@ -264,8 +237,6 @@ if (!class_exists('App\\lib\\ai\\flightsSelectTool')) {
                     'supplier'          => $supplier,
                     'amount'            => $sel['price'],
                     'currency'          => $sel['currency'],
-                    'regular_price'     => $regularPrice, // null unless a real promo applies
-                    'save_pct'          => $savePct,
                     'price_changed'     => !empty($sel['price_changed']),
                     'passenger_fields'  => $fields['required'],
                 ],
