@@ -36,7 +36,7 @@ $router->post(admin.'/finance/credits', function () use ($SECURE,$db) {
     // FORM DATA VALIDATION
     $user_id = $_POST['user_id'] ?? 0;
     $transaction_type = trim($_POST['transaction_type'] ?? '');
-    $credits = intval($_POST['credits'] ?? 0);
+    $credits = round(floatval($_POST['credits'] ?? 0), 2); // money-flow audit M8: float (was intval → truncated the sub-unit)
     $description = trim($_POST['description'] ?? '');
 
     // VALIDATION RULES

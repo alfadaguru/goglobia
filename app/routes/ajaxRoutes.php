@@ -1265,13 +1265,24 @@ $router->post('/api/admin/deposit/update-status', function () {
 
         try {
             // ====================================
-            // UPDATE DEPOSIT STATUS
+            // UPDATE DEPOSIT STATUS — ATOMIC CLAIM (money-flow audit L1)
             // ====================================
-            $db->update('deposit', [
-                'status' => $newStatus
-            ], [
-                'id' => $depositId
-            ]);
+            // Guard status='pending' IN THE WHERE so only the FIRST of two
+            // concurrent approves (double-click / two admins) actually transitions
+            // the row. The old unconditional UPDATE let both pass the earlier
+            // read-check and both insert a duplicate 'credit' audit row
+            // (reporting/reconciliation drift). If we didn't win the claim, bail
+            // before any audit/credit side-effect. (The spendable credit is already
+            // spine-idempotent via DEPOSIT-{id}; this closes the audit-row dup.)
+            $__depClaim = $db->update('deposit',
+                ['status' => $newStatus],
+                ['id' => $depositId, 'status' => 'pending']);
+            if (!$__depClaim || $__depClaim->rowCount() < 1) {
+                $db->pdo->rollBack();
+                http_response_code(409);
+                echo json_encode(['success' => false, 'message' => 'This deposit is already being processed.']);
+                exit;
+            }
 
             // ====================================
             // IF APPROVED - ADD TO TRANSACTIONS AND UPDATE BALANCE

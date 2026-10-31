@@ -14,10 +14,16 @@
 // applying a redemption as a discount on a folio is the caller's choice, not done
 // implicitly. Org ownership is enforced by the caller routes.
 
-if (!function_exists('loyalty_config')) {
+if (!function_exists('supplier_loyalty_config')) {
     /** Per-org loyalty config: ['enabled'=>bool,'points_per_currency'=>float].
-     *  Defaults: disabled, 1 point per 1 currency unit. */
-    function loyalty_config($db, int $orgId): array
+     *  Defaults: disabled, 1 point per 1 currency unit.
+     *  RENAMED (money-flow audit L2): was loyalty_config($db,$orgId), which
+     *  collided with wallet.php's platform-level loyalty_config($db) — wallet.php
+     *  loads first (config.php:81 < 180), so the function_exists guard here was
+     *  always TRUE and every per-org call silently hit the platform version,
+     *  ignoring $orgId and missing points_per_currency/redeem_value_per_point
+     *  (so supplier loyalty earn/redeem was inert). Distinct name fixes it. */
+    function supplier_loyalty_config($db, int $orgId): array
     {
         $out = ['enabled' => false, 'points_per_currency' => 1.0, 'redeem_value_per_point' => 0.0];
         if ($orgId <= 0) { return $out; }
@@ -118,7 +124,7 @@ if (!function_exists('loyalty_accrue_for_booking')) {
     {
         $invoiceId = trim($invoiceId);
         if ($orgId <= 0 || $invoiceId === '') { return ['ok' => false, 'message' => 'Bad input']; }
-        $cfg = loyalty_config($db, $orgId);
+        $cfg = supplier_loyalty_config($db, $orgId);
         if (!$cfg['enabled']) { return ['ok' => false, 'message' => 'Loyalty disabled']; }
 
         try {
@@ -217,7 +223,7 @@ if (!function_exists('loyalty_redeem_to_folio')) {
         $orgId = ($hid > 0 && function_exists('supplier_property_org')) ? supplier_property_org($db, $hid) : 0;
         if ($orgId <= 0) { return ['ok' => false, 'message' => 'Loyalty is not configured for this property.']; }
 
-        $cfg = loyalty_config($db, $orgId);
+        $cfg = supplier_loyalty_config($db, $orgId);
         $valuePer = (float) ($cfg['redeem_value_per_point'] ?? 0);
         if ($valuePer <= 0) { return ['ok' => false, 'message' => 'Point redemption value is not set for this property.']; }
 

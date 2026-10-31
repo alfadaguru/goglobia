@@ -108,7 +108,7 @@ if (!function_exists('loyalty_member_rate_to_folio')) {
         $orgId = ($hid > 0 && function_exists('supplier_property_org')) ? supplier_property_org($db, $hid) : 0;
         if ($orgId <= 0) { return ['ok' => false, 'message' => 'Loyalty is not configured for this property.']; }
 
-        $cfg = loyalty_config($db, $orgId);
+        $cfg = supplier_loyalty_config($db, $orgId);
         if (empty($cfg['enabled'])) { return ['ok' => false, 'message' => 'Loyalty is disabled for this property.']; }
 
         $email = function_exists('guest_email_key') ? guest_email_key((string) ($b['email'] ?? '')) : strtolower(trim((string) ($b['email'] ?? '')));
@@ -207,7 +207,7 @@ if (!function_exists('loyalty_referral_credit')) {
     {
         $referredInvoiceId = trim($referredInvoiceId);
         if ($orgId <= 0 || $referredInvoiceId === '') { return ['ok' => false, 'message' => 'Bad input.']; }
-        $cfg = loyalty_config($db, $orgId);
+        $cfg = supplier_loyalty_config($db, $orgId);
         if (empty($cfg['enabled'])) { return ['ok' => false, 'message' => 'Loyalty is disabled.']; }
 
         $referrer = loyalty_referral_resolve($db, $orgId, $stayIds, $code);
@@ -311,7 +311,7 @@ if (!function_exists('loyalty_occasion_grant')) {
         $email = function_exists('guest_email_key') ? guest_email_key($email) : strtolower(trim($email));
         $kind = in_array($kind, ['birthday', 'anniversary'], true) ? $kind : '';
         if ($orgId <= 0 || $email === '' || $kind === '') { return ['ok' => false, 'message' => 'Bad input.']; }
-        $cfg = loyalty_config($db, $orgId);
+        $cfg = supplier_loyalty_config($db, $orgId);
         if (empty($cfg['enabled'])) { return ['ok' => false, 'message' => 'Loyalty is disabled.']; }
 
         $col = $kind === 'birthday' ? 'birthday_bonus_points' : 'anniversary_bonus_points';
@@ -468,7 +468,7 @@ if (!function_exists('loyalty_analytics')) {
             $out['earned_30d'] = (int) ($flow30['earned'] ?? 0);
             $out['redeemed_30d'] = (int) ($flow30['redeemed'] ?? 0);
 
-            $cfg = loyalty_config($db, $orgId);
+            $cfg = supplier_loyalty_config($db, $orgId);
             $vpp = (float) ($cfg['redeem_value_per_point'] ?? 0);
             if ($vpp > 0) { $out['cash_liability'] = round(max(0, $out['points_outstanding']) * $vpp, 2); }
         } catch (\Throwable $e) { error_log('loyalty_analytics: ' . $e->getMessage()); }
