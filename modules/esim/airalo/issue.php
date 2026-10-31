@@ -217,23 +217,34 @@ $router->post('esim/airalo/issue', function () use ($db) {
             exit;
         }
 
+        // Airalo returns the activation fields (iccid / qrcode_url / smdp /
+        // matching id / lpa) INSIDE sims[], NOT at the order top level — so the
+        // order-level reads below are almost always null. Resolve the first SIM
+        // first and fall back to it, so airalo_provision is self-consistent: any
+        // consumer that reads the TOP level (not just first_sim) still gets the
+        // real values. smdp_address maps from the SIM's `lpa` when Airalo doesn't
+        // send an explicit smdp_address (its field is `lpa`).
+        $firstSim = [];
+        if (!empty($orderData['sims']) && is_array($orderData['sims'])) {
+            $firstSim = (array) ($orderData['sims'][0] ?? []);
+        }
+
         $bookingData['airalo_provision'] = [
             'id' => $orderData['id'] ?? null,
             'order_id' => $orderData['order_id'] ?? null,
-            'code' => $orderData['code'] ?? null,
+            'code' => $orderData['code'] ?? ($firstSim['airalo_code'] ?? null),
             'status' => $orderData['status'] ?? null,
-            'created_at' => $orderData['created_at'] ?? null,
-            'manual_installation' => $orderData['manual_installation'] ?? null,
-            'qrcode_url' => $orderData['qrcode_url'] ?? ($orderData['qr_code_url'] ?? null),
-            'smdp_address' => $orderData['smdp_address'] ?? null,
-            'matching_id' => $orderData['matching_id'] ?? null,
-            'iccid' => $orderData['iccid'] ?? null,
+            'created_at' => $orderData['created_at'] ?? ($firstSim['created_at'] ?? null),
+            'manual_installation' => $orderData['manual_installation'] ?? ($firstSim['manual_installation'] ?? null),
+            'qrcode_url' => $orderData['qrcode_url'] ?? ($orderData['qr_code_url'] ?? ($firstSim['qrcode_url'] ?? ($firstSim['qr_code_url'] ?? null))),
+            'smdp_address' => $orderData['smdp_address'] ?? ($firstSim['smdp_address'] ?? ($firstSim['lpa'] ?? null)),
+            'matching_id' => $orderData['matching_id'] ?? ($firstSim['matching_id'] ?? null),
+            'iccid' => $orderData['iccid'] ?? ($firstSim['iccid'] ?? null),
             'raw' => $orderData,
         ];
 
         if (!empty($orderData['sims']) && is_array($orderData['sims'])) {
             $bookingData['airalo_sims'] = $orderData['sims'];
-            $firstSim = (array) ($orderData['sims'][0] ?? []);
             if (!empty($firstSim)) {
                 $bookingData['airalo_provision']['first_sim'] = $firstSim;
             }
