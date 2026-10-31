@@ -442,6 +442,7 @@ include __DIR__ . '/umrah/umrah/index.php';               // Umrah
 // INSURANCE MODULES - Flight compensation claims
 // ----------------------------------------
 include __DIR__ . '/insurance/airhelp/index.php';         // AirHelp (flight-compensation claims)
+include __DIR__ . '/insurance/travelsure/index.php';      // TravelSure (paid policy — SCAFFOLDING, supplier stubbed)
 
 // ============================================================================
 // DISPATCH REQUEST - Route to appropriate handler

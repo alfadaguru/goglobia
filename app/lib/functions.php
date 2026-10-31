@@ -2107,6 +2107,13 @@ function ensureModulesBookingClass($db): void
         // index.php + app/routes/insurance/*. It registers a real claim; the
         // remote call safely no-ops until a Partner Token is configured.
         'insurance/airhelp'          => 'real',
+        // travelsure = paid travel-insurance supplier SCAFFOLDING (modules/insurance/
+        // travelsure/*). The module + gateway routes exist and mirror the eSIM
+        // supplier shape, but the remote client is deliberately STUBBED (no real
+        // provider wired yet), so it is NOT live-bookable — classed 'stub' until a
+        // real provider + API docs/credentials are supplied and _travelsure_request
+        // is wired. Until then paid insurance is MANUAL-only (Booking Manager).
+        'insurance/travelsure'       => 'stub',
         // visa is a core own-inventory service (app/routes/visa/*): the booking
         // is written locally to `bookings` (booking_status=pending), no external
         // supplier — same model as bus/umrah. Verified: app/routes/visa/bookingRoutes.php.
