@@ -105,6 +105,17 @@ $router->post('/supplier/housekeeping/room-move', function () use ($SECURE, $db)
         echo json_encode(['ok' => false, 'message' => 'That guest is no longer in that room — refresh the board.']); exit;
     }
 
+    // Don't move a guest onto a room RESERVED for a DIFFERENT arriving booking (audit R1).
+    // hk_assign_room_to_booking's guard is date-overlap-aware, so a disjoint-date move onto
+    // a reserved room would otherwise succeed and silently hide the upcoming reservation.
+    // A reserved room is only a valid target if it is reserved for THIS same booking.
+    if (function_exists('hk_rooms_reserved')) {
+        $resv = hk_rooms_reserved($db, $stayId);
+        if (isset($resv[$toRoom]) && $resv[$toRoom] !== $invoiceId) {
+            echo json_encode(['ok' => false, 'message' => 'That room is reserved for an arriving guest — pick another room.']); exit;
+        }
+    }
+
     // Reassign to the target room (atomic; rejects an occupied/OOO/other-property target).
     $moved = function_exists('hk_assign_room_to_booking') && hk_assign_room_to_booking($db, $invoiceId, $toRoom, $stayId);
     if (!$moved) { echo json_encode(['ok' => false, 'message' => 'That room isn’t available (occupied, out of order, or not assignable).']); exit; }

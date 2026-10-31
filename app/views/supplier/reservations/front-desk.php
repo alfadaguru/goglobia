@@ -192,6 +192,7 @@
                  data-status="<?= htmlspecialchars($st) ?>"
                  data-occupant-invoice="<?= htmlspecialchars($occInv) ?>"
                  data-occupant-name="<?= htmlspecialchars($occ) ?>"
+                 data-reserved-invoice="<?= htmlspecialchars($resvInv) ?>"
                  <?php if ($canEditRooms && $occInv !== ''): ?>draggable="true"<?php endif; ?>>
               <?php if ($tileHref !== ''): ?>
                 <a href="<?= htmlspecialchars($tileHref) ?>" title="<?= htmlspecialchars($tileTitle) ?>"
@@ -277,9 +278,13 @@
             t.addEventListener('dragover', function (e) {
               if (!dragInv) { return; }
               var occupied = (t.getAttribute('data-occupant-invoice') || '') !== '';
+              // A room RESERVED for an arriving (not-yet-checked-in) guest is NOT a free drop
+              // target (audit R1) — without this, a disjoint-date in-house guest could be
+              // moved onto a reserved room and silently hide the upcoming reservation.
+              var reserved = (t.getAttribute('data-reserved-invoice') || '') !== '';
               var ooo = (t.getAttribute('data-status') || '') === 'out_of_order';
               var self = parseInt(t.getAttribute('data-room-id') || '0', 10) === dragFrom;
-              if (occupied || ooo || self) { return; } // not a valid target → no drop
+              if (occupied || reserved || ooo || self) { return; } // not a valid target → no drop
               e.preventDefault();
               e.dataTransfer.dropEffect = 'move';
               t.classList.add('ring-2', 'ring-emerald-400');
@@ -291,6 +296,13 @@
               e.preventDefault();
               var toRoom = parseInt(t.getAttribute('data-room-id') || '0', 10);
               if (!toRoom || toRoom === dragFrom) { return; }
+              // Belt-and-braces (audit R1): never drop onto an occupied/reserved/OOO room,
+              // even if a dragover edge case let it through.
+              if ((t.getAttribute('data-occupant-invoice') || '') !== ''
+                  || (t.getAttribute('data-reserved-invoice') || '') !== ''
+                  || (t.getAttribute('data-status') || '') === 'out_of_order') {
+                say('That room isn’t free (occupied, reserved, or out of order).', false); return;
+              }
               var toNo = t.getAttribute('data-room-no') || '';
               var fd = new FormData();
               fd.append('invoice_id', dragInv);
