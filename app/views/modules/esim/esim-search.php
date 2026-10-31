@@ -45,7 +45,7 @@ function esimSearchData() {
         // Country dropdown
         countryOpen: false,
         countrySearchQuery: '',
-        selectedCountry: '<?= $defaultCountry ?>',
+        selectedCountry: <?= json_encode((string)$defaultCountry, JSON_UNESCAPED_SLASHES) ?>,
         countries: <?= json_encode(array_values($countries ?: [])) ?>,
         get filteredCountries() {
             const q = (this.countrySearchQuery || '').toLowerCase().trim();

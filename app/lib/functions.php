@@ -2637,6 +2637,22 @@ function enforceInvoiceAccess($db, $booking, $redirectTo = null): bool
         }
     }
 
+    // 2b) OWNING AGENCY — any authorised member (owner OR staff) of the agency that
+    //     the booking belongs to may view it. Without this, a STAFF-created booking
+    //     (user_id = the staff member) was viewable ONLY by that staff person: the
+    //     agency owner and other staff were locked out of their own agency's invoice
+    //     (e.g. an eSIM QR for the client). Scope strictly to the acting agency.
+    $bookingAgencyId = (string) ($booking['agency_id'] ?? '');
+    if ($bookingAgencyId !== '' && function_exists('agent_acting_context')) {
+        try {
+            $__actx = agent_acting_context($GLOBALS['db'] ?? null);
+            if (is_array($__actx) && empty($__actx['is_admin'])
+                && (string) ($__actx['owner'] ?? '') === $bookingAgencyId) {
+                return true;
+            }
+        } catch (\Throwable $e) { /* fall through to the other checks */ }
+    }
+
     // 3) Guest/session that created this invoice.
     $invoiceId = (string) ($booking['invoice_id'] ?? '');
     if ($invoiceId !== ''

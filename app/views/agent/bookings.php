@@ -63,7 +63,14 @@ $fmt = fn($n) => number_format((float)$n, 2);
                                 if ($__paidPending && agent_can($db,'bookings','add')): ?>
                                     <button type="button" onclick="agentBookingAction('<?= htmlspecialchars($inv, ENT_QUOTES) ?>','retry_issue')" class="text-xs px-2.5 py-1 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600 mr-2">Retry issue</button>
                                 <?php endif; ?>
-                                <?php if (agent_can($db,'bookings','view')): ?>
+                                <?php if (agent_can($db,'bookings','view')):
+                                    // View the invoice/voucher (where eSIM QR/ICCID + other
+                                    // credentials are shown) so the agent can read/relay them
+                                    // to the client on-screen, not only via Resend email.
+                                    $__mt = strtolower((string)($b['module_type'] ?? '')); ?>
+                                    <?php if ($__mt !== ''): ?>
+                                        <a href="<?= root ?>invoice/<?= urlencode($__mt) ?>/<?= urlencode($inv) ?>" target="_blank" class="text-xs text-violet-600 hover:underline mr-2">View</a>
+                                    <?php endif; ?>
                                     <button type="button" onclick="agentBookingAction('<?= htmlspecialchars($inv, ENT_QUOTES) ?>','resend')" class="text-xs text-slate-600 hover:underline mr-2">Resend</button>
                                 <?php endif; ?>
                                 <?php if (($b['booking_status']??'') !== 'cancelled' && agent_can($db,'bookings','refund')): ?>

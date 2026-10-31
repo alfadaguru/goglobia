@@ -149,7 +149,11 @@ $status = strtolower((string) ($booking['booking_status'] ?? 'pending'));
                             <?php if (is_string($airaloManualRaw) && trim($airaloManualRaw) !== ''): ?>
                             <div class="md:col-span-2">
                                 <span class="text-gray-500 block mb-2">Installation Steps</span>
-                                <div class="text-gray-700 leading-6 rounded-xl border border-gray-100 bg-gray-50 p-4"><?= $airaloManualRaw ?></div>
+                                <?php /* Supplier-controlled content (Airalo manual_installation) — escape
+                                         it rather than echo raw HTML into the buyer's browser (supplier-trust
+                                         boundary / defence against a compromised or MITM'd supplier response).
+                                         nl2br preserves the step line breaks. */ ?>
+                                <div class="text-gray-700 leading-6 rounded-xl border border-gray-100 bg-gray-50 p-4"><?= nl2br(htmlspecialchars((string)$airaloManualRaw, ENT_QUOTES, 'UTF-8')) ?></div>
                             </div>
                             <?php endif; ?>
                             <?php if ($airaloDirectInstall !== '' || $airaloQr !== ''): ?>
