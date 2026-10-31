@@ -332,7 +332,12 @@ $svcIcons = [
       <!-- ============ MANUAL MODE: typed booking ============ -->
       <div class="card p-4" x-show="mode==='manual'">
         <h2 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2"><span class="material-symbols-outlined text-lg">edit_note</span>Booking details (booked elsewhere)</h2>
-        <?php if (!$isHotel): ?>
+        <?php /* BUG FIX: this was `if (!$isHotel)`, which matched EVERY non-hotel
+                 service (esim, cars, tours, visa, umrah, rail, bus, ferries) — so
+                 they ALL showed the flight airline/From/To/segment manual form and
+                 their own `elseif ($svc===...)` branches below were dead code. The
+                 flight segment form must only render for flights. */ ?>
+        <?php if ($svc === 'flights'): ?>
         <!-- flight segments -->
         <div class="space-y-3">
           <template x-for="(seg,i) in manual.segments" :key="i">
