@@ -55,15 +55,34 @@ if (!function_exists('contacts_save')) {
         if ($name === '') { return ['ok' => false, 'id' => 0, 'message' => 'A name is required.']; }
 
         $phone = trim((string) ($d['phone'] ?? ''));
+        $phoneValid = function_exists('supplier_valid_phone') && supplier_valid_phone($phone);
         // MANDATORY customer identity: name AND phone, so every customer is searchable by
-        // name or phone (email optional). Enforced centrally so quick-create, save, and any
-        // operator path all require it. (≥7 digits = the search key's minimum.) Relaxed ONLY
-        // when the caller opts out ($d['require_phone'] === false) — used by the Customer-Book
-        // BACKFILL auto-materialise (contacts_resolve_for_booking) for an existing booking
-        // that genuinely has no phone, so it isn't re-scanned forever (audit M11). Operator
-        // entry never passes the flag, so it stays strict.
-        $requirePhone = !(array_key_exists('require_phone', $d) && $d['require_phone'] === false);
-        if ($requirePhone && (!function_exists('supplier_valid_phone') || !supplier_valid_phone($phone))) {
+        // name or phone (email optional). (≥7 digits = the search key's minimum.) When to
+        // enforce:
+        //  - caller opt-out ($d['require_phone'] === false) → never enforce (backfill
+        //    auto-materialise of a phoneless booking, audit M11).
+        //  - INSERT (new operator-created customer) → ALWAYS require a valid phone.
+        //  - UPDATE of an EXISTING contact that already has a valid phone → require it still
+        //    be valid (can't blank/break it).
+        //  - UPDATE of an existing PHONELESS contact (backfilled/auto-materialised — a real,
+        //    system-created state) → do NOT force a phone just to edit a note/status/tax
+        //    (audit R2); but if the operator IS supplying a phone, it must be valid.
+        $optOut = (array_key_exists('require_phone', $d) && $d['require_phone'] === false);
+        $enforcePhone = false;
+        if (!$optOut) {
+            if ($id <= 0) {
+                $enforcePhone = true; // new customer: phone mandatory
+            } else {
+                $hadPhone = $db->has('stays_contacts', ['id' => $id, 'org_id' => $orgId, 'phone_key[!]' => null]);
+                if ($hadPhone) {
+                    $enforcePhone = true; // had a phone → keep it valid
+                } elseif ($phone !== '') {
+                    $enforcePhone = true; // phoneless contact, but a phone is being supplied → validate it
+                }
+                // else: phoneless contact + no phone being set → allow the edit (R2)
+            }
+        }
+        if ($enforcePhone && !$phoneValid) {
             return ['ok' => false, 'id' => 0, 'message' => 'A valid phone number is required (at least 7 digits).'];
         }
         $row = [
