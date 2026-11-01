@@ -247,7 +247,10 @@ $bmRenderManager = function ($svc) use ($SECURE, $db) {
         // Active currencies for the Price card dropdown (replaces the confusing
         // free-text box). The chosen currency drives which payment options the
         // Take-payment panel offers (bm_payment_methods_for_currency).
-        'currencies'     => $db->select('currencies', ['name', 'symbol'], ['status' => 1, 'ORDER' => ['default' => 'DESC', 'name' => 'ASC']]) ?: [],
+        // NOTE: the `currencies` table has NO `symbol` column (only id/name/country/
+        // default/status/rate) — selecting it threw 1054 Unknown column and 404'd
+        // every BM page after login. Select only real columns.
+        'currencies'     => $db->select('currencies', ['name'], ['status' => 1, 'ORDER' => ['default' => 'DESC', 'name' => 'ASC']]) ?: [],
     ];
 
     // eSIM: give the LIVE panel the same searchable country list the customer
