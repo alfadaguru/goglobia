@@ -536,11 +536,8 @@ $svcIcons = [
         <div class="grid sm:grid-cols-2 gap-3">
           <label class="form-control"><span class="form-label">First name *</span><input class="input" x-model="cust.first_name"></label>
           <label class="form-control"><span class="form-label">Last name *</span><input class="input" x-model="cust.last_name"></label>
-          <?php /* eSIM delivers the QR to the PHONE (WhatsApp/GIA), so phone is
-                   required and email is optional. Every other service tickets by
-                   email, so email stays required there. */ ?>
-          <label class="form-control"><span class="form-label">Contact email <?= $isEsim ? '<span class="text-slate-400 font-normal">(optional)</span>' : '*' ?></span><input type="email" class="input" x-model="cust.email"></label>
-          <label class="form-control"><span class="form-label">Phone <?= $isEsim ? '*' : '' ?></span><input class="input" x-model="cust.phone" <?= $isEsim ? 'placeholder="eSIM QR is sent here"' : '' ?>></label>
+          <label class="form-control"><span class="form-label">Contact email *</span><input type="email" class="input" x-model="cust.email"></label>
+          <label class="form-control"><span class="form-label">Phone</span><input class="input" x-model="cust.phone"></label>
           <label class="form-control sm:col-span-2">
             <span class="form-label">Passenger email — ticket is sent here <span class="text-slate-400 font-normal">(blank = contact email)</span></span>
             <input type="email" class="input" x-model="cust.ticket_email" placeholder="traveller@email.com">
@@ -594,19 +591,8 @@ $svcIcons = [
         <div class="grid sm:grid-cols-3 gap-3">
           <label class="form-control"><span class="form-label">Selling price *</span><input type="number" min="0" step="0.01" class="input" x-model.number="price.sell"></label>
           <label class="form-control"><span class="form-label">Net cost (optional)</span><input type="number" min="0" step="0.01" class="input" x-model.number="price.cost"></label>
-          <?php /* Currency is a DROPDOWN of active currencies (was a confusing
-                   free-text box). The chosen currency sets bookings.currency_markup
-                   and drives which payment options the Take-payment panel offers
-                   (bm_payment_methods_for_currency). */ ?>
-          <label class="form-control"><span class="form-label">Currency</span>
-            <select class="select input" x-model="price.currency">
-              <?php foreach (($bm['currencies'] ?? []) as $__cur): ?>
-                <option value="<?= htmlspecialchars((string)($__cur['name'] ?? ''), ENT_QUOTES) ?>"><?= htmlspecialchars((string)($__cur['name'] ?? ''), ENT_QUOTES) ?></option>
-              <?php endforeach; ?>
-            </select>
-          </label>
+          <label class="form-control"><span class="form-label">Currency</span><input class="input" x-model="price.currency" :placeholder="baseCurrency"></label>
         </div>
-        <p class="text-xs text-slate-500 mt-2">Payment options on the next step depend on this currency.</p>
         <button class="btn primary mt-4 w-full" @click="createBooking()" :disabled="creating || created">
           <span class="material-symbols-outlined" x-show="!creating">check_circle</span>
           <span class="material-symbols-outlined animate-spin" x-show="creating">progress_activity</span>
@@ -621,29 +607,16 @@ $svcIcons = [
         <h2 class="text-base font-semibold text-slate-800 mb-1 flex items-center gap-2"><span class="material-symbols-outlined text-lg">account_balance_wallet</span>Take payment</h2>
         <p class="text-xs text-slate-500 mb-3">Invoice <span class="font-mono" x-text="invoiceId"></span> · <span x-text="price.currency||baseCurrency"></span> <span class="tabular-nums" x-text="Number(price.sell).toLocaleString()"></span></p>
 
-        <?php /* Payment options are CURRENCY-AWARE — loaded from the server for the
-                 booking's currency (owner: different payment options per currency).
-                 NGN → virtual account; any card-enabled currency → payment link;
-                 manual transfer always; mark-paid only for manual bookings. */ ?>
         <div class="space-y-2">
-          <p class="text-xs text-slate-400" x-show="payMethodsLoading">Loading payment options…</p>
-          <template x-for="pm in payMethods" :key="pm.key">
-            <button class="btn outline w-full justify-start" @click="pay(pm.key)" :disabled="paying">
-              <span class="material-symbols-outlined" x-text="{dva:'qr_code_2',payment_link:'link',manual_transfer:'account_balance',mark_paid_offline:'done_all'}[pm.key]||'payments'"></span>
-              <span x-text="pm.label"></span>
-            </button>
-          </template>
-          <p class="text-xs text-red-500" x-show="!payMethodsLoading && !payMethods.length">No payment option is available for <span x-text="price.currency||baseCurrency"></span>. Enable a gateway for this currency.</p>
-        </div>
-
-        <!-- Payment link result -->
-        <div class="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm" x-show="payLink">
-          <div class="font-semibold text-blue-800 mb-1">Payment link (send to customer)</div>
-          <div class="flex items-center gap-2">
-            <input class="input flex-1 font-mono text-xs" :value="payLink" readonly x-ref="payLinkInput">
-            <button class="btn sm outline" @click="$refs.payLinkInput.select(); document.execCommand('copy');">Copy</button>
-          </div>
-          <div class="text-xs text-blue-600 mt-1">Customer pays in <span x-text="price.currency||baseCurrency"></span>; the booking confirms automatically on payment.</div>
+          <button class="btn outline w-full justify-start" @click="payDva()" :disabled="paying">
+            <span class="material-symbols-outlined">qr_code_2</span><span>Generate virtual account (bank transfer)</span>
+          </button>
+          <button class="btn outline w-full justify-start" @click="payManual()" :disabled="paying">
+            <span class="material-symbols-outlined">account_balance</span><span>Manual bank transfer to our account</span>
+          </button>
+          <button class="btn outline w-full justify-start" @click="payOffline()" :disabled="paying" x-show="mode==='manual'">
+            <span class="material-symbols-outlined">done_all</span><span>Mark paid (settled offline)</span>
+          </button>
         </div>
 
         <!-- DVA result -->
@@ -753,8 +726,7 @@ function bookingMgr() {
     },
     cust: { first_name:'', last_name:'', email:'', phone:'', ticket_email:'' },
     pax: [{ type:'adult', title:'Mr', first_name:'', last_name:'', passport_number:'', ticket_number:'' }],
-    price: { sell:0, cost:0, currency:'<?= htmlspecialchars($bm['base_currency'] ?? 'NGN') ?>' },
-    payMethods: [], payMethodsLoading:false, payLink:'',
+    price: { sell:0, cost:0, currency:'' },
 
     searching:false, searched:false, results:[], selectedOffer:null, selectedRaw:null, selectedSupplier:'', selectedGroup:null, selectedRoom:null, selectedOption:null, selectedRoomName:'',
     // Live-rail state (its own train search; selTrain/selSeat = the chosen seat class).
@@ -954,29 +926,8 @@ function bookingMgr() {
     selectOffer(i){ this.selectedOffer=i; this.selectedRaw=this.results[i].raw; this.selectedSupplier=this.results[i].supplier;
       // prefill price from the offer
       const r=this.results[i].raw; const seg=(r.segments&&r.segments[0]&&r.segments[0][0])?r.segments[0][0]:r;
-      const offerAmt=Number(r.price||seg.price||r.display_price||0);
-      const offerCur=(seg.currency||r.currency||'').toUpperCase();
-      const bookCur=(this.price.currency||this.baseCurrency).toUpperCase();
-      // eSIM (Airalo) returns the price in the SUPPLIER/module currency (USD). Keep
-      // the admin's CHOSEN booking currency and CONVERT the supplier amount into it
-      // — same CURRENCY_CONVERT the customer storefront uses — so selecting a SIM
-      // auto-fills a correct, trustworthy selling price instead of a raw USD number.
-      if(this.service==='esim' && offerAmt>0 && offerCur && offerCur!==bookCur){
-        this.price.sell=offerAmt; // optimistic; corrected by the convert call below
-        this.convertOfferPrice(offerAmt, offerCur, bookCur);
-      } else {
-        this.price.sell = offerAmt || this.price.sell;
-        if(this.service!=='esim'){ this.price.currency = offerCur || this.price.currency; }
-      }
-    },
-
-    async convertOfferPrice(amount, from, to){
-      try{
-        const q='amount='+encodeURIComponent(amount)+'&from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to);
-        const res=await fetch(this.base+'admin/booking-manager/convert?'+q);
-        const data=await res.json();
-        if(data.status && Number(data.amount)>0){ this.price.sell=Number(data.amount); this.price.currency=data.currency||to; }
-      }catch(e){ /* keep the optimistic amount; admin can adjust */ }
+      this.price.sell = Number(r.price||seg.price||r.display_price||0)||this.price.sell;
+      this.price.currency = seg.currency||r.currency||this.price.currency;
     },
 
     buildPassengers(){
@@ -1084,11 +1035,7 @@ function bookingMgr() {
     },
 
     async createBooking(){
-      if(!this.cust.first_name||!this.cust.last_name){ alert('Customer first and last name are required'); return; }
-      if(this.service==='esim'){
-        // eSIM: the QR goes to the phone (WhatsApp/GIA) — phone required, email optional.
-        if(!this.cust.phone){ alert('Customer phone is required for eSIM — the activation QR is delivered to this number.'); return; }
-      } else if(!this.cust.email){ alert('Customer email is required'); return; }
+      if(!this.cust.first_name||!this.cust.last_name||!this.cust.email){ alert('Customer first/last name and email are required'); return; }
       if(!(this.price.sell>0)){ alert('Enter a selling price'); return; }
       if(this.mode==='live' && this.service==='rail' && (this.rail.selTrain===null||this.rail.selSeat===null)){ alert('Search trains, then select a seat class'); return; }
       if(this.mode==='live' && this.service==='ferries' && this.ferry.sel===null){ alert('Search sailings, then select one'); return; }
@@ -1182,35 +1129,22 @@ function bookingMgr() {
           // this one. (This booking already exists; its create button is disabled,
           // so no retry re-uses the old token.)
           this.clientToken = this.newToken();
-          // Load the payment options VALID FOR THE CHOSEN CURRENCY.
-          this.loadPayMethods();
         }
         else alert(data.message||'Could not create the booking');
       }catch(e){ alert('Create failed'); }
       this.creating=false;
     },
 
-    async loadPayMethods(){
-      this.payMethodsLoading=true; this.payMethods=[];
-      try{
-        const cur=encodeURIComponent(this.price.currency||this.baseCurrency);
-        const man=(this.mode==='manual')?'1':'0';
-        const res=await fetch(this.base+'admin/booking-manager/payment-methods?currency='+cur+'&manual='+man);
-        const data=await res.json();
-        this.payMethods=Array.isArray(data.methods)?data.methods:[];
-      }catch(e){ this.payMethods=[]; }
-      this.payMethodsLoading=false;
-    },
-
+    async payDva(){ await this.pay('dva'); },
+    async payManual(){ await this.pay('manual_transfer'); },
+    async payOffline(){ if(!confirm('Mark this booking paid (settled offline)?')) return; await this.pay('mark_paid_offline'); },
     async pay(method){
-      if(method==='mark_paid_offline' && !confirm('Mark this booking paid (settled offline)?')) return;
-      this.paying=true; this.settleMsg=''; this.payLink='';
+      this.paying=true; this.settleMsg='';
       try{
         const res=await fetch(this.base+'admin/booking-manager/pay',{method:'POST',body:this.form({invoice_id:this.invoiceId,method})});
         const data=await res.json();
         if(method==='dva'){ this.dva=data.dva||null; this.manualPay=false; }
         else if(method==='manual_transfer'){ this.manualPay=true; this.dva=null; this.companyBank=data.company_bank||this.companyBank; }
-        else if(method==='payment_link'){ this.payLink=data.payment_url||''; this.dva=null; this.manualPay=false; }
         this.settleMsgOk=!!data.status; this.settleMsg=data.message||'';
       }catch(e){ this.settleMsgOk=false; this.settleMsg='Payment step failed'; }
       this.paying=false;

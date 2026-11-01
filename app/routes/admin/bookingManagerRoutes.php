@@ -125,85 +125,6 @@ if (!function_exists('bm_service_is_valid')) {
     }
 }
 
-if (!function_exists('bm_payment_methods_for_currency')) {
-    /**
-     * The payment methods the "Take payment" panel should offer for a booking in
-     * $currency. Owner direction: different payment options per currency. Rather
-     * than hard-code NGN-only methods, derive them from the SAME currency routing
-     * the rest of the platform uses (payment_gateway_allowed_for_currency in
-     * wallet.php + the payment_gateways table):
-     *
-     *   - 'dva'            — Paystack virtual account. NGN only (gia_bp_create_dva
-     *                        itself refuses non-NGN with not_ngn). Offered only when
-     *                        an enabled Paystack/NGN external gateway exists.
-     *   - 'payment_link'   — the customer-facing invoice URL, where they pick any
-     *                        gateway VALID FOR THIS CURRENCY (card/Stripe for USD/GBP,
-     *                        etc) and pay through the normal process_payment() flow.
-     *                        Offered whenever ANY external gateway supports $currency.
-     *   - 'manual_transfer'— company bank account (senior admins); currency-agnostic.
-     *   - 'mark_paid_offline' — manual bookings only; currency-agnostic (UI-gated).
-     *
-     * Returns an ordered list of ['key','label','note'] the UI renders as buttons.
-     */
-    function bm_payment_methods_for_currency($db, string $currency, bool $isManualBooking, bool $isSenior): array
-    {
-        $cur = strtoupper(trim($currency));
-        if ($cur === '') {
-            $c = $db->get('currencies', ['name'], ['default' => 1]);
-            $cur = strtoupper((string) ($c['name'] ?? 'NGN'));
-        }
-
-        // Enabled, active EXTERNAL gateways (exclude internal/deferred/off-platform
-        // types — those don't move money in a currency and shouldn't drive routing).
-        $externalTypes = ['credit_card', 'debit_card', 'digital_wallet', 'crypto_currency'];
-        $gateways = $db->select('payment_gateways', ['name', 'type', 'currency'], [
-            'status' => '1',
-            'active' => '1',
-            'type'   => $externalTypes,
-        ]) ?: [];
-
-        $hasExternalForCur = false;   // any card/online gateway can take THIS currency
-        $hasNgnPaystack    = false;   // a Paystack/NGN gateway exists (DVA source)
-        foreach ($gateways as $g) {
-            if (function_exists('payment_gateway_allowed_for_currency')
-                && payment_gateway_allowed_for_currency($db, $g, $cur)) {
-                $hasExternalForCur = true;
-            }
-            if (strtoupper((string) ($g['currency'] ?? '')) === 'NGN'
-                || stripos((string) ($g['name'] ?? ''), 'paystack') !== false) {
-                $hasNgnPaystack = true;
-            }
-        }
-
-        $methods = [];
-
-        // DVA (bank-transfer virtual account) is Paystack/NGN-only.
-        if ($cur === 'NGN' && $hasNgnPaystack) {
-            $methods[] = ['key' => 'dva', 'label' => 'Generate virtual account (bank transfer)', 'note' => 'Confirms automatically when the transfer lands.'];
-        }
-
-        // Online card / wallet / crypto for this currency → send a payment link the
-        // customer opens and pays on (reuses the normal invoice + process_payment).
-        if ($hasExternalForCur && !($cur === 'NGN' && $hasNgnPaystack && !$hasExternalForCur)) {
-            // Only surface the link when the currency actually has a non-DVA online
-            // option (i.e. a card gateway valid for it). For pure-NGN installs with
-            // only Paystack, DVA already covers it, but a link is still handy, so we
-            // offer it whenever any external gateway accepts the currency.
-            $methods[] = ['key' => 'payment_link', 'label' => 'Send payment link (card / online)', 'note' => 'Customer opens the link and pays with any method enabled for ' . $cur . '.'];
-        }
-
-        // Manual bank transfer to the company account (senior admins configure/verify).
-        $methods[] = ['key' => 'manual_transfer', 'label' => 'Manual bank transfer to our account', 'note' => 'Record an off-platform transfer; a senior admin verifies it.'];
-
-        // Mark paid offline — only meaningful for a manual (non-supplier) booking.
-        if ($isManualBooking) {
-            $methods[] = ['key' => 'mark_paid_offline', 'label' => 'Mark paid (settled offline)', 'note' => 'For a booking already settled outside the platform.'];
-        }
-
-        return ['currency' => $cur, 'methods' => $methods];
-    }
-}
-
 // ---------------------------------------------------------------------------
 // GET /admin/booking-manager/flights  and  /admin/booking-manager/hotels
 // The manager console. Lists the active suppliers (for live mode), the company
@@ -244,13 +165,6 @@ $bmRenderManager = function ($svc) use ($SECURE, $db) {
             $c = $db->get('currencies', ['name'], ['default' => 1]);
             return $c['name'] ?? 'NGN';
         })(),
-        // Active currencies for the Price card dropdown (replaces the confusing
-        // free-text box). The chosen currency drives which payment options the
-        // Take-payment panel offers (bm_payment_methods_for_currency).
-        // NOTE: the `currencies` table has NO `symbol` column (only id/name/country/
-        // default/status/rate) — selecting it threw 1054 Unknown column and 404'd
-        // every BM page after login. Select only real columns.
-        'currencies'     => $db->select('currencies', ['name'], ['status' => 1, 'ORDER' => ['default' => 'DESC', 'name' => 'ASC']]) ?: [],
     ];
 
     // eSIM: give the LIVE panel the same searchable country list the customer
@@ -280,18 +194,8 @@ foreach (array_keys(bm_service_catalogue()) as $__bmSvc) {
     $router->get(admin . '/booking-manager/' . $__bmSvc, function () use ($bmRenderManager, $__bmSvc) { $bmRenderManager($__bmSvc); });
 }
 unset($__bmSvc);
-// Bare /booking-manager (and the trailing-slash variant) → REDIRECT to the
-// canonical default-service URL (/booking-manager/flights). A redirect (not an
-// inline render) gives the browser a correct address-bar URL and avoids any
-// cached/mangled bare-path 404. ADMIN_AUTH runs inside the target handler.
-$router->get(admin . '/booking-manager', function () {
-    header('Location: ' . root . admin . '/booking-manager/flights', true, 302);
-    exit;
-});
-$router->get(admin . '/booking-manager/', function () {
-    header('Location: ' . root . admin . '/booking-manager/flights', true, 302);
-    exit;
-});
+// Bare /booking-manager → the manager (defaults to flights / the unified picker).
+$router->get(admin . '/booking-manager', function () use ($bmRenderManager) { $bmRenderManager('flights'); });
 
 // ---------------------------------------------------------------------------
 // POST /admin/booking-manager/search — proxy a LIVE supplier search for staff.
@@ -378,27 +282,11 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
     $email     = trim((string) ($_POST['email'] ?? ''));
     $phone     = trim((string) ($_POST['phone'] ?? ''));
     $phoneCc   = trim((string) ($_POST['phone_country_code'] ?? ''));
-    $isEsimService = ($serviceType === 'esim');
-    if ($firstName === '' || $lastName === '') {
-        bmAdminJson(['status' => false, 'message' => 'Customer first and last name are required.'], 422);
+    if ($firstName === '' || $lastName === '' || $email === '') {
+        bmAdminJson(['status' => false, 'message' => 'Customer first name, last name and email are required.'], 422);
     }
-    if ($isEsimService) {
-        // eSIM delivers the QR to the PHONE (WhatsApp/GIA) → phone required, email
-        // optional. Validate the email format only when one is actually provided.
-        if ($phone === '') {
-            bmAdminJson(['status' => false, 'message' => 'Customer phone is required for eSIM — the activation QR is delivered to this number.'], 422);
-        }
-        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            bmAdminJson(['status' => false, 'message' => 'Enter a valid customer email (or leave it blank).'], 422);
-        }
-    } else {
-        // Every other service tickets by email → email required.
-        if ($email === '') {
-            bmAdminJson(['status' => false, 'message' => 'Customer email is required.'], 422);
-        }
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            bmAdminJson(['status' => false, 'message' => 'Enter a valid customer email.'], 422);
-        }
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        bmAdminJson(['status' => false, 'message' => 'Enter a valid customer email.'], 422);
     }
     // PASSENGER / TRAVELLER email — where the TICKET is delivered. Staff/agents may
     // book on behalf of a client, so the ticket must reach the TRAVELLER, not the
@@ -841,44 +729,6 @@ $router->post(admin . '/booking-manager/pay', function () use ($SECURE, $db) {
         ]);
     }
 
-    if ($method === 'payment_link') {
-        // CARD / ONLINE for ANY currency. The admin can't run a card checkout
-        // inline (the customer must enter their card), so we hand the customer the
-        // normal invoice URL where they pick a gateway VALID FOR THE BOOKING
-        // CURRENCY and pay through process_payment() — the exact same flow the
-        // website uses. We assign a currency-valid default gateway so the invoice's
-        // gateway picker is pre-filtered correctly; the customer can still switch
-        // among currency-valid options there.
-        $payCur = strtoupper(trim((string) ($booking['currency_markup'] ?? '')));
-        $moduleType = strtolower((string) ($booking['module_type'] ?? 'flights'));
-
-        // Pick an enabled external gateway that supports this currency.
-        $extTypes = ['credit_card', 'debit_card', 'digital_wallet', 'crypto_currency'];
-        $cands = $db->select('payment_gateways', ['id', 'name', 'type', 'currency'], [
-            'status' => '1', 'active' => '1', 'type' => $extTypes, 'ORDER' => ['default' => 'DESC', 'order' => 'ASC'],
-        ]) ?: [];
-        $chosen = null;
-        foreach ($cands as $g) {
-            if (function_exists('payment_gateway_allowed_for_currency')
-                && payment_gateway_allowed_for_currency($db, $g, $payCur)) { $chosen = $g; break; }
-        }
-        if (!$chosen) {
-            bmAdminJson(['status' => false, 'message' => 'No card/online payment method is enabled for ' . ($payCur ?: 'this currency') . '. Enable a gateway for it, or use manual transfer.'], 422);
-        }
-
-        // Assign the gateway so the invoice page + process_payment resolve it.
-        $db->update('bookings', ['payment_gateway' => (string) $chosen['id']], ['invoice_id' => $invoiceId]);
-
-        $invoiceUrl = rtrim((string) root, '/') . '/invoice/' . $moduleType . '/' . $invoiceId;
-        bmAdminJson([
-            'status'  => true,
-            'method'  => 'payment_link',
-            'payment_url' => $invoiceUrl,
-            'currency' => $payCur,
-            'message' => 'Send this link to the customer. They pay in ' . $payCur . ' with any method enabled for it; the booking confirms automatically on payment.',
-        ]);
-    }
-
     if ($method === 'mark_paid_offline') {
         // OFFLINE/manual booking the office already settled outside the platform.
         // Only meaningful for a manual (no-supplier) booking.
@@ -891,47 +741,6 @@ $router->post(admin . '/booking-manager/pay', function () use ($SECURE, $db) {
     }
 
     bmAdminJson(['status' => false, 'message' => 'Choose a payment method.'], 422);
-});
-
-// ---------------------------------------------------------------------------
-// GET /admin/booking-manager/convert?amount=&from=&to=
-// Convert a supplier amount into the booking currency, so selecting a live
-// offer whose price is in the supplier/module currency (e.g. eSIM/Airalo in
-// USD) auto-fills a correct selling price in the chosen currency — same
-// CURRENCY_CONVERT the customer storefront uses. Returns {amount, currency}.
-// ---------------------------------------------------------------------------
-$router->get(admin . '/booking-manager/convert', function () use ($SECURE, $db) {
-    ADMIN_AUTH();
-    admin_require($db, 'bookings', 'view');
-    $amount = (float) ($_GET['amount'] ?? 0);
-    $from   = strtoupper(trim((string) ($_GET['from'] ?? '')));
-    $to     = strtoupper(trim((string) ($_GET['to'] ?? '')));
-    if ($amount <= 0 || $from === '' || $to === '') {
-        bmAdminJson(['status' => false, 'message' => 'amount, from and to are required.'], 422);
-    }
-    if ($from === $to) { bmAdminJson(['status' => true, 'amount' => round($amount, 2), 'currency' => $to]); }
-    // CURRENCY_CONVERT returns ['price'=>float, 'original_price'=>..., ...], NOT a
-    // scalar — read ['price'].
-    $converted = function_exists('CURRENCY_CONVERT') ? CURRENCY_CONVERT($amount, $db, $from, $to) : null;
-    $out = is_array($converted) ? ($converted['price'] ?? null) : $converted;
-    if ($out === null || !is_numeric($out)) {
-        bmAdminJson(['status' => false, 'message' => 'Could not convert ' . $from . '→' . $to . '. Check currency rates.'], 422);
-    }
-    bmAdminJson(['status' => true, 'amount' => round((float) $out, 2), 'currency' => $to]);
-});
-
-// ---------------------------------------------------------------------------
-// GET /admin/booking-manager/payment-methods?currency=XXX[&manual=1]
-// Returns the payment options valid for a currency, so the Take-payment panel
-// renders currency-aware buttons (owner: different payment options per currency).
-// ---------------------------------------------------------------------------
-$router->get(admin . '/booking-manager/payment-methods', function () use ($SECURE, $db) {
-    ADMIN_AUTH();
-    admin_require($db, 'bookings', 'view');
-    $currency = strtoupper(trim((string) ($_GET['currency'] ?? '')));
-    $isManual = !empty($_GET['manual']) && (string) $_GET['manual'] === '1';
-    $isSenior = bm_is_senior_admin($db);
-    bmAdminJson(['status' => true] + bm_payment_methods_for_currency($db, $currency, $isManual, $isSenior));
 });
 
 // ---------------------------------------------------------------------------
@@ -1211,7 +1020,6 @@ if (!function_exists('bmBuildManualBookingData')) {
                 ],
             ];
         }
-
         if ($serviceType === 'insurance') {
             // Manual travel-insurance POLICY (paid). The staff record a policy
             // booked off-system / via a provider, as a branded voucher. Keys mirror
