@@ -21,7 +21,7 @@ $isFerries = ($svc === 'ferries');            // ferries: live kikoto sailing se
 $svcIcons = [
   'flights' => 'flight', 'hotels' => 'hotel', 'tours' => 'tour', 'cars' => 'directions_car',
   'umrah' => 'mosque', 'rail' => 'train', 'ferries' => 'directions_boat', 'esim' => 'sim_card',
-  'visa' => 'badge', 'bus' => 'directions_bus', 'insurance' => 'health_and_safety',
+  'visa' => 'badge', 'bus' => 'directions_bus',
 ];
 ?>
 <div class="container py-6" x-data="bookingMgr()" x-init="init()">
@@ -507,24 +507,6 @@ $svcIcons = [
             customer receives a voucher with no usable eSIM. To auto-issue a brand-new eSIM, use <b>Live</b> mode.
           </p>
         </div>
-        <?php elseif ($svc === 'insurance'): ?>
-        <!-- insurance manual: a paid travel-insurance POLICY booked off-system. Keys
-             mirror bmBuildManualBookingData('insurance'). (The free AirHelp flight-
-             compensation claim is a separate customer tool, not a BM paid booking.) -->
-        <div class="grid sm:grid-cols-2 gap-3">
-          <label class="form-control sm:col-span-2"><span class="form-label">Plan name</span><input class="input" x-model="manual.plan_name" placeholder="Worldwide Traveller — Premium"></label>
-          <label class="form-control"><span class="form-label">Provider</span><input class="input" x-model="manual.provider" placeholder="e.g. AXA / Allianz"></label>
-          <label class="form-control"><span class="form-label">Coverage area</span><input class="input" x-model="manual.coverage_area" placeholder="Worldwide / Schengen"></label>
-          <label class="form-control sm:col-span-2"><span class="form-label">Coverage summary</span><input class="input" x-model="manual.coverage" placeholder="Medical $100k, baggage, cancellation"></label>
-          <label class="form-control"><span class="form-label">Trip start</span><input type="date" class="input" x-model="manual.trip_start"></label>
-          <label class="form-control"><span class="form-label">Trip end</span><input type="date" class="input" x-model="manual.trip_end"></label>
-          <label class="form-control"><span class="form-label">Travellers</span><input type="number" min="1" class="input" x-model.number="manual.travellers_count" placeholder="1"></label>
-          <label class="form-control"><span class="form-label">Policy number <span class="text-red-500">*</span></span><input class="input" x-model="manual.policy_number" :class="!manual.policy_number ? 'border-red-300' : ''" placeholder="POL-123456"></label>
-          <p class="sm:col-span-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-            A manual policy records insurance issued off-system / via a provider.
-            <b>Enter the policy number</b> so the customer's voucher references a real policy.
-          </p>
-        </div>
         <?php endif; ?>
         <label class="form-control mt-3"><span class="form-label">Attach original slip / e-ticket (optional)</span>
           <input type="file" class="input" accept=".pdf,.png,.jpg,.jpeg,.webp" x-ref="manualDoc"></label>
@@ -591,8 +573,19 @@ $svcIcons = [
         <div class="grid sm:grid-cols-3 gap-3">
           <label class="form-control"><span class="form-label">Selling price *</span><input type="number" min="0" step="0.01" class="input" x-model.number="price.sell"></label>
           <label class="form-control"><span class="form-label">Net cost (optional)</span><input type="number" min="0" step="0.01" class="input" x-model.number="price.cost"></label>
-          <label class="form-control"><span class="form-label">Currency</span><input class="input" x-model="price.currency" :placeholder="baseCurrency"></label>
+          <?php /* Currency is a DROPDOWN of active currencies (was a confusing
+                   free-text box). The chosen currency sets bookings.currency_markup
+                   and drives which payment options the Take-payment panel offers
+                   (bm_payment_methods_for_currency). */ ?>
+          <label class="form-control"><span class="form-label">Currency</span>
+            <select class="select input" x-model="price.currency">
+              <?php foreach (($bm['currencies'] ?? []) as $__cur): ?>
+                <option value="<?= htmlspecialchars((string)($__cur['name'] ?? ''), ENT_QUOTES) ?>"><?= htmlspecialchars((string)($__cur['name'] ?? ''), ENT_QUOTES) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </label>
         </div>
+        <p class="text-xs text-slate-500 mt-2">Payment options on the next step depend on this currency.</p>
         <button class="btn primary mt-4 w-full" @click="createBooking()" :disabled="creating || created">
           <span class="material-symbols-outlined" x-show="!creating">check_circle</span>
           <span class="material-symbols-outlined animate-spin" x-show="creating">progress_activity</span>
@@ -607,16 +600,29 @@ $svcIcons = [
         <h2 class="text-base font-semibold text-slate-800 mb-1 flex items-center gap-2"><span class="material-symbols-outlined text-lg">account_balance_wallet</span>Take payment</h2>
         <p class="text-xs text-slate-500 mb-3">Invoice <span class="font-mono" x-text="invoiceId"></span> · <span x-text="price.currency||baseCurrency"></span> <span class="tabular-nums" x-text="Number(price.sell).toLocaleString()"></span></p>
 
+        <?php /* Payment options are CURRENCY-AWARE — loaded from the server for the
+                 booking's currency (owner: different payment options per currency).
+                 NGN → virtual account; any card-enabled currency → payment link;
+                 manual transfer always; mark-paid only for manual bookings. */ ?>
         <div class="space-y-2">
-          <button class="btn outline w-full justify-start" @click="payDva()" :disabled="paying">
-            <span class="material-symbols-outlined">qr_code_2</span><span>Generate virtual account (bank transfer)</span>
-          </button>
-          <button class="btn outline w-full justify-start" @click="payManual()" :disabled="paying">
-            <span class="material-symbols-outlined">account_balance</span><span>Manual bank transfer to our account</span>
-          </button>
-          <button class="btn outline w-full justify-start" @click="payOffline()" :disabled="paying" x-show="mode==='manual'">
-            <span class="material-symbols-outlined">done_all</span><span>Mark paid (settled offline)</span>
-          </button>
+          <p class="text-xs text-slate-400" x-show="payMethodsLoading">Loading payment options…</p>
+          <template x-for="pm in payMethods" :key="pm.key">
+            <button class="btn outline w-full justify-start" @click="pay(pm.key)" :disabled="paying">
+              <span class="material-symbols-outlined" x-text="{dva:'qr_code_2',payment_link:'link',manual_transfer:'account_balance',mark_paid_offline:'done_all'}[pm.key]||'payments'"></span>
+              <span x-text="pm.label"></span>
+            </button>
+          </template>
+          <p class="text-xs text-red-500" x-show="!payMethodsLoading && !payMethods.length">No payment option is available for <span x-text="price.currency||baseCurrency"></span>. Enable a gateway for this currency.</p>
+        </div>
+
+        <!-- Payment link result -->
+        <div class="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm" x-show="payLink">
+          <div class="font-semibold text-blue-800 mb-1">Payment link (send to customer)</div>
+          <div class="flex items-center gap-2">
+            <input class="input flex-1 font-mono text-xs" :value="payLink" readonly x-ref="payLinkInput">
+            <button class="btn sm outline" @click="$refs.payLinkInput.select(); document.execCommand('copy');">Copy</button>
+          </div>
+          <div class="text-xs text-blue-600 mt-1">Customer pays in <span x-text="price.currency||baseCurrency"></span>; the booking confirms automatically on payment.</div>
         </div>
 
         <!-- DVA result -->
@@ -726,7 +732,8 @@ function bookingMgr() {
     },
     cust: { first_name:'', last_name:'', email:'', phone:'', ticket_email:'' },
     pax: [{ type:'adult', title:'Mr', first_name:'', last_name:'', passport_number:'', ticket_number:'' }],
-    price: { sell:0, cost:0, currency:'' },
+    price: { sell:0, cost:0, currency:'<?= htmlspecialchars($bm['base_currency'] ?? 'NGN') ?>' },
+    payMethods: [], payMethodsLoading:false, payLink:'',
 
     searching:false, searched:false, results:[], selectedOffer:null, selectedRaw:null, selectedSupplier:'', selectedGroup:null, selectedRoom:null, selectedOption:null, selectedRoomName:'',
     // Live-rail state (its own train search; selTrain/selSeat = the chosen seat class).
@@ -1042,7 +1049,6 @@ function bookingMgr() {
       if(this.mode==='live' && this.service!=='rail' && this.service!=='ferries' && this.selectedRaw===null){ alert('Select a supplier offer first'); return; }
       if(this.mode==='live' && this.isHotel && this.selectedRoom===null){ alert('Choose a room rate on the selected hotel first'); return; }
       if(this.mode==='manual' && this.service==='esim' && !((this.manual.iccid||'').trim() || (this.manual.reference||'').trim())){ alert('A manual eSIM needs a real credential — enter the ICCID or activation reference of an eSIM you already provisioned. To auto-issue a new eSIM, switch to Live mode.'); return; }
-      if(this.mode==='manual' && this.service==='insurance' && !((this.manual.policy_number||'').trim())){ alert('A manual insurance policy needs a policy number so the voucher references a real policy.'); return; }
       this.creating=true;
       try{
         const payload = {
@@ -1129,22 +1135,35 @@ function bookingMgr() {
           // this one. (This booking already exists; its create button is disabled,
           // so no retry re-uses the old token.)
           this.clientToken = this.newToken();
+          // Load the payment options VALID FOR THE CHOSEN CURRENCY.
+          this.loadPayMethods();
         }
         else alert(data.message||'Could not create the booking');
       }catch(e){ alert('Create failed'); }
       this.creating=false;
     },
 
-    async payDva(){ await this.pay('dva'); },
-    async payManual(){ await this.pay('manual_transfer'); },
-    async payOffline(){ if(!confirm('Mark this booking paid (settled offline)?')) return; await this.pay('mark_paid_offline'); },
+    async loadPayMethods(){
+      this.payMethodsLoading=true; this.payMethods=[];
+      try{
+        const cur=encodeURIComponent(this.price.currency||this.baseCurrency);
+        const man=(this.mode==='manual')?'1':'0';
+        const res=await fetch(this.base+'admin/booking-manager/payment-methods?currency='+cur+'&manual='+man);
+        const data=await res.json();
+        this.payMethods=Array.isArray(data.methods)?data.methods:[];
+      }catch(e){ this.payMethods=[]; }
+      this.payMethodsLoading=false;
+    },
+
     async pay(method){
-      this.paying=true; this.settleMsg='';
+      if(method==='mark_paid_offline' && !confirm('Mark this booking paid (settled offline)?')) return;
+      this.paying=true; this.settleMsg=''; this.payLink='';
       try{
         const res=await fetch(this.base+'admin/booking-manager/pay',{method:'POST',body:this.form({invoice_id:this.invoiceId,method})});
         const data=await res.json();
         if(method==='dva'){ this.dva=data.dva||null; this.manualPay=false; }
         else if(method==='manual_transfer'){ this.manualPay=true; this.dva=null; this.companyBank=data.company_bank||this.companyBank; }
+        else if(method==='payment_link'){ this.payLink=data.payment_url||''; this.dva=null; this.manualPay=false; }
         this.settleMsgOk=!!data.status; this.settleMsg=data.message||'';
       }catch(e){ this.settleMsgOk=false; this.settleMsg='Payment step failed'; }
       this.paying=false;
