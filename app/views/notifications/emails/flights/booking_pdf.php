@@ -1,471 +1,213 @@
 <?php
 /**
- * ============================================================================
- * FLIGHT BOOKING VOUCHER PDF - Flight Ticket Receipt
- * ============================================================================
- * Professional booking receipt for Flights
- * Standardized design across all modules
- * ============================================================================
+ * FLIGHT INVOICE / RECEIPT (WITH PRICE) — premium, on the shared invoice base.
+ *
+ * The priced money document for a flight booking (the no-price travel document is
+ * flights/ticket.php). Builds a compact flight summary + passenger list, then feeds
+ * the premium _invoice_base.php: header band, bill-to, line-item price block
+ * (subtotal / extra services / taxes / total), payment status + method, notes.
+ *
+ * Financials are computed + currency-converted by GENERATE_BOOKING_PDF and passed
+ * in: $rawTotal, $totalAmount, $taxAmount, $subtotalAmount, $currency, $statusText,
+ * $booking['payment_gateway'], etc. We only DISPLAY them (no re-pricing here).
+ *
+ * Vars: $booking,$bookingData,$settings,$businessName,$businessEmail,$businessPhone,
+ *   $siteUrl,$wlPdfLogo,$pdfLogoSrc,$agentBrandColors,$currency,$language,
+ *   $rawTotal,$totalAmount,$taxAmount,$subtotalAmount,$bookingDate, (+$mpdf if set).
  */
-
 if (!isset($SECURE)) die('Direct access not permitted');
+require_once __DIR__ . '/../_invoice_base.php';
+require_once __DIR__ . '/../../../../lib/flight_ticket_helpers.php';
 
-// Agent-brand accent for the service header (falls back to the platform ink).
-$pdfAccent = '#2d3748';
-if (!empty($agentBrandColors['primary']) && preg_match('/^#[0-9a-fA-F]{6}$/', (string) $agentBrandColors['primary'])) {
-    $pdfAccent = (string) $agentBrandColors['primary'];
+$e = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
+$db = $GLOBALS['db'] ?? null;
+$mpdfInst = $mpdf ?? ($GLOBALS['mpdf'] ?? null);
+$invoiceId = (string) ($booking['invoice_id'] ?? '');
+$lang = $language ?? 'en';
+$T = function ($key, $fallback = '') use ($lang) {
+    if (function_exists('translateTo')) { $v = translateTo($key, $lang); if ($v !== '' && $v !== $key) { return $v; } }
+    return $fallback !== '' ? $fallback : ucwords(str_replace('_', ' ', $key));
+};
+
+// ---- Passengers -------------------------------------------------------------
+$travellers = [];
+if (!empty($booking['travellers'])) {
+    $t = json_decode((string) $booking['travellers'], true);
+    if (is_array($t)) {
+        if (isset($t['primary_guest']) || isset($t['passengers'])) {
+            if (isset($t['primary_guest']) && is_array($t['primary_guest'])) { $travellers[] = $t['primary_guest']; }
+            foreach ((array) ($t['passengers'] ?? $t['others'] ?? []) as $px) { if (is_array($px)) { $travellers[] = $px; } }
+        } else {
+            $travellers = isset($t[0]) ? $t : array_values($t);
+        }
+    }
+}
+if (empty($travellers)) {
+    $travellers = [['first_name' => $booking['first_name'] ?? '', 'last_name' => $booking['last_name'] ?? '', 'type' => 'ADT']];
 }
 
-// Prepare Flight Data
-$fd = $bookingData['flight_data'] ?? [];
-$routes = $fd['routes'] ?? [];
-$segments = !empty($routes) ? ($routes[0]['segments'] ?? []) : [];
-
-// Robust extraction for Header title
-if (!empty($segments)) {
-    $first = $segments[0];
-    $last = $segments[count($segments) - 1];
-    $fromTitle = $first['from_airport'] ?? 'N/A';
-    $toTitle = $last['to_airport'] ?? 'N/A';
-    $formattedDate = date('D, M d, Y', strtotime($first['departure_datetime']));
-    $airlineInfo = ($first['airline_name'] ?? 'Airline') . ' (' . ($first['flight_number'] ?? 'N/A') . ')';
+// ---- Legs & segments (same extraction the ticket uses) ----------------------
+$fd = $bookingData['flight_data'] ?? $bookingData ?? [];
+$legs = [];
+if (!empty($fd['routes']) && is_array($fd['routes'])) {
+    foreach ($fd['routes'] as $i => $route) {
+        $segs = $route['segments'] ?? [];
+        if ($segs) { $legs[] = ['label' => $i === 0 ? 'Outbound' : ($i === 1 ? 'Return' : 'Leg ' . ($i + 1)), 'segments' => array_values($segs)]; }
+    }
 } else {
-    // Simple structure fallback
-    $fromTitle = $fd['departure_code'] ?? $fd['departure_airport'] ?? 'N/A';
-    $toTitle = $fd['arrival_code'] ?? $fd['arrival_airport'] ?? 'N/A';
-    $formattedDate = !empty($fd['departure_date']) ? date('D, M d, Y', strtotime($fd['departure_date'])) : 'N/A';
-    $airlineInfo = ($fd['airline'] ?? 'Airline') . ' (' . ($fd['flight_no'] ?? 'N/A') . ')';
-}
-
-$allSegments = [];
-if (!empty($fd['segments']) && is_array($fd['segments'])) {
-    $allSegments = array_merge($allSegments, $fd['segments']);
-}
-if (!empty($fd['returnSegments']) && is_array($fd['returnSegments'])) {
-    $allSegments = array_merge($allSegments, $fd['returnSegments']);
-}
-
-$bookingDate = date('M d, Y', strtotime($booking['booking_date']));
-
-// Extract Ancillary Baggage - Handle multiple data formats
-$ancillaryBaggage = [];
-if (!empty($bookingData['baggage']) && is_array($bookingData['baggage'])) {
-    // Check if it's already an array of baggage objects
-    if (isset($bookingData['baggage'][0]) && is_array($bookingData['baggage'][0]) && isset($bookingData['baggage'][0]['passengerId'])) {
-        $ancillaryBaggage = $bookingData['baggage'];
+    if (!empty($fd['segments']) && is_array($fd['segments'])) { $legs[] = ['label' => 'Outbound', 'segments' => array_values($fd['segments'])]; }
+    if (!empty($fd['returnSegments']) && is_array($fd['returnSegments'])) { $legs[] = ['label' => 'Return', 'segments' => array_values($fd['returnSegments'])]; }
+    if (empty($legs) && (!empty($fd['departure_code']) || !empty($fd['from_airport']))) {
+        $legs[] = ['label' => 'Flight', 'segments' => [[
+            'airline' => $fd['airline'] ?? '', 'img' => $fd['img'] ?? ($fd['airline_code'] ?? ''), 'flight_no' => $fd['flight_no'] ?? ($fd['flight_number'] ?? ''),
+            'departure_code' => $fd['departure_code'] ?? ($fd['from_airport'] ?? ''), 'arrival_code' => $fd['arrival_code'] ?? ($fd['to_airport'] ?? ''),
+            'departure_time' => $fd['departure_time'] ?? '', 'arrival_time' => $fd['arrival_time'] ?? '',
+            'departure_date' => $fd['departure_date'] ?? '', 'arrival_date' => $fd['arrival_date'] ?? '',
+        ]]];
     }
 }
-// Fallback to ancillary_data if available
-if (empty($ancillaryBaggage) && !empty($bookingData['ancillary_data']['baggage'])) {
-    $tempBags = $bookingData['ancillary_data']['baggage'];
-    if (is_array($tempBags)) {
-        // Convert object to array if needed
-        $ancillaryBaggage = array_values($tempBags);
-    }
+$segVal = function (array $s, array $keys, $default = '') {
+    foreach ($keys as $k) { if (isset($s[$k]) && $s[$k] !== '') { return $s[$k]; } }
+    return $default;
+};
+
+// ---- HERO: route summary (true origin -> final destination of the first leg) ----
+$heroHtml = '';
+if (!empty($legs)) {
+    $hl = $legs[0]['segments'];
+    $sum = ft_leg_summary($hl);
+    $dAp = ft_airport_resolve($sum['from'], $db, $hl[0]);
+    $aAp = ft_airport_resolve($sum['to'], $db, $hl[count($hl) - 1]);
+    $stops = (int) $sum['stops'];
+    $stopText = $stops <= 0 ? 'Nonstop' : ($stops === 1 ? '1 stop' : $stops . ' stops');
+    $tot = $sum['total_display']; if ($tot !== '' && !$sum['total_exact']) { $tot = '~' . $tot; }
+    ob_start(); ?>
+    <div class="hero"><table><tr>
+        <td style="width:38%;">
+            <div class="port-code"><?= $e($sum['from'] ?: '—') ?></div>
+            <?php if ($dAp['city'] !== ''): ?><div class="port-city"><?= $e($dAp['city']) ?></div><?php endif; ?>
+            <?php if ($dAp['name'] !== ''): ?><div class="port-apt"><?= $e($dAp['name']) ?></div><?php endif; ?>
+        </td>
+        <td style="width:24%;" class="hero-mid">
+            <?php if ($tot !== ''): ?><div class="hero-dur"><?= $e($tot) ?></div><?php endif; ?>
+            <div class="hero-line"></div><div class="hero-plane">&#9992;</div>
+            <div class="hero-stops"><?= (count($legs) > 1 ? 'Round trip &middot; ' : '') . $stopText ?></div>
+        </td>
+        <td style="width:38%; text-align:right;">
+            <div class="port-code"><?= $e($sum['to'] ?: '—') ?></div>
+            <?php if ($aAp['city'] !== ''): ?><div class="port-city"><?= $e($aAp['city']) ?></div><?php endif; ?>
+            <?php if ($aAp['name'] !== ''): ?><div class="port-apt"><?= $e($aAp['name']) ?></div><?php endif; ?>
+        </td>
+    </tr></table></div>
+    <?php
+    $heroHtml = ob_get_clean();
 }
 
-// Extract Ancillary Seats - Handle multiple data formats
-$ancillarySeats = [];
-if (!empty($bookingData['seat']) && is_array($bookingData['seat'])) {
-    $ancillarySeats = $bookingData['seat'];
-} elseif (!empty($bookingData['ancillary_data']['seats'])) {
-    $ancillarySeats = $bookingData['ancillary_data']['seats'];
-}
+// ---- BODY: compact flight lines + passengers --------------------------------
+ob_start();
 ?>
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: inter, DejaVuSans, Arial, sans-serif; font-size: 9pt; color: #1a202c; line-height: 1.3; font-weight: normal; }
+<?php if (!empty($legs)): ?>
+<div class="sec-h"><?= $e($T('flight_details', 'Flight Details')) ?></div>
+<table class="infotable">
+<?php foreach ($legs as $leg): foreach ($leg['segments'] as $s):
+    $al = ft_airline_resolve($s, $db, $mpdfInst);
+    $depCode = strtoupper((string) $segVal($s, ['departure_code', 'from_airport'], ''));
+    $arrCode = strtoupper((string) $segVal($s, ['arrival_code', 'to_airport'], ''));
+    $dAp = ft_airport_resolve($depCode, $db, $s); $aAp = ft_airport_resolve($arrCode, $db, $s);
+    $depTime = $segVal($s, ['departure_time'], ''); $depDate = $segVal($s, ['departure_date'], '');
+    $cabin = $segVal($s, ['class', 'cabin'], '');
+?>
+    <tr>
+        <td style="width:6%;"><?php if ($al['logo_src'] !== ''): ?><img src="<?= $e($al['logo_src']) ?>" style="width:20pt;height:20pt;" alt=""><?php endif; ?></td>
+        <td style="width:40%;">
+            <div class="v" style="font-size:9pt;"><?= $e($al['name']) ?><?php if ($al['flight_no'] !== ''): ?> <span class="vs"><?= $e($al['flight_no']) ?></span><?php endif; ?></div>
+            <div class="vs"><?= $e(strtoupper((string) $leg['label'])) ?><?= $cabin ? ' &middot; ' . $e(ucfirst($cabin)) : '' ?></div>
+        </td>
+        <td style="width:34%;">
+            <div class="v" style="font-size:9pt;"><?= $e($depCode) ?> &rarr; <?= $e($arrCode) ?></div>
+            <div class="vs"><?= $e(trim(($dAp['city'] ?: $depCode) . ' to ' . ($aAp['city'] ?: $arrCode))) ?></div>
+        </td>
+        <td style="width:20%; text-align:right;">
+            <?php if ($depDate !== ''): ?><div class="v" style="font-size:8.5pt;"><?= $e($depDate) ?></div><?php endif; ?>
+            <?php if ($depTime !== ''): ?><div class="vs"><?= $e($depTime) ?></div><?php endif; ?>
+        </td>
+    </tr>
+<?php endforeach; endforeach; ?>
+</table>
+<?php endif; ?>
 
-        /* Header */
-        .header { background: #fff; padding: 12px 15px; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; }
-        .header table { width: 100%; border: none; }
-        .header td { border: none; padding: 0; vertical-align: middle; }
-        .logo-img { height: 32px; width: auto; }
-        .header-contact { text-align: center; font-size: 7pt; color: #4a5568; }
-        .header-contact div { margin-bottom: 2px; }
-        .header-ref { text-align: right; }
-        .ref-label { font-size: 7pt; color: #718096; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 2px; }
-        .ref-number { font-size: 13pt; font-weight: bold; color: #2d3748; letter-spacing: 0.5px; }
+<div class="sec-h"><?= $e($T('passengers', 'Passengers')) ?><?= count($travellers) > 1 ? ' &middot; ' . count($travellers) : '' ?></div>
+<table class="infotable">
+<?php foreach ($travellers as $pax):
+    $nm = trim(strtoupper((string) ($pax['last_name'] ?? '')) . ' / ' . strtoupper((string) ($pax['first_name'] ?? '')), ' /');
+    $ttl = strtoupper(trim((string) ($pax['title'] ?? '')));
+    $ptypeRaw = strtoupper((string) ($pax['type'] ?? $pax['passenger_type'] ?? 'ADT'));
+    $ptype = ['ADT' => 'Adult', 'CHD' => 'Child', 'INF' => 'Infant'][$ptypeRaw] ?? ucfirst(strtolower($ptypeRaw));
+?>
+    <tr>
+        <td style="width:60%;"><div class="v" style="font-size:9pt;"><?= $e($nm ?: 'Passenger') ?><?= $ttl ? ' <span class="vs">' . $e($ttl) . '</span>' : '' ?></div></td>
+        <td style="width:40%; text-align:right;"><span class="vs"><?= $e($ptype) ?></span></td>
+    </tr>
+<?php endforeach; ?>
+</table>
+<?php
+// Ancillaries note (seats/bags) — preserved from the old invoice.
+$totalSeats = 0; $totalBags = 0;
+$ancSeats = $bookingData['seat'] ?? ($bookingData['ancillary_data']['seats'] ?? []);
+$ancBags  = (!empty($bookingData['baggage']) && isset($bookingData['baggage'][0]['passengerId'])) ? $bookingData['baggage'] : ($bookingData['ancillary_data']['baggage'] ?? []);
+if (is_array($ancSeats)) { foreach ($ancSeats as $ss) { if (is_array($ss)) { $totalSeats += count($ss); } } }
+if (is_array($ancBags)) { foreach ($ancBags as $bg) { if (isset($bg['quantity'])) { $totalBags += (int) $bg['quantity']; } } }
+if ($totalSeats > 0 || $totalBags > 0):
+?>
+<div class="card" style="margin-top:10pt;"><div class="card-body">
+    <div class="k" style="margin-bottom:4pt;">Extra services selected</div>
+    <?php if ($totalSeats > 0): ?><div class="vs">&#10003; <b><?= (int) $totalSeats ?></b> seat<?= $totalSeats != 1 ? 's' : '' ?> selected</div><?php endif; ?>
+    <?php if ($totalBags > 0): ?><div class="vs">&#10003; <b><?= (int) $totalBags ?></b> extra baggage item<?= $totalBags != 1 ? 's' : '' ?></div><?php endif; ?>
+</div></div>
+<?php endif; ?>
+<?php if (!empty($booking['special_requests'])): ?>
+<div class="card" style="margin-top:8pt;"><div class="card-body">
+    <div class="k" style="margin-bottom:3pt;"><?= $e($T('special_requests', 'Special requests')) ?></div>
+    <div class="vs"><?= nl2br($e($booking['special_requests'])) ?></div>
+</div></div>
+<?php endif; ?>
+<?php
+$bodyHtml = ob_get_clean();
 
-        /* Status Badge */
-        .status-badge { background: #f0fdf4; border-left: 3px solid #10b981; padding: 8px 12px; margin-bottom: 10px; }
-        .status-badge-title { font-size: 9pt; font-weight: bold; color: #065f46; margin-bottom: 1px; }
-        .status-badge-text { font-size: 7pt; color: #047857; }
+// ---- Price rows (same math as the old invoice; engine gave converted figures) ----
+$ancBase = (float) ($bookingData['ancillary_data']['total_base'] ?? 0);
+$taxBase = (float) ($booking['tax'] ?? 0);
+$subtotal = (float) ($rawTotal ?? 0) - $ancBase - $taxBase;
+$priceRows = [];
+$priceRows[] = ['label' => $T('subtotal', 'Subtotal'), 'value' => number_format(max(0, $subtotal), 2), 'muted' => true];
+if ($ancBase > 0) { $priceRows[] = ['label' => $T('extra_services', 'Extra services'), 'value' => number_format($ancBase, 2), 'muted' => true]; }
+if ($taxBase > 0 || (float) ($taxAmount ?? 0) > 0) { $priceRows[] = ['label' => $T('taxes_fees', 'Taxes & fees'), 'value' => number_format((float) ($taxAmount ?? $taxBase), 2), 'muted' => true]; }
 
-        /* Card */
-        .service-card { border: 1px solid #cbd5e0; margin-bottom: 10px; }
-        .service-header { background: <?= $pdfAccent ?>; color: #fff; padding: 8px 12px; }
-        .service-name { font-size: 11pt; font-weight: bold; margin-bottom: 2px; }
-        .service-info { font-size: 7pt; opacity: 0.9; }
+$paid = strtolower((string) ($booking['payment_status'] ?? '')) === 'paid';
+$statusText = ucfirst((string) ($booking['payment_status'] ?? ($paid ? 'Paid' : 'Pending')));
 
-        /* Flight Segments */
-        .segment { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }
-        .segment:last-child { border-bottom: none; }
-        .segment-header { margin-bottom: 6px; }
-        .airline-label { font-size: 8pt; color: #2d3748; font-weight: bold; }
-        .flight-num { font-size: 7pt; color: #4a5568; margin-left: 5px; }
-
-        /* Table Layouts */
-        table { width: 100%; border-collapse: collapse; }
-        .dates-table td { width: 50%; padding: 6px 10px; border: 1px solid #e2e8f0; vertical-align: top; }
-        .dates-label { font-size: 6pt; color: #718096; text-transform: uppercase; margin-bottom: 2px; }
-        .dates-value { font-size: 9pt; font-weight: normal; color: #2d3748; margin-bottom: 1px; }
-        
-        .flight-times td { width: 45%; padding: 0; border: none; vertical-align: top; }
-        .arrow-col { width: 10%; text-align: center; padding-top: 10px; color: #cbd5e0; font-size: 12pt; }
-        .time-label { font-size: 6pt; color: #718096; text-transform: uppercase; margin-bottom: 2px; }
-        .time-value { font-size: 11pt; font-weight: bold; color: #2d3748; margin-bottom: 1px; }
-        .apt-code { font-size: 8pt; color: #4a5568; margin-bottom: 1px; }
-
-        .stay-info { background: #f7fafc; padding: 6px 10px; border-top: 1px solid #e2e8f0; font-size: 7pt; color: #4a5568; }
-        .stay-info strong { color: #2d3748; }
-
-        /* Price Summary */
-        .price-box { border: 1px solid #cbd5e0; padding: 8px 10px; margin-bottom: 10px; }
-        .price-title { font-size: 9pt; font-weight: bold; color: #2d3748; margin-bottom: 6px; }
-        .price-row { margin-bottom: 4px; }
-        .price-row table { border: none; }
-        .price-row td { padding: 0; border: none; font-size: 7pt; }
-        .price-label { color: #4a5568; }
-        .price-value { text-align: right; color: #2d3748; font-weight: normal; }
-        .price-total { border-top: 1px solid #cbd5e0; padding-top: 5px; margin-top: 5px; }
-        .price-total td { font-size: 9pt; font-weight: bold; }
-        .price-total .price-value { font-size: 11pt; color: #2d3748; font-weight: bold; }
-
-        /* Details */
-        .section-title { font-size: 9pt; font-weight: bold; color: #2d3748; margin-bottom: 5px; padding-bottom: 3px; border-bottom: 1px solid #cbd5e0; }
-        .info-block { background: #f7fafc; padding: 6px 10px; margin-bottom: 8px; }
-        .info-row { margin-bottom: 3px; font-size: 7pt; }
-        .info-label { color: #718096; display: inline-block; width: 100px; }
-        .info-value { color: #2d3748; font-weight: normal; }
-
-        /* Alert Boxes */
-        .alert-box { background: #fef3c7; border-left: 3px solid #f59e0b; padding: 6px 8px; margin-bottom: 8px; }
-        .alert-title { font-size: 7pt; font-weight: bold; color: #92400e; margin-bottom: 2px; }
-        .alert-text { font-size: 6pt; color: #92400e; line-height: 1.3; }
-
-        .note-box { background: #eff6ff; border-left: 3px solid #3b82f6; padding: 6px 8px; margin-bottom: 8px; }
-        .note-title { font-size: 7pt; font-weight: bold; color: #1e40af; margin-bottom: 2px; }
-        .note-text { font-size: 6pt; color: #1e3a8a; line-height: 1.3; }
-
-        /* Important Info */
-        .important-info { background: #f7fafc; padding: 8px 10px; margin-top: 10px; }
-        .important-info ul { margin: 4px 0 0 12px; padding: 0; }
-        .important-info li { font-size: 6pt; color: #4a5568; margin-bottom: 2px; line-height: 1.3; }
-
-        /* Footer */
-        .footer { background: #f7fafc; padding: 8px 10px; margin-top: 10px; border-top: 1px solid #cbd5e0; text-align: center; }
-        .footer-contact { font-size: 7pt; color: #4a5568; margin-bottom: 5px; }
-        .footer-note { font-size: 6pt; color: #718096; line-height: 1.3; }
-    </style>
-</head>
-<body>
-    <!-- Header -->
-    <div class="header">
-        <table>
-            <tr>
-                <td style="width: 33%;">
-                    <img src="<?= htmlspecialchars((!empty($wlPdfLogo) && is_string($wlPdfLogo)) ? $wlPdfLogo : (uploads . 'global/logo.png')) ?>" alt="<?= htmlspecialchars(getBrandName($settings ?? null)) ?>" class="logo-img">
-                </td>
-                <td style="width: 34%;" class="header-contact">
-                    <?php if (!empty($businessEmail)): ?>
-                        <div><?= htmlspecialchars($businessEmail) ?></div>
-                    <?php endif; ?>
-                    <?php if (!empty($businessPhone)): ?>
-                        <div><?= htmlspecialchars($businessPhone) ?></div>
-                    <?php endif; ?>
-                </td>
-                <td style="width: 33%;" class="header-ref">
-                    <div class="ref-label"><?= htmlspecialchars(translateTo('booking_reference', $language)) ?></div>
-                    <div class="ref-number"><?= $invoiceId ?></div>
-                </td>
-            </tr>
-        </table>
-    </div>
-
-    <!-- Payment Status (Unpaid Alert) -->
-    <?php if ($booking['payment_status'] === 'unpaid'): ?>
-    <div class="alert-box">
-        <div class="alert-title">⚠ <?= htmlspecialchars(translateTo('payment_required', $language)) ?></div>
-        <div class="alert-text">
-            <?= translateTo('flights_complete_payment_using', $language, ['%gateway%' => '<strong>' . htmlspecialchars($booking['payment_gateway']) . '</strong>']) ?>
-        </div>
-    </div>
-    <?php endif; ?>
-
-    <!-- Flight Information Card -->
-    <div class="service-card">
-        <div class="service-header">
-            <div class="service-name"><?= htmlspecialchars($fromTitle) ?> → <?= htmlspecialchars($toTitle) ?></div>
-            <div class="service-info"><?= $airlineInfo ?></div>
-        </div>
-
-        <table class="dates-table">
-            <tr>
-                <td>
-                    <div class="dates-label"><?= htmlspecialchars(translateTo('departure_date', $language)) ?></div>
-                    <div class="dates-value"><?= $formattedDate ?></div>
-                </td>
-                <td>
-                    <div class="dates-label"><?= htmlspecialchars(translateTo('booking_id', $language)) ?></div>
-                    <div class="dates-value">#<?= $invoiceId ?></div>
-                </td>
-            </tr>
-        </table>
-
-        <!-- Flight Detail Segments (if available) -->
-        <?php foreach ($segments as $seg): 
-            $depTime = date('H:i', strtotime($seg['departure_datetime']));
-            $arrTime = date('H:i', strtotime($seg['arrival_datetime']));
-        ?>
-        <div class="segment">
-            <div class="segment-header">
-                <span class="airline-label"><?= htmlspecialchars($seg['airline_name']) ?></span>
-                <span class="flight-num">| Flight <?= htmlspecialchars($seg['flight_number']) ?></span>
-            </div>
-
-            <table class="flight-times">
-                <tr>
-                    <td>
-                        <div class="time-label"><?= htmlspecialchars(translateTo('departure', $language)) ?></div>
-                        <div class="time-value"><?= $depTime ?></div>
-                        <div class="apt-code"><?= htmlspecialchars($seg['from_airport']) ?></div>
-                    </td>
-                    <td class="arrow-col">→</td>
-                    <td style="text-align: right;">
-                        <div class="time-label"><?= htmlspecialchars(translateTo('arrival', $language)) ?></div>
-                        <div class="time-value"><?= $arrTime ?></div>
-                        <div class="apt-code"><?= htmlspecialchars($seg['to_airport']) ?></div>
-                    </td>
-                </tr>
-            </table>
-        </div>
-        <?php endforeach; ?>
-
-        <div class="stay-info">
-            <strong><?= ($booking['adults'] ?? 1) ?> <?= htmlspecialchars(translateTo(($booking['adults'] ?? 1) > 1 ? 'adults' : 'adult', $language)) ?></strong>
-            <?php if (($booking['childs'] ?? 0) > 0): ?> • <strong><?= $booking['childs'] ?> <?= htmlspecialchars(translateTo($booking['childs'] > 1 ? 'children' : 'child', $language)) ?></strong><?php endif; ?>
-            <?php if (($booking['infants'] ?? 0) > 0): ?> • <strong><?= $booking['infants'] ?> <?= htmlspecialchars(translateTo($booking['infants'] > 1 ? 'infants' : 'infant', $language)) ?></strong><?php endif; ?>
-        </div>
-    </div>
-
-    <!-- Passenger Details -->
-    <div class="section-title"><?= htmlspecialchars(translateTo('passenger_details', $language)) ?> &amp; <?= htmlspecialchars(translateTo('ancillaries', $language)) ?></div>
-    <div class="info-block">
-        <?php 
-        $passengers = $travellersData['passengers'] ?? $travellersData ?? [];
-        if (!empty($passengers) && is_array($passengers)): 
-            foreach ($passengers as $key => $p):
-                if (!is_array($p)) continue;
-                $pName = ($p['title'] ?? '') . ' ' . ($p['first_name'] ?? '') . ' ' . ($p['last_name'] ?? '');
-                $pType = 'Adult';
-                if (strpos($key, 'child_') === 0) $pType = 'Child';
-                if (strpos($key, 'infant_') === 0) $pType = 'Infant';
-        ?>
-        <div class="info-row">
-            <span class="info-label"><?= $pType ?>:</span>
-            <span class="info-value"><?= htmlspecialchars(trim($pName)) ?></span>
-        </div>
-        
-        <?php 
-        $pId = $p['id'] ?? null; 
-        if ($pId):
-            // Find baggage for this passenger
-            $pBaggage = [];
-            if (!empty($ancillaryBaggage) && is_array($ancillaryBaggage)) {
-                foreach ($ancillaryBaggage as $bag) {
-                    if (isset($bag['passengerId']) && $bag['passengerId'] === $pId) {
-                        $pBaggage[] = $bag;
-                    }
-                }
-            }
-            
-            // Find seats for this passenger
-            $pSeats = [];
-            if (!empty($ancillarySeats) && is_array($ancillarySeats)) {
-                foreach ($ancillarySeats as $sIdx => $seats) {
-                    if (is_array($seats) && isset($seats[$pId])) {
-                        $segmentInfo = $allSegments[$sIdx] ?? null;
-                        $flightDesc = "Seg " . ($sIdx + 1);
-                        if ($segmentInfo) {
-                            $destination = $segmentInfo['arrival_code'] ?? '';
-                            if ($destination) {
-                                $flightDesc = "Flight to " . $destination;
-                            }
-                        }
-                        $pSeats[] = "Seat " . htmlspecialchars($seats[$pId]['designator'] ?? '') . " (" . htmlspecialchars($flightDesc) . ")";
-                    }
-                }
-            }
-
-            // Display ancillaries if any exist
-            if (!empty($pBaggage) || !empty($pSeats)):
-        ?>
-        <div style="margin-bottom: 5px;">
-            <?php if (!empty($pSeats)): ?>
-            <div style="font-size: 6.5pt; color: #1e40af; line-height: 1.2;">
-                ✓ <strong>Seats:</strong> <?= implode(', ', $pSeats) ?>
-            </div>
-            <?php endif; ?>
-            <?php if (!empty($pBaggage)): ?>
-            <?php foreach ($pBaggage as $bag): ?>
-            <div style="font-size: 6.5pt; color: #047857; line-height: 1.2;">
-                ✓ <strong>Baggage:</strong> <?= (int)($bag['quantity'] ?? 1) ?>x <?= htmlspecialchars($bag['name'] ?? 'Extra Bag') ?> <?= !empty($bag['description']) ? '(' . htmlspecialchars($bag['description']) . ')' : '' ?>
-            </div>
-            <?php endforeach; ?>
-            <?php endif; ?>
-        </div>
-        <?php 
-            endif;
-        endif; 
-        ?>
-
-        <?php endforeach; endif; ?>
-    </div>
-
-    <!-- Contact Information -->
-    <div class="section-title"><?= htmlspecialchars(translateTo('contact_information', $language)) ?></div>
-    <div class="info-block">
-        <div class="info-row">
-            <span class="info-label"><?= htmlspecialchars(translateTo('primary_guest', $language)) ?>:</span>
-            <span class="info-value"><?= htmlspecialchars($booking['first_name'] . ' ' . $booking['last_name']) ?></span>
-        </div>
-        <div class="info-row">
-            <span class="info-label"><?= htmlspecialchars(translateTo('email', $language)) ?>:</span>
-            <span class="info-value"><?= htmlspecialchars($booking['email']) ?></span>
-        </div>
-        <div class="info-row">
-            <span class="info-label"><?= htmlspecialchars(translateTo('phone', $language)) ?>:</span>
-            <span class="info-value">+<?= htmlspecialchars($booking['phone_country_code']) ?> <?= htmlspecialchars($booking['phone']) ?></span>
-        </div>
-    </div>
-
-    <!-- Price Summary (hidden on no-price ticket / travel document) -->
-    <?php if (($docType ?? 'invoice') !== 'ticket'): ?>
-    <div class="section-title"><?= htmlspecialchars(translateTo('price_summary', $language)) ?></div>
-    <div class="price-box">
-        <div class="price-row">
-            <table>
-                <tr>
-                    <td class="price-label"><?= htmlspecialchars(translateTo('subtotal', $language)) ?></td>
-                    <td class="price-value"><?= $currency ?> <?= number_format($rawTotal - (float)($bookingData['ancillary_data']['total_base'] ?? 0) - (float)($booking['tax'] ?? 0), 2) ?></td>
-                </tr>
-            </table>
-        </div>
-        <?php
-            $ancTotal = (float)($bookingData['ancillary_data']['total_base'] ?? 0);
-            if ($ancTotal > 0):
-        ?>
-        <div class="price-row">
-            <table>
-                <tr>
-                    <td class="price-label"><?= htmlspecialchars(translateTo('extra_services', $language)) ?></td>
-                    <td class="price-value"><?= $currency ?> <?= number_format($ancTotal, 2) ?></td>
-                </tr>
-            </table>
-        </div>
-        <?php endif; ?>
-        <div class="price-row">
-            <table>
-                <tr>
-                    <td class="price-label"><?= htmlspecialchars(translateTo('taxes_fees', $language)) ?></td>
-                    <td class="price-value"><?= $currency ?> <?= number_format($booking['tax'] ?? 0, 2) ?></td>
-                </tr>
-            </table>
-        </div>
-        <div class="price-total">
-            <table>
-                <tr>
-                    <td class="price-label"><strong><?= htmlspecialchars(translateTo('total_amount', $language)) ?></strong></td>
-                    <td class="price-value"><?= $currency ?> <?= $totalAmount ?></td>
-                </tr>
-            </table>
-        </div>
-        <div class="price-row" style="margin-top: 6px;">
-            <table>
-                <tr>
-                    <td class="price-label"><?= htmlspecialchars(translateTo('payment_method', $language)) ?></td>
-                    <td class="price-value"><?= htmlspecialchars($booking['payment_gateway'] ?: 'N/A') ?></td>
-                </tr>
-            </table>
-        </div>
-    </div>
-    <?php endif; /* end price summary (ticket suppresses it) */ ?>
-
-    <!-- Special Requests -->
-    <?php if (!empty($booking['special_requests'])): ?>
-    <div class="note-box">
-        <div class="note-title"><?= htmlspecialchars(translateTo('special_requests', $language)) ?></div>
-        <div class="note-text"><?= nl2br(htmlspecialchars($booking['special_requests'])) ?></div>
-    </div>
-    <?php endif; ?>
-
-    <!-- Ancillaries Summary -->
-    <?php 
-    $totalSeats = 0;
-    $totalBags = 0;
-    if (!empty($ancillarySeats) && is_array($ancillarySeats)) {
-        foreach ($ancillarySeats as $seats) {
-            if (is_array($seats)) {
-                $totalSeats += count($seats);
-            }
-        }
-    }
-    if (!empty($ancillaryBaggage) && is_array($ancillaryBaggage)) {
-        foreach ($ancillaryBaggage as $bag) {
-            if (isset($bag['quantity'])) {
-                $totalBags += (int)$bag['quantity'];
-            }
-        }
-    }
-    if ($totalSeats > 0 || $totalBags > 0):
-    ?>
-    <div class="note-box" style="background: #f0fdf4; border-left: 3px solid #10b981; padding: 6px 8px; margin-bottom: 8px;">
-        <div class="note-title" style="color: #065f46;">Ancillaries Selected</div>
-        <div class="note-text" style="color: #047857;">
-            <?php if ($totalSeats > 0): ?>
-            ✓ <strong><?= $totalSeats ?> Seat<?= $totalSeats != 1 ? 's' : '' ?></strong> selected across passengers<br>
-            <?php endif; ?>
-            <?php if ($totalBags > 0): ?>
-            ✓ <strong><?= $totalBags ?> Extra Baggage Item<?= $totalBags != 1 ? 's' : '' ?></strong> added<br>
-            <?php endif; ?>
-        </div>
-    </div>
-    <?php endif; ?>
-
-    <!-- Important Information -->
-    <div class="important-info">
-        <div class="section-title" style="border: none; margin-bottom: 5px;"><?= htmlspecialchars(translateTo('important_information', $language)) ?></div>
-        <ul>
-            <li><?= htmlspecialchars(translateTo('flights_arrive_early_notice', $language)) ?></li>
-            <li><?= htmlspecialchars(translateTo('flights_valid_id_notice', $language)) ?></li>
-            <li><?= htmlspecialchars(translateTo('flights_baggage_notice', $language)) ?></li>
-            <li><?= htmlspecialchars(translateTo('flights_not_boarding_pass_notice', $language)) ?></li>
-            <li><?= htmlspecialchars(translateTo('flights_status_updates_notice', $language)) ?></li>
-        </ul>
-    </div>
-
-    <!-- QR Code -->
-    <div style="text-align: center; margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0;">
-        <p style="margin: 0 0 8px 0; font-size: 8.5pt; color: #718096; font-weight: 600;"><?= htmlspecialchars(translateTo('scan_to_view_invoice', $language)) ?></p>
-        <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=<?= urlencode(root . 'invoice/flights/' . $invoiceId) ?>" alt="Invoice QR Code" style="width: 120px; height: 120px;" />
-    </div>
-
-    <!-- Footer -->
-    <div class="footer">
-        <div class="footer-contact">
-            <?= htmlspecialchars(translateTo('questions_contact_us', $language)) ?> <?= htmlspecialchars($businessEmail) ?>
-            <?php if (!empty($businessPhone)): ?> | <?= htmlspecialchars($businessPhone) ?><?php endif; ?>
-        </div>
-        <div class="footer-note">
-            © <?= date('Y') ?> <?= getBrandName($settings ?? null) ?>. All rights reserved.<br>
-            <?= htmlspecialchars(translateTo('booking_date', $language)) ?>: <?= date('M d, Y \a\t g:i A', strtotime($booking['booking_date'])) ?><br>
-            <?= htmlspecialchars(translateTo('automated_voucher_disclaimer', $language)) ?>
-        </div>
-    </div>
-</body>
-</html>
+echo goglobia_invoice_render([
+    'booking' => $booking, 'settings' => $settings,
+    'businessName' => $businessName, 'businessEmail' => $businessEmail, 'businessPhone' => $businessPhone,
+    'siteUrl' => $siteUrl, 'wlPdfLogo' => $wlPdfLogo, 'pdfLogoSrc' => ($pdfLogoSrc ?? ''), 'agentBrandColors' => $agentBrandColors,
+    'bookingDate' => $bookingDate,
+    'docTitle' => 'Invoice', 'docSub' => 'Flight Booking',
+    'paid' => $paid, 'statusText' => $statusText,
+    'billToName' => trim((string) ($booking['first_name'] ?? '') . ' ' . (string) ($booking['last_name'] ?? '')),
+    'billToEmail' => (string) ($booking['email'] ?? ''),
+    'billToPhone' => trim('+' . (string) ($booking['phone_country_code'] ?? '') . ' ' . (string) ($booking['phone'] ?? '')),
+    'heroHtml' => $heroHtml,
+    'bodyHtml' => $bodyHtml,
+    'currency' => $currency,
+    'priceRows' => $priceRows,
+    'totalLabel' => $T('total_amount', 'Total amount'),
+    'totalValue' => (string) ($totalAmount ?? number_format((float) ($rawTotal ?? 0), 2)),
+    'paymentMethod' => (string) ($booking['payment_gateway'] ?? ''),
+    'notesTitle' => $T('important_information', 'Important information'),
+    'notesItems' => array_values(array_filter([
+        $T('flights_arrive_early_notice', 'Arrive at the airport at least 2–3 hours before departure.'),
+        $T('flights_valid_id_notice', 'Valid photo identification is required for all passengers.'),
+        $T('flights_not_boarding_pass_notice', 'This invoice is not a boarding pass — your e-ticket is a separate document.'),
+    ])),
+    'footerNote' => $T('automated_voucher_disclaimer', 'This is a computer-generated invoice and is valid without a signature. Your travel document (e-ticket) is issued separately.'),
+]);

@@ -1,33 +1,60 @@
 <?php
-if (!isset($SECURE)) {
-    die('Direct access not permitted');
-}
+/**
+ * RAIL INVOICE / RECEIPT (WITH PRICE) — premium, on the shared invoice base.
+ *
+ * The priced money document for a rail booking. Builds a train-journey summary
+ * (from station -> to station + date) + passenger list, then feeds the premium
+ * _invoice_base.php: header band, bill-to, line-item price block, payment status
+ * + method, notes.
+ *
+ * Financials are computed + currency-converted by GENERATE_BOOKING_PDF and passed
+ * in: $rawTotal, $totalAmount, $taxAmount, $subtotalAmount, $currency, $statusText,
+ * $booking['payment_gateway'], etc. We only DISPLAY them (no re-pricing here).
+ *
+ * MONEY NOTE: the rail price summary mirrors the legacy template exactly — a single
+ * "Ticket Total" row using number_format((float)$booking['price_markup'], 2) and the
+ * grand total using the same value. Do not change this math.
+ *
+ * Vars: $booking,$bookingData,$settings,$businessName,$businessEmail,$businessPhone,
+ *   $siteUrl,$wlPdfLogo,$pdfLogoSrc,$agentBrandColors,$currency,$language,
+ *   $rawTotal,$totalAmount,$taxAmount,$subtotalAmount,$bookingDate,$travellersData.
+ */
+if (!isset($SECURE)) die('Direct access not permitted');
+require_once __DIR__ . '/../_invoice_base.php';
 
+$e = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
+$db = $GLOBALS['db'] ?? null;
+$invoiceId = (string) ($booking['invoice_id'] ?? '');
+$lang = $language ?? 'en';
+$T = function ($key, $fallback = '') use ($lang) {
+    if (function_exists('translateTo')) { $v = translateTo($key, $lang); if ($v !== '' && $v !== $key) { return $v; } }
+    return $fallback !== '' ? $fallback : ucwords(str_replace('_', ' ', $key));
+};
+
+// ---- Journey extraction (same as the legacy rail template) -------------------
 $journey = $bookingData['journey'][0] ?? [];
 $fromTs = (int)($journey['from_date_time'] ?? 0);
 $toTs = (int)($journey['to_date_time'] ?? 0);
 $fromCode = trim((string)($journey['from_station_code'] ?? ''));
 $toCode = trim((string)($journey['to_station_code'] ?? ''));
-if (!function_exists('_train_station_label') && isset($db)) {
+if (!function_exists('_train_station_label') && $db !== null) {
     require_once dirname(__DIR__, 5) . '/modules/rail/train/stations.php';
 }
-if (isset($db) && function_exists('_train_station_label')) {
+if ($db !== null && function_exists('_train_station_label')) {
     $fromStation = $fromCode !== '' ? _train_station_label($db, $fromCode) : '';
     $toStation = $toCode !== '' ? _train_station_label($db, $toCode) : '';
 } else {
     $fromStation = trim((string)($journey['from_station_english'] ?? $fromCode));
     $toStation = trim((string)($journey['to_station_english'] ?? $toCode));
 }
-if ($fromStation === '' && $fromCode !== '') {
-    $fromStation = $fromCode;
-}
-if ($toStation === '' && $toCode !== '') {
-    $toStation = $toCode;
-}
+if ($fromStation === '' && $fromCode !== '') { $fromStation = $fromCode; }
+if ($toStation === '' && $toCode !== '') { $toStation = $toCode; }
+
 $fromTime = $fromTs > 0 ? date('H:i', $fromTs) : '';
 $toTime = $toTs > 0 ? date('H:i', $toTs) : '';
 $departureDate = $fromTs > 0 ? date('F d, Y', $fromTs) : date('F d, Y', strtotime($booking['booking_date'] ?? 'now'));
 $arrivalDate = $toTs > 0 ? date('F d, Y', $toTs) : $departureDate;
+
 $runTimeMinutes = max(0, (int)($journey['run_time'] ?? 0));
 if ($runTimeMinutes <= 0 && $fromTs > 0 && $toTs > $fromTs) {
     $runTimeMinutes = (int) round(($toTs - $fromTs) / 60);
@@ -38,196 +65,150 @@ if ($runTimeMinutes > 0) {
     $mins = $runTimeMinutes % 60;
     $durationLabel = $hours > 0 ? $hours . 'h ' . $mins . 'm' : $mins . 'm';
 }
+
 $trafficNo = trim((string)($journey['traffic_no'] ?? ''));
 $seatName = trim((string)($journey['seat_name'] ?? $journey['seat_class'] ?? ''));
 $pnr = trim((string)($booking['pnr'] ?? ''));
 $adultsCnt = (int)($booking['adults'] ?? 1);
 $childsCnt = (int)($booking['childs'] ?? 0);
 
+// ---- Passengers (+ coach/seat enrichment from the supplier response) ---------
 $bookingResponse = json_decode($booking['booking_response'] ?? '{}', true) ?: [];
-$passengers = is_array($travellersData) ? $travellersData : [];
+$passengers = (isset($travellersData) && is_array($travellersData)) ? $travellersData : [];
 if ($passengers === [] && !empty($bookingData['passengers']) && is_array($bookingData['passengers'])) {
     $passengers = $bookingData['passengers'];
 }
-
 $rspPassengers = $bookingResponse['data']['journey'][0]['passengers']
     ?? $bookingResponse['journey'][0]['passengers']
     ?? $bookingResponse['poll']['journey'][0]['passengers']
     ?? [];
-if (!is_array($rspPassengers)) {
-    $rspPassengers = [];
+if (!is_array($rspPassengers)) { $rspPassengers = []; }
+
+// ---- HERO: train journey (from station -> to station + date) -----------------
+$heroHtml = '';
+if ($fromStation !== '' || $toStation !== '') {
+    ob_start(); ?>
+    <div class="hero"><table><tr>
+        <td style="width:38%;">
+            <div class="port-code" style="font-size:16pt;"><?= $e($fromStation ?: '—') ?></div>
+            <?php if ($departureDate !== ''): ?><div class="port-city"><?= $e($departureDate) ?></div><?php endif; ?>
+            <?php if ($fromTime !== ''): ?><div class="port-apt"><?= $e($T('departure', 'Departure')) ?> <?= $e($fromTime) ?></div><?php endif; ?>
+        </td>
+        <td style="width:24%;" class="hero-mid">
+            <?php if ($durationLabel !== ''): ?><div class="hero-dur"><?= $e($durationLabel) ?></div><?php endif; ?>
+            <div class="hero-line"></div><div class="hero-plane">&#128646;</div>
+            <div class="hero-stops"><?= $trafficNo !== '' ? 'Train ' . $e($trafficNo) : $e($T('rail', 'Rail')) ?></div>
+        </td>
+        <td style="width:38%; text-align:right;">
+            <div class="port-code" style="font-size:16pt;"><?= $e($toStation ?: '—') ?></div>
+            <?php if ($arrivalDate !== ''): ?><div class="port-city"><?= $e($arrivalDate) ?></div><?php endif; ?>
+            <?php if ($toTime !== ''): ?><div class="port-apt"><?= $e($T('arrival', 'Arrival')) ?> <?= $e($toTime) ?></div><?php endif; ?>
+        </td>
+    </tr></table></div>
+    <?php
+    $heroHtml = ob_get_clean();
 }
+
+// ---- BODY: train detail + passengers ----------------------------------------
+ob_start();
 ?>
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: inter, DejaVuSans, Arial, sans-serif; font-size: 9pt; color: #1a202c; line-height: 1.3; }
-        .header { background: #fff; padding: 12px 15px; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; }
-        .header table { width: 100%; border: none; }
-        .header td { border: none; padding: 0; vertical-align: middle; }
-        .logo-img { height: 32px; width: auto; }
-        .header-contact { text-align: center; font-size: 7pt; color: #4a5568; }
-        .header-ref { text-align: right; }
-        .ref-label { font-size: 7pt; color: #718096; text-transform: uppercase; margin-bottom: 2px; }
-        .ref-number { font-size: 13pt; font-weight: bold; color: #2d3748; }
-        .trip-card { border: 1px solid #cbd5e0; margin-bottom: 10px; }
-        .trip-header { background: #4338ca; color: #fff; padding: 8px 12px; }
-        .trip-name { font-size: 11pt; font-weight: bold; margin-bottom: 2px; }
-        .trip-type { font-size: 7pt; opacity: 0.9; }
-        table { width: 100%; border-collapse: collapse; }
-        .dates-table td { width: 50%; padding: 6px 10px; border: 1px solid #e2e8f0; vertical-align: top; }
-        .dates-label { font-size: 6pt; color: #718096; text-transform: uppercase; margin-bottom: 2px; }
-        .dates-value { font-size: 9pt; color: #2d3748; margin-bottom: 1px; }
-        .dates-time { font-size: 7pt; color: #4a5568; }
-        .stay-info { background: #f7fafc; padding: 6px 10px; border-top: 1px solid #e2e8f0; font-size: 7pt; color: #4a5568; }
-        .section-title { font-size: 9pt; font-weight: bold; color: #2d3748; margin-bottom: 5px; padding-bottom: 3px; border-bottom: 1px solid #cbd5e0; }
-        .guest-info { background: #f7fafc; padding: 6px 10px; margin-bottom: 8px; }
-        .guest-row { margin-bottom: 3px; font-size: 7pt; }
-        .guest-label { color: #718096; display: inline-block; width: 60px; }
-        .price-box { border: 1px solid #cbd5e0; padding: 8px 10px; margin-bottom: 10px; }
-        .price-row td { padding: 0; border: none; font-size: 7pt; }
-        .price-label { color: #4a5568; }
-        .price-value { text-align: right; color: #2d3748; }
-        .price-total { border-top: 1px solid #cbd5e0; padding-top: 5px; margin-top: 5px; }
-        .price-total td { font-size: 9pt; font-weight: bold; }
-        .alert-box { background: #fef3c7; border-left: 3px solid #f59e0b; padding: 6px 8px; margin-bottom: 8px; font-size: 7pt; color: #92400e; }
-        .footer { background: #f7fafc; padding: 8px 10px; margin-top: 10px; border-top: 1px solid #cbd5e0; text-align: center; }
-        .footer-contact { font-size: 7pt; color: #4a5568; margin-bottom: 5px; }
-        .footer-note { font-size: 6pt; color: #718096; line-height: 1.3; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <table>
-            <tr>
-                <td style="width: 33%;">
-                    <img src="<?= htmlspecialchars((!empty($wlPdfLogo) && is_string($wlPdfLogo)) ? $wlPdfLogo : (uploads . 'global/logo.png')) ?>" alt="<?= htmlspecialchars(getBrandName($settings ?? null)) ?>" class="logo-img">
-                </td>
-                <td style="width: 34%;" class="header-contact">
-                    <?php if (!empty($settings['contact_email'])): ?>
-                        <div><?= htmlspecialchars($settings['contact_email']) ?></div>
-                    <?php endif; ?>
-                    <?php if (!empty($settings['contact_phone'])): ?>
-                        <div><?= htmlspecialchars($settings['contact_phone']) ?></div>
-                    <?php endif; ?>
-                </td>
-                <td style="width: 33%;" class="header-ref">
-                    <div class="ref-label">Invoice / PNR</div>
-                    <div class="ref-number"><?= $pnr !== '' ? htmlspecialchars($pnr) : htmlspecialchars($invoiceId) ?></div>
-                </td>
-            </tr>
-        </table>
-    </div>
+<div class="sec-h"><?= $e($T('train_details', 'Train Details')) ?></div>
+<table class="infotable">
+    <tr>
+        <td style="width:50%;">
+            <div class="k"><?= $e($T('train', 'Train')) ?></div>
+            <div class="v" style="font-size:9pt;"><?= $trafficNo !== '' ? 'Train ' . $e($trafficNo) : $e($T('rail_ticket', 'Rail ticket')) ?></div>
+            <?php if ($seatName !== ''): ?><div class="vs"><?= $e($seatName) ?></div><?php endif; ?>
+        </td>
+        <td style="width:50%; text-align:right;">
+            <div class="k"><?= $e($T('passengers', 'Passengers')) ?></div>
+            <div class="v" style="font-size:9pt;"><?= $adultsCnt ?> <?= $e($T('adult', 'Adult')) ?><?= $adultsCnt !== 1 ? 's' : '' ?><?= $childsCnt > 0 ? ', ' . $childsCnt . ' ' . $e($T('child', 'Child')) . ($childsCnt !== 1 ? 'ren' : '') : '' ?></div>
+            <?php if ($pnr !== ''): ?><div class="vs">PNR: <?= $e($pnr) ?></div><?php endif; ?>
+        </td>
+    </tr>
+    <tr>
+        <td style="width:50%;">
+            <div class="k"><?= $e($T('departure', 'Departure')) ?></div>
+            <div class="v" style="font-size:9pt;"><?= $e($fromStation ?: $fromCode) ?></div>
+            <div class="vs"><?= $e($departureDate) ?><?= $fromTime !== '' ? ' &middot; ' . $e($fromTime) : '' ?></div>
+        </td>
+        <td style="width:50%; text-align:right;">
+            <div class="k"><?= $e($T('arrival', 'Arrival')) ?></div>
+            <div class="v" style="font-size:9pt;"><?= $e($toStation ?: $toCode) ?></div>
+            <div class="vs"><?= $e($arrivalDate) ?><?= $toTime !== '' ? ' &middot; ' . $e($toTime) : '' ?></div>
+        </td>
+    </tr>
+</table>
 
-    <div class="trip-card">
-        <div class="trip-header">
-            <div class="trip-name">Train <?= htmlspecialchars($trafficNo) ?></div>
-            <div class="trip-type"><?= $seatName !== '' ? htmlspecialchars($seatName) : 'Rail ticket' ?></div>
-        </div>
-        <table class="dates-table">
-            <tr>
-                <td>
-                    <div class="dates-label">Departure</div>
-                    <div class="dates-value"><?= htmlspecialchars($fromStation) ?></div>
-                    <div class="dates-time"><?= htmlspecialchars($departureDate) ?><?= $fromTime !== '' ? ' at ' . htmlspecialchars($fromTime) : '' ?></div>
-                </td>
-                <td>
-                    <div class="dates-label">Arrival</div>
-                    <div class="dates-value"><?= htmlspecialchars($toStation) ?></div>
-                    <div class="dates-time"><?= htmlspecialchars($arrivalDate) ?><?= $toTime !== '' ? ' at ' . htmlspecialchars($toTime) : '' ?></div>
-                </td>
-            </tr>
-        </table>
-        <div class="stay-info">
-            <?php if ($durationLabel !== ''): ?><strong><?= htmlspecialchars($durationLabel) ?></strong> · <?php endif; ?>
-            <strong><?= $adultsCnt ?></strong> Adult<?= $adultsCnt !== 1 ? 's' : '' ?><?= $childsCnt > 0 ? ', <strong>' . $childsCnt . '</strong> Child' . ($childsCnt !== 1 ? 'ren' : '') : '' ?>
-            <?php if ($pnr !== ''): ?> · PNR: <strong><?= htmlspecialchars($pnr) ?></strong><?php endif; ?>
-        </div>
-    </div>
-
-    <div class="section-title">Contact</div>
-    <div class="guest-info">
-        <div class="guest-row"><span class="guest-label">Name:</span><span class="guest-value"><?= htmlspecialchars(trim(($booking['first_name'] ?? '') . ' ' . ($booking['last_name'] ?? ''))) ?></span></div>
-        <div class="guest-row"><span class="guest-label">Email:</span><span class="guest-value"><?= htmlspecialchars($booking['email'] ?? '') ?></span></div>
-        <?php if (!empty($booking['phone'])): ?>
-        <div class="guest-row"><span class="guest-label">Phone:</span><span class="guest-value"><?= htmlspecialchars(trim(($booking['phone_country_code'] ?? '') . ' ' . $booking['phone'])) ?></span></div>
-        <?php endif; ?>
-    </div>
-
-    <?php if ($passengers !== []): ?>
-    <div class="section-title">Passengers</div>
-    <div class="guest-info">
-        <?php foreach ($passengers as $idx => $tr):
-            if (!is_array($tr)) {
-                continue;
+<?php
+// Collect displayable passengers (name required), with coach/seat enrichment.
+$paxRows = [];
+foreach ($passengers as $tr) {
+    if (!is_array($tr)) { continue; }
+    $name = trim((string)($tr['passenger_first_name'] ?? $tr['first_name'] ?? '') . ' ' . ($tr['passenger_last_name'] ?? $tr['last_name'] ?? ''));
+    if ($name === '') { continue; }
+    $cardNo = trim((string)($tr['passenger_card_no'] ?? $tr['identity_number'] ?? ''));
+    $seatLine = '';
+    foreach ($rspPassengers as $rp) {
+        if (!is_array($rp)) { continue; }
+        if ($cardNo !== '' && trim((string)($rp['passenger_card_no'] ?? '')) === $cardNo) {
+            $coach = trim((string)($rp['train_coach_no'] ?? ''));
+            $seat = trim((string)($rp['train_seat_no'] ?? ''));
+            if ($coach !== '' || $seat !== '') {
+                $seatLine = ($coach !== '' ? 'Coach ' . $coach : '') . ($seat !== '' ? ($coach !== '' ? ', Seat ' : 'Seat ') . $seat : '');
             }
-            $name = trim((string)($tr['passenger_first_name'] ?? $tr['first_name'] ?? '') . ' ' . ($tr['passenger_last_name'] ?? $tr['last_name'] ?? ''));
-            if ($name === '') {
-                continue;
-            }
-            $cardNo = trim((string)($tr['passenger_card_no'] ?? $tr['identity_number'] ?? ''));
-            $seatLine = '';
-            foreach ($rspPassengers as $rp) {
-                if (!is_array($rp)) {
-                    continue;
-                }
-                if ($cardNo !== '' && trim((string)($rp['passenger_card_no'] ?? '')) === $cardNo) {
-                    $coach = trim((string)($rp['train_coach_no'] ?? ''));
-                    $seat = trim((string)($rp['train_seat_no'] ?? ''));
-                    if ($coach !== '' || $seat !== '') {
-                        $seatLine = ' — ' . ($coach !== '' ? 'Coach ' . $coach : '') . ($seat !== '' ? ($coach !== '' ? ', Seat ' : 'Seat ') . $seat : '');
-                    }
-                    break;
-                }
-            }
-        ?>
-        <div class="guest-row">
-            <span class="guest-label"><?= (int)$idx + 1 ?>.</span>
-            <span class="guest-value"><?= htmlspecialchars($name) ?><?= htmlspecialchars($seatLine) ?></span>
-        </div>
-        <?php endforeach; ?>
-    </div>
-    <?php endif; ?>
+            break;
+        }
+    }
+    $paxRows[] = ['name' => $name, 'seat' => $seatLine];
+}
+if ($paxRows !== []):
+?>
+<div class="sec-h"><?= $e($T('passengers', 'Passengers')) ?><?= count($paxRows) > 1 ? ' &middot; ' . count($paxRows) : '' ?></div>
+<table class="infotable">
+<?php foreach ($paxRows as $idx => $px): ?>
+    <tr>
+        <td style="width:60%;"><div class="v" style="font-size:9pt;"><?= (int)$idx + 1 ?>. <?= $e($px['name']) ?></div></td>
+        <td style="width:40%; text-align:right;"><?php if ($px['seat'] !== ''): ?><span class="vs"><?= $e($px['seat']) ?></span><?php endif; ?></td>
+    </tr>
+<?php endforeach; ?>
+</table>
+<?php endif; ?>
+<?php
+$bodyHtml = ob_get_clean();
 
-    <?php if (($docType ?? 'invoice') !== 'ticket'): /* price hidden on no-price ticket */ ?>
-    <div class="section-title">Price Breakdown</div>
-    <div class="price-box">
-        <div class="price-row">
-            <table>
-                <tr>
-                    <td class="price-label">Ticket Total</td>
-                    <td class="price-value"><?= htmlspecialchars($currency) ?> <?= number_format((float)($booking['price_markup'] ?? 0), 2) ?></td>
-                </tr>
-            </table>
-        </div>
-        <div class="price-total">
-            <table>
-                <tr>
-                    <td class="price-label"><strong>Total Amount</strong></td>
-                    <td class="price-value"><?= htmlspecialchars($currency) ?> <?= number_format((float)($booking['price_markup'] ?? 0), 2) ?></td>
-                </tr>
-            </table>
-        </div>
-    </div>
-    <?php endif; /* end price breakdown (ticket suppresses it) */ ?>
+// ---- Price rows (engine-converted display total, like the other services) ----
+// Rail shows a single "Ticket Total" line; use the guest-currency total the engine
+// computed ($totalAmount / $currency), not the raw base-currency price_markup.
+$ticketTotal = (string) ($totalAmount ?? number_format((float) ($booking['price_markup'] ?? 0), 2));
+$priceRows = [];
+$priceRows[] = ['label' => $T('ticket_total', 'Ticket Total'), 'value' => $ticketTotal, 'muted' => true];
 
-    <?php if (($booking['payment_status'] ?? '') !== 'paid'): ?>
-    <div class="alert-box">Payment is pending. Please complete payment to confirm this booking.</div>
-    <?php endif; ?>
+$paid = strtolower((string) ($booking['payment_status'] ?? '')) === 'paid';
+$statusText = ucfirst((string) ($booking['payment_status'] ?? ($paid ? 'Paid' : 'Pending')));
 
-    <div class="footer">
-        <div class="footer-contact">
-            Questions? Contact us at <?= $settings['email_sender_email'] ?? 'hi@goglobia.com' ?>
-            <?php if (!empty($settings['site_phone'])): ?> | <?= $settings['site_phone'] ?><?php endif; ?>
-        </div>
-        <div class="footer-note">
-            © <?= date('Y') ?> <?= getBrandName($settings ?? null) ?>. All rights reserved.<br>
-            Invoice #<?= htmlspecialchars($invoiceId) ?> · Generated <?= date('M d, Y H:i') ?><br>
-            This is an automated booking voucher. Please do not reply to this document.
-        </div>
-    </div>
-</body>
-</html>
+echo goglobia_invoice_render([
+    'booking' => $booking, 'settings' => $settings,
+    'businessName' => $businessName, 'businessEmail' => $businessEmail, 'businessPhone' => $businessPhone,
+    'siteUrl' => $siteUrl, 'wlPdfLogo' => $wlPdfLogo, 'pdfLogoSrc' => ($pdfLogoSrc ?? ''), 'agentBrandColors' => $agentBrandColors,
+    'bookingDate' => $bookingDate,
+    'docTitle' => 'Invoice', 'docSub' => 'Rail Booking',
+    'paid' => $paid, 'statusText' => $statusText,
+    'billToName' => trim((string) ($booking['first_name'] ?? '') . ' ' . (string) ($booking['last_name'] ?? '')),
+    'billToEmail' => (string) ($booking['email'] ?? ''),
+    'billToPhone' => trim('+' . (string) ($booking['phone_country_code'] ?? '') . ' ' . (string) ($booking['phone'] ?? '')),
+    'heroHtml' => $heroHtml,
+    'bodyHtml' => $bodyHtml,
+    'currency' => $currency,
+    'priceRows' => $priceRows,
+    'totalLabel' => $T('total_amount', 'Total Amount'),
+    'totalValue' => $ticketTotal,
+    'paymentMethod' => (string) ($booking['payment_gateway'] ?? ''),
+    'notesTitle' => $T('important_information', 'Important information'),
+    'notesItems' => array_values(array_filter([
+        $T('rail_arrive_early_notice', 'Arrive at the station at least 30–45 minutes before departure.'),
+        $T('rail_valid_id_notice', 'Carry valid photo identification for all passengers while travelling.'),
+        $T('rail_not_boarding_pass_notice', 'This invoice is not a travel ticket — your rail ticket is a separate document.'),
+    ])),
+    'footerNote' => $T('automated_voucher_disclaimer', 'This is a computer-generated invoice and is valid without a signature. Your travel document (rail ticket) is issued separately.'),
+]);

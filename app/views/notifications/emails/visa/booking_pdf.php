@@ -1,198 +1,165 @@
 <?php
 /**
- * ============================================================================
- * BOOKING VOUCHER PDF - Visa Inquiry
- * ============================================================================
+ * VISA INVOICE / RECEIPT (WITH PRICE) — premium, on the shared invoice base.
+ *
+ * The priced money document for a visa inquiry/application. Builds a compact visa
+ * summary (visa type + country + entry date) + applicant list, then feeds the
+ * premium _invoice_base.php: header band, bill-to, line-item price block
+ * (price-per-person × applicants / total), payment status + method, notes.
+ *
+ * Financials are computed + currency-converted by GENERATE_BOOKING_PDF and passed
+ * in: $rawTotal, $totalAmount, $taxAmount, $subtotalAmount, $currency, $statusText,
+ * $booking['payment_gateway'], etc. We only DISPLAY them (no re-pricing here).
+ * NOTE: the previous visa template was a simple document — it showed Price Per
+ * Person × Total Applicants and a "Total Amount" of $totalAmount, with NO tax
+ * line. That exact money display is preserved below.
+ *
+ * Visa uses $bookingData['entry_date'] (no checkin/checkout/nights) — the engine
+ * sets $checkinDate from entry_date for visa; we display entry_date directly.
+ *
+ * Vars: $booking,$bookingData,$settings,$businessName,$businessEmail,$businessPhone,
+ *   $siteUrl,$wlPdfLogo,$pdfLogoSrc,$agentBrandColors,$currency,$language,
+ *   $rawTotal,$totalAmount,$taxAmount,$subtotalAmount,$bookingDate,$travellersData.
  */
-
 if (!isset($SECURE)) die('Direct access not permitted');
+require_once __DIR__ . '/../_invoice_base.php';
 
-// Agent-brand accent for the visa header (falls back to the platform ink).
-$pdfAccent = '#2d3748';
-if (!empty($agentBrandColors['primary']) && preg_match('/^#[0-9a-fA-F]{6}$/', (string) $agentBrandColors['primary'])) {
-    $pdfAccent = (string) $agentBrandColors['primary'];
-}
+$e = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
+$invoiceId = (string) ($booking['invoice_id'] ?? '');
+$lang = $language ?? 'en';
+$T = function ($key, $fallback = '') use ($lang) {
+    if (function_exists('translateTo')) { $v = translateTo($key, $lang); if ($v !== '' && $v !== $key) { return $v; } }
+    return $fallback !== '' ? $fallback : ucwords(str_replace('_', ' ', $key));
+};
+
+// ---- Applicants -------------------------------------------------------------
+$applicants = (!empty($travellersData) && is_array($travellersData)) ? $travellersData : [];
+$applicantCount = $bookingData['travelers_count'] ?? count($bookingData['travelers'] ?? ($applicants ?: []));
+
+// ---- HERO: visa summary (visa type · from → to · entry date) -----------------
+$visaType   = (string) ($bookingData['visa_type_name'] ?? 'Visa Application');
+$fromName   = (string) ($bookingData['from_country_name'] ?? '');
+$toName     = (string) ($bookingData['to_country_name'] ?? '');
+$entryDate  = !empty($bookingData['entry_date']) ? date('D, M d, Y', strtotime((string) $bookingData['entry_date'])) : 'To be decided';
+$processing = (string) ($bookingData['processing_speed_name'] ?? 'Standard');
+
+ob_start(); ?>
+<div class="hero"><table><tr>
+    <td style="width:62%;">
+        <div class="k"><?= $e($T('visa_type', 'Visa Type')) ?></div>
+        <div class="mid" style="margin-top:2pt;"><?= $e($visaType) ?></div>
+        <?php if ($fromName !== '' || $toName !== ''): ?>
+        <div class="vs" style="margin-top:4pt;"><?= $e($fromName ?: '—') ?> &rarr; <?= $e($toName ?: '—') ?></div>
+        <?php endif; ?>
+    </td>
+    <td style="width:38%; text-align:right;">
+        <div class="k"><?= $e($T('entry_date', 'Intended Entry Date')) ?></div>
+        <div class="v" style="margin-top:2pt;"><?= $e($entryDate) ?></div>
+        <div class="vs" style="margin-top:4pt;"><?= $e($T('processing', 'Processing')) ?>: <b><?= $e($processing) ?></b></div>
+    </td>
+</tr></table></div>
+<?php
+$heroHtml = ob_get_clean();
+
+// ---- BODY: main applicant + applicants information --------------------------
+ob_start();
 ?>
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: inter, DejaVuSans, Arial, sans-serif; font-size: 9pt; color: #1a202c; line-height: 1.3; font-weight: normal; }
+<div class="sec-h"><?= $e($T('main_applicant', 'Main Applicant')) ?></div>
+<div class="infobox">
+    <div class="inforow"><span class="infok"><?= $e($T('name', 'Name')) ?>:</span> <span class="infov"><?= $e(trim((string) ($booking['first_name'] ?? '') . ' ' . (string) ($booking['last_name'] ?? ''))) ?></span></div>
+    <div class="inforow"><span class="infok"><?= $e($T('email', 'Email')) ?>:</span> <span class="infov"><?= $e((string) ($booking['email'] ?? '')) ?></span></div>
+    <div class="inforow"><span class="infok"><?= $e($T('phone', 'Phone')) ?>:</span> <span class="infov"><?= $e(trim((string) ($booking['phone_country_code'] ?? '') . ' ' . (string) ($booking['phone'] ?? ''))) ?></span></div>
+</div>
 
-        .header { background: #fff; padding: 12px 15px; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; }
-        .header table { width: 100%; border: none; }
-        .header td { border: none; padding: 0; vertical-align: middle; }
-        .logo-img { height: 32px; width: auto; }
-        .header-contact { text-align: center; font-size: 7pt; color: #4a5568; }
-        .header-ref { text-align: right; }
-        .ref-label { font-size: 7pt; color: #718096; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 2px; }
-        .ref-number { font-size: 13pt; font-weight: bold; color: #2d3748; letter-spacing: 0.5px; }
+<?php if (!empty($applicants)): ?>
+<div class="sec-h"><?= $e($T('applicants_information', 'Applicants Information')) ?><?= count($applicants) > 1 ? ' &middot; ' . count($applicants) : '' ?></div>
+<?php foreach ($applicants as $index => $traveler):
+    $apName = trim((string) ($traveler['title'] ?? '') . ' ' . (string) ($traveler['first_name'] ?? '') . ' ' . (string) ($traveler['last_name'] ?? ''));
+?>
+<div class="card">
+    <div class="card-top"><table><tr>
+        <td><span class="card-title"><?= $e($T('applicant', 'Applicant')) ?> <?= (int) $index + 1 ?></span><?= $apName !== '' ? ' <span class="card-sub">' . $e($apName) . '</span>' : '' ?></td>
+    </tr></table></div>
+    <div class="card-body"><table>
+        <tr>
+            <td style="width:50%;">
+                <div class="k"><?= $e($T('nationality', 'Nationality')) ?></div>
+                <div class="vs"><?= $e((string) ($traveler['nationality'] ?? $traveler['nationality_name'] ?? '-')) ?></div>
+            </td>
+            <td style="width:50%;">
+                <div class="k"><?= $e($T('date_of_birth', 'Date of Birth')) ?></div>
+                <div class="vs"><?= !empty($traveler['dob']) ? $e((string) $traveler['dob']) : '-' ?></div>
+            </td>
+        </tr>
+        <tr>
+            <td style="width:50%; padding-top:6pt;">
+                <div class="k"><?= $e($T('passport_number', 'Passport Number')) ?></div>
+                <div class="vs"><?= $e((string) ($traveler['passport_number'] ?? '-')) ?></div>
+            </td>
+            <td style="width:50%; padding-top:6pt;">
+                <div class="k"><?= $e($T('passport_expiry', 'Passport Expiry')) ?></div>
+                <div class="vs"><?= $e((string) ($traveler['passport_expiry'] ?? $traveler['passport_expiry_date'] ?? '-')) ?></div>
+            </td>
+        </tr>
+        <?php if (!empty($traveler['gender'])): ?>
+        <tr>
+            <td colspan="2" style="padding-top:6pt;">
+                <div class="k"><?= $e($T('gender', 'Gender')) ?></div>
+                <div class="vs"><?= $e(ucfirst((string) $traveler['gender'])) ?></div>
+            </td>
+        </tr>
+        <?php endif; ?>
+    </table></div>
+</div>
+<?php endforeach; ?>
+<?php endif; ?>
 
-        .status-badge { background: #eff6ff; border-left: 3px solid #3b82f6; padding: 8px 12px; margin-bottom: 10px; }
-        .status-badge-title { font-size: 9pt; font-weight: bold; color: #1e40af; margin-bottom: 1px; }
-        .status-badge-text { font-size: 7pt; color: #1e3a8a; }
+<?php if (!empty($bookingData['special_requests']) || !empty($booking['special_requests'])): ?>
+<div class="card" style="margin-top:8pt;"><div class="card-body">
+    <div class="k" style="margin-bottom:3pt;"><?= $e($T('special_requests', 'Special requests')) ?></div>
+    <div class="vs"><?= nl2br($e((string) ($bookingData['special_requests'] ?: $booking['special_requests']))) ?></div>
+</div></div>
+<?php endif; ?>
+<?php
+$bodyHtml = ob_get_clean();
 
-        .visa-card { border: 1px solid #cbd5e0; margin-bottom: 10px; }
-        .visa-header { background: <?= $pdfAccent ?>; color: #fff; padding: 8px 12px; }
-        .visa-title { font-size: 11pt; font-weight: bold; margin-bottom: 2px; }
-        .visa-subtitle { font-size: 7pt; opacity: 0.9; }
+// ---- Price rows (preserve EXACT old visa display: per-person × applicants) ----
+// Old template showed, only when $totalAmount > 0:
+//   "Price Per Person"  => $currency . number_format(price_per_traveler|price_per_person|price, 2)
+//   "Total Applicants"  => "× {travelers_count}"
+//   "Total Amount"      => $currency . $totalAmount   (NO tax line)
+$pricePerPerson = $bookingData['price_per_traveler'] ?? $bookingData['price_per_person'] ?? $bookingData['price'] ?? 0;
+$priceRows = [];
+if ((float) ($totalAmount ?? 0) > 0) {
+    $priceRows[] = ['label' => $T('price_per_person', 'Price Per Person'), 'value' => number_format((float) $pricePerPerson, 2), 'muted' => true];
+    $priceRows[] = ['label' => $T('total_applicants', 'Total Applicants'), 'value' => '× ' . (int) $applicantCount, 'muted' => true, 'plain' => true];
+}
 
-        table { width: 100%; border-collapse: collapse; }
-        .details-table td { width: 50%; padding: 6px 10px; border: 1px solid #e2e8f0; vertical-align: top; }
-        .details-label { font-size: 6pt; color: #718096; text-transform: uppercase; margin-bottom: 2px; }
-        .details-value { font-size: 9pt; font-weight: normal; color: #2d3748; }
+$paid = strtolower((string) ($booking['payment_status'] ?? '')) === 'paid';
+$statusText = ucfirst((string) ($booking['payment_status'] ?? ($paid ? 'Paid' : 'Pending')));
 
-        .section-title { font-size: 9pt; font-weight: bold; color: #2d3748; margin-bottom: 5px; padding-bottom: 3px; border-bottom: 1px solid #cbd5e0; margin-top: 10px; }
-        .info-box { background: #f7fafc; padding: 6px 10px; margin-bottom: 8px; border: 1px solid #e2e8f0; }
-        .info-row { margin-bottom: 3px; font-size: 7pt; }
-        .info-label { color: #718096; display: inline-block; width: 80px; }
-        .info-value { color: #2d3748; font-weight: normal; }
-
-        .price-box { border: 1px solid #cbd5e0; padding: 8px 10px; margin-bottom: 10px; background: #f8fafc; }
-        .price-row td { padding: 2px 0; font-size: 7pt; }
-        .price-total { border-top: 1px solid #cbd5e0; padding-top: 5px; margin-top: 5px; }
-        .price-total td { font-size: 10pt; font-weight: bold; color: #2d3748; }
-
-        .footer { background: #f7fafc; padding: 8px 10px; margin-top: 20px; border-top: 1px solid #cbd5e0; text-align: center; }
-        .footer-contact { font-size: 7pt; color: #4a5568; margin-bottom: 5px; }
-        .footer-note { font-size: 6pt; color: #718096; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <table>
-            <tr>
-                <td style="width: 33%;">
-                    <img src="<?= htmlspecialchars((!empty($wlPdfLogo) && is_string($wlPdfLogo)) ? $wlPdfLogo : (uploads . 'global/logo.png')) ?>" alt="<?= htmlspecialchars(getBrandName($settings ?? null)) ?>" class="logo-img">
-                </td>
-                <td style="width: 34%;" class="header-contact">
-                    <div><?= htmlspecialchars($businessEmail) ?></div>
-                    <div><?= htmlspecialchars($businessPhone) ?></div>
-                </td>
-                <td style="width: 33%;" class="header-ref">
-                    <div class="ref-label">Inquiry Reference</div>
-                    <div class="ref-number"><?= $invoiceId ?></div>
-                </td>
-            </tr>
-        </table>
-    </div>
-
-    <div class="status-badge">
-        <div class="status-badge-title">INQUIRY RECEIVED</div>
-        <div class="status-badge-text">Your visa inquiry has been received and is currently under review.</div>
-    </div>
-
-    <div class="visa-card">
-        <div class="visa-header">
-            <div class="visa-title"><?= htmlspecialchars($bookingData['visa_type_name'] ?? 'Visa Application') ?></div>
-            <div class="visa-subtitle"><?= htmlspecialchars($bookingData['from_country_name']) ?> → <?= htmlspecialchars($bookingData['to_country_name']) ?></div>
-        </div>
-        <table class="details-table">
-            <tr>
-                <td>
-                    <div class="details-label">Intended Entry Date</div>
-                    <div class="details-value"><?= !empty($bookingData['entry_date']) ? date('D, M d, Y', strtotime($bookingData['entry_date'])) : 'To be decided' ?></div>
-                </td>
-                <td>
-                    <div class="details-label">Processing Speed</div>
-                    <div class="details-value"><?= htmlspecialchars($bookingData['processing_speed_name'] ?? 'Standard') ?></div>
-                </td>
-            </tr>
-        </table>
-    </div>
-
-    <div class="section-title">Main Applicant</div>
-    <div class="info-box">
-        <div class="info-row"><span class="info-label">Name:</span> <span class="info-value"><?= htmlspecialchars($booking['first_name'] . ' ' . $booking['last_name']) ?></span></div>
-        <div class="info-row"><span class="info-label">Email:</span> <span class="info-value"><?= htmlspecialchars($booking['email']) ?></span></div>
-        <div class="info-row"><span class="info-label">Phone:</span> <span class="info-value"><?= htmlspecialchars($booking['phone_country_code'] . ' ' . $booking['phone']) ?></span></div>
-    </div>
-
-    <?php if (!empty($travellersData)): ?>
-    <div class="section-title">Applicants Information</div>
-    <div class="info-box" style="padding: 0; background: transparent; border: none;">
-        <?php foreach ($travellersData as $index => $traveler): ?>
-        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 10px; margin-bottom: 8px;">
-            <div style="font-weight: bold; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; margin-bottom: 5px; color: #2d3748;">
-                Applicant <?= $index + 1 ?>: <?= htmlspecialchars(($traveler['title'] ?? '') . ' ' . ($traveler['first_name'] ?? '') . ' ' . ($traveler['last_name'] ?? '')) ?>
-            </div>
-            <table style="width: 100%;">
-                <tr>
-                    <td style="width: 50%; padding-bottom: 4px;">
-                        <span style="color: #718096; font-size: 7pt; display: block;">Nationality:</span>
-                        <span style="color: #2d3748;"><?= htmlspecialchars($traveler['nationality'] ?? $traveler['nationality_name'] ?? '-') ?></span>
-                    </td>
-                    <td style="width: 50%; padding-bottom: 4px;">
-                         <span style="color: #718096; font-size: 7pt; display: block;">Date of Birth:</span>
-                         <span style="color: #2d3748;"><?= !empty($traveler['dob']) ? htmlspecialchars($traveler['dob']) : '-' ?></span>
-                    </td>
-                </tr>
-                <tr>
-                    <td style="width: 50%;">
-                        <span style="color: #718096; font-size: 7pt; display: block;">Passport Number:</span>
-                        <span style="color: #2d3748;"><?= htmlspecialchars($traveler['passport_number'] ?? '-') ?></span>
-                    </td>
-                    <td style="width: 50%;">
-                         <span style="color: #718096; font-size: 7pt; display: block;">Passport Expiry:</span>
-                         <span style="color: #2d3748;"><?= htmlspecialchars($traveler['passport_expiry'] ?? $traveler['passport_expiry_date'] ?? '-') ?></span>
-                    </td>
-                </tr>
-                <?php if (!empty($traveler['gender'])): ?>
-                <tr>
-                    <td colspan="2" style="padding-top: 4px;">
-                        <span style="color: #718096; font-size: 7pt; display: block;">Gender:</span>
-                        <span style="color: #2d3748;"><?= htmlspecialchars(ucfirst($traveler['gender'])) ?></span>
-                    </td>
-                </tr>
-                <?php endif; ?>
-            </table>
-        </div>
-        <?php endforeach; ?>
-    </div>
-    <?php endif; ?>
-
-    <?php if ($totalAmount > 0 && ($docType ?? 'invoice') !== 'ticket'): /* price hidden on no-price ticket */ ?>
-    <div class="section-title">Inquiry Summary</div>
-    <div class="price-box">
-        <table>
-            <tr>
-                <td>Price Per Person</td>
-                <td style="text-align: right;"><?= $currency ?> <?= number_format($bookingData['price_per_traveler'] ?? $bookingData['price_per_person'] ?? $bookingData['price'] ?? 0, 2) ?></td>
-            </tr>
-            <tr>
-                <td>Total Applicants</td>
-                <td style="text-align: right;">× <?= $bookingData['travelers_count'] ?? count($bookingData['travelers'] ?? []) ?></td>
-            </tr>
-
-            <tr class="price-total">
-                <td><strong>Total Amount</strong></td>
-                <td style="text-align: right;"><strong><?= $currency ?> <?= $totalAmount ?></strong></td>
-            </tr>
-        </table>
-    </div>
-    <?php endif; ?>
-
-    <?php if (!empty($bookingData['special_requests']) || !empty($booking['special_requests'])): ?>
-    <div class="section-title">Special Requests</div>
-    <div class="info-box" style="font-size: 7pt;">
-        <?= nl2br(htmlspecialchars($bookingData['special_requests'] ?: $booking['special_requests'])) ?>
-    </div>
-    <?php endif; ?>
-    
-    <!-- QR Code -->
-    <div style="text-align: center; margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0;">
-        <p style="margin: 0 0 8px 0; font-size: 8.5pt; color: #718096; font-weight: 600;">Scan to View Invoice Online</p>
-        <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=<?= urlencode(root . 'invoice/' . $invoiceId) ?>" alt="Invoice QR Code" style="width: 120px; height: 120px;" />
-    </div>
-
-    <div class="footer">
-        <div class="footer-contact">Questions? Contact us at <?= htmlspecialchars($businessEmail) ?></div>
-        <div class="footer-note">
-            © <?= date('Y') ?> <?= htmlspecialchars($businessName) ?>. All rights reserved.<br>
-            Reference: <?= $invoiceId ?> | Date: <?= $bookingDate ?>
-        </div>
-    </div>
-</body>
-</html>
+echo goglobia_invoice_render([
+    'booking' => $booking, 'settings' => $settings,
+    'businessName' => $businessName, 'businessEmail' => $businessEmail, 'businessPhone' => $businessPhone,
+    'siteUrl' => $siteUrl, 'wlPdfLogo' => $wlPdfLogo, 'pdfLogoSrc' => ($pdfLogoSrc ?? ''), 'agentBrandColors' => $agentBrandColors,
+    'bookingDate' => $bookingDate,
+    'docTitle' => 'Invoice', 'docSub' => 'Visa Application',
+    'paid' => $paid, 'statusText' => $statusText,
+    'billToName' => trim((string) ($booking['first_name'] ?? '') . ' ' . (string) ($booking['last_name'] ?? '')),
+    'billToEmail' => (string) ($booking['email'] ?? ''),
+    'billToPhone' => trim('+' . (string) ($booking['phone_country_code'] ?? '') . ' ' . (string) ($booking['phone'] ?? '')),
+    'heroHtml' => $heroHtml,
+    'bodyHtml' => $bodyHtml,
+    'currency' => $currency,
+    'priceRows' => $priceRows,
+    'totalLabel' => $T('total_amount', 'Total Amount'),
+    'totalValue' => (string) ($totalAmount ?? number_format((float) ($rawTotal ?? 0), 2)),
+    'paymentMethod' => (string) ($booking['payment_gateway'] ?? ''),
+    'notesTitle' => $T('important_information', 'Important information'),
+    'notesItems' => array_values(array_filter([
+        $T('visa_inquiry_review_notice', 'Your visa inquiry has been received and is currently under review.'),
+        $T('visa_valid_passport_notice', 'A valid passport is required for all applicants.'),
+        $T('visa_processing_notice', 'Processing times vary by destination and are not guaranteed.'),
+    ])),
+    'footerNote' => $T('automated_voucher_disclaimer', 'This is a computer-generated invoice and is valid without a signature. Your visa documents are issued separately once your application is approved.'),
+]);

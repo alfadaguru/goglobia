@@ -1,278 +1,211 @@
 <?php
+/**
+ * BUS INVOICE / RECEIPT (WITH PRICE) — premium, on the shared invoice base.
+ *
+ * The priced money document for a bus booking. Builds a bus journey summary
+ * (from city -> to city + date) + journey/passenger detail, then feeds the
+ * premium _invoice_base.php: header band, bill-to, line-item price block
+ * (Ticket Charges / Taxes & Fees / Total), payment status + method, notes.
+ *
+ * MONEY: preserves the exact current bus logic — first row ("Ticket Charges")
+ * and the Total both use number_format((float)$booking['price_markup'],2);
+ * "Taxes & Fees" uses number_format((float)$booking['tax'],2); displayed in
+ * $booking['currency_markup']. We only DISPLAY (no re-pricing here).
+ *
+ * Vars: $booking,$bookingData,$settings,$businessName,$businessEmail,$businessPhone,
+ *   $siteUrl,$wlPdfLogo,$pdfLogoSrc,$agentBrandColors,$currency,$language,
+ *   $rawTotal,$totalAmount,$taxAmount,$subtotalAmount,$bookingDate, (+$mpdf if set).
+ */
 if (!isset($SECURE)) die('Direct access not permitted');
+require_once __DIR__ . '/../_invoice_base.php';
 
-// Prepare Bus Data (draft stored at booking time)
+$e = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
+$invoiceId = (string) ($booking['invoice_id'] ?? '');
+$lang = $language ?? 'en';
+$T = function ($key, $fallback = '') use ($lang) {
+    if (function_exists('translateTo')) { $v = translateTo($key, $lang); if ($v !== '' && $v !== $key) { return $v; } }
+    return $fallback !== '' ? $fallback : ucwords(str_replace('_', ' ', $key));
+};
+
+// ---- Bus data (draft stored at booking time) --------------------------------
 $trip       = $bookingData['trip'] ?? [];
 $journeys   = $bookingData['journeys'] ?? [['type' => 'outbound', 'route_id' => $bookingData['route_id'] ?? 0, 'date' => $bookingData['date'] ?? '', 'trip' => $trip]];
-$busName    = $trip['service_name'] ?? 'Bus Trip';
-$operator   = $trip['operator'] ?? '';
-$origin     = $trip['origin'] ?? '';
-$destination = $trip['destination'] ?? '';
-$depTime    = $trip['departure_time'] ?? '';
-$arrTime    = $trip['arrival_time'] ?? '';
-$duration   = $trip['duration'] ?? '';
-$busType    = trim(($trip['bus_type'] ?? '') . (!empty($trip['seat_class']) ? ' · ' . $trip['seat_class'] : ''));
-$travelDateRaw = $bookingData['date'] ?? '';
-$travelTs   = $travelDateRaw ? (DateTime::createFromFormat('d-m-Y', $travelDateRaw) ?: null) : null;
-$travelDate = $travelTs ? $travelTs->format('F d, Y') : $travelDateRaw;
-$adultsCnt  = (int)($booking['adults'] ?? 1);
-$childsCnt  = (int)($booking['childs'] ?? 0);
-$pnr        = $booking['pnr'] ?? '';
+$adultsCnt  = (int) ($booking['adults'] ?? 1);
+$childsCnt  = (int) ($booking['childs'] ?? 0);
+$pnr        = (string) ($booking['pnr'] ?? '');
+
+$travellersData = $travellersData ?? null;
+
+$fmtDate = function ($raw) {
+    $raw = (string) $raw;
+    if ($raw === '') { return ''; }
+    $ts = DateTime::createFromFormat('d-m-Y', $raw);
+    return $ts ? $ts->format('F d, Y') : $raw;
+};
+
+// ---- HERO: bus journey summary (from city -> to city + date) -----------------
+$heroHtml = '';
+$firstJourney = $journeys[0] ?? [];
+$ht           = $firstJourney['trip'] ?? $trip;
+$hOrigin      = (string) ($ht['origin'] ?? '');
+$hDest        = (string) ($ht['destination'] ?? '');
+$hDate        = $fmtDate($firstJourney['date'] ?? ($bookingData['date'] ?? ''));
+$hDuration    = (string) ($ht['duration'] ?? '');
+$roundTrip    = count($journeys) > 1;
+if ($hOrigin !== '' || $hDest !== '') {
+    ob_start(); ?>
+    <div class="hero"><table><tr>
+        <td style="width:38%;">
+            <div class="port-city"><?= $e($hOrigin ?: '—') ?></div>
+            <?php if ($hDate !== ''): ?><div class="port-apt"><?= $e($hDate) ?></div><?php endif; ?>
+        </td>
+        <td style="width:24%;" class="hero-mid">
+            <?php if ($hDuration !== ''): ?><div class="hero-dur"><?= $e($hDuration) ?></div><?php endif; ?>
+            <div class="hero-line"></div><div class="hero-plane">&#128652;</div>
+            <div class="hero-stops"><?= $roundTrip ? 'Round trip' : 'One way' ?></div>
+        </td>
+        <td style="width:38%; text-align:right;">
+            <div class="port-city"><?= $e($hDest ?: '—') ?></div>
+        </td>
+    </tr></table></div>
+    <?php
+    $heroHtml = ob_get_clean();
+}
+
+// ---- BODY: journey detail + passengers --------------------------------------
+ob_start();
 ?>
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: inter, DejaVuSans, Arial, sans-serif; font-size: 9pt; color: #1a202c; line-height: 1.3; font-weight: normal; }
-
-        /* Header */
-        .header { background: #fff; padding: 12px 15px; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; }
-        .header table { width: 100%; border: none; }
-        .header td { border: none; padding: 0; vertical-align: middle; }
-        .logo-img { height: 32px; width: auto; }
-        .header-contact { text-align: center; font-size: 7pt; color: #4a5568; }
-        .header-contact div { margin-bottom: 2px; }
-        .header-ref { text-align: right; }
-        .ref-label { font-size: 7pt; color: #718096; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 2px; }
-        .ref-number { font-size: 13pt; font-weight: bold; color: #2d3748; letter-spacing: 0.5px; }
-
-        /* Trip Card */
-        .trip-card { border: 1px solid #cbd5e0; margin-bottom: 10px; }
-        .trip-header { background: #374151; color: #fff; padding: 8px 12px; }
-        .trip-name { font-size: 11pt; font-weight: bold; margin-bottom: 2px; }
-        .trip-type { font-size: 7pt; opacity: 0.9; }
-
-        /* Table Layouts */
-        table { width: 100%; border-collapse: collapse; }
-        .dates-table td { width: 50%; padding: 6px 10px; border: 1px solid #e2e8f0; vertical-align: top; }
-        .dates-label { font-size: 6pt; color: #718096; text-transform: uppercase; margin-bottom: 2px; }
-        .dates-value { font-size: 9pt; font-weight: normal; color: #2d3748; margin-bottom: 1px; }
-        .dates-time { font-size: 7pt; color: #4a5568; }
-
-        .stay-info { background: #f7fafc; padding: 6px 10px; border-top: 1px solid #e2e8f0; font-size: 7pt; color: #4a5568; }
-        .stay-info strong { color: #2d3748; }
-
-        /* Price Summary */
-        .price-box { border: 1px solid #cbd5e0; padding: 8px 10px; margin-bottom: 10px; }
-        .price-row { margin-bottom: 4px; }
-        .price-row table { border: none; }
-        .price-row td { padding: 0; border: none; font-size: 7pt; }
-        .price-label { color: #4a5568; }
-        .price-value { text-align: right; color: #2d3748; font-weight: normal; }
-        .price-total { border-top: 1px solid #cbd5e0; padding-top: 5px; margin-top: 5px; }
-        .price-total td { font-size: 9pt; font-weight: bold; }
-        .price-total .price-value { font-size: 11pt; color: #2d3748; font-weight: bold; }
-
-        /* Guest Details */
-        .section-title { font-size: 9pt; font-weight: bold; color: #2d3748; margin-bottom: 5px; padding-bottom: 3px; border-bottom: 1px solid #cbd5e0; }
-        .guest-info { background: #f7fafc; padding: 6px 10px; margin-bottom: 8px; }
-        .guest-row { margin-bottom: 3px; font-size: 7pt; }
-        .guest-label { color: #718096; display: inline-block; width: 60px; }
-        .guest-value { color: #2d3748; font-weight: normal; }
-
-        /* Alert Boxes */
-        .alert-box { background: #fef3c7; border-left: 3px solid #f59e0b; padding: 6px 8px; margin-bottom: 8px; }
-        .alert-title { font-size: 7pt; font-weight: bold; color: #92400e; margin-bottom: 2px; }
-        .alert-text { font-size: 6pt; color: #92400e; line-height: 1.3; }
-
-        .info-box { background: #eff6ff; border-left: 3px solid #3b82f6; padding: 6px 8px; margin-bottom: 8px; }
-        .info-title { font-size: 7pt; font-weight: bold; color: #1e40af; margin-bottom: 2px; }
-        .info-text { font-size: 6pt; color: #1e3a8a; line-height: 1.3; }
-
-        /* Important Info */
-        .important-info { background: #f7fafc; padding: 8px 10px; margin-top: 10px; }
-        .important-info ul { margin: 4px 0 0 12px; padding: 0; }
-        .important-info li { font-size: 6pt; color: #4a5568; margin-bottom: 2px; line-height: 1.3; }
-
-        /* Footer */
-        .footer { background: #f7fafc; padding: 8px 10px; margin-top: 10px; border-top: 1px solid #cbd5e0; text-align: center; }
-        .footer-contact { font-size: 7pt; color: #4a5568; margin-bottom: 5px; }
-        .footer-note { font-size: 6pt; color: #718096; line-height: 1.3; }
-    </style>
-</head>
-<body>
-    <!-- Header -->
-    <div class="header">
+<div class="sec-h"><?= $e($T('bus_details', 'Bus Details')) ?></div>
+<?php foreach ($journeys as $journey):
+    $jt           = $journey['trip'] ?? [];
+    $busName      = (string) ($jt['service_name'] ?? 'Bus Trip');
+    $operator     = (string) ($jt['operator'] ?? '');
+    $origin       = (string) ($jt['origin'] ?? '');
+    $destination  = (string) ($jt['destination'] ?? '');
+    $depTime      = (string) ($jt['departure_time'] ?? '');
+    $arrTime      = (string) ($jt['arrival_time'] ?? '');
+    $duration     = (string) ($jt['duration'] ?? '');
+    $boarding     = (string) ($jt['boarding_point'] ?? ($jt['boarding'] ?? ''));
+    $busType      = trim(((string) ($jt['bus_type'] ?? '')) . (!empty($jt['seat_class']) ? ' · ' . (string) $jt['seat_class'] : ''));
+    $travelDate   = $fmtDate($journey['date'] ?? '');
+    $journeyLabel = (($journey['type'] ?? 'outbound') === 'return') ? 'Return' : 'Outbound';
+    $subline      = trim($operator . ($busType !== '' ? ' · ' . $busType : ''));
+?>
+<div class="card">
+    <div class="card-top"><table><tr>
+        <td style="width:70%;">
+            <div class="card-title"><?= count($journeys) > 1 ? $e($journeyLabel) . ': ' : '' ?><?= $e($busName) ?></div>
+            <?php if ($subline !== ''): ?><div class="card-sub"><?= $e($subline) ?></div><?php endif; ?>
+        </td>
+        <td style="width:30%; text-align:right;">
+            <?php if (count($journeys) > 1): ?><span class="tag"><?= $e(strtoupper($journeyLabel)) ?></span><?php endif; ?>
+        </td>
+    </tr></table></div>
+    <div class="card-body">
         <table>
             <tr>
-                <td style="width: 33%;">
-                    <img src="<?= htmlspecialchars((!empty($wlPdfLogo) && is_string($wlPdfLogo)) ? $wlPdfLogo : (uploads . 'global/logo.png')) ?>" alt="<?= htmlspecialchars(getBrandName($settings ?? null)) ?>" class="logo-img">
+                <td style="width:50%;">
+                    <div class="k"><?= $e($T('departure', 'Departure')) ?></div>
+                    <div class="v" style="font-size:10pt;"><?= $e($origin ?: '—') ?></div>
+                    <div class="vs"><?= $e(trim($travelDate . ($depTime !== '' ? ' at ' . $depTime : ''))) ?></div>
                 </td>
-                <td style="width: 34%;" class="header-contact">
-                    <?php if (!empty($settings['contact_email'])): ?>
-                        <div><?= htmlspecialchars($settings['contact_email']) ?></div>
-                    <?php endif; ?>
-                    <?php if (!empty($settings['contact_phone'])): ?>
-                        <div><?= htmlspecialchars($settings['contact_phone']) ?></div>
-                    <?php endif; ?>
-                </td>
-                <td style="width: 33%;" class="header-ref">
-                    <div class="ref-label">Booking Reference</div>
-                    <div class="ref-number"><?= $pnr !== '' ? htmlspecialchars($pnr) : $invoiceId ?></div>
+                <td style="width:50%; text-align:right;">
+                    <div class="k"><?= $e($T('arrival', 'Arrival')) ?></div>
+                    <div class="v" style="font-size:10pt;"><?= $e($destination ?: '—') ?></div>
+                    <?php if ($arrTime !== ''): ?><div class="vs"><?= $e($arrTime) ?></div><?php endif; ?>
                 </td>
             </tr>
         </table>
-    </div>
-
-    <!-- Bus Trip Card(s) -->
-    <?php foreach ($journeys as $journey):
-        $trip = $journey['trip'] ?? [];
-        $busName = $trip['service_name'] ?? 'Bus Trip'; $operator = $trip['operator'] ?? '';
-        $origin = $trip['origin'] ?? ''; $destination = $trip['destination'] ?? '';
-        $depTime = $trip['departure_time'] ?? ''; $arrTime = $trip['arrival_time'] ?? ''; $duration = $trip['duration'] ?? '';
-        $busType = trim(($trip['bus_type'] ?? '') . (!empty($trip['seat_class']) ? ' · ' . $trip['seat_class'] : ''));
-        $travelDateRaw = $journey['date'] ?? '';
-        $travelTs = $travelDateRaw ? (DateTime::createFromFormat('d-m-Y', $travelDateRaw) ?: null) : null;
-        $travelDate = $travelTs ? $travelTs->format('F d, Y') : $travelDateRaw;
-        $journeyLabel = ($journey['type'] ?? 'outbound') === 'return' ? 'Return' : 'Outbound';
-    ?>
-    <div class="trip-card">
-        <div class="trip-header">
-            <div class="trip-name"><?= count($journeys) > 1 ? $journeyLabel . ': ' : '' ?><?= htmlspecialchars($busName) ?></div>
-            <div class="trip-type"><?= htmlspecialchars(trim($operator . ($busType !== '' ? ' · ' . $busType : ''))) ?></div>
+        <div class="vs" style="margin-top:8pt;">
+            <?php if ($duration !== ''): ?><b><?= $e($duration) ?></b> <?= $e($T('journey', 'Journey')) ?> &middot; <?php endif; ?>
+            <b><?= (int) $adultsCnt ?></b> <?= $adultsCnt > 1 ? $e($T('adults', 'Adults')) : $e($T('adult', 'Adult')) ?><?php
+                if ($childsCnt > 0): ?>, <b><?= (int) $childsCnt ?></b> <?= $childsCnt > 1 ? $e($T('children', 'Children')) : $e($T('child', 'Child')) ?><?php endif; ?>
+            <?php if ($pnr !== ''): ?> &middot; PNR: <b><?= $e($pnr) ?></b><?php endif; ?>
         </div>
-
-        <!-- Departure & Arrival -->
-        <table class="dates-table">
-            <tr>
-                <td>
-                    <div class="dates-label">Departure</div>
-                    <div class="dates-value"><?= htmlspecialchars($origin) ?></div>
-                    <div class="dates-time"><?= htmlspecialchars($travelDate) ?><?= $depTime !== '' ? ' at ' . htmlspecialchars($depTime) : '' ?></div>
-                </td>
-                <td>
-                    <div class="dates-label">Arrival</div>
-                    <div class="dates-value"><?= htmlspecialchars($destination) ?></div>
-                    <div class="dates-time"><?= $arrTime !== '' ? htmlspecialchars($arrTime) : '' ?></div>
-                </td>
-            </tr>
-        </table>
-
-        <!-- Trip Info -->
-        <div class="stay-info">
-            <?php if ($duration !== ''): ?><strong><?= htmlspecialchars($duration) ?></strong> Journey · <?php endif; ?>
-            <strong><?= $adultsCnt ?></strong> Adult<?= $adultsCnt > 1 ? 's' : '' ?><?= $childsCnt > 0 ? ', <strong>' . $childsCnt . '</strong> Child' . ($childsCnt > 1 ? 'ren' : '') : '' ?>
-            <?php if ($pnr !== ''): ?> · PNR: <strong><?= htmlspecialchars($pnr) ?></strong><?php endif; ?>
-        </div>
-    </div>
-    <?php endforeach; ?>
-
-    <!-- Passenger Information -->
-    <div class="section-title">Lead Passenger</div>
-    <div class="guest-info">
-        <div class="guest-row">
-            <span class="guest-label">Name:</span>
-            <span class="guest-value"><?= htmlspecialchars($booking['first_name'] . ' ' . $booking['last_name']) ?></span>
-        </div>
-        <div class="guest-row">
-            <span class="guest-label">Email:</span>
-            <span class="guest-value"><?= htmlspecialchars($booking['email']) ?></span>
-        </div>
-        <?php if (!empty($booking['phone'])): ?>
-        <div class="guest-row">
-            <span class="guest-label">Phone:</span>
-            <span class="guest-value"><?= htmlspecialchars(trim(($booking['phone_country_code'] ?? '') . ' ' . $booking['phone'])) ?></span>
-        </div>
+        <?php if ($boarding !== ''): ?>
+        <div class="vs" style="margin-top:5pt;"><span class="k"><?= $e($T('boarding_point', 'Boarding point')) ?>:</span> <b><?= $e($boarding) ?></b></div>
         <?php endif; ?>
     </div>
+</div>
+<?php endforeach; ?>
 
-    <?php if (!empty($travellersData) && is_array($travellersData)): ?>
-    <div class="section-title">Passengers</div>
-    <div class="guest-info">
-        <?php $n = 1; foreach ($travellersData as $tr): if (empty($tr['first_name'])) continue; ?>
-        <div class="guest-row">
-            <span class="guest-label"><?= $n++ ?>.</span>
-            <span class="guest-value"><?= htmlspecialchars(trim(($tr['first_name'] ?? '') . ' ' . ($tr['last_name'] ?? ''))) ?><?= ($tr['type'] ?? '') === 'child' ? ' (Child)' : '' ?></span>
-        </div>
-        <?php endforeach; ?>
-    </div>
+<div class="sec-h"><?= $e($T('lead_passenger', 'Lead Passenger')) ?></div>
+<div class="infobox">
+    <div class="inforow"><span class="infok"><?= $e($T('name', 'Name')) ?>:</span> <span class="infov"><?= $e(trim((string) ($booking['first_name'] ?? '') . ' ' . (string) ($booking['last_name'] ?? ''))) ?></span></div>
+    <div class="inforow"><span class="infok"><?= $e($T('email', 'Email')) ?>:</span> <span class="infov"><?= $e((string) ($booking['email'] ?? '')) ?></span></div>
+    <?php if (!empty($booking['phone'])): ?>
+    <div class="inforow"><span class="infok"><?= $e($T('phone', 'Phone')) ?>:</span> <span class="infov"><?= $e(trim((string) ($booking['phone_country_code'] ?? '') . ' ' . (string) $booking['phone'])) ?></span></div>
     <?php endif; ?>
+</div>
 
-    <!-- Pricing Summary (hidden on no-price ticket / travel document) -->
-    <?php if (($docType ?? 'invoice') !== 'ticket'): ?>
-    <div class="section-title">Price Breakdown</div>
-    <div class="price-box">
-        <div class="price-row">
-            <table>
-                <tr>
-                    <td class="price-label">Ticket Charges</td>
-                    <td class="price-value"><?= $booking['currency_markup'] ?> <?= number_format((float)$booking['price_markup'], 2) ?></td>
-                </tr>
-            </table>
-        </div>
+<?php if (!empty($travellersData) && is_array($travellersData)):
+    $paxRows = array_values(array_filter($travellersData, function ($tr) { return !empty($tr['first_name']); }));
+    if (!empty($paxRows)):
+?>
+<div class="sec-h"><?= $e($T('passengers', 'Passengers')) ?><?= count($paxRows) > 1 ? ' &middot; ' . count($paxRows) : '' ?></div>
+<table class="infotable">
+<?php $n = 1; foreach ($paxRows as $tr): ?>
+    <tr>
+        <td style="width:8%;"><span class="vs"><?= (int) $n++ ?>.</span></td>
+        <td style="width:62%;"><div class="v" style="font-size:9pt;"><?= $e(trim((string) ($tr['first_name'] ?? '') . ' ' . (string) ($tr['last_name'] ?? ''))) ?></div></td>
+        <td style="width:30%; text-align:right;"><span class="vs"><?= (($tr['type'] ?? '') === 'child') ? $e($T('child', 'Child')) : $e($T('adult', 'Adult')) ?></span></td>
+    </tr>
+<?php endforeach; ?>
+</table>
+<?php endif; endif; ?>
 
-        <?php if ((float)($booking['tax'] ?? 0) > 0): ?>
-        <div class="price-row">
-            <table>
-                <tr>
-                    <td class="price-label">Taxes &amp; Fees</td>
-                    <td class="price-value"><?= $booking['currency_markup'] ?> <?= number_format((float)$booking['tax'], 2) ?></td>
-                </tr>
-            </table>
-        </div>
-        <?php endif; ?>
+<?php if (!empty($trip['cancellation_policy'])): ?>
+<div class="card" style="margin-top:10pt;"><div class="card-body">
+    <div class="k" style="margin-bottom:3pt;"><?= $e($T('cancellation_policy', 'Cancellation policy')) ?></div>
+    <div class="vs"><?= nl2br($e((string) $trip['cancellation_policy'])) ?></div>
+</div></div>
+<?php endif; ?>
+<?php if (!empty($booking['special_requests'])): ?>
+<div class="card" style="margin-top:8pt;"><div class="card-body">
+    <div class="k" style="margin-bottom:3pt;"><?= $e($T('special_requests', 'Special requests')) ?></div>
+    <div class="vs"><?= nl2br($e((string) $booking['special_requests'])) ?></div>
+</div></div>
+<?php endif; ?>
+<?php
+$bodyHtml = ob_get_clean();
 
-        <div class="price-total">
-            <table>
-                <tr>
-                    <td class="price-label"><strong>Total Amount</strong></td>
-                    <td class="price-value"><?= $booking['currency_markup'] ?> <?= number_format((float)$booking['price_markup'], 2) ?></td>
-                </tr>
-            </table>
-        </div>
-    </div>
-    <?php endif; /* end price breakdown (ticket suppresses it) */ ?>
+// ---- Price rows (engine-converted display figures, like the other services) ----
+// Ticket charges = subtotal (total minus tax), taxes, then the full total — all in
+// the guest's display currency ($currency / $subtotalAmount / $taxAmount / $totalAmount
+// are computed + converted by GENERATE_BOOKING_PDF). Keeps the "Ticket Charges" label.
+$taxBase = (float) ($booking['tax'] ?? 0);
+$priceRows = [];
+$priceRows[] = ['label' => $T('ticket_charges', 'Ticket Charges'), 'value' => (string) ($subtotalAmount ?? number_format(max(0, (float) ($rawTotal ?? 0) - $taxBase), 2)), 'muted' => true];
+if ($taxBase > 0 || (float) ($taxAmount ?? 0) > 0) {
+    $priceRows[] = ['label' => $T('taxes_fees', 'Taxes & Fees'), 'value' => number_format((float) ($taxAmount ?? $taxBase), 2), 'muted' => true];
+}
 
-    <!-- Payment Status -->
-    <?php if (($booking['payment_status'] ?? '') === 'unpaid'): ?>
-    <div class="alert-box">
-        <div class="alert-title">⚠ Payment Required</div>
-        <div class="alert-text">
-            Please complete your payment<?= !empty($booking['payment_gateway']) ? ' using <strong>' . htmlspecialchars($booking['payment_gateway']) . '</strong>' : '' ?> to confirm your reservation.
-        </div>
-    </div>
-    <?php endif; ?>
+$paid = strtolower((string) ($booking['payment_status'] ?? '')) === 'paid';
+$statusText = ucfirst((string) ($booking['payment_status'] ?? ($paid ? 'Paid' : 'Pending')));
 
-    <!-- Special Requests -->
-    <?php if (!empty($booking['special_requests'])): ?>
-    <div class="info-box">
-        <div class="info-title">Special Requests</div>
-        <div class="info-text"><?= nl2br(htmlspecialchars($booking['special_requests'])) ?></div>
-    </div>
-    <?php endif; ?>
-
-    <!-- Cancellation Policy -->
-    <?php if (!empty($trip['cancellation_policy'])): ?>
-    <div class="section-title">Cancellation Policy</div>
-    <div class="info-box">
-        <div class="info-text"><?= nl2br(htmlspecialchars($trip['cancellation_policy'])) ?></div>
-    </div>
-    <?php endif; ?>
-
-    <!-- Important Information -->
-    <div class="important-info">
-        <div class="section-title" style="border: none; margin-bottom: 5px;">Important Information</div>
-        <ul>
-            <li>Arrive at the boarding point at least 30 minutes before departure</li>
-            <li>Carry a valid photo ID matching the lead passenger name</li>
-            <li>Show this voucher (printed or digital) to the operator at boarding</li>
-            <li>Luggage allowances and policies are set by the bus operator</li>
-        </ul>
-    </div>
-
-    <!-- Footer -->
-    <div class="footer">
-        <div class="footer-contact">
-            Questions? Contact us at <?= $settings['email_sender_email'] ?? 'hi@goglobia.com' ?>
-            <?php if (!empty($settings['site_phone'])): ?> | <?= $settings['site_phone'] ?><?php endif; ?>
-        </div>
-        <div class="footer-note">
-            © <?= date('Y') ?> <?= getBrandName($settings ?? null) ?>. All rights reserved.<br>
-            Booking Date: <?= date('M d, Y \a\t g:i A', strtotime($booking['booking_date'])) ?><br>
-            This is an automated booking voucher. Please do not reply to this document.
-        </div>
-    </div>
-</body>
-</html>
+echo goglobia_invoice_render([
+    'booking' => $booking, 'settings' => $settings,
+    'businessName' => $businessName, 'businessEmail' => $businessEmail, 'businessPhone' => $businessPhone,
+    'siteUrl' => $siteUrl, 'wlPdfLogo' => $wlPdfLogo, 'pdfLogoSrc' => ($pdfLogoSrc ?? ''), 'agentBrandColors' => $agentBrandColors,
+    'bookingDate' => $bookingDate,
+    'docTitle' => 'Invoice', 'docSub' => 'Bus Booking',
+    'paid' => $paid, 'statusText' => $statusText,
+    'billToName' => trim((string) ($booking['first_name'] ?? '') . ' ' . (string) ($booking['last_name'] ?? '')),
+    'billToEmail' => (string) ($booking['email'] ?? ''),
+    'billToPhone' => trim('+' . (string) ($booking['phone_country_code'] ?? '') . ' ' . (string) ($booking['phone'] ?? '')),
+    'heroHtml' => $heroHtml,
+    'bodyHtml' => $bodyHtml,
+    'currency' => $currency,
+    'priceRows' => $priceRows,
+    'totalLabel' => $T('total_amount', 'Total Amount'),
+    'totalValue' => (string) ($totalAmount ?? number_format((float) ($rawTotal ?? 0), 2)),
+    'paymentMethod' => (string) ($booking['payment_gateway'] ?? ''),
+    'notesTitle' => $T('important_information', 'Important information'),
+    'notesItems' => array_values(array_filter([
+        $T('bus_arrive_early_notice', 'Arrive at the boarding point at least 30 minutes before departure.'),
+        $T('bus_valid_id_notice', 'Carry a valid photo ID matching the lead passenger name.'),
+        $T('bus_show_voucher_notice', 'Show this voucher (printed or digital) to the operator at boarding.'),
+        $T('bus_luggage_notice', 'Luggage allowances and policies are set by the bus operator.'),
+    ])),
+    'footerNote' => $T('automated_voucher_disclaimer', 'This is a computer-generated invoice and is valid without a signature. Your travel document is issued separately.'),
+]);
