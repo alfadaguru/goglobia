@@ -391,6 +391,12 @@ $router->post('flights/adivaha/search', function () use ($db) {
                 'arrival_time'      => $arrTimeDisplay,
                 'departure_date'    => $depDateDisplay,
                 'arrival_date'      => $arrDateDisplay,
+                // RAW ISO datetimes (carry the airport offset/UTC) so the e-ticket can
+                // compute EXACT layover + total-journey times across timezones. The
+                // display strings above are LOCAL-only; the ticket falls back to them
+                // when these are absent (older bookings / other suppliers).
+                'departure_iso'     => $depAt ? (string) $depAt : '',
+                'arrival_iso'       => $arrAt ? (string) $arrAt : '',
                 'departure_code'    => (string) ($leg['origin'] ?? ''),
                 'arrival_code'      => (string) ($leg['destination'] ?? ''),
                 'currency'          => $currency,

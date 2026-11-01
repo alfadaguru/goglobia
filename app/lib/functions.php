@@ -4398,6 +4398,15 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
             $mpdf->imageVars['pdflogo'] = $pdfLogoBinary;
         }
 
+        // Register any AIRLINE logos the flight ticket queued while building $html
+        // (the template runs before $mpdf exists, so it stashes logo binaries in a
+        // request-global; drain them onto mPDF now so <img src="var:airline_XX">
+        // resolves — robust on production, same as the pdflogo above). No-op for
+        // non-flight documents.
+        if (function_exists('ft_drain_airline_logos')) {
+            ft_drain_airline_logos($mpdf);
+        }
+
         // Set PDF metadata — title reflects the document type (ticket vs invoice)
         $mpdf->SetTitle(($docType === 'ticket' ? 'Ticket ' : 'Invoice ') . $invoiceId);
         $mpdf->SetAuthor($businessName);
