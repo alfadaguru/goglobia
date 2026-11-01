@@ -4357,8 +4357,19 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
 
         // Check if Inter TTF fonts exist, otherwise use DejaVu Sans
         if (file_exists($fontDir . 'Inter_18pt-Regular.ttf')) {
+            // IMPORTANT: Inter is a Latin-only text face — it has NO symbol/dingbat
+            // glyphs (plane U+2708, arrow U+2192, bullet U+2022, black-circle U+25CF).
+            // Without a fallback, mPDF draws a missing-glyph box (the "✕/tofu" a
+            // customer reported on the ticket). Register mPDF's OWN default font dir +
+            // DejaVuSans as a per-character backup and turn on useSubstitutions, so any
+            // glyph Inter lacks is substituted automatically. Text stays Inter; only
+            // missing glyphs fall back. (Color emoji are NOT solved this way — the
+            // flight ticket uses inline SVG icons for luggage/cabin/clock instead.)
+            $mpdfDefaultFontDir = __DIR__ . '/../../vendor/mpdf/mpdf/ttfonts/';
+            $fontDirs = [$fontDir];
+            if (is_dir($mpdfDefaultFontDir)) { $fontDirs[] = $mpdfDefaultFontDir; }
             $fontConfig = [
-                'fontDir' => [$fontDir],
+                'fontDir' => $fontDirs,
                 'fontdata' => [
                     'inter' => [
                         'R' => 'Inter_18pt-Regular.ttf',
@@ -4367,7 +4378,9 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
                         'BI' => 'Inter_18pt-SemiBold.ttf' // Use SemiBold for bold italic
                     ]
                 ],
-                'default_font' => 'inter'
+                'default_font'     => 'inter',
+                'useSubstitutions' => true,                      // per-character glyph fallback
+                'backupSubsFont'   => ['dejavusanscondensed'],  // covers ✈ → • ● and most symbols
             ];
         } else {
             $fontConfig = ['default_font' => 'DejaVuSans'];

@@ -10,6 +10,7 @@
  */
 if (!isset($SECURE)) die('Direct access not permitted');
 require_once __DIR__ . '/../_ticket_base.php';
+require_once __DIR__ . '/../_ticket_icons.php';
 require_once __DIR__ . '/../../../../lib/flight_ticket_helpers.php';
 
 $e = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
@@ -62,29 +63,51 @@ $segVal = function (array $s, array $keys, $default = '') {
 // ---- Build the body HTML ----------------------------------------------------
 ob_start();
 ?>
-<div class="sec-h">Passengers</div>
-<table class="infotable">
-    <?php foreach ($travellers as $pax):
-        $fn = strtoupper(trim((string) ($pax['first_name'] ?? '')));
-        $ln = strtoupper(trim((string) ($pax['last_name'] ?? '')));
-        $ttl = strtoupper(trim((string) ($pax['title'] ?? '')));
-        $name = trim($ln . ' / ' . $fn . ($ttl ? ' ' . $ttl : ''), ' /');
-        $ptype = strtoupper((string) ($pax['type'] ?? $pax['passenger_type'] ?? 'ADT'));
-        $nat = (string) ($pax['nationality_name'] ?? $pax['nationality'] ?? '');
-        $etk = trim((string) ($pax['eticket'] ?? $pax['ticket_number'] ?? ''));
-    ?>
+<style>
+    /* Flight-ticket specifics layered on the shared base (matches the approved design). */
+    .dotmark { display:inline-block; width:22pt; height:22pt; background:#0058e6; color:#fff;
+               font-size:9pt; font-weight:bold; border-radius:5pt; text-align:center; letter-spacing:.5pt; }
+    .pax-card { border:0.6pt solid #e4e9f2; border-radius:9pt; padding:9pt 11pt; }
+    .pax-nm { font-size:11pt; font-weight:bold; color:#0a1a3a; }
+    .pax-meta { font-size:8pt; color:#5b6b8c; margin-top:1pt; }
+    .pax-etk-k { font-size:6.5pt; font-weight:bold; letter-spacing:.5pt; text-transform:uppercase; color:#8793ad; }
+    .pax-etk-v { font-size:9pt; font-weight:bold; color:#0a1a3a; }
+    .pax-etk-pend { font-size:8pt; font-weight:bold; color:#b4690e; }
+    .cardfoot b { color:#0a1a3a; }
+</style>
+<div class="sec-h"><span class="leg-lbl">Passengers</span><?= count($travellers) > 1 ? ' &middot; ' . count($travellers) : '' ?></div>
+<?php
+// 2-up grid of boxed passenger cards (mPDF: a table, 2 cells per row, with a
+// spacer column so the two cards don't touch).
+$paxRows = array_chunk($travellers, 2);
+$renderPax = function (?array $pax) use ($e) {
+    if ($pax === null) { return '<div style="height:1px;"></div>'; }
+    $fn = strtoupper(trim((string) ($pax['first_name'] ?? '')));
+    $ln = strtoupper(trim((string) ($pax['last_name'] ?? '')));
+    $ttl = strtoupper(trim((string) ($pax['title'] ?? '')));
+    $name = trim($ln . ' / ' . $fn . ($ttl ? ' ' . $ttl : ''), ' /');
+    $ptypeRaw = strtoupper((string) ($pax['type'] ?? $pax['passenger_type'] ?? 'ADT'));
+    $ptype = ['ADT' => 'Adult', 'CHD' => 'Child', 'INF' => 'Infant', 'ADULT' => 'Adult', 'CHILD' => 'Child', 'INFANT' => 'Infant'][$ptypeRaw] ?? ucfirst(strtolower($ptypeRaw));
+    $nat = (string) ($pax['nationality_name'] ?? $pax['nationality'] ?? '');
+    $etk = trim((string) ($pax['eticket'] ?? $pax['ticket_number'] ?? ''));
+    $etkHtml = $etk !== ''
+        ? '<span class="pax-etk-v">' . $e($etk) . '</span>'
+        : '<span class="pax-etk-pend">On ticketing</span>';
+    return '<div class="pax-card"><table style="width:100%;border-collapse:collapse;"><tr>'
+        . '<td style="border:none;"><div class="pax-nm">' . $e($name ?: 'Passenger') . '</div>'
+        . '<div class="pax-meta">' . $e($ptype) . ($nat ? ' &middot; ' . $e($nat) : '') . '</div></td>'
+        . '<td style="border:none;text-align:right;vertical-align:top;"><div class="pax-etk-k">E-Ticket</div>' . $etkHtml . '</td>'
+        . '</tr></table></div>';
+};
+?>
+<table style="width:100%;border-collapse:collapse;">
+<?php foreach ($paxRows as $row): ?>
     <tr>
-        <td style="width:64%;">
-            <div class="v"><?= $e($name ?: 'Passenger') ?></div>
-            <div class="vs"><?= $e($ptype) ?><?= $nat ? ' &middot; ' . $e($nat) : '' ?></div>
-        </td>
-        <td style="width:36%; text-align:right;">
-            <span class="k">E-Ticket&nbsp;&nbsp;</span>
-            <?php if ($etk !== ''): ?><span class="v" style="font-size:8pt;"><?= $e($etk) ?></span>
-            <?php else: ?><span style="font-size:7.5pt;font-weight:bold;color:#b4690e;">On ticketing</span><?php endif; ?>
-        </td>
+        <td style="width:49%;border:none;vertical-align:top;"><?= $renderPax($row[0] ?? null) ?></td>
+        <td style="width:2%;border:none;"></td>
+        <td style="width:49%;border:none;vertical-align:top;"><?= $renderPax($row[1] ?? null) ?></td>
     </tr>
-    <?php endforeach; ?>
+<?php endforeach; ?>
 </table>
 
 <?php foreach ($legs as $leg):
@@ -126,8 +149,14 @@ ob_start();
 ?>
 <div class="card">
     <div class="card-top"><table><tr>
-        <?php if ($al['logo_src'] !== ''): ?><td style="width:7%;"><img src="<?= $e($al['logo_src']) ?>" style="width:20pt;height:20pt;" alt=""></td><?php endif; ?>
-        <td class="card-title"<?= $al['logo_src'] !== '' ? ' style="padding-left:7pt;"' : '' ?>><?= $e($al['name']) ?><?php if ($al['flight_no'] !== ''): ?> <span class="card-sub"><?= $e($al['flight_no']) ?></span><?php endif; ?></td>
+        <td style="width:30pt;">
+            <?php if ($al['logo_src'] !== ''): ?>
+                <img src="<?= $e($al['logo_src']) ?>" style="width:22pt;height:22pt;" alt="">
+            <?php else: ?>
+                <span class="dotmark"><?= $e($al['monogram']) ?></span>
+            <?php endif; ?>
+        </td>
+        <td class="card-title" style="padding-left:8pt;"><?= $e($al['name']) ?><?php if ($al['flight_no'] !== ''): ?> <span class="card-sub"><?= $e($al['flight_no']) ?></span><?php endif; ?></td>
         <td style="text-align:right;"><?php if ($cabin !== ''): ?><span class="tag"><?= $e(strtoupper($cabin)) ?><?= $classCode ? ' &middot; ' . $e(strtoupper($classCode)) : '' ?></span><?php endif; ?></td>
     </tr></table></div>
     <div class="card-body"><table><tr>
@@ -150,9 +179,9 @@ ob_start();
     </tr></table></div>
     <?php if ($showOp): ?><div class="vs" style="padding:0 12pt 6pt;color:#b4690e;">Operated by <?= $e($operatedBy) ?></div><?php endif; ?>
     <div class="cardfoot">
-        <?php if ($bag !== ''): ?><span class="fic">CHECKED</span> <b><?= $e($bag) ?></b> &nbsp;&nbsp;&nbsp;<?php endif; ?>
-        <?php if ($cabinBag !== ''): ?><span class="fic">CABIN</span> <b><?= $e($cabinBag) ?></b> &nbsp;&nbsp;&nbsp;<?php endif; ?>
-        <span class="fic">STATUS</span> <b><?= $isTicketed ? 'OK / Confirmed' : 'Reserved' ?></b>
+        <?php if ($bag !== ''): ?><?= ft_icon('checked', '#0058e6', 12) ?> <span class="fic">Checked</span> <b><?= $e($bag) ?></b> &nbsp;&nbsp;&nbsp;<?php endif; ?>
+        <?php if ($cabinBag !== ''): ?><?= ft_icon('cabin', '#0058e6', 12) ?> <span class="fic">Cabin</span> <b><?= $e($cabinBag) ?></b> &nbsp;&nbsp;&nbsp;<?php endif; ?>
+        <?= ft_icon('clock', ($isTicketed ? '#0b875b' : '#b4690e'), 12) ?> <span class="fic">Status</span> <b><?= $isTicketed ? 'OK / Confirmed' : 'Reserved' ?></b>
     </div>
 </div>
 <?php
@@ -164,7 +193,7 @@ ob_start();
         $layWhere = $layAp['city'] !== '' ? $layAp['city'] : $layCode;
         $layDur = $lay && $lay['display'] !== '' ? ($lay['exact'] ? $lay['display'] : '~' . $lay['display']) : '';
         ?>
-        <div class="vs" style="padding:2pt 0 6pt 2pt;color:#b4690e;">&#9203; <?= $layDur !== '' ? $e($layDur) . ' layover' : 'Connection' ?> in <?= $e($layWhere) ?><?= $layCode && $layWhere !== $layCode ? ' (' . $e($layCode) . ')' : '' ?></div>
+        <div class="vs" style="padding:2pt 0 6pt 2pt;color:#b4690e;"><?= ft_icon('clock', '#b4690e', 11) ?> <b><?= $layDur !== '' ? $e($layDur) . ' layover' : 'Connection' ?></b> in <?= $e($layWhere) ?><?= $layCode && $layWhere !== $layCode ? ' (' . $e($layCode) . ')' : '' ?></div>
         <?php
     }
 endforeach; endforeach; ?>
