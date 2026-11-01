@@ -193,6 +193,7 @@ require_once 'app/lib/umrah/operations.php';
 require_once 'app/lib/umrah/groups.php';
 require_once 'app/lib/umrah/admin_crud.php';
 require_once 'app/lib/booking_manager.php'; // admin Booking Manager foundations
+require_once 'app/lib/esim_delivery.php';   // eSIM activation-QR: bare-QR image + phone/WhatsApp (GIA) delivery
 // Customer Support RBAC was consolidated onto the company-wide users_roles layer
 // (app/lib/admin_rbac.php, required above). The old app/lib/support/rbac.php
 // (support_roles/support_staff) was removed in the Employee RBAC consolidation (S3).

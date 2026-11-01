@@ -353,6 +353,16 @@ if (!function_exists('bm_notify_paid')) {
                     'module_type'    => ucfirst((string) ($b['module_type'] ?? '')),
                 ], $invoicePdf, $ticketPdf);
             }
+
+            // eSIM: also deliver the activation to the customer's PHONE (WhatsApp /
+            // GIA channel) — a warm message + the BARE QR image + the voucher PDF.
+            // eSIM collects phone (now required), and the QR belongs on the phone the
+            // SIM installs on. Idempotent + best-effort; no-ops if Green API isn't
+            // configured or the eSIM isn't provisioned yet (a later retry delivers).
+            if (strtolower((string) ($b['module_type'] ?? '')) === 'esim'
+                && function_exists('esim_deliver_to_phone')) {
+                esim_deliver_to_phone($db, $invoiceId);
+            }
         } catch (\Throwable $e) { error_log('bm_notify_paid: ' . $e->getMessage()); }
     }
 }

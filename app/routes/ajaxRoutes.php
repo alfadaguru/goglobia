@@ -672,6 +672,53 @@ $router->get('/ticket-file/([A-Za-z0-9]+)', function ($invoiceId) use ($SECURE, 
 });
 
 // ============================================================================
+// GET /esim/qr/{invoiceId}?exp=...&sig=...  — PUBLIC, HMAC-SIGNED bare QR image
+// ----------------------------------------------------------------------------
+// A session-FREE link that renders the eSIM's ACTIVATION QR as a bare PNG (not
+// the PDF), so WhatsApp/GIA (Green API sendFileByUrl) can deliver it as an inline
+// image. The QR is generated OFFLINE from the stored LPA:1$smdp$matching string
+// (reveals no supplier). Access is granted ONLY by a short-lived HMAC token bound
+// to the invoice + expiry (esim_qr_public_token). Bad/expired sig => 403.
+// ============================================================================
+$router->get('/esim/qr/([A-Za-z0-9]+)', function ($invoiceId) use ($SECURE, $db) {
+    try {
+        $exp = (int) ($_GET['exp'] ?? 0);
+        $sig = (string) ($_GET['sig'] ?? '');
+        if ($exp <= 0 || $sig === ''
+            || !function_exists('esim_qr_public_token_valid')
+            || !esim_qr_public_token_valid((string) $invoiceId, $exp, $sig)) {
+            http_response_code(403);
+            die('Invalid or expired QR link');
+        }
+
+        $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId, 'module_type' => 'esim']);
+        if (!$booking) { http_response_code(404); die('eSIM booking not found'); }
+
+        $act = function_exists('esim_resolve_activation') ? esim_resolve_activation($booking) : ['lpa' => ''];
+        $png = ($act['lpa'] ?? '') !== '' && function_exists('esim_render_qr_png')
+            ? esim_render_qr_png((string) $act['lpa'])
+            : null;
+
+        if ($png === null) {
+            // Not provisioned yet (or GD/QR unavailable) — 404 so the caller can
+            // fall back to the hosted qrcode_url / the PDF voucher.
+            http_response_code(404);
+            die('Activation QR not available yet');
+        }
+
+        header('Content-Type: image/png');
+        header('Content-Disposition: inline; filename="esim-qr-' . $invoiceId . '.png"');
+        header('Content-Length: ' . strlen($png));
+        header('Cache-Control: private, no-store, max-age=0');
+        echo $png;
+        exit;
+    } catch (Exception $e) {
+        http_response_code(500);
+        die('Error generating QR');
+    }
+});
+
+// ============================================================================
 // GET /umrah-doc/{id}?exp=...&sig=...  — PUBLIC, HMAC-SIGNED umrah document
 // ----------------------------------------------------------------------------
 // Session-free fetch of an uploaded UMRAH document (visa/ticket PDF/image) so
