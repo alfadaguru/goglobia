@@ -359,11 +359,27 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
     $email     = trim((string) ($_POST['email'] ?? ''));
     $phone     = trim((string) ($_POST['phone'] ?? ''));
     $phoneCc   = trim((string) ($_POST['phone_country_code'] ?? ''));
-    if ($firstName === '' || $lastName === '' || $email === '') {
-        bmAdminJson(['status' => false, 'message' => 'Customer first name, last name and email are required.'], 422);
+    $isEsimService = ($serviceType === 'esim');
+    if ($firstName === '' || $lastName === '') {
+        bmAdminJson(['status' => false, 'message' => 'Customer first and last name are required.'], 422);
     }
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        bmAdminJson(['status' => false, 'message' => 'Enter a valid customer email.'], 422);
+    if ($isEsimService) {
+        // eSIM delivers the QR to the PHONE (WhatsApp/GIA) → phone required, email
+        // optional. Validate the email format only when one is actually provided.
+        if ($phone === '') {
+            bmAdminJson(['status' => false, 'message' => 'Customer phone is required for eSIM — the activation QR is delivered to this number.'], 422);
+        }
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            bmAdminJson(['status' => false, 'message' => 'Enter a valid customer email (or leave it blank).'], 422);
+        }
+    } else {
+        // Every other service tickets by email → email required.
+        if ($email === '') {
+            bmAdminJson(['status' => false, 'message' => 'Customer email is required.'], 422);
+        }
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            bmAdminJson(['status' => false, 'message' => 'Enter a valid customer email.'], 422);
+        }
     }
     // PASSENGER / TRAVELLER email — where the TICKET is delivered. Staff/agents may
     // book on behalf of a client, so the ticket must reach the TRAVELLER, not the
@@ -847,6 +863,33 @@ $router->post(admin . '/booking-manager/pay', function () use ($SECURE, $db) {
     }
 
     bmAdminJson(['status' => false, 'message' => 'Choose a payment method.'], 422);
+});
+
+// ---------------------------------------------------------------------------
+// GET /admin/booking-manager/convert?amount=&from=&to=
+// Convert a supplier amount into the booking currency, so selecting a live
+// offer whose price is in the supplier/module currency (e.g. eSIM/Airalo in
+// USD) auto-fills a correct selling price in the chosen currency — same
+// CURRENCY_CONVERT the customer storefront uses. Returns {amount, currency}.
+// ---------------------------------------------------------------------------
+$router->get(admin . '/booking-manager/convert', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    admin_require($db, 'bookings', 'view');
+    $amount = (float) ($_GET['amount'] ?? 0);
+    $from   = strtoupper(trim((string) ($_GET['from'] ?? '')));
+    $to     = strtoupper(trim((string) ($_GET['to'] ?? '')));
+    if ($amount <= 0 || $from === '' || $to === '') {
+        bmAdminJson(['status' => false, 'message' => 'amount, from and to are required.'], 422);
+    }
+    if ($from === $to) { bmAdminJson(['status' => true, 'amount' => round($amount, 2), 'currency' => $to]); }
+    // CURRENCY_CONVERT returns ['price'=>float, 'original_price'=>..., ...], NOT a
+    // scalar — read ['price'].
+    $converted = function_exists('CURRENCY_CONVERT') ? CURRENCY_CONVERT($amount, $db, $from, $to) : null;
+    $out = is_array($converted) ? ($converted['price'] ?? null) : $converted;
+    if ($out === null || !is_numeric($out)) {
+        bmAdminJson(['status' => false, 'message' => 'Could not convert ' . $from . '→' . $to . '. Check currency rates.'], 422);
+    }
+    bmAdminJson(['status' => true, 'amount' => round((float) $out, 2), 'currency' => $to]);
 });
 
 // ---------------------------------------------------------------------------

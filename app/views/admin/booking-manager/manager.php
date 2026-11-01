@@ -518,8 +518,11 @@ $svcIcons = [
         <div class="grid sm:grid-cols-2 gap-3">
           <label class="form-control"><span class="form-label">First name *</span><input class="input" x-model="cust.first_name"></label>
           <label class="form-control"><span class="form-label">Last name *</span><input class="input" x-model="cust.last_name"></label>
-          <label class="form-control"><span class="form-label">Contact email *</span><input type="email" class="input" x-model="cust.email"></label>
-          <label class="form-control"><span class="form-label">Phone</span><input class="input" x-model="cust.phone"></label>
+          <?php /* eSIM delivers the QR to the PHONE (WhatsApp/GIA), so phone is
+                   required and email is optional. Every other service tickets by
+                   email, so email stays required there. */ ?>
+          <label class="form-control"><span class="form-label">Contact email <?= $isEsim ? '<span class="text-slate-400 font-normal">(optional)</span>' : '*' ?></span><input type="email" class="input" x-model="cust.email"></label>
+          <label class="form-control"><span class="form-label">Phone <?= $isEsim ? '*' : '' ?></span><input class="input" x-model="cust.phone" <?= $isEsim ? 'placeholder="eSIM QR is sent here"' : '' ?>></label>
           <label class="form-control sm:col-span-2">
             <span class="form-label">Passenger email — ticket is sent here <span class="text-slate-400 font-normal">(blank = contact email)</span></span>
             <input type="email" class="input" x-model="cust.ticket_email" placeholder="traveller@email.com">
@@ -933,8 +936,29 @@ function bookingMgr() {
     selectOffer(i){ this.selectedOffer=i; this.selectedRaw=this.results[i].raw; this.selectedSupplier=this.results[i].supplier;
       // prefill price from the offer
       const r=this.results[i].raw; const seg=(r.segments&&r.segments[0]&&r.segments[0][0])?r.segments[0][0]:r;
-      this.price.sell = Number(r.price||seg.price||r.display_price||0)||this.price.sell;
-      this.price.currency = seg.currency||r.currency||this.price.currency;
+      const offerAmt=Number(r.price||seg.price||r.display_price||0);
+      const offerCur=(seg.currency||r.currency||'').toUpperCase();
+      const bookCur=(this.price.currency||this.baseCurrency).toUpperCase();
+      // eSIM (Airalo) returns the price in the SUPPLIER/module currency (USD). Keep
+      // the admin's CHOSEN booking currency and CONVERT the supplier amount into it
+      // — same CURRENCY_CONVERT the customer storefront uses — so selecting a SIM
+      // auto-fills a correct, trustworthy selling price instead of a raw USD number.
+      if(this.service==='esim' && offerAmt>0 && offerCur && offerCur!==bookCur){
+        this.price.sell=offerAmt; // optimistic; corrected by the convert call below
+        this.convertOfferPrice(offerAmt, offerCur, bookCur);
+      } else {
+        this.price.sell = offerAmt || this.price.sell;
+        if(this.service!=='esim'){ this.price.currency = offerCur || this.price.currency; }
+      }
+    },
+
+    async convertOfferPrice(amount, from, to){
+      try{
+        const q='amount='+encodeURIComponent(amount)+'&from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to);
+        const res=await fetch(this.base+'admin/booking-manager/convert?'+q);
+        const data=await res.json();
+        if(data.status && Number(data.amount)>0){ this.price.sell=Number(data.amount); this.price.currency=data.currency||to; }
+      }catch(e){ /* keep the optimistic amount; admin can adjust */ }
     },
 
     buildPassengers(){
@@ -1042,7 +1066,11 @@ function bookingMgr() {
     },
 
     async createBooking(){
-      if(!this.cust.first_name||!this.cust.last_name||!this.cust.email){ alert('Customer first/last name and email are required'); return; }
+      if(!this.cust.first_name||!this.cust.last_name){ alert('Customer first and last name are required'); return; }
+      if(this.service==='esim'){
+        // eSIM: the QR goes to the phone (WhatsApp/GIA) — phone required, email optional.
+        if(!this.cust.phone){ alert('Customer phone is required for eSIM — the activation QR is delivered to this number.'); return; }
+      } else if(!this.cust.email){ alert('Customer email is required'); return; }
       if(!(this.price.sell>0)){ alert('Enter a selling price'); return; }
       if(this.mode==='live' && this.service==='rail' && (this.rail.selTrain===null||this.rail.selSeat===null)){ alert('Search trains, then select a seat class'); return; }
       if(this.mode==='live' && this.service==='ferries' && this.ferry.sel===null){ alert('Search sailings, then select one'); return; }
