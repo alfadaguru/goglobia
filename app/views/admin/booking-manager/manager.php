@@ -21,7 +21,7 @@ $isFerries = ($svc === 'ferries');            // ferries: live kikoto sailing se
 $svcIcons = [
   'flights' => 'flight', 'hotels' => 'hotel', 'tours' => 'tour', 'cars' => 'directions_car',
   'umrah' => 'mosque', 'rail' => 'train', 'ferries' => 'directions_boat', 'esim' => 'sim_card',
-  'visa' => 'badge', 'bus' => 'directions_bus',
+  'visa' => 'badge', 'bus' => 'directions_bus', 'insurance' => 'health_and_safety',
 ];
 ?>
 <div class="container py-6" x-data="bookingMgr()" x-init="init()">
@@ -505,6 +505,24 @@ $svcIcons = [
             A manual eSIM records one you already provisioned (e.g. on the Airalo dashboard).
             <b>Enter the ICCID or the activation reference</b> — at least one is required, or the
             customer receives a voucher with no usable eSIM. To auto-issue a brand-new eSIM, use <b>Live</b> mode.
+          </p>
+        </div>
+        <?php elseif ($svc === 'insurance'): ?>
+        <!-- insurance manual: a paid travel-insurance POLICY booked off-system. Keys
+             mirror bmBuildManualBookingData('insurance'). (The free AirHelp flight-
+             compensation claim is a separate customer tool, not a BM paid booking.) -->
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="form-control sm:col-span-2"><span class="form-label">Plan name</span><input class="input" x-model="manual.plan_name" placeholder="Worldwide Traveller — Premium"></label>
+          <label class="form-control"><span class="form-label">Provider</span><input class="input" x-model="manual.provider" placeholder="e.g. AXA / Allianz"></label>
+          <label class="form-control"><span class="form-label">Coverage area</span><input class="input" x-model="manual.coverage_area" placeholder="Worldwide / Schengen"></label>
+          <label class="form-control sm:col-span-2"><span class="form-label">Coverage summary</span><input class="input" x-model="manual.coverage" placeholder="Medical $100k, baggage, cancellation"></label>
+          <label class="form-control"><span class="form-label">Trip start</span><input type="date" class="input" x-model="manual.trip_start"></label>
+          <label class="form-control"><span class="form-label">Trip end</span><input type="date" class="input" x-model="manual.trip_end"></label>
+          <label class="form-control"><span class="form-label">Travellers</span><input type="number" min="1" class="input" x-model.number="manual.travellers_count" placeholder="1"></label>
+          <label class="form-control"><span class="form-label">Policy number <span class="text-red-500">*</span></span><input class="input" x-model="manual.policy_number" :class="!manual.policy_number ? 'border-red-300' : ''" placeholder="POL-123456"></label>
+          <p class="sm:col-span-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+            A manual policy records insurance issued off-system / via a provider.
+            <b>Enter the policy number</b> so the customer's voucher references a real policy.
           </p>
         </div>
         <?php endif; ?>
@@ -1077,6 +1095,7 @@ function bookingMgr() {
       if(this.mode==='live' && this.service!=='rail' && this.service!=='ferries' && this.selectedRaw===null){ alert('Select a supplier offer first'); return; }
       if(this.mode==='live' && this.isHotel && this.selectedRoom===null){ alert('Choose a room rate on the selected hotel first'); return; }
       if(this.mode==='manual' && this.service==='esim' && !((this.manual.iccid||'').trim() || (this.manual.reference||'').trim())){ alert('A manual eSIM needs a real credential — enter the ICCID or activation reference of an eSIM you already provisioned. To auto-issue a new eSIM, switch to Live mode.'); return; }
+      if(this.mode==='manual' && this.service==='insurance' && !((this.manual.policy_number||'').trim())){ alert('A manual insurance policy needs a policy number so the voucher references a real policy.'); return; }
       this.creating=true;
       try{
         const payload = {
