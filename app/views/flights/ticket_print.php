@@ -32,23 +32,60 @@ $qrImg = 'https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=0&data
 $travellers = ft_passenger_list($booking);
 $paxCount = count($travellers);
 
-// Legs + segments — handle every real shape: routes[].segments / flat segments[] +
-// returnSegments[] / a single flat flight (top-level departure_* on flight_data).
+// Legs + segments — CRITICAL: real flight bookings carry the primary display data
+// (departure_code/time/date, arrival_*, airline, flight_no, class, baggage, duration,
+// stops) at the TOP LEVEL of flight_data (that is what the working invoice page reads,
+// app/views/modules/flights/invoice/index.php). Nested segments[] may be absent or
+// sparse. So we: (a) use nested segments when present, but MERGE the top-level
+// flight_data fields in as a fallback onto each; (b) when there are no segments at all,
+// synthesise ONE segment from the top-level fields. This is why the ticket was blank —
+// it only looked inside segments and ignored the top level.
 $fd = $bookingData['flight_data'] ?? $bookingData ?? [];
+
+// The top-level flight summary fields (used to backfill any missing per-segment value).
+$fdTop = array_filter([
+    'airline'           => $fd['airline'] ?? ($fd['airline_name'] ?? null),
+    'airline_name'      => $fd['airline_name'] ?? null,
+    'img'               => $fd['img'] ?? ($fd['airline_code'] ?? null),
+    'airline_code'      => $fd['airline_code'] ?? null,
+    'flight_no'         => $fd['flight_no'] ?? ($fd['flight_number'] ?? null),
+    'flight_number'     => $fd['flight_number'] ?? null,
+    'class'             => $fd['class'] ?? null,
+    'booking_class'     => $fd['booking_class'] ?? null,
+    'departure_code'    => $fd['departure_code'] ?? ($fd['from_airport'] ?? null),
+    'arrival_code'      => $fd['arrival_code'] ?? ($fd['to_airport'] ?? null),
+    'departure_airport' => $fd['departure_airport'] ?? null,
+    'arrival_airport'   => $fd['arrival_airport'] ?? null,
+    'departure_time'    => $fd['departure_time'] ?? null,
+    'arrival_time'      => $fd['arrival_time'] ?? null,
+    'departure_date'    => $fd['departure_date'] ?? null,
+    'arrival_date'      => $fd['arrival_date'] ?? null,
+    'departure_iso'     => $fd['departure_iso'] ?? ($fd['departing_at'] ?? null),
+    'arrival_iso'       => $fd['arrival_iso'] ?? ($fd['arriving_at'] ?? null),
+    'departure_terminal'=> $fd['departure_terminal'] ?? null,
+    'duration_time'     => $fd['duration_time'] ?? ($fd['total_duration'] ?? null),
+    'baggage'           => $fd['baggage'] ?? null,
+    'cabin_baggage'     => $fd['cabin_baggage'] ?? null,
+    'stops'             => $fd['stops'] ?? null,
+    'operated_by'       => $fd['operated_by'] ?? ($fd['operating_carrier'] ?? null),
+], fn($v) => $v !== null && $v !== '');
+
+// backfill: for each segment, any missing key falls back to the top-level value.
+$mergeTop = function (array $seg) use ($fdTop) { return $seg + $fdTop; };
+
 $legs = [];
 if (!empty($fd['routes']) && is_array($fd['routes'])) {
     foreach ($fd['routes'] as $i => $route) {
         $segs = $route['segments'] ?? [];
-        if ($segs) { $legs[] = ['label' => $i === 0 ? 'Outbound' : ($i === 1 ? 'Return' : 'Leg ' . ($i + 1)), 'segments' => array_values($segs)]; }
+        if ($segs) { $legs[] = ['label' => $i === 0 ? 'Outbound' : ($i === 1 ? 'Return' : 'Leg ' . ($i + 1)), 'segments' => array_map($mergeTop, array_values($segs))]; }
     }
 } else {
-    if (!empty($fd['segments']) && is_array($fd['segments'])) { $legs[] = ['label' => 'Outbound', 'segments' => array_values($fd['segments'])]; }
-    if (!empty($fd['returnSegments']) && is_array($fd['returnSegments'])) { $legs[] = ['label' => 'Return', 'segments' => array_values($fd['returnSegments'])]; }
+    if (!empty($fd['segments']) && is_array($fd['segments'])) { $legs[] = ['label' => 'Outbound', 'segments' => array_map($mergeTop, array_values($fd['segments']))]; }
+    if (!empty($fd['returnSegments']) && is_array($fd['returnSegments'])) { $legs[] = ['label' => 'Return', 'segments' => array_map($mergeTop, array_values($fd['returnSegments']))]; }
 }
-// Single flat flight (the common Duffel shape the invoice page reads directly from
-// flight_data): no nested segments, the dep/arr fields live on flight_data itself.
-if (empty($legs) && (!empty($fd['departure_code']) || !empty($fd['from_airport']) || !empty($fd['departure_time']))) {
-    $legs[] = ['label' => 'Flight', 'segments' => [$fd]];
+// No nested segments anywhere → the whole flight IS the top-level flight_data.
+if (empty($legs) && !empty($fdTop)) {
+    $legs[] = ['label' => 'Flight', 'segments' => [$fdTop]];
 }
 $segVal = function (array $s, array $keys, $default = '') {
     foreach ($keys as $k) { if (isset($s[$k]) && $s[$k] !== '' && $s[$k] !== null) { return $s[$k]; } }
