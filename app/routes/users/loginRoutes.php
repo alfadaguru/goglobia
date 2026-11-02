@@ -195,6 +195,13 @@ $router->post('/login', function () use ($SECURE, $db) {
     }
     $user = $resolved['user'];
     if (!$user) {
+        // auth fresh-audit MEDIUM (enumeration/timing): a real account runs bcrypt
+        // password_verify below while an unknown identifier returned instantly.
+        // Burn an equivalent bcrypt against a fixed dummy hash so both cost the
+        // same wall-clock, then show the SAME generic 'invalid' error.
+        if (function_exists('auth_dummy_bcrypt_hash')) {
+            password_verify($password, auth_dummy_bcrypt_hash());
+        }
         $_SESSION['login_error'] = 'invalid';
         header('Location: ' . root . 'login');
         exit;
@@ -258,7 +265,11 @@ $router->post('/login', function () use ($SECURE, $db) {
             ]);
         } else {
             $_SESSION['login_error'] = 'invalid';
-            $_SESSION['attempts_remaining'] = $maxAttempts - $newAttempts;
+            // auth fresh-audit MEDIUM (enumeration): the attempts-remaining line was
+            // rendered ONLY for a real account (wrong password) and never for an
+            // unknown identifier, so its mere presence confirmed the account exists.
+            // The 5-attempt lockout still runs server-side; we just no longer leak
+            // the remaining count. (Do not set $_SESSION['attempts_remaining'].)
 
             logUserActivity($db, $userId, 'login_failed', 'Invalid password attempt');
             

@@ -3178,6 +3178,21 @@ function phoneOwnedByOtherUser($db, string $phoneNational, string $dialCode, str
  * @return array{user:?array, reason:string}
  *   reason ∈ 'email' | 'phone' | 'not_found' | 'ambiguous_phone'
  */
+/**
+ * A fixed, valid bcrypt hash used ONLY as a timing decoy. When a login path can't
+ * find the account, it still runs password_verify($input, auth_dummy_bcrypt_hash())
+ * so an unknown-email request costs the same wall-clock as a real wrong-password
+ * request — closing the user-enumeration timing oracle. The plaintext is unknown
+ * and irrelevant; the hash just has to be a real bcrypt string so verify does the
+ * full key-stretching work. (auth fresh-audit MEDIUM, enumeration/timing.)
+ */
+function auth_dummy_bcrypt_hash(): string
+{
+    // A real cost-10 bcrypt hash (of a random throwaway string). Never matches any
+    // user-supplied password; exists purely to make password_verify do real work.
+    return '$2y$10$j6qQM8vQC17f9DzbfuDSSOSI5C0p57RFBHrcLiCLUENJUQvtJJI8K';
+}
+
 function resolveLoginIdentifier($db, string $identifier): array
 {
     $identifier = trim($identifier);

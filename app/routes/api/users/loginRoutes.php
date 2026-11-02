@@ -46,6 +46,11 @@ $router->post('/api/login', function () use ($db) {
     $user = $resolved['user'];
 
     if (!$user) {
+        // auth fresh-audit MEDIUM (enumeration/timing): equalise cost vs the real
+        // bcrypt path below so an unknown identifier can't be told apart by timing.
+        if (function_exists('auth_dummy_bcrypt_hash')) {
+            password_verify($password, auth_dummy_bcrypt_hash());
+        }
         echo json_encode([
             'status' => 'error',
             'code' => 'INVALID_CREDENTIALS',
@@ -94,11 +99,13 @@ $router->post('/api/login', function () use ($db) {
         }
 
         $db->update('users', $updateData, ['id' => $userId]);
+        // auth fresh-audit MEDIUM (enumeration): attempts_remaining is only ever
+        // returned for a REAL account, confirming the identifier exists. Lockout
+        // still enforced server-side; just don't leak the count.
         echo json_encode([
             'status' => 'error',
             'code' => 'INVALID_CREDENTIALS',
-            'message' => 'Invalid email or password',
-            'attempts_remaining' => max(0, $maxAttempts - $attempts)
+            'message' => 'Invalid email or password'
         ]);
         exit;
     }

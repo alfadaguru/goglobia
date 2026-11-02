@@ -267,8 +267,12 @@ $router->post('/ajax/login', function () use ($SECURE, $db) {
 
         $user = $db->get('users', '*', ['email' => $email]);
         if (!$user) {
-            // Uniform message (auth re-audit finding #E): do not reveal whether the
-            // email exists — mirror the wrong-password text below.
+            // auth fresh-audit MEDIUM (enumeration/timing): a real account runs a
+            // bcrypt password_verify (~tens of ms) while an unknown email returned
+            // instantly — a timing oracle. Burn a comparable bcrypt against a fixed
+            // dummy hash so the unknown-email path costs the same, THEN return the
+            // SAME message the wrong-password path uses. No existence leak either way.
+            password_verify($password, auth_dummy_bcrypt_hash());
             echo json_encode([
                 'success' => false,
                 'message' => 'Invalid email or password'
@@ -381,10 +385,12 @@ $router->post('/ajax/login', function () use ($SECURE, $db) {
             } else {
                 $db->update('users', $updateData, ['id' => $userId]);
 
-                $remaining = $maxAttempts - $newAttempts;
+                // auth fresh-audit MEDIUM (enumeration): the attempts-remaining count
+                // is only ever shown for a REAL account, so it confirmed the email
+                // exists. Return the SAME uniform message as the unknown-email path.
                 echo json_encode([
                     'success' => false,
-                    'message' => "Invalid password. $remaining attempts remaining."
+                    'message' => 'Invalid email or password'
                 ]);
             }
         }
