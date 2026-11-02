@@ -541,6 +541,16 @@ $router->post('/login/phone/verify', function () use ($SECURE, $db) {
         // No pending phone login — start over (don't leak anything).
         $_SESSION['login_error'] = 'invalid'; header('Location: ' . root . 'login/phone'); exit;
     }
+    // auth fresh-audit LOW (defence-in-depth): honour the account lockout at the
+    // VERIFY step too, not only at issue — so an OTP code already in flight can't
+    // be used to complete a login while the account is locked from password
+    // brute-force. (OTP is also throttled by burn-after-5 + 60s cooldown.)
+    $lockRow = $db->get('users', ['locked_until'], ['user_id' => $uid]);
+    if ($lockRow && !empty($lockRow['locked_until']) && strtotime((string) $lockRow['locked_until']) > time()) {
+        $_SESSION['login_error'] = 'locked';
+        $_SESSION['lock_until'] = $lockRow['locked_until'];
+        header('Location: ' . root . 'login/phone'); exit;
+    }
     $res = otp_verify($db, $uid, 'login', $code);
     if (empty($res['ok'])) {
         $_SESSION['login_error'] = 'invalid';
