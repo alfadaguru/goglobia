@@ -1303,6 +1303,10 @@ function ensureGiaAuthSchema($db): void
     $columns = [
         ['users', 'phone_verified', "ALTER TABLE `users` ADD COLUMN `phone_verified` TINYINT(1) NOT NULL DEFAULT 0"],
         ['users', 'otp_type',       "ALTER TABLE `users` ADD COLUMN `otp_type` VARCHAR(20) NULL DEFAULT NULL"],
+        // auth fresh-audit HIGH: the OTP engine must NOT share users.login_attempts
+        // with the PASSWORD brute-force lockout — otp_issue() zeroing it defeated
+        // the password lockout. Give OTP its OWN miss-counter so the two are decoupled.
+        ['users', 'otp_attempts',   "ALTER TABLE `users` ADD COLUMN `otp_attempts` INT(11) NOT NULL DEFAULT 0"],
     ];
 
     foreach ($columns as [$table, $column, $alterSql]) {

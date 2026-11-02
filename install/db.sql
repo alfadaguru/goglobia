@@ -31913,6 +31913,7 @@ CREATE TABLE `users` (
   `otp` varchar(10) DEFAULT NULL,
   `otp_expires` datetime DEFAULT NULL,
   `otp_type` varchar(20) DEFAULT NULL,
+  `otp_attempts` int(11) NOT NULL DEFAULT 0,
   `login_attempts` int(11) DEFAULT 0,
   `locked_until` timestamp NULL DEFAULT NULL,
   `currency` varchar(255) DEFAULT NULL,

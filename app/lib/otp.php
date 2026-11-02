@@ -83,7 +83,11 @@ if (!function_exists('otp_issue')) {
                 'otp'            => $code,
                 'otp_expires'    => date('Y-m-d H:i:s', time() + OTP_TTL_SECONDS),
                 'otp_type'       => $purpose,
-                'login_attempts' => 0,
+                // auth fresh-audit HIGH: reset the OTP-OWN miss counter, NOT the
+                // password lockout counter (login_attempts). Resetting login_attempts
+                // here let an attacker clear the password brute-force lock by
+                // requesting an OTP, defeating the 5-attempt/30-min lockout entirely.
+                'otp_attempts'   => 0,
             ], ['id' => (int) $user['id']]);
         } catch (\Throwable $e) {
             error_log('otp_issue: ' . $e->getMessage());
@@ -141,13 +145,13 @@ if (!function_exists('otp_verify')) {
             ];
         }
 
-        // Success — clear the code + attempt counter so it is single-use.
+        // Success — clear the code + OTP miss counter so it is single-use.
         try {
             $db->update('users', [
                 'otp'            => null,
                 'otp_expires'    => null,
                 'otp_type'       => null,
-                'login_attempts' => 0,
+                'otp_attempts'   => 0, // OTP-own counter (NOT the password lockout)
             ], ['id' => (int) $user['id']]);
         } catch (\Throwable $e) {
             error_log('otp_verify clear: ' . $e->getMessage());
@@ -165,21 +169,24 @@ if (!function_exists('otp__count_miss')) {
      */
     function otp__count_miss($db, array $user): bool
     {
-        $attempts = (int) ($user['login_attempts'] ?? 0) + 1;
+        // auth fresh-audit HIGH: count OTP misses on the OTP-OWN counter, NOT the
+        // password lockout counter (login_attempts), so OTP activity can never
+        // clear or interfere with the password brute-force lock.
+        $attempts = (int) ($user['otp_attempts'] ?? 0) + 1;
         try {
             if ($attempts >= OTP_MAX_ATTEMPTS) {
                 $db->update('users', [
                     'otp'            => null,
                     'otp_expires'    => null,
                     'otp_type'       => null,
-                    'login_attempts' => 0,
+                    'otp_attempts'   => 0,
                 ], ['id' => (int) $user['id']]);
                 if (function_exists('logUserActivity')) {
                     logUserActivity($db, $user['id'], 'otp_failed', 'OTP invalidated after too many wrong attempts');
                 }
                 return true;
             }
-            $db->update('users', ['login_attempts' => $attempts], ['id' => (int) $user['id']]);
+            $db->update('users', ['otp_attempts' => $attempts], ['id' => (int) $user['id']]);
         } catch (\Throwable $e) {
             error_log('otp__count_miss: ' . $e->getMessage());
         }
@@ -195,7 +202,7 @@ if (!function_exists('otp__resolve_user')) {
         if ($userId === '') {
             return null;
         }
-        $cols = ['id', 'user_id', 'otp', 'otp_expires', 'otp_type', 'login_attempts', 'email', 'phone', 'phone_country_code', 'first_name'];
+        $cols = ['id', 'user_id', 'otp', 'otp_expires', 'otp_type', 'otp_attempts', 'email', 'phone', 'phone_country_code', 'first_name'];
         try {
             $u = $db->get('users', $cols, ['user_id' => $userId]);
             if (!$u && ctype_digit($userId)) {

@@ -485,7 +485,11 @@ try {
         // v13: stays_folio_items.ref + UNIQUE(ref) — folio-posting idempotency so a
         //      double-submit cannot post the same payment/charge line twice (fixes the
         //      folio double-submit money bugs: double-credited bill, double-fed drawer).
-        define('APP_SCHEMA_ENSURE_VERSION', 13);
+        // v14: users.otp_attempts — the OTP engine's OWN miss-counter, decoupled from
+        //      users.login_attempts (the PASSWORD brute-force lockout counter). Fixes
+        //      the auth HIGH where otp_issue() zeroing login_attempts cleared the
+        //      password lockout, defeating the 5-attempt/30-min lock (ensureGiaAuthSchema).
+        define('APP_SCHEMA_ENSURE_VERSION', 14);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);
