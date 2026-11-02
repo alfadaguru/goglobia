@@ -28,6 +28,66 @@ function pg_confirms_on_payment_module($module): bool
 }
 
 /**
+ * Dispatch the customer's payment-completed notification (module payment webhook
+ * + the bm_notify_paid fallback for services that have no webhook file). Shared by
+ * the NORMAL paid path and the dev_mode-mismatch confirm path.
+ *
+ * customer-flow audit #7/#10/#18: the dev_mode-mismatch branch recorded payment
+ * and returned WITHOUT ever notifying, so stays/esim/ferries customers were
+ * charged and confirmed but received no email / ticket PDF / voucher. Routing both
+ * paths through this helper guarantees a paid customer is always notified once.
+ * Idempotency is the caller's/webhook's responsibility (bm_notify_paid + the
+ * per-service webhooks are already idempotent by invoice ref).
+ *
+ * @param object $db
+ * @param array  $tokenData  the verified payment token (module/module_type/invoice_id/amount/currency)
+ * @param array  $data       gateway callback data (transaction_id/gateway)
+ */
+function pg_notify_customer_paid($db, array $tokenData, array $data = []): void
+{
+    $bookingData = $db->get('bookings', '*', ['invoice_id' => $tokenData['invoice_id']]);
+    if (!$bookingData) { return; }
+
+    // Standardize module mapping for webhooks (same table as the normal path).
+    $rawModule = $tokenData['module'] ?? 'stays';
+    $webhookModule = strtolower($rawModule);
+    if ($webhookModule === 'hotels') { $webhookModule = 'stays'; }
+    if ($webhookModule === 'amadeus') { $webhookModule = 'flights'; }
+    if ($webhookModule === 'cartrawler') { $webhookModule = 'cars'; }
+    if ($webhookModule === 'kikoto') { $webhookModule = 'ferries'; }
+    $moduleTypeForWebhook = strtolower($tokenData['module_type'] ?? '');
+    if ($moduleTypeForWebhook && file_exists(__DIR__ . '/../webhooks/' . $moduleTypeForWebhook . '/payment.php')) {
+        $webhookModule = $moduleTypeForWebhook;
+    }
+
+    if (function_exists('triggerWebhook')) {
+        try {
+            triggerWebhook($webhookModule . '/payment', $webhookModule . '.payment.completed', [
+                'invoice_id'      => $tokenData['invoice_id'],
+                'booking_id'      => $bookingData['id'] ?? null,
+                'transaction_id'  => $data['transaction_id'] ?? null,
+                'amount'          => $tokenData['amount'] ?? 0,
+                'currency'        => $tokenData['currency'] ?? 'USD',
+                'payment_gateway' => $data['gateway'] ?? '',
+                'user_id'         => $bookingData['user_id'] ?? null,
+                'customer_email'  => $bookingData['email'] ?? '',
+                'timestamp'       => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) { error_log('pg_notify_customer_paid webhook: ' . $e->getMessage()); }
+    }
+
+    // Fallback for services with no payment-webhook file (same exclusion as the
+    // normal path: umrah notifies via its own settle path).
+    try {
+        $mt = strtolower((string) ($tokenData['module_type'] ?? ($bookingData['module_type'] ?? '')));
+        $hasPayWebhook = $mt !== '' && file_exists(__DIR__ . '/../webhooks/' . $mt . '/payment.php');
+        if (!$hasPayWebhook && $mt !== '' && $mt !== 'umrah' && function_exists('bm_notify_paid')) {
+            bm_notify_paid($db, (string) $tokenData['invoice_id']);
+        }
+    } catch (\Throwable $e) { error_log('pg_notify_customer_paid fallback: ' . $e->getMessage()); }
+}
+
+/**
  * TRIGGER NOTIFICATION FOR BOOKING EVENTS
  * @param string $event - Event name (booking.issued, booking.issue_failed, etc.)
  * @param array $data - Event data
@@ -622,6 +682,20 @@ function handle_payment_callback($token, $action, $data = [])
                             try { supplier_earning_accrue_for_booking($db, (string) $tokenData['invoice_id']); }
                             catch (\Throwable $e) { error_log('accrue (devmode path): ' . $e->getMessage()); }
                         }
+
+                        // customer-flow audit #7/#10/#18: notify the customer on the
+                        // dev_mode-mismatch path too. Money was collected and the
+                        // booking recorded; previously this branch returned with no
+                        // email/ticket/voucher at all. Only notify when the booking
+                        // actually CONFIRMED on this path (confirm-on-payment modules);
+                        // a module left 'pending' here is genuinely paid-but-not-issued
+                        // and an admin must issue it (notify would be premature).
+                        try {
+                            $__dmBk = $db->get('bookings', ['booking_status'], ['invoice_id' => $tokenData['invoice_id']]);
+                            if ($__dmBk && strtolower((string) ($__dmBk['booking_status'] ?? '')) === 'confirmed') {
+                                pg_notify_customer_paid($db, $tokenData, $data);
+                            }
+                        } catch (\Throwable $__e) { error_log('devmode notify: ' . $__e->getMessage()); }
 
                         // Clear token
                         clear_payment_token($token);
@@ -1313,50 +1387,11 @@ function handle_payment_callback($token, $action, $data = [])
                 ['invoice_id' => $tokenData['invoice_id']]
             );
 
-            // Trigger payment completed webhook (module-specific)
-            $rawModule = $tokenData['module'] ?? 'stays';
-            // Standardize module mapping for webhooks
-            $webhookModule = strtolower($rawModule);
-            if ($webhookModule === 'hotels') { $webhookModule = 'stays'; }
-            if ($webhookModule === 'amadeus') { $webhookModule = 'flights'; }
-            if ($webhookModule === 'cartrawler') { $webhookModule = 'cars'; }
-            if ($webhookModule === 'cars') { $webhookModule = 'cars'; }
-            if ($webhookModule === 'kikoto') { $webhookModule = 'ferries'; }
-            // Prefer module_type over module name for webhook routing
-            $moduleTypeForWebhook = strtolower($tokenData['module_type'] ?? '');
-            if ($moduleTypeForWebhook && file_exists(__DIR__ . '/../webhooks/' . $moduleTypeForWebhook . '/payment.php')) {
-                $webhookModule = $moduleTypeForWebhook;
-            }
-            
-            $webhookName = $webhookModule . '/payment';
-            $eventLabel = $webhookModule . '.payment.completed';
-            
-            triggerWebhook($webhookName, $eventLabel, [
-                'invoice_id' => $tokenData['invoice_id'],
-                'booking_id' => $bookingData['id'] ?? null,
-                'transaction_id' => $data['transaction_id'] ?? null,
-                'amount' => $tokenData['amount'] ?? 0,
-                'currency' => $tokenData['currency'] ?? 'USD',
-                'payment_gateway' => $data['gateway'] ?? '',
-                'user_id' => $bookingData['user_id'] ?? null,
-                'customer_email' => $bookingData['email'] ?? '',
-                'timestamp' => date('Y-m-d H:i:s')
-            ]);
-
-            // CUSTOMER NOTIFICATION FALLBACK (parity fix). Several services have NO
-            // app/webhooks/<svc>/payment.php, so the triggerWebhook above is a no-op
-            // and the website customer was never emailed/WhatsApp'd their ticket.
-            // When the service has no payment-webhook file, notify directly here via
-            // the shared bm_notify_paid (email + WhatsApp + branded voucher, 3-doc
-            // model). EXCLUDE umrah (its own umrah_settle_payment path already
-            // notifies with the voucher) to avoid double-sending.
-            try {
-                $__mt = strtolower((string) ($tokenData['module_type'] ?? ($bookingData['module_type'] ?? '')));
-                $__hasPayWebhook = $__mt !== '' && file_exists(__DIR__ . '/../webhooks/' . $__mt . '/payment.php');
-                if (!$__hasPayWebhook && $__mt !== '' && $__mt !== 'umrah' && function_exists('bm_notify_paid')) {
-                    bm_notify_paid($db, (string) $tokenData['invoice_id']);
-                }
-            } catch (\Throwable $__e) { error_log('callback notify fallback: ' . $__e->getMessage()); }
+            // Customer payment-completed notification (module payment webhook +
+            // bm_notify_paid fallback). Shared with the dev_mode-mismatch path via
+            // pg_notify_customer_paid so the two can never diverge (customer-flow
+            // audit #7/#10/#18).
+            pg_notify_customer_paid($db, $tokenData, $data);
 
             // Clear token
             clear_payment_token($token);
