@@ -106,16 +106,20 @@ $router->post('/signup', function () use ($SECURE, $db) {
         exit;
     }
 
-    // Bot detection - temporarily disabled for debugging
-    // $botCheck = Captcha::detectBot();
-    // if ($botCheck['is_bot']) {
-    //     // Silently reject bots (don't give them feedback)
-    //     error_log('Bot signup attempt detected: ' . $botCheck['reason'] . ' | IP: ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
-    //     sleep(2); // Slow down bot
-    //     $_SESSION['signup_error'] = 'invalid_request';
-    //     header('Location: ' . $redirectUrl);
-    //     exit;
-    // }
+    // Bot detection (auth audit finding #3): RE-ENABLED (was commented out "for
+    // debugging", leaving signup with no honeypot/timing/UA guard). The signup view
+    // renders the fields detectBot() needs via Captcha::renderField() (honeypot,
+    // form_load_time, js_enabled), so this is safe for legitimate JS clients. The
+    // honeypot catches naive bots the math-CAPTCHA alone would not.
+    $botCheck = Captcha::detectBot();
+    if ($botCheck['is_bot']) {
+        // Silently reject bots (don't give them feedback they can tune against).
+        error_log('Bot signup attempt detected: ' . $botCheck['reason'] . ' | IP: ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+        sleep(2); // Slow down bot
+        $_SESSION['signup_error'] = 'invalid_request';
+        header('Location: ' . $redirectUrl);
+        exit;
+    }
 
     // CAPTCHA validation
     $captchaAnswer = trim($_POST['captcha_answer'] ?? '');

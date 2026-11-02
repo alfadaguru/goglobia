@@ -30,6 +30,8 @@
             Please enter a valid number for the security check.
           <?php elseif ($_SESSION['signup_error'] === 'captcha_wrong'): ?>
             Incorrect answer to security question. Please try again.
+          <?php elseif ($_SESSION['signup_error'] === 'captcha_used'): ?>
+            That security check was already used. Please solve the new one below.
           <?php elseif ($_SESSION['signup_error'] === 'invalid_request'): ?>
             Invalid request. Please try again.
           <?php elseif ($_SESSION['signup_error'] === 'phone_country_required'): ?>

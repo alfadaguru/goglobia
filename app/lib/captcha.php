@@ -77,13 +77,34 @@ class Captcha {
         }
         
         $userAnswer = (int)$userAnswer;
-        
+
         // Verify hash matches
         $expectedHash = self::createHash($userAnswer, $timestamp);
         if (!hash_equals($hash, $expectedHash)) {
             return ['valid' => false, 'error' => 'captcha_wrong'];
         }
-        
+
+        // SINGLE-USE (auth audit finding #3): the challenge is stateless (the HMAC
+        // over answer|timestamp), and the answer is the visible math question — so a
+        // solved (answer,timestamp,hash) triple could otherwise be REPLAYED for the
+        // full 10-min window to script many signups. Burn the hash on first success,
+        // per session, so it can only validate ONCE. Expired entries are pruned.
+        if (session_status() !== PHP_SESSION_ACTIVE && !headers_sent()) {
+            session_start();
+        }
+        $now = time();
+        if (!isset($_SESSION['captcha_used']) || !is_array($_SESSION['captcha_used'])) {
+            $_SESSION['captcha_used'] = [];
+        }
+        // Prune anything older than the 10-min validity window.
+        foreach ($_SESSION['captcha_used'] as $h => $ts) {
+            if (($now - (int) $ts) > 600) { unset($_SESSION['captcha_used'][$h]); }
+        }
+        if (isset($_SESSION['captcha_used'][$hash])) {
+            return ['valid' => false, 'error' => 'captcha_used'];
+        }
+        $_SESSION['captcha_used'][$hash] = $now;
+
         return ['valid' => true, 'error' => null];
     }
     
