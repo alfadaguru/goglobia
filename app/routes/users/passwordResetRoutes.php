@@ -44,22 +44,41 @@ $router->post('/forgot-password', function () use ($SECURE, $db) {
         exit;
     }
 
+    // ENUMERATION-SAFE (auth audit finding #2): ALWAYS answer with the SAME
+    // neutral message whether or not an account exists — the old distinct
+    // T::error_email_not_found let an attacker enumerate registered emails. The
+    // real send only happens for a valid active account; the response never
+    // reveals the outcome. Mirrors the already-hardened resend-verification route.
+    unset($_SESSION['form_data']);
+    $neutral = function () {
+        $_SESSION['success'] = T::success_reset_email_sent
+            ?? 'If an account exists for that email, we\'ve sent a password-reset link.';
+        header('Location: ' . root . 'forgot-password');
+        exit;
+    };
+
     try {
-        $user = $db->get('users', ['id', 'first_name', 'last_name', 'email', 'phone', 'phone_country_code'], [
+        $user = $db->get('users', ['id', 'user_id', 'first_name', 'last_name', 'email', 'phone', 'phone_country_code', 'reset_token_expires'], [
             'email' => $email,
             'status' => 'active'
         ]);
 
+        // No account (or inactive) → neutral success, no work, no leak.
         if (!$user) {
-            $_SESSION['error'] = T::error_email_not_found;
-            $_SESSION['form_data'] = ['email' => $email];
-            header('Location: ' . root . 'forgot-password');
-            exit;
+            $neutral();
+        }
+
+        // RATE-LIMIT (auth audit finding #2): if a reset token was issued in the
+        // last 5 minutes, don't reissue / re-email (anti mail-bomb + anti
+        // token-churn). Still answer neutrally. Token lives 1h, so "issued within
+        // 5 min" == expires is within (3600 - 300) of now.
+        $lastExpires = strtotime((string) ($user['reset_token_expires'] ?? '')) ?: 0;
+        if ($lastExpires > 0 && ($lastExpires - time()) > (3600 - 300)) {
+            $neutral();
         }
 
         logUserActivity($db, $user['id'], 'forgot_password', 'Password reset requested');
 
-        // Trigger password reset requested webhook
         triggerWebhook('users/password-reset', 'password.reset_requested', [
             'user_id' => $user['user_id'] ?? null,
             'email' => $email,
@@ -77,27 +96,14 @@ $router->post('/forgot-password', function () use ($SECURE, $db) {
             'reset_token_expires' => $expiresAt
         ], ['id' => $user['id']]);
 
-        $notificationResults = sendNotification($user['id'], 'forgot_password', []);
+        sendNotification($user['id'], 'forgot_password', []);
 
-        $emailSent = $notificationResults['email'] ?? false;
-        $whatsappSent = $notificationResults['whatsapp'] ?? false;
-        $smsSent = $notificationResults['sms'] ?? false;
-
-        unset($_SESSION['form_data']);
-
-        if ($emailSent || $whatsappSent || $smsSent) {
-            $_SESSION['success'] = T::success_reset_email_sent;
-        } else {
-            $_SESSION['success'] = T::success_reset_no_email;
-        }
-
-        header('Location: ' . root . 'forgot-password');
-        exit;
+        // Uniform neutral success regardless of which channel fired (no enumeration).
+        $neutral();
     } catch (Exception $e) {
-        $_SESSION['error'] = T::error_password_reset_failed;
-        $_SESSION['form_data'] = ['email' => $email];
-        header('Location: ' . root . 'forgot-password');
-        exit;
+        error_log('[forgot-password] ' . $e->getMessage());
+        // Even on error, stay neutral (do not reveal processing differences).
+        $neutral();
     }
 });
 
