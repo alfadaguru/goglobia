@@ -300,7 +300,7 @@ if (!empty($legs[0]['segments'][0])) { $cabinOverall = (string) $segVal($legs[0]
         </tr></table></div>
         <?php if ($showOp): ?><div class="opby">Operated by <?= $e($operatedBy) ?> on behalf of <?= $e($al['name']) ?></div><?php endif; ?>
         <div class="seg-foot"><table class="seg-foot-tbl"><tr>
-            <?php if ($bag !== ''): ?><td style="width:34%;"><?= ft_icon('checked', $brand, 11) ?> Checked <b><?= $e($bag) ?></b></td><?php endif; ?>
+            <td style="width:34%;"><?= ft_icon('checked', $brand, 11) ?> Checked <b><?= $bag !== '' ? $e($bag) : 'As per fare rules' ?></b></td>
             <?php if ($cabinBag !== ''): ?><td style="width:30%;"><?= ft_icon('cabin', $brand, 11) ?> Cabin <b><?= $e($cabinBag) ?></b></td><?php endif; ?>
             <td><?= ft_icon('clock', ($isTicketed ? '#0b875b' : '#b4690e'), 11) ?> Status <b><?= $isTicketed ? 'OK / Confirmed' : 'Reserved' ?></b></td>
         </tr></table></div>
@@ -313,8 +313,13 @@ if (!empty($legs[0]['segments'][0])) { $cabinOverall = (string) $segVal($legs[0]
             $layAp = ft_airport_resolve((string) $layCode, $db, $s);
             $layWhere = $layAp['city'] !== '' ? $layAp['city'] : $layCode;
             $layDur = $lay && $lay['display'] !== '' ? ($lay['exact'] ? $lay['display'] : '~' . $lay['display']) : '';
+            // "Terminal change" is only true when BOTH sides carry a terminal AND they differ.
+            $arrTerm = trim((string) ($s['arrival_terminal'] ?? ''));
+            $nextDepTerm = trim((string) ($segs[$si + 1]['departure_terminal'] ?? ''));
+            $termChange = ($arrTerm !== '' && $nextDepTerm !== '' && strcasecmp($arrTerm, $nextDepTerm) !== 0);
             echo '<div class="layover">Connection at ' . $e($layWhere) . ($layCode && $layWhere !== $layCode ? ' (' . $e($layCode) . ')' : '')
-                . ($layDur !== '' ? ' &middot; <b>' . $e($layDur) . ' layover</b>' : '') . ' &middot; terminal change</div>';
+                . ($layDur !== '' ? ' &middot; <b>' . $e($layDur) . ' layover</b>' : '')
+                . ($termChange ? ' &middot; terminal change' : '') . '</div>';
         }
     endforeach; endforeach; ?>
 

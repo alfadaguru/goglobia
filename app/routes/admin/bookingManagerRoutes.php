@@ -1056,6 +1056,9 @@ if (!function_exists('bmBuildManualBookingData')) {
                 'airline_code'       => strtoupper(trim((string) ($s['airline_code'] ?? ''))),
                 'flight_number'      => trim((string) ($s['flight_number'] ?? '')),
                 'arrival_code'       => strtoupper(trim((string) ($s['to'] ?? ''))),
+                'class'              => trim((string) ($s['cabin'] ?? '')),
+                'baggage'            => trim((string) ($s['baggage'] ?? '')),
+                'cabin_baggage'      => trim((string) ($s['cabin_baggage'] ?? '')),
             ];
         }
         $first = $segments[0] ?? [];

@@ -352,7 +352,7 @@ if (is_array($ancMeals)) { foreach ($ancMeals as $mm) { $mealCount += is_array($
           </div>
           <?php if ($showOp): ?><div class="opby">Operated by <?= $e($operatedBy) ?> on behalf of <?= $e($al['name']) ?></div><?php endif; ?>
           <div class="seg-foot">
-            <?php if ($bag): ?><div class="f"><span class="ic">&#129520;</span> Checked <b><?= $e($bag) ?></b></div><?php endif; ?>
+            <div class="f"><span class="ic">&#129520;</span> Checked <b><?= $bag ? $e($bag) : 'As per fare rules' ?></b></div>
             <?php if ($cabinBag): ?><div class="f"><span class="ic">&#127890;</span> Cabin <b><?= $e($cabinBag) ?></b></div><?php endif; ?>
             <div class="f"><span class="ic">&#9203;</span> Status <b><?= $isTicketed ? 'OK / Confirmed' : 'Reserved' ?></b></div>
           </div>
@@ -364,8 +364,13 @@ if (is_array($ancMeals)) { foreach ($ancMeals as $mm) { $mealCount += is_array($
             $layAp = ft_airport_resolve((string) $layCode, $db, $s);
             $layWhere = $layAp['city'] !== '' ? $layAp['city'] : $layCode;
             $layDur = $lay && $lay['display'] !== '' ? ($lay['exact'] ? $lay['display'] : '~' . $lay['display']) : '';
+            // "Terminal change" is only true when BOTH sides carry a terminal AND they differ.
+            $arrTerm = trim((string) ($s['arrival_terminal'] ?? ''));
+            $nextDepTerm = trim((string) ($segs[$si + 1]['departure_terminal'] ?? ''));
+            $termChange = ($arrTerm !== '' && $nextDepTerm !== '' && strcasecmp($arrTerm, $nextDepTerm) !== 0);
             echo '<div class="layover"><span class="bar"></span> Connection at ' . $e($layWhere) . ($layCode && $layWhere !== $layCode ? ' (' . $e($layCode) . ')' : '')
-               . ($layDur !== '' ? ' &middot; <b>' . $e($layDur) . ' layover</b>' : '') . ' &middot; terminal change <span class="bar"></span></div>';
+               . ($layDur !== '' ? ' &middot; <b>' . $e($layDur) . ' layover</b>' : '')
+               . ($termChange ? ' &middot; terminal change' : '') . ' <span class="bar"></span></div>';
           }
         endforeach; ?>
       </div>
@@ -401,7 +406,10 @@ if (is_array($ancMeals)) { foreach ($ancMeals as $mm) { $mealCount += is_array($
               if (!empty($bagSummary)) { $anyBag = true; foreach ($bagSummary as $lbl => $n) {
                 echo '<div class="row add"><span class="ic">&#10133;</span> ' . (int) $n . ' &times; ' . $e($lbl) . '</div>';
               } }
-              if (!$anyBag) { echo '<div class="row muted">As per airline policy</div>'; }
+              if (!$anyBag) {
+                  echo '<div class="row"><span class="ic">&#129520;</span> Checked <b>As per fare rules</b></div>';
+                  echo '<div class="row muted">Cabin allowance as per airline policy</div>';
+              }
             ?>
           </div>
         </div>

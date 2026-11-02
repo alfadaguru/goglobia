@@ -383,6 +383,18 @@ $svcIcons = [
               <div></div>
               <label class="form-control"><span class="form-label">Departs</span><input type="datetime-local" class="input" x-model="seg.depart"></label>
               <label class="form-control"><span class="form-label">Arrives</span><input type="datetime-local" class="input" x-model="seg.arrive"></label>
+              <label class="form-control">
+                <span class="form-label">Cabin</span>
+                <select class="input" x-model="seg.cabin">
+                  <option value="">—</option>
+                  <option value="economy">Economy</option>
+                  <option value="premium_economy">Premium Economy</option>
+                  <option value="business">Business</option>
+                  <option value="first">First</option>
+                </select>
+              </label>
+              <label class="form-control"><span class="form-label">Checked baggage</span><input class="input" x-model="seg.baggage" placeholder="e.g. 1 x 23kg"></label>
+              <label class="form-control"><span class="form-label">Cabin baggage</span><input class="input" x-model="seg.cabin_baggage" placeholder="e.g. 1 x 7kg"></label>
               <div class="flex items-end"><button class="btn outline sm" @click="manual.segments.splice(i,1)" x-show="manual.segments.length>1"><span class="material-symbols-outlined">delete</span></button></div>
             </div>
           </template>
@@ -739,7 +751,7 @@ function bookingMgr() {
     init(){ this.clientToken = this.newToken(); this.manual.segments=[this.blankSeg()]; },
     newToken(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); },
 
-    blankSeg(){ return { airline:'', flight_number:'', airline_code:'', from:'', to:'', depart:'', arrive:'',
+    blankSeg(){ return { airline:'', flight_number:'', airline_code:'', from:'', to:'', depart:'', arrive:'', cabin:'', baggage:'', cabin_baggage:'',
       _alItems:[], _alOpen:false, _fromText:'', _fromItems:[], _fromOpen:false, _toText:'', _toItems:[], _toOpen:false }; },
 
     get isInternational(){
@@ -1108,7 +1120,7 @@ function bookingMgr() {
           if(this.isHotel){ Object.assign(payload,{hotel_name:this.manual.hotel_name,hotel_stars:this.manual.hotel_stars,hotel_address:this.manual.hotel_address,hotel_city:this.manual.hotel_city,hotel_country:this.manual.hotel_country,checkin:this.manual.checkin,checkout:this.manual.checkout,room_type:this.manual.room_type,board_type:this.manual.board_type,rooms:this.manual.rooms,nights:this.manual.nights}); }
           else if(this.service==='flights'){
             // strip the UI-only autocomplete helper fields before sending
-            const segs=this.manual.segments.map(s=>({ airline:s.airline, flight_number:s.flight_number, airline_code:s.airline_code, from:s.from, to:s.to, depart:s.depart, arrive:s.arrive }));
+            const segs=this.manual.segments.map(s=>({ airline:s.airline, flight_number:s.flight_number, airline_code:s.airline_code, from:s.from, to:s.to, depart:s.depart, arrive:s.arrive, cabin:s.cabin, baggage:s.baggage, cabin_baggage:s.cabin_baggage }));
             payload.segments = JSON.stringify(segs);
           }
           else {

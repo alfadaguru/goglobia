@@ -138,6 +138,7 @@ if (!function_exists('ft_normalize_legs')) {
                 'duration_time'     => $pick(['duration_time', 'duration']),
                 'operated_by'       => $pick(['operated_by', 'operating_carrier', 'operating']),
                 'departure_terminal'=> $pick(['departure_terminal', 'dep_terminal']),
+                'arrival_terminal'  => $pick(['arrival_terminal', 'arr_terminal']),
             ];
             // A segment with no origin/destination at all is useless — drop it.
             if ($out['departure_code'] === '' && $out['arrival_code'] === '' && $out['departure_time'] === '') { return null; }
