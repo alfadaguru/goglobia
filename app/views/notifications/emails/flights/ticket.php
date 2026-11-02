@@ -46,28 +46,12 @@ $travellers = ft_passenger_list($booking);
 $paxCount   = count($travellers);
 
 // ---- Cabin + legs/segments --------------------------------------------------
+// Use the SAME canonical normalizer as the HTML ticket so this (email/WhatsApp) PDF
+// renders complete data for ALL booking shapes — web, Booking-Manager (departure_
+// datetime/from_airport) and GIA/multicity (2-D segments) — not just the 2 it handled
+// before. Fixes the blank dates/times/airports on BM + GIA bookings.
 $fd = $bookingData['flight_data'] ?? $bookingData ?? [];
-$legs = [];
-if (!empty($fd['routes']) && is_array($fd['routes'])) {
-    foreach ($fd['routes'] as $i => $route) {
-        $segs = $route['segments'] ?? [];
-        if ($segs) { $legs[] = ['label' => $i === 0 ? 'Outbound' : ($i === 1 ? 'Return' : 'Leg ' . ($i + 1)), 'segments' => array_values($segs)]; }
-    }
-} else {
-    if (!empty($fd['segments']) && is_array($fd['segments'])) { $legs[] = ['label' => 'Outbound', 'segments' => array_values($fd['segments'])]; }
-    if (!empty($fd['returnSegments']) && is_array($fd['returnSegments'])) { $legs[] = ['label' => 'Return', 'segments' => array_values($fd['returnSegments'])]; }
-    if (empty($legs) && (!empty($fd['departure_code']) || !empty($fd['from_airport']))) {
-        $legs[] = ['label' => 'Flight', 'segments' => [[
-            'airline' => $fd['airline'] ?? '', 'img' => $fd['img'] ?? ($fd['airline_code'] ?? ''), 'flight_no' => $fd['flight_no'] ?? ($fd['flight_number'] ?? ''),
-            'class' => $fd['class'] ?? '', 'booking_class' => $fd['booking_class'] ?? '',
-            'departure_code' => $fd['departure_code'] ?? ($fd['from_airport'] ?? ''), 'arrival_code' => $fd['arrival_code'] ?? ($fd['to_airport'] ?? ''),
-            'departure_time' => $fd['departure_time'] ?? '', 'arrival_time' => $fd['arrival_time'] ?? '',
-            'departure_date' => $fd['departure_date'] ?? '', 'arrival_date' => $fd['arrival_date'] ?? '',
-            'departure_airport' => $fd['departure_airport'] ?? '', 'arrival_airport' => $fd['arrival_airport'] ?? '',
-            'departure_iso' => $fd['departure_iso'] ?? '', 'arrival_iso' => $fd['arrival_iso'] ?? '',
-        ]]];
-    }
-}
+$legs = function_exists('ft_normalize_legs') ? ft_normalize_legs($bookingData) : [];
 $segVal = function (array $s, array $keys, $default = '') {
     foreach ($keys as $k) { if (isset($s[$k]) && $s[$k] !== '') { return $s[$k]; } }
     return $default;
@@ -276,9 +260,10 @@ if (!empty($legs[0]['segments'][0])) { $cabinOverall = (string) $segVal($legs[0]
         $arrName = $aAp['name'] !== '' ? $aAp['name'] : (string) $segVal($s, ['arrival_airport', 'to_airport_name'], '');
         $depTerm = (string) $segVal($s, ['departure_terminal', 'dep_terminal'], '');
         if ($depTerm !== '') { $depName = trim($depName . ' &middot; Terminal ' . $depTerm); }
-        $depTime = $segVal($s, ['departure_time'], ''); $arrTime = $segVal($s, ['arrival_time'], '');
-        $depDate = $segVal($s, ['departure_date'], ''); $arrDate = $segVal($s, ['arrival_date'], '');
-        $dur = (string) $segVal($s, ['duration_time', 'total_duration', 'duration'], '');
+        $depTime = ft_fmt_time((string) $segVal($s, ['departure_time'], '')); $arrTime = ft_fmt_time((string) $segVal($s, ['arrival_time'], ''));
+        $depDate = ft_fmt_date((string) $segVal($s, ['departure_date'], '')); $arrDate = ft_fmt_date((string) $segVal($s, ['arrival_date'], ''));
+        $dur = (string) $segVal($s, ['duration_time', 'duration'], '');
+        if (preg_match('#^(\d{1,2}):(\d{2})$#', $dur, $dm)) { $dur = ((int)$dm[1] > 0 ? (int)$dm[1].'h ' : '') . (int)$dm[2] . 'm'; }
         if ($dur === '') { $sm = ft_minutes_between(ft_seg_dep($s), ft_seg_arr($s)); $dur = ft_fmt_duration($sm['minutes']); if ($dur !== '' && !$sm['exact']) { $dur = '~' . $dur; } }
         $bag = $segVal($s, ['baggage', 'included_baggage'], '');
         $cabinBag = $segVal($s, ['cabin_baggage'], '');

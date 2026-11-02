@@ -31,6 +31,167 @@ if (!function_exists('ft_db')) {
     }
 }
 
+if (!function_exists('ft_fmt_date')) {
+    /**
+     * Format a stored flight date into the design's "Ddd, DD Mon YYYY" (e.g.
+     * "Thu, 29 Oct 2026"). Real bookings store "DD-MM-YYYY" ("29-10-2026"); Booking
+     * Manager stores a "Y-m-d H:i" datetime. Returns the input unchanged if it can't
+     * be parsed (never shows garbage, never blanks a value that was present).
+     */
+    function ft_fmt_date(string $raw): string
+    {
+        $raw = trim($raw);
+        if ($raw === '') { return ''; }
+        $ts = false;
+        // "DD-MM-YYYY" (the common web shape) — reorder so strtotime reads it right.
+        if (preg_match('#^(\d{2})-(\d{2})-(\d{4})$#', $raw, $m)) {
+            $ts = strtotime($m[3] . '-' . $m[2] . '-' . $m[1]);
+        } else {
+            $ts = strtotime($raw); // ISO / "Y-m-d H:i" / already-formatted
+        }
+        return $ts !== false ? date('D, d M Y', $ts) : $raw;
+    }
+}
+
+if (!function_exists('ft_fmt_time')) {
+    /**
+     * Format a stored flight time into 24-hour "HH:MM" (the design). Real bookings
+     * store "09:40 pm"; Booking Manager embeds the time in a "Y-m-d H:i" datetime.
+     * Pass the time string OR a full datetime. Returns input unchanged if unparseable.
+     */
+    function ft_fmt_time(string $raw): string
+    {
+        $raw = trim($raw);
+        if ($raw === '') { return ''; }
+        // A full datetime → take its time part.
+        if (preg_match('#\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}#', $raw)) {
+            $ts = strtotime($raw);
+            return $ts !== false ? date('H:i', $ts) : $raw;
+        }
+        // "09:40 pm" / "9:40 PM" → 24h.
+        if (preg_match('#^(\d{1,2}):(\d{2})\s*([ap]m)$#i', $raw)) {
+            $ts = strtotime($raw);
+            return $ts !== false ? date('H:i', $ts) : $raw;
+        }
+        // Already "HH:MM" (24h) — keep.
+        if (preg_match('#^\d{1,2}:\d{2}$#', $raw)) { return $raw; }
+        return $raw;
+    }
+}
+
+if (!function_exists('ft_normalize_legs')) {
+    /**
+     * THE canonical flight-data reader. Real bookings store flight_data in FOUR
+     * different shapes (verified against the live DB + all producers):
+     *   1. Web non-stop  — flat top-level fields, no segments.
+     *   2. Web round-trip — flat top-level + flat segments[] + returnSegments[].
+     *   3. Booking Manager (admin manual) — segments[] using DIFFERENT field names
+     *      (from_airport/to_airport, departure_datetime/arrival_datetime,
+     *      airline_name/airline_code/flight_number). routes[] too.
+     *   4. GIA chat / multicity — segments is a 2-D array (segments[leg][seg]).
+     *
+     * This normalises ALL of them into: an array of legs, each
+     * ['label'=>..., 'segments'=>[ <standard segment>, ... ]] where every standard
+     * segment has: departure_code, arrival_code, departure_airport, arrival_airport,
+     * departure_time, arrival_time, departure_date, arrival_date, airline, img,
+     * flight_no, class, baggage, cabin_baggage, duration_time, departure_iso,
+     * arrival_iso, operated_by, departure_terminal — read from whichever alias the
+     * source used. Times/dates are left RAW here (caller formats with ft_fmt_*).
+     *
+     * This is why the ticket was blank: it only understood shapes 1 & 2.
+     */
+    function ft_normalize_legs(array $bookingData): array
+    {
+        $fd = $bookingData['flight_data'] ?? $bookingData ?? [];
+        if (!is_array($fd)) { return []; }
+
+        // Map one raw segment (any producer's shape) → the standard segment.
+        $std = function ($s) {
+            if (!is_array($s)) { return null; }
+            // A leg can arrive as a list of segments (GIA/multicity 2-D). Caller
+            // flattens before calling $std, so here $s is always a single segment.
+            $pick = function (array $keys) use ($s) {
+                foreach ($keys as $k) { if (isset($s[$k]) && $s[$k] !== '' && $s[$k] !== null) { return (string) $s[$k]; } }
+                return '';
+            };
+            // Booking Manager stores a combined datetime; split it for date/time.
+            $depDt = $pick(['departure_datetime']);
+            $arrDt = $pick(['arrival_datetime']);
+            $out = [
+                'departure_code'    => strtoupper($pick(['departure_code', 'from_airport', 'from', 'origin'])),
+                'arrival_code'      => strtoupper($pick(['arrival_code', 'to_airport', 'to', 'destination'])),
+                'departure_airport' => $pick(['departure_airport', 'from_airport_name', 'departure_airport_name']),
+                'arrival_airport'   => $pick(['arrival_airport', 'to_airport_name', 'arrival_airport_name']),
+                'departure_time'    => $pick(['departure_time']) ?: $depDt,
+                'arrival_time'      => $pick(['arrival_time']) ?: $arrDt,
+                'departure_date'    => $pick(['departure_date']) ?: $depDt,
+                'arrival_date'      => $pick(['arrival_date']) ?: $arrDt,
+                'departure_iso'     => $pick(['departure_iso', 'departing_at']),
+                'arrival_iso'       => $pick(['arrival_iso', 'arriving_at']),
+                'airline'           => $pick(['airline', 'airline_name']),
+                'img'               => $pick(['img', 'airline_code', 'code']),
+                'flight_no'         => $pick(['flight_no', 'flight_number']),
+                'class'             => $pick(['class', 'cabin']),
+                'booking_class'     => $pick(['booking_class', 'class_code']),
+                'baggage'           => $pick(['baggage', 'included_baggage']),
+                'cabin_baggage'     => $pick(['cabin_baggage']),
+                'duration_time'     => $pick(['duration_time', 'duration']),
+                'operated_by'       => $pick(['operated_by', 'operating_carrier', 'operating']),
+                'departure_terminal'=> $pick(['departure_terminal', 'dep_terminal']),
+            ];
+            // A segment with no origin/destination at all is useless — drop it.
+            if ($out['departure_code'] === '' && $out['arrival_code'] === '' && $out['departure_time'] === '') { return null; }
+            return $out;
+        };
+
+        // Flatten a possibly-2-D leg (GIA/multicity) into a flat list of segments.
+        $flattenLeg = function ($segs) use ($std) {
+            $flat = [];
+            if (!is_array($segs)) { return $flat; }
+            foreach ($segs as $s) {
+                if (is_array($s) && isset($s[0]) && is_array($s[0])) {
+                    // $s is itself a list of segments (2-D) → recurse one level.
+                    foreach ($s as $inner) { $g = $std($inner); if ($g) { $flat[] = $g; } }
+                } else {
+                    $g = $std($s); if ($g) { $flat[] = $g; }
+                }
+            }
+            return $flat;
+        };
+
+        $legs = [];
+
+        // Shape 3 (Booking Manager): explicit routes[] of segment-lists.
+        if (!empty($fd['routes']) && is_array($fd['routes'])) {
+            foreach ($fd['routes'] as $i => $route) {
+                $segs = $flattenLeg($route['segments'] ?? $route);
+                if ($segs) { $legs[] = ['label' => $i === 0 ? 'Outbound' : ($i === 1 ? 'Return' : 'Leg ' . ($i + 1)), 'segments' => $segs]; }
+            }
+        }
+
+        // Shapes 2 & 4: flat or 2-D segments[] (+ returnSegments[]).
+        if (empty($legs)) {
+            if (!empty($fd['segments']) && is_array($fd['segments'])) {
+                $segs = $flattenLeg($fd['segments']);
+                if ($segs) { $legs[] = ['label' => 'Outbound', 'segments' => $segs]; }
+            }
+            if (!empty($fd['returnSegments']) && is_array($fd['returnSegments'])) {
+                $segs = $flattenLeg($fd['returnSegments']);
+                if ($segs) { $legs[] = ['label' => 'Return', 'segments' => $segs]; }
+            }
+        }
+
+        // Shape 1 (web non-stop): no segments anywhere → the whole flight is the flat
+        // top-level flight_data. Build one segment from it.
+        if (empty($legs)) {
+            $g = $std($fd);
+            if ($g) { $legs[] = ['label' => 'Flight', 'segments' => [$g]]; }
+        }
+
+        return $legs;
+    }
+}
+
 if (!function_exists('ft_passenger_list')) {
     /**
      * The REAL passenger list for a flight ticket — the people who actually fly.
