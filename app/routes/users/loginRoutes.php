@@ -65,6 +65,9 @@ $router->get('/login', function () use ($SECURE, $db) {
                         $_SESSION['user_name']  = $remembered['first_name'] . ' ' . $remembered['last_name'];
                         $_SESSION['user_role']  = $remembered['role'];
                         $_SESSION['login_time'] = time();
+                        // Scheme consistency (auth audit #1): keep 'user_logged_in'
+                        // in step with user_id on the remember-me auto-login too.
+                        $_SESSION['user_logged_in'] = true;
                         if ($remembered['role'] === 'admin') {
                             $_SESSION['admin_logged_in'] = true;
                             header('Location: ' . root . 'admin/dashboard');

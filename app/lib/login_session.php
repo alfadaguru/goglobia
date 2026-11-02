@@ -75,6 +75,14 @@ if (!function_exists('establish_login_session')) {
         $_SESSION['user_name']  = $user['first_name'] . ' ' . $user['last_name'];
         $_SESSION['user_role']  = $user['role'];
         $_SESSION['login_time'] = time();
+        // SCHEME CONSISTENCY (auth audit finding #1): the live gate everywhere is
+        // $_SESSION['user_id'], but the auth class (auth::isLoggedIn) and
+        // checkUser() key on 'user_logged_in', which this finaliser never set — so
+        // those (currently unused) gates would wrongly treat a logged-in customer
+        // as logged-out. Set it here too so BOTH schemes agree and any future route
+        // using checkUser()/auth::isLoggedIn() behaves correctly. (logout clears it
+        // via session_destroy.)
+        $_SESSION['user_logged_in'] = true;
 
         // Remember-me — signed 30-day cookie (same scheme as the auto-login reader).
         if ($remember) {
