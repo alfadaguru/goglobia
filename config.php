@@ -234,18 +234,61 @@ if (session_status() === PHP_SESSION_NONE) {
         || (($_SERVER['SERVER_PORT'] ?? '') == 443)
         || (strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')
     );
+    // .env is not parsed into $env until later in this file, but the session must
+    // be hardened BEFORE session_start(). Read the two values we need directly
+    // (cheap, cached by the OS; .env is tiny). Failure is non-fatal — we fall back
+    // to inferred-HTTPS + the default timeout.
+    $__sessEnv = [];
+    if (is_readable(__DIR__ . '/.env')) {
+        $__sessEnv = @parse_ini_file(__DIR__ . '/.env') ?: [];
+    }
+    // auth fresh-audit LOW: in production the session cookie must ALWAYS be
+    // Secure, even if HTTPS detection fails behind a proxy that doesn't forward
+    // X-Forwarded-Proto. Pin Secure=true when APP_ENV=production; keep it
+    // inferred in dev so plain-HTTP localhost still works.
+    $__appEnv  = strtolower((string) ($__sessEnv['APP_ENV'] ?? getenv('APP_ENV') ?: ''));
+    $__secureCookie = $__isHttps || ($__appEnv === 'production');
+    // auth fresh-audit LOW: reject attacker-chosen (uninitialised) session ids so
+    // a fixated id can never be adopted — defence-in-depth atop regenerate-on-login.
+    @ini_set('session.use_strict_mode', '1');
     if (PHP_VERSION_ID >= 70300) {
         session_set_cookie_params([
             'lifetime' => 0,
             'path'     => '/',
             'httponly' => true,
-            'secure'   => $__isHttps,
+            'secure'   => $__secureCookie,
             'samesite' => 'Lax',
         ]);
     } else {
-        session_set_cookie_params(0, '/; samesite=Lax', '', $__isHttps, true);
+        session_set_cookie_params(0, '/; samesite=Lax', '', $__secureCookie, true);
     }
     session_start();
+
+    // auth fresh-audit MEDIUM: enforce idle + absolute session timeout. login_time
+    // was written on every login but NEVER read, so a stolen/abandoned session
+    // stayed valid forever and .env SESSION_TIMEOUT was dead config. Enforce it
+    // centrally, once, right after the session starts: for any logged-in session,
+    // expire after SESSION_TIMEOUT seconds of INACTIVITY, and after a hard
+    // absolute cap regardless of activity. On expiry, destroy the session so the
+    // per-route $_SESSION['user_id'] presence gates see a logged-out user.
+    if (!empty($_SESSION['user_id'])) {
+        $__idleMax = (int) ($__sessEnv['SESSION_TIMEOUT'] ?? 0);
+        if ($__idleMax <= 0) { $__idleMax = 3600; }              // default 1h idle
+        $__absMax  = max($__idleMax, 12 * 3600);                 // hard 12h absolute cap
+        $__now     = time();
+        $__last    = (int) ($_SESSION['last_activity'] ?? ($_SESSION['login_time'] ?? $__now));
+        $__started = (int) ($_SESSION['login_time'] ?? $__now);
+        if (($__now - $__last) > $__idleMax || ($__now - $__started) > $__absMax) {
+            $_SESSION = [];
+            if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+                @session_regenerate_id(true);
+            }
+            $_SESSION = [];
+            $_SESSION['login_error'] = 'session_expired';
+        } else {
+            $_SESSION['last_activity'] = $__now;                 // sliding idle window
+        }
+    }
 }
 
 if (!defined('SUPPLIER_CONNECT_TIMEOUT')) {

@@ -40,6 +40,8 @@ $licenseBlocked = !empty($_SESSION['lic_err']);
                         </div>
                     <?php elseif ($_SESSION['login_error'] === 'ambiguous_phone'): ?>
                         <p>That phone number is linked to more than one account. Please log in with your email instead.</p>
+                    <?php elseif ($_SESSION['login_error'] === 'session_expired'): ?>
+                        <p>Your session expired for your security. Please sign in again.</p>
                     <?php elseif ($_SESSION['login_error'] === 'banned'): ?>
                         <p><?= T::error_account_banned ?></p>
                     <?php elseif ($_SESSION['login_error'] === 'email_not_verified'): ?>
