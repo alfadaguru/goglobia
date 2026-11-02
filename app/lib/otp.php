@@ -72,7 +72,12 @@ if (!function_exists('otp_issue')) {
             return ['ok' => false, 'error' => 'cooldown', 'message' => 'Please wait a moment before requesting another code.'];
         }
 
-        $code = sprintf('%06d', mt_rand(100000, 999999));
+        // auth audit #7: cryptographic RNG for the OTP (was mt_rand, predictable).
+        try {
+            $code = sprintf('%06d', random_int(100000, 999999));
+        } catch (\Throwable $e) {
+            $code = sprintf('%06d', mt_rand(100000, 999999)); // fallback if CSPRNG unavailable
+        }
         try {
             $db->update('users', [
                 'otp'            => $code,

@@ -153,7 +153,7 @@ $router->post('/signup', function () use ($SECURE, $db) {
         header('Location: ' . $redirectUrl);
         exit;
     }
-    if (strlen($password) < 6) {
+    if (strlen($password) < 8) { // auth audit #5: raised 6 -> 8 minimum
         $_SESSION['signup_error'] = 'password_weak';
         header('Location: ' . $redirectUrl);
         exit;

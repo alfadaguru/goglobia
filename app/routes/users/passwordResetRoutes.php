@@ -159,7 +159,7 @@ $router->post('/reset-password', function () use ($SECURE, $db) {
         header('Location: ' . root . 'reset-password?token=' . urlencode($token));
         exit;
     }
-    if (strlen($password) < 6) {
+    if (strlen($password) < 8) { // auth audit #5: raised 6 -> 8 minimum
         $_SESSION['error'] = T::error_password_weak;
         header('Location: ' . root . 'reset-password?token=' . urlencode($token));
         exit;
