@@ -24,11 +24,14 @@ if (!function_exists('support_shift_upsert')) {
      *
      * @return array{ok:bool, shift_id:int|null, message?:string}
      */
-    function support_shift_upsert($db, int $staffId, string $shiftDate, string $start, string $end): array
+    function support_shift_upsert($db, string $staffId, string $shiftDate, string $start, string $end): array
     {
         ensureSupportAttendanceSchema($db);
 
-        if ($staffId <= 0 || trim($shiftDate) === '' || strtotime($shiftDate) === false) {
+        // staff_id is a users.user_id (VARCHAR) after the RBAC consolidation (S3);
+        // it is a non-numeric string, so the old `int $staffId` signature threw a
+        // TypeError on every save. Validate as a non-empty string.
+        if (trim($staffId) === '' || trim($shiftDate) === '' || strtotime($shiftDate) === false) {
             return ['ok' => false, 'shift_id' => null, 'message' => 'A valid staff member and shift date are required.'];
         }
         $shiftDate = date('Y-m-d', strtotime($shiftDate));

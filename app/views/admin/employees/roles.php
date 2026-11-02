@@ -88,7 +88,7 @@ $capCount = function ($role) use ($catalogueTotal): array {
             ?>
             <tr class="border-b border-gray-50 hover:bg-gray-50">
               <td class="px-4 py-3">
-                <div class="font-semibold text-gray-900"><?= htmlspecialchars((string) $r['name']) ?></div>
+                <div class="font-semibold text-gray-900"><?= htmlspecialchars((string) ($r['type_name'] ?? '')) ?></div>
               </td>
               <td class="px-4 py-3">
                 <code class="text-xs text-gray-500"><?= htmlspecialchars((string) $r['slug']) ?></code>
