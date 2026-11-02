@@ -203,6 +203,38 @@ if (!function_exists('flightCallSupplierRevalidate')) {
 // GET: Booking page with hash
 // GET /flights/booking/{hash}
 // ============================================================================
+// ============================================================================
+// GET /flights/ticket/{invoiceId}  — PRINT-READY HTML e-ticket page
+// ----------------------------------------------------------------------------
+// The no-price travel document rendered as a BROWSER page (not mPDF), so the
+// approved design renders pixel-exact (flexbox/emoji/fonts/connector line). The
+// customer clicks "Print / Save as PDF" for a flawless PDF via the browser's own
+// print engine. The server-side mPDF ticket still exists for email/WhatsApp
+// attachments (this page is the on-screen/print experience, not a replacement).
+// Gated by the SAME owner/admin/session/token access check as the ticket download.
+// ============================================================================
+$router->get('/flights/ticket/([A-Za-z0-9\-]+)', function ($invoiceId) use ($SECURE, $db) {
+    $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
+    if (!$booking) { http_response_code(404); echo 'Ticket not found'; return; }
+
+    // Same access gate the PDF download uses (exits/redirects on denial).
+    if (function_exists('enforceInvoiceAccess')) {
+        enforceInvoiceAccess($db, $booking);
+    }
+
+    $bookingData = json_decode((string) ($booking['booking_data'] ?? ''), true) ?: [];
+
+    // Branding (mirror GENERATE_BOOKING_PDF so the page matches the PDF/email).
+    $settings      = $db->get('settings', '*', ['id' => 1]) ?: [];
+    $businessName  = function_exists('getBrandName') ? getBrandName($settings) : ($settings['business_name'] ?? 'GoGlobia');
+    $businessEmail = $settings['contact_email'] ?? 'hi@goglobia.com';
+    $businessPhone = $settings['contact_phone'] ?? '';
+    $siteUrl       = rtrim((string) (defined('root') ? root : 'https://goglobia.com/'), '/');
+    $logoSrc       = (defined('uploads') && is_file(uploads . 'global/logo.png')) ? (root . 'uploads/global/logo.png') : '';
+
+    require_once views . 'flights/ticket_print.php';
+});
+
 $router->get('/flights/booking/([a-f0-9]{16})', function ($hash) use ($SECURE, $db) {
     // Get booking data from database
     $booking = $db->get('logs_bookings', ['hash', 'data', 'created_at'], ['hash' => $hash]);
