@@ -24,7 +24,13 @@
  */
 function pg_confirms_on_payment_module($module): bool
 {
-    return in_array(strtolower((string) $module), ['flight', 'flights', 'visas'], true);
+    // 'goglobia' = own-inventory insurance (customer-flow #12): admin-defined plans
+    // sold as internal inventory with no external supplier issue endpoint, so the
+    // policy is confirmed the moment payment verifies (like flights internal fares).
+    // NOTE: scoped to the own-inventory module NAME, not module_type='insurance', so
+    // a future real insurance supplier (travelsure) with its own issue.php still
+    // auto-issues normally.
+    return in_array(strtolower((string) $module), ['flight', 'flights', 'visas', 'goglobia'], true);
 }
 
 /**
