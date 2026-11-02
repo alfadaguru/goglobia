@@ -448,6 +448,16 @@ $router->post('/api/v1/umrah/checkout', function () use ($db) {
             [$b['booking_ref']]
         )));
     }
+    // customer-flow audit #3: the pay/invoice page (GET /invoice/umrah/{id}) gates
+    // on enforceInvoiceAccess, which for a guest checks $_SESSION['owned_invoices']
+    // (NOT umrah_guest_bookings, and NOT the empty bookings.user_id). Without this
+    // the guest who just completed checkout was bounced to /login on their own
+    // fresh invoice and could never reach the pay page. Grant ownership of the
+    // invoice_id here, exactly as every other service does right after booking
+    // creation (flights/tours/bus/legacy-umrah bookingRoutes).
+    if (empty($lead['user_id']) && !empty($b['invoice_id']) && function_exists('grantInvoiceSessionOwnership')) {
+        grantInvoiceSessionOwnership((string) $b['invoice_id']);
+    }
 
     umrah_v1_json([
         'success'      => true,
