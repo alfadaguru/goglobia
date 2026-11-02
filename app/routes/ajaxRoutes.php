@@ -181,6 +181,16 @@ $router->post('/markup_calculate', function () use ($SECURE, $db) {
 $router->post('/ajax/logout', function () use ($SECURE, $db) {
     header('Content-Type: application/json');
 
+    // auth fresh-audit LOW: this state-changing POST had NO CSRF check (the only
+    // auth POST missing it), so any page could force-logout the user / DoS the
+    // session. Require a valid token (header X-CSRF-TOKEN or JSON/POST body), the
+    // same gate /ajax/login uses. SameSite=Lax already blunts it; this closes it.
+    if (class_exists('CSRF') && !CSRF::validateToken(CSRF::tokenFromRequest())) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Invalid or missing CSRF token']);
+        exit;
+    }
+
     try {
         // Check if user is logged in
         if (!isset($_SESSION['user_id']) && !isset($_SESSION['admin_logged_in'])) {

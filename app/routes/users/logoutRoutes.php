@@ -36,10 +36,14 @@ $router->get('/logout', function () use ($SECURE,$db) {
             $rootHost = strtolower((string) parse_url(root, PHP_URL_HOST));
             $srcUrl   = (string) ($_SERVER['HTTP_ORIGIN'] ?? $_SERVER['HTTP_REFERER'] ?? '');
             if ($srcUrl === '') {
-                // No Origin/Referer at all → treat as a same-origin top-level nav
-                // (a cross-site <img> DOES send a Referer; its absence is not the
-                // attack vector). Allow, so a privacy-stripped same-site nav still works.
-                $okLogout = true;
+                // No Sec-Fetch-Site AND no Origin/Referer at all. This is NOT proof of
+                // a same-site nav — a cross-site top-level <a rel=noreferrer> on a
+                // legacy browser (no Sec-Fetch-Site) sends neither header yet still
+                // carries the Lax session cookie → forced-logout CSRF. Do NOT allow
+                // here; fall through to the CSRF-token requirement below. Our own
+                // logout links always carry ?t=<token>, so a real same-site logout
+                // still succeeds; a header-stripped cross-site nav does not.
+                $okLogout = false;
             } else {
                 $srcHost = strtolower((string) parse_url($srcUrl, PHP_URL_HOST));
                 $okLogout = ($srcHost !== '' && $rootHost !== '' && $srcHost === $rootHost);
