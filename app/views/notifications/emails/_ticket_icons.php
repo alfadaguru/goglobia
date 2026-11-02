@@ -35,3 +35,28 @@ if (!function_exists('ft_icon')) {
              . 'style="vertical-align:middle;">' . $p . '</svg>';
     }
 }
+
+if (!function_exists('ft_connector')) {
+    /**
+     * The flight-path CONNECTOR drawn as ONE inline SVG: a hairline with a filled
+     * start dot, a hollow end ring, and a plane riding the middle (nose →). mPDF
+     * can't do the CSS the browser design uses for this (position:relative +
+     * ::before/::after + a color-emoji plane), so we draw the whole thing in a single
+     * simple SVG (a straight <line> + two <circle>s + a filled plane <path>), which
+     * mPDF renders reliably. Sits in the centre cell of the segment card.
+     *
+     * $color  brand accent (sanitised); $w  pixel width of the connector.
+     */
+    function ft_connector(string $color = '#0058e6', int $w = 118): string
+    {
+        if (!preg_match('/^#[0-9a-fA-F]{3,8}$/', $color)) { $color = '#0058e6'; }
+        $w = max(60, min(220, $w));
+        return '<svg width="' . $w . '" height="16" viewBox="0 0 118 16" style="vertical-align:middle;">'
+            .   '<line x1="6" y1="8" x2="112" y2="8" stroke="#e4e9f2" stroke-width="2"/>'
+            .   '<circle cx="4" cy="8" r="3.2" fill="' . $color . '"/>'
+            .   '<circle cx="114" cy="8" r="3" fill="#ffffff" stroke="' . $color . '" stroke-width="2"/>'
+            .   '<path fill="' . $color . '" transform="translate(52,2.5) scale(0.46)" '
+            .         'd="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V18l-2 1.5V21l3.5-1 3.5 1v-1.5L13 18v-4.5L21 16Z"/>'
+            . '</svg>';
+    }
+}

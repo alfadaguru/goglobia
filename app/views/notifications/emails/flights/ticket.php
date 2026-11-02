@@ -63,8 +63,10 @@ ob_start();
 ?>
 <style>
     /* Flight-ticket specifics layered on the shared base (matches the approved design). */
-    .dotmark { display:inline-block; width:22pt; height:22pt; background:#0058e6; color:#fff;
-               font-size:9pt; font-weight:bold; border-radius:5pt; text-align:center; letter-spacing:.5pt; }
+    /* dotmark badge: a TABLE CELL (not inline-block, which mPDF sizes unreliably) so
+       the colored rounded square + centered letters render correctly. */
+    .dotmark { width:22pt; height:22pt; background:#0058e6; color:#fff; font-size:9pt;
+               font-weight:bold; border-radius:5pt; text-align:center; vertical-align:middle; letter-spacing:.5pt; }
     .pax-card { border:0.6pt solid #e4e9f2; border-radius:9pt; padding:9pt 11pt; }
     .pax-nm { font-size:11pt; font-weight:bold; color:#0a1a3a; }
     .pax-meta { font-size:8pt; color:#5b6b8c; margin-top:1pt; }
@@ -148,10 +150,17 @@ $renderPax = function (?array $pax) use ($e) {
 <div class="card">
     <div class="card-top"><table><tr>
         <td style="width:30pt;">
-            <?php if ($al['logo_src'] !== ''): ?>
+            <?php
+            // Prefer a LOCAL airline logo (crisp, registered via imageVars as
+            // var:airline_XX). Fall back to the brand "DA"-style dotmark badge for
+            // everything else — a remote avs.io logo renders blurry/wrong in mPDF, so
+            // we DON'T use it here; the clean lettered badge matches the design.
+            $useLocalLogo = ($al['logo_src'] !== '' && strpos($al['logo_src'], 'var:airline_') === 0);
+            ?>
+            <?php if ($useLocalLogo): ?>
                 <img src="<?= $e($al['logo_src']) ?>" style="width:22pt;height:22pt;" alt="">
             <?php else: ?>
-                <span class="dotmark"><?= $e($al['monogram']) ?></span>
+                <table style="border-collapse:collapse;"><tr><td class="dotmark"><?= $e($al['monogram']) ?></td></tr></table>
             <?php endif; ?>
         </td>
         <td class="card-title" style="padding-left:8pt;"><?= $e($al['name']) ?><?php if ($al['flight_no'] !== ''): ?> <span class="card-sub"><?= $e($al['flight_no']) ?></span><?php endif; ?></td>
@@ -165,8 +174,9 @@ $renderPax = function (?array $pax) use ($e) {
             <?php if ($depName !== ''): ?><div class="vs"><?= $e($depName) ?></div><?php endif; ?>
         </td>
         <td style="width:24%; text-align:center;">
-            <?php if ($dur !== ''): ?><div class="k"><?= $e($dur) ?></div><?php endif; ?>
-            <div class="vs">&#9992; Direct</div>
+            <?php if ($dur !== ''): ?><div class="k" style="margin-bottom:2pt;"><?= $e($dur) ?></div><?php endif; ?>
+            <div><?= ft_connector('#0058e6', 118) ?></div>
+            <div class="vs" style="margin-top:1pt;">Non-stop</div>
         </td>
         <td style="width:38%; text-align:right;">
             <div class="big"><?= $e($arrCode) ?></div>
