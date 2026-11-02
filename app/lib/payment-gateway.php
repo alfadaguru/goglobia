@@ -7,6 +7,27 @@
  */
 
 /**
+ * Module NAMES (bookings.module) that CONFIRM ON PAYMENT with NO supplier-issue
+ * loopback — i.e. there is no modules/<type>/<module>/issue endpoint to curl, so
+ * the booking is complete the moment payment verifies. Any module NOT in this set
+ * is assumed to have a custom issue endpoint and is auto-issued.
+ *
+ * CRITICAL fix (customer-flow audit #1): the internal flight inventory stamps
+ * bookings.module = 'flights' (plural — modules/flights/flights/search.php), and
+ * that directory has ONLY index.php+search.php (no issue.php). It was NOT in the
+ * old ['flight','visas'] sentinel list, so a PAID internal fare curled a
+ * non-existent modules/flights/flights/issue -> HTTP 404 -> throw -> auto-refund,
+ * making every real local fare unsellable. 'flights' is a confirm-on-payment
+ * module and MUST be here alongside the legacy 'flight' sentinel. Single source of
+ * truth so the two call sites (dev_mode-mismatch confirm + auto-issue branch)
+ * cannot drift.
+ */
+function pg_confirms_on_payment_module($module): bool
+{
+    return in_array(strtolower((string) $module), ['flight', 'flights', 'visas'], true);
+}
+
+/**
  * TRIGGER NOTIFICATION FOR BOOKING EVENTS
  * @param string $event - Event name (booking.issued, booking.issue_failed, etc.)
  * @param array $data - Event data
@@ -554,7 +575,7 @@ function handle_payment_callback($token, $action, $data = [])
                             $dmModuleType = strtolower((string) ($booking['module_type'] ?? ''));
                             $dmConfirmsOnPayment =
                                 in_array($dmModuleType, ['tours', 'tour'], true)
-                                || in_array($module, ['flight', 'visas'], true);
+                                || pg_confirms_on_payment_module($module);
                             $db->update('bookings', [
                                 'payment_status' => 'paid',
                                 'booking_status' => $dmConfirmsOnPayment ? 'confirmed' : 'pending',
@@ -661,7 +682,7 @@ function handle_payment_callback($token, $action, $data = [])
                 }
 
                 if ($module
-                    && !in_array(strtolower($module), ['flight', 'visas'], true)
+                    && !pg_confirms_on_payment_module($module)
                     && (!$__isToursType || $__toursHasIssueEndpoint)
                 ) {
                     // A supplier issue is genuinely being ATTEMPTED here (this module
