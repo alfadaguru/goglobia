@@ -112,9 +112,11 @@ if (!empty($legs[0]['segments'][0])) { $cabinOverall = (string) $segVal($legs[0]
     .qrfallback { font-size: 8pt; font-weight: bold; color: #0a1a3a; border: 0.8pt solid #e4e9f2; padding: 5pt; text-align: center; }
 
     /* section headings */
-    .sec-h-tbl { width: 100%; margin: 18pt 0 9pt; } .sec-h-tbl td { border: none; vertical-align: middle; }
+    .sec-h-tbl { width: 100%; margin: 18pt 0 9pt; } .sec-h-tbl td { border: none; vertical-align: bottom; }
     .sec-t { font-size: 8.5pt; font-weight: bold; letter-spacing: 1.4pt; text-transform: uppercase; color: #0a1a3a; }
-    .sec-rule { border-bottom: 0.5pt solid #e4e9f2; }
+    /* the rule is a bottom-border ON THE CELL (an empty inner div has no height in
+       mPDF and collapses) — a 1px line that fills the remaining width. */
+    .sec-rule-cell { border-bottom: 0.7pt solid #e4e9f2; height: 9pt; }
     .leg { font-size: 7.5pt; font-weight: bold; letter-spacing: .5pt; color: #fff; background: <?= $brand ?>; border-radius: 4pt; padding: 2.5pt 8pt; }
 
     /* passenger cards (boxed, 2-up) */
@@ -220,8 +222,8 @@ if (!empty($legs[0]['segments'][0])) { $cabinOverall = (string) $segVal($legs[0]
 
     <!-- ===== Passengers (boxed, 2-up grid) ===== -->
     <table class="sec-h-tbl"><tr>
-        <td style="width:auto;"><span class="sec-t">Passengers</span></td>
-        <td style="width:100%; padding-left:9pt;"><div class="sec-rule"></div></td>
+        <td style="width:1%; white-space:nowrap;"><span class="sec-t">Passengers</span></td>
+        <td class="sec-rule-cell" style="width:99%; padding-left:9pt;"></td>
     </tr></table>
     <?php
     $renderPax = function (?array $pax) use ($e) {
@@ -261,11 +263,10 @@ if (!empty($legs[0]['segments'][0])) { $cabinOverall = (string) $segVal($legs[0]
     <table class="sec-h-tbl"><tr>
         <td style="width:1%; white-space:nowrap;"><span class="leg"><?= $e(strtoupper($leg['label'])) ?></span></td>
         <td style="width:1%; white-space:nowrap; padding-left:9pt;"><span class="sec-t" style="text-transform:none; letter-spacing:0; font-size:9pt;"><?= $e($legFromCity) ?> &rarr; <?= $e($legToCity) ?></span></td>
-        <td style="width:100%; padding-left:9pt;"><div class="sec-rule"></div></td>
+        <td class="sec-rule-cell" style="width:98%; padding-left:9pt;"></td>
     </tr></table>
     <?php foreach ($segs as $si => $s):
         $al = ft_airline_resolve($s, $db, $mpdfInst);
-        $useLocalLogo = ($al['logo_src'] !== '' && strpos($al['logo_src'], 'var:airline_') === 0);
         $cabin = $segVal($s, ['class', 'cabin'], '');
         $classCode = $segVal($s, ['booking_class', 'class_code'], '');
         $depCode = strtoupper((string) $segVal($s, ['departure_code', 'from_airport'], '--'));
@@ -287,8 +288,8 @@ if (!empty($legs[0]['segments'][0])) { $cabinOverall = (string) $segVal($legs[0]
     <div class="seg">
         <div class="seg-top"><table class="seg-top-tbl"><tr>
             <td style="width:26pt;">
-                <?php if ($useLocalLogo): ?><img src="<?= $e($al['logo_src']) ?>" style="width:22pt;height:22pt;" alt="">
-                <?php else: ?><table><tr><td class="dotmark"><?= $e($al['monogram']) ?></td></tr></table><?php endif; ?>
+                <?php /* Always the brand blue lettered badge (owner's design) — never an airline logo image. */ ?>
+                <table><tr><td class="dotmark"><?= $e($al['monogram']) ?></td></tr></table>
             </td>
             <td style="padding-left:8pt;"><span class="seg-air-nm"><?= $e($al['name']) ?></span><?php if ($al['flight_no'] !== ''): ?> <span class="seg-fno"><?= $e($al['flight_no']) ?></span><?php endif; ?></td>
             <td style="text-align:right;"><?php if ($cabin !== ''): ?><span class="seg-cabin"><?= $e(ucfirst($cabin)) ?><?= $classCode ? ' &middot; ' . $e(strtoupper($classCode)) : '' ?></span><?php endif; ?></td>
