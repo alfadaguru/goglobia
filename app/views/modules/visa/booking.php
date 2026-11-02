@@ -957,7 +957,7 @@ function visaBookingForm() {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRF-Token': '<?= CSRF::generateToken() ?>'
+                        'X-CSRF-Token': '<?= CSRF::getToken() ?>'
                     },
                     body: JSON.stringify({
                         booking_hash: draftData.hash,
@@ -976,7 +976,7 @@ function visaBookingForm() {
                         tax_amount: this.taxAmount,
                         final_total: this.totalWithTax,
                         currency: this.currency,
-                        csrf_token: '<?= CSRF::generateToken() ?>'
+                        csrf_token: '<?= CSRF::getToken() ?>'
                     })
                 });
 

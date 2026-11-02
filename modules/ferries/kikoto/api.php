@@ -481,6 +481,15 @@ if (!function_exists('_kikoto_refresh_selected_sailing')) {
     /** Re-fetch live sailings and merge fresh availability into the draft selection. */
     function _kikoto_refresh_selected_sailing($cfg, array $selected, string $date): array
     {
+        // customer-flow audit #5 (Phase-D hardening): the caller's $selected comes
+        // from the CLIENT draft, so a forged _price_server_refreshed marker could be
+        // pre-seeded to make the submit handler trust a client price on an UNMATCHED
+        // sailing (every early-return path below leaves $selected as-is). Strip any
+        // client-supplied marker up front; it is re-set ONLY on a genuine live match.
+        if (isset($selected['accommodations'][0]['_price_server_refreshed'])) {
+            unset($selected['accommodations'][0]['_price_server_refreshed']);
+        }
+
         $dep  = (int)($selected['departure_port_id'] ?? 0);
         $dest = (int)($selected['destination_port_id'] ?? 0);
         if ($date === '' && !empty($selected['departure_datetime'])) {
@@ -525,11 +534,17 @@ if (!function_exists('_kikoto_refresh_selected_sailing')) {
             }
             if ($matchedAcc !== null) {
                 $selected['accommodations'][0] = array_merge($selected['accommodations'][0] ?? [], $matchedAcc);
-                // customer-flow audit #5: mark that this accommodation's price was
-                // just REFRESHED from a live Kikoto sailing, so the submit handler
-                // can trust accommodations[0].original_price as server-sourced and
-                // NOT fall back to a client-supplied draft number. Only set on a
-                // genuine live match (when $matchedAcc came from $s above).
+                // customer-flow audit #5 (+ Phase-D re-audit correction): the live
+                // Kikoto /sailings accommodation ($matchedAcc) carries the NET 'price'
+                // but NOT 'original_price' (only _kikoto_add_markup_to_sailings sets
+                // that, and it is NOT run on this refresh path). So array_merge above
+                // leaves the CLIENT-supplied original_price intact — the submit handler
+                // reads original_price, so without this it would still trust a client
+                // number. Overwrite original_price from the SERVER net price so the
+                // _price_server_refreshed anchor actually vouches for a server value.
+                if (isset($matchedAcc['price'])) {
+                    $selected['accommodations'][0]['original_price'] = (float) $matchedAcc['price'];
+                }
                 $selected['accommodations'][0]['_price_server_refreshed'] = true;
             }
             break;
