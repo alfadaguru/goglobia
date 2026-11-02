@@ -163,6 +163,30 @@ body{overflow-x:hidden;font-size:16px;line-height:28px;color:#000000;-webkit-fon
 .badge-primary { color: #ffffff; background-color: #2563eb; }
 .badge-secondary { color: #ffffff; background-color: #4b5563; }
 
+/* ---------------------------------------------------------------------------
+   ARBITRARY-VALUE TAILWIND FALLBACKS (build-time JIT does NOT emit these).
+   The admin Support/Employees views use a small, fixed set of Tailwind
+   arbitrary-value classes — e.g. `!text-[18px]` to size a material-symbols icon,
+   `text-[11px]`/`text-[10px]` for dense labels, `max-w-[80%]` for chat bubbles.
+   tailwind.config.js scans for LITERAL class strings, so arbitrary `[value]`
+   classes are only produced by the in-browser JIT and are ABSENT from the
+   precompiled assets/css/tailwind.build.css (verified: 0 matches). Without these
+   rules the icons/labels fall back to the inherited font size. Defining them here
+   (same escaped-bracket selectors Tailwind would generate; `!` => !important)
+   makes the existing markup render correctly with no per-file churn and no
+   dependency on a CSS rebuild. If you later add a NEW arbitrary class to a view,
+   either add it here or run `npm run build:css`. ------------------------------- */
+.\!text-\[15px\] { font-size: 15px !important; }
+.\!text-\[16px\] { font-size: 16px !important; }
+.\!text-\[18px\] { font-size: 18px !important; }
+.\!text-\[20px\] { font-size: 20px !important; }
+.\!text-\[26px\] { font-size: 26px !important; }
+.\!text-\[28px\] { font-size: 28px !important; }
+.\!text-\[48px\] { font-size: 48px !important; }
+.text-\[10px\] { font-size: 10px; }
+.text-\[11px\] { font-size: 11px; }
+.max-w-\[80\%\] { max-width: 80%; }
+
 .material-symbols-outlined {
     font-family: 'Material Symbols Outlined', sans-serif;
     font-weight: normal;

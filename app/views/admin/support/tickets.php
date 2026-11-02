@@ -257,7 +257,17 @@
                         // CRUD passes the FULL row to a closure (crud.php:1364), so
                         // pull the scalar user_id out of it before the lookup.
                         $value = is_array($row) ? ($row['user_id'] ?? '') : $row;
-                        $user = $db->get('users', ['first_name', 'last_name', 'email'], ['user_id' => $value]);
+                        // Request-scoped memo: the CRUD table paginates (RECORDS_PER_PAGE),
+                        // and one customer often has several tickets on a page. Caching
+                        // by user_id collapses the per-row users-get into one query per
+                        // DISTINCT customer on the page (was a per-row N+1).
+                        static $userCache = [];
+                        if (array_key_exists($value, $userCache)) {
+                            $user = $userCache[$value];
+                        } else {
+                            $user = $value !== '' ? $db->get('users', ['first_name', 'last_name', 'email'], ['user_id' => $value]) : null;
+                            $userCache[$value] = $user;
+                        }
                         if ($user) {
                             $name = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
                             $email = $user['email'] ?? '';

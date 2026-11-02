@@ -70,6 +70,29 @@ if (!is_array($replies)) {
     $replies = [];
 }
 
+// Batch-resolve reply authors to avoid an N+1 (was: one users-get + one
+// admin_user_can() query PER reply inside the render loop). Fetch every distinct
+// author in a single IN() query, then precompute the "is this author staff?" flag
+// once per distinct user (admin_user_can hits the DB, so cache it per user_id).
+$replyUserIds = [];
+foreach ($replies as $__rep) {
+    $rid = (string) ($__rep['user_id'] ?? '');
+    if ($rid !== '') { $replyUserIds[$rid] = true; }
+}
+$replyUserIds = array_keys($replyUserIds);
+$replyUsers = [];   // user_id => users row
+$replyStaff = [];   // user_id => bool (is staff-authored)
+if (!empty($replyUserIds)) {
+    foreach ((array) $db->select('users', '*', ['user_id' => $replyUserIds]) as $__u) {
+        $replyUsers[(string) $__u['user_id']] = $__u;
+    }
+    foreach ($replyUserIds as $rid) {
+        $u = $replyUsers[$rid] ?? null;
+        $replyStaff[$rid] = ($u && ($u['role'] ?? '') === 'admin')
+            || (function_exists('admin_user_can') && admin_user_can($db, $rid, 'support_tickets', 'view'));
+    }
+}
+
 // Get user bookings if admin/support viewing
 $user_bookings = [];
 if ($is_admin_or_support) {
@@ -360,7 +383,11 @@ if ($is_admin_or_support) {
 
             <!-- Ticket Replies -->
             <?php foreach ($replies as $reply):
-                $reply_user = $db->get('users', '*', ['user_id' => $reply['user_id']]);
+                // Read the author + staff flag from the batch-resolved maps (built
+                // above in one IN() query + one admin_user_can per distinct user) —
+                // no per-reply DB hit here.
+                $__rid = (string) ($reply['user_id'] ?? '');
+                $reply_user = $replyUsers[$__rid] ?? null;
                 $reply_user_name = $reply_user ? (($reply_user['first_name'] ?? '') . ' ' . ($reply_user['last_name'] ?? '')) : 'Unknown User';
                 $reply_user_name = trim($reply_user_name) ?: 'Unknown User';
                 $is_ticket_creator = ($reply['user_id'] === $ticket['user_id']);
@@ -370,9 +397,7 @@ if ($is_admin_or_support) {
                 // The old check only matched role 'admin'/'support', so an employee
                 // agent's reply (role='employee' post-consolidation) rendered as a
                 // customer reply — wrong bubble, no "staff" label.
-                $is_staff = $is_internal_note
-                    || ($reply_user && ($reply_user['role'] ?? '') === 'admin')
-                    || (function_exists('admin_user_can') && admin_user_can($db, (string) $reply['user_id'], 'support_tickets', 'view'));
+                $is_staff = $is_internal_note || !empty($replyStaff[$__rid]);
             ?>
             <div class="bg-white rounded-lg border overflow-hidden mb-5 shadow-sm <?= $is_internal_note ? 'border-amber-300 ring-1 ring-amber-300' : 'border-slate-200 ' . ($is_staff ? 'ring-1 ring-blue-200' : '') ?>">
                 <div class="<?= $is_internal_note ? 'bg-amber-50' : ($is_staff ? 'bg-blue-50' : 'bg-slate-50') ?> px-6 py-3.5 border-b border-slate-200">
