@@ -49,6 +49,7 @@ $router->post('/ajax', function () use ($SECURE,$db) {
             'logs_webhooks', 'modules', 'payment_gateways', 'promo_codes', 'stays', 'stays_rooms',
             'stays_settings', 'tickets', 'tours', 'tours_settings', 'transactions',
             'umrah', 'umrah_settings', 'users', 'users_roles', 'visa', 'visa_bookings', 'visa_settings',
+            'insurance_plans',
             'airalo_packages', 'airalo_countries',
             'bus', 'bus_routes', 'bus_operators', 'bus_settings',
             'ai_suggestions',

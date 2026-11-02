@@ -102,6 +102,10 @@ $bus_count = $db->count('modules', ['type' => 'bus', 'status' => 1, 'active' => 
 $rail_count = $db->count('modules', ['type' => 'rail', 'status' => 1, 'active' => 1]);
 $ferries_count = $db->count('modules', ['type' => 'ferries', 'status' => 1, 'active' => 1]);
 $esim_count = $db->count('modules', ['type' => 'esim', 'status' => 1, 'active' => 1]);
+// Own-inventory insurance (customer-flow #12): show the admin menu whenever the
+// insurance module is active OR any plan exists, so the owner can manage plans.
+$insurance_count = $db->count('modules', ['type' => 'insurance', 'status' => 1, 'active' => 1]);
+try { $insurance_count += (int) $db->count('insurance_plans'); } catch (\Throwable $e) { /* table may not exist yet */ }
 
 // (Role management moved to the Employees section — no divider/role-link here.)
 
@@ -278,6 +282,19 @@ if ($visa_count > 0) {
         'submenu' => [
             ['name' => T::visa, 'icon' => 'assignment', 'url' => root.admin.'/visa'],
             ['name' => T::visa_settings ?? 'Visa Settings', 'icon' => 'settings', 'url' => root.admin.'/visa/settings']
+        ]
+    ];
+}
+
+// ADD INSURANCE MENU (own-inventory plans) WHEN ACTIVE OR ANY PLAN EXISTS
+if ($insurance_count > 0) {
+    $adminMenu[] = [
+        'icon' => 'health_and_safety',
+        'name' => 'Insurance',
+        'url' => root.admin.'/insurance',
+        'submenu' => [
+            ['name' => 'Insurance Plans', 'icon' => 'health_and_safety', 'url' => root.admin.'/insurance'],
+            ['name' => 'Add Plan', 'icon' => 'add', 'url' => root.admin.'/insurance/add'],
         ]
     ];
 }

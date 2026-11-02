@@ -280,6 +280,7 @@ require_once 'app/routes/admin/umrahV2Routes.php';
 require_once 'app/routes/admin/carsRoutes.php';
 require_once 'app/routes/admin/busRoutes.php';
 require_once 'app/routes/admin/visaRoutes.php';
+require_once 'app/routes/admin/insuranceRoutes.php'; // own-inventory paid insurance plans (customer-flow #12)
 require_once 'app/routes/admin/bookingsRoutes.php';
 require_once 'app/routes/admin/bookingManagerRoutes.php'; // staff book walk-ins (flights+hotels; live/manual; DVA/manual-transfer)
 require_once 'app/routes/admin/gatewaysRoutes.php';
