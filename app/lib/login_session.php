@@ -91,8 +91,19 @@ if (!function_exists('establish_login_session')) {
             if ($secret === '') {
                 $secret = ($env['DB_PASSWORD'] ?? '') . ($env['DB_DATABASE'] ?? '');
             }
-            $hmac        = hash_hmac('sha256', $user['user_id'] . '|' . $user['email'] . '|' . $user['password'], $secret);
-            $cookieValue = base64_encode($user['user_id'] . '|' . $hmac);
+            // auth fresh-audit MEDIUM: embed a server-side issue timestamp in the
+            // SIGNED payload so a disclosed cookie expires server-side after 30 days
+            // (the reader enforces it) instead of replaying until the password
+            // changes. Form: id|issuedAt|hmac(id|issuedAt|email|password).
+            //
+            // Use the INTEGER id ($userId), not the varchar user_id hash: the reader
+            // casts the first field to (int) and looks the row up by `id`. The old
+            // code wrote the varchar user_id here, which cast to (int)0 on read, so
+            // remember-me auto-login silently NEVER matched a user. Writing the int
+            // id both fixes that latent bug and binds the HMAC to the looked-up key.
+            $issuedAt    = time();
+            $hmac        = hash_hmac('sha256', $userId . '|' . $issuedAt . '|' . $user['email'] . '|' . $user['password'], $secret);
+            $cookieValue = base64_encode($userId . '|' . $issuedAt . '|' . $hmac);
             $secureCookie = (!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off')
                 || (strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
             setcookie('remember_me', $cookieValue, time() + (30 * 24 * 3600), '/', '', $secureCookie, true);

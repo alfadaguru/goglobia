@@ -36,10 +36,27 @@ $router->get('/login', function () use ($SECURE, $db) {
         global $env;
         $cookieRaw = base64_decode($_COOKIE['remember_me'], true);
         if ($cookieRaw !== false) {
-            $parts = explode('|', $cookieRaw, 2);
-            if (count($parts) === 2) {
-                [$cookieUserId, $cookieHmac] = $parts;
-                $cookieUserId = (int) $cookieUserId;
+            // auth fresh-audit MEDIUM: the signed payload now carries a server-side
+            // ISSUE TIMESTAMP so a disclosed cookie cannot replay forever. New form:
+            //   userId | issuedAt | hmac(userId|issuedAt|email|password).
+            // Legacy 2-field cookies (userId|hmac, no timestamp) still validate
+            // during the transition window and age out as users re-login.
+            $parts       = explode('|', $cookieRaw, 3);
+            $cookieOk    = false;
+            $cookieUserId = 0;
+            $cookieHmac  = '';
+            $cookieIssued = 0;
+            $isLegacy    = false;
+            if (count($parts) === 3) {
+                $cookieUserId = (int) $parts[0];
+                $cookieIssued = (int) $parts[1];
+                $cookieHmac   = (string) $parts[2];
+            } elseif (count($parts) === 2) {
+                $cookieUserId = (int) $parts[0];
+                $cookieHmac   = (string) $parts[1];
+                $isLegacy     = true;
+            }
+            if ($cookieUserId > 0 && $cookieHmac !== '') {
                 $remembered = $db->get('users', '*', ['id' => $cookieUserId]);
                 if ($remembered) {
                     // SECURITY (M4): prefer a dedicated REMEMBER_ME_SECRET so the
@@ -51,8 +68,20 @@ $router->get('/login', function () use ($SECURE, $db) {
                     if ($secret === '') {
                         $secret = ($env['DB_PASSWORD'] ?? '') . ($env['DB_DATABASE'] ?? '');
                     }
-                    $expected = hash_hmac('sha256', $cookieUserId . '|' . $remembered['email'] . '|' . $remembered['password'], $secret);
-                    if (hash_equals($expected, $cookieHmac)
+                    // Max remember-me lifetime, enforced SERVER-SIDE (cookie max-age
+                    // is only a browser hint an attacker replaying the value ignores).
+                    $rememberTtl = 30 * 24 * 3600;
+                    if ($isLegacy) {
+                        // Legacy: no timestamp to enforce; validate the old HMAC only.
+                        $expected = hash_hmac('sha256', $cookieUserId . '|' . $remembered['email'] . '|' . $remembered['password'], $secret);
+                        $cookieOk = hash_equals($expected, $cookieHmac);
+                    } else {
+                        $expected = hash_hmac('sha256', $cookieUserId . '|' . $cookieIssued . '|' . $remembered['email'] . '|' . $remembered['password'], $secret);
+                        $cookieOk = hash_equals($expected, $cookieHmac)
+                            && $cookieIssued > 0
+                            && (time() - $cookieIssued) <= $rememberTtl;
+                    }
+                    if ($cookieOk
                         && $remembered['status'] === 'active'
                         && !$remembered['banned']
                         && $remembered['email_verified']) {
