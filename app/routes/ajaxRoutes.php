@@ -234,6 +234,14 @@ $router->post('/ajax/login', function () use ($SECURE, $db) {
     header('Content-Type: application/json');
 
     try {
+        // CSRF (auth re-audit finding #B): every other login path validates CSRF;
+        // this one did not. Required so a cross-site request can't force a
+        // login-CSRF. Accepts the token from JSON body / X-CSRF-TOKEN header / POST.
+        if (!class_exists('CSRF') || !CSRF::validateToken(CSRF::tokenFromRequest())) {
+            echo json_encode(['success' => false, 'message' => 'Security check failed. Please refresh and try again.']);
+            exit;
+        }
+
         $input = json_decode(file_get_contents('php://input'), true);
 
         $email = trim($input['email'] ?? '');
@@ -249,6 +257,8 @@ $router->post('/ajax/login', function () use ($SECURE, $db) {
 
         $user = $db->get('users', '*', ['email' => $email]);
         if (!$user) {
+            // Uniform message (auth re-audit finding #E): do not reveal whether the
+            // email exists — mirror the wrong-password text below.
             echo json_encode([
                 'success' => false,
                 'message' => 'Invalid email or password'
@@ -302,12 +312,21 @@ $router->post('/ajax/login', function () use ($SECURE, $db) {
                 'last_login' => date('Y-m-d H:i:s')
             ], ['id' => $userId]);
 
+            // Session-fixation defence (auth re-audit finding #C): regenerate the
+            // session id on login — every other login path does this; /ajax/login
+            // was missing it.
+            if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+                session_regenerate_id(true);
+            }
+
             // Set session variables
             $_SESSION['user_id'] = $user['user_id'];
             $_SESSION['user_email'] = $user['email'];
             $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];
             $_SESSION['user_role'] = $user['role'];
             $_SESSION['login_time'] = time();
+            // Scheme consistency (auth re-audit, completing finding #1).
+            $_SESSION['user_logged_in'] = true;
 
             if ($user['role'] === 'admin') {
                 $_SESSION['admin_logged_in'] = true;

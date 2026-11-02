@@ -399,6 +399,10 @@ $router->post('/api/booking/quick-login', function () use ($SECURE, $db) {
         $_SESSION['user_name'] = $user['first_name'] . ' ' . $user['last_name'];
         $_SESSION['user_role'] = $user['role'];
         $_SESSION['login_time'] = time();
+        // Scheme consistency (auth re-audit, completing finding #1): quick-login
+        // writes session keys inline (not via establish_login_session), so it also
+        // must set user_logged_in to keep the auth class / checkUser() in step.
+        $_SESSION['user_logged_in'] = true;
 
         if ($user['role'] === 'admin') {
             $_SESSION['admin_logged_in'] = true;
