@@ -21,39 +21,12 @@ $db = $GLOBALS['db'] ?? null;
 $mpdfInst = $mpdf ?? ($GLOBALS['mpdf'] ?? null); // for airline-logo imageVars registration
 
 // ---- Passengers -------------------------------------------------------------
-// `bookings.travellers` holds the real PASSENGER list — a map keyed adult_N /
-// child_N / infant_N (the traveller TYPE is the key prefix, not a field). The
-// booking's first_name/last_name is the PAYER/contact (primary_guest), stored
-// SEPARATELY — it must NOT be listed as a passenger. (GIA bookings sometimes nest
-// {"primary_guest":{...}} inside travellers; we drop that key so the payer never
-// appears in the passenger list — the "customer name shows as a passenger" bug.)
-$travellers = [];
-if (!empty($booking['travellers'])) {
-    $t = json_decode((string) $booking['travellers'], true);
-    if (is_array($t)) {
-        if (isset($t[0])) {
-            $travellers = $t; // already a plain list
-        } else {
-            foreach ($t as $key => $pax) {
-                if (!is_array($pax)) { continue; }
-                $k = strtolower((string) $key);
-                if ($k === 'primary_guest' || $k === 'contact') { continue; } // payer, not a passenger
-                // Derive the type from the key prefix when the row doesn't carry one.
-                if (empty($pax['type']) && empty($pax['passenger_type'])) {
-                    if (strpos($k, 'child_') === 0)       { $pax['type'] = 'CHD'; }
-                    elseif (strpos($k, 'infant_') === 0)  { $pax['type'] = 'INF'; }
-                    else                                  { $pax['type'] = 'ADT'; }
-                }
-                $travellers[] = $pax;
-            }
-        }
-    }
-}
-// Only if there are genuinely NO passengers do we fall back to the contact name
-// (a last resort so the ticket is never blank).
-if (empty($travellers)) {
-    $travellers = [['first_name' => $booking['first_name'] ?? '', 'last_name' => $booking['last_name'] ?? '', 'type' => 'ADT']];
-}
+// The real passenger list (the people who fly) — resolved by ft_passenger_list(),
+// which DROPS the booking's payer/contact (primary_guest) so the customer name is
+// never shown as a passenger, and derives the type from the adult_N/child_N/infant_N
+// key. The logic lives in the stable helper file (not inline here) so it can't be
+// silently regressed in this template. See app/lib/flight_ticket_helpers.php.
+$travellers = ft_passenger_list($booking);
 
 // ---- Segments: every real shape (routes[].segments / segments+returnSegments / flat) ----
 $fd = $bookingData['flight_data'] ?? $bookingData ?? [];

@@ -31,6 +31,77 @@ if (!function_exists('ft_db')) {
     }
 }
 
+if (!function_exists('ft_passenger_list')) {
+    /**
+     * The REAL passenger list for a flight ticket — the people who actually fly.
+     *
+     * `bookings.travellers` holds the passengers as a map keyed adult_N / child_N /
+     * infant_N (the traveller TYPE is the key prefix, not a field). The booking's
+     * first_name/last_name is the PAYER/contact (primary_guest), stored SEPARATELY —
+     * it must NEVER be listed as a passenger. (GIA/legacy bookings sometimes nest a
+     * {"primary_guest":{...}} / {"contact":{...}} key inside travellers; we drop it.)
+     *
+     * TWO guards so this survives even a partial regression of the caller:
+     *   1) drop a 'primary_guest' / 'contact' KEY from the travellers map;
+     *   2) drop any traveller whose full name EXACTLY matches the payer name.
+     *
+     * Returns a plain list of passenger arrays, each with a resolved 'type'
+     * (ADT/CHD/INF). Falls back to the contact name ONLY when there are genuinely no
+     * passengers, so the ticket is never blank. Never throws.
+     *
+     * @param array $booking  the bookings row (needs 'travellers','first_name','last_name')
+     */
+    function ft_passenger_list(array $booking): array
+    {
+        $payerFn = strtolower(trim((string) ($booking['first_name'] ?? '')));
+        $payerLn = strtolower(trim((string) ($booking['last_name'] ?? '')));
+        $payerKey = $payerFn . '|' . $payerLn;
+
+        $out = [];
+        $raw = $booking['travellers'] ?? '';
+        $t = is_string($raw) ? json_decode($raw, true) : (is_array($raw) ? $raw : null);
+        if (is_array($t)) {
+            // A plain 0-indexed list OR an adult_N/child_N/... map.
+            $isList = array_key_exists(0, $t);
+            foreach ($t as $key => $pax) {
+                if (!is_array($pax)) { continue; }
+                $k = strtolower((string) $key);
+                // Guard 1: never the payer/contact KEY.
+                if (!$isList && ($k === 'primary_guest' || $k === 'contact')) { continue; }
+                // Derive type from the key prefix when the row has none.
+                if (empty($pax['type']) && empty($pax['passenger_type'])) {
+                    if (!$isList && strpos($k, 'child_') === 0)       { $pax['type'] = 'CHD'; }
+                    elseif (!$isList && strpos($k, 'infant_') === 0)  { $pax['type'] = 'INF'; }
+                    else                                              { $pax['type'] = 'ADT'; }
+                }
+                // Guard 2: never a traveller whose name == the payer name (belt &
+                // suspenders — catches a payer nested WITHOUT the primary_guest key).
+                $fn = strtolower(trim((string) ($pax['first_name'] ?? '')));
+                $ln = strtolower(trim((string) ($pax['last_name'] ?? '')));
+                if ($payerKey !== '|' && ($fn . '|' . $ln) === $payerKey) {
+                    // Only skip if there are OTHER passengers; if the payer is the only
+                    // traveller (a solo trip the payer is on), keep them — handled by
+                    // the empty-fallback below, so just skip here.
+                    continue;
+                }
+                $out[] = $pax;
+            }
+        }
+
+        // Last resort: no real passengers found → show the contact so the ticket is
+        // never blank (covers a solo booking where the payer IS the traveller and the
+        // name-match guard above removed them).
+        if (empty($out)) {
+            $out = [[
+                'first_name' => $booking['first_name'] ?? '',
+                'last_name'  => $booking['last_name'] ?? '',
+                'type'       => 'ADT',
+            ]];
+        }
+        return $out;
+    }
+}
+
 if (!function_exists('ft_airline_logo_dir')) {
     function ft_airline_logo_dir(): string
     {
