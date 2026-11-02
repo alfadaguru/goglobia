@@ -42,8 +42,20 @@ $router->get('/invoice/bus/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE, 
 
         if ($action === 'success' && !empty($result['success'])) {
             // GENERATE PNR ON CONFIRMATION (LOCAL INVENTORY — NO SUPPLIER API)
-            $existingPnr = $db->get('bookings', 'pnr', ['invoice_id' => $invoiceId]);
-            if (empty($existingPnr)) {
+            // customer-flow audit #6: handle_payment_callback returns success=true
+            // EVEN when the bus supplier-issue loopback failed and the booking was
+            // AUTO-REFUNDED (payment_status='refunded', booking_status='cancelled').
+            // Guarding only on empty(pnr) then re-minted a PNR, flipped the booking
+            // back to 'confirmed', and decremented seats AGAIN — overselling a
+            // refunded booking on a sold-out date. Re-read the LIVE state and only
+            // issue when the booking is genuinely paid and NOT already terminal.
+            $live = $db->get('bookings', ['pnr', 'payment_status', 'booking_status'], ['invoice_id' => $invoiceId]);
+            $existingPnr   = $live['pnr'] ?? '';
+            $livePay       = strtolower((string) ($live['payment_status'] ?? ''));
+            $liveStatus    = strtolower((string) ($live['booking_status'] ?? ''));
+            $okToIssue     = ($livePay === 'paid')
+                && !in_array($liveStatus, ['cancelled', 'refunded', 'completed'], true);
+            if (empty($existingPnr) && $okToIssue) {
                 $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
                 $pnr = '';
                 for ($i = 0; $i < 6; $i++) { $pnr .= $chars[random_int(0, strlen($chars) - 1)]; }
