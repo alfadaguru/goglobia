@@ -42,16 +42,28 @@ $paxCount = count($travellers);
 // it only looked inside segments and ignored the top level.
 $fd = $bookingData['flight_data'] ?? $bookingData ?? [];
 
-// The top-level flight summary fields (used to backfill any missing per-segment value).
-$fdTop = array_filter([
-    'airline'           => $fd['airline'] ?? ($fd['airline_name'] ?? null),
-    'airline_name'      => $fd['airline_name'] ?? null,
-    'img'               => $fd['img'] ?? ($fd['airline_code'] ?? null),
-    'airline_code'      => $fd['airline_code'] ?? null,
+// Two kinds of top-level fields:
+//  (1) TRIP-WIDE identity — same for the whole journey; safe to backfill onto a
+//      segment that lacks it (airline, class, baggage, fare).
+//  (2) PER-SEGMENT — the route/time/airport of ONE flight; these MUST come from the
+//      segment itself. We NEVER copy these across segments, or every segment would
+//      wrongly show the first segment's date/time/airport (the bug being fixed).
+$fdTripWide = array_filter([
+    'airline'       => $fd['airline'] ?? ($fd['airline_name'] ?? null),
+    'airline_name'  => $fd['airline_name'] ?? null,
+    'img'           => $fd['img'] ?? ($fd['airline_code'] ?? null),
+    'airline_code'  => $fd['airline_code'] ?? null,
+    'class'         => $fd['class'] ?? null,
+    'booking_class' => $fd['booking_class'] ?? null,
+    'baggage'       => $fd['baggage'] ?? null,
+    'cabin_baggage' => $fd['cabin_baggage'] ?? null,
+    'operated_by'   => $fd['operated_by'] ?? ($fd['operating_carrier'] ?? null),
+], fn($v) => $v !== null && $v !== '');
+
+// The per-segment fields read straight from the top level — used ONLY to build the
+// single synthetic segment when the booking stores the whole flight flat (no segments).
+$fdFlat = array_filter([
     'flight_no'         => $fd['flight_no'] ?? ($fd['flight_number'] ?? null),
-    'flight_number'     => $fd['flight_number'] ?? null,
-    'class'             => $fd['class'] ?? null,
-    'booking_class'     => $fd['booking_class'] ?? null,
     'departure_code'    => $fd['departure_code'] ?? ($fd['from_airport'] ?? null),
     'arrival_code'      => $fd['arrival_code'] ?? ($fd['to_airport'] ?? null),
     'departure_airport' => $fd['departure_airport'] ?? null,
@@ -64,28 +76,26 @@ $fdTop = array_filter([
     'arrival_iso'       => $fd['arrival_iso'] ?? ($fd['arriving_at'] ?? null),
     'departure_terminal'=> $fd['departure_terminal'] ?? null,
     'duration_time'     => $fd['duration_time'] ?? ($fd['total_duration'] ?? null),
-    'baggage'           => $fd['baggage'] ?? null,
-    'cabin_baggage'     => $fd['cabin_baggage'] ?? null,
     'stops'             => $fd['stops'] ?? null,
-    'operated_by'       => $fd['operated_by'] ?? ($fd['operating_carrier'] ?? null),
-], fn($v) => $v !== null && $v !== '');
+], fn($v) => $v !== null && $v !== '') + $fdTripWide;
 
-// backfill: for each segment, any missing key falls back to the top-level value.
-$mergeTop = function (array $seg) use ($fdTop) { return $seg + $fdTop; };
+// backfill ONLY the trip-wide identity onto a real segment (segment keys win).
+$mergeTrip = function (array $seg) use ($fdTripWide) { return $seg + $fdTripWide; };
 
 $legs = [];
 if (!empty($fd['routes']) && is_array($fd['routes'])) {
     foreach ($fd['routes'] as $i => $route) {
         $segs = $route['segments'] ?? [];
-        if ($segs) { $legs[] = ['label' => $i === 0 ? 'Outbound' : ($i === 1 ? 'Return' : 'Leg ' . ($i + 1)), 'segments' => array_map($mergeTop, array_values($segs))]; }
+        if ($segs) { $legs[] = ['label' => $i === 0 ? 'Outbound' : ($i === 1 ? 'Return' : 'Leg ' . ($i + 1)), 'segments' => array_map($mergeTrip, array_values($segs))]; }
     }
 } else {
-    if (!empty($fd['segments']) && is_array($fd['segments'])) { $legs[] = ['label' => 'Outbound', 'segments' => array_map($mergeTop, array_values($fd['segments']))]; }
-    if (!empty($fd['returnSegments']) && is_array($fd['returnSegments'])) { $legs[] = ['label' => 'Return', 'segments' => array_map($mergeTop, array_values($fd['returnSegments']))]; }
+    if (!empty($fd['segments']) && is_array($fd['segments'])) { $legs[] = ['label' => 'Outbound', 'segments' => array_map($mergeTrip, array_values($fd['segments']))]; }
+    if (!empty($fd['returnSegments']) && is_array($fd['returnSegments'])) { $legs[] = ['label' => 'Return', 'segments' => array_map($mergeTrip, array_values($fd['returnSegments']))]; }
 }
-// No nested segments anywhere → the whole flight IS the top-level flight_data.
-if (empty($legs) && !empty($fdTop)) {
-    $legs[] = ['label' => 'Flight', 'segments' => [$fdTop]];
+// No nested segments anywhere → the whole flight IS the top-level flight_data (the
+// flat single-flight shape). ONLY here do we use the top-level per-segment fields.
+if (empty($legs) && !empty($fdFlat)) {
+    $legs[] = ['label' => 'Flight', 'segments' => [$fdFlat]];
 }
 $segVal = function (array $s, array $keys, $default = '') {
     foreach ($keys as $k) { if (isset($s[$k]) && $s[$k] !== '' && $s[$k] !== null) { return $s[$k]; } }
