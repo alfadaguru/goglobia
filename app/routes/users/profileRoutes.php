@@ -85,8 +85,8 @@ $router->post('/profile', function () use ($SECURE,$db) {
             exit;
         }
 
-        if (strlen($new_password) < 6) {
-            $_SESSION['profile_error'] = 'Password must be at least 6 characters';
+        if (strlen($new_password) < 8) { // auth re-audit: complete #5 (6 -> 8, matches signup/reset)
+            $_SESSION['profile_error'] = 'Password must be at least 8 characters';
             header('Location: ' . root . 'profile');
             exit;
         }

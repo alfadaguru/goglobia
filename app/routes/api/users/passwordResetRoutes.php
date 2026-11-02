@@ -348,7 +348,7 @@ $router->post('/api/reset-password', function () use ($SECURE, $db) {
         exit;
     }
 
-    if (strlen($password) < 6) {
+    if (strlen($password) < 8) { // auth re-audit: complete #5 (6 -> 8; same customer policy as web)
         echo json_encode([
             'status' => 'error',
             'message' => T::error_password_weak

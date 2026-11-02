@@ -125,7 +125,7 @@ $router->post('/api/signup', function () use ($db) {
         exit;
     }
 
-    if (strlen($password) < 6) {
+    if (strlen($password) < 8) { // auth re-audit: complete #5 (6 -> 8; same customer policy as web)
         echo json_encode(['status' => 'error', 'message' => 'password_weak']);
         exit;
     }
