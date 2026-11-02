@@ -105,6 +105,33 @@ $router->post('/insurance/claim/submit', function () use ($SECURE, $db) {
         // --- Register the claim with AirHelp (safe no-op if unconfigured) ---
         $result = airhelp_register_claim($db, $invoiceId);
 
+        // customer-flow audit #19: send the claimant an emailed confirmation with
+        // their claim reference. Previously the ONLY record was the on-screen page
+        // keyed on the 8-char invoice_id — a guest (user_id null, no dashboard) who
+        // closed the tab lost the sole way back to /insurance/claim/{id}. Deferred to
+        // shutdown so the (SMTP) send never blocks the submit response under mod_php
+        // (the eSIM/ferries inline-notify-at-submit hang class). Non-fatal.
+        if (function_exists('SENDEMAIL') && !empty($passenger['email'])) {
+            $__claimEmail   = (string) $passenger['email'];
+            $__claimName    = trim(($passenger['first_name'] ?? '') . ' ' . ($passenger['last_name'] ?? ''));
+            $__claimRef     = $invoiceId;
+            $__claimUrl     = root . 'insurance/claim/' . $invoiceId;
+            $__brand        = (string) ($GLOBALS['app']['name'] ?? 'GoGlobia');
+            register_shutdown_function(static function () use ($__claimEmail, $__claimName, $__claimRef, $__claimUrl, $__brand) {
+                try {
+                    $subject = "Your flight compensation claim ({$__claimRef})";
+                    $body = "<p>Hi " . htmlspecialchars($__claimName ?: 'there') . ",</p>"
+                        . "<p>We've received your flight compensation claim. Your claim reference is "
+                        . "<strong>" . htmlspecialchars($__claimRef) . "</strong>.</p>"
+                        . "<p>You can view the status of your claim any time here:<br>"
+                        . "<a href=\"" . htmlspecialchars($__claimUrl) . "\">" . htmlspecialchars($__claimUrl) . "</a></p>"
+                        . "<p>Keep this reference safe — you'll need it to track your claim.</p>"
+                        . "<p>— " . htmlspecialchars($__brand) . "</p>";
+                    SENDEMAIL($__claimEmail, $__claimName, $subject, $body);
+                } catch (\Throwable $e) { error_log('insurance claim confirm email: ' . $e->getMessage()); }
+            });
+        }
+
         echo json_encode([
             'status'      => true,
             'invoice_id'  => $invoiceId,

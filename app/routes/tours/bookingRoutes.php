@@ -235,6 +235,16 @@ $router->post('/api/tour/booking/request-cancellation', function () use ($SECURE
             throw new Exception('Invoice ID is required');
         }
 
+        // CSRF (customer-flow audit #13): state-changing POST that flips
+        // cancellation_request and emails the owner — the sibling resend/submit
+        // handlers validate it but this one did not, so a cross-site page could
+        // force a cancellation flag on a logged-in victim's booking. Same idiom as
+        // the resend handler; site JS attaches X-CSRF-TOKEN to all fetch/XHR.
+        $csrfToken = $input['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!CSRF::validateToken($csrfToken)) {
+            throw new Exception('Invalid security token');
+        }
+
         $invoiceId = $input['invoice_id'];
 
         // Check if booking exists

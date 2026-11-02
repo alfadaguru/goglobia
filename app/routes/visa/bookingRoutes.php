@@ -19,6 +19,17 @@ $router->post('/api/visa/booking/save-draft', function () use ($SECURE, $db) {
             throw new Exception('Invalid booking data');
         }
 
+        // customer-flow audit #16: this draft-write was fully open (no CSRF, and on
+        // a default install with empty settings.api_key verifyApiKey permits all),
+        // so anyone could POST arbitrary JSON into logs_bookings and bloat the table.
+        // Require the same-origin CSRF token the site JS already attaches to every
+        // fetch; a cross-site / scripted writer can't supply it. (Draft content is
+        // still re-validated + re-priced at /submit, so this is a bloat/DoS guard.)
+        $csrfToken = $input['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!CSRF::validateToken($csrfToken)) {
+            throw new Exception('Invalid security token. Please refresh and try again.');
+        }
+
         // Generate secure hash (16 characters)
         $hash = bin2hex(random_bytes(8));
 
@@ -86,6 +97,39 @@ $router->post('/api/visa/booking/submit', function () use ($SECURE, $db) {
         // VALIDATE TERMS ACCEPTANCE
         if (empty($guestDetails['terms_accepted'])) {
             throw new Exception('Please accept the terms and conditions');
+        }
+
+        // customer-flow audit #17: guard primary_guest BEFORE the draft is consumed
+        // below. Reading $guestDetails['primary_guest'] unchecked (line ~112) then
+        // dereferencing ['email']/['first_name'] either 400'd AFTER the draft was
+        // atomically deleted (burning the hash so the user had to restart) or
+        // inserted a junk booking with null name/email. Validate up front; the
+        // site's own JS always sends it, so this only rejects tampered/partial posts.
+        if (empty($guestDetails['primary_guest']) || !is_array($guestDetails['primary_guest'])) {
+            throw new Exception('Primary applicant details are required.');
+        }
+
+        // customer-flow audit #9: enforce admin-required documents SERVER-SIDE. The
+        // requirement was enforced only in the Alpine JS; this web submit endpoint
+        // (/api/visa/booking/submit) never checked it, despite a booking.php comment
+        // claiming a server mirror (the real check guards the DIFFERENT 's' mobile
+        // path /api/visas/). A curl / JS-disabled / tampered client could create a
+        // visa booking with no mandatory passport/national-ID, leaving visa staff
+        // without files they must have. Mirror the mobile check here, BEFORE the
+        // draft is consumed so a non-compliant post doesn't burn the hash.
+        $__visaDocReq = $db->get('settings', ['visa_passport_required', 'visa_national_id_required'], ['id' => 1]);
+        $__reqPassport = (($__visaDocReq['visa_passport_required'] ?? '0') === '1');
+        $__reqNatId    = (($__visaDocReq['visa_national_id_required'] ?? '0') === '1');
+        if ($__reqPassport || $__reqNatId) {
+            foreach (($travelers ?: []) as $__i => $__t) {
+                $__n = (int) $__i + 1;
+                if ($__reqPassport && empty($__t['passport_copy'])) {
+                    throw new Exception("Passport copy is required for traveler $__n");
+                }
+                if ($__reqNatId && (empty($__t['national_id_front_copy']) || empty($__t['national_id_back_copy']))) {
+                    throw new Exception("National ID (front and back) is required for traveler $__n");
+                }
+            }
         }
 
         // GET ORIGINAL BOOKING DATA FROM TEMP TABLE

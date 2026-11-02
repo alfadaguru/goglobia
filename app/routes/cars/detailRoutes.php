@@ -9,41 +9,21 @@
 // ====================================
 
 $router->get('/car/{slug}', function ($slug) use ($SECURE, $db) {
-    
-    // Fetch car details from database or API
-    $car = $db->get('cars', '*', [
-        'slug' => $slug,
-        'status' => 'active'
-    ]);
 
-    if (!$car) {
-        http_response_code(404);
-        $title = "Car Not Found";
-        $description = "The requested car could not be found";
-        $header = true;
-        $footer = true;
-        require_once views."includes/header.php";
-        require_once views."errors/404.php";
-        require_once views."includes/footer.php";
-        exit;
-    }
-
-    // Trigger webhook - car viewed
-    triggerWebhook('cars/booking', 'cars.booking.car_viewed', [
-        'car_id' => $car['id'],
-        'car_slug' => $slug,
-        'car_name' => $car['name'] ?? 'Unknown',
-        'user_id' => $_SESSION['user_id'] ?? null,
-        'timestamp' => date('Y-m-d H:i:s')
-    ]);
-
-    // META DATA
-    $title = $car['name'] ?? "Car Details";
-    $description = $car['description'] ?? "View car details and book now";
+    // customer-flow audit #15: this standalone car-detail page was never built
+    // (app/views/cars/detail.php does not exist) and the live customer funnel books
+    // straight from the listing card (window.bookCar -> /cars/booking/save-draft),
+    // so nothing links here. BOTH branches of the old code require()'d missing views
+    // (cars/detail.php and the non-existent errors/404.php) and FATALED on every
+    // direct/bookmarked/SEO hit. Until a real detail view exists, serve a clean 404
+    // (the real app/views/404.php) instead of crashing — a hit here is effectively
+    // a page-not-found, not a server error.
+    http_response_code(404);
+    $title = "Car Not Found";
+    $description = "The requested car could not be found";
     $header = true;
     $footer = true;
-
     require_once views."includes/header.php";
-    require_once views."cars/detail.php";
+    require_once views."404.php";
     require_once views."includes/footer.php";
 });

@@ -920,10 +920,14 @@ function visaBookingForm() {
 
             try {
                 // First, save draft to get hash
+                // customer-flow audit #16: the save-draft endpoint now requires the
+                // same-origin CSRF token — attach it explicitly (don't rely solely on
+                // the global app.js interceptor being present on this page).
                 const draftResponse = await fetch('<?= root ?>api/visa/booking/save-draft', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': (document.querySelector('meta[name="csrf-token"]')?.content || '<?= CSRF::getToken() ?>')
                     },
                     body: JSON.stringify({
                         from_country: '<?= $fromCountry ?>',
