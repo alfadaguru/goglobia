@@ -11,18 +11,48 @@
 $router->get('/logout', function () use ($SECURE,$db) {
     // Check if user is logged in
     if (isset($_SESSION['user_id']) || isset($_SESSION['admin_logged_in'])) {
-        // CSRF (auth audit finding #4): /logout is a GET state-changing action. A
-        // cross-site <img src=".../logout"> would otherwise force-log-out a victim
-        // (logout-CSRF). Require the session CSRF token — the site's own logout
-        // links carry ?t=<token> (see header.php / sidebar.php). Accept it from the
-        // ?t query param OR the standard transports (X-CSRF-TOKEN header / POST).
-        // Only enforced for an authenticated session; a tokenless logout of a guest
-        // is a harmless no-op anyway.
-        $logoutToken = (string) ($_GET['t'] ?? '');
-        if ($logoutToken === '' && class_exists('CSRF')) { $logoutToken = CSRF::tokenFromRequest(); }
-        if (!class_exists('CSRF') || !CSRF::validateToken($logoutToken)) {
-            // Invalid/absent token → do NOT destroy the session. Bounce to the
-            // dashboard (logged-in) so a forged request can't log the user out.
+        // LOGOUT-CSRF GUARD (auth audit #4 + re-audit regression fix).
+        // /logout is a GET state-changing action, so a cross-site
+        // <img src=".../logout"> could force-log-out a victim. BUT a pure
+        // CSRF-token-on-GET requirement broke legitimate logout on a stale tab
+        // (the rendered ?t= token expires after 1h, csrf.php) or after the single
+        // global token rotated in another tab — the user would be unable to log
+        // out. The robust defence is SAME-SITE verification (which a real logout
+        // navigation always satisfies and a cross-site <img>/form never can),
+        // with the CSRF token as an accepted bonus:
+        //   ALLOW if  Sec-Fetch-Site ∈ {same-origin, same-site, none}  (none = a
+        //             direct top-level navigation / typed URL, not cross-site),
+        //        OR   Origin/Referer host == our host,
+        //        OR   a valid CSRF token is present.
+        //   BLOCK only a clearly cross-site request with no valid token.
+        $okLogout = false;
+        $sfs = strtolower((string) ($_SERVER['HTTP_SEC_FETCH_SITE'] ?? ''));
+        if ($sfs !== '') {
+            // Modern browsers: a same-site logout link/nav sends same-origin/same-site;
+            // a cross-site <img>/form sends 'cross-site'. 'none' = user-initiated nav.
+            $okLogout = in_array($sfs, ['same-origin', 'same-site', 'none'], true);
+        } else {
+            // Older browsers (no Sec-Fetch-Site): compare Origin/Referer host to ours.
+            $rootHost = strtolower((string) parse_url(root, PHP_URL_HOST));
+            $srcUrl   = (string) ($_SERVER['HTTP_ORIGIN'] ?? $_SERVER['HTTP_REFERER'] ?? '');
+            if ($srcUrl === '') {
+                // No Origin/Referer at all → treat as a same-origin top-level nav
+                // (a cross-site <img> DOES send a Referer; its absence is not the
+                // attack vector). Allow, so a privacy-stripped same-site nav still works.
+                $okLogout = true;
+            } else {
+                $srcHost = strtolower((string) parse_url($srcUrl, PHP_URL_HOST));
+                $okLogout = ($srcHost !== '' && $rootHost !== '' && $srcHost === $rootHost);
+            }
+        }
+        // CSRF token (from ?t= link or header/POST) is always an acceptable proof too.
+        if (!$okLogout && class_exists('CSRF')) {
+            $logoutToken = (string) ($_GET['t'] ?? '');
+            if ($logoutToken === '') { $logoutToken = CSRF::tokenFromRequest(); }
+            $okLogout = CSRF::validateToken($logoutToken);
+        }
+        if (!$okLogout) {
+            // Clearly cross-site with no valid token → refuse (don't destroy session).
             header('Location: ' . root . (($_SESSION['user_role'] ?? '') === 'admin' ? 'admin/dashboard' : 'dashboard'));
             exit;
         }
