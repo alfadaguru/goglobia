@@ -310,7 +310,9 @@ $sidebarMenu = array_merge($sidebarMenu, [
             [
                 'label' => T::logout,
                 'icon' => 'logout',
-                'url' => root . 'logout',
+                // CSRF-token on the logout link (auth audit finding #4) so the GET
+                // /logout can reject a tokenless cross-site force-logout.
+                'url' => root . 'logout?t=' . urlencode(class_exists('CSRF') ? CSRF::getToken() : ''),
                 'active' => str_contains($currentPath, 'logout'),
                 'class' => 'text-red-600 hover:text-red-700 hover:bg-red-50'
             ]

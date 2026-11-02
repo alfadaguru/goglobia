@@ -1134,7 +1134,7 @@ $notifCount = count($recentNotifBookings);
                     <span class="text-sm">Settings</span>
                 </a>
                 <div class="border-t border-gray-700"></div>
-                <a href="<?=root?>logout" class="flex items-center gap-3 px-4 py-2.5 text-red-400 hover:bg-gray-800 transition-colors">
+                <a href="<?=root?>logout?t=<?= urlencode(class_exists('CSRF') ? CSRF::getToken() : '') ?>" class="flex items-center gap-3 px-4 py-2.5 text-red-400 hover:bg-gray-800 transition-colors">
                     <span class="material-symbols-outlined text-base">logout</span>
                     <span class="text-sm">Logout</span>
                 </a>

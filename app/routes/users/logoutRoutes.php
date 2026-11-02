@@ -11,6 +11,22 @@
 $router->get('/logout', function () use ($SECURE,$db) {
     // Check if user is logged in
     if (isset($_SESSION['user_id']) || isset($_SESSION['admin_logged_in'])) {
+        // CSRF (auth audit finding #4): /logout is a GET state-changing action. A
+        // cross-site <img src=".../logout"> would otherwise force-log-out a victim
+        // (logout-CSRF). Require the session CSRF token — the site's own logout
+        // links carry ?t=<token> (see header.php / sidebar.php). Accept it from the
+        // ?t query param OR the standard transports (X-CSRF-TOKEN header / POST).
+        // Only enforced for an authenticated session; a tokenless logout of a guest
+        // is a harmless no-op anyway.
+        $logoutToken = (string) ($_GET['t'] ?? '');
+        if ($logoutToken === '' && class_exists('CSRF')) { $logoutToken = CSRF::tokenFromRequest(); }
+        if (!class_exists('CSRF') || !CSRF::validateToken($logoutToken)) {
+            // Invalid/absent token → do NOT destroy the session. Bounce to the
+            // dashboard (logged-in) so a forged request can't log the user out.
+            header('Location: ' . root . (($_SESSION['user_role'] ?? '') === 'admin' ? 'admin/dashboard' : 'dashboard'));
+            exit;
+        }
+
         // Calculate session duration
         $sessionDuration = isset($_SESSION['login_time']) ? (time() - $_SESSION['login_time']) : 0;
         
@@ -54,6 +70,10 @@ $router->get('/logout', function () use ($SECURE,$db) {
 
         // Start new session for the success message
         session_start();
+        // Session-fixation defence (auth audit finding #4): after destroy+start PHP
+        // reuses the SAME session id; regenerate so the post-logout session gets a
+        // fresh id (mirrors auth::logout()).
+        if (!headers_sent()) { session_regenerate_id(true); }
         $_SESSION['login_success'] = 'logout';
         $_SESSION['theme'] = 'default';
     }

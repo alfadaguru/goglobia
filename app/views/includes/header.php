@@ -1036,7 +1036,7 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
                   </a>
                   <?php endif; ?>
                   <div class="h-px bg-gray-200 my-2"></div>
-                  <a href="<?=root?>logout" class="flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-xl transition-all duration-150">
+                  <a href="<?=root?>logout?t=<?= urlencode(class_exists('CSRF') ? CSRF::getToken() : '') ?>" class="flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-xl transition-all duration-150">
                     <span class="material-symbols-outlined !text-[18px]">logout</span>
                     <span class="font-medium"><?= T::logout ?></span>
                   </a>
@@ -1292,7 +1292,7 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
                 </a>
                 <?php endif; ?>
                 <div class="h-px bg-gray-200 my-1"></div>
-                <a href="<?=root?>logout" class="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors">
+                <a href="<?=root?>logout?t=<?= urlencode(class_exists('CSRF') ? CSRF::getToken() : '') ?>" class="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors">
                   <span class="material-symbols-outlined !text-[16px]">logout</span>
                   <span><?= T::logout ?></span>
                 </a>

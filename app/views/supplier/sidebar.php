@@ -248,6 +248,6 @@ if ($activeStay > 0) {
   <!-- Footer -->
   <div class="border-t border-gray-100 p-2 flex-shrink-0">
     <a href="<?= root ?>profile" class="flex items-center gap-3 px-2 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg"><span class="material-symbols-outlined text-[20px] text-gray-400">person</span> Profile</a>
-    <a href="<?= root ?>logout" class="flex items-center gap-3 px-2 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg"><span class="material-symbols-outlined text-[20px]">logout</span> Sign out</a>
+    <a href="<?= root ?>logout?t=<?= urlencode(class_exists('CSRF') ? CSRF::getToken() : '') ?>" class="flex items-center gap-3 px-2 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg"><span class="material-symbols-outlined text-[20px]">logout</span> Sign out</a>
   </div>
 </aside>

@@ -72,7 +72,7 @@ $nav = [
         <a href="<?= root ?>profile" class="flex items-center gap-3 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-lg">
             <span class="material-symbols-outlined text-[20px]">person</span><span>Profile</span>
         </a>
-        <a href="<?= root ?>logout" class="flex items-center gap-3 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-lg">
+        <a href="<?= root ?>logout?t=<?= urlencode(class_exists('CSRF') ? CSRF::getToken() : '') ?>" class="flex items-center gap-3 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-lg">
             <span class="material-symbols-outlined text-[20px]">logout</span><span>Sign out</span>
         </a>
     </div>

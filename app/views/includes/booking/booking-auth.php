@@ -284,7 +284,7 @@ $bookingType = ($isUserLoggedIn) ? 'logged_in' : ($isGuestBookingEnabled ? 'gues
                             </p>
                         </div>
                     </div>
-                    <a href="<?= root ?>logout"
+                    <a href="<?= root ?>logout?t=<?= urlencode(class_exists('CSRF') ? CSRF::getToken() : '') ?>"
                        class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-900 bg-white hover:bg-gray-100 border border-gray-300 rounded-lg transition-colors">
                         <span class="material-symbols-outlined text-base">logout</span>
                         <span><?= T::logout ?? 'Logout' ?></span>
