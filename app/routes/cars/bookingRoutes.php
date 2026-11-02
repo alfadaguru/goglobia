@@ -291,8 +291,19 @@ $router->post('/cars/booking/submit', function () use ($SECURE, $db) {
             $trustedCost = (float)($carData['actual_price'] ?? $carData['original_price'] ?? 0);
         }
         if ($trustedCost > 0) {
-            // Floor: the client cost figure must cover >=90% of the trusted cost.
-            if ($basePrice + 0.01 < ($trustedCost * 0.90)) {
+            // customer-flow audit #8: the trusted cost is itself derived from the
+            // client draft (actual_price_details / actual_price), so the old 90%
+            // floor compared a client value against another client value and left a
+            // 10% discount slack that coordinated tampering (lower BOTH fields by the
+            // same factor) could exploit. There is no server-side cars search cache
+            // or live re-quote to anchor against (documented gap: cartrawler
+            // issue.php re-quote is unwired, and the cars table carries no per-rate
+            // price). Tightening the floor to require the client base to COVER the
+            // trusted cost in FULL (no discount slack) removes the economic room for
+            // the coordinated downscale while still passing legitimate bookings where
+            // base == trusted cost. (Full close requires a server-side price anchor —
+            // tracked as a cars-pricing workstream.) Small epsilon for float noise.
+            if ($basePrice + 0.01 < $trustedCost) {
                 error_log(sprintf('CARS PRICE TAMPER BLOCKED | invoice=%s | client_base=%.2f trusted=%.2f', $invoiceId, $basePrice, $trustedCost));
                 throw new Exception('The car price could not be verified. Please search again and retry your booking.');
             }

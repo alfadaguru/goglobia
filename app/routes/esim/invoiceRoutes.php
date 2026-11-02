@@ -126,6 +126,17 @@ $router->get('/invoice/esim/([a-zA-Z0-9]+)', function ($invoiceId) use ($SECURE,
                 'invoice_id' => $invoiceId,
                 'module_type' => 'esim',
             ]);
+
+            // customer-flow audit #18: the recovery path provisioned the eSIM but
+            // never pushed the voucher to the customer — so a customer whose payment
+            // hit the dev_mode-mismatch no-issue branch only ever saw the QR on-screen
+            // if they re-opened the invoice, with no email/WhatsApp. Push it now that
+            // it's provisioned. bm_notify_paid is idempotent (atomic notified_paid_at),
+            // so if the normal path already notified this is a no-op.
+            if (function_exists('bm_notify_paid')) {
+                try { bm_notify_paid($db, (string) $invoiceId); }
+                catch (Throwable $e) { error_log('ESIM recovery notify: ' . $e->getMessage()); }
+            }
         } catch (Throwable $e) {
             error_log('ESIM INVOICE RECOVERY ISSUE ERROR | Invoice: ' . $invoiceId . ' | ' . $e->getMessage());
         }
