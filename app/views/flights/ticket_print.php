@@ -32,7 +32,8 @@ $qrImg = 'https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=0&data
 $travellers = ft_passenger_list($booking);
 $paxCount = count($travellers);
 
-// Legs + segments.
+// Legs + segments — handle every real shape: routes[].segments / flat segments[] +
+// returnSegments[] / a single flat flight (top-level departure_* on flight_data).
 $fd = $bookingData['flight_data'] ?? $bookingData ?? [];
 $legs = [];
 if (!empty($fd['routes']) && is_array($fd['routes'])) {
@@ -44,11 +45,37 @@ if (!empty($fd['routes']) && is_array($fd['routes'])) {
     if (!empty($fd['segments']) && is_array($fd['segments'])) { $legs[] = ['label' => 'Outbound', 'segments' => array_values($fd['segments'])]; }
     if (!empty($fd['returnSegments']) && is_array($fd['returnSegments'])) { $legs[] = ['label' => 'Return', 'segments' => array_values($fd['returnSegments'])]; }
 }
+// Single flat flight (the common Duffel shape the invoice page reads directly from
+// flight_data): no nested segments, the dep/arr fields live on flight_data itself.
+if (empty($legs) && (!empty($fd['departure_code']) || !empty($fd['from_airport']) || !empty($fd['departure_time']))) {
+    $legs[] = ['label' => 'Flight', 'segments' => [$fd]];
+}
 $segVal = function (array $s, array $keys, $default = '') {
-    foreach ($keys as $k) { if (isset($s[$k]) && $s[$k] !== '') { return $s[$k]; } }
+    foreach ($keys as $k) { if (isset($s[$k]) && $s[$k] !== '' && $s[$k] !== null) { return $s[$k]; } }
     return $default;
 };
 $cabinOverall = !empty($legs[0]['segments'][0]) ? (string) $segVal($legs[0]['segments'][0], ['class', 'cabin'], '') : '';
+
+// ---- Rich ancillary data (seats, extra baggage, meals, fare type) -----------
+$fareType = (string) ($bookingData['fare_type'] ?? '');
+$ancBaggage = [];
+if (!empty($bookingData['baggage']) && is_array($bookingData['baggage']) && isset($bookingData['baggage'][0]['passengerId'])) {
+    $ancBaggage = $bookingData['baggage'];
+} elseif (!empty($bookingData['ancillary_data']['baggage']) && is_array($bookingData['ancillary_data']['baggage'])) {
+    $ancBaggage = array_values($bookingData['ancillary_data']['baggage']);
+}
+$bagSummary = [];
+foreach ($ancBaggage as $bag) {
+    if (!is_array($bag)) { continue; }
+    $lbl = (string) ($bag['name'] ?? 'Extra bag') . (!empty($bag['description']) ? ' (' . $bag['description'] . ')' : '');
+    $bagSummary[$lbl] = ($bagSummary[$lbl] ?? 0) + (int) ($bag['quantity'] ?? 1);
+}
+$ancSeats = $bookingData['seat'] ?? ($bookingData['ancillary_data']['seats'] ?? []);
+$seatCount = 0;
+if (is_array($ancSeats)) { foreach ($ancSeats as $ss) { $seatCount += is_array($ss) ? count($ss) : 1; } }
+$ancMeals = $bookingData['meals'] ?? ($bookingData['ancillary_data']['meals'] ?? []);
+$mealCount = 0;
+if (is_array($ancMeals)) { foreach ($ancMeals as $mm) { $mealCount += is_array($mm) ? count($mm) : 1; } }
 ?>
 <!doctype html>
 <html lang="en">
@@ -86,7 +113,9 @@ $cabinOverall = !empty($legs[0]['segments'][0]) ? (string) $segVal($legs[0]['seg
   .top{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;
        padding:22px 34px;border-bottom:3px solid var(--brand);}
   .brand{display:flex;flex-direction:column;gap:3px;}
-  .brand .logo-img{height:30px;width:auto;}
+  /* cap BOTH dimensions + keep aspect ratio so a wide banner logo isn't oversized
+     ('dragged') in the header slot. */
+  .brand .logo-img{height:34px;width:auto;max-width:180px;object-fit:contain;display:block;}
   .brand .logo{font-size:21px;font-weight:800;letter-spacing:-.02em;color:var(--brand);}
   .brand .logo span{color:var(--ink);}
   .brand .issuer{font-size:11px;color:var(--slate);line-height:1.5;margin-top:4px;}
@@ -156,6 +185,15 @@ $cabinOverall = !empty($legs[0]['segments'][0]) ? (string) $segVal($legs[0]['seg
   .seg-foot .ic{font-size:13px;}
   .opby{font-size:10px;color:var(--pend);padding:0 18px 9px;background:#fcfdff;}
 
+  /* fare & extras detail cards */
+  .detail{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:4px;}
+  .detail .d{border:1px solid var(--hair);border-radius:9px;padding:11px 13px;}
+  .detail .dk{font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:var(--slate-2);font-weight:700;margin-bottom:5px;}
+  .detail .row{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--slate);margin-bottom:3px;}
+  .detail .row b{color:var(--ink);font-weight:700;}
+  .detail .row.add{color:var(--brand);font-weight:700;}
+  .detail .ic{font-size:13px;}
+  .detail .muted{font-size:10.5px;color:var(--slate-2);}
   .layover{display:flex;align-items:center;gap:9px;justify-content:center;margin:0 0 11px;font-size:10.5px;color:var(--slate);}
   .layover .bar{height:1px;width:40px;background:var(--hair);}
   .layover b{color:var(--pend);font-weight:700;}
@@ -339,6 +377,51 @@ $cabinOverall = !empty($legs[0]['segments'][0]) ? (string) $segVal($legs[0]['seg
         endforeach; ?>
       </div>
       <?php endforeach; ?>
+
+      <!-- ===== Fare & Extras (richer detail) ===== -->
+      <div class="sec">
+        <div class="sec-h"><span class="t">Fare &amp; Baggage</span><span class="rule"></span></div>
+        <div class="detail">
+          <div class="d">
+            <div class="dk">Fare &amp; Cabin</div>
+            <div class="row"><span class="ic">&#128188;</span> Cabin <b><?= $cabinOverall !== '' ? $e(ucfirst($cabinOverall)) : 'Economy' ?></b></div>
+            <div class="row"><span class="ic">&#127903;</span> Fare type <b><?= $fareType !== '' ? $e(ucfirst($fareType)) : 'Standard' ?></b></div>
+            <?php
+              // Fare rules note: refundable/changeable if the data says so.
+              $refundable = $bookingData['refundable'] ?? ($fd['refundable'] ?? null);
+              if ($refundable !== null && $refundable !== ''):
+                $refTxt = (is_bool($refundable) ? ($refundable ? 'Refundable' : 'Non-refundable') : (string) $refundable);
+            ?>
+            <div class="row muted"><span class="ic">&#128196;</span> <?= $e($refTxt) ?></div>
+            <?php endif; ?>
+          </div>
+          <div class="d">
+            <div class="dk">Baggage Allowance</div>
+            <?php
+              $anyBag = false;
+              foreach ($legs as $lg) { foreach ($lg['segments'] as $ss) {
+                if (!empty($ss['baggage']) || !empty($ss['cabin_baggage'])) { $anyBag = true;
+                  echo '<div class="row"><span class="ic">&#129520;</span> Checked <b>' . $e($segVal($ss, ['baggage','included_baggage'], '—')) . '</b></div>';
+                  echo '<div class="row"><span class="ic">&#127890;</span> Cabin <b>' . $e($segVal($ss, ['cabin_baggage'], '—')) . '</b></div>';
+                  break 2; }
+              } }
+              if (!empty($bagSummary)) { $anyBag = true; foreach ($bagSummary as $lbl => $n) {
+                echo '<div class="row add"><span class="ic">&#10133;</span> ' . (int) $n . ' &times; ' . $e($lbl) . '</div>';
+              } }
+              if (!$anyBag) { echo '<div class="row muted">As per airline policy</div>'; }
+            ?>
+          </div>
+        </div>
+        <?php if ($seatCount > 0 || $mealCount > 0): ?>
+        <div class="detail" style="grid-template-columns:1fr; margin-top:9px;">
+          <div class="d">
+            <div class="dk">Extras selected</div>
+            <?php if ($seatCount > 0): ?><div class="row add"><span class="ic">&#128100;</span> <b><?= (int) $seatCount ?></b> seat<?= $seatCount === 1 ? '' : 's' ?> selected</div><?php endif; ?>
+            <?php if ($mealCount > 0): ?><div class="row add"><span class="ic">&#127869;</span> <b><?= (int) $mealCount ?></b> meal<?= $mealCount === 1 ? '' : 's' ?> added</div><?php endif; ?>
+          </div>
+        </div>
+        <?php endif; ?>
+      </div>
 
       <div class="guide">
         <div class="gt"><?= $isTicketed ? 'Before you fly — this is your itinerary receipt, not a boarding pass' : 'What happens next' ?></div>
