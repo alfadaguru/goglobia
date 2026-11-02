@@ -177,6 +177,7 @@ if (!function_exists('goglobia_ticket_render')) {
                 Issued by <?= $e($businessName) ?>
                 <?php if ($businessEmail !== ''): ?> &middot; <?= $e($businessEmail) ?><?php endif; ?>
                 <?php if ($businessPhone !== ''): ?> &middot; <?= $e($businessPhone) ?><?php endif; ?>
+                <br><span style="font-size:6.8pt;"><?= $e((string) ($cfg['accreditation'] ?? 'IATA / NANTA / NCAA accredited')) ?></span>
             </div>
         </td>
         <td style="width:38%; text-align:right;">
