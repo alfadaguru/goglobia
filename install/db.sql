@@ -27292,6 +27292,35 @@ INSERT INTO `locations` (`id`, `country`, `country_code`, `city`, `latitude`, `l
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `insurance_plans` (own-inventory paid travel insurance)
+--
+
+CREATE TABLE `insurance_plans` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(191) NOT NULL,
+  `slug` varchar(191) NOT NULL,
+  `provider_label` varchar(191) NOT NULL DEFAULT '',
+  `description` text DEFAULT NULL,
+  `coverage_details` text DEFAULT NULL,
+  `currency` varchar(10) NOT NULL DEFAULT 'NGN',
+  `price` decimal(14,2) NOT NULL DEFAULT 0.00,
+  `coverage_amount` decimal(14,2) DEFAULT NULL,
+  `duration_days` int(11) DEFAULT NULL,
+  `min_age` int(11) DEFAULT NULL,
+  `max_age` int(11) DEFAULT NULL,
+  `region` varchar(120) NOT NULL DEFAULT '',
+  `featured` tinyint(1) NOT NULL DEFAULT 0,
+  `status` tinyint(1) NOT NULL DEFAULT 1,
+  `order` int(11) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_insurance_slug` (`slug`),
+  KEY `idx_status` (`status`),
+  KEY `idx_featured` (`featured`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
 -- Table structure for table `logs_bookings`
 --
 

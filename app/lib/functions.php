@@ -1271,6 +1271,77 @@ function ensureCoreFixSchema($db): void
     // phone/login) and stop clobbering itself. Idempotent self-heal. See
     // ensureGiaAuthSchema() below.
     ensureGiaAuthSchema($db);
+
+    // Own-inventory paid travel-insurance (customer-flow audit #12). Admin-defined
+    // plans sold as internal inventory (confirm-on-payment, no external supplier),
+    // mirroring own tours/cars. Creates insurance_plans + seeds the own-inventory
+    // 'goglobia' insurance module row so markup/currency resolve. Idempotent.
+    ensureInsurancePlansSchema($db);
+}
+
+/**
+ * Own-inventory travel-insurance schema (customer-flow audit #12). Creates the
+ * insurance_plans table the admin manages and the customer storefront reads, and
+ * seeds a 'goglobia' own-inventory insurance module row (type=insurance) so the
+ * pricing/markup/currency resolution used by the booking-create path has a module
+ * to read — exactly like own tours/cars. No external supplier: these plans
+ * confirm on payment (see pg_confirms_on_payment_module). Idempotent self-heal;
+ * swallows failures (locked-down DB user) like the other ensure-functions.
+ */
+function ensureInsurancePlansSchema($db): void
+{
+    try {
+        $db->query("CREATE TABLE IF NOT EXISTS `insurance_plans` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `name` varchar(191) NOT NULL,
+            `slug` varchar(191) NOT NULL,
+            `provider_label` varchar(191) NOT NULL DEFAULT '',
+            `description` text DEFAULT NULL,
+            `coverage_details` text DEFAULT NULL,
+            `currency` varchar(10) NOT NULL DEFAULT 'NGN',
+            `price` decimal(14,2) NOT NULL DEFAULT 0.00,
+            `coverage_amount` decimal(14,2) DEFAULT NULL,
+            `duration_days` int(11) DEFAULT NULL,
+            `min_age` int(11) DEFAULT NULL,
+            `max_age` int(11) DEFAULT NULL,
+            `region` varchar(120) NOT NULL DEFAULT '',
+            `featured` tinyint(1) NOT NULL DEFAULT 0,
+            `status` tinyint(1) NOT NULL DEFAULT 1,
+            `order` int(11) NOT NULL DEFAULT 0,
+            `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+            `updated_at` datetime DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uq_insurance_slug` (`slug`),
+            KEY `idx_status` (`status`),
+            KEY `idx_featured` (`featured`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+    } catch (\Throwable $e) {
+        error_log('ensureInsurancePlansSchema: create insurance_plans failed: ' . $e->getMessage());
+    }
+
+    // Seed the own-inventory insurance module row so MARKUP()/currency resolve for
+    // the booking-create path (mirrors how tours reads its modules row). Only when
+    // absent — never clobber an admin's settings.
+    try {
+        $has = $db->get('modules', ['id'], ['type' => 'insurance', 'name' => 'goglobia']);
+        if (!$has) {
+            $db->insert('modules', [
+                'name'            => 'goglobia',
+                'type'            => 'insurance',
+                'status'          => 1,
+                'active'          => 1,
+                'dev_mode'        => 0,
+                'booking_class'   => 'real',
+                'markup_type_b2c' => 'percentage',
+                'markup_b2c'      => 0,
+                'markup_type_b2b' => 'percentage',
+                'markup_b2b'      => 0,
+                'currency'        => (string) ($GLOBALS['app']['default_currency'] ?? 'NGN'),
+            ]);
+        }
+    } catch (\Throwable $e) {
+        error_log('ensureInsurancePlansSchema: seed goglobia module failed: ' . $e->getMessage());
+    }
 }
 
 /**

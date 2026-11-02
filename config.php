@@ -532,7 +532,10 @@ try {
         //      users.login_attempts (the PASSWORD brute-force lockout counter). Fixes
         //      the auth HIGH where otp_issue() zeroing login_attempts cleared the
         //      password lockout, defeating the 5-attempt/30-min lock (ensureGiaAuthSchema).
-        define('APP_SCHEMA_ENSURE_VERSION', 14);
+        // v15: insurance_plans table + own-inventory 'goglobia' insurance module row —
+        //      the paid travel-insurance customer flow (customer-flow audit #12),
+        //      admin-defined plans sold as internal inventory (ensureInsurancePlansSchema).
+        define('APP_SCHEMA_ENSURE_VERSION', 15);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);
