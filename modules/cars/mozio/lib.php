@@ -645,6 +645,20 @@ if (!function_exists('mozioModuleConfig')) {
 
         $db->update('bookings', $updateData, ['invoice_id' => $invoiceId]);
 
+        // customer-flow audit #2: in hosted_checkout mode Mozio is Merchant of
+        // Record, so the site payment gateway is bypassed and handle_payment_callback
+        // NEVER runs — which means the cars.payment.completed webhook (the only place
+        // NOTIFY::payment + the voucher/invoice PDFs fire for cars) never fired, and
+        // a paying customer got a confirmed transfer with NO confirmation email,
+        // WhatsApp, or voucher. Notify here on the finalize path. bm_notify_paid is
+        // the shared, idempotent notifier (atomic notified_paid_at claim), so repeated
+        // polling / re-finalize cannot double-send; it sends the no-price ticket +
+        // confirmation exactly once for this now-confirmed+paid booking.
+        if (function_exists('bm_notify_paid')) {
+            try { bm_notify_paid($db, $invoiceId); }
+            catch (\Throwable $e) { error_log('mozio finalize notify: ' . $e->getMessage()); }
+        }
+
         return [
             'success'             => true,
             'confirmation_number' => $confirmation,
