@@ -525,6 +525,12 @@ if (!function_exists('_kikoto_refresh_selected_sailing')) {
             }
             if ($matchedAcc !== null) {
                 $selected['accommodations'][0] = array_merge($selected['accommodations'][0] ?? [], $matchedAcc);
+                // customer-flow audit #5: mark that this accommodation's price was
+                // just REFRESHED from a live Kikoto sailing, so the submit handler
+                // can trust accommodations[0].original_price as server-sourced and
+                // NOT fall back to a client-supplied draft number. Only set on a
+                // genuine live match (when $matchedAcc came from $s above).
+                $selected['accommodations'][0]['_price_server_refreshed'] = true;
             }
             break;
         }

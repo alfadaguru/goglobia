@@ -820,19 +820,49 @@ $router->post('/api/ferries/booking/submit', function () use ($SECURE, $db) {
         // PRICE: prefer live Kikoto /prices net, then draft original_price (not already-marked price)
         $draftAccomm = $draftData['selected_sailing']['accommodations'][0] ?? [];
         $basePrice   = 0.0;
+        $serverPriced = false; // customer-flow audit #5: did we get a LIVE supplier price?
 
         if (!empty($priceCheck['data']['sailings']) && is_array($priceCheck['data']['sailings'])) {
             foreach ($priceCheck['data']['sailings'] as $pricedSailing) {
                 $basePrice += (float)($pricedSailing['price'] ?? 0);
             }
+            if ($basePrice > 0) { $serverPriced = true; }
         }
 
         if ($basePrice <= 0) {
-            $basePrice = (float)($draftAccomm['original_price'] ?? 0);
+            // original_price is trustworthy ONLY when _kikoto_refresh_selected_sailing
+            // just merged it from a live Kikoto sailing (marker below). On a legit
+            // vehicle+pet booking the /prices branch returns no sailings, but the
+            // accommodation price was still refreshed from the live search.
+            if (!empty($draftAccomm['_price_server_refreshed'])) {
+                $basePrice = (float)($draftAccomm['original_price'] ?? 0);
+                if ($basePrice > 0) { $serverPriced = true; }
+            }
         }
         if ($basePrice <= 0) {
             // Last resort: marked draft/revalidated price (legacy drafts without original_price)
             $basePrice = (float)($draftAccomm['price'] ?? $draftData['revalidated_price'] ?? 0);
+        }
+
+        // customer-flow audit #5 (client-price-trust): $draftAccomm fields and
+        // revalidated_price are CLIENT-supplied (POSTed to /booking/draft, never
+        // re-derived server-side). Kikoto's live /prices is the only authoritative
+        // source. When it returns no priced sailings — including the NORMAL
+        // vehicle+pet branch which returns ok=true with data:[] (api.php:1315-1323)
+        // — we must NOT charge the customer's own draft number: an attacker could
+        // POST a low original_price/revalidated_price and be charged that while the
+        // real Kikoto booking commits at true cost. Refuse to create a chargeable
+        // booking we cannot price server-side; the customer retries (which re-prices)
+        // or an agent/admin books it manually with a verified fare.
+        if (!$serverPriced) {
+            error_log('ferries submit: refusing booking — no live Kikoto /prices anchor (would fall back to client draft price).');
+            http_response_code(409);
+            echo json_encode([
+                'success' => false,
+                'message' => 'We could not confirm the live fare for this sailing. Please search again so we can re-price it before booking.',
+                'code'    => 'FERRY_PRICE_UNCONFIRMED',
+            ]);
+            return;
         }
 
         // Re-resolve agent after user account is known (guest email may match agent)
@@ -925,6 +955,21 @@ $router->post('/api/ferries/booking/submit', function () use ($SECURE, $db) {
         $draftData['conversion_rate'] = $conversionRate;
         $draftData['final_total_display'] = $displayFinalTotal;
 
+        // customer-flow audit #4: the booking was stored in the SUPPLIER currency
+        // (EUR), but the invoice gateway dropdown is not currency-filtered and the
+        // /payment/process currency-routing guard rejects the default NGN gateway
+        // for a EUR booking — so on an NGN-only install checkout dead-ended with no
+        // payable gateway. Store the amount the customer actually pays in the
+        // customer's DISPLAY currency (the same figure already shown on the invoice),
+        // so the gateway charge, the currency guard, and the issue reconcile all
+        // agree. The supplier/EUR figures are preserved in booking_data.draft for
+        // the supplier issue call.
+        $chargeCurrency = $displayCurrency;
+        $chargeFinal    = $displayFinalTotal;
+        $chargeOriginal = convertCurrencyAmount($db, $totalPrice, $baseCurrency, $displayCurrency);
+        $draftData['supplier_currency']    = $baseCurrency;   // EUR — what Kikoto is billed in
+        $draftData['supplier_final_total'] = $finalPrice;     // EUR amount for the supplier issue
+
         // BUILD TRAVELLERS JSON
         $travellersData = [];
         $ticketTypesById = [];
@@ -985,8 +1030,11 @@ $router->post('/api/ferries/booking/submit', function () use ($SECURE, $db) {
             'language'          => getCurrentLanguage(),
             'booking_status'    => 'pending',
             'payment_status'    => 'unpaid',
-            'price_original'    => $totalPrice,
-            'price_markup'      => $finalPrice,
+            // Stored in the customer's display currency (see audit #4 above) so the
+            // gateway/guard/invoice all agree; supplier EUR figures live in
+            // booking_data.draft.supplier_* for the issue call.
+            'price_original'    => $chargeOriginal,
+            'price_markup'      => $chargeFinal,
             'tax'               => 0,
             'tax_type'          => 'percentage',
             'first_name'        => trim($contact['name']),
@@ -1017,7 +1065,7 @@ $router->post('/api/ferries/booking/submit', function () use ($SECURE, $db) {
             'travellers'        => json_encode($travellersData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
             'user_id'           => $userId,
             'user_data'         => json_encode($userData),
-            'currency_markup'   => $cfg['currency'] ?? 'EUR',
+            'currency_markup'   => $chargeCurrency,
             'commission'        => $commission,
             'agent_earning'     => $agentEarning,
             'promo_codes'       => $promoCodeJson,
