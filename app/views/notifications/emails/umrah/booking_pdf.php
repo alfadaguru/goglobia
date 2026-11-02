@@ -23,6 +23,7 @@
  */
 if (!isset($SECURE)) die('Direct access not permitted');
 require_once __DIR__ . '/../_invoice_base.php';
+require_once __DIR__ . '/../_ticket_icons.php'; // ft_icon() — SVG chips (no emoji boxes)
 
 $e = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
 $invoiceId = (string) ($booking['invoice_id'] ?? '');
@@ -65,7 +66,7 @@ ob_start();
 <div class="hero"><table><tr>
     <td style="width:60%;">
         <div class="port-city" style="font-size:16pt;"><?= $e($umrahName) ?></div>
-        <?php if ($location !== ''): ?><div class="port-apt" style="font-size:8.5pt;">&#128205; <?= $e($location) ?></div><?php endif; ?>
+        <?php if ($location !== ''): ?><div class="port-apt" style="font-size:8.5pt;"><?= ft_icon('pin','#0b875b',10) ?> <?= $e($location) ?></div><?php endif; ?>
     </td>
     <td style="width:20%; text-align:center;">
         <div class="k"><?= $e($T('departure', 'Departure')) ?></div>
@@ -149,7 +150,7 @@ if (!empty($stays)): ?>
 <?php foreach ($stays as $stay): ?>
 <div class="card"><div class="card-body">
     <div class="v" style="font-size:10pt;"><?= $e($stay['hotel_name'] ?? 'Hotel') ?></div>
-    <?php if (!empty($stay['location'])): ?><div class="vs" style="margin-top:2pt;">&#128205; <?= $e($stay['location']) ?></div><?php endif; ?>
+    <?php if (!empty($stay['location'])): ?><div class="vs" style="margin-top:2pt;"><?= ft_icon('pin','#0b875b',10) ?> <?= $e($stay['location']) ?></div><?php endif; ?>
     <?php if (!empty($stay['stars'])): ?>
     <div class="vs" style="margin-top:2pt;">
         <?php for ($i = 1; $i <= 5; $i++): ?><?= $i <= (int) $stay['stars'] ? '&#9733;' : '&#9734;' ?><?php endfor; ?>
@@ -199,9 +200,9 @@ if (!empty($transfers)): ?>
     <div class="v" style="font-size:10pt;"><?= $e($transfer['type'] ?? 'Transfer') ?></div>
     <div class="k" style="margin-top:1pt;"><?= $e($T('vehicle_service', 'Vehicle Service')) ?></div>
     <table style="margin-top:4pt;"><tr>
-        <td style="width:45%;"><div class="k"><?= $e($T('pickup', 'Pickup')) ?></div><div class="vs">&#128205; <?= $e($transfer['from'] ?? $transfer['pickup'] ?? '---') ?></div></td>
+        <td style="width:45%;"><div class="k"><?= $e($T('pickup', 'Pickup')) ?></div><div class="vs"><?= ft_icon('pin','#0b875b',10) ?> <?= $e($transfer['from'] ?? $transfer['pickup'] ?? '---') ?></div></td>
         <td style="width:10%; text-align:center; vertical-align:middle;"><span class="vs">&rarr;</span></td>
-        <td style="width:45%;"><div class="k"><?= $e($T('dropoff', 'Dropoff')) ?></div><div class="vs">&#128205; <?= $e($transfer['to'] ?? $transfer['dropoff'] ?? '---') ?></div></td>
+        <td style="width:45%;"><div class="k"><?= $e($T('dropoff', 'Dropoff')) ?></div><div class="vs"><?= ft_icon('pin','#0b875b',10) ?> <?= $e($transfer['to'] ?? $transfer['dropoff'] ?? '---') ?></div></td>
     </tr></table>
     <?php if (!empty($transferDateOnly) || !empty($transferTimeOnly)): ?>
     <table style="margin-top:4pt;"><tr>

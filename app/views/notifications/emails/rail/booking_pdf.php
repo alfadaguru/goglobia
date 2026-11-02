@@ -96,7 +96,7 @@ if ($fromStation !== '' || $toStation !== '') {
         </td>
         <td style="width:24%;" class="hero-mid">
             <?php if ($durationLabel !== ''): ?><div class="hero-dur"><?= $e($durationLabel) ?></div><?php endif; ?>
-            <div class="hero-line"></div><div class="hero-plane">&#128646;</div>
+            <div class="hero-line"></div><div class="hero-plane" style="font-size:11pt;">&#8594;</div>
             <div class="hero-stops"><?= $trafficNo !== '' ? 'Train ' . $e($trafficNo) : $e($T('rail', 'Rail')) ?></div>
         </td>
         <td style="width:38%; text-align:right;">

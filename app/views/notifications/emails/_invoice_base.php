@@ -108,15 +108,17 @@ if (!function_exists('goglobia_invoice_render')) {
     h1,h2,h3,p,table { margin: 0; }
     td { vertical-align: top; }
 
-    /* header band (matches the ticket) */
-    .band { background: <?= $bandGrad ?>; color: #fff; padding: 15pt 20pt; border-radius: 9pt; }
+    /* header — clean light header with a brand rule (matches the ticket). mPDF
+       renders CSS gradients with a harsh white blowout, so we do NOT use a dark
+       gradient band here (it made the logo + issuer text invisible). */
+    .band { border-bottom: 2.2pt solid <?= $p['primary'] ?>; padding: 0 0 10pt; margin-bottom: 4pt; }
     .band table { width: 100%; border-collapse: collapse; } .band td { border: none; }
-    .logo-img { height: 24pt; width: auto; max-width: 150pt; }
-    .eyebrow { font-size: 6.5pt; font-weight: bold; letter-spacing: 2.4pt; color: #9DB8EA; text-transform: uppercase; }
-    .wm { font-size: 15pt; font-weight: bold; color: #fff; margin-top: 1pt; }
-    .issuer { font-size: 7pt; color: #c7d4ea; margin-top: 4pt; }
-    .doctitle { font-size: 10pt; font-weight: bold; letter-spacing: 1.6pt; text-transform: uppercase; text-align: right; color: #fff; }
-    .seal { font-size: 7.5pt; font-weight: bold; color: <?= $sealC ?>; background: #fff; padding: 3pt 10pt; border-radius: 9pt; }
+    .logo-img { height: 26pt; width: auto; max-width: 150pt; }
+    .eyebrow { font-size: 6.5pt; font-weight: bold; letter-spacing: 2.4pt; color: <?= $p['slate'] ?>; text-transform: uppercase; }
+    .wm { font-size: 17pt; font-weight: bold; color: <?= $p['primary'] ?>; margin-top: 1pt; }
+    .issuer { font-size: 7pt; color: <?= $p['slate'] ?>; margin-top: 4pt; }
+    .doctitle { font-size: 10pt; font-weight: bold; letter-spacing: 1.6pt; text-transform: uppercase; text-align: right; color: <?= $p['ink'] ?>; }
+    .seal { font-size: 7.5pt; font-weight: bold; color: <?= $sealC ?>; background: <?= $sealBg ?>; padding: 3pt 10pt; border-radius: 9pt; }
 
     /* meta strip: invoice no / date / bill-to */
     .meta { margin-top: 10pt; }

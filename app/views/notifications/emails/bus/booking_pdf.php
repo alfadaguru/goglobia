@@ -61,7 +61,7 @@ if ($hOrigin !== '' || $hDest !== '') {
         </td>
         <td style="width:24%;" class="hero-mid">
             <?php if ($hDuration !== ''): ?><div class="hero-dur"><?= $e($hDuration) ?></div><?php endif; ?>
-            <div class="hero-line"></div><div class="hero-plane">&#128652;</div>
+            <div class="hero-line"></div><div class="hero-plane" style="font-size:11pt;">&#8594;</div>
             <div class="hero-stops"><?= $roundTrip ? 'Round trip' : 'One way' ?></div>
         </td>
         <td style="width:38%; text-align:right;">
@@ -86,10 +86,12 @@ ob_start();
     $arrTime      = (string) ($jt['arrival_time'] ?? '');
     $duration     = (string) ($jt['duration'] ?? '');
     $boarding     = (string) ($jt['boarding_point'] ?? ($jt['boarding'] ?? ''));
-    $busType      = trim(((string) ($jt['bus_type'] ?? '')) . (!empty($jt['seat_class']) ? ' · ' . (string) $jt['seat_class'] : ''));
+    // Join only the non-empty parts with ' · ' so a missing bus_type / seat_class /
+    // operator never leaves a doubled or leading separator ("GUO ·  · Executive").
+    $busType      = implode(' · ', array_filter([trim((string) ($jt['bus_type'] ?? '')), trim((string) ($jt['seat_class'] ?? ''))], 'strlen'));
     $travelDate   = $fmtDate($journey['date'] ?? '');
     $journeyLabel = (($journey['type'] ?? 'outbound') === 'return') ? 'Return' : 'Outbound';
-    $subline      = trim($operator . ($busType !== '' ? ' · ' . $busType : ''));
+    $subline      = implode(' · ', array_filter([trim($operator), $busType], 'strlen'));
 ?>
 <div class="card">
     <div class="card-top"><table><tr>
