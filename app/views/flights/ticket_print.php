@@ -113,9 +113,8 @@ if (is_array($ancMeals)) { foreach ($ancMeals as $mm) { $mealCount += is_array($
   .top{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;
        padding:22px 34px;border-bottom:3px solid var(--brand);}
   .brand{display:flex;flex-direction:column;gap:3px;}
-  /* cap BOTH dimensions + keep aspect ratio so a wide banner logo isn't oversized
-     ('dragged') in the header slot. */
-  .brand .logo-img{height:34px;width:auto;max-width:180px;object-fit:contain;display:block;}
+  /* fixed height, natural width (keeps aspect ratio) — big enough to read clearly. */
+  .brand .logo-img{height:46px;width:auto;max-width:240px;display:block;}
   .brand .logo{font-size:21px;font-weight:800;letter-spacing:-.02em;color:var(--brand);}
   .brand .logo span{color:var(--ink);}
   .brand .issuer{font-size:11px;color:var(--slate);line-height:1.5;margin-top:4px;}
