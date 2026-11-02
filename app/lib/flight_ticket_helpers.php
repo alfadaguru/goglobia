@@ -36,14 +36,15 @@ if (!function_exists('ft_passenger_list')) {
      * The REAL passenger list for a flight ticket — the people who actually fly.
      *
      * `bookings.travellers` holds the passengers as a map keyed adult_N / child_N /
-     * infant_N (the traveller TYPE is the key prefix, not a field). The booking's
-     * first_name/last_name is the PAYER/contact (primary_guest), stored SEPARATELY —
-     * it must NEVER be listed as a passenger. (GIA/legacy bookings sometimes nest a
-     * {"primary_guest":{...}} / {"contact":{...}} key inside travellers; we drop it.)
+     * infant_N (the traveller TYPE is the key prefix, not a field).
      *
-     * TWO guards so this survives even a partial regression of the caller:
-     *   1) drop a 'primary_guest' / 'contact' KEY from the travellers map;
-     *   2) drop any traveller whose full name EXACTLY matches the payer name.
+     * The ONLY thing we must exclude is a NON-passenger entry some data shapes nest
+     * inside travellers under a 'primary_guest' / 'contact' KEY — that key is the
+     * payer/contact, not a flyer (the GIA/legacy "customer shown as a passenger"
+     * bug). We drop ONLY that key. We DO NOT drop a traveller just because their
+     * name matches the payer: the payer is very commonly ALSO the lead passenger
+     * (they paid AND they fly), so a name-match drop would wrongly remove a real
+     * passenger — exactly the regression we are avoiding.
      *
      * Returns a plain list of passenger arrays, each with a resolved 'type'
      * (ADT/CHD/INF). Falls back to the contact name ONLY when there are genuinely no
@@ -53,10 +54,6 @@ if (!function_exists('ft_passenger_list')) {
      */
     function ft_passenger_list(array $booking): array
     {
-        $payerFn = strtolower(trim((string) ($booking['first_name'] ?? '')));
-        $payerLn = strtolower(trim((string) ($booking['last_name'] ?? '')));
-        $payerKey = $payerFn . '|' . $payerLn;
-
         $out = [];
         $raw = $booking['travellers'] ?? '';
         $t = is_string($raw) ? json_decode($raw, true) : (is_array($raw) ? $raw : null);
@@ -66,23 +63,16 @@ if (!function_exists('ft_passenger_list')) {
             foreach ($t as $key => $pax) {
                 if (!is_array($pax)) { continue; }
                 $k = strtolower((string) $key);
-                // Guard 1: never the payer/contact KEY.
+                // The ONLY exclusion: the nested payer/contact key (not a flyer).
                 if (!$isList && ($k === 'primary_guest' || $k === 'contact')) { continue; }
+                // Skip empty rows (no name at all).
+                if (trim((string) ($pax['first_name'] ?? '')) === ''
+                    && trim((string) ($pax['last_name'] ?? '')) === '') { continue; }
                 // Derive type from the key prefix when the row has none.
                 if (empty($pax['type']) && empty($pax['passenger_type'])) {
                     if (!$isList && strpos($k, 'child_') === 0)       { $pax['type'] = 'CHD'; }
                     elseif (!$isList && strpos($k, 'infant_') === 0)  { $pax['type'] = 'INF'; }
                     else                                              { $pax['type'] = 'ADT'; }
-                }
-                // Guard 2: never a traveller whose name == the payer name (belt &
-                // suspenders — catches a payer nested WITHOUT the primary_guest key).
-                $fn = strtolower(trim((string) ($pax['first_name'] ?? '')));
-                $ln = strtolower(trim((string) ($pax['last_name'] ?? '')));
-                if ($payerKey !== '|' && ($fn . '|' . $ln) === $payerKey) {
-                    // Only skip if there are OTHER passengers; if the payer is the only
-                    // traveller (a solo trip the payer is on), keep them — handled by
-                    // the empty-fallback below, so just skip here.
-                    continue;
                 }
                 $out[] = $pax;
             }
