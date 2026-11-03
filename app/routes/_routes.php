@@ -445,6 +445,10 @@ require_once 'app/routes/paymentPaystackRoutes.php'; // Paystack DVA (virtual ac
 // EMAIL DELIVERY WEBHOOKS (public, unauthenticated, Svix signature-verified)
 require_once 'app/routes/webhooksResendRoutes.php'; // Resend campaign delivery events
 
+// SUPPLIER WEBHOOKS (public; secured by a shared-secret path token + verified
+// read-back — the payload is only a trigger, authority is the authenticated GET).
+require_once 'app/routes/flights/tiqwaWebhookRoutes.php'; // Tiqwa ticket.issued / flight.booked
+
 // GIA MESSAGING CHANNELS (public, unauthenticated, per-channel signature/secret
 // verified): inbound webhooks for WhatsApp / Messenger / Telegram -> GIA.
 require_once 'app/routes/ai/giaChannelsRoutes.php';
