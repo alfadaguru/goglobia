@@ -28127,7 +28127,8 @@ INSERT INTO `modules` (`id`, `name`, `active`, `type`, `status`, `c1`, `c2`, `c3
 (69, 'airhelp', '1', 'insurance', '0', '', '', '', '', '', '', '1', '0', 'USD', '#16a34a', 20, '0', 'percentage', 0, 'health_and_safety', 'percentage', '0', '1', '0', 0, 1, NULL, NULL, NULL, NULL, 0, 'percentage', 0, 0, '1', 0),
 (70, 'adivaha', '1', 'flights', '0', '', '', '', '', '', '', '1', '1', 'INR', '#1f9d8b', 40, '0', 'percentage', 3, 'flight_takeoff', 'percentage', '2', '1', '0', 0, 1, NULL, NULL, NULL, NULL, 0, 'percentage', 1, 0, '1', 0),
 (71, 'adivaha', '1', 'stays', '0', '', '', '', '', '', '', '1', '1', 'INR', '#1f9d8b', 41, '0', 'percentage', 3, 'hotel', 'percentage', '2', '1', '0', 0, 1, NULL, NULL, NULL, NULL, 0, 'percentage', 0, 0, '1', 0),
-(72, 'adivaha', '1', 'tours', '0', '', '', '', '', '', '', '1', '1', 'INR', '#1f9d8b', 42, '0', 'percentage', 3, 'tour', 'percentage', '2', '1', '0', 0, 1, NULL, NULL, NULL, NULL, 0, 'percentage', 0, 0, '1', 0);
+(72, 'adivaha', '1', 'tours', '0', '', '', '', '', '', '', '1', '1', 'INR', '#1f9d8b', 42, '0', 'percentage', 3, 'tour', 'percentage', '2', '1', '0', 0, 1, NULL, NULL, NULL, NULL, 0, 'percentage', 0, 0, '1', 0),
+(73, 'tiqwa', '1', 'flights', '0', '', '', '', '', '', '', '1', '1', 'NGN', '#0a7d4b', 41, '0', 'percentage', 3, 'flight_takeoff', 'percentage', '2', '1', '0', 0, 1, NULL, NULL, NULL, NULL, 0, 'percentage', 0, 0, '1', 0);
 
 -- --------------------------------------------------------
 

@@ -535,7 +535,9 @@ try {
         // v15: insurance_plans table + own-inventory 'goglobia' insurance module row —
         //      the paid travel-insurance customer flow (customer-flow audit #12),
         //      admin-defined plans sold as internal inventory (ensureInsurancePlansSchema).
-        define('APP_SCHEMA_ENSURE_VERSION', 15);
+        // v16: tiqwa FLIGHT supplier modules row (ensureTiqwaModule) — the new Tiqwa
+        //      flight provider; seeded disabled so existing installs re-run + seed it.
+        define('APP_SCHEMA_ENSURE_VERSION', 16);
     }
     $__runEnsures = !function_exists('appSchemaEnsureNeeded')
         || appSchemaEnsureNeeded($db, APP_SCHEMA_ENSURE_VERSION);
@@ -547,6 +549,12 @@ try {
     // Register the Adivaha flight supplier as a manageable module (idempotent).
     if (function_exists('ensureAdivahaModule')) {
         ensureAdivahaModule($db);
+    }
+    // Register the Tiqwa FLIGHT supplier (type='flights') as a manageable module
+    // row (idempotent; seeded disabled). Lets it join the flight search fan-out
+    // once the owner enables it + enters the Bearer token.
+    if (function_exists('ensureTiqwaModule')) {
+        ensureTiqwaModule($db);
     }
     // Register the Adivaha HOTEL supplier (type='stays') as well (idempotent).
     if (function_exists('ensureAdivahaHotelModule')) {
