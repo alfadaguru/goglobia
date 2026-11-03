@@ -1,0 +1,13 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "Authentication",
+        "version": "1.0",
+        "description": "You will need to include an access token in the header of every request you make to the API Endpoints.\n\nTo create an access token, head to your dashboard. When you create an access token, you'll be able to choose if it is for sandbox or production.\n\n> Sandbox tokens are used to call our sandbox endpoints, the data returned and actioned performed using sandbox keys are not real-time actual inventories.\n\n<img src=\"https://i.ibb.co/txNcDqn/dashboard.png\"\n     alt=\"dashboard\"\n     style=\"display: block;\n  margin-left: auto;\n  margin-right: auto;\n  width: auto;\"\n     />\n\nSend your access token in the Authorization request header using the \"Bearer\" authentication scheme:\n\n```\n\nAuthorization: Bearer <YOUR_ACCESS_TOKEN>\n\n\n```\n\n> Sandbox Base URL: https://sandbox.tiqwa.com\n\n> Production Base URL: https://prod.tiqwa.com"
+    },
+    "servers": [],
+    "paths": {},
+    "components": {
+        "schemas": {}
+    }
+}

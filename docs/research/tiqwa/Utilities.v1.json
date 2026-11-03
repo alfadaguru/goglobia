@@ -1,0 +1,2295 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "Utilities",
+        "version": "1.0",
+        "description": "The utility APIs are endpoints that contains supporting resources you will need in building your Online Travel Application. Some of these endpoints are:\n\n1. Airlines\n2. Airport Search\n\n> Before you proceed, we recommend you read our [Authentication documentation](https://docs.tiqwa.com/docs/tiqwa/reference/Authentication.v1.json) to understand how to get authenticated and generate access tokens.\n\n> Sandbox Base URL: https://sandbox.tiqwa.com/v1/\n\n> Production Base URL: https://prod.tiqwa.com/v1/"
+    },
+    "servers": [
+        {
+            "url": "https://sandbox.tiqwa.com/v1",
+            "description": "sandbox"
+        },
+        {
+            "url": "https://prod.tiqwa.com/v1",
+            "description": "production"
+        }
+    ],
+    "paths": {
+        "/airports": {
+            "get": {
+                "summary": "Airports",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "description": "",
+                                    "minItems": 1,
+                                    "uniqueItems": true,
+                                    "items": {
+                                        "type": "object",
+                                        "required": [
+                                            "city",
+                                            "city_code",
+                                            "country",
+                                            "iata_code",
+                                            "name"
+                                        ],
+                                        "properties": {
+                                            "city": {
+                                                "type": "string",
+                                                "minLength": 1
+                                            },
+                                            "city_code": {
+                                                "type": "string",
+                                                "minLength": 1
+                                            },
+                                            "country": {
+                                                "type": "string",
+                                                "minLength": 1
+                                            },
+                                            "iata_code": {
+                                                "type": "string",
+                                                "minLength": 1
+                                            },
+                                            "name": {
+                                                "type": "string",
+                                                "minLength": 1
+                                            }
+                                        }
+                                    }
+                                },
+                                "examples": {
+                                    "Success": {
+                                        "value": [
+                                            {
+                                                "city": "Asaba",
+                                                "city_code": "ABB",
+                                                "country": "Nigeria",
+                                                "iata_code": "ABB",
+                                                "name": "Asaba International"
+                                            },
+                                            {
+                                                "city": "Enugu",
+                                                "city_code": "ENU",
+                                                "country": "Nigeria",
+                                                "iata_code": "ENU",
+                                                "name": "Akanu Ibiam International"
+                                            },
+                                            {
+                                                "city": "Akure",
+                                                "city_code": "AKR",
+                                                "country": "Nigeria",
+                                                "iata_code": "AKR",
+                                                "name": "Akure"
+                                            },
+                                            {
+                                                "city": "Uyo",
+                                                "city_code": "QUO",
+                                                "country": "Nigeria",
+                                                "iata_code": "QUO",
+                                                "name": "Akwa Ibom"
+                                            },
+                                            {
+                                                "city": "Bauchi",
+                                                "city_code": "BCU",
+                                                "country": "Nigeria",
+                                                "iata_code": "BCU",
+                                                "name": "Bauchi State Airport"
+                                            },
+                                            {
+                                                "city": "Benin City",
+                                                "city_code": "BNI",
+                                                "country": "Nigeria",
+                                                "iata_code": "BNI",
+                                                "name": "Benin"
+                                            },
+                                            {
+                                                "city": "Kaduna",
+                                                "city_code": "KAD",
+                                                "country": "Nigeria",
+                                                "iata_code": "KAD",
+                                                "name": "Kaduna International"
+                                            },
+                                            {
+                                                "city": "Ibadan",
+                                                "city_code": "IBA",
+                                                "country": "Nigeria",
+                                                "iata_code": "IBA",
+                                                "name": "Ibadan"
+                                            },
+                                            {
+                                                "city": "Gombe",
+                                                "city_code": "GMO",
+                                                "country": "Nigeria",
+                                                "iata_code": "GMO",
+                                                "name": "Gombe Lawanti International"
+                                            },
+                                            {
+                                                "city": "Ilorin",
+                                                "city_code": "ILR",
+                                                "country": "Nigeria",
+                                                "iata_code": "ILR",
+                                                "name": "Ilorin International"
+                                            },
+                                            {
+                                                "city": "Gusau",
+                                                "city_code": "QUS",
+                                                "country": "Nigeria",
+                                                "iata_code": "QUS",
+                                                "name": "Gusau Airport"
+                                            },
+                                            {
+                                                "city": "Maiduguri",
+                                                "city_code": "MIU",
+                                                "country": "Nigeria",
+                                                "iata_code": "MIU",
+                                                "name": "Maiduguri International Airport"
+                                            },
+                                            {
+                                                "city": "Makurdi",
+                                                "city_code": "MDI",
+                                                "country": "Nigeria",
+                                                "iata_code": "MDI",
+                                                "name": "Makurdi Airport"
+                                            },
+                                            {
+                                                "city": "Kano",
+                                                "city_code": "KAN",
+                                                "country": "Nigeria",
+                                                "iata_code": "KAN",
+                                                "name": "Mallam Aminu Kano International"
+                                            },
+                                            {
+                                                "city": "Port Harcourt",
+                                                "city_code": "PHC",
+                                                "country": "Nigeria",
+                                                "iata_code": "PHC",
+                                                "name": "Port Harcourt International"
+                                            },
+                                            {
+                                                "city": "Calabar",
+                                                "city_code": "CBQ",
+                                                "country": "Nigeria",
+                                                "iata_code": "CBQ",
+                                                "name": "Margaret Ekpo International"
+                                            },
+                                            {
+                                                "city": "Minna",
+                                                "city_code": "MXJ",
+                                                "country": "Nigeria",
+                                                "iata_code": "MXJ",
+                                                "name": "Minna Airport"
+                                            },
+                                            {
+                                                "city": "Sokoto",
+                                                "city_code": "SKO",
+                                                "country": "Nigeria",
+                                                "iata_code": "SKO",
+                                                "name": "Sadiq Abubakar III International"
+                                            },
+                                            {
+                                                "city": "Owerri",
+                                                "city_code": "QOW",
+                                                "country": "Nigeria",
+                                                "iata_code": "QOW",
+                                                "name": "Sam Mbakwe"
+                                            },
+                                            {
+                                                "city": "Lagos",
+                                                "city_code": "LOS",
+                                                "country": "Nigeria",
+                                                "iata_code": "LOS",
+                                                "name": "Murtala Muhammed International"
+                                            },
+                                            {
+                                                "city": "Warri",
+                                                "city_code": "QRW",
+                                                "country": "Nigeria",
+                                                "iata_code": "QRW",
+                                                "name": "Warri"
+                                            },
+                                            {
+                                                "city": "Port Harcourt",
+                                                "city_code": "PHC",
+                                                "country": "Nigeria",
+                                                "iata_code": "PHG",
+                                                "name": "Nigerian Air Force Port Harcourt"
+                                            },
+                                            {
+                                                "city": "Abuja",
+                                                "city_code": "ABV",
+                                                "country": "Nigeria",
+                                                "iata_code": "ABV",
+                                                "name": "Nnamdi Azikiwe International"
+                                            },
+                                            {
+                                                "city": "Jos",
+                                                "city_code": "JOS",
+                                                "country": "Nigeria",
+                                                "iata_code": "JOS",
+                                                "name": "Yakubu Gowon"
+                                            },
+                                            {
+                                                "city": "Yola",
+                                                "city_code": "YOL",
+                                                "country": "Nigeria",
+                                                "iata_code": "YOL",
+                                                "name": "Yola"
+                                            },
+                                            {
+                                                "city": "Zaria",
+                                                "city_code": "ZAR",
+                                                "country": "Nigeria",
+                                                "iata_code": "ZAR",
+                                                "name": "Zaria Airport"
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "",
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "minLength": 1
+                                        }
+                                    },
+                                    "required": [
+                                        "message"
+                                    ]
+                                },
+                                "examples": {
+                                    "No Authorization Header ": {
+                                        "value": {
+                                            "message": "No Access Token provided"
+                                        }
+                                    },
+                                    "Invalid Token": {
+                                        "value": {
+                                            "message": "Invalid Token Provided"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "operationId": "get-airports",
+                "description": "This endpoint returns a list of Airports based on the search keyword parameter provided. The endpoint should be used as an auto-suggestion on the [Flight Search Offer](https://docs.tiqwa.com/docs/tiqwa/reference/Flight.v1.json/paths/~1search/get) origin and destination fields.\n\n> Airport IATA Code, City, Airport Name and Country are also matched using the keyword provided",
+                "parameters": [
+                    {
+                        "schema": {
+                            "type": "string",
+                            "example": "Lagos"
+                        },
+                        "in": "query",
+                        "name": "keyword",
+                        "description": "Query keyword to search for (E.g LOS, Lagos, Nigeria, Abuja, Newyork...) You can also send a list of airport code seperated by comma to return the airport details for those codes e.g (LOS,ABV,LHR)",
+                        "required": true
+                    }
+                ]
+            }
+        },
+        "/airlines": {
+            "get": {
+                "summary": "Airlines",
+                "tags": [],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "description": "",
+                                    "minItems": 1,
+                                    "uniqueItems": true,
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "code": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "description": "IATA code of Airline"
+                                            },
+                                            "logo": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "description": "Logo URL of airline"
+                                            },
+                                            "name": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "description": "Airline name"
+                                            }
+                                        },
+                                        "required": [
+                                            "code",
+                                            "logo",
+                                            "name"
+                                        ]
+                                    }
+                                },
+                                "examples": {
+                                    "Success": {
+                                        "value": [
+                                            {
+                                                "code": "H3",
+                                                "logo": "https://images.travelwahoo.com/airlines/H3.png",
+                                                "name": "Thomas Cook Aviation"
+                                            },
+                                            {
+                                                "code": "NH",
+                                                "logo": "https://images.travelwahoo.com/airlines/NH.png",
+                                                "name": "All Nippon Airways"
+                                            },
+                                            {
+                                                "code": "UA",
+                                                "logo": "https://images.travelwahoo.com/airlines/UA.png",
+                                                "name": "United Airlines"
+                                            },
+                                            {
+                                                "code": "XJ",
+                                                "logo": "https://images.travelwahoo.com/airlines/XJ.png",
+                                                "name": "Thai AirAsia X"
+                                            },
+                                            {
+                                                "code": "0B",
+                                                "logo": "https://images.travelwahoo.com/airlines/0B.png",
+                                                "name": "Blue Air"
+                                            },
+                                            {
+                                                "code": "D7",
+                                                "logo": "https://images.travelwahoo.com/airlines/D7.png",
+                                                "name": "AirAsia X"
+                                            },
+                                            {
+                                                "code": "5G",
+                                                "logo": "https://images.travelwahoo.com/airlines/5G.png",
+                                                "name": "MAYAir"
+                                            },
+                                            {
+                                                "code": "RM",
+                                                "logo": "https://images.travelwahoo.com/airlines/RM.png",
+                                                "name": "Armenia Aircompany"
+                                            },
+                                            {
+                                                "code": "XX",
+                                                "logo": "https://images.travelwahoo.com/airlines/XX.png",
+                                                "name": "Greenfly"
+                                            },
+                                            {
+                                                "code": "WR",
+                                                "logo": "https://images.travelwahoo.com/airlines/WR.png",
+                                                "name": "WestJet Encore"
+                                            },
+                                            {
+                                                "code": "A5",
+                                                "logo": "https://images.travelwahoo.com/airlines/A5.png",
+                                                "name": "HOP!"
+                                            },
+                                            {
+                                                "code": "QT",
+                                                "logo": "https://images.travelwahoo.com/airlines/QT.png",
+                                                "name": "Avianca Cargo"
+                                            },
+                                            {
+                                                "code": "XT",
+                                                "logo": "https://images.travelwahoo.com/airlines/XT.png",
+                                                "name": "Indonesia AirAsia X"
+                                            },
+                                            {
+                                                "code": "YK",
+                                                "logo": "https://images.travelwahoo.com/airlines/YK.png",
+                                                "name": "Avia Traffic Airline"
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "description": "",
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "minLength": 1
+                                        }
+                                    },
+                                    "required": [
+                                        "message"
+                                    ]
+                                },
+                                "examples": {
+                                    "No Authorization Header": {
+                                        "value": {
+                                            "message": "No Access Token provided"
+                                        }
+                                    },
+                                    "Invalid Access Token": {
+                                        "value": {
+                                            "message": "Invalid Access Token provided"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "operationId": "get-airlines",
+                "description": "This endpoint returns all the available Airlines."
+            }
+        },
+        "/wallet": {
+            "get": {
+                "summary": "Wallet Balance",
+                "tags": [],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "x-stoplight": {
+                                                "id": "reiu65tsm2ga7"
+                                            },
+                                            "properties": {
+                                                "api_balance": {
+                                                    "type": "number",
+                                                    "x-stoplight": {
+                                                        "id": "296efiiiueazx"
+                                                    },
+                                                    "example": "300.50"
+                                                },
+                                                "api_units": {
+                                                    "type": "integer",
+                                                    "x-stoplight": {
+                                                        "id": "4ogpjuhajbklo"
+                                                    },
+                                                    "example": 210
+                                                },
+                                                "ticket_balance": {
+                                                    "type": "number",
+                                                    "x-stoplight": {
+                                                        "id": "usyphudw40uy0"
+                                                    },
+                                                    "example": "50000.0"
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "examples": {
+                                    "Sample Response": {
+                                        "value": {
+                                            "data": {
+                                                "api_balance": "300.50",
+                                                "api_units": 210,
+                                                "ticket_balance": "50000.0"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "operationId": "get-wallet",
+                "x-stoplight": {
+                    "id": "dkkbrwv66xich"
+                },
+                "description": "This endpoint returns the wallet balance of the authenticated company.\n\n> API balance is used for making API calls, while Ticket balance for issuing/paying for tickets. API units on the other hand is for customers that purchased API units instead of the pay-as-you-use "
+            }
+        },
+        "/markup": {
+            "get": {
+                "summary": "Get Markups",
+                "tags": [],
+                "responses": {
+                    "2XX": {
+                        "description": "Success",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "access_token": {
+                                                        "type": "string"
+                                                    },
+                                                    "active": {
+                                                        "type": "boolean"
+                                                    },
+                                                    "amount_type": {
+                                                        "type": "string"
+                                                    },
+                                                    "applicable_rule": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "booking_class": {
+                                                                "type": "null"
+                                                            },
+                                                            "booking_date_from": {
+                                                                "type": "string"
+                                                            },
+                                                            "booking_date_to": {
+                                                                "type": "string"
+                                                            },
+                                                            "cabin_classes": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "departure_date_from": {
+                                                                "type": "string"
+                                                            },
+                                                            "departure_date_to": {
+                                                                "type": "string"
+                                                            },
+                                                            "fare_bases_code": {
+                                                                "type": "null"
+                                                            },
+                                                            "from_country": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "journey_types": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "marketing_carriers": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "number_of_stops": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "integer"
+                                                                }
+                                                            },
+                                                            "office_id": {
+                                                                "type": [
+                                                                    "null",
+                                                                    "string"
+                                                                ]
+                                                            },
+                                                            "operating_carriers": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "object",
+                                                                    "properties": {}
+                                                                }
+                                                            },
+                                                            "to_country": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    "apply_at": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "object",
+                                                            "properties": {}
+                                                        }
+                                                    },
+                                                    "created_at": {
+                                                        "type": "string"
+                                                    },
+                                                    "exclusion_rule": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "booking_class": {
+                                                                "type": "null"
+                                                            },
+                                                            "fare_bases_code": {
+                                                                "type": "null"
+                                                            },
+                                                            "from_country": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "marketing_carriers": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "operating_carriers": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "to_country": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    "fare_type": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "markup_amount": {
+                                                        "type": "integer"
+                                                    },
+                                                    "markup_type": {
+                                                        "type": "string"
+                                                    },
+                                                    "name": {
+                                                        "type": "string"
+                                                    },
+                                                    "passenger_type": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "object",
+                                                            "properties": {}
+                                                        }
+                                                    },
+                                                    "reference": {
+                                                        "type": "string"
+                                                    },
+                                                    "remark": {
+                                                        "type": "string"
+                                                    },
+                                                    "updated_at": {
+                                                        "type": "null"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "x-examples": {
+                                        "Example 1": {
+                                            "data": [
+                                                {
+                                                    "access_token": "sandbox_QjRlYWExZDQtOTAzMy00NTM2LThhMmYtMzU2ODYxMWY3OWM5",
+                                                    "active": false,
+                                                    "amount_type": "fixed",
+                                                    "applicable_rule": {
+                                                        "booking_class": null,
+                                                        "booking_date_from": "",
+                                                        "booking_date_to": "",
+                                                        "cabin_classes": [
+                                                            "economy",
+                                                            "business"
+                                                        ],
+                                                        "departure_date_from": "2024-10-13",
+                                                        "departure_date_to": "2025-11-13",
+                                                        "fare_bases_code": null,
+                                                        "from_country": [
+                                                            "NG",
+                                                            "UK",
+                                                            "US"
+                                                        ],
+                                                        "journey_types": [
+                                                            "one_way",
+                                                            "round_trip"
+                                                        ],
+                                                        "marketing_carriers": [
+                                                            "P4",
+                                                            "AT"
+                                                        ],
+                                                        "number_of_stops": [
+                                                            1,
+                                                            2
+                                                        ],
+                                                        "office_id": "LOSDUDIEE",
+                                                        "operating_carriers": [],
+                                                        "to_country": [
+                                                            "GH"
+                                                        ]
+                                                    },
+                                                    "apply_at": [],
+                                                    "created_at": "2024-03-16 14:20:56",
+                                                    "exclusion_rule": {
+                                                        "booking_class": null,
+                                                        "fare_bases_code": null,
+                                                        "from_country": [
+                                                            "AM",
+                                                            "AL"
+                                                        ],
+                                                        "marketing_carriers": [
+                                                            "ET"
+                                                        ],
+                                                        "operating_carriers": [
+                                                            "AS"
+                                                        ],
+                                                        "to_country": [
+                                                            "UK"
+                                                        ]
+                                                    },
+                                                    "fare_type": [
+                                                        "published"
+                                                    ],
+                                                    "markup_amount": 1000,
+                                                    "markup_type": "markup",
+                                                    "name": "Test Markup Test",
+                                                    "passenger_type": [],
+                                                    "reference": "502a47ef-a452-41a8-8662-205565333ee2",
+                                                    "remark": "This markup should be considered as base markup",
+                                                    "updated_at": null
+                                                },
+                                                {
+                                                    "access_token": "sandbox_QjRlYWExZDQtOTAzMy00NTM2LThhMmYtMzU2ODYxMWY3OWM5",
+                                                    "active": true,
+                                                    "amount_type": "fixed",
+                                                    "applicable_rule": {
+                                                        "booking_class": null,
+                                                        "booking_date_from": "",
+                                                        "booking_date_to": "",
+                                                        "cabin_classes": [],
+                                                        "departure_date_from": "",
+                                                        "departure_date_to": "",
+                                                        "fare_bases_code": null,
+                                                        "from_country": [],
+                                                        "journey_types": [],
+                                                        "marketing_carriers": [],
+                                                        "number_of_stops": [],
+                                                        "office_id": null,
+                                                        "operating_carriers": [],
+                                                        "to_country": []
+                                                    },
+                                                    "apply_at": [],
+                                                    "created_at": "2024-03-16 14:50:21",
+                                                    "exclusion_rule": {
+                                                        "booking_class": null,
+                                                        "fare_bases_code": null,
+                                                        "from_country": [],
+                                                        "marketing_carriers": [],
+                                                        "operating_carriers": [],
+                                                        "to_country": []
+                                                    },
+                                                    "fare_type": [],
+                                                    "markup_amount": 3000,
+                                                    "markup_type": "markup",
+                                                    "name": "EThopia Test Markup",
+                                                    "passenger_type": [],
+                                                    "reference": "2c3b8de8-9ee3-41d4-8707-6be1f3eb0285",
+                                                    "remark": "This markup should be considered as base markup",
+                                                    "updated_at": null
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "operationId": "get-markup",
+                "x-stoplight": {
+                    "id": "vqczp5bo6ld8l"
+                },
+                "description": "This endpoint returns all the markup settings for the authenticated account."
+            },
+            "get - copy 2": {
+                "summary": "Get Markup Settings",
+                "tags": [],
+                "responses": {
+                    "2XX": {
+                        "description": "Success",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "access_token": {
+                                                        "type": "string"
+                                                    },
+                                                    "active": {
+                                                        "type": "boolean"
+                                                    },
+                                                    "amount_type": {
+                                                        "type": "string"
+                                                    },
+                                                    "applicable_rule": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "booking_class": {
+                                                                "type": "null"
+                                                            },
+                                                            "booking_date_from": {
+                                                                "type": "string"
+                                                            },
+                                                            "booking_date_to": {
+                                                                "type": "string"
+                                                            },
+                                                            "cabin_classes": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "departure_date_from": {
+                                                                "type": "string"
+                                                            },
+                                                            "departure_date_to": {
+                                                                "type": "string"
+                                                            },
+                                                            "fare_bases_code": {
+                                                                "type": "null"
+                                                            },
+                                                            "from_country": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "journey_types": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "marketing_carriers": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "number_of_stops": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "integer"
+                                                                }
+                                                            },
+                                                            "office_id": {
+                                                                "type": [
+                                                                    "null",
+                                                                    "string"
+                                                                ]
+                                                            },
+                                                            "operating_carriers": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "object",
+                                                                    "properties": {}
+                                                                }
+                                                            },
+                                                            "to_country": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    "apply_at": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "object",
+                                                            "properties": {}
+                                                        }
+                                                    },
+                                                    "created_at": {
+                                                        "type": "string"
+                                                    },
+                                                    "exclusion_rule": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "booking_class": {
+                                                                "type": "null"
+                                                            },
+                                                            "fare_bases_code": {
+                                                                "type": "null"
+                                                            },
+                                                            "from_country": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "marketing_carriers": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "operating_carriers": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "to_country": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    "fare_type": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "markup_amount": {
+                                                        "type": "integer"
+                                                    },
+                                                    "markup_type": {
+                                                        "type": "string"
+                                                    },
+                                                    "name": {
+                                                        "type": "string"
+                                                    },
+                                                    "passenger_type": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "object",
+                                                            "properties": {}
+                                                        }
+                                                    },
+                                                    "reference": {
+                                                        "type": "string"
+                                                    },
+                                                    "remark": {
+                                                        "type": "string"
+                                                    },
+                                                    "updated_at": {
+                                                        "type": "null"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "x-examples": {
+                                        "Example 1": {
+                                            "data": [
+                                                {
+                                                    "access_token": "sandbox_QjRlYWExZDQtOTAzMy00NTM2LThhMmYtMzU2ODYxMWY3OWM5",
+                                                    "active": false,
+                                                    "amount_type": "fixed",
+                                                    "applicable_rule": {
+                                                        "booking_class": null,
+                                                        "booking_date_from": "",
+                                                        "booking_date_to": "",
+                                                        "cabin_classes": [
+                                                            "economy",
+                                                            "business"
+                                                        ],
+                                                        "departure_date_from": "2024-10-13",
+                                                        "departure_date_to": "2025-11-13",
+                                                        "fare_bases_code": null,
+                                                        "from_country": [
+                                                            "NG",
+                                                            "UK",
+                                                            "US"
+                                                        ],
+                                                        "journey_types": [
+                                                            "one_way",
+                                                            "round_trip"
+                                                        ],
+                                                        "marketing_carriers": [
+                                                            "P4",
+                                                            "AT"
+                                                        ],
+                                                        "number_of_stops": [
+                                                            1,
+                                                            2
+                                                        ],
+                                                        "office_id": "LOSDUDIEE",
+                                                        "operating_carriers": [],
+                                                        "to_country": [
+                                                            "GH"
+                                                        ]
+                                                    },
+                                                    "apply_at": [],
+                                                    "created_at": "2024-03-16 14:20:56",
+                                                    "exclusion_rule": {
+                                                        "booking_class": null,
+                                                        "fare_bases_code": null,
+                                                        "from_country": [
+                                                            "AM",
+                                                            "AL"
+                                                        ],
+                                                        "marketing_carriers": [
+                                                            "ET"
+                                                        ],
+                                                        "operating_carriers": [
+                                                            "AS"
+                                                        ],
+                                                        "to_country": [
+                                                            "UK"
+                                                        ]
+                                                    },
+                                                    "fare_type": [
+                                                        "published"
+                                                    ],
+                                                    "markup_amount": 1000,
+                                                    "markup_type": "markup",
+                                                    "name": "Test Markup Test",
+                                                    "passenger_type": [],
+                                                    "reference": "502a47ef-a452-41a8-8662-205565333ee2",
+                                                    "remark": "This markup should be considered as base markup",
+                                                    "updated_at": null
+                                                },
+                                                {
+                                                    "access_token": "sandbox_QjRlYWExZDQtOTAzMy00NTM2LThhMmYtMzU2ODYxMWY3OWM5",
+                                                    "active": true,
+                                                    "amount_type": "fixed",
+                                                    "applicable_rule": {
+                                                        "booking_class": null,
+                                                        "booking_date_from": "",
+                                                        "booking_date_to": "",
+                                                        "cabin_classes": [],
+                                                        "departure_date_from": "",
+                                                        "departure_date_to": "",
+                                                        "fare_bases_code": null,
+                                                        "from_country": [],
+                                                        "journey_types": [],
+                                                        "marketing_carriers": [],
+                                                        "number_of_stops": [],
+                                                        "office_id": null,
+                                                        "operating_carriers": [],
+                                                        "to_country": []
+                                                    },
+                                                    "apply_at": [],
+                                                    "created_at": "2024-03-16 14:50:21",
+                                                    "exclusion_rule": {
+                                                        "booking_class": null,
+                                                        "fare_bases_code": null,
+                                                        "from_country": [],
+                                                        "marketing_carriers": [],
+                                                        "operating_carriers": [],
+                                                        "to_country": []
+                                                    },
+                                                    "fare_type": [],
+                                                    "markup_amount": 3000,
+                                                    "markup_type": "markup",
+                                                    "name": "EThopia Test Markup",
+                                                    "passenger_type": [],
+                                                    "reference": "2c3b8de8-9ee3-41d4-8707-6be1f3eb0285",
+                                                    "remark": "This markup should be considered as base markup",
+                                                    "updated_at": null
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "operationId": "get-markup",
+                "description": "This endpoint returns all the markup settings for the authenticated account."
+            },
+            "get - copy": {
+                "summary": "Get Markup Settings",
+                "tags": [],
+                "responses": {
+                    "2XX": {
+                        "description": "Success",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "access_token": {
+                                                        "type": "string"
+                                                    },
+                                                    "active": {
+                                                        "type": "boolean"
+                                                    },
+                                                    "amount_type": {
+                                                        "type": "string"
+                                                    },
+                                                    "applicable_rule": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "booking_class": {
+                                                                "type": "null"
+                                                            },
+                                                            "booking_date_from": {
+                                                                "type": "string"
+                                                            },
+                                                            "booking_date_to": {
+                                                                "type": "string"
+                                                            },
+                                                            "cabin_classes": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "departure_date_from": {
+                                                                "type": "string"
+                                                            },
+                                                            "departure_date_to": {
+                                                                "type": "string"
+                                                            },
+                                                            "fare_bases_code": {
+                                                                "type": "null"
+                                                            },
+                                                            "from_country": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "journey_types": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "marketing_carriers": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "number_of_stops": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "integer"
+                                                                }
+                                                            },
+                                                            "office_id": {
+                                                                "type": [
+                                                                    "null",
+                                                                    "string"
+                                                                ]
+                                                            },
+                                                            "operating_carriers": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "object",
+                                                                    "properties": {}
+                                                                }
+                                                            },
+                                                            "to_country": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    "apply_at": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "object",
+                                                            "properties": {}
+                                                        }
+                                                    },
+                                                    "created_at": {
+                                                        "type": "string"
+                                                    },
+                                                    "exclusion_rule": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "booking_class": {
+                                                                "type": "null"
+                                                            },
+                                                            "fare_bases_code": {
+                                                                "type": "null"
+                                                            },
+                                                            "from_country": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "marketing_carriers": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "operating_carriers": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "to_country": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    "fare_type": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "markup_amount": {
+                                                        "type": "integer"
+                                                    },
+                                                    "markup_type": {
+                                                        "type": "string"
+                                                    },
+                                                    "name": {
+                                                        "type": "string"
+                                                    },
+                                                    "passenger_type": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "object",
+                                                            "properties": {}
+                                                        }
+                                                    },
+                                                    "reference": {
+                                                        "type": "string"
+                                                    },
+                                                    "remark": {
+                                                        "type": "string"
+                                                    },
+                                                    "updated_at": {
+                                                        "type": "null"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "x-examples": {
+                                        "Example 1": {
+                                            "data": [
+                                                {
+                                                    "access_token": "sandbox_QjRlYWExZDQtOTAzMy00NTM2LThhMmYtMzU2ODYxMWY3OWM5",
+                                                    "active": false,
+                                                    "amount_type": "fixed",
+                                                    "applicable_rule": {
+                                                        "booking_class": null,
+                                                        "booking_date_from": "",
+                                                        "booking_date_to": "",
+                                                        "cabin_classes": [
+                                                            "economy",
+                                                            "business"
+                                                        ],
+                                                        "departure_date_from": "2024-10-13",
+                                                        "departure_date_to": "2025-11-13",
+                                                        "fare_bases_code": null,
+                                                        "from_country": [
+                                                            "NG",
+                                                            "UK",
+                                                            "US"
+                                                        ],
+                                                        "journey_types": [
+                                                            "one_way",
+                                                            "round_trip"
+                                                        ],
+                                                        "marketing_carriers": [
+                                                            "P4",
+                                                            "AT"
+                                                        ],
+                                                        "number_of_stops": [
+                                                            1,
+                                                            2
+                                                        ],
+                                                        "office_id": "LOSDUDIEE",
+                                                        "operating_carriers": [],
+                                                        "to_country": [
+                                                            "GH"
+                                                        ]
+                                                    },
+                                                    "apply_at": [],
+                                                    "created_at": "2024-03-16 14:20:56",
+                                                    "exclusion_rule": {
+                                                        "booking_class": null,
+                                                        "fare_bases_code": null,
+                                                        "from_country": [
+                                                            "AM",
+                                                            "AL"
+                                                        ],
+                                                        "marketing_carriers": [
+                                                            "ET"
+                                                        ],
+                                                        "operating_carriers": [
+                                                            "AS"
+                                                        ],
+                                                        "to_country": [
+                                                            "UK"
+                                                        ]
+                                                    },
+                                                    "fare_type": [
+                                                        "published"
+                                                    ],
+                                                    "markup_amount": 1000,
+                                                    "markup_type": "markup",
+                                                    "name": "Test Markup Test",
+                                                    "passenger_type": [],
+                                                    "reference": "502a47ef-a452-41a8-8662-205565333ee2",
+                                                    "remark": "This markup should be considered as base markup",
+                                                    "updated_at": null
+                                                },
+                                                {
+                                                    "access_token": "sandbox_QjRlYWExZDQtOTAzMy00NTM2LThhMmYtMzU2ODYxMWY3OWM5",
+                                                    "active": true,
+                                                    "amount_type": "fixed",
+                                                    "applicable_rule": {
+                                                        "booking_class": null,
+                                                        "booking_date_from": "",
+                                                        "booking_date_to": "",
+                                                        "cabin_classes": [],
+                                                        "departure_date_from": "",
+                                                        "departure_date_to": "",
+                                                        "fare_bases_code": null,
+                                                        "from_country": [],
+                                                        "journey_types": [],
+                                                        "marketing_carriers": [],
+                                                        "number_of_stops": [],
+                                                        "office_id": null,
+                                                        "operating_carriers": [],
+                                                        "to_country": []
+                                                    },
+                                                    "apply_at": [],
+                                                    "created_at": "2024-03-16 14:50:21",
+                                                    "exclusion_rule": {
+                                                        "booking_class": null,
+                                                        "fare_bases_code": null,
+                                                        "from_country": [],
+                                                        "marketing_carriers": [],
+                                                        "operating_carriers": [],
+                                                        "to_country": []
+                                                    },
+                                                    "fare_type": [],
+                                                    "markup_amount": 3000,
+                                                    "markup_type": "markup",
+                                                    "name": "EThopia Test Markup",
+                                                    "passenger_type": [],
+                                                    "reference": "2c3b8de8-9ee3-41d4-8707-6be1f3eb0285",
+                                                    "remark": "This markup should be considered as base markup",
+                                                    "updated_at": null
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "operationId": "get-markup",
+                "description": "This endpoint returns all the markup settings for the authenticated account."
+            },
+            "post": {
+                "summary": "Create Markup",
+                "tags": [],
+                "responses": {},
+                "operationId": "post-markup",
+                "x-stoplight": {
+                    "id": "hqdutd2wh78us"
+                },
+                "description": "This endpoint adds a new markup settings to your list of markups.\n\n> Once a markup is created it is automatically activated and synced.",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "x-examples": {
+                                    "Example 1": {
+                                        "name": "EThopia Test Markup",
+                                        "markup_type": "markup",
+                                        "markup_amount": 3000,
+                                        "amount_type": "fixed",
+                                        "apply_at": [],
+                                        "fare_type": [],
+                                        "passenger_type": [],
+                                        "remark": "This markup should be considered as base markup",
+                                        "applicable_rule": {
+                                            "marketing_carriers": [],
+                                            "operating_carriers": [],
+                                            "office_id": null,
+                                            "fare_bases_code": null,
+                                            "journey_types": [],
+                                            "number_of_stops": [],
+                                            "cabin_classes": [],
+                                            "booking_class": null,
+                                            "from_country": [],
+                                            "to_country": [],
+                                            "departure_date_from": "",
+                                            "departure_date_to": "",
+                                            "booking_date_from": "",
+                                            "booking_date_to": ""
+                                        },
+                                        "exclusion_rule": {
+                                            "marketing_carriers": [],
+                                            "operating_carriers": [],
+                                            "fare_bases_code": null,
+                                            "booking_class": null,
+                                            "from_country": [],
+                                            "to_country": []
+                                        }
+                                    }
+                                },
+                                "required": [
+                                    "name",
+                                    "markup_type",
+                                    "markup_amount",
+                                    "amount_type",
+                                    "apply_at",
+                                    "fare_type",
+                                    "passenger_type"
+                                ],
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "description": "Title of your markup",
+                                        "example": "Ethopia Airline SOTO Markup"
+                                    },
+                                    "markup_type": {
+                                        "description": "Markup type\n",
+                                        "enum": [
+                                            "discount",
+                                            "markup",
+                                            "promotional_discount",
+                                            "service_fee"
+                                        ]
+                                    },
+                                    "markup_amount": {
+                                        "type": "number"
+                                    },
+                                    "amount_type": {
+                                        "enum": [
+                                            "fixed",
+                                            "percentage"
+                                        ]
+                                    },
+                                    "apply_at": {
+                                        "type": "array",
+                                        "items": {
+                                            "enum": [
+                                                "booking",
+                                                "exchange",
+                                                "refund"
+                                            ]
+                                        }
+                                    },
+                                    "fare_type": {
+                                        "type": "array",
+                                        "items": {
+                                            "enum": [
+                                                "corporate",
+                                                "published",
+                                                "private"
+                                            ]
+                                        }
+                                    },
+                                    "passenger_type": {
+                                        "type": "array",
+                                        "items": {
+                                            "enum": [
+                                                "adult",
+                                                "child",
+                                                "infant"
+                                            ]
+                                        }
+                                    },
+                                    "remark": {
+                                        "type": "string",
+                                        "description": "Markup description"
+                                    },
+                                    "applicable_rule": {
+                                        "type": "object",
+                                        "description": "These are the rules to apply to the markup.",
+                                        "properties": {
+                                            "marketing_carriers": {
+                                                "type": "array",
+                                                "description": "Array of airline codes. e.g ['AT', 'ET]",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "operating_carriers": {
+                                                "type": "array",
+                                                "description": "Array of airline codes. e.g ['AT', 'ET]",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "office_id": {
+                                                "type": "array",
+                                                "nullable": true,
+                                                "items": {
+                                                    "x-stoplight": {
+                                                        "id": "rfq7mphc45s7w"
+                                                    },
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "fare_bases_code": {
+                                                "type": "string",
+                                                "nullable": true
+                                            },
+                                            "journey_types": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "number_of_stops": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "cabin_classes": {
+                                                "type": "array",
+                                                "description": "Array of cabin classes e.g ['economy', 'business', 'first', 'premium_economy']",
+                                                "items": {
+                                                    "enum": [
+                                                        "economy",
+                                                        "business",
+                                                        "first",
+                                                        "premium_economy"
+                                                    ]
+                                                }
+                                            },
+                                            "booking_class": {
+                                                "type": "string",
+                                                "nullable": true
+                                            },
+                                            "from_country": {
+                                                "type": "array",
+                                                "description": "Array of country codes. e.g ['US', 'UK']",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "to_country": {
+                                                "type": "array",
+                                                "description": "Array of country codes. e.g ['AT', 'US']",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "departure_date_from": {
+                                                "type": "string"
+                                            },
+                                            "departure_date_to": {
+                                                "type": "string"
+                                            },
+                                            "booking_date_from": {
+                                                "type": "string"
+                                            },
+                                            "booking_date_to": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    },
+                                    "exclusion_rule": {
+                                        "type": "object",
+                                        "description": "These are the rules used in excluding a particular flight search result from being applied to the markup",
+                                        "properties": {
+                                            "marketing_carriers": {
+                                                "type": "array",
+                                                "description": "Array of airline codes. e.g ['AT', 'ET]",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "operating_carriers": {
+                                                "type": "array",
+                                                "description": "Array of airline codes. e.g ['AT', 'ET]",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "fare_bases_code": {
+                                                "type": "string",
+                                                "nullable": true
+                                            },
+                                            "booking_class": {
+                                                "type": "string",
+                                                "nullable": true
+                                            },
+                                            "from_country": {
+                                                "type": "array",
+                                                "description": "Array of country codes. e.g ['UK', 'US', 'NG']",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "to_country": {
+                                                "type": "array",
+                                                "description": "Array of country codes. e.g ['UK', 'US', 'NG']",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "examples": {
+                                "Sample Request": {
+                                    "value": {
+                                        "name": "Ethopia Airline SOTO Markup",
+                                        "markup_type": "discount",
+                                        "markup_amount": 0,
+                                        "amount_type": "fixed",
+                                        "apply_at": [
+                                            "booking"
+                                        ],
+                                        "fare_type": [
+                                            "corporate"
+                                        ],
+                                        "passenger_type": [
+                                            "adult",
+                                            "child",
+                                            "infant"
+                                        ],
+                                        "remark": "string",
+                                        "applicable_rule": {
+                                            "marketing_carriers": [
+                                                "AT",
+                                                "ET"
+                                            ],
+                                            "operating_carriers": [
+                                                "BA"
+                                            ],
+                                            "office_id": [
+                                                "LOS7448494",
+                                                "LON7HDH4U4"
+                                            ],
+                                            "fare_bases_code": "string",
+                                            "journey_types": [
+                                                "oneway",
+                                                "round_trip"
+                                            ],
+                                            "number_of_stops": [
+                                                0,
+                                                1,
+                                                2
+                                            ],
+                                            "cabin_classes": [
+                                                "economy",
+                                                "business"
+                                            ],
+                                            "booking_class": "string",
+                                            "from_country": [
+                                                "UK",
+                                                "US"
+                                            ],
+                                            "to_country": [
+                                                "NG",
+                                                "GH"
+                                            ],
+                                            "departure_date_from": "2024-10-03",
+                                            "departure_date_to": "2024-12-30",
+                                            "booking_date_from": "2024-10-03",
+                                            "booking_date_to": "2024-12-30"
+                                        },
+                                        "exclusion_rule": {
+                                            "marketing_carriers": [
+                                                "P4"
+                                            ],
+                                            "operating_carriers": [
+                                                "LH"
+                                            ],
+                                            "fare_bases_code": "YIEONDN",
+                                            "booking_class": "L",
+                                            "from_country": [
+                                                "NG"
+                                            ],
+                                            "to_country": [
+                                                "UK"
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/markup/{reference}": {
+            "parameters": [
+                {
+                    "schema": {
+                        "type": "string"
+                    },
+                    "name": "reference",
+                    "in": "path",
+                    "required": true
+                },
+                {
+                    "schema": {
+                        "type": "string"
+                    },
+                    "name": "reference",
+                    "in": "path",
+                    "required": true,
+                    "description": "The reference ID of the markup to be updated"
+                }
+            ],
+            "patch": {
+                "summary": "Update Markup",
+                "tags": [],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "x-examples": {
+                                        "Example 1": {
+                                            "message": "Markup updated"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "operationId": "patch-markup-reference",
+                "x-stoplight": {
+                    "id": "wsocigyywxgww"
+                },
+                "description": "This endpoint updates a markup setting with the provided ```reference``` field.\n\n> The reference paramter can be gotten from the markup detail object",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "markup_type": {
+                                        "type": "string"
+                                    },
+                                    "markup_amount": {
+                                        "type": "integer"
+                                    },
+                                    "amount_type": {
+                                        "type": "string"
+                                    },
+                                    "apply_at": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {}
+                                        }
+                                    },
+                                    "fare_type": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {}
+                                        }
+                                    },
+                                    "passenger_type": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {}
+                                        }
+                                    },
+                                    "remark": {
+                                        "type": "string"
+                                    },
+                                    "applicable_rule": {
+                                        "type": "object",
+                                        "properties": {
+                                            "marketing_carriers": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {}
+                                                }
+                                            },
+                                            "operating_carriers": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {}
+                                                }
+                                            },
+                                            "office_id": {
+                                                "type": "string"
+                                            },
+                                            "fare_bases_code": {
+                                                "type": "null"
+                                            },
+                                            "journey_types": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {}
+                                                }
+                                            },
+                                            "number_of_stops": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {}
+                                                }
+                                            },
+                                            "cabin_classes": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {}
+                                                }
+                                            },
+                                            "booking_class": {
+                                                "type": "null"
+                                            },
+                                            "from_country": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {}
+                                                }
+                                            },
+                                            "to_country": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {}
+                                                }
+                                            },
+                                            "departure_date_from": {
+                                                "type": "string"
+                                            },
+                                            "departure_date_to": {
+                                                "type": "string"
+                                            },
+                                            "booking_date_from": {
+                                                "type": "string"
+                                            },
+                                            "booking_date_to": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    },
+                                    "exclusion_rule": {
+                                        "type": "object",
+                                        "properties": {
+                                            "marketing_carriers": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {}
+                                                }
+                                            },
+                                            "operating_carriers": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {}
+                                                }
+                                            },
+                                            "fare_bases_code": {
+                                                "type": "null"
+                                            },
+                                            "booking_class": {
+                                                "type": "null"
+                                            },
+                                            "from_country": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {}
+                                                }
+                                            },
+                                            "to_country": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {}
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "x-examples": {
+                                    "Example 1": {
+                                        "name": "Test Markup Test",
+                                        "markup_type": "markup",
+                                        "markup_amount": 1000,
+                                        "amount_type": "fixed",
+                                        "apply_at": [],
+                                        "fare_type": [],
+                                        "passenger_type": [],
+                                        "remark": "This markup should be considered as base markup",
+                                        "applicable_rule": {
+                                            "marketing_carriers": [],
+                                            "operating_carriers": [],
+                                            "office_id": "LOSDUDIEE",
+                                            "fare_bases_code": null,
+                                            "journey_types": [],
+                                            "number_of_stops": [],
+                                            "cabin_classes": [],
+                                            "booking_class": null,
+                                            "from_country": [],
+                                            "to_country": [],
+                                            "departure_date_from": "",
+                                            "departure_date_to": "",
+                                            "booking_date_from": "",
+                                            "booking_date_to": ""
+                                        },
+                                        "exclusion_rule": {
+                                            "marketing_carriers": [],
+                                            "operating_carriers": [],
+                                            "fare_bases_code": null,
+                                            "booking_class": null,
+                                            "from_country": [],
+                                            "to_country": []
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "summary": "Delete Markup",
+                "tags": [],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "x-examples": {
+                                        "Example 1": {
+                                            "message": "Markup deleted"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "x-examples": {
+                                        "Example 1": {
+                                            "message": "Provided markup reference not found"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "operationId": "delete-markup-reference",
+                "x-stoplight": {
+                    "id": "ovd5zy6o2bt69"
+                },
+                "description": "This endpoint deletes a markup settings."
+            }
+        },
+        "/markup/activate/{reference}": {
+            "parameters": [
+                {
+                    "schema": {
+                        "type": "string"
+                    },
+                    "name": "reference",
+                    "in": "path",
+                    "required": true,
+                    "description": "Reference of markup to be activated"
+                }
+            ],
+            "patch": {
+                "summary": "Activate a Markup",
+                "tags": [],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "x-examples": {
+                                        "Example 1": {
+                                            "message": "Markup activated"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {}
+                                }
+                            }
+                        }
+                    }
+                },
+                "operationId": "patch-markup-activate-reference",
+                "x-stoplight": {
+                    "id": "xdjyvp0jn2lqv"
+                },
+                "description": "This endpoint activates a markup settings.\n\n> Only activated markups are applied to flight results\n"
+            }
+        },
+        "/markup/deactivate/{reference}": {
+            "parameters": [
+                {
+                    "schema": {
+                        "type": "string"
+                    },
+                    "name": "reference",
+                    "in": "path",
+                    "required": true,
+                    "description": "The reference of the markup to be applied"
+                }
+            ],
+            "patch": {
+                "summary": "Deactivate Markup",
+                "tags": [],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "headers": {},
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "x-examples": {
+                                        "Example 1": {
+                                            "message": "Markup deactivated"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "x-examples": {
+                                        "Example 1": {
+                                            "message": "Provided markup reference not found"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "operationId": "patch-markup-deactivate-reference",
+                "x-stoplight": {
+                    "id": "77al06w9t2jba"
+                },
+                "description": "This endpoint deactivates a speific markup.\n\n> Only activated markups are applied to flight search results"
+            }
+        },
+        "/office_id": {
+            "get": {
+                "summary": "Account Office IDs",
+                "tags": [],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "x-examples": {
+                                        "Example 1": {
+                                            "data": [
+                                                {
+                                                    "active": true,
+                                                    "country": "NG",
+                                                    "id": "ABVN828TL",
+                                                    "primary": true,
+                                                    "source": "AMADEUS"
+                                                },
+                                                {
+                                                    "active": true,
+                                                    "country": "UK",
+                                                    "id": "LONU1255F",
+                                                    "primary": true,
+                                                    "source": "AMADEUS"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "required": [
+                                        "data"
+                                    ],
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "required": [
+                                                    "active",
+                                                    "country",
+                                                    "id",
+                                                    "primary",
+                                                    "source"
+                                                ],
+                                                "properties": {
+                                                    "active": {
+                                                        "type": "boolean"
+                                                    },
+                                                    "country": {
+                                                        "type": "string",
+                                                        "example": "UK"
+                                                    },
+                                                    "id": {
+                                                        "type": "string",
+                                                        "description": "Office ID\r\n",
+                                                        "example": "LONU9055F"
+                                                    },
+                                                    "primary": {
+                                                        "type": "boolean",
+                                                        "description": "Is office ID your primary ID"
+                                                    },
+                                                    "source": {
+                                                        "description": "Office ID provider",
+                                                        "enum": [
+                                                            "AMADEUS",
+                                                            "SABRE",
+                                                            "GALILEO",
+                                                            ""
+                                                        ]
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "examples": {
+                                    "Sample Response": {
+                                        "value": {
+                                            "data": [
+                                                {
+                                                    "active": true,
+                                                    "country": "UK",
+                                                    "id": "LONU9485KF",
+                                                    "primary": true,
+                                                    "source": "AMADEUS"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "operationId": "get-office_id",
+                "x-stoplight": {
+                    "id": "zclgim6hw943t"
+                },
+                "description": "This endpoint returns all the office IDs setup for your account. \n\n> Contact support to add Office IDs to your account"
+            }
+        }
+    },
+    "components": {
+        "schemas": {},
+        "securitySchemes": {
+            "Bearer": {
+                "type": "http",
+                "scheme": "bearer"
+            }
+        }
+    },
+    "security": [
+        {
+            "Bearer": []
+        }
+    ],
+    "tags": []
+}
