@@ -264,14 +264,20 @@ try {
         } catch (\Throwable $e) { error_log('credits generic installment settle: ' . $e->getMessage()); }
     }
 
-    // Non-installment (or settle unavailable): the full amount cleared → mark paid.
+    // Non-installment (or settle unavailable): the full amount cleared. Phase-E fix:
+    // mark paid + ISSUE + confirm + notify via the shared wallet_settle_issue_and_notify()
+    // so the synchronous Credits path matches the card/bank callback. Previously this
+    // branch set payment_status='paid' but NEVER set booking_status='confirmed', never
+    // attempted a supplier issue, and never notified — so a Credits-paid booking was
+    // left unfulfilled + silent. The helper confirms-on-payment where appropriate,
+    // issues issuing modules (confirming only on success, else paid-but-unissued), and
+    // notifies via the service-correct channel.
     if (!$umrahSettled && !$genInstallmentSettled) {
-        $db->update('bookings', [
-            'payment_status' => 'paid',
-            'paid_at' => date('Y-m-d H:i:s'),
-            'transaction_id' => $transactionId,
-            'payment_gateway' => 'Credits',
-        ], ['invoice_id' => $booking['invoice_id']]);
+        if (function_exists('wallet_settle_issue_and_notify')) {
+            wallet_settle_issue_and_notify($db, (string) $booking['invoice_id'], (string) $transactionId, 'Credits');
+        } else {
+            $db->update('bookings', ['payment_status' => 'paid', 'booking_status' => 'confirmed', 'paid_at' => date('Y-m-d H:i:s'), 'transaction_id' => $transactionId, 'payment_gateway' => 'Credits'], ['invoice_id' => $booking['invoice_id']]);
+        }
     }
 
     // GWPAY RESOLUTION (audit #6): close the gateway-attempt money_transactions row

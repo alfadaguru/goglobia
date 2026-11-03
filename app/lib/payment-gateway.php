@@ -94,6 +94,118 @@ function pg_notify_customer_paid($db, array $tokenData, array $data = []): void
 }
 
 /**
+ * Issue + confirm + notify a booking that was paid SYNCHRONOUSLY via the wallet /
+ * credits gateway (which never calls handle_payment_callback). Centralises the
+ * issue-and-notify logic so the wallet/credits settlers get the SAME correct
+ * behaviour the card/bank callback has — the Phase-E finding was that those two
+ * views had their OWN copies with three bugs:
+ *   (1) they curled modules/<type>/<module>/issue even for confirm-on-payment
+ *       modules — internal flights 'flights' -> modules/flights/flights/issue 404
+ *       (the CRITICAL #1 shape, on the wallet path);
+ *   (2) they set booking_status='confirmed' BEFORE attempting the issue, so a
+ *       FAILED supplier issue left the booking falsely 'confirmed' (no ticket);
+ *   (3) they fired a HARDCODED 'stays/payment' webhook regardless of service, so a
+ *       wallet-paid flights/tours/cars/insurance booking notified via the wrong
+ *       (or no) channel.
+ *
+ * Correct behaviour here: confirm-on-payment modules are marked confirmed+paid with
+ * no issue call; issuing modules attempt the supplier issue FIRST and are confirmed
+ * only on success (else left 'pending' = paid-but-unissued for an admin to retry);
+ * notification always goes through pg_notify_customer_paid (service-correct webhook
+ * + bm_notify_paid fallback). Caller has already debited the wallet + marked paid.
+ *
+ * @param object $db
+ * @param string $invoiceId
+ * @param string $transactionId  wallet spine txn ref (for the booking record)
+ * @param string $gatewayLabel   e.g. 'Wallet Balance' / 'Credits'
+ */
+function wallet_settle_issue_and_notify($db, string $invoiceId, string $transactionId, string $gatewayLabel = 'Wallet Balance'): void
+{
+    $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
+    if (!$booking) { return; }
+
+    $moduleType = strtolower((string) ($booking['module_type'] ?? ''));
+    $module     = strtolower((string) ($booking['module'] ?? ''));
+    $alreadyIssued = trim((string) ($booking['pnr'] ?? '')) !== '';
+
+    // Confirm-on-payment: no supplier issue endpoint (internal flights/visas/
+    // goglobia-insurance, tours/tour). Mark paid + confirmed, no loopback.
+    $isTours = in_array($moduleType, ['tours', 'tour'], true);
+    $confirmsOnPayment = pg_confirms_on_payment_module($module) || $isTours;
+
+    $autoIssueOn = (int) ($db->get('settings', 'booking_payment_issue', ['id' => 1])) === 1;
+    $issueOk = true; // default true for confirm-on-payment / already-issued / auto-issue-off
+
+    if (!$confirmsOnPayment && !$alreadyIssued && $autoIssueOn) {
+        // Attempt the supplier issue FIRST (before deciding confirmed vs pending).
+        $issueOk = false;
+        try {
+            $token   = function_exists('supplier_internal_token') ? supplier_internal_token($invoiceId) : '';
+            $issueUrl = root . 'modules/' . $moduleType . '/' . $module . '/issue';
+            $ch = curl_init($issueUrl);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => http_build_query(['invoice_id' => $invoiceId, '_internal_token' => $token]),
+                CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
+                CURLOPT_TIMEOUT => 60,
+                CURLOPT_SSL_VERIFYPEER => false,
+            ]);
+            $raw = curl_exec($ch);
+            $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($code === 200) {
+                $j = json_decode((string) $raw, true);
+                $issueOk = is_array($j) && !empty($j['status']);
+            }
+            if (!$issueOk) {
+                error_log("wallet_settle issue FAILED invoice={$invoiceId} module={$module} http={$code} — left pending (paid-but-unissued).");
+            }
+        } catch (\Throwable $e) {
+            error_log('wallet_settle issue: ' . $e->getMessage());
+            $issueOk = false;
+        }
+        // Rail issues via a PHP helper (no HTTP issue route), mirroring the callback.
+        if (!$issueOk && $moduleType === 'rail') {
+            try {
+                require_once dirname(__DIR__, 1) . '/../modules/rail/train/search.php';
+                if (function_exists('_train_issue_rail_after_payment')) {
+                    _train_issue_rail_after_payment($db, $invoiceId);
+                    $fresh = $db->get('bookings', ['pnr'], ['invoice_id' => $invoiceId]);
+                    $issueOk = $fresh && trim((string) ($fresh['pnr'] ?? '')) !== '';
+                }
+            } catch (\Throwable $e) { error_log('wallet_settle rail issue: ' . $e->getMessage()); }
+        }
+    }
+
+    // Status: confirmed only when the booking is genuinely complete — confirm-on-
+    // payment, already-issued, auto-issue-off (admin issues later = treat as
+    // confirmed-pending per existing behaviour), or a successful issue. A FAILED
+    // issue attempt stays 'pending' (paid-but-unissued) so it is never mislabelled.
+    $finalStatus = ($confirmsOnPayment || $alreadyIssued || !$autoIssueOn || $issueOk) ? 'confirmed' : 'pending';
+    $db->update('bookings', [
+        'payment_status'  => 'paid',
+        'booking_status'  => $finalStatus,
+        'paid_at'         => date('Y-m-d H:i:s'),
+        'transaction_id'  => $transactionId,
+        'payment_gateway' => $gatewayLabel,
+    ], ['invoice_id' => $invoiceId]);
+
+    // Notify through the shared, service-correct path (NOT a hardcoded stays
+    // webhook). Only when the booking actually confirmed — a paid-but-unissued
+    // 'pending' booking must not send a "ticket" (bm_notify_paid also guards this).
+    if ($finalStatus === 'confirmed') {
+        pg_notify_customer_paid($db, [
+            'invoice_id'  => $invoiceId,
+            'module'      => $module,
+            'module_type' => $moduleType,
+            'amount'      => $booking['price_markup'] ?? 0,
+            'currency'    => $booking['currency_markup'] ?? 'NGN',
+        ], ['gateway' => $gatewayLabel, 'transaction_id' => $transactionId]);
+    }
+}
+
+/**
  * TRIGGER NOTIFICATION FOR BOOKING EVENTS
  * @param string $event - Event name (booking.issued, booking.issue_failed, etc.)
  * @param array $data - Event data

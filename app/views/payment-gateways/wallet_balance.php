@@ -309,17 +309,22 @@ try {
     }
 
     // Non-umrah, non-installment (or a settlement failure): the full amount clears.
+    // Phase-E fix: mark paid + ISSUE + confirm + notify through the shared
+    // wallet_settle_issue_and_notify() so the synchronous wallet path has the SAME
+    // correct behaviour as the card/bank callback — confirm-on-payment modules skip
+    // the (possibly 404) issue loopback, issuing modules confirm ONLY on a
+    // successful supplier issue (else stay paid-but-unissued 'pending'), and the
+    // notification uses the service-correct webhook + bm_notify_paid fallback (not a
+    // hardcoded stays webhook). Replaces the old premature-confirm + buggy
+    // auto-issue + hardcoded-stays-webhook block that followed.
     if (!$umrahSettled && !$genInstallmentSettled) {
-        $db->update('bookings', [
-            'payment_status' => 'paid',
-            'booking_status' => 'confirmed',
-            'paid_at' => date('Y-m-d H:i:s'),
-            'transaction_id' => $transactionId,
-            'payment_gateway' => 'Wallet Balance',
-            'error_response' => '' // Clear any previous errors
-        ], [
-            'invoice_id' => $booking['invoice_id']
-        ]);
+        $db->update('bookings', ['error_response' => ''], ['invoice_id' => $booking['invoice_id']]);
+        if (function_exists('wallet_settle_issue_and_notify')) {
+            wallet_settle_issue_and_notify($db, (string) $booking['invoice_id'], (string) $transactionId, 'Wallet Balance');
+        } else {
+            // Defensive fallback (helper should always be loaded via payment-gateway.php).
+            $db->update('bookings', ['payment_status' => 'paid', 'booking_status' => 'confirmed', 'paid_at' => date('Y-m-d H:i:s'), 'transaction_id' => $transactionId, 'payment_gateway' => 'Wallet Balance'], ['invoice_id' => $booking['invoice_id']]);
+        }
     }
     
     // SPINE RESOLUTION (audit money-integrity): close the gateway-attempt
@@ -383,66 +388,14 @@ try {
         catch (\Throwable $e) { error_log('wallet_balance accrue: ' . $e->getMessage()); }
     }
 
-    // Get full booking data for auto-issue
+    // (Phase-E) Issue + confirm + notify for the generic case is now handled by
+    // wallet_settle_issue_and_notify() above (called in the non-umrah/non-installment
+    // branch). Umrah settles via umrah_settle_payment and installments via their own
+    // engine (both above), each with their own issue/notify — so the old blanket
+    // auto-issue + hardcoded 'stays/payment' webhook block here is removed: it curled
+    // a 404 issue URL for confirm-on-payment modules, confirmed before issuing, and
+    // mis-notified every non-stays service.
     $bookingData = $db->get('bookings', '*', ['invoice_id' => $booking['invoice_id']]);
-    
-    // ============================================================================
-    // AUTO-ISSUE BOOKING IF SETTING IS ENABLED
-    // ============================================================================
-    $autoIssueSetting = $db->get('settings', 'booking_payment_issue', ['id' => 1]);
-    $autoIssue = intval($autoIssueSetting);
-    
-    error_log("WALLET PAYMENT: Auto-issue setting value = " . var_export($autoIssueSetting, true) . ", Parsed as: {$autoIssue}");
-    
-    if ($autoIssue === 1 && $bookingData && empty($bookingData['pnr'])) {
-        $moduleType = $bookingData['module_type'] ?? 'stays';
-        $module = $bookingData['module'] ?? 'hotelbeds';
-        
-        
-        // Call the issue endpoint
-        $issueUrl = root . 'modules/' . $moduleType . '/' . $module . '/issue';
-        
-        $ch = curl_init($issueUrl);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query(['invoice_id' => $booking['invoice_id']]));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/x-www-form-urlencoded']);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
-        
-        $issueResponse = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        
-        error_log("WALLET AUTO-ISSUE: Invoice {$booking['invoice_id']}, HTTP: {$httpCode}, cURL Error: " . ($curlError ?: 'None'));
-        
-        if ($httpCode === 200) {
-            $issueData = json_decode($issueResponse, true);
-            if (isset($issueData['status']) && $issueData['status'] === true) {
-                error_log("WALLET AUTO-ISSUE: SUCCESS - Invoice {$booking['invoice_id']}, PNR generated");
-            }
-        }
-    }
-
-    // Rail: issue via same helper loader as booking/invoice routes
-    if (($bookingData['module_type'] ?? '') === 'rail' && empty($bookingData['pnr'])) {
-        require_once dirname(__DIR__, 3) . '/modules/rail/train/search.php';
-        _train_issue_rail_after_payment($db, $booking['invoice_id']);
-    }
-    
-    // Trigger payment webhook
-    if (function_exists('triggerWebhook')) {
-        triggerWebhook('stays/payment', 'stays.payment.completed', [
-            'invoice_id' => $booking['invoice_id'],
-            'booking_id' => $bookingData['id'] ?? null,
-            'transaction_id' => $transactionId,
-            'amount' => $paymentAmount,
-            'currency' => $paymentCurrency,
-            'payment_gateway' => 'Wallet Balance',
-            'user_id' => $userId,
-            'customer_email' => $user['email'] ?? '',
-            'timestamp' => date('Y-m-d H:i:s')
-        ]);
-    }
     
     // SUCCESS - SHOW CONFIRMATION AND REDIRECT
     ?>

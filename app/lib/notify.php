@@ -429,7 +429,11 @@ class NOTIFY {
             
             if (!isset($templateData['discount'])) $templateData['discount'] = 0;
             if (!isset($templateData['tax'])) $templateData['tax'] = $bookingData['tax_amount'] ?? $bookingData['tax'] ?? 0;
-            if (!isset($templateData['subtotal'])) $templateData['subtotal'] = $bookingData['subtotal'] ?? ($amount - ($templateData['tax'] ?? 0));
+            // Phase-E fix: price_markup/amount is a VARCHAR in the schema, so $amount
+            // and tax can arrive as strings; PHP 8 throws "Unsupported operand types:
+            // string - string" on the subtraction, aborting the whole notification.
+            // Cast to float before the arithmetic.
+            if (!isset($templateData['subtotal'])) $templateData['subtotal'] = $bookingData['subtotal'] ?? ((float) $amount - (float) ($templateData['tax'] ?? 0));
             
             $bDate = $bookingData['booking_date'] ?? $bookingData['bookingDate'] ?? date('Y-m-d H:i:s');
             $templateData['booking_date'] = $templateData['bookingDate'] = $bDate;
@@ -917,7 +921,11 @@ class NOTIFY {
             // Fix: Add defaults for template variables
             if (!isset($templateData['discount'])) $templateData['discount'] = 0;
             if (!isset($templateData['tax'])) $templateData['tax'] = $bookingData['tax_amount'] ?? $bookingData['tax'] ?? 0;
-            if (!isset($templateData['subtotal'])) $templateData['subtotal'] = $bookingData['subtotal'] ?? ($amount - ($templateData['tax'] ?? 0));
+            // Phase-E fix: price_markup/amount is a VARCHAR in the schema, so $amount
+            // and tax can arrive as strings; PHP 8 throws "Unsupported operand types:
+            // string - string" on the subtraction, aborting the whole notification.
+            // Cast to float before the arithmetic.
+            if (!isset($templateData['subtotal'])) $templateData['subtotal'] = $bookingData['subtotal'] ?? ((float) $amount - (float) ($templateData['tax'] ?? 0));
             
             // 3. CHECK NOTIFICATION PREFERENCES
             $emailConfig = json_decode($settings['email_providers_config'] ?? '{}', true);
