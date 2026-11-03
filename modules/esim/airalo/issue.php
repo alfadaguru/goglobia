@@ -17,12 +17,15 @@ $router->post('esim/airalo/issue', function () use ($db) {
             throw new Exception('Invoice ID is required');
         }
 
-        $booking = $db->get('bookings', '*', [
-            'invoice_id' => $invoiceId,
-            'module_type' => 'esim',
-            'module' => 'airalo',
-        ]);
-
+        // Resolve the booking by invoice first, then confirm it is an eSIM order.
+        // Two shapes qualify:
+        //   1) the web/BM path — module_type='esim' & module='airalo';
+        //   2) a GIA chat booking — module_type='ai_trip' & booking_data.gia_service
+        //      ='esim' (GIA keeps the ai_trip invoice/settle rails; see
+        //      createBookingTool.php + gia_bp_issue_esim). Without this, the hard
+        //      module_type='esim' filter returned 0 rows and every GIA eSIM was
+        //      auto-refunded, never provisioned.
+        $booking = $db->get('bookings', '*', ['invoice_id' => $invoiceId]);
         if (!$booking) {
             throw new Exception('eSIM booking not found');
         }
@@ -30,6 +33,13 @@ $router->post('esim/airalo/issue', function () use ($db) {
         $bookingData = json_decode($booking['booking_data'] ?? '{}', true);
         if (!is_array($bookingData)) {
             $bookingData = [];
+        }
+
+        $isWebEsim = (($booking['module_type'] ?? '') === 'esim' && ($booking['module'] ?? '') === 'airalo');
+        $isGiaEsim = (($booking['module_type'] ?? '') === 'ai_trip'
+            && strtolower((string) ($bookingData['gia_service'] ?? '')) === 'esim');
+        if (!$isWebEsim && !$isGiaEsim) {
+            throw new Exception('eSIM booking not found');
         }
 
         $existingProvision = (array) ($bookingData['airalo_provision'] ?? []);
