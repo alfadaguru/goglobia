@@ -42,6 +42,18 @@ $moduleCredentials = [
                 'placeholder' => 'Leave blank for https://backoffice.adivaha.com/b2c/api/v1'
             ],
         ],
+        'tiqwa' => [
+            'c1' => [
+                'label' => 'Access Token',
+                'required' => true,
+                'placeholder' => 'Paste the Bearer access token from your Tiqwa dashboard'
+            ],
+            'c2' => [
+                'label' => 'Base URL (optional)',
+                'required' => false,
+                'placeholder' => 'Leave blank for sandbox.tiqwa.com (TEST) / prod.tiqwa.com (LIVE)'
+            ],
+        ],
         'hotelston' => [
             'c1' => [
                 'label' => 'Email',
@@ -222,6 +234,18 @@ $moduleCredentials = [
                 'label' => 'Base URL (optional)',
                 'required' => false,
                 'placeholder' => 'Leave blank for https://backoffice.adivaha.com/b2c/api/v1'
+            ],
+        ],
+        'tiqwa' => [
+            'c1' => [
+                'label' => 'Access Token',
+                'required' => true,
+                'placeholder' => 'Paste the Bearer access token from your Tiqwa dashboard'
+            ],
+            'c2' => [
+                'label' => 'Base URL (optional)',
+                'required' => false,
+                'placeholder' => 'Leave blank for sandbox.tiqwa.com (TEST) / prod.tiqwa.com (LIVE)'
             ],
         ],
         'pkfare' => [
@@ -551,6 +575,20 @@ $moduleCredentials = [
                 'required' => false,
                 'type' => 'text',
                 'placeholder' => 'Leave blank for https://backoffice.adivaha.com/b2c/api/v1'
+            ],
+        ],
+        'tiqwa' => [
+            'api_testing' => true,
+            'c1' => [
+                'label' => 'Access Token',
+                'required' => true,
+                'placeholder' => 'Paste the Bearer access token from your Tiqwa dashboard'
+            ],
+            'c2' => [
+                'label' => 'Base URL (optional)',
+                'required' => false,
+                'type' => 'text',
+                'placeholder' => 'Leave blank for sandbox.tiqwa.com (TEST) / prod.tiqwa.com (LIVE)'
             ],
         ],
 
