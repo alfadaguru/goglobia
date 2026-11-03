@@ -129,9 +129,24 @@ function wallet_settle_issue_and_notify($db, string $invoiceId, string $transact
     $alreadyIssued = trim((string) ($booking['pnr'] ?? '')) !== '';
 
     // Confirm-on-payment: no supplier issue endpoint (internal flights/visas/
-    // goglobia-insurance, tours/tour). Mark paid + confirmed, no loopback.
+    // goglobia-insurance). Tours are confirm-on-payment BY DEFAULT — EXCEPT a tours
+    // supplier whose actions/issue.php is a LIVE loopback-ready booking endpoint
+    // (it calls supplier_action_guard), e.g. Adivaha Excursions which must POST
+    // /excursions/book to actually reserve. This MUST mirror the card/bank callback
+    // (payment-gateway.php tours gate ~864) exactly, or a wallet/credits-paid Adivaha
+    // tour would be marked confirmed + ticketed while never actually booked with the
+    // supplier (Phase-E final-verify defect).
     $isTours = in_array($moduleType, ['tours', 'tour'], true);
-    $confirmsOnPayment = pg_confirms_on_payment_module($module) || $isTours;
+    $toursHasLiveIssue = false;
+    if ($isTours && $module !== '') {
+        $toursIssueFile = dirname(__DIR__, 2) . '/modules/' . $moduleType . '/' . $module . '/actions/issue.php';
+        if (is_file($toursIssueFile)) {
+            $issueSrc = @file_get_contents($toursIssueFile);
+            $toursHasLiveIssue = ($issueSrc !== false && strpos($issueSrc, 'supplier_action_guard') !== false);
+        }
+    }
+    // Tours confirm on payment only when they do NOT have a live issue endpoint.
+    $confirmsOnPayment = pg_confirms_on_payment_module($module) || ($isTours && !$toursHasLiveIssue);
 
     $autoIssueOn = (int) ($db->get('settings', 'booking_payment_issue', ['id' => 1])) === 1;
     $issueOk = true; // default true for confirm-on-payment / already-issued / auto-issue-off
