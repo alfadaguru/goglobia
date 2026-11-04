@@ -125,6 +125,13 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
         x-data='{
             activeTab: <?= json_encode($initialTabKey) ?>,
             validTabs: <?= json_encode($validTabTypes) ?>,
+            /* Did the AI tab become active from a real user CLICK (vs. load/hash sync)?
+               Only then may we focus the AI input — on mobile, focusing an input scrolls
+               it into view, which on page load/hash yanked the viewport DOWN past the
+               header (reported "header auto-scrolls on mobile"). Set true only by the tab
+               button click handler. */
+            _aiTabUserClick: false,
+            isTouch: (typeof window !== "undefined" && (("ontouchstart" in window) || (navigator.maxTouchPoints || 0) > 0)),
             searchLoaded: {},
             searchReq: {},
             aiSearchEnabled: <?= $aiSearchEnabled ? 'true' : 'false' ?>,
@@ -551,7 +558,14 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
                     history.replaceState(null, "", "#" + v);
                 }
                 if (v === "ai") {
-                    $nextTick(() => $refs.aiSearchInput && $refs.aiSearchInput.focus());
+                    /* Only focus the AI input on a genuine desktop CLICK — never on a
+                       load/hash-driven activation, and never on touch devices, where
+                       .focus() scrolls the input into view (dragging the header off-screen)
+                       and pops the keyboard. The user can still tap the field to type. */
+                    if (this._aiTabUserClick && !this.isTouch) {
+                        $nextTick(() => $refs.aiSearchInput && $refs.aiSearchInput.focus());
+                    }
+                    this._aiTabUserClick = false;
                 }
             });
             window.addEventListener("hashchange", () => syncFromHash());
@@ -614,7 +628,7 @@ $aiEnabledModuleTypes = ($aiSearchEnabled && function_exists('aiTripEnabledModul
 
             <?php if ($aiSearchEnabled): ?>
             <button type="button"
-                @click="activeTab = 'ai'"
+                @click="_aiTabUserClick = true; activeTab = 'ai'"
                 class="ml-auto sticky right-0 z-[1] py-4 px-2 md:px-3 lg:px-4 flex items-center justify-center gap-2 whitespace-nowrap transition-all duration-300 border-b-2 -mb-px flex-shrink-0"
                 :class="activeTab === 'ai'
                     ? 'bg-primary/10 text-primary border-primary'
