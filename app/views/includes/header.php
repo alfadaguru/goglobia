@@ -712,9 +712,16 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
     <?php if (($header ?? true) !== false) { ?>
     <!-- parts/loadPart: DROPDOWN CONTENT (CURRENCIES/LANGUAGES) IS FETCHED FROM
          partials/* ONLY WHEN A DROPDOWN IS FIRST OPENED — KEEPS FIRST-PAINT DOM SMALL -->
-    <header class="sticky top-0 z-50 w-full transition-shadow duration-300" :class="scrolled ? 'shadow-md' : 'shadow-sm'" x-data="{ mobileMenuOpen: false, scrolled: (typeof window !== 'undefined' && window.scrollY > 10), _raf: 0, parts: {}, updateScrolled() { if (this._raf) return; this._raf = requestAnimationFrame(() => { this._raf = 0; var y = window.scrollY || 0; /* HYSTERESIS (dead-band) for live scroll: shrink only past 60px, un-shrink only below 10px. The header is position:sticky so shrinking it (h-28->h-24, 16px) shortens the document; a single threshold made a barely-scrollable page oscillate (shrink -> no overflow -> grow -> overflow...) = flicker, and reflowed the mobile layout. The 50px gap is far wider than the 16px height delta, so the shrink can never flip the trigger back. */ if (!this.scrolled && y > 60) { this.scrolled = true; } else if (this.scrolled && y < 10) { this.scrolled = false; } }) }, loadPart(name) { if (!this.parts[name]) fetch('<?=root?>partials/' + name).then(r => r.ok ? r.text() : '').then(t => { if (t) this.parts[name] = t }) } }" x-init="scrolled = window.scrollY > 10" @scroll.window.passive="updateScrolled()" style="background-color: var(--header-background); color: var(--header-text-color); font-size: var(--header-font-size); border-bottom: var(--header-border-width)px solid var(--header-border-color); min-height: var(--header-height)px; padding-left: var(--header-padding-x)px; padding-right: var(--header-padding-x)px; box-shadow: var(--header-shadow);">
+    <?php // HEADER — rewritten for mobile stability. Previously it SHRANK on scroll
+          // (h-28<->h-24 + logo resize + a scrolled-dependent mobile-menu top), which on
+          // mobile compounded with the browser URL-bar viewport resize to make the sticky
+          // header hide/jump/snap inconsistently. The cure: ONE FIXED HEIGHT that never
+          // changes on scroll (so the sticky header can never reflow), no viewport-height
+          // coupling. 'scrolled' is kept ONLY for the shadow cue (shadow doesn't reflow).
+          // z-50, bg from the theme var; min-height removed (the fixed h-20 governs). ?>
+    <header class="sticky top-0 z-50 w-full transition-shadow duration-300" :class="scrolled ? 'shadow-md' : 'shadow-sm'" x-data="{ mobileMenuOpen: false, scrolled: (typeof window !== 'undefined' && window.scrollY > 4), _raf: 0, parts: {}, updateScrolled() { if (this._raf) return; this._raf = requestAnimationFrame(() => { this._raf = 0; this.scrolled = (window.scrollY || 0) > 4; }) }, loadPart(name) { if (!this.parts[name]) fetch('<?=root?>partials/' + name).then(r => r.ok ? r.text() : '').then(t => { if (t) this.parts[name] = t }) } }" x-init="scrolled = window.scrollY > 4" @scroll.window.passive="updateScrolled()" style="background-color: var(--header-background); color: var(--header-text-color); font-size: var(--header-font-size); border-bottom: var(--header-border-width)px solid var(--header-border-color); padding-left: var(--header-padding-x)px; padding-right: var(--header-padding-x)px; box-shadow: var(--header-shadow);">
       <div class="container mx-auto">
-        <div class="flex items-center justify-between" :class="scrolled ? 'h-24' : 'h-28'">
+        <div class="flex items-center justify-between h-20">
           <!-- LOGO + NAVIGATION -->
           <!-- flex-1 min-w-0 lets this block take the free space and shrink; paired
                with shrink-0 on the right-hand controls, the controls keep their size
@@ -738,11 +745,11 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
               <!-- WIDE logo lockup (4:1). Sized by HEIGHT via inline style (the
                    precompiled build lacks lg:h-* variants); width flows from the
                    aspect ratio so it reads as a full brand wordmark like the OTAs.
-                   Gentle shrink on scroll. -->
+                   FIXED height — no scroll resize (that was part of the mobile
+                   hide/jump instability; a constant-size header can't reflow). -->
               <img src="<?=versionedAssetUrl('uploads/global/logo.png')?>" alt="<?=$GLOBALS['app']['business_name']?>"
                    class="w-auto object-contain"
-                   :style="scrolled ? 'height:46px' : 'height:54px'"
-                   style="height:54px" width="280" height="70" decoding="async">
+                   style="height:48px" width="280" height="70" decoding="async">
             </a>
             <?php endif; ?>
 
@@ -1092,11 +1099,10 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
            x-transition:leave-start="opacity-100 translate-y-0"
            x-transition:leave-end="opacity-0 -translate-y-2"
            @click.away="mobileMenuOpen = false"
-           x-effect="document.body.style.overflow = mobileMenuOpen ? 'hidden' : ''"
+           x-effect="(function(open){ if (open === window.__hdrMenuOpen) return; window.__hdrMenuOpen = open; if (open) { window.__hdrScrollY = window.scrollY || 0; document.body.style.position='fixed'; document.body.style.top=(-window.__hdrScrollY)+'px'; document.body.style.left='0'; document.body.style.right='0'; document.body.style.width='100%'; } else if (typeof window.__hdrScrollY === 'number') { document.body.style.position=''; document.body.style.top=''; document.body.style.left=''; document.body.style.right=''; document.body.style.width=''; window.scrollTo(0, window.__hdrScrollY); } })(mobileMenuOpen)"
            @keydown.escape.window="mobileMenuOpen = false"
            class="lg:hidden fixed left-0 right-0 bg-white border-b border-gray-200 shadow-2xl z-40 overflow-y-auto"
-           :style="(scrolled ? 'top:96px;max-height:calc(100vh - 96px)' : 'top:112px;max-height:calc(100vh - 112px)')"
-           style="top:112px;max-height:calc(100vh - 112px)">
+           style="top:80px;max-height:calc(100dvh - 80px)">
         <div class="px-4 py-6 space-y-4" x-data="{
           openDropdowns: {},
           toggleDropdown(id) {
