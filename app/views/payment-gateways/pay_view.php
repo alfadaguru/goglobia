@@ -9,7 +9,17 @@ $gatewayName = $gateway['name'] ?? 'Payment Gateway';
 // below for dev-mode test-card branching and must not be replaced by this.
 $gatewayDisplayName = !empty($gateway) ? getGatewayDisplayName($gateway) : $gatewayName;
 $gatewayLogo = $gateway['logo'] ?? null;
-$amount = number_format((float)$booking['price_markup'], 2, '.', '');
+// Display the amount that will ACTUALLY be charged — payment_amount_due() is
+// deposit/installment-aware (umrah / PaySmallSmall charge only the next-due slice,
+// not the full price_markup), and it is exactly what create_payment_token + the
+// gateway payload charge. Showing price_markup here mismatched the charge for
+// deposit/installment bookings (audit LOW). For a full-payment booking the two are
+// equal. Fall back to price_markup if the helper/db is unavailable.
+if (!isset($db)) { global $db; }
+$__payAmountDue = (function_exists('payment_amount_due') && isset($db))
+    ? (float) payment_amount_due($booking, $db)
+    : (float) $booking['price_markup'];
+$amount = number_format($__payAmountDue, 2, '.', '');
 $currency = strtoupper($booking['currency_markup'] ?? 'USD');
 $invoiceId = $booking['invoice_id'];
 $moduleType = $booking['module_type'] ?? 'stays';
