@@ -7,6 +7,40 @@
  */
 
 /**
+ * PAYMENT TRACE LOGGER (diagnostic). Writes one tagged, timestamped, millisecond-
+ * stamped line per payment-flow stage to app/logs/payment_trace.log so the whole
+ * pay path (process -> token -> pay page -> gateway view -> gateway cURL ->
+ * callback -> verify -> issue) can be followed end-to-end to find exactly WHERE a
+ * "keeps loading" hang happens. Also mirrors to error_log. Safe/no-op on failure;
+ * never breaks the payment flow. Toggle off by setting PAYLOG_ENABLED false.
+ */
+if (!defined('PAYLOG_ENABLED')) { define('PAYLOG_ENABLED', true); }
+if (!function_exists('paylog')) {
+    function paylog(string $stage, $context = null): void
+    {
+        if (!PAYLOG_ENABLED) { return; }
+        try {
+            $t = sprintf('%.3f', microtime(true));
+            $inv = '';
+            if (is_array($context)) {
+                $inv = (string) ($context['invoice_id'] ?? $context['invoice'] ?? '');
+            }
+            $ctx = $context === null ? '' : (is_scalar($context) ? (string) $context : json_encode($context, JSON_UNESCAPED_SLASHES));
+            if (is_string($ctx) && strlen($ctx) > 1500) { $ctx = substr($ctx, 0, 1500) . '…'; }
+            $line = '[PAYLOG ' . date('Y-m-d H:i:s') . ' t=' . $t . '] ' . $stage
+                . ($inv !== '' ? ' inv=' . $inv : '')
+                . ($ctx !== '' ? ' | ' . $ctx : '');
+            // dedicated trace file
+            $dir = dirname(__DIR__) . '/logs';
+            if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
+            @file_put_contents($dir . '/payment_trace.log', $line . "\n", FILE_APPEND | LOCK_EX);
+            // also to the standard error log (so it shows wherever PHP logs go)
+            error_log($line);
+        } catch (\Throwable $e) { /* never break payment on a logging error */ }
+    }
+}
+
+/**
  * Module NAMES (bookings.module) that CONFIRM ON PAYMENT with NO supplier-issue
  * loopback — i.e. there is no modules/<type>/<module>/issue endpoint to curl, so
  * the booking is complete the moment payment verifies. Any module NOT in this set
@@ -465,12 +499,14 @@ function handle_payment_callback($token, $action, $data = [])
 {
     global $db, $SECURE;
 
+    paylog('callback:ENTER handle_payment_callback (customer returned from gateway)', ['action' => $action, 'module' => $data['module'] ?? '?', 'module_type' => $data['module_type'] ?? '?']);
     try {
 
         // ============================================================
         // VERIFY PAYMENT TOKEN
         // ============================================================
         if (!verify_payment_token($token)) {
+            paylog('callback:ABORT invalid/expired token');
             return [
                 'success' => false,
                 'message' => 'Invalid or expired token'
@@ -479,6 +515,7 @@ function handle_payment_callback($token, $action, $data = [])
 
         // Get token data
         $tokenData = get_token_data($token);
+        paylog('callback:TOKEN-OK', ['invoice_id' => $tokenData['invoice_id'] ?? '?', 'gateway' => $tokenData['gateway'] ?? ($data['gateway'] ?? '?')]);
 
         // ============================================================
         // SERVER-SIDE PAYMENT VERIFICATION  (SECURITY-CRITICAL)
@@ -499,7 +536,9 @@ function handle_payment_callback($token, $action, $data = [])
             ?? ''
         );
         if ($action === 'success') {
+            paylog('callback:BEFORE verify_gateway_payment (re-verify with gateway — cURL)', ['invoice_id' => $tokenData['invoice_id'] ?? '?', 'gateway' => $gatewayName]);
             $verifiedAction = verify_gateway_payment($gatewayName, $data, $tokenData, $db);
+            paylog('callback:AFTER verify_gateway_payment', ['invoice_id' => $tokenData['invoice_id'] ?? '?', 'verified' => $verifiedAction]);
             if ($verifiedAction !== 'success') {
                 error_log("PAYMENT VERIFICATION OVERRIDE | Invoice: {$tokenData['invoice_id']} | Gateway: {$gatewayName} | Claimed: success | Actual: {$verifiedAction}");
                 $action = $verifiedAction;
@@ -1012,10 +1051,12 @@ function handle_payment_callback($token, $action, $data = [])
                             CURLOPT_SSL_VERIFYHOST => $isTboHolidays ? 2 : 0
                         ]);
 
+                        paylog('callback:BEFORE supplier-issue loopback cURL', ['invoice_id' => $tokenData['invoice_id'] ?? '?', 'url' => $apiUrl]);
                         $response  = curl_exec($ch);
                         $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
                         $curlError = curl_error($ch);
                         curl_close($ch);
+                        paylog('callback:AFTER supplier-issue loopback cURL', ['invoice_id' => $tokenData['invoice_id'] ?? '?', 'http' => $httpCode, 'curl_err' => $curlError ?: 'none']);
 
 
                         // ============================================================

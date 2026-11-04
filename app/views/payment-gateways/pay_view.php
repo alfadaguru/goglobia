@@ -355,11 +355,21 @@ function proceedToPayment() {
     // Show gateway container
     gatewayContainer.style.display = 'block';
     gatewayContainer.innerHTML = '<div style="text-align:center;padding:18px;color:#64748b;"><p>Loading payment gateway...</p></div>';
-    
+
+    // PAYLOG + hard client timeout: fetch() has NO default timeout, so if the
+    // gateway-loader (server-side gateway view / supplier cURL) stalls, this spinner
+    // would spin forever. Abort after 45s so the .catch always recovers the UI.
+    const __payStart = Date.now();
+    console.log('[PAYLOG] proceedToPayment: fetch payment/gateway START', { hash: '<?= $hash ?>', t: __payStart });
+    const __payAbort = new AbortController();
+    const __payTimer = setTimeout(() => { console.warn('[PAYLOG] proceedToPayment: fetch TIMEOUT @45s — aborting'); __payAbort.abort(); }, 45000);
+
     // Load gateway file via AJAX
-    fetch('<?= root ?>payment/gateway/<?= $hash ?>')
-        .then(response => response.text())
+    fetch('<?= root ?>payment/gateway/<?= $hash ?>', { signal: __payAbort.signal })
+        .then(response => { console.log('[PAYLOG] proceedToPayment: fetch RESPONSE', { status: response.status, ms: Date.now() - __payStart }); return response.text(); })
         .then(html => {
+            clearTimeout(__payTimer);
+            console.log('[PAYLOG] proceedToPayment: gateway HTML received', { bytes: html.length, ms: Date.now() - __payStart });
             gatewayContainer.innerHTML = html;
             
             // Execute any scripts in the loaded HTML
@@ -386,8 +396,12 @@ function proceedToPayment() {
             }, 400);
         })
         .catch(error => {
-            console.error('Error:', error);
-            gatewayContainer.innerHTML = '<div style="text-align:center;padding:18px;color:#ef4444;"><p>Error loading gateway. Please try again.</p></div>';
+            clearTimeout(__payTimer);
+            const aborted = (error && error.name === 'AbortError');
+            console.error('[PAYLOG] proceedToPayment: fetch FAILED', { aborted: aborted, ms: Date.now() - __payStart, error: String(error) });
+            gatewayContainer.innerHTML = '<div style="text-align:center;padding:18px;color:#ef4444;"><p>'
+                + (aborted ? 'The payment gateway took too long to respond. Please try again.' : 'Error loading gateway. Please try again.')
+                + '</p></div>';
             btn.disabled = false;
             btnText.textContent = 'Proceed to Payment';
             btnSpinner.style.display = 'none';

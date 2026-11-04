@@ -126,3 +126,6 @@ app/cache/updates_rl/
 
 # Runtime mPDF font cache (generated at request time — never commit)
 uploads/tmp/
+
+# Payment trace + runtime logs (diagnostic, never commit)
+app/logs/

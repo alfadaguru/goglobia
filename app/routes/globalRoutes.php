@@ -330,8 +330,10 @@ $router->post('/payment/process', function () use ($SECURE, $db) {
 
     $invoiceId = $_POST['invoice_id'] ?? '';
     $gatewayId = $_POST['gateway_id'] ?? '';
+    paylog('process:ENTER', ['invoice_id' => $invoiceId, 'gateway_id' => $gatewayId]);
 
     if (!$invoiceId || !$gatewayId) {
+        paylog('process:ABORT missing-payment-data', ['invoice_id' => $invoiceId, 'gateway_id' => $gatewayId]);
         echo "Missing payment data";
         exit;
     }
@@ -341,9 +343,11 @@ $router->post('/payment/process', function () use ($SECURE, $db) {
     $gateway = $db->get('payment_gateways', '*', ['id' => $gatewayId]);
 
     if (!$booking || !$gateway) {
+        paylog('process:ABORT invalid-payment-data', ['invoice_id' => $invoiceId, 'booking' => (bool) $booking, 'gateway' => (bool) $gateway]);
         echo "Invalid payment data";
         exit;
     }
+    paylog('process:LOADED', ['invoice_id' => $invoiceId, 'gateway' => $gateway['name'] ?? '?', 'gw_dev_mode' => $gateway['dev_mode'] ?? '?', 'booking_ccy' => $booking['currency_markup'] ?? '?', 'module' => $booking['module'] ?? '?', 'module_type' => $booking['module_type'] ?? '?', 'pay_status' => $booking['payment_status'] ?? '?']);
 
     // ────────────────────────────────────────────────────────────────────────
     // SERVER-SIDE MONEY GUARDS (customer-journey audit #4).
@@ -357,6 +361,7 @@ $router->post('/payment/process', function () use ($SECURE, $db) {
     // token is minted. Mirrors app/lib/payment-gateway.php:82-145.
     // ────────────────────────────────────────────────────────────────────────
     $__payBlock = function (string $msg) use ($invoiceId) {
+        paylog('process:BLOCKED (redirect back to invoice)', ['invoice_id' => $invoiceId, 'reason' => $msg]);
         $_SESSION['payment_notice'] = ['type' => 'error', 'title' => 'Payment Blocked', 'message' => $msg];
         header('Location: ' . root . 'invoice/' . $invoiceId);
         exit;
@@ -426,13 +431,17 @@ $router->post('/payment/process', function () use ($SECURE, $db) {
         }
     }
 
+    paylog('process:GUARDS-PASSED creating token', ['invoice_id' => $invoiceId]);
     // Create payment token
     $token = create_payment_token($booking, $gateway);
+    paylog('process:TOKEN-CREATED', ['invoice_id' => $invoiceId, 'token_len' => is_string($token) ? strlen($token) : gettype($token)]);
 
     // Log payment transaction and check attempt limit
     $logResult = log_payment_transaction($booking, $gateway, $token);
+    paylog('process:TXN-LOGGED', ['invoice_id' => $invoiceId, 'ok' => (bool) ($logResult['success'] ?? false), 'hash' => $logResult['hash'] ?? null, 'msg' => $logResult['message'] ?? null]);
 
     if (!$logResult['success']) {
+        paylog('process:ABORT txn-log-failed (redirect to invoice)', ['invoice_id' => $invoiceId, 'msg' => $logResult['message'] ?? null]);
         // Attempt limit reached or error
         $_SESSION['payment_notice'] = [
             'type' => 'error',
@@ -444,6 +453,7 @@ $router->post('/payment/process', function () use ($SECURE, $db) {
     }
 
     // Redirect to secure payment page with hash
+    paylog('process:REDIRECT -> /payment/{hash}', ['invoice_id' => $invoiceId, 'hash' => $logResult['hash']]);
     header('Location: ' . root . 'payment/' . $logResult['hash']);
     exit;
 });
@@ -455,11 +465,13 @@ $router->post('/payment/process', function () use ($SECURE, $db) {
 // ============================================================================
 $router->get('/payment/([a-f0-9]{32})', function ($hash) use ($SECURE, $db) {
     require_once 'app/lib/payment-gateway.php';
+    paylog('paypage:ENTER /payment/{hash}', ['hash' => $hash]);
 
     // Get transaction from logs
     $transaction = get_payment_transaction($hash);
 
     if (!$transaction || !$transaction['data']) {
+        paylog('paypage:ABORT invalid/expired link', ['hash' => $hash]);
         $_SESSION['message'] = [
             'type' => 'error',
             'text' => 'Invalid or expired payment link'
@@ -517,6 +529,7 @@ $router->get('/payment/([a-f0-9]{32})', function ($hash) use ($SECURE, $db) {
     $title = 'Proceed to Payment - ' . $GLOBALS['app']['home_title'];
     $description = 'Complete your payment for invoice ' . $booking['invoice_id'];
 
+    paylog('paypage:RENDER pay_view (user sees Proceed button)', ['invoice_id' => $booking['invoice_id'], 'gateway' => $gateway['name'] ?? '?']);
     require_once views . 'payment-gateways/pay_view.php';
 });
 
@@ -527,11 +540,13 @@ $router->get('/payment/([a-f0-9]{32})', function ($hash) use ($SECURE, $db) {
 // ============================================================================
 $router->get('/payment/gateway/([a-f0-9]{32})', function ($hash) use ($SECURE, $db) {
     require_once 'app/lib/payment-gateway.php';
+    paylog('gatewayloader:ENTER /payment/gateway/{hash} (Proceed clicked)', ['hash' => $hash]);
 
     // Get transaction from logs
     $transaction = get_payment_transaction($hash);
 
     if (!$transaction || !$transaction['data']) {
+        paylog('gatewayloader:ABORT invalid/expired link', ['hash' => $hash]);
         echo '<p style="color:red;text-align:center;">Invalid or expired payment link</p>';
         exit;
     }
@@ -594,8 +609,13 @@ $router->get('/payment/gateway/([a-f0-9]{32})', function ($hash) use ($SECURE, $
     $gatewayFile = __DIR__ . '/../views/payment-gateways/' . $gatewayName . '.php';
 
     if (file_exists($gatewayFile)) {
+        // If the page "keeps loading" here, the BEFORE line will appear with NO
+        // AFTER line — i.e. the gateway view (its supplier cURL) is the hang point.
+        paylog('gatewayloader:BEFORE include ' . $gatewayName . '.php (gateway view runs; any supplier cURL happens here)', ['invoice_id' => $booking['invoice_id'] ?? '?', 'gateway' => $gateway['name'] ?? '?', 'amount' => $payload['price'] ?? '?', 'currency' => $payload['currency'] ?? '?']);
         include $gatewayFile;
+        paylog('gatewayloader:AFTER include ' . $gatewayName . '.php (gateway view returned)', ['invoice_id' => $booking['invoice_id'] ?? '?']);
     } else {
+        paylog('gatewayloader:ABORT gateway file missing', ['gateway' => $gatewayName]);
         echo '<p style="color:red;text-align:center;">Payment gateway not supported</p>';
     }
     exit;

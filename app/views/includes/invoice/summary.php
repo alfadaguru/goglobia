@@ -250,6 +250,7 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
             const icon = document.getElementById('paymentBtnIcon');
             const text = document.getElementById('paymentBtnText');
 
+            console.log('[PAYLOG] handleMakePayment: click', { invoiceId: invoiceId, externalPaymentUrl: externalPaymentUrl, externalPaymentFormAction: externalPaymentFormAction, t: Date.now() });
             // Show loading state (submit feedback only — the navigation itself is
             // the real feedback). ROOT-CAUSE FIX: the old code wrapped everything in
             // a fixed setTimeout(...,2000) — 2s of pure dead time the customer sees
@@ -262,10 +263,12 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
             text.textContent = 'Processing...';
 
             if (externalPaymentUrl) {
+                console.log('[PAYLOG] handleMakePayment: redirecting to externalPaymentUrl', externalPaymentUrl);
                 window.location.href = externalPaymentUrl;
                 return;
             }
             if (externalPaymentFormAction) {
+                console.log('[PAYLOG] handleMakePayment: POST form to', externalPaymentFormAction);
                 const form = document.createElement('form');
                 form.method = 'POST';
                 form.action = externalPaymentFormAction;
@@ -278,6 +281,7 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
                 form.submit();
                 return;
             }
+            console.log('[PAYLOG] handleMakePayment: no external url/form -> processPayment() (internal /payment/process)');
             processPayment();
         }
 

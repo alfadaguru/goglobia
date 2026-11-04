@@ -142,9 +142,11 @@ curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 // `if ($curlError)` branch below renders a clean error + Return-to-Invoice instead.
 curl_setopt($ch, CURLOPT_TIMEOUT, 30);
 curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+if (function_exists('paylog')) { paylog('paystack:BEFORE curl_exec -> ' . $url, ['invoice_id' => $reference ?? ($booking['invoice_id'] ?? '?'), 'amount_kobo' => $amountInKobo ?? '?']); }
 $response = curl_exec($ch);
 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 $curlError = curl_error($ch);
+if (function_exists('paylog')) { paylog('paystack:AFTER curl_exec', ['http' => $httpCode, 'curl_err' => $curlError ?: 'none', 'resp_len' => is_string($response) ? strlen($response) : 0]); }
 
 $result = json_decode($response, true);
 
