@@ -412,19 +412,34 @@ $router->post('/api/booking/update-payment-gateway', function () use ($SECURE, $
     header('Content-Type: application/json');
 
     try {
+        // ── Input validation (read first so we can resolve the invoice owner) ──
+        $input = json_decode(file_get_contents('php://input'), true);
+        $invoiceIdEarly = trim((string) ($input['invoice_id'] ?? ''));
+
         // ── Authentication ──────────────────────────────────────────────────
-        if (empty($_SESSION['user_id'])) {
+        // GUEST-OWNER FIX: the normal customer paying their OWN booking is often a
+        // GUEST (not logged in). The old hard `user_id` requirement 401'd every
+        // guest, so this persist (which just records the chosen gateway on the
+        // booking) failed on the real checkout path and spammed the console with a
+        // 401. Allow EITHER a logged-in user OR a same-site web-client guest who
+        // OWNS this invoice (grantInvoiceSessionOwnership stores it in
+        // $_SESSION['owned_invoices'] — the same mechanism enforceInvoiceAccess
+        // uses). This is non-sensitive (it only changes which gateway the booking
+        // will be paid with; the actual charge still re-validates everything).
+        $sessionUserId = (int) ($_SESSION['user_id'] ?? 0);
+        $isAdmin       = !empty($_SESSION['admin_logged_in'])
+                      || (strtolower($_SESSION['user_role'] ?? '') === 'admin');
+        $isWebClient   = !empty($_SESSION['is_web_client']);
+        $ownsInvoice   = $invoiceIdEarly !== ''
+            && !empty($_SESSION['owned_invoices'])
+            && is_array($_SESSION['owned_invoices'])
+            && in_array($invoiceIdEarly, $_SESSION['owned_invoices'], true);
+
+        if ($sessionUserId === 0 && !$isAdmin && !($isWebClient && $ownsInvoice)) {
             http_response_code(401);
             echo json_encode(['success' => false, 'message' => 'Unauthorized']);
             exit;
         }
-
-        $sessionUserId = (int) $_SESSION['user_id'];
-        $isAdmin       = !empty($_SESSION['admin_logged_in'])
-                      || (strtolower($_SESSION['user_role'] ?? '') === 'admin');
-
-        // ── Input validation ─────────────────────────────────────────────────
-        $input = json_decode(file_get_contents('php://input'), true);
 
         // CSRF: cookie-session mutation (changes a booking's payment gateway).
         // Was authenticated but had no CSRF token.
@@ -463,7 +478,12 @@ $router->post('/api/booking/update-payment-gateway', function () use ($SECURE, $
             exit;
         }
 
-        if (!$isAdmin && (int) $booking['user_id'] !== $sessionUserId) {
+        // Owner = admin, OR the logged-in user who owns it, OR a web-client guest
+        // who owns this invoice in their session (owned_invoices, resolved above).
+        $ownerOk = $isAdmin
+            || ($sessionUserId > 0 && (int) $booking['user_id'] === $sessionUserId)
+            || ($isWebClient && $ownsInvoice);
+        if (!$ownerOk) {
             http_response_code(403);
             echo json_encode(['success' => false, 'message' => 'Forbidden']);
             exit;
