@@ -74,7 +74,9 @@ if (empty($secretKey)) {
     return;
 }
 
-$amountInKobo = (float)$booking['price_markup'] * 100;
+// Amount MUST be an INTEGER in the currency subunit (kobo). Float *100 can yield
+// 10009.9999… and json_encode a non-integer Paystack rejects — round to int (audit).
+$amountInKobo = (int) round((float)$booking['price_markup'] * 100);
 $amount = number_format((float)$booking['price_markup'], 2, '.', '');
 $currency = strtoupper($booking['currency_markup'] ?? 'NGN');
 
@@ -155,21 +157,17 @@ if ($curlError) {
     return;
 }
 
-if ($result && $result['status'] && isset($result['data']['authorization_url'])) {
-    $authUrl = $result['data']['authorization_url'];
-
-    // Auto-redirect in production, show button in dev mode
-    if (empty($config['dev_mode'])) {
-        header("Location: {$authUrl}");
-        exit;
-    }
+if ($result && !empty($result['status']) && isset($result['data']['access_code'])) {
+    $accessCode = (string) $result['data']['access_code'];
+    $authUrl    = (string) ($result['data']['authorization_url'] ?? '');
 } else {
     $errorMsg = $result['message'] ?? 'Unknown error';
+    if (function_exists('paylog')) { paylog('paystack:INIT-FAILED', ['http' => $httpCode, 'msg' => $errorMsg]); }
     echo '<div style="max-width:420px;margin:0 auto;padding:20px;background:#fff;border-radius:12px">';
     echo '<p style="color:red"><strong>Payment initialization failed:</strong><br>' . htmlspecialchars($errorMsg) . '</p>';
     echo '<p style="font-size:12px;color:#666">HTTP Code: ' . $httpCode . '</p>';
     if (!empty($config['dev_mode'])) {
-        echo '<pre style="background:#f5f5f5;padding:10px;font-size:11px;overflow:auto">' . htmlspecialchars($response) . '</pre>';
+        echo '<pre style="background:#f5f5f5;padding:10px;font-size:11px;overflow:auto">' . htmlspecialchars((string) $response) . '</pre>';
     }
     echo '</div>';
     return;
@@ -179,12 +177,30 @@ if ($result && $result['status'] && isset($result['data']['authorization_url']))
     echo '<p style="color:red">Payment processing error. Please try again.</p>';
     return;
 }
+
+// Public key (c2 = pk_...) for Paystack Inline. Not strictly required by
+// resumeTransaction(access_code), but passed for robustness.
+$publicKey = trim((string) ($config['c2'] ?? $gateway['c2'] ?? $config['public_key'] ?? ''));
+if (function_exists('paylog')) { paylog('paystack:INIT-OK -> popup resumeTransaction', ['invoice_id' => $booking['invoice_id'] ?? '?', 'has_access_code' => $accessCode !== '']); }
 ?>
 
+<!-- ============================================================================
+ PAYSTACK POPUP (InlineJS v2) — the CORRECT method for our AJAX-loaded gateway view.
+ This view is fetch()'d into a <div> (pay_view.php), so a server header(Location)
+ or a top-level redirect cannot navigate the customer's window (root cause of the
+ "keeps loading / never launches" bug). Instead: the SERVER already did Initialize
+ (secret key stayed server-side) and we hand the resulting ACCESS_CODE to the
+ browser, load Paystack InlineJS v2, and call new Paystack().resumeTransaction(code)
+ — checkout opens as an in-page modal with NO navigation. onSuccess navigates to our
+ existing Verify callback (handle_payment_callback re-verifies with /transaction/verify
+ — "always verify before giving value"). onCancel/onError reset the UI cleanly.
+ (Per Paystack docs: Accept Payments + InlineJS v2.)
+============================================================================ -->
 <style>
 .paystack-container{max-width:420px;margin:0 auto;padding:20px;background:#fff;border-radius:12px;box-shadow:0 10px 25px rgba(15,23,42,0.08);text-align:center}
 .psk-btn{background:#00c3f7;color:#fff;border:none;padding:15px 30px;border-radius:5px;font-size:16px;cursor:pointer;width:100%;font-weight:bold;text-decoration:none;display:inline-block}
 .psk-btn:hover{background:#00b0e0}
+.psk-btn[disabled]{opacity:.6;cursor:default}
 .info{background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:15px;text-align:left}
 .info p{margin:5px 0;font-size:14px}
 </style>
@@ -196,20 +212,73 @@ if ($result && $result['status'] && isset($result['data']['authorization_url']))
         <p><strong>Email:</strong> <?= htmlspecialchars($email) ?></p>
     </div>
 
-    <a href="<?= htmlspecialchars($authUrl) ?>" class="psk-btn">
+    <button type="button" id="pskPayBtn" class="psk-btn">
         Pay <?= htmlspecialchars($currency . ' ' . $amount) ?>
-    </a>
+    </button>
+    <p id="pskMsg" style="margin-top:12px;font-size:13px;color:#ef4444;display:none;"></p>
     <p style="margin-top:15px;font-size:12px;color:#94a3b8">Secured by Paystack</p>
 </div>
 
 <script>
-// Auto-redirect after showing info
-(function() {
-    const isDevMode = <?= json_encode(!empty($config['dev_mode'])) ?>;
-    const delay = isDevMode ? 1500 : 500; // Longer delay in dev mode to read credentials
-    
-    setTimeout(function() {
-        window.location.href = '<?= htmlspecialchars($authUrl) ?>';
-    }, delay);
+(function () {
+    var ACCESS_CODE = <?= json_encode($accessCode) ?>;
+    var PUBLIC_KEY  = <?= json_encode($publicKey) ?>;
+    var CALLBACK    = <?= json_encode($callbackUrl) ?>;   // our Verify callback (payment_status=success&token=…)
+    var AUTH_URL    = <?= json_encode($authUrl) ?>;       // hosted-page fallback
+    var btn = document.getElementById('pskPayBtn');
+    var msg = document.getElementById('pskMsg');
+    function showMsg(t){ if(msg){ msg.textContent = t; msg.style.display = 'block'; } }
+    function reset(){ if(btn){ btn.disabled = false; btn.textContent = 'Pay <?= htmlspecialchars($currency . ' ' . $amount, ENT_QUOTES) ?>'; } }
+
+    function launch() {
+        if (btn) { btn.disabled = true; btn.textContent = 'Opening secure checkout…'; }
+        console.log('[PAYLOG] paystack popup: launch resumeTransaction', { hasCode: !!ACCESS_CODE });
+        try {
+            var pop = new Paystack();
+            pop.resumeTransaction(ACCESS_CODE, {
+                onSuccess: function (txn) {
+                    console.log('[PAYLOG] paystack popup: onSuccess', txn && txn.reference);
+                    // Hand off to our server callback, which RE-VERIFIES with Paystack.
+                    window.top.location.href = CALLBACK;
+                },
+                onCancel: function () {
+                    console.log('[PAYLOG] paystack popup: onCancel');
+                    showMsg('Payment cancelled. You can try again.');
+                    reset();
+                },
+                onError: function (err) {
+                    console.error('[PAYLOG] paystack popup: onError', err);
+                    showMsg('Payment error. Please try again.');
+                    reset();
+                }
+            });
+        } catch (e) {
+            // InlineJS failed to load/run → fall back to the hosted page at top level.
+            console.error('[PAYLOG] paystack popup: exception, falling back to hosted page', e);
+            if (AUTH_URL) { window.top.location.href = AUTH_URL; }
+            else { showMsg('Could not open the payment window. Please try again.'); reset(); }
+        }
+    }
+
+    // Load InlineJS v2 then wire the button. If the library is already present, reuse it.
+    function ready() {
+        if (btn) { btn.addEventListener('click', launch); }
+        // auto-open once the library is ready (the customer already clicked "Proceed")
+        launch();
+    }
+    if (window.Paystack) {
+        ready();
+    } else {
+        var s = document.createElement('script');
+        s.src = 'https://js.paystack.co/v2/inline.js';
+        s.onload = ready;
+        s.onerror = function () {
+            // CDN blocked/offline → top-level redirect to the hosted checkout (still works).
+            console.error('[PAYLOG] paystack popup: inline.js failed to load, falling back');
+            if (AUTH_URL) { window.top.location.href = AUTH_URL; }
+            else { showMsg('Could not load the payment library. Please try again.'); }
+        };
+        document.head.appendChild(s);
+    }
 })();
 </script>
