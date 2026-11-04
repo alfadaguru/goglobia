@@ -562,7 +562,7 @@ unset($__menu);
   $__wlFootScripts = function_exists('wl_is_tenant') && wl_is_tenant();
 ?>
 <?php if (!$__wlFootScripts && isset($_SESSION['user_id']) && !empty($_SESSION['user_id'])): ?>
-        <script defer src="https://js.pusher.com/8.0.1/pusher.min.js"></script>
+        <script defer src="<?= root ?>assets/js/vendor/pusher-8.0.1.min.js"></script><?php /* self-hosted: external js.pusher.com took 8s+ and blocked window.load (page "keeps loading") */ ?>
         <script defer>
             document.addEventListener('DOMContentLoaded', function () {
                 if (typeof Pusher === 'undefined') { console.warn('Pusher script not loaded, skipping init.'); return; }
@@ -712,9 +712,14 @@ unset($__menu);
 <script defer src="<?= root ?>assets/js/toast.js"></script>
 <script defer
     src="<?= root ?>assets/js/datepicker.js?v=<?= file_exists(__DIR__ . '/../../../assets/js/datepicker.js') ? filemtime(__DIR__ . '/../../../assets/js/datepicker.js') : time() ?>"></script>
-<?php if (isset($_SESSION['user_id']) && !empty($_SESSION['user_id'])): ?>
-        <script defer src="https://unpkg.com/vt-notifications@latest/dist/vt-notifications.umd.js"></script>
-<?php endif; ?>
+<?php
+// ROOT-CAUSE FIX (admin page "keeps loading"): the external
+// https://unpkg.com/vt-notifications@latest script here 404s (unpkg can't resolve
+// the `@latest` dist path) AND is redundant — window.vt is already defined locally
+// by assets/js/toast.js (loaded just above). As a `defer` external request it
+// blocked window.load, so the BROWSER TAB SPINNER "kept loading" on every
+// logged-in page even though the HTML had rendered. Removed; local toast.js covers it.
+?>
 
 <!-- Demo/notice modal (inert on GoGlobia; see shouldShowDemoWarning) -->
 <?php

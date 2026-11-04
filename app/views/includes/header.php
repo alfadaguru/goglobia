@@ -389,8 +389,14 @@ $wlTenant = function_exists('wl_is_tenant') && wl_is_tenant();
 
     <script defer src="<?=versionedAssetUrl('assets/js/app.js')?>"></script>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <script defer src="https://code.jquery.com/jquery-3.7.1.min.js" data-cfasync="false"></script>
+    <!-- ROOT-CAUSE FIX (page "keeps loading"): Alpine + jQuery were loaded from
+         external CDNs as `defer` scripts, which block window.load — and on this
+         deployment jQuery/Pusher each took 8s+ (throttled/unreachable), so every
+         logged-in page's tab spinner hung for 8-16s. Self-hosted (pinned) copies
+         load instantly and remove the external dependency. Same discipline as the
+         already-self-hosted app.js/toast.js/datepicker.js. -->
+    <script defer src="<?= root ?>assets/js/vendor/alpine-3.14.1.min.js"></script>
+    <script defer src="<?= root ?>assets/js/vendor/jquery-3.7.1.min.js" data-cfasync="false"></script>
     <link rel="stylesheet" href="<?=versionedAssetUrl('assets/css/app.css')?>">
 
     <!-- META -->

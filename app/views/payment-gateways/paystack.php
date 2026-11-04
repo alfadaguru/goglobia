@@ -133,6 +133,15 @@ curl_setopt($ch, CURLOPT_HTTPHEADER, [
     "Content-Type: application/json"
 ]);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+// ROOT-CAUSE FIX (payment "keeps loading forever"): this view is include()d by
+// GET /payment/gateway/{hash} and the customer's pay page spins on the fetch while
+// this cURL runs. Without a timeout, a slow/unreachable Paystack (common on a
+// local box, flaky network, or bad key) made curl_exec block INDEFINITELY → the
+// pay page loaded forever. Every other gateway view sets a timeout (cashfree/mpesa/
+// xmoney =30, coinsbuy =45); paystack.php was the only one without. Bound it so the
+// `if ($curlError)` branch below renders a clean error + Return-to-Invoice instead.
+curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
 $response = curl_exec($ch);
 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 $curlError = curl_error($ch);

@@ -250,33 +250,35 @@ $totalInDefaultCurrency = $totalStored * $defaultConversionRate;
             const icon = document.getElementById('paymentBtnIcon');
             const text = document.getElementById('paymentBtnText');
 
-            // Show loading state
+            // Show loading state (submit feedback only — the navigation itself is
+            // the real feedback). ROOT-CAUSE FIX: the old code wrapped everything in
+            // a fixed setTimeout(...,2000) — 2s of pure dead time the customer sees
+            // as "keeps loading" even on the happy path — and left the button in an
+            // irreversible spinner. Act IMMEDIATELY instead.
             btn.disabled = true;
             btn.style.opacity = '0.7';
             icon.classList.add('animate-spin');
             icon.textContent = 'progress_activity';
             text.textContent = 'Processing...';
 
-            setTimeout(() => {
-                if (externalPaymentUrl) {
-                    window.location.href = externalPaymentUrl;
-                    return;
-                }
-                if (externalPaymentFormAction) {
-                    const form = document.createElement('form');
-                    form.method = 'POST';
-                    form.action = externalPaymentFormAction;
-                    const invoiceInput = document.createElement('input');
-                    invoiceInput.type = 'hidden';
-                    invoiceInput.name = 'invoice_id';
-                    invoiceInput.value = invoiceId;
-                    form.appendChild(invoiceInput);
-                    document.body.appendChild(form);
-                    form.submit();
-                    return;
-                }
-                processPayment();
-            }, 2000);
+            if (externalPaymentUrl) {
+                window.location.href = externalPaymentUrl;
+                return;
+            }
+            if (externalPaymentFormAction) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = externalPaymentFormAction;
+                const invoiceInput = document.createElement('input');
+                invoiceInput.type = 'hidden';
+                invoiceInput.name = 'invoice_id';
+                invoiceInput.value = invoiceId;
+                form.appendChild(invoiceInput);
+                document.body.appendChild(form);
+                form.submit();
+                return;
+            }
+            processPayment();
         }
 
         function handlePaymentGatewayChange() {

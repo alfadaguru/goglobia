@@ -213,18 +213,26 @@ class CRUD {
                     exit();
                 }
 
-                // Reset all records to default = 0 using raw SQL
+                // ROOT-CAUSE FIX ("set default not working" / "many default active"):
+                // some tables (e.g. payment_gateways) declare `default` as
+                // enum('1','0') — which has NO empty-string member — yet existing rows
+                // hold '' from seed data. Writing an INTEGER 0/1 then gets "Data
+                // truncated for column 'default'" under MySQL strict mode, so the reset
+                // UPDATE THREW and the default never changed (and old defaults never
+                // cleared → multiple defaults). Write the column's VALID STRING values
+                // '0'/'1' (accepted by the enum AND coerced fine for int/tinyint
+                // columns), so the reset + set both persist under strict mode.
                 try {
-                    $db->exec("UPDATE " . $table . " SET `default` = 0");
+                    $db->exec("UPDATE `" . $table . "` SET `default` = '0'");
                 } catch (Exception $ex) {
-                    // Fallback for different quote styles
-                    $db->exec("UPDATE " . $table . " SET default = 0");
+                    // Fallback for different quote styles / non-enum columns.
+                    $db->exec("UPDATE " . $table . " SET `default` = 0");
                 }
 
                 if ($table === 'currencies') {
-                    $result = $db->update($table, ['default' => 1, 'rate' => 1.00], [$id_column => $id]);
+                    $result = $db->update($table, ['default' => '1', 'rate' => 1.00], [$id_column => $id]);
                 } else {
-                    $result = $db->update($table, ['default' => 1], [$id_column => $id]);
+                    $result = $db->update($table, ['default' => '1'], [$id_column => $id]);
                 }
 
                 if ($result === false) {
