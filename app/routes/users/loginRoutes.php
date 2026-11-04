@@ -81,7 +81,15 @@ $router->get('/login', function () use ($SECURE, $db) {
                             && $cookieIssued > 0
                             && (time() - $cookieIssued) <= $rememberTtl;
                     }
+                    // Honour the account lockout here too (login review #2): every
+                    // credentialed path checks locked_until, but the remember-me
+                    // auto-login didn't — so a pre-existing valid cookie bypassed a
+                    // time-lock, making locked_until an incomplete "freeze this account"
+                    // lever. A locked account must not auto-login until the lock expires.
+                    $rememberLocked = !empty($remembered['locked_until'])
+                        && strtotime((string) $remembered['locked_until']) > time();
                     if ($cookieOk
+                        && !$rememberLocked
                         && $remembered['status'] === 'active'
                         && !$remembered['banned']
                         && $remembered['email_verified']) {
@@ -396,6 +404,14 @@ $router->post('/api/booking/quick-login', function () use ($SECURE, $db) {
     }
     $user = $resolved['user'];
     if (!$user) {
+        // ENUMERATION/TIMING (login review #1): a known identifier runs bcrypt
+        // password_verify below (~tens of ms) while an unknown one returned instantly,
+        // leaking account existence by latency on this endpoint. Burn an equivalent
+        // bcrypt against a fixed dummy hash so both cost the same, then the SAME generic
+        // 'invalid' — matching the main POST /login path.
+        if (function_exists('auth_dummy_bcrypt_hash')) {
+            password_verify($password, auth_dummy_bcrypt_hash());
+        }
         $_SESSION['login_error'] = 'invalid';
         header('Location: ' . $redirectTo);
         exit;
