@@ -417,6 +417,26 @@ function proceedToPayment() {
             btnSpinner.style.display = 'none';
         });
 }
+
+// ONE-CLICK FLOW: auto-launch the gateway as soon as this pay page loads, so the
+// customer does NOT have to click a second "Proceed to Payment" button after
+// already clicking "Make Payment" on the invoice. The visible button remains as a
+// manual fallback (e.g. if the browser blocks the auto-run or a popup needs a user
+// gesture — clicking it re-runs proceedToPayment()). Runs once, after the DOM +
+// any deferred scripts are ready.
+(function () {
+    var __autoLaunched = false;
+    function __autoLaunch() {
+        if (__autoLaunched) { return; }
+        __autoLaunched = true;
+        try { proceedToPayment(); } catch (e) { console.error('[PAYLOG] auto-launch failed, use the button', e); }
+    }
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        setTimeout(__autoLaunch, 150);
+    } else {
+        document.addEventListener('DOMContentLoaded', function () { setTimeout(__autoLaunch, 150); });
+    }
+})();
 </script>
 
 </body>
