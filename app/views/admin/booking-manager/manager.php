@@ -339,6 +339,14 @@ $svcIcons = [
       <div class="card p-4" x-show="mode==='manual'">
         <h2 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2"><span class="material-symbols-outlined text-lg">edit_note</span>Booking details (booked elsewhere)</h2>
 
+        <!-- When was this booking made? Defaults to now; editable (e.g. a ticket
+             booked days ago). Auto-filled from a read ticket if it shows the date. -->
+        <label class="form-control mb-4 max-w-xs">
+          <span class="form-label flex items-center gap-1"><span class="material-symbols-outlined text-base">event</span>Date &amp; time booked</span>
+          <input type="datetime-local" class="input" x-model="bookedDate">
+          <span class="text-[11px] text-slate-400 mt-1">Defaults to now — change it if the booking was made earlier.</span>
+        </label>
+
         <?php if ($svc === 'flights'): ?>
         <!-- AI ticket reader: upload the ticket (PDF/image), extract details, prefill the form below. -->
         <div class="mb-4 rounded-xl border border-indigo-200 bg-indigo-50/60 p-3">
@@ -784,11 +792,20 @@ function bookingMgr() {
     ferry:{ ports:[], from:0, to:0, fromName:'', toName:'', date:'', adults:1, children:0, searching:false, searched:false, error:'', sailings:[], sel:null },
     // AI ticket reader (manual flights): upload a ticket → extract → prefill.
     ticketFile:null, ticketReading:false, ticketMsg:'', ticketOk:false, ticketWarnings:[],
+    // When the booking was made (manual mode). datetime-local string; defaults to
+    // now in init(), editable by staff, and auto-filled from a read ticket if it
+    // shows an issue/booking date. Submitted as booked_date; the backend stores it
+    // in booking_date (falls back to now if blank/invalid).
+    bookedDate:'',
     creating:false, created:false, invoiceId:'', clientToken:'',
     paying:false, dva:null, manualPay:false, settleMsg:'', settleMsgOk:false,
 
-    init(){ this.clientToken = this.newToken(); this.manual.segments=[this.blankSeg()]; },
+    init(){ this.clientToken = this.newToken(); this.manual.segments=[this.blankSeg()]; this.bookedDate = this.nowLocal(); },
     newToken(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); },
+    // Current local date+time as "YYYY-MM-DDTHH:MM" for <input type=datetime-local>
+    // (built from local components so it reflects the staff's clock, not UTC).
+    nowLocal(){ const d=new Date(); const p=n=>String(n).padStart(2,'0');
+      return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; },
 
     blankSeg(){ return { airline:'', flight_number:'', airline_code:'', from:'', to:'', depart:'', arrive:'', cabin:'', baggage:'', cabin_baggage:'',
       _alItems:[], _alOpen:false, _fromText:'', _fromItems:[], _fromOpen:false, _toText:'', _toItems:[], _toOpen:false }; },
@@ -1015,6 +1032,11 @@ function bookingMgr() {
     applyExtractedTicket(data){
       // PNR.
       if(data.pnr){ this.manual.pnr=data.pnr; }
+      // Booked/issued date (if the ticket shows it). The extractor returns a
+      // date-only YYYY-MM-DD; the field is datetime-local, so append T00:00.
+      if(data.booked_date && /^\d{4}-\d{2}-\d{2}$/.test(data.booked_date)){
+        this.bookedDate = data.booked_date + 'T00:00';
+      }
       // Segments → the segment grid. Build fresh blank segs and fill them so the
       // autocomplete display text (_fromText/_toText) shows the codes the AI read.
       const segs=Array.isArray(data.segments)?data.segments:[];
@@ -1030,6 +1052,11 @@ function bookingMgr() {
           seg._toText=s.to||'';
           seg.depart=s.depart||'';
           seg.arrive=s.arrive||'';
+          // Cabin class + baggage (now extracted too). class is one of the form's
+          // <select> values or '' — assign directly; '' leaves the "—" option.
+          seg.cabin=s.class||'';
+          seg.baggage=s.baggage||'';
+          seg.cabin_baggage=s.cabin_baggage||'';
           return seg;
         });
       }
@@ -1172,6 +1199,7 @@ function bookingMgr() {
           price:this.price.sell, cost_price:this.price.cost||this.price.sell, currency:this.price.currency||this.baseCurrency,
           passengers: JSON.stringify(this.buildPassengers()),
           pnr: this.manual.pnr||'',
+          booked_date: this.bookedDate||'',   // when the booking was made (default now)
         };
         if(this.mode==='live' && this.service==='rail'){
           // Rail goes through the shared rail_create_order() money path on the

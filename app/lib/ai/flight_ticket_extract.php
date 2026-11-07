@@ -48,6 +48,18 @@ Rules:
 - Dates/times MUST be "YYYY-MM-DDTHH:MM" (24-hour, local to the airport). If no
   time is shown, use "YYYY-MM-DDT00:00". If no date at all, use "".
 - "pnr" is the booking reference / PNR / airline locator (e.g. "ABC123").
+- "booked_date" is the date the ticket was ISSUED / BOOKED / PURCHASED (look for
+  "Date of issue", "Issued on", "Booking date", "Purchase date"). Format as
+  "YYYY-MM-DD". If no such date is shown, use "".
+- For each segment, also give the cabin class and baggage allowance when shown:
+  - "class" MUST be one of exactly: "economy", "premium_economy", "business",
+    "first" (map "Coach"/"Y" -> "economy", "Business"/"C"/"J" -> "business",
+    "First"/"F" -> "first", "Premium Economy"/"W" -> "premium_economy"). If not
+    shown, use "".
+  - "baggage" is the CHECKED baggage allowance as printed (e.g. "1 x 23kg", "2PC",
+    "30kg", "0PC"), else "".
+  - "cabin_baggage" is the carry-on / hand-baggage allowance as printed (e.g.
+    "1 x 7kg", "7kg"), else "".
 - For each passenger, give title (Mr/Mrs/Ms/Miss/Mstr), first_name, last_name, and
   the airline-issued e-ticket/ticket number if present (ticket_number), else "".
 - Return EVERY flight segment in order (outbound then return, multi-stop legs
@@ -56,6 +68,7 @@ Rules:
 JSON schema to return exactly:
 {
   "pnr": "",
+  "booked_date": "",
   "segments": [
     {
       "airline": "",
@@ -64,7 +77,10 @@ JSON schema to return exactly:
       "from": "",
       "to": "",
       "depart": "",
-      "arrive": ""
+      "arrive": "",
+      "class": "",
+      "baggage": "",
+      "cabin_baggage": ""
     }
   ],
   "passengers": [
@@ -263,8 +279,17 @@ if (!function_exists('flight_ticket_normalize')) {
                 'depart'        => flight_ticket_norm_datetime($s['depart'] ?? ''),
                 'arrive'        => flight_ticket_norm_datetime($s['arrive'] ?? ''),
             ];
-            // Drop a wholly-empty segment row.
-            if (implode('', $seg) !== '') { $segments[] = $seg; }
+            // Drop a wholly-empty segment row — judged on the CORE routing fields
+            // only, BEFORE appending the optional cabin/baggage keys (so a stray
+            // baggage-only row with no route still counts as empty and is dropped).
+            $isEmpty = (implode('', $seg) === '');
+            // Cabin class: keep only the values the form's <select> offers.
+            $class = strtolower($str($s['class'] ?? ''));
+            if (!in_array($class, ['economy', 'premium_economy', 'business', 'first'], true)) { $class = ''; }
+            $seg['class']         = $class;
+            $seg['baggage']       = $str($s['baggage'] ?? '');
+            $seg['cabin_baggage'] = $str($s['cabin_baggage'] ?? '');
+            if (!$isEmpty) { $segments[] = $seg; }
         }
 
         $passengers = [];
@@ -282,9 +307,16 @@ if (!function_exists('flight_ticket_normalize')) {
             if ($row['first_name'] !== '' || $row['last_name'] !== '') { $passengers[] = $row; }
         }
 
+        // Booked/issued date: accept only a plain YYYY-MM-DD; anything else → ''
+        // so a malformed value can't reach the UI. The console appends T00:00 to
+        // turn it into the datetime-local value its "Date & time booked" field uses.
+        $bookedRaw = $str($p['booked_date'] ?? '');
+        $bookedDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $bookedRaw) ? $bookedRaw : '';
+
         $conf = $p['confidence'] ?? null;
         return [
             'pnr'         => $str($p['pnr'] ?? ''),
+            'booked_date' => $bookedDate,
             'segments'    => $segments,
             'passengers'  => $passengers,
             'confidence'  => is_numeric($conf) ? max(0.0, min(1.0, (float) $conf)) : null,

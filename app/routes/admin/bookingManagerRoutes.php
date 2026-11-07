@@ -638,6 +638,19 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
     $special    = trim((string) ($_POST['special_requests'] ?? ''));
     $invoiceId  = bmGenInvoiceId($db);
 
+    // When was the booking actually made? The console sends a datetime-local
+    // value (default: now, editable by staff — e.g. a ticket booked days ago).
+    // Stored as Y-m-d H:i:s in bookings.booking_date; downstream invoices read it
+    // via strtotime(), which parses both date and datetime, so the time shows
+    // instead of 00:00. Fall back to now on an empty/invalid value.
+    $bookedAt = date('Y-m-d H:i:s');
+    $bookedRaw = trim((string) ($_POST['booked_date'] ?? ''));
+    if ($bookedRaw !== '') {
+        // Accept "YYYY-MM-DDTHH:MM" (datetime-local) or "YYYY-MM-DD HH:MM[:SS]".
+        $ts = strtotime($bookedRaw);
+        if ($ts !== false) { $bookedAt = date('Y-m-d H:i:s', $ts); }
+    }
+
     // Optional uploaded booking slip (manual mode).
     $manualDoc = null;
     if ($mode === 'manual' && !empty($_FILES['manual_document']['name'])) {
@@ -687,7 +700,7 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
         'created_by_admin'    => $adminId,
         'manual_document'     => $manualDoc,
         'created_at'          => date('Y-m-d H:i:s'),
-        'booking_date'        => date('Y-m-d'),
+        'booking_date'        => $bookedAt,   // when the booking was made (staff-set; default now)
     ]);
 
     bmAdminJson([
