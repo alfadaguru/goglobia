@@ -139,6 +139,15 @@ if (!function_exists('ft_normalize_legs')) {
                 'operated_by'       => $pick(['operated_by', 'operating_carrier', 'operating']),
                 'departure_terminal'=> $pick(['departure_terminal', 'dep_terminal']),
                 'arrival_terminal'  => $pick(['arrival_terminal', 'arr_terminal']),
+                // Technical stops WITHIN this single segment (same flight number
+                // touching down en route) — a RARE case. Only read keys that are
+                // unambiguously per-segment; the bare 'stops' key is NOT used here
+                // because several suppliers put a LEG-level connection count under
+                // that name (adivaha/search.php:407), and mapping that onto each
+                // segment would falsely print "2 stops" on every leg. '' => unknown,
+                // and a single displayed segment is one dep→arr hop, so it is shown
+                // as "Non-stop" only when no technical-stop count says otherwise.
+                'stops'             => $pick(['segment_stops', 'technical_stops']),
             ];
             // A segment with no origin/destination at all is useless — drop it.
             if ($out['departure_code'] === '' && $out['arrival_code'] === '' && $out['departure_time'] === '') { return null; }
@@ -187,6 +196,41 @@ if (!function_exists('ft_normalize_legs')) {
         if (empty($legs)) {
             $g = $std($fd);
             if ($g) { $legs[] = ['label' => 'Flight', 'segments' => [$g]]; }
+        }
+
+        // ROUND-TRIP SPLIT (fixes "Abuja → Abuja" headers + a return gap shown as a
+        // "Connection"). A round trip stored as ONE segment list (one route / one
+        // flat segments[]) otherwise renders as a single leg whose from==to, and the
+        // multi-day gap between the outbound arrival and the return departure is
+        // drawn as an inter-segment "layover". Split such a leg at the FIRST gap of
+        // >= 24h (a real stay, never a connection) into Outbound + Return. Only when
+        // there is exactly one leg with >= 2 segments and a genuine long gap exists —
+        // bookings already split into Outbound/Return (routes[]/returnSegments) or
+        // true multi-city itineraries with only connection-length gaps are untouched.
+        if (count($legs) === 1 && count($legs[0]['segments']) >= 2
+            && function_exists('ft_seg_arr') && function_exists('ft_seg_dep')) {
+            $segs = array_values($legs[0]['segments']);
+            $splitAt = -1;
+            for ($i = 0; $i < count($segs) - 1; $i++) {
+                $arr = ft_seg_arr($segs[$i]);
+                $dep = ft_seg_dep($segs[$i + 1]);
+                // Only split on an EXACT, known gap (both timestamps parsed) so a
+                // missing/ambiguous date never forces a wrong split.
+                if (($arr['ts'] ?? null) !== null && ($dep['ts'] ?? null) !== null) {
+                    $gapMin = (int) round((($dep['ts']) - ($arr['ts'])) / 60);
+                    if ($gapMin >= 24 * 60) { $splitAt = $i; break; }
+                }
+            }
+            if ($splitAt >= 0) {
+                $out = array_slice($segs, 0, $splitAt + 1);
+                $ret = array_slice($segs, $splitAt + 1);
+                if ($out && $ret) {
+                    $legs = [
+                        ['label' => 'Outbound', 'segments' => $out],
+                        ['label' => 'Return',   'segments' => $ret],
+                    ];
+                }
+            }
         }
 
         return $legs;

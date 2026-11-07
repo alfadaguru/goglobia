@@ -24,7 +24,14 @@ $businessName  = $businessName ?? 'GoGlobia';
 $businessEmail = $businessEmail ?? '';
 $businessPhone = $businessPhone ?? '';
 $siteUrl = rtrim((string) ($siteUrl ?? 'https://goglobia.com'), '/');
-$bookingDate = !empty($booking['created_at']) ? date('d M Y', strtotime($booking['created_at'])) : date('d M Y');
+// "Issued" date: prefer bookings.booking_date (the real booking date — staff-set in
+// the Booking Manager, or the storefront booking date); fall back to created_at
+// (row-insert time) only when it is empty/unparseable.
+$__bRaw = trim((string) ($booking['booking_date'] ?? ''));
+$__bTs  = $__bRaw !== '' ? strtotime($__bRaw) : false;
+if ($__bTs === false) { $__bTs = !empty($booking['created_at']) ? strtotime((string) $booking['created_at']) : false; }
+if ($__bTs === false) { $__bTs = time(); }
+$bookingDate = date('d M Y', $__bTs);
 $manageUrl = $siteUrl . '/flights/booking/' . rawurlencode($invoiceId);
 $qrImg = 'https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=0&data=' . rawurlencode($manageUrl);
 
@@ -338,10 +345,17 @@ if (is_array($ancMeals)) { foreach ($ancMeals as $mm) { $mealCount += is_array($
               <?php if ($depName): ?><div class="city"><?= $e($depName) ?></div><?php endif; ?>
             </div>
             <div class="mid">
+              <?php
+              // One segment = one dep→arr hop; "Non-stop" unless the producer gave a
+              // real per-segment technical-stop count (see ft_normalize_legs — never
+              // a leg-level connection count).
+              $segStops = (int) $segVal($s, ['stops'], 0);
+              $stopLabel = $segStops > 0 ? ($segStops . ' stop' . ($segStops === 1 ? '' : 's')) : 'Non-stop';
+              ?>
               <?php if ($dur): ?><div class="dur"><?= $e($dur) ?></div><?php endif; ?>
               <div class="line"></div>
               <div class="plane">&#9992;</div>
-              <div class="stops">Non-stop</div>
+              <div class="stops"><?= $e($stopLabel) ?></div>
             </div>
             <div class="ep arr">
               <div class="code"><?= $e($arrCode) ?></div>

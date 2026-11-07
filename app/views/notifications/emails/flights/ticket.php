@@ -287,9 +287,18 @@ if (!empty($legs[0]['segments'][0])) { $cabinOverall = (string) $segVal($legs[0]
                 <?php if ($depName !== ''): ?><div class="ep-city"><?= $depName ?></div><?php endif; ?>
             </td>
             <td style="width:24%; text-align:center;">
+                <?php
+                // This card is ONE segment (one dep→arr hop). It is non-stop unless
+                // the producer reported a TECHNICAL stop within the segment (rare,
+                // same flight number touching down en route). $segStops is only the
+                // unambiguous per-segment count (see ft_normalize_legs) — never a
+                // leg-level connection count — so "Non-stop" here is honest.
+                $segStops = (int) $segVal($s, ['stops'], 0);
+                $stopLabel = $segStops > 0 ? ($segStops . ' stop' . ($segStops === 1 ? '' : 's')) : 'Non-stop';
+                ?>
                 <?php if ($dur !== ''): ?><div class="mid-dur"><?= $e($dur) ?></div><?php endif; ?>
                 <div><?= ft_connector($brand, 118) ?></div>
-                <div class="mid-stops">Non-stop</div>
+                <div class="mid-stops"><?= $e($stopLabel) ?></div>
             </td>
             <td style="width:38%; text-align:right;">
                 <div class="ep-code"><?= $e($arrCode) ?></div>

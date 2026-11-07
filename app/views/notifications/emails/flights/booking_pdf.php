@@ -29,42 +29,37 @@ $T = function ($key, $fallback = '') use ($lang) {
     return $fallback !== '' ? $fallback : ucwords(str_replace('_', ' ', $key));
 };
 
-// ---- Passengers -------------------------------------------------------------
-$travellers = [];
-if (!empty($booking['travellers'])) {
-    $t = json_decode((string) $booking['travellers'], true);
-    if (is_array($t)) {
-        if (isset($t['primary_guest']) || isset($t['passengers'])) {
-            if (isset($t['primary_guest']) && is_array($t['primary_guest'])) { $travellers[] = $t['primary_guest']; }
-            foreach ((array) ($t['passengers'] ?? $t['others'] ?? []) as $px) { if (is_array($px)) { $travellers[] = $px; } }
-        } else {
-            $travellers = isset($t[0]) ? $t : array_values($t);
-        }
-    }
-}
-if (empty($travellers)) {
-    $travellers = [['first_name' => $booking['first_name'] ?? '', 'last_name' => $booking['last_name'] ?? '', 'type' => 'ADT']];
-}
+// ---- Passengers (the people who FLY) ----------------------------------------
+// Use the SAME authoritative extractor as the ticket (ft_passenger_list) so the
+// invoice and the ticket never disagree on who the passengers are. The old inline
+// code pushed the travellers' 'primary_guest' key — the PAYER/CONTACT, not a flyer
+// — in as passenger #1, so for a booking where the payer differs from the traveller
+// the invoice listed the customer as a passenger while the ticket (correctly)
+// listed the real traveller. ft_passenger_list drops ONLY that payer/contact key
+// and falls back to the contact name only when there are genuinely no passengers.
+$travellers = function_exists('ft_passenger_list')
+    ? ft_passenger_list($booking)
+    : [['first_name' => $booking['first_name'] ?? '', 'last_name' => $booking['last_name'] ?? '', 'type' => 'ADT']];
 
-// ---- Legs & segments (same extraction the ticket uses) ----------------------
+// ---- Legs & segments --------------------------------------------------------
+// Use the SAME canonical normalizer as the ticket (ft_normalize_legs) so the
+// invoice and ticket agree on legs/segments, and so the invoice benefits from the
+// round-trip SPLIT — a round trip stored as one segment list otherwise rendered
+// here as a single leg whose hero read "ABV -> ABV" with a bogus "3 STOPS" (the
+// outbound-arrival -> return-departure gap counted as stops). The old inline
+// builder is replaced; the detail loop below reads departure_code/arrival_code/
+// class/airline/flight_no, which ft_normalize_legs emits.
 $fd = $bookingData['flight_data'] ?? $bookingData ?? [];
-$legs = [];
-if (!empty($fd['routes']) && is_array($fd['routes'])) {
-    foreach ($fd['routes'] as $i => $route) {
-        $segs = $route['segments'] ?? [];
-        if ($segs) { $legs[] = ['label' => $i === 0 ? 'Outbound' : ($i === 1 ? 'Return' : 'Leg ' . ($i + 1)), 'segments' => array_values($segs)]; }
-    }
-} else {
-    if (!empty($fd['segments']) && is_array($fd['segments'])) { $legs[] = ['label' => 'Outbound', 'segments' => array_values($fd['segments'])]; }
-    if (!empty($fd['returnSegments']) && is_array($fd['returnSegments'])) { $legs[] = ['label' => 'Return', 'segments' => array_values($fd['returnSegments'])]; }
-    if (empty($legs) && (!empty($fd['departure_code']) || !empty($fd['from_airport']))) {
-        $legs[] = ['label' => 'Flight', 'segments' => [[
-            'airline' => $fd['airline'] ?? '', 'img' => $fd['img'] ?? ($fd['airline_code'] ?? ''), 'flight_no' => $fd['flight_no'] ?? ($fd['flight_number'] ?? ''),
-            'departure_code' => $fd['departure_code'] ?? ($fd['from_airport'] ?? ''), 'arrival_code' => $fd['arrival_code'] ?? ($fd['to_airport'] ?? ''),
-            'departure_time' => $fd['departure_time'] ?? '', 'arrival_time' => $fd['arrival_time'] ?? '',
-            'departure_date' => $fd['departure_date'] ?? '', 'arrival_date' => $fd['arrival_date'] ?? '',
-        ]]];
-    }
+$legs = function_exists('ft_normalize_legs') ? ft_normalize_legs($bookingData) : [];
+if (empty($legs) && (!empty($fd['departure_code']) || !empty($fd['from_airport']))) {
+    // Defensive fallback (ft_normalize_legs already handles this shape, but keep a
+    // single-segment build so a bare top-level flight never renders an empty body).
+    $legs[] = ['label' => 'Flight', 'segments' => [[
+        'airline' => $fd['airline'] ?? '', 'img' => $fd['img'] ?? ($fd['airline_code'] ?? ''), 'flight_no' => $fd['flight_no'] ?? ($fd['flight_number'] ?? ''),
+        'departure_code' => $fd['departure_code'] ?? ($fd['from_airport'] ?? ''), 'arrival_code' => $fd['arrival_code'] ?? ($fd['to_airport'] ?? ''),
+        'departure_time' => $fd['departure_time'] ?? '', 'arrival_time' => $fd['arrival_time'] ?? '',
+        'departure_date' => $fd['departure_date'] ?? '', 'arrival_date' => $fd['arrival_date'] ?? '',
+    ]]];
 }
 $segVal = function (array $s, array $keys, $default = '') {
     foreach ($keys as $k) { if (isset($s[$k]) && $s[$k] !== '') { return $s[$k]; } }

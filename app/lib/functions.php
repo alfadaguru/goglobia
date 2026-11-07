@@ -4345,8 +4345,18 @@ function GENERATE_BOOKING_PDF($invoiceId, $docType = 'invoice')
         // ====================================================================
         // STEP 3: BUILD HTML CONTENT FOR PDF
         // ====================================================================
-        // Format dates nicely
-        $bookingDate = date('F d, Y', strtotime($booking['created_at']));
+        // Format dates nicely.
+        // "Issued"/booking date: prefer bookings.booking_date (the real date the
+        // booking was made — staff-set in the Booking Manager, or the storefront
+        // booking date) and fall back to created_at (row-insert time) only when it
+        // is empty/unparseable. Previously this always used created_at, so a
+        // booking recorded for an earlier date (e.g. a ticket bought days ago) still
+        // printed today's date on the document.
+        $__bDateRaw = trim((string) ($booking['booking_date'] ?? ''));
+        $__bDateTs  = $__bDateRaw !== '' ? strtotime($__bDateRaw) : false;
+        if ($__bDateTs === false) { $__bDateTs = strtotime((string) ($booking['created_at'] ?? '')); }
+        if ($__bDateTs === false) { $__bDateTs = time(); }
+        $bookingDate = date('F d, Y', $__bDateTs);
 
         $moduleType = strtolower($booking['module_type'] ?? 'stays');
         if ($moduleType === 'visa') {
