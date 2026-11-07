@@ -398,6 +398,20 @@ $router->post(admin . '/booking-manager/create', function () use ($SECURE, $db) 
         if (!bm_module_has_issue_endpoint($serviceType, $supplier)) {
             bmAdminJson(['status' => false, 'message' => 'That supplier cannot be live-booked.'], 422);
         }
+        // Reject a supplier whose issue.php is a non-functional stub (e.g. an
+        // affiliate/redirect provider): a live booking there settles payment then
+        // never issues → stranded. (bm_module_has_issue_endpoint only checks the
+        // file exists; this checks it actually books.)
+        if (bm_module_is_issue_stub($serviceType, $supplier)) {
+            bmAdminJson(['status' => false, 'message' => 'That supplier is search-only and cannot be live-booked here. Use Manual mode to record a booking made on the supplier’s own site.'], 422);
+        }
+        // FLIGHTS money-safety: the chosen offer MUST carry a usable supplier
+        // booking handle, or issue cannot book it AFTER payment (paid-but-unissued).
+        // Every bookable flight supplier emits its handle in the offer card's
+        // booking_data (verified per supplier in bm_flight_offer_has_handle()).
+        if ($serviceType === 'flights' && !bm_flight_offer_has_handle($offerBd)) {
+            bmAdminJson(['status' => false, 'message' => 'That flight offer is missing its booking reference — reselect the flight from the live results and try again.'], 422);
+        }
         $moduleName  = $supplier;
         $bookingChannel = 'admin_live';
         $bookingData = ['flight_data' => $offerBd, 'booking_data' => $offerBd, 'admin_created' => true];

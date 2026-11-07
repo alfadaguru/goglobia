@@ -80,6 +80,99 @@ if (!function_exists('bm_module_has_issue_endpoint')) {
     }
 }
 
+if (!function_exists('bm_flight_offer_has_handle')) {
+    /**
+     * True when a LIVE-flight offer card carries a usable supplier booking handle,
+     * so the issue loopback can actually book it AFTER the customer has paid.
+     *
+     * WHY: flights were the one live service whose create path accepted ANY
+     * non-empty offer blob (bookingManagerRoutes.php, the generic live branch)
+     * while hotels/tours/cars/esim each required a concrete handle. A flight offer
+     * with no handle settles payment then hard-fails at issue ("no offer id") →
+     * paid-but-unissued / stranded. This gate rejects that at create time.
+     *
+     * The handle is NOT one universal key — it is supplier-specific. Every bookable
+     * flight supplier's search.php emits its handle INSIDE the offer card's
+     * `booking_data`, VERIFIED (search.php → issue.php):
+     *   duffel           booking_data.booking_token         (search:353  / issue:170-184)
+     *   adivaha          booking_data.booking_token+trace_id(search:415-417 / issue:172-175)
+     *   amadeus          booking_data.key                   (search:420  / issue:173-183)
+     *   amadeus_enterprise booking_data.key                 (search:653  / issue:111-115)
+     *   googleflights    booking_data.booking_token         (search:262  / issue:43)
+     *   kiwi             booking_data.booking_token+session_id(search:456 / issue:136-141)
+     *   mystifly         booking_data.fare_source_code/token(search:324-326 / issue:98-106)
+     *   pkfare           booking_data.solutionId            (search:293  / issue:160)
+     *   sabre            booking_data.booking_token/offer_id(search:519-520 / issue:168,278)
+     *   seeru            booking_data.flight                (search:218  / issue:123)
+     *   tbo              booking_data.ResultId + TokenId    (search:380-382 / issue:75-82)
+     *   tiqwa            booking_data.booking_token         (search:252  / issue:131)
+     *   travelport       booking_data.session_id            (search:748-751 / issue:59-74)
+     * So the safe, non-breaking rule: the offer card must carry a `booking_data`
+     * sub-array containing at least one of these known handle keys. This accepts
+     * EVERY real supplier (no false reject) and rejects only a handle-less card.
+     *
+     * $offer is the offer card the console sends as offer_booking_data (= the
+     * module search result's raw offer); its handle lives under $offer['booking_data'].
+     */
+    function bm_flight_offer_has_handle($offer): bool
+    {
+        if (!is_array($offer)) return false;
+        // The known handle keys across all bookable flight suppliers (verified above).
+        $handleKeys = ['booking_token', 'key', 'solutionId', 'session_id', 'ResultId',
+                       'offer_id', 'fare_source_code', 'trace_id', 'flight_id', 'flight'];
+        // Look where every supplier actually puts it (booking_data), and also at the
+        // card top level + a flight_data.booking_data nesting, so a supplier that
+        // flattens the card still passes.
+        $candidates = [];
+        if (isset($offer['booking_data']) && is_array($offer['booking_data'])) { $candidates[] = $offer['booking_data']; }
+        if (isset($offer['flight_data']['booking_data']) && is_array($offer['flight_data']['booking_data'])) { $candidates[] = $offer['flight_data']['booking_data']; }
+        $candidates[] = $offer; // top-level fallback
+        foreach ($candidates as $bag) {
+            foreach ($handleKeys as $k) {
+                if (isset($bag[$k]) && $bag[$k] !== '' && $bag[$k] !== null
+                    && !(is_array($bag[$k]) && count($bag[$k]) === 0)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+}
+
+if (!function_exists('bm_module_is_issue_stub')) {
+    /**
+     * True when a supplier's issue.php exists but is a NON-functional stub (an empty
+     * TODO placeholder), so a LIVE booking against it would settle payment then do
+     * nothing (never write a PNR) → stranded. bm_module_has_issue_endpoint() only
+     * checks the FILE EXISTS; this catches the file-exists-but-does-nothing case.
+     *
+     * VERIFIED stub: modules/flights/travelpayouts/actions/issue.php is 7 lines,
+     * body "// TODO: Implement issue action logic" (it is an affiliate/redirect
+     * supplier — its search.php emits redirect_url, not a bookable handle). Detect
+     * generically (a tiny issue.php that never does the supplier booking work) so a
+     * future stub is caught too, without hardcoding one supplier name.
+     */
+    function bm_module_is_issue_stub(string $moduleType, string $module): bool
+    {
+        $moduleType = strtolower(trim($moduleType));
+        $module     = strtolower(trim($module));
+        if ($moduleType === '' || $module === '') return false;
+        $base = dirname(__DIR__, 2) . '/modules/' . $moduleType . '/' . $module;
+        $file = is_file($base . '/actions/issue.php') ? $base . '/actions/issue.php'
+              : (is_file($base . '/issue.php') ? $base . '/issue.php' : '');
+        if ($file === '') return false;
+        $src = (string) @file_get_contents($file);
+        if ($src === '') return true; // unreadable/empty → treat as non-functional
+        // A real issue handler books at the supplier: it will contain a cURL/HTTP
+        // call or write a PNR/booking_status. A stub has neither and carries a TODO.
+        $looksReal = (stripos($src, 'curl_') !== false)
+                  || (stripos($src, "'pnr'") !== false)
+                  || (stripos($src, 'booking_status') !== false)
+                  || (stripos($src, 'file_get_contents(') !== false && stripos($src, 'http') !== false);
+        return !$looksReal;
+    }
+}
+
 if (!function_exists('bm_fire_supplier_issue')) {
     /**
      * Fire the GUARDED supplier issue loopback for a live booking — the exact

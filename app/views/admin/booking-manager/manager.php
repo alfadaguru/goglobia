@@ -188,6 +188,12 @@ $svcIcons = [
         </button>
 
         <!-- Live results -->
+        <?php if (!$isHotel && !$isRail && !$isFerries): ?>
+        <div class="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800" x-show="results.length">
+          <span class="material-symbols-outlined text-base leading-none">schedule</span>
+          <span>Live fares are held only briefly by the supplier. Take payment promptly — a transfer verified hours later may fail to issue and land in the verification queue. For a trip paid well in advance, re-search just before collecting payment.</span>
+        </div>
+        <?php endif; ?>
         <div class="mt-4 space-y-2" x-show="results.length">
           <template x-for="(r,idx) in results" :key="idx">
             <div class="border border-slate-200 rounded-lg p-3"
@@ -562,7 +568,12 @@ $svcIcons = [
         <?php if (!$isEsim): ?>
         <div class="flex items-center justify-between mt-4 mb-2">
           <h3 class="text-sm font-semibold text-slate-700">Passengers / guests</h3>
-          <div class="flex gap-2">
+          <div class="flex gap-2 items-center">
+            <?php if ($svc === 'flights'): ?>
+            <label class="flex items-center gap-1 text-xs text-slate-600 mr-1 select-none cursor-pointer">
+              <input type="checkbox" x-model="intl"> International trip
+            </label>
+            <?php endif; ?>
             <button class="btn outline sm" @click="addPax('adult')"><span class="material-symbols-outlined">add</span>Adult</button>
             <button class="btn outline sm" @click="addPax('child')">+ Child</button>
           </div>
@@ -754,13 +765,13 @@ function bookingMgr() {
     blankSeg(){ return { airline:'', flight_number:'', airline_code:'', from:'', to:'', depart:'', arrive:'', cabin:'', baggage:'', cabin_baggage:'',
       _alItems:[], _alOpen:false, _fromText:'', _fromItems:[], _fromOpen:false, _toText:'', _toItems:[], _toOpen:false }; },
 
-    get isInternational(){
-      // Flights only: different origin/destination countries can't be known
-      // client-side from IATA alone, so default to DOMESTIC unless the staff
-      // flag it. Simple heuristic: international checkbox-free — treat as domestic
-      // for manual; for live we rely on the supplier. Keep passport optional.
-      return false;
-    },
+    // Staff-set "International trip" toggle (flights). Different origin/destination
+    // countries can't be inferred from IATA codes client-side, so the staff flag it
+    // — when on, the passenger grid collects passport details (needed for an
+    // international e-ticket). Passport stays OPTIONAL even when on (the backend
+    // stores it only if provided, bookingManagerRoutes.php:330).
+    intl: false,
+    get isInternational(){ return this.service === 'flights' && this.intl === true; },
 
     addSegment(){ this.manual.segments.push(this.blankSeg()); },
 
