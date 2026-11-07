@@ -338,6 +338,32 @@ $svcIcons = [
       <!-- ============ MANUAL MODE: typed booking ============ -->
       <div class="card p-4" x-show="mode==='manual'">
         <h2 class="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2"><span class="material-symbols-outlined text-lg">edit_note</span>Booking details (booked elsewhere)</h2>
+
+        <?php if ($svc === 'flights'): ?>
+        <!-- AI ticket reader: upload the ticket (PDF/image), extract details, prefill the form below. -->
+        <div class="mb-4 rounded-xl border border-indigo-200 bg-indigo-50/60 p-3">
+          <div class="flex items-start gap-2">
+            <span class="material-symbols-outlined text-indigo-600">auto_awesome</span>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-semibold text-indigo-900">Read a ticket with AI</div>
+              <p class="text-xs text-indigo-700/80 mb-2">Upload the ticket you got from the other booking (PDF, or a photo/screenshot). The AI reads the flights and passengers and fills in the form below — then review and edit before creating.</p>
+              <div class="flex flex-wrap items-center gap-2">
+                <input type="file" accept=".pdf,image/*" class="text-xs" @change="ticketFile = $event.target.files[0] || null; ticketMsg=''" x-ref="ticketInput">
+                <button type="button" class="btn sm primary" :disabled="!ticketFile || ticketReading" @click="readTicket()">
+                  <span class="material-symbols-outlined text-base" x-show="!ticketReading">auto_fix_high</span>
+                  <span x-show="ticketReading" class="animate-pulse">Reading…</span>
+                  <span x-show="!ticketReading">Read &amp; fill</span>
+                </button>
+                <span class="text-xs" :class="ticketOk ? 'text-emerald-600' : 'text-rose-600'" x-text="ticketMsg"></span>
+              </div>
+              <p class="text-[11px] text-indigo-500 mt-1" x-show="ticketWarnings.length">
+                <span class="font-medium">Check:</span> <span x-text="ticketWarnings.join('; ')"></span>
+              </p>
+            </div>
+          </div>
+        </div>
+        <?php endif; ?>
+
         <?php /* BUG FIX: this was `if (!$isHotel)`, which matched EVERY non-hotel
                  service (esim, cars, tours, visa, umrah, rail, bus, ferries) — so
                  they ALL showed the flight airline/From/To/segment manual form and
@@ -756,6 +782,8 @@ function bookingMgr() {
     rail:{ from:'', to:'', date:'', adults:1, children:0, currency:'', searching:false, searched:false, error:'', trains:[], selTrain:null, selSeat:null },
     // Live-ferries state (sailing search; sel = chosen sailing index).
     ferry:{ ports:[], from:0, to:0, fromName:'', toName:'', date:'', adults:1, children:0, searching:false, searched:false, error:'', sailings:[], sel:null },
+    // AI ticket reader (manual flights): upload a ticket → extract → prefill.
+    ticketFile:null, ticketReading:false, ticketMsg:'', ticketOk:false, ticketWarnings:[],
     creating:false, created:false, invoiceId:'', clientToken:'',
     paying:false, dva:null, manualPay:false, settleMsg:'', settleMsgOk:false,
 
@@ -951,6 +979,76 @@ function bookingMgr() {
       const r=this.results[i].raw; const seg=(r.segments&&r.segments[0]&&r.segments[0][0])?r.segments[0][0]:r;
       this.price.sell = Number(r.price||seg.price||r.display_price||0)||this.price.sell;
       this.price.currency = seg.currency||r.currency||this.price.currency;
+    },
+
+    // ---- AI TICKET READER (manual flights) ----------------------------------
+    // Upload the ticket, call the admin extract route, and prefill the segment +
+    // passenger + PNR fields from the normalized result. Staff review/edit after.
+    async readTicket(){
+      if(!this.ticketFile || this.ticketReading) return;
+      this.ticketReading=true; this.ticketMsg=''; this.ticketOk=false; this.ticketWarnings=[];
+      try{
+        // Multipart body with the raw File (the form() helper JSON-stringifies
+        // objects, which would corrupt a File — build FormData directly).
+        const fd=new FormData();
+        fd.append('csrf_token', this.csrf);
+        fd.append('ticket', this.ticketFile);
+        const res=await fetch(this.base+'admin/booking-manager/read-ticket',{method:'POST',body:fd});
+        const d=await res.json();
+        if(!d || !d.status || !d.data){
+          this.ticketOk=false;
+          this.ticketMsg=(d && d.message) ? d.message : 'Could not read the ticket.';
+          return;
+        }
+        this.applyExtractedTicket(d.data);
+        this.ticketOk=true;
+        this.ticketMsg='Filled from ticket — please review below.';
+        this.ticketWarnings=Array.isArray(d.data.warnings)?d.data.warnings:[];
+      }catch(e){
+        this.ticketOk=false;
+        this.ticketMsg='The ticket reader did not respond. Enter the details manually.';
+      }finally{
+        this.ticketReading=false;
+      }
+    },
+    // Map the normalized extractor output onto the manual-flight form fields.
+    applyExtractedTicket(data){
+      // PNR.
+      if(data.pnr){ this.manual.pnr=data.pnr; }
+      // Segments → the segment grid. Build fresh blank segs and fill them so the
+      // autocomplete display text (_fromText/_toText) shows the codes the AI read.
+      const segs=Array.isArray(data.segments)?data.segments:[];
+      if(segs.length){
+        this.manual.segments = segs.map(s=>{
+          const seg=this.blankSeg();
+          seg.airline=s.airline||'';
+          seg.airline_code=s.airline_code||'';
+          seg.flight_number=s.flight_number||'';
+          seg.from=s.from||'';
+          seg.to=s.to||'';
+          seg._fromText=s.from||'';
+          seg._toText=s.to||'';
+          seg.depart=s.depart||'';
+          seg.arrive=s.arrive||'';
+          return seg;
+        });
+      }
+      // Passengers → the pax grid. Only replace when the ticket named passengers,
+      // so a ticket without names leaves the staff's own entries intact. The
+      // extractor does not read passport numbers (a ticket rarely shows them), so
+      // passport_number is left blank for the staff to fill if needed — the
+      // "International trip" toggle controls whether that field is shown.
+      const pax=Array.isArray(data.passengers)?data.passengers:[];
+      if(pax.length){
+        this.pax = pax.map(p=>({
+          type:'adult',
+          title:(p.title||'Mr'),
+          first_name:p.first_name||'',
+          last_name:p.last_name||'',
+          passport_number:'',
+          ticket_number:p.ticket_number||'',
+        }));
+      }
     },
 
     buildPassengers(){

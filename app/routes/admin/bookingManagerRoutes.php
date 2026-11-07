@@ -242,6 +242,40 @@ $router->post(admin . '/booking-manager/search', function () use ($SECURE, $db) 
 });
 
 // ---------------------------------------------------------------------------
+// POST /admin/booking-manager/read-ticket — AI-read an uploaded flight ticket.
+// Staff upload a ticket (PDF or image) that was booked elsewhere; the connected
+// AI (Claude, native PDF reading) extracts the flight details and returns them
+// as JSON so the console can PREFILL the manual-flight form (staff then preview
+// and edit before creating). Reuses app/lib/ai/flight_ticket_extract.php —
+// no supplier call, no booking is created here. MANUAL flights only.
+// ---------------------------------------------------------------------------
+$router->post(admin . '/booking-manager/read-ticket', function () use ($SECURE, $db) {
+    ADMIN_AUTH();
+    admin_require($db, 'bookings', 'add');
+    if (!bmAdminCsrfOk()) { bmAdminJson(['status' => false, 'message' => 'Security token expired — refresh and retry.'], 403); }
+
+    $file = $_FILES['ticket'] ?? null;
+    if (!is_array($file) || empty($file['name'])) {
+        bmAdminJson(['status' => false, 'message' => 'Choose a ticket file (PDF or image) to read.'], 422);
+    }
+    // Load the extraction lib on demand (not in the global require list).
+    if (!function_exists('flight_ticket_extract_from_upload')) {
+        $lib = dirname(__DIR__, 3) . '/app/lib/ai/flight_ticket_extract.php';
+        if (is_file($lib)) { require_once $lib; }
+    }
+    if (!function_exists('flight_ticket_extract_from_upload')) {
+        bmAdminJson(['status' => false, 'message' => 'The ticket reader is unavailable.'], 503);
+    }
+    $res = flight_ticket_extract_from_upload($file, $db);
+    // The lib returns ['status'=>bool,'message'=>..,'data'=>..,'error_code'=>..].
+    // Map a failure to a 422 so the console shows the reason; success is 200.
+    if (empty($res['status'])) {
+        bmAdminJson(['status' => false, 'message' => (string) ($res['message'] ?? 'Could not read the ticket.'), 'error_code' => $res['error_code'] ?? null], 422);
+    }
+    bmAdminJson(['status' => true, 'message' => (string) ($res['message'] ?? 'Ticket read.'), 'data' => $res['data'] ?? null]);
+});
+
+// ---------------------------------------------------------------------------
 // POST /admin/booking-manager/create — create a booking for a walk-in customer.
 // Mode MANUAL: build the booking_data + travellers from typed fields, store a
 //   non-supplier sentinel module so the issue-gate skips any supplier call, and
