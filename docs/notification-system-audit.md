@@ -164,7 +164,27 @@ Every sender/dispatch layer found in the codebase, with the file that defines it
 - _FINDING N-8 (MEDIUM): SMS builds **one** message (`:746`, no `hide_price`), so the **customer SMS is NOT price-hidden** — unlike email and WhatsApp which render a price-free customer copy. If the per-service SMS template prints price, the traveller's SMS shows it._
 - _Note: admins for WhatsApp/SMS are queried with `status='active'` strictly (`:726,778`), whereas the email admin block also accepts `'1'` (`:621`). Minor inconsistency in status matching across channels._
 
-_(continues: `getPhoneCode` `:796`, `formatPhoneNumber` `:819`, `sendVendor` `:858`, `loadMessageTemplate` `:999` — next pass.)_
+**Phone helpers:**
+- `getPhoneCode()` (`:796–814`): 2-letter ISO → `countries.phonecode`; already-numeric → cleaned digits; else `''`.
+- `formatPhoneNumber()` (`:819–829`): strips non-digits, `ltrim('0')`, prepends country code unless the number already starts with it. — _FINDING N-9 (LOW): `strpos($phone,$countryCode)===0` (`:824`) false-positives when a local number (after zero-strip) coincidentally begins with the country-code digits → country code not prepended, malformed international number._
+
+**`vendor()` / `vendorPayment()` (`:838–851`) → `sendVendor()` (`:858–994`):**
+- Sends **ONLY to the vendor** — no customer/owner/admin fan-out (distinct from `send()`).
+- Email (`:954–968`) + WhatsApp (`:983–985`) + SMS (`:986–988`), gated on `whatsapp/sms booking_enabled` (default true).
+- Per-module template mapping covers **only stays + flights** (`:894–909`) — even narrower than `send()`'s 5. — _FINDING N-10 (LOW): vendor emails for the other 9 services get no per-module field mapping._
+- No price-hiding (vendor is internal; priced is correct). Subjects: `New $moduleType Booking` / `Payment Confirmed` (`:940–943`).
+- Email template resolution same collapse to `$module/booking.php` (`:947–952`); template-not-found → **nothing sent, no log** (`:954` guard with no else). — _FINDING N-11 (LOW): vendor email silently no-ops on a missing template (not even an error_log, unlike `send()`)._
+
+**`loadMessageTemplate()` (`:999–1015`) — the WhatsApp/SMS body resolver:**
+- Path = `views/notifications/$type/$event.php`, with booking+booking_payment → `$type/booking.php` (`:1000–1004`).
+- **`$module` is a parameter but is NOT used in the path.** → WhatsApp and SMS message templates are **global per event, NOT per service** (one `whatsapp/booking.php` + one `sms/booking.php` for ALL 11 services), whereas **email** templates ARE per-service (`emails/$module/booking.php`). — _FINDING N-12 (MEDIUM): WhatsApp/SMS bodies are not service-specific; a flight and a hotel customer get the same generic WA/SMS text, while their emails differ. Confirm whether that is intended._
+- Renders via `extract($data)` + output buffer; missing file → `''` (caller then uses its legacy inline fallback).
+
+**S1 STATUS: ✅ `app/lib/notify.php` fully audited (1–1016), 12 findings (N-1…N-12).**
+
+The `SENDEMAIL/SENDWHATSAPP/SENDSMS` primitives these call, and the per-provider transports, are **S2 (Phase 2)** — audited next.
+
+_(Event sections E01–E32 appended here as each is completed.)_
 
 _(Event sections E01–E32 appended here as each is completed.)_
 
