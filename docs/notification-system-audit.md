@@ -69,12 +69,12 @@ Every sender/dispatch layer found in the codebase, with the file that defines it
 | E06 | Vendor/supplier booking notice | ● | · | ● | ● | · | ✅ own-inventory only |
 | E07 | Vendor/supplier payment notice | · | · | · | · | · | ✅ **DEAD (N-29)** |
 | **Account / auth** |
-| E08 | Signup welcome (web + API) | ? | ? | ? | ? | ? | ⬜ |
-| E09 | Email verification / resend | ? | ? | ? | ? | ? | ⬜ |
-| E10 | Forgot password / password reset | ? | ? | ? | ? | ? | ⬜ |
-| E11 | OTP issue/verify | ? | ? | ? | ? | ? | ⬜ |
-| E12 | Agent approved / rejected | ? | ? | ? | ? | ? | ⬜ |
-| E13 | Supplier application received/approved/rejected | ? | ? | ? | ? | ? | ⬜ |
+| E08 | Signup welcome (web + API) | ● | · | ○ | ○ | · | ✅ (○=if prefs enable) |
+| E09 | Email verification / resend | ● | · | ○ | ○ | · | ✅ |
+| E10 | Forgot password / password reset | ● | · | ○ | ○ | · | ✅ (N-31 silent fail) |
+| E11 | OTP issue/verify | ● | · | ● | ● | · | ✅ hardened, clean |
+| E12 | Agent approved / rejected | ● | · | ○ | ○ | · | ✅ |
+| E13 | Supplier application received/approved/rejected | ● | · | ○ | ○ | · | ✅ |
 | **GIA (AI assistant)** |
 | E14 | GIA inbound message handle + reply (per channel) | ? | ? | ? | ? | ? | ⬜ |
 | E15 | GIA booking payment / expiry / refund notice | ? | ? | ? | ? | ? | ⬜ |
@@ -386,7 +386,59 @@ _(Event sections E01–E32 appended here as each is completed.)_
 
 **Phase-3 transactional events (E01–E07): ✅ ALL AUDITED** (core dispatch + per-service call-site map; a few service-specific template files remain to be spot-read in the by-service appendix, flagged where relevant). Findings this phase: N-25…N-29.
 
-_(Next: Phase 4 — account/auth events E08–E13.)_
+### Phase 4 — Account / auth events (E08–E13 share ONE path; E11 OTP separate)
+
+#### Shared dispatcher: `sendNotification()` → `sendEmailNotification()`
+
+**`sendNotification($userId,$templateName,$additionalData,$channels)` (`functions.php:3912–3976`):**
+- Channel selection from `settings.notification_preferences[group][template]` per channel's `enabled_for_users || notify_roles` (`:3929–3951`); **defaults to email-only** when no prefs row (`:3952–3953`).
+- Dispatches to `sendEmailNotification` / `sendWhatsAppNotification` / `sendSmsNotification` (singular — a DIFFERENT sender set than NOTIFY's plural `sendXNotifications`).
+
+**`sendEmailNotification($userId,$templateName,$additionalData)` (`functions.php:3756–3910`):**
+- Loads user by `id` (`:3760`); template from `notification_templates` (name + type=email + status=1) (`:3787`); renders via `renderEmailTemplate` (`:3807`); sends via the active provider's `send()` (`:3837`) to the user's own email + optional `notify_roles` staff copies (`:3853–3903`). Brand default `GoGlobia`.
+- _FINDING N-30 (LOW, latent typo-bug): the role-recipient fallback query at `:3868` has `'status' => 'actvie'` (misspelled "active"). It only runs if the correctly-spelled query (`:3859`) returns empty, and can never match a row — a dead fallback branch. Harmless today but a latent foot-gun._
+- _FINDING N-31 (MEDIUM, silent failure): the whole send is wrapped in `catch (Exception $e) { return false; }` (`:3907–3909`) with **no `error_log`** — a template-render or provider failure on a password-reset / verification email fails **completely silently** (no log at all), unlike the NOTIFY path which at least logs. A user who never receives a reset email leaves zero trace._
+- _FINDING N-32 (LOW): uses `catch (Exception)` not `\Throwable` (N-14 family) — a provider `TypeError` escapes._
+
+#### E08 — Signup welcome · ✅ AUDITED
+Callers: `signupRoutes.php:317` (web), `:223` (API, template `signup_welcome_api`). Path: `sendNotification → sendEmailNotification` (email-only unless prefs add WA/SMS). Template `signup_welcome` / `signup_welcome_api` in `notification_templates`.
+**Per-channel:** Email ● · others per `notification_preferences` (default off).
+
+#### E09 — Email verification / resend · ✅ AUDITED
+Callers: `emailVerificationRoutes.php:74` (`email_verified`), `:144` (`resend_verification`), `:56` (`resend_verification_api`, passes `otp`). Same dispatcher path.
+**Per-channel:** Email ● (+ API resend may carry an OTP → see E11).
+
+#### E10 — Forgot / reset password · ✅ AUDITED
+Callers: `passwordResetRoutes.php:99` (`forgot_password`), `:203` (`password_reset`), `:68,169` (`forgot_password_api`). Same dispatcher path.
+- _Note: this is the LIVE password path — it uses `notification_templates`, NOT the dead `mailer.php::sendForgotPasswordEmail` (N-17). Confirmed the plaintext-temp-password concern (N-17) does NOT apply to the live path; the live template content itself is audited in the by-template appendix (pending)._
+**Per-channel:** Email ● (silent on failure — N-31 bites hardest here: a lost reset email leaves no log).
+
+#### E12 — Agent approved / rejected · ✅ AUDITED
+Callers: `agentsRoutes.php:61` (`agent_approved`), `:101` (`agent_rejected`, passes `reason`). Same dispatcher path (targets the agent user).
+**Per-channel:** Email ● .
+
+#### E13 — Supplier application received / approved / rejected · ✅ AUDITED
+Callers: `supplierSignupRoutes.php:314` (`supplier_application_received`), `suppliersRoutes.php:111` (`supplier_approved`), `:172` (`supplier_rejected`). Same dispatcher path.
+**Per-channel:** Email ● .
+
+> **E08–E13 are uniform:** all route through `sendNotification → sendEmailNotification`, email-first (WA/SMS only if `notification_preferences` enables them), DB-template-driven, targeting the subject user (+ optional staff `notify_roles`). They share findings N-30/N-31/N-32. Per-template body content (does a template leak/contradict?) is a separate by-template appendix pass.
+
+#### E11 — OTP issue / verify / deliver · ✅ AUDITED (cleanest subsystem — security-hardened)
+
+**Files:** `app/lib/otp.php` (`otp_purposes/otp_issue/otp_verify/otp__count_miss/otp__resolve_user/sendOtp/sendOtpWhatsApp`).
+
+- `otp_issue()` (`:53–98`): purposes = signup/forgot_password/phone_verify/login (`:38`); **resend cooldown** per-purpose (`:67–73`); **CSPRNG `random_int`** with mt_rand fallback (`:76–80`, prior fix — was predictable); stores code+expiry+type and resets the **OTP-own** attempt counter (`:82–91`).
+- `otp_verify()` (`:109–161`): expiry + purpose-match (`:133`, no cross-purpose replay) + **`hash_equals` constant-time compare** (`:137`) + **burn-after-N** (`:138`) + single-use clear on success (`:148–158`).
+- `otp__count_miss()` (`:170–194`): counts misses on **`otp_attempts`, NOT `login_attempts`** — documented prior-audit HIGH fix (resetting `login_attempts` from OTP activity would let an attacker clear the password brute-force lockout). Burns after `OTP_MAX_ATTEMPTS`.
+- `sendOtpWhatsApp()` (`:234–272`): WhatsApp (preferred) → SMS fallback; brand-aware deterministic message ("Your {brand} verification code is …"). Each channel in its own `\Throwable` try/catch.
+- _FINDING N-33 (INFO, doc-vs-code): `sendOtpWhatsApp`'s docblock (`:221`) says "falling back to SMS then **email**", but the function only does WhatsApp→SMS — no email fallback. (Email OTP, where used, goes via the separate `sendOtp`/template path.) Harmless comment drift._
+- **No security findings — this subsystem is correct and hardened** (CSPRNG, constant-time compare, purpose-scoping, separate lockout counter, single-use). It is the cleanest-audited area so far.
+
+**Per-channel (E11):** WhatsApp ● (preferred) · SMS ● (fallback) · Email ● (via `sendOtp`/template where the caller uses it) · Realtime · · Push · .
+
+**S4 STATUS: ✅ Phase 4 complete — E08–E13 (shared `sendNotification` path) + E11 (OTP). Findings N-30…N-33.**
+
+_(Next: Phase 5 — GIA notification flows.)_
 
 ---
 
