@@ -7,7 +7,20 @@
 >
 > **Method honesty:** this is a multi-week, line-by-line audit. It is built incrementally and committed as each event is completed. The author reads the files directly — no flow is summarised from a sub-agent's paraphrase.
 
-**Last updated:** 2026-11-09 · **Phase:** 0 complete (surface mapped) — event bodies pending.
+**Last updated:** 2026-11-10 · **Phase:** ALL 6 AUDIT PHASES COMPLETE (0–6). 32 events audited, 34 findings. Phase 7 (web artifact) published.
+**Web artifact (same content, by-channel matrix + findings + flows):** https://claude.ai/code/artifact/7bfe5aac-8f0e-4b94-858d-77a2cfa0650d
+
+### Findings summary (34 — for the single end-of-audit fix pass)
+
+| Sev | IDs | One-line |
+|---|---|---|
+| **HIGH/structural** | N-24 | Mobile push completely unwired (no SENDPUSH, zero callers). |
+| **MEDIUM (9)** | N-6, N-12, N-13, N-20, N-21, N-22, N-28, N-31, N-34 | price-hiding opt-in; WA/SMS not per-service; silent PDF drop; default-SMTP TLS off; 3 providers drop PDF; 5/7 providers TLS off; **resend shows priced body on paid**; password email fails silently; global Pusher channel (dormant). |
+| **LOW (12)** | N-1,3,4,7,8,9,10,11,14,19,23,25,26,27,30,32 | delivery-confirm email-only; owner-resolve 4/11; 6/11 no template map; silent missing-template; SMS not price-hidden; phone-format edge; vendor map 2 svc; vendor silent no-op; narrow catch ×3; dead mailer loaded; dup SES; created_at date; webhooks_log noise; payment email not logged; `actvie` typo. |
+| **LATENT / INFO (12)** | N-2,5,15,16,17,18,29,33 | mailer.php dead (TLS-off + stale brand + plaintext pw — never ships); vendorPayment dead; debug log; dead settings read; OTP doc drift. |
+
+> **Clean subsystems (verified, no findings):** OTP (`otp.php` — hardened), Green API provider, Twilio provider, Resend provider, GIA confirmation/alert/nurture/realtime (E15–E18), flight reminders + service comms (E20/E23), campaigns (E30).
+
 
 ---
 
