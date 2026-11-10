@@ -491,7 +491,49 @@ GIA is a parallel notification system, distinct from `NOTIFY`. It has its OWN ch
 
 **S5 STATUS: ✅ Phase 5 complete — GIA outbound dispatch + E14 (partial: inbound core deferred to appendix) + E15 + E16 + E17 + E18. The GIA notification layer is well-built and reuses the audited NOTIFY machinery; no new findings in E15–E18.** (The only GIA-area finding remains the general ones it inherits via NOTIFY, e.g. N-6/N-8 on the email/SMS side.)
 
-_(Next: Phase 6 — 18 cron routes + campaigns/newsletter + non-GIA Pusher realtime.)_
+### Phase 6 — Cron-driven, bulk (campaigns), and non-GIA realtime
+
+#### Cron notification map (grep-verified across `app/routes/crons/*.php`)
+
+| Cron route | Notifies? | Sender / lib |
+|---|---|---|
+| `flightRemindersRoutes` | ✅ | `flight_reminders.php` → `flight_reminders_send` (email+WA) — **E20** |
+| `serviceCommsRoutes` | ✅ | `service_comms.php` → `service_comms_send` (email+WA) — **E23** |
+| `creditsRemindersRoutes` | ✅ | direct `SENDEMAIL` — **E22** |
+| `supportShiftNudgeRoutes` | ✅ | `support/shifts.php` → `support_shift_nudge_due` → `SENDWHATSAPP` — **E28** |
+| `giaNurtureRoutes` | ✅ | `gia_nurture_sweep` (E17, Phase 5) |
+| `campaignsDispatchRoutes` | ✅ | `campaigns.php` + `SENDEMAIL` — **E30/E31** |
+| `payLaterRoutes` | via lib | `paylater.php` (may `bm_notify_paid`/reminders) — **E21** |
+| `refundRetryRoutes` | via lib | refund lib (may `gia_bp_notify`/`bm_notify_paid`) — **E26** |
+| `umrahHoldsRoutes` | via lib | umrah holds (expiry) — **E24** |
+| `giaPaymentsRoutes` | via lib | `gia_booking_payment.php` (expiry/refund = E15) |
+| `bmStrandedIssueRoutes` | via lib | `booking_manager.php` (admin surface) — **E29** |
+| `abandonedBookingSweepRoutes`, `airaloSyncRoutes`, `currencyRatesRoutes`, `referralReleaseRoutes`, `supplierEarningsRoutes`, `supplierTicksRoutes` | ❌ | no customer notification (state/sync only) |
+
+#### E20 — Flight reminders (pre/post) · ✅ AUDITED
+**`flight_reminders_send($db,$booking,$kind)` (`flight_reminders.php:252–311`):** `pre` (upcoming-flight reminder) or `post` (thank-you + rebook). **Email** (branded header/footer, `*bold*`→`<strong>`, `htmlspecialchars`-escaped, `:271–288`) + **WhatsApp** (same lines, intl-phone normalized via `service_comms_intl_phone`, `:294–309`). Best-effort, logged. Brand via `getBrandName`. No price (a reminder). Also fired on-demand from admin (`bookingsRoutes.php send_reminder`, E03 area). **No findings — clean.**
+**Per-channel (E20):** Email ● · WhatsApp ● · others · .
+
+#### E23 — Service comms (per-service pre/post) · ✅ AUDITED (twin of E20)
+**`service_comms_send($db,$booking,$service,$kind)` (`service_comms.php:327–388`):** structurally identical to E20 — per-service pre/post lines (`service_comms_pre_lines`/`_post_lines`), **email** (`:347–366`) + **WhatsApp** (`:367–372`), intl-phone helper (`:392`), swept by `service_comms_sweep` (`:443`). Classifies service + post-only services (`:61,101`). Best-effort. **No findings — mirrors E20.**
+**Per-channel (E23):** Email ● · WhatsApp ● · others · .
+
+#### E22 — Credits reminders · ✅ AUDITED (cron)
+`crons/creditsRemindersRoutes.php` (`GET /send_credits_reminders`): when used-credits ≥ threshold (usage %), emails the account via direct `SENDEMAIL`. Email-only. (Agent/credit account dunning.) — flagged for a content read in the by-template appendix; dispatch verified.
+**Per-channel (E22):** Email ● · others · .
+
+#### E28 — Support shift nudge · ✅ AUDITED (cron, internal)
+`crons/supportShiftNudgeRoutes.php` → `support_shift_nudge_due()` (`support/shifts.php`): for each support shift whose start passed and whose staff is NOT clocked in, **WhatsApp a nudge** (SENDWHATSAPP) at start then every 15 min, **hard-capped at 3** (idempotent via `nudge_count/last_nudge_at`); clocking in short-circuits. Internal (staff), not customer. **No findings** (capped, idempotent, state-guarded).
+**Per-channel (E28):** WhatsApp ● (staff) · others · .
+
+#### E21/E24/E26/E29 — reminder/expiry/retry crons (via already-audited libs) · ✅ (cross-ref)
+- **E21 Pay-Later reminders** (`payLaterRoutes` → `paylater.php`): installment reminders / settle → `bm_notify_paid` (E02 machinery, audited).
+- **E24 Umrah holds expiry** (`umrahHoldsRoutes`): expiry handling; umrah notifies via its own settle path (noted in E02).
+- **E26 Refund retry** (`refundRetryRoutes`): retries refunds → GIA/`bm_notify_paid` notify where applicable (audited).
+- **E29 BM stranded-issue** (`bmStrandedIssueRoutes` → `booking_manager.php`): surfaces paid-but-unissued bookings for admin retry; customer notified once issued via `bm_notify_paid` (audited). Admin-facing.
+> These reuse the audited `bm_notify_paid`/`NOTIFY::payment`/`gia_bp_notify` machinery — no new transport. Per-lib content (reminder copy) is a by-template appendix item.
+
+_(Next: E30/E31 campaigns/newsletter, E32 non-GIA footer realtime.)_
 
 ---
 
