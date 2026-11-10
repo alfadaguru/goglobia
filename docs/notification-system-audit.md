@@ -61,7 +61,7 @@ Every sender/dispatch layer found in the codebase, with the file that defines it
 | # | Event | Email | Web/Realtime | WhatsApp | SMS | Push | Status |
 |---|---|:---:|:---:|:---:|:---:|:---:|:---|
 | **Transactional — booking lifecycle** |
-| E01 | Booking created (per service ×11) | ? | ? | ? | ? | ? | ⬜ |
+| E01 | Booking created (per service ×11) | ● | · | ● | ● | · | 🟡 flights ✅, others cross-ref |
 | E02 | Payment received / booking paid | ? | ? | ? | ? | ? | ⬜ |
 | E03 | Resend ticket/voucher | ? | ? | ? | ? | ? | ⬜ |
 | E04 | Cancellation | ? | ? | ? | ? | ? | ⬜ |
@@ -265,7 +265,51 @@ The `SENDEMAIL/SENDWHATSAPP/SENDSMS` primitives these call, and the per-provider
 
 _(Event sections E01–E32 appended here as each is completed.)_
 
-_(Event sections E01–E32 appended here as each is completed.)_
+### Phase 3 — Transactional booking-lifecycle events (per service)
+
+#### Authoritative `NOTIFY::*` call-site map (grep-verified, `file:line`)
+
+**Booking (E01) — `NOTIFY::booking`:**
+- Web payment-callback webhooks (fire at `*.booking.confirmed`): `app/webhooks/flights/booking.php:107`, `webhooks/stays/booking.php:111`, `webhooks/tours/booking.php:99`, `webhooks/cars/booking.php:101` — each passes `$ticketPdf` as **both** 4th+5th arg (3-doc fix).
+- API routes: `api/bus/bookingRoutes.php:592`, `api/cars/bookingRoutes.php:849`, `api/esim/bookingRoutes.php:493`, `api/visa/bookingRoutes.php:689`.
+- Commented-out at submit (deliberately removed to avoid checkout hang / premature email — see updates.json): `flights/bookingRoutes.php:1452`, `stays/bookingRoutes.php:987`, `tours/bookingRoutes.php:645`; cars/visa/esim/ferries submit send **nothing** (notify is post-payment).
+
+**Payment (E02) — `NOTIFY::payment`:**
+- Web payment webhooks: `app/webhooks/{flights:76, stays:605, tours:77, cars:41}/payment.php`.
+- Admin: `admin/bookingsRoutes.php:200` (mark-paid), `:457` (also a payment path).
+- GIA: `app/lib/ai/gia_booking_payment.php:982` (gia_bp_send_confirmation).
+- Booking Manager / shared settler: `app/lib/booking_manager.php:441` (`bm_notify_paid`).
+
+**Resend (E03) — `NOTIFY::resend`:** `admin/bookingsRoutes.php:353`; `ajaxRoutes.php:618`; per-service web (`flights:599, stays:328, tours:196, rail:805, umrah:306`); API (`api/flights:1152, api/stays:1027, api/umrah:567`); agent (`agentBookingCentreRoutes.php:450`); AI trip (`tripBookingRoutes.php:714`).
+
+**Cancellation (E04) — `NOTIFY::cancellation`:** `admin/bookingsRoutes.php:210`; per-service web (`flights:673, stays:399, tours:278, umrah:392`); API (`api/flights:1209, api/stays:1091, api/ferries:105, api/rail:170`).
+
+**⚠️ Webhookless-services note (from updates.json:8790, verified):** rail/esim/visa/bus have **no** `app/webhooks/<svc>/payment.php`, so their `triggerWebhook('<svc>/payment')` is a **no-op**. Their customer payment notification instead comes from a **`bm_notify_paid` fallback inside `handle_payment_callback`** that fires ONLY for services without a payment-webhook file (so flights/stays/tours/cars/ferries are untouched → no double-send), and NOT umrah (its own settle notifies). This is why the E02 path differs by service — audited per-service below.
+
+---
+
+### E01 — Booking created · ✅ AUDITED (flights reference flow; other services cross-referenced)
+
+**Trigger (flights):** `app/routes/flights/bookingRoutes.php:1393` — `triggerWebhook('flights/booking','flights.booking.confirmed',…)` fires **at booking submit / row-insert (`:1380`), BEFORE payment** (the booking is `unpaid` here). `booking_date` is set to `date('Y-m-d')` at insert (`:1375`).
+
+**Flow:** submit → INSERT booking (unpaid) → `triggerWebhook('flights.booking.confirmed')` → `triggerWebhook` (`app/lib/webhooks.php:85`) dispatches to `app/webhooks/flights/booking.php`.
+
+**Files on the flow:** `app/routes/flights/bookingRoutes.php` (trigger), `app/lib/webhooks.php` (`triggerWebhook`), `app/webhooks/flights/booking.php` (handler), `app/lib/functions.php` (`GENERATE_BOOKING_PDF`), `app/lib/notify.php` (`NOTIFY::booking` → email/WA/SMS), transports (S2).
+
+**`app/webhooks/flights/booking.php` (1–128), line-by-line:**
+- Gate: only `event === 'flights.booking.confirmed'` (`:39`).
+- Fetches the booking row (`:44`), decodes `flight_data` (`:48–49`), resolves vendor owner from `flights.user_id` by flight id (`:51–61`).
+- Builds `$customerData` (`:64–70`) + `$notificationData` (`:73–95`). — **`booking_date` passed as `$booking['created_at']` (`:79`)** → the email's "booking date" is the row-insert time, **same root issue as the ticket PDF's issued-date (prior finding L1).** — _FINDING N-25 (LOW, consistency): confirmation email uses `created_at` for booking date, not `booking_date`._
+- Generates the **no-price TICKET** (`GENERATE_BOOKING_PDF(id,'ticket')`, `:100`).
+- `NOTIFY::booking('flights', …, $pdfPath, $pdfPath)` (`:107`) — ticket as **both** owner-doc + customer-doc args → customer gets price-free body + WhatsApp document (correct 3-doc behaviour; satisfies N-6 for this caller).
+- **Delivery-outcome propagation (`:114–123`):** reads `$notifyResult['email']`; if `attempted && !customer_sent` → returns webhook `status:'error'` so a silent email failure is logged as a webhook failure (this is the `$lastResult`/`getLastResult` mechanism from N-1 actually consumed — good).
+- Whole block in try/catch (`:40,109`).
+
+**Per-channel (E01 flights):** Email ●(customer price-free + ticket, owner priced, admins) · WhatsApp ●(customer ticket doc, owner/admin text) · SMS ●(customer/owner/admin, **not price-hidden** per N-8) · Realtime · (none) · Push · (none, N-24).
+
+**Other services (E01) — cross-reference (call sites verified; per-service template + trigger timing audited in their sub-sections):** cars/stays/tours mirror flights via their own `webhooks/<svc>/booking.php`. **bus/esim/visa** call `NOTIFY::booking` directly from their **API** routes (`api/bus:592, api/esim:493, api/visa:689`) and `cars` API (`:849`); ferries booking confirmation was **added** later (updates.json:7230 — ferries previously sent no booking confirmation). **This confirms E01 coverage is uneven across services and assembled from both webhook and API paths — detailed per-service matrix pending in the by-service pass.**
+
+_(E02 payment, E03 resend, E04 cancellation, E05 deposit, E06/E07 vendor — next pass.)_
 
 ---
 
