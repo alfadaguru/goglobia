@@ -152,7 +152,29 @@ Every sender/dispatch layer found in the codebase, with the file that defines it
 - _FINDING N-19 (LOW): a `require_once` of fully-dead code on every request (`config.php:189`) — wasted load; and the dead class is a foot-gun (a future dev could wire it up and ship N-15/16/17). Candidate for removal._
 - The EHLO-domain fix (`:42–54`) deriving the host from the sender address (replacing a hardcoded `trainingplatform.com`) IS present — but moot while the class is unused.
 
-**Phase-2 remaining:** `email/{smtp,resend,sendgrid,postmark,mailgun,amazon_ses,mailchimp}.php`, `sms/{twilio,…}.php`, `push/{firebase,apns,onesignal,expo,pusher}.php` — next pass.
+**Email provider tier (`app/lib/notifications/email/*.php`) — all read/verified:**
+
+- **`smtp.php` (1–386) — the LIVE DEFAULT provider** (`SENDEMAIL` default = `smtp`). `isConfigured/send/sendWithAttachment/testConnection`. Correct STARTTLS(587)/SSL(465) port logic (`:106–116`); EHLO domain from sender (`:152`); password hidden in logs (`:287`); from-name default `GoGlobia` (correct brand). **Supports attachments** (`:53`) — the default path DOES deliver the PDF. — _FINDING N-20 (MEDIUM, LIVE): TLS verification disabled — `verify_peer=false, allow_self_signed=true` in `sendEmailDirect` (`:127–129`) and `testConnection` (`:321–323`). MITM exposure of SMTP creds + mail body on the default email path._
+- **`resend.php` (1–208):** clean/modern; `sendWithAttachment` (base64 inline, `:80`); **TLS verify ON** (`:179–180`, comment: "the other providers disable it… no reason to here"); List-Unsubscribe headers; `GoGlobia` default. **No findings.**
+- **Provider attachment + TLS matrix (grep-verified across all files):**
+
+  | Provider (class) | `sendWithAttachment`? | TLS verify | Brand default |
+  |---|:---:|:---:|---|
+  | smtp (`SmtpProvider`) | ✅ | ❌ off | GoGlobia |
+  | resend (`ResendProvider`) | ✅ | ✅ on | GoGlobia |
+  | mailgun (`MailgunProvider`) | ✅ | ✅ on (1 call) | GoGlobia |
+  | postmark (`PostmarkProvider`) | ✅ | ❌ off | GoGlobia |
+  | sendgrid (`SendGridProvider`) | **❌ NONE** | ❌ off | GoGlobia |
+  | amazon_ses (`Amazon_SESProvider`) | **❌ NONE** | ❌ off | GoGlobia |
+  | mailchimp (`MailchimpProvider`) | **❌ NONE** | ❌ off | GoGlobia |
+  | amazon-SES (`SESProvider`) | ❌ | ❌ off | — (duplicate; see N-23) |
+
+- _FINDING N-21 (MEDIUM, confirms N-13): **sendgrid, amazon_ses, mailchimp have NO `sendWithAttachment()`.** If any is the active provider, `SENDEMAIL` falls back to `send()` and **silently drops the ticket/invoice PDF** — the customer's booking email arrives with no attached document and no error surfaced._
+- _FINDING N-22 (MEDIUM, systemic): TLS verification is OFF on smtp, postmark, sendgrid, amazon_ses, mailchimp — i.e. **5 of 7 live-usable email providers** disable `CURLOPT_SSL_VERIFYPEER`/socket peer verification. Only resend + mailgun verify. Systemic MITM exposure on the email channel, not an isolated case._
+- _FINDING N-23 (LOW): **duplicate SES files** — `amazon_ses.php` (class `Amazon_SESProvider`) is the one `SENDEMAIL` reaches (`ucfirst('amazon_ses').'Provider'`→`Amazon_sesProvider`, matched case-insensitively by PHP). `amazon-SES.php` (class `SESProvider`, `return 'SESProvider'`) is **unreachable** via `SENDEMAIL` (no `email_provider` value maps to the `amazon-SES` filename) — dead duplicate, confusion/foot-gun._
+- _Note: the `ucfirst($provider).'Provider'` convention relies on PHP's case-insensitive class resolution for `amazon_ses` (`Amazon_sesProvider` ≡ `Amazon_SESProvider`). It works, but is fragile — a future PHP or an autoloader doing case-sensitive matching would break SES._
+
+**Phase-2 remaining:** `sms/{twilio,clicksend,messagebird,nexmo,textlocal}.php`, `push/{firebase,apns,onesignal,expo,pusher}.php` — next pass.
 
 #### S1 — `NOTIFY` class (`app/lib/notify.php`), line-by-line
 
