@@ -136,7 +136,23 @@ Every sender/dispatch layer found in the codebase, with the file that defines it
 
 **Confirmed:** the legacy `SEND_NOTIFICATION` dispatcher was **removed** and replaced by `NOTIFY` (`:5187–5188`) — there is no hidden second booking dispatcher.
 
-_(continues: provider transport files — `whatsapp/greenapi.php` (active), `email/*`, `sms/*`, `mailer.php` EmailService, `push/*` — next pass.)_
+**`app/lib/notifications/whatsapp/greenapi.php` (1–477) — the ACTIVE WhatsApp provider:**
+- Instance-specific API host derived from `instance_id` (`:19–27`); explicit `api_url`/`media_url` overrides.
+- **TLS verification ON** on every curl (`:77–78, 208–209, 294–295, 341–342, 438–439`) — comments mark it as previously-fixed (`"was false — exposed token + message to MITM"`).
+- **Token-in-URL never logged** (`:66,182,283,324–326,429`) — deliberate secret hygiene (Green API puts the token in the path, so URLs are never error_logged).
+- Methods: `send()` text (`:102`), `sendFileByUrl()` (`:46`), `sendFile()` multipart upload with MIME-sniff + 100 MB guard (`:150`), `sendInteractiveButtons()` max-3 for GIA (`:253`), `cleanPhoneNumber()` strips non-digits + leading zeros (`:385`), `getLastError()` (`:471`). Returns `'GreenapiProvider'` marker (`:476`).
+- **No findings — this transport is clean and security-conscious.**
+
+**`app/lib/mailer.php` (1–249) — `EmailService` (SEPARATE, LEGACY SMTP class):**
+- **Verified DEAD CODE:** `mailer.php` is `require_once`'d in `config.php:189`, but `grep` finds **zero** callers of `new EmailService`, `->sendEmail(`, `sendForgotPasswordEmail(`, `sendVerificationEmail(`, or `mailer()` anywhere in `app/` (outside this file). The live email path is `SENDEMAIL` → `notifications/email/{provider}.php`. So the issues below are **latent (loaded but never executed)**, NOT active lies — recorded as such.
+- _FINDING N-15 (LATENT / would be HIGH if wired): `sendEmail()` disables TLS verification — `verify_peer=false, verify_peer_name=false, allow_self_signed=true` (`:22–24`) — MITM exposure of SMTP creds + mail body. Not reached today._
+- _FINDING N-16 (LATENT / would be a LIE if wired): stale "Training Platform" branding throughout — `from_name='Training Management System'` (`:9`), subjects "…Training Platform" (`:138,157`), body "Welcome to our Training Platform" (`:143`), footer "© … Training Platform" (`:230`). If any path ever calls this class, the customer sees a foreign brand, not GoGlobia. Not reached today._
+- _FINDING N-17 (LATENT): `sendForgotPasswordEmail()` emails a plaintext temporary password (`:163,181`). Not reached today (real reset path audited in Phase 4)._
+- _FINDING N-18 (INFO): `mailer()` test fn hardcodes `compoxition@gmail.com` (`:240–248`) — dev leftover in a loaded file._
+- _FINDING N-19 (LOW): a `require_once` of fully-dead code on every request (`config.php:189`) — wasted load; and the dead class is a foot-gun (a future dev could wire it up and ship N-15/16/17). Candidate for removal._
+- The EHLO-domain fix (`:42–54`) deriving the host from the sender address (replacing a hardcoded `trainingplatform.com`) IS present — but moot while the class is unused.
+
+**Phase-2 remaining:** `email/{smtp,resend,sendgrid,postmark,mailgun,amazon_ses,mailchimp}.php`, `sms/{twilio,…}.php`, `push/{firebase,apns,onesignal,expo,pusher}.php` — next pass.
 
 #### S1 — `NOTIFY` class (`app/lib/notify.php`), line-by-line
 
