@@ -62,7 +62,7 @@ Every sender/dispatch layer found in the codebase, with the file that defines it
 |---|---|:---:|:---:|:---:|:---:|:---:|:---|
 | **Transactional — booking lifecycle** |
 | E01 | Booking created (per service ×11) | ● | · | ● | ● | · | 🟡 flights ✅, others cross-ref |
-| E02 | Payment received / booking paid | ? | ? | ? | ? | ? | ⬜ |
+| E02 | Payment received / booking paid | ● | · | ● | ● | · | 🟡 flights+dispatcher ✅, per-svc cross-ref |
 | E03 | Resend ticket/voucher | ? | ? | ? | ? | ? | ⬜ |
 | E04 | Cancellation | ? | ? | ? | ? | ? | ⬜ |
 | E05 | Deposit / installment (umrah, PaySmallSmall) | ? | ? | ? | ? | ? | ⬜ |
@@ -309,7 +309,39 @@ _(Event sections E01–E32 appended here as each is completed.)_
 
 **Other services (E01) — cross-reference (call sites verified; per-service template + trigger timing audited in their sub-sections):** cars/stays/tours mirror flights via their own `webhooks/<svc>/booking.php`. **bus/esim/visa** call `NOTIFY::booking` directly from their **API** routes (`api/bus:592, api/esim:493, api/visa:689`) and `cars` API (`:849`); ferries booking confirmation was **added** later (updates.json:7230 — ferries previously sent no booking confirmation). **This confirms E01 coverage is uneven across services and assembled from both webhook and API paths — detailed per-service matrix pending in the by-service pass.**
 
-_(E02 payment, E03 resend, E04 cancellation, E05 deposit, E06/E07 vendor — next pass.)_
+### E02 — Payment received / booking paid · ✅ AUDITED (central dispatcher + flights reference)
+
+**Central dispatcher:** `pg_notify_customer_paid()` (`app/lib/payment-gateway.php:86–128`) — the ONE place a web-paid customer is notified (shared by the normal paid path AND the dev_mode-mismatch confirm path, so a paid customer is always notified once; docblock `:75–78`).
+
+**Flow:** gateway callback → `handle_payment_callback()` verifies + marks paid → `pg_notify_customer_paid($db,$tokenData,$data)` → **either** `triggerWebhook('<svc>/payment','<svc>.payment.completed')` (if `webhooks/<svc>/payment.php` exists) **or** `bm_notify_paid()` fallback (webhookless services).
+
+**`pg_notify_customer_paid` (`:86–128`), line-by-line:**
+- Loads booking; returns if none (`:88–89`).
+- Module normalization incl. supplier→service: hotels→stays, amadeus→flights, cartrawler→cars, kikoto→ferries (`:92–97`); if `webhooks/<module_type>/payment.php` exists, uses `module_type` (`:99–101`).
+- **Webhook dispatch (`:103–117`):** always calls `triggerWebhook('<webhookModule>/payment', …)`. For a webhookless service this fires a trigger for a non-existent file.
+- **Fallback (`:119–127`):** if NO `webhooks/<mt>/payment.php` AND `mt !== 'umrah'` → `bm_notify_paid($db,$invoice)` directly. (umrah notifies via its own settle path.)
+
+**`triggerWebhook()` (`app/lib/webhooks.php:85–131`):**
+- Path-traversal sanitized (`:89`); missing file → `logWebhook(status=error)` + early `return` (`:96–103`) — **no-op dispatch, so no double-send with the fallback.** `include`s the handler with `$event`/`$data` in scope (`:107`); logs every run (`:118`); `catch (Exception)` (N-14 pattern).
+- _FINDING N-26 (LOW): for every webhookless-service payment (rail/esim/visa/bus), `pg_notify_customer_paid` unconditionally triggers `<svc>/payment` whose file does not exist → `triggerWebhook` writes an **`error` row to `webhooks_log` on every such payment** ("Webhook file not found"), even though the customer IS correctly notified via the `bm_notify_paid` fallback. Noise + false-alarm in the webhook log. Gate the trigger on `file_exists` (mirror the fallback's own test)._
+
+**`app/webhooks/flights/payment.php` (1–97) — the flights E02 handler:**
+- Gate `event === 'flights.payment.completed'` (`:27`).
+- **Generates BOTH docs (3-doc model):** priced INVOICE `$pdfPath` (`:52`) + no-price TICKET `$ticketPath` (`:53`).
+- `NOTIFY::payment('flights', $customer, $notificationData, $pdfPath, $ticketPath)` (`:76–82`) — **4th=invoice (owner/admin), 5th=ticket (customer)** → correct N-6 usage (customer price-free + ticket; owner/admin priced + invoice).
+- `payment_status='paid'` (`:60`).
+- _FINDING N-27 (LOW, inconsistency vs E01): the payment webhook does NOT read `$notifyResult`/`getLastResult` to propagate a failed customer email to the webhook log (the booking webhook does, `booking.php:117–123`). A failed payment-confirmation email is invisible except in `error_log`._
+
+**Per-channel (E02 flights):** Email ● (customer price-free + ticket; owner/admin priced + invoice) · WhatsApp ● (customer ticket doc) · SMS ● (not price-hidden, N-8) · Realtime · · Push · (N-24).
+
+**E02 other paths (call sites verified; per-service handler audit pending):**
+- Web webhooks: stays (`:605`), tours (`:77`), cars (`:41`) — same shape as flights.
+- Webhookless (rail/esim/visa/bus): via `bm_notify_paid` fallback → `NOTIFY::payment` inside `bm_notify_paid` (audited in booking_manager.php earlier: generates invoice+ticket, idempotent `notified_paid_at` claim).
+- Admin mark-paid: `admin/bookingsRoutes.php:200,457` (with an already-paid guard per updates.json:2481 to avoid repeat "payment received" emails).
+- GIA: `gia_booking_payment.php:982` (Phase 5).
+- BM/shared: `booking_manager.php:441` (`bm_notify_paid`, audited in the BM work).
+
+_(E03 resend, E04 cancellation, E05 deposit, E06/E07 vendor — next pass.)_
 
 ---
 
