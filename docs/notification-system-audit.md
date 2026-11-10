@@ -76,11 +76,11 @@ Every sender/dispatch layer found in the codebase, with the file that defines it
 | E12 | Agent approved / rejected | ● | · | ○ | ○ | · | ✅ |
 | E13 | Supplier application received/approved/rejected | ● | · | ○ | ○ | · | ✅ |
 | **GIA (AI assistant)** |
-| E14 | GIA inbound message handle + reply (per channel) | ? | ? | ? | ? | ? | ⬜ |
-| E15 | GIA booking payment / expiry / refund notice | ? | ? | ? | ? | ? | ⬜ |
-| E16 | GIA staff "needs human" alert + online-agent nudge | ? | ? | ? | ? | ? | ⬜ |
-| E17 | GIA lead nurture (single + sweep) | ? | ? | ? | ? | ? | ⬜ |
-| E18 | GIA realtime widget push (Pusher) | ? | ? | ? | ? | ? | ⬜ |
+| E14 | GIA inbound message handle + reply (per channel) | · | ●web+WA/TG/Msgr | ● | · | · | 🟡 dispatch ✅ |
+| E15 | GIA booking payment / confirm / expiry / refund | ● | ●chat | ● | · | · | ✅ clean |
+| E16 | GIA staff "needs human" alert + online-agent nudge | ● | · | ● | · | · | ✅ clean |
+| E17 | GIA lead nurture (single + sweep) | ● | · | ● | · | · | ✅ clean |
+| E18 | GIA realtime widget push (Pusher) | · | ● | · | · | · | ✅ clean |
 | **Cron-driven** |
 | E19 | Abandoned-booking sweep | ? | ? | ? | ? | ? | ⬜ |
 | E20 | Flight reminders | ? | ? | ? | ? | ? | ⬜ |
@@ -468,7 +468,30 @@ GIA is a parallel notification system, distinct from `NOTIFY`. It has its OWN ch
   - **No findings** — correctly reuses NOTIFY, guards false tickets, isolates channels, avoids double-send. This is a well-built reuse of the audited E02 machinery.
 **Per-channel (E15):** Email ● (via NOTIFY::payment, 3-doc) · WhatsApp ● (chat + ticket doc) · Telegram ● (chat text; no doc) · Messenger ● (chat text; no doc) · SMS · (not used by GIA) · Push · .
 
-_(Next: E16 staff "needs human" alert + nudge, E17 nurture, E18 realtime Pusher.)_
+#### E16 — GIA staff "needs human" alert + online-agent nudge · ✅ AUDITED
+**File:** `app/lib/ai/gia_notify.php`.
+- **`gia_alert_staff_needs_human($db,$convId,$reason)` (`:25–85`):** per-conversation dedup via `$_SESSION['gia_alerted']` (`:30–36`); **emails** `settings.booking_notification_email` (fallback `settings.email`) a take-over link via `SENDEMAIL` (`:65`); ALSO fires `gia_nudge_online_agents` (`:72`). All interpolated values `htmlspecialchars`-escaped (`:58–63`). Best-effort, logs on failure.
+- **`gia_nudge_online_agents($db,$convId,$reason,$deskLink)` (`:99–133`):** **WhatsApps** online support agents (fresh heartbeat via `support_who_online`) who hold `support_desk:edit` capability (`:118`), **capped at 5** (`:114`, anti-spam), using `nudge_phone` or account phone (`:124`). Fail-soft per-agent.
+- **No findings** — dedup, capability-gated, capped, escaped, best-effort.
+**Per-channel (E16):** Email ● (ops inbox) · WhatsApp ● (online agents, ≤5) · others · .
+
+#### E17 — GIA lead nurture (single + sweep) · ✅ AUDITED
+**File:** `app/lib/ai/gia_notify.php`.
+- **`gia_nurture_lead($db,$leadId,$convId)` (`:147–207`):** one follow-up per lead (dedup on `gia_leads.note` containing "nurtured", `:158,197–200`); **email** (`:179–188`) + **WhatsApp** (`:190–195`), with a saved trip summary (`gia_lead_summary` — "never invents prices", `:172–175`). Escaped. Marks nurtured on send.
+- **`gia_nurture_sweep($db,$quietHours,$lookbackHours)` (`:229+`):** cron worker re-engaging **campaign-attributed, unconverted, quiet (6h+), recent (<72h)** leads (`:214–222`); idempotent + bounded; skips opted-out leads (treated as nurtured). Triggered by `crons/giaNurtureRoutes.php` (Phase 6).
+- **No findings** — consent-aware, idempotent, no price invention, best-effort.
+**Per-channel (E17):** Email ● · WhatsApp ● · others · .
+
+#### E18 — GIA realtime web push (Pusher) · ✅ AUDITED
+**File:** `app/lib/ai/gia_realtime.php` — `gia_pusher_rest_trigger()` (`:106–156`).
+- Proper Pusher REST: **HMAC-SHA256 request signing** (`:132–133`), ksorted params, `body_md5`, cluster-specific host (`:135`). Short timeouts (fire-and-forget, `:144–145`). TLS verify = curl default (ON). Checks HTTP 2xx (`:155`).
+- Pushes GIA replies to the **web chat widget** in realtime (the "web" channel that `gia_channel_send` has no case for). Also underlies the footer live-notifications surface for logged-in users (shared Pusher) — the non-GIA realtime (E32) is audited in Phase 6.
+- **No findings.**
+**Per-channel (E18):** Web/Realtime ● (Pusher) · others · .
+
+**S5 STATUS: ✅ Phase 5 complete — GIA outbound dispatch + E14 (partial: inbound core deferred to appendix) + E15 + E16 + E17 + E18. The GIA notification layer is well-built and reuses the audited NOTIFY machinery; no new findings in E15–E18.** (The only GIA-area finding remains the general ones it inherits via NOTIFY, e.g. N-6/N-8 on the email/SMS side.)
+
+_(Next: Phase 6 — 18 cron routes + campaigns/newsletter + non-GIA Pusher realtime.)_
 
 ---
 
