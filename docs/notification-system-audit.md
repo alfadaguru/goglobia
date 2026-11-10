@@ -110,7 +110,33 @@ Every sender/dispatch layer found in the codebase, with the file that defines it
 ### Shared spine (audited first — every NOTIFY event depends on it)
 
 - **S1 — `NOTIFY` core dispatch** (`app/lib/notify.php`) — 🟡 IN PROGRESS (public events + `send()` done; `sendEmail/WhatsApp/Sms/Vendor Notifications` + `loadMessageTemplate` pending)
-- **S2 — Channel transports** (`SENDEMAIL/WHATSAPP/SMS`, `mailer.php`, provider files) — ⬜ NOT YET AUDITED (Phase 2)
+- **S2 — Channel transports** (`SENDEMAIL/WHATSAPP/SMS`, `mailer.php`, provider files) — 🟡 IN PROGRESS (SENDEMAIL done; SENDWHATSAPP/SENDSMS + per-provider files pending)
+
+#### S2 — Channel transport primitives, line-by-line
+
+**`SENDEMAIL()` (`app/lib/functions.php:4047–4194`):**
+- Resolves active provider from `settings.email_provider` (default `smtp`) and its block in `settings.email_providers_config` JSON (`:4059–4064`).
+- Empty provider config → `error_log` + `return false` (`:4067–4070`) — email silently fails if the active provider is unconfigured.
+- Injects `from_name`/`from_email` from `settings.email_sender_name/email` (defaults `GoGlobia` / `noreply@example.com`, `:4073–4074,4084–4085`); per-message `extra_headers` (e.g. List-Unsubscribe) carried via config (`:4079–4081`).
+- Loads `app/lib/notifications/email/{provider}.php`, requires it, instantiates class `ucfirst($provider).'Provider'` (`:4092–4117`) — convention-based; missing file/class → log + `return false`.
+- Plain-text alt body = `strip_tags($htmlBody)` (`:4124`) — crude (keeps HTML entities, collapses no line breaks).
+- **Attachment path (`:4132–4176`):** if `$pdfPath` exists AND provider has `sendWithAttachment()` → send with PDF; **else fall back to `send()` and DROP the attachment silently**. — _FINDING N-13 (MEDIUM): a provider without `sendWithAttachment()` sends the email with NO ticket/invoice PDF and surfaces no error — the customer silently receives a document-less email._
+- Returns bool; failure logs `SENDEMAIL ERROR`. — _FINDING N-14 (LOW): `catch (Exception $e)` at `:4189` does not catch `\Throwable`/`\Error`, so a `TypeError` inside a provider escapes `SENDEMAIL` (though `NOTIFY`'s per-channel `\Throwable` catch absorbs it upstream)._
+
+**`SENDWHATSAPP()` (`app/lib/functions.php:5041–5124`):**
+- Provider from `settings.whatsapp_provider` (default `greenapi`) + `whatsapp_providers_config[$provider]` (`:5048–5050`); empty config → log + `return false`.
+- Loads `notifications/whatsapp/{provider}.php`, instantiates `ucfirst($provider).'Provider'` (`:5058–5071`).
+- **Document delivery, 3-tier (`:5073–5118`):** (A) `sendFileByUrl($publicUrl)` — PREFERRED (Green API fetches a public URL; the media-upload host is often unreachable) (`:5088–5094`); (B) `sendFile($mediaUrl)` local-upload fallback (`:5097–5105`); if both fail, send text so the customer still gets the confirmation (`:5103`); (C) plain text (`:5116`). Each tier logs SUCCESS/FAILURE.
+- **Notably (`:5107–5114`): when a document is requested but the provider has no file-send support, it logs a VISIBLE `SENDWHATSAPP WARNING: … sent TEXT ONLY`** — the comment states "Was: silent." → **This is the WhatsApp fix for exactly the silent-PDF-drop that email still has (N-13). Email should mirror this warning.** (cross-ref N-13).
+- `catch (Exception $e)` (`:5120`) — same `\Throwable` gap as N-14.
+
+**`SENDSMS()` (`app/lib/functions.php:5131–5172`):**
+- Provider from `settings.sms_provider` (default `twilio`) + `sms_providers_config[$provider]` (`:5138–5140`); empty → log + false.
+- Loads `notifications/sms/{provider}.php`, instantiates `ucfirst($provider).'Provider'`, calls `send($toPhone,$toName,$message)` (`:5148–5164`). No attachment concept (correct for SMS). Same narrow `catch (Exception)` (N-14).
+
+**Confirmed:** the legacy `SEND_NOTIFICATION` dispatcher was **removed** and replaced by `NOTIFY` (`:5187–5188`) — there is no hidden second booking dispatcher.
+
+_(continues: provider transport files — `whatsapp/greenapi.php` (active), `email/*`, `sms/*`, `mailer.php` EmailService, `push/*` — next pass.)_
 
 #### S1 — `NOTIFY` class (`app/lib/notify.php`), line-by-line
 
