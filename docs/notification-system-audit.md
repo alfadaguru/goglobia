@@ -100,6 +100,8 @@ Every sender/dispatch layer found in the codebase, with the file that defines it
 | E32 | Footer live notifications (logged-in users, Pusher) | ? | ? | ? | ? | ? | ⬜ |
 
 > This event list is derived from Phase-0 code discovery. It may gain rows as flows are traced (e.g. a cron that fires a sub-event). It will not lose rows silently — any removal will be annotated with why.
+>
+> **⚠️ Channel-wide fact established in Phase 2 (N-24):** the **Push** column is `·` (never) for EVERY server-fired event — there is no `SENDPUSH` primitive and `sendPushNotification` has zero callers. Mobile push is **not wired** into the server-side notification system. The Push column is retained in the matrix only to make this absence explicit per event.
 
 ---
 
@@ -174,7 +176,20 @@ Every sender/dispatch layer found in the codebase, with the file that defines it
 - _FINDING N-23 (LOW): **duplicate SES files** — `amazon_ses.php` (class `Amazon_SESProvider`) is the one `SENDEMAIL` reaches (`ucfirst('amazon_ses').'Provider'`→`Amazon_sesProvider`, matched case-insensitively by PHP). `amazon-SES.php` (class `SESProvider`, `return 'SESProvider'`) is **unreachable** via `SENDEMAIL` (no `email_provider` value maps to the `amazon-SES` filename) — dead duplicate, confusion/foot-gun._
 - _Note: the `ucfirst($provider).'Provider'` convention relies on PHP's case-insensitive class resolution for `amazon_ses` (`Amazon_sesProvider` ≡ `Amazon_SESProvider`). It works, but is fragile — a future PHP or an autoloader doing case-sensitive matching would break SES._
 
-**Phase-2 remaining:** `sms/{twilio,clicksend,messagebird,nexmo,textlocal}.php`, `push/{firebase,apns,onesignal,expo,pusher}.php` — next pass.
+**SMS provider tier (`app/lib/notifications/sms/*.php`):**
+- `twilio.php` (1–201, the LIVE DEFAULT) — read in full: `send/testConnection`, **TLS verify ON** (`:63,163`), HTTP Basic auth via `CURLOPT_USERPWD`, rich error mapping, `cleanPhoneNumber` forces `+` prefix. **No findings.**
+- `clicksend`, `messagebird`, `nexmo`, `textlocal` — grep-verified: each exposes `class {X}Provider` + `send()` + `return '{X}Provider'`, and sets **no** `CURLOPT_SSL_VERIFYPEER` override → **curl default (TLS verify ON)**. Structurally consistent with the provider contract. **No findings** (none disable TLS).
+
+**Push provider tier (`app/lib/notifications/push/*.php`) — ⚠️ STRUCTURALLY UNWIRED:**
+- Files: `firebase`, `apns`, `onesignal`, `expo` each define `class {X}Provider` + `function sendPushNotification`; `pusher` defines `class PusherProvider`. None disable TLS.
+- _FINDING N-24 (HIGH / structural): **`sendPushNotification` has ZERO callers** anywhere in `app/` (grep-verified). There is **no `SENDPUSH` primitive** (unlike `SENDEMAIL/SENDWHATSAPP/SENDSMS`) and **no server-side event → push path**. The entire mobile-push tier (firebase/apns/onesignal/expo) is **loaded but dead** — booking/payment/etc. events **never** fire a mobile push from the server. (The mobile app may poll the REST API for state, but that is not a notification the system sends.) The only push-provider instantiation in the codebase is `new PusherProvider` at `app/routes/admin/settingsRoutes.php:988` — an admin "test connection" button, not a dispatch._
+- _Clarification (NOT the push tier): `notify_push()` (`app/lib/supplier_notify_ext.php:138`) is a **separate in-app notification system** — it INSERTs rows into the `supplier_notifications` table (the supplier-ERP notification bell/inbox), with categories/severities/dedupe. It does **not** touch the push providers above. Audited under the supplier/ERP notification surface (Phase 6)._
+
+**S2 STATUS: ✅ transport layer audited — email (8 files), WhatsApp (greenapi active + contract), SMS (twilio + 4), push (5, verified dead). Phase 2 findings: N-13…N-24 (12).**
+
+The realtime channels (Pusher for the web widget + footer live notifications) are NOT part of this SENDx transport layer — they are audited under GIA (Phase 5) and realtime/web (Phase 6).
+
+_(Event sections E01–E32 appended here as each is completed.)_
 
 #### S1 — `NOTIFY` class (`app/lib/notify.php`), line-by-line
 
