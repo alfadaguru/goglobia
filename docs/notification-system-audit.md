@@ -438,7 +438,37 @@ Callers: `supplierSignupRoutes.php:314` (`supplier_application_received`), `supp
 
 **S4 STATUS: ✅ Phase 4 complete — E08–E13 (shared `sendNotification` path) + E11 (OTP). Findings N-30…N-33.**
 
-_(Next: Phase 5 — GIA notification flows.)_
+### Phase 5 — GIA (AI assistant) notification flows
+
+GIA is a parallel notification system, distinct from `NOTIFY`. It has its OWN channel dispatch (`gia_channel_send`, web/WhatsApp/Telegram/Messenger), but **reuses `NOTIFY::payment` + `GENERATE_BOOKING_PDF` for the booking-confirmation email** so the email machinery is never duplicated.
+
+#### GIA outbound dispatch: `gia_channel_send()` (`app/lib/ai/gia_channel_send.php:75–102`)
+- Routes by channel: `whatsapp` → `gia_channel_send_whatsapp`, `telegram` → `_telegram`, `messenger` → `_messenger` (`:92–101`). **No `web` case** — the web widget reply is returned via the HTTP response + Pusher realtime (E18), not this function.
+- Normalizes rich payload (buttons/cards) via `gia_render_norm` (`:83`); empty → `false`.
+
+**`gia_channel_send_whatsapp()` (`:106–187`):** two modes —
+- `meta` (Facebook Graph `graph.facebook.com/v21.0`, `:111–144`): native interactive when choices, else text; Markdown→WhatsApp conversion.
+- `greenapi` (DEFAULT, `:146–186`): choices rendered as **numbered text** by default (Green API buttons are beta/unstable, list method dead); opt-in tappable buttons ≤3 (`:152–157`). **Loads greenapi creds DIRECTLY** from `settings.whatsapp_providers_config.greenapi` and uses `GreenapiProvider` directly, **deliberately bypassing `SENDWHATSAPP`** (`:164–182`) so GIA always sends from the greenapi account even if the global notification provider differs. Clean, well-reasoned.
+- **No findings** — correct channel isolation + reliable-path choices.
+
+#### E14 — GIA inbound message handle + reply (per channel) · 🟡 PARTIAL (dispatch audited; `gia_channel_handle` pending)
+- Outbound reply path audited above. Inbound (`gia_channel.php:gia_channel_handle`, `:112`) — dedup (`gia_channel_seen_before`), rate-limit (`gia_channel_rate_ok`), numeric-pick resolution — is the message-processing core, audited in the GIA deep-dive appendix. The **notification-relevant** output is the reply via `gia_channel_send` (covered) + the realtime web push (E18).
+**Per-channel (E14):** WhatsApp ● · Telegram ● · Messenger ● · Web ● (via HTTP response + Pusher E18) · Email · · SMS · · Push · .
+
+#### E15 — GIA booking payment / confirmation / expiry / refund notice · ✅ AUDITED
+**Files:** `app/lib/ai/gia_booking_payment.php` — `gia_bp_notify` (`:821`), `gia_bp_send_document` (`:850`), `gia_bp_send_confirmation` (`:913`).
+
+- **`gia_bp_notify($db,$bp,$text)` (`:821–834`):** sends a chat message to the payer on their channel (`bp.channel`+`bp.channel_user_id`) via `gia_channel_send`. Used for: **expiry** ("your booking expired", `:1128`), **late-payment refund** ("we refunded…", `:1218`), **reminders** (`:1040,1159`). Best-effort, no throw.
+- **`gia_bp_send_document($db,$bp,$filePath,…)` (`:850–888`):** delivers the ticket PDF in-chat — **WhatsApp only** (Telegram/Messenger no-op → rely on emailed copy, `:860`), greenapi public-URL preferred (`:884–886`), creds loaded directly (same isolation as the sender).
+- **`gia_bp_send_confirmation($db,$invoiceId,$bp,$chatOnly)` (`:913–1015+`):** the GIA paid-confirmation orchestrator —
+  - **Fulfilment guards (`:922–955`):** notify ONLY if `payment_status='paid'` AND not cancelled/refunded/failed (`:924–925`); for **flights AND eSIM**, require `booking_status='confirmed'` (real PNR / provisioned SIM) else **suppress the document** (`:952–955`). This is the guard that prevents a false "ticket" on a failed issue (prior fix, updates.json:7830). Stays/umrah confirm-on-pay and pass.
+  - Service resolution ai_trip→gia_service (flights/stays/esim) for NOTIFY template (`:957–964`).
+  - **3-doc email (`:971–988`):** generates ticket + invoice, `NOTIFY::payment($svc,$b,[…],$invoicePdf,$ticketPdf)` — 4th=invoice (owner/admin), 5th=ticket (customer). **Correct N-6 usage.**
+  - **Chat delivery (`:991–1015`):** uploads the no-price ticket in-chat (WhatsApp) + a chat confirmation; `$chatOnly` skips email when the BM sub-path already emailed (no double-send).
+  - **No findings** — correctly reuses NOTIFY, guards false tickets, isolates channels, avoids double-send. This is a well-built reuse of the audited E02 machinery.
+**Per-channel (E15):** Email ● (via NOTIFY::payment, 3-doc) · WhatsApp ● (chat + ticket doc) · Telegram ● (chat text; no doc) · Messenger ● (chat text; no doc) · SMS · (not used by GIA) · Push · .
+
+_(Next: E16 staff "needs human" alert + nudge, E17 nurture, E18 realtime Pusher.)_
 
 ---
 
